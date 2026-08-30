@@ -1,0 +1,36 @@
+// Shared build settings. Committed.
+//
+// Machine-specific values (your OAuth client ID) belong in Local.xcconfig,
+// which is gitignored and included at the bottom so it overrides the defaults.
+
+MACOSX_DEPLOYMENT_TARGET = 15.0
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+// Ad-hoc signing by default so the app builds with zero Apple account setup.
+// scripts/create-dev-cert.sh creates a stable self-signed identity; once it
+// exists, scripts/build.sh picks it up automatically. A stable identity matters
+// because ad-hoc signatures change the binary hash on every build, which makes
+// macOS re-prompt for Keychain access every single time.
+CODE_SIGN_STYLE = Manual
+DEVELOPMENT_TEAM =
+
+// Project-wide default. Must stay ad-hoc: SwiftPM dependency targets inherit
+// this, and a named identity makes Xcode demand a development team for their
+// resource bundles.
+CODE_SIGN_IDENTITY = -
+
+// Applied to the GChat target only. scripts/build.sh overrides this with the
+// "GChat Dev" identity when it exists.
+GCHAT_SIGN_IDENTITY = -
+
+// Placeholders — override in Local.xcconfig once the GCP OAuth client exists.
+// Google requires the secret in the token exchange for Desktop-app clients, even
+// though PKCE is used and the secret is not confidential for installed apps.
+GOOGLE_OAUTH_CLIENT_ID = REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID
+GOOGLE_OAUTH_CLIENT_SECRET = REPLACE_WITH_YOUR_DESKTOP_CLIENT_SECRET
+
+#include? "Local.xcconfig"

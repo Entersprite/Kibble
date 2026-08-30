@@ -1,0 +1,38 @@
+included:
+  - App
+  - Packages/GChatKit/Sources
+  - Packages/GChatKit/Tests
+
+excluded:
+  - .build
+  - DerivedData
+
+disabled_rules:
+  - todo
+  # Conflicts with swift-format's preference for trailing commas in
+  # multi-line literals, which improves diffs.
+  - trailing_comma
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - last_where
+  - redundant_nil_coalescing
+  - toggle_bool
+  - unneeded_parentheses_in_closure_argument
+
+line_length:
+  warning: 110
+  error: 140
+  ignores_comments: true
+
+identifier_name:
+  min_length: 2
+  excluded: [id, to, up, ok]
+
+type_body_length:
+  warning: 300
+
+file_length:
+  warning: 400

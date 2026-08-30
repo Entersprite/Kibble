@@ -1,0 +1,69 @@
+name: GChat
+
+options:
+  bundleIdPrefix: com.entersprite
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: false
+
+configs:
+  Debug: debug
+  Release: release
+
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+
+packages:
+  GChatKit:
+    path: Packages/GChatKit
+
+targets:
+  GChat:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: GChatKit
+        product: ChatUI
+      - package: GChatKit
+        product: ChatAuth
+    settings:
+      base:
+        PRODUCT_NAME: GChat
+        PRODUCT_BUNDLE_IDENTIFIER: com.entersprite.gchat
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/GChat.entitlements
+        CODE_SIGN_IDENTITY: $(GCHAT_SIGN_IDENTITY)
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        DEAD_CODE_STRIPPING: YES
+        COMBINE_HIDPI_IMAGES: YES
+        SWIFT_EMIT_LOC_STRINGS: NO
+        # Xcode's debug dylib exists to serve SwiftUI Previews, which this
+        # project never uses (no Xcode GUI). Turning it off removes
+        # GChat.debug.dylib and __preview.dylib, so the app loads nothing
+        # dynamically from its own bundle.
+        ENABLE_DEBUG_DYLIB: NO
+      configs:
+        # Hardened runtime enables library validation, which requires matching
+        # Team IDs. A self-signed development certificate has no Team ID, so any
+        # dylib the app loads from its own bundle is rejected and the process
+        # dies at launch. Hardened runtime is only needed for notarized
+        # distribution, where a real Developer ID supplies a Team ID.
+        Debug:
+          ENABLE_HARDENED_RUNTIME: NO
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
+
+schemes:
+  GChat:
+    build:
+      targets:
+        GChat: all
+    run:
+      config: Debug
+    archive:
+      config: Release
