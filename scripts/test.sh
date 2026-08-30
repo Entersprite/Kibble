@@ -54,20 +54,24 @@ else
 fi
 
 echo "Test-support containment:"
-leak=$(for m in Packages/*/Package.swift; do
+# See scripts/lint-testsupport.py for the rule and why it reads the package
+# graph rather than the manifest source. Exit 2 (unusable input) is treated as
+# a FAILURE, not a pass: a check that cannot run has not passed.
+support_ok=1
+for m in Packages/*/Package.swift; do
     [ -f "$m" ] || continue
-    awk -v M="$m" '
-        /\.testTarget\(/ { intest=1 }
-        /\.target\(/     { intest=0 }
-        /TestSupport/    { if (!intest) print M ":" NR ": " $0 }
-    ' "$m"
-done)
-if [ -n "$leak" ]; then
-    note "a non-test target depends on a TestSupport target"
-    printf '%s\n' "$leak" | sed 's/^/         /' >&2
-else
-    pass "TestSupport targets are referenced only by test targets"
-fi
+    pkg=$(dirname "$m")
+    out=$( cd "$pkg" && swift package dump-package 2>/dev/null \
+           | python3 ../../scripts/lint-testsupport.py "$(basename "$pkg")" )
+    rc=$?
+    if [ "$rc" != 0 ]; then
+        support_ok=0
+        note "test-support scaffolding reachable from shipping code ($(basename "$pkg"))"
+        [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/         /' >&2
+        [ "$rc" = 2 ] && printf '         (check could not run - treated as failure)\n' >&2
+    fi
+done
+[ "$support_ok" = 1 ] && pass "TestSupport targets are neither products nor non-test dependencies"
 
 echo "Generated protobuf freshness:"
 PROTO=Packages/GChatBridgeCore/Protos/googlechat.proto
@@ -89,6 +93,11 @@ for m in Packages/*/Package.swift; do
     [ -f "$m" ] || continue
     pkg=$(dirname "$m"); ran=1
     echo "  --- $(basename "$pkg") ---"
+    # Build tests before running them. On a cold build in a package with a
+    # build-tool plugin, `swift test` alone can report "no tests found" for
+    # test targets that exist and compile perfectly well. Doing the build as
+    # its own step is cheap when incremental and removes that flake.
+    ( cd "$pkg" && swift build --build-tests >/dev/null 2>&1 ) || true
     ( cd "$pkg" && swift test "$@" ) || fail=1
 done
 [ "$ran" = 1 ] || echo "  (no SwiftPM packages yet)"

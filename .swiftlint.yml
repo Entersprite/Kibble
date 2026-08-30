@@ -4,8 +4,11 @@ included:
   - Spikes
 
 excluded:
-  - .build
-  - DerivedData
+  # Globbed, not bare: `included: Packages` sweeps in each package's own
+  # .build/checkouts, which is vendored third-party source we neither own
+  # nor should lint. A bare `.build` only matches the repo root.
+  - "**/.build"
+  - "**/DerivedData"
   - reference
   # 27k lines of machine-generated protobuf. It trips file_length and
   # type_body_length by construction, and reformatting it is meaningless
