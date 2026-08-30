@@ -1,11 +1,16 @@
 included:
-  - App
-  - Packages/GChatKit/Sources
-  - Packages/GChatKit/Tests
+  - Apps
+  - Packages
+  - Spikes
 
 excluded:
   - .build
   - DerivedData
+  - reference
+  # 27k lines of machine-generated protobuf. It trips file_length and
+  # type_body_length by construction, and reformatting it is meaningless
+  # because generate-proto.sh overwrites it wholesale.
+  - Packages/GChatBridgeCore/Sources/GChatBridgeCore/Generated
 
 disabled_rules:
   - todo

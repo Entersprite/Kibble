@@ -10,4 +10,4 @@
 --stripunusedargs closure-only
 --self remove
 --importgrouping testable-bottom
---exclude .build,DerivedData
+--exclude .build,DerivedData,reference,Packages/GChatBridgeCore/Sources/GChatBridgeCore/Generated

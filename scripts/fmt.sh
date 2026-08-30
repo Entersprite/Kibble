@@ -9,7 +9,9 @@
 # name. It ignores `.swiftformat` entirely, defaults to 2-space indent, and its
 # preferred line breaking puts opening braces on their own line, which
 # swiftlint's `opening_brace` rule rejects. Running it reformats every file in
-# the repo and leaves `scripts/lint.sh` failing.
+# the repo and leaves `scripts/lint.sh` failing. That is not hypothetical: it
+# happened in this project's predecessor, which had no git history to recover
+# from. Hence the refusal below rather than a fallback.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,4 +22,8 @@ if ! command -v swiftformat > /dev/null; then
     exit 1
 fi
 
-exec swiftformat App Packages/GChatKit/Sources Packages/GChatKit/Tests
+targets=()
+for d in Packages Apps Spikes; do [ -d "$d" ] && targets+=("$d"); done
+[ ${#targets[@]} -gt 0 ] || { echo "nothing to format yet"; exit 0; }
+
+exec swiftformat "${targets[@]}" --exclude '**/Generated/**,**/.build/**,**/reference/**'
