@@ -40,7 +40,7 @@ public struct RetryPolicy: Sendable {
         }
         let exponential = baseDelay * Int(pow(2.0, Double(attempt - 1)))
         // Jitter spreads retries so concurrent callers do not resynchronise.
-        let jitter = Duration.milliseconds(Int.random(in: 0...250))
+        let jitter = Duration.milliseconds(Int.random(in: 0 ... 250))
         try await sleep(min(exponential + jitter, .seconds(32)))
     }
 }

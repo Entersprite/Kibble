@@ -18,7 +18,7 @@ public enum DisplayNameResolution {
     ) -> String? {
         for candidate in [aliases[userName], resolved[userName]] {
             guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
-                !trimmed.isEmpty
+                  !trimmed.isEmpty
             else { continue }
             return trimmed
         }

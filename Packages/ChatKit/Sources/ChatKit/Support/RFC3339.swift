@@ -23,8 +23,8 @@ enum RFC3339 {
         let digits = remainder.prefix(while: \.isNumber)
         let milliseconds =
             digits.count >= 3
-            ? String(digits.prefix(3))
-            : String(digits).padding(toLength: 3, withPad: "0", startingAt: 0)
+                ? String(digits.prefix(3))
+                : String(digits).padding(toLength: 3, withPad: "0", startingAt: 0)
         let normalised = raw[..<afterDot] + milliseconds + remainder.dropFirst(digits.count)
         return try? withFraction.parse(String(normalised))
     }

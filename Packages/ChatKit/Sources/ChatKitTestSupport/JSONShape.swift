@@ -15,7 +15,7 @@ public enum JSONShape {
         "type", "state", "role", "affiliation", "deletionType",
         "spaceType", "spaceThreadingState", "spaceHistoryState",
         "singleUserBotDm", "threadReply", "importMode", "externalUserAllowed",
-        "isAnonymous", "sortOrder",
+        "isAnonymous", "sortOrder"
     ]
 
     public static func describe(
@@ -106,7 +106,9 @@ public enum JSONShape {
     }
 
     private static func describe(_ number: NSNumber, isStructural: Bool) -> String {
-        if isStructural { return "\(number)" }
+        if isStructural {
+            return "\(number)"
+        }
         return CFGetTypeID(number) == CFBooleanGetTypeID() ? "bool" : "number"
     }
 
@@ -125,7 +127,9 @@ public enum JSONShape {
 
         var presence: [String: Int] = [:]
         for object in objects {
-            for objectKey in object.keys { presence[objectKey, default: 0] += 1 }
+            for objectKey in object.keys {
+                presence[objectKey, default: 0] += 1
+            }
         }
 
         for objectKey in presence.keys.sorted() {
@@ -150,15 +154,15 @@ public enum JSONShape {
         guard let sample = values.first else { return }
         let suffix =
             values.count == objects.count
-            ? ""
-            : "  <- only \(values.count)/\(objects.count)"
+                ? ""
+                : "  <- only \(values.count)/\(objects.count)"
 
         if let dictionaries = values as? [[String: Any]] {
             appendWithSuffix(suffix, into: &context) { inner in
                 renderMerged(dictionaries, key: key, indent: indent + 1, context: &inner)
             }
         } else if let nestedArrays = values as? [[Any]] {
-            let flattened = nestedArrays.flatMap { $0 }
+            let flattened = nestedArrays.flatMap(\.self)
             context.emit("\(key): [\(flattened.count) items]\(suffix)", indent: indent + 1)
             if let dictionaries = flattened as? [[String: Any]], !dictionaries.isEmpty {
                 renderMerged(dictionaries, key: nil, indent: indent + 2, context: &context)

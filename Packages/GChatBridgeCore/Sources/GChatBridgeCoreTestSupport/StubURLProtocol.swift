@@ -66,25 +66,32 @@ public final class StubURLProtocol: URLProtocol {
         }
     }
 
-    // Access is serialised by the registry's own lock; `nonisolated(unsafe)`
-    // states that the lock, not the compiler, provides the safety.
-    nonisolated(unsafe) public static let registry = Registry()
+    /// Access is serialised by the registry's own lock; `nonisolated(unsafe)`
+    /// states that the lock, not the compiler, provides the safety.
+    public nonisolated(unsafe) static let registry = Registry()
 
     // swiftlint:disable static_over_final_class
     // These override NSURLProtocol class methods; `static` cannot override.
-    override public class func canInit(with request: URLRequest) -> Bool { true }
+    override public class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
 
-    override public class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override public class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
     // swiftlint:enable static_over_final_class
 
     /// Drains `httpBodyStream`, which is where URLSession puts a body.
     private static func body(of request: URLRequest) -> Data? {
-        if let body = request.httpBody { return body }
+        if let body = request.httpBody {
+            return body
+        }
         guard let stream = request.httpBodyStream else { return nil }
         stream.open()
         defer { stream.close() }
         var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 4_096)
+        var buffer = [UInt8](repeating: 0, count: 4096)
         while stream.hasBytesAvailable {
             let read = stream.read(&buffer, maxLength: buffer.count)
             guard read > 0 else { break }
@@ -103,7 +110,8 @@ public final class StubURLProtocol: URLProtocol {
                     .resourceUnavailable,
                     userInfo: [
                         NSLocalizedDescriptionKey: "No stub queued for \(request.url?.absoluteString ?? "?")"
-                    ])
+                    ]
+                )
             )
             return
         }

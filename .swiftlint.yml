@@ -14,8 +14,10 @@ excluded:
 
 disabled_rules:
   - todo
-  # Conflicts with swift-format's preference for trailing commas in
-  # multi-line literals, which improves diffs.
+  # Left to swiftformat, which owns comma style via `--commas inline`.
+  # (The original comment here credited "swift-format" - Apple's tool, which
+  # this repo never runs. Confusing the two is what caused the predecessor's
+  # formatting incident; see scripts/fmt.sh.)
   - trailing_comma
 
 opt_in_rules:
