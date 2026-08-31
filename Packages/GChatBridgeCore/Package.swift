@@ -39,6 +39,15 @@ let package = Package(
             name: "GChatBridgeCoreTestSupport",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Phase 0's probe, in Swift. A thin shell: it reads a captured cookie
+        // header, runs Bootstrap through URLSessionTransport and prints what the
+        // app shell says. All the logic it exercises lives in the packages, and
+        // is tested there against a FakeHTTPTransport.
+        .executableTarget(
+            name: "gchat-probe",
+            dependencies: ["GChatBridgeCore", "URLSessionTransport"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "GChatBridgeCoreTests",
             dependencies: ["GChatBridgeCore"],
