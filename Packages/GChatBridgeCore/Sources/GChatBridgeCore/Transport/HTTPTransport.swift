@@ -158,3 +158,89 @@ public protocol HTTPTransport: Sendable {
     /// a frame can be split across two reads.
     func stream(_ request: HTTPRequest) async throws -> HTTPStream
 }
+
+// MARK: - Recovering collapsed headers
+
+public extension HTTPHeaders {
+    /// Builds headers from the collapsed dictionary Foundation hands back, and
+    /// **restores the repeated `Set-Cookie` fields it destroyed.**
+    ///
+    /// This is measured behaviour, not a precaution. A server returning three
+    /// `Set-Cookie` headers, read back through Foundation's HTTP client, arrives
+    /// as a single field:
+    ///
+    /// ```
+    /// SIDCC=aaa; Path=/; Secure, COMPASS=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/,
+    /// __Secure-1PSIDCC=bbb; Secure; HttpOnly
+    /// ```
+    ///
+    /// So a transport that trusted the dictionary would see one cookie where the
+    /// server sent three — and on this protocol that is a lost credential, which
+    /// surfaces minutes later as an unexplained expiry.
+    ///
+    /// Splitting lives here, in the portable core, rather than in the transport:
+    /// it is pure string work, it is where the tests can reach it without a
+    /// socket, and any HTTP client that collapses headers has the same problem.
+    init(collapsed fields: [String: String]) {
+        var expanded: [Field] = []
+        for (name, value) in fields.sorted(by: { $0.key < $1.key }) {
+            if name.lowercased() == "set-cookie" {
+                expanded += Self.splitSetCookie(value).map { Field(name: name, value: $0) }
+            } else {
+                expanded.append(Field(name: name, value: value))
+            }
+        }
+        self.init(fields: expanded)
+    }
+
+    /// Splits a comma-joined `Set-Cookie` value back into individual cookies.
+    ///
+    /// **A comma is only a boundary when what follows starts a new cookie**,
+    /// which means a name then `=`. That test is what keeps
+    /// `Expires=Thu, 01 Jan 1970 00:00:00 GMT` in one piece: after its comma
+    /// comes `01 Jan 1970 00:00:00 GMT`, which reaches `;` or the end without an
+    /// `=`. A cookie name also cannot contain whitespace, so a date fragment
+    /// cannot masquerade as one even if an `=` appears later inside it.
+    ///
+    /// Getting this wrong in the obvious way — splitting on every comma — turns
+    /// a deletion into two malformed fragments, and a deletion misread as a live
+    /// cookie means replaying a credential the server has just retired.
+    internal static func splitSetCookie(_ joined: String) -> [String] {
+        var cookies: [String] = []
+        var current = ""
+
+        for piece in joined.split(separator: ",", omittingEmptySubsequences: false) {
+            if current.isEmpty {
+                current = String(piece)
+            } else if startsNewCookie(piece) {
+                cookies.append(current.trimmingCharacters(in: .whitespaces))
+                current = String(piece)
+            } else {
+                // The comma belonged to the previous cookie - almost always the
+                // day-of-week comma in an Expires date. Put it back.
+                current += "," + piece
+            }
+        }
+        if !current.isEmpty {
+            cookies.append(current.trimmingCharacters(in: .whitespaces))
+        }
+        return cookies.filter { !$0.isEmpty }
+    }
+
+    /// Whether a fragment following a comma begins a new cookie: a non-empty
+    /// name with no whitespace, terminated by `=`.
+    private static func startsNewCookie(_ piece: some StringProtocol) -> Bool {
+        let candidate = piece.drop { $0 == " " || $0 == "\t" }
+        var name = ""
+        for character in candidate {
+            if character == "=" {
+                return !name.isEmpty
+            }
+            if character == ";" || character.isWhitespace {
+                return false
+            }
+            name.append(character)
+        }
+        return false // reached the end without an '=' - not a cookie
+    }
+}
