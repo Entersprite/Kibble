@@ -100,10 +100,19 @@ public struct HTTPResponse: Sendable, Hashable {
     public var headers: HTTPHeaders
     public var body: Data
 
-    public init(status: Int, headers: HTTPHeaders, body: Data) {
+    /// The URL the response actually came from, which is **not** necessarily the
+    /// one requested: redirects are followed transparently, and where they landed
+    /// is sometimes the only evidence of what happened. Unusable credentials on
+    /// this protocol are answered by a redirect to `accounts.google.com` rather
+    /// than by any status code, so without this a caller cannot tell that apart
+    /// from the app shell having changed shape.
+    public var url: URL?
+
+    public init(status: Int, headers: HTTPHeaders, body: Data, url: URL? = nil) {
         self.status = status
         self.headers = headers
         self.body = body
+        self.url = url
     }
 
     /// Deliberately absent: any notion of "was this successful". On this protocol

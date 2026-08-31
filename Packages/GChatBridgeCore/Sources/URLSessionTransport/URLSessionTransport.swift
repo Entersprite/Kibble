@@ -61,7 +61,10 @@ public final class URLSessionTransport: HTTPTransport {
         return HTTPResponse(
             status: http.statusCode,
             headers: Self.headers(of: http),
-            body: data
+            body: data,
+            // After redirects, which is the point: a bounce to the accounts host
+            // is how unusable credentials present themselves here.
+            url: http.url
         )
     }
 

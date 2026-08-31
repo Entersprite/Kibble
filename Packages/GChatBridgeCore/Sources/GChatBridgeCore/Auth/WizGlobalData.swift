@@ -22,18 +22,18 @@ import Foundation
 /// Names this opaque will change without notice. When they do, the failure is a
 /// `nil` here rather than a misparse somewhere later, which is the point of
 /// pulling them out in one place.
-struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
+public struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
     /// Which UI bundle the server decided to serve — the raw `qwAQke` value.
-    let appName: String?
+    public let appName: String?
 
     /// The xsrf token (`SMqcke`), or `nil` when the shell carries none, as the
     /// signed-out shell does.
-    let xsrfToken: String?
+    public let xsrfToken: String?
 
     /// How many keys the blob had. Around 128 for an authenticated shell and
     /// around 68 signed out; not a decision input, but the number a human wants
     /// when a shell is not the shape they expected.
-    let keyCount: Int
+    public let keyCount: Int
 
     /// What the shell says about the session.
     ///
@@ -42,16 +42,16 @@ struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
     /// which silently treats every value it has never seen as a working
     /// session. An unrecognised shell is precisely the case where assuming less
     /// is correct.
-    enum SignInState: Sendable, Hashable {
+    public enum SignInState: Sendable, Hashable {
         case signedIn
         case signedOut
         case unknown(String)
         case absent
     }
 
-    let signInState: SignInState
+    public let signInState: SignInState
 
-    var isSignedIn: Bool {
+    public var isSignedIn: Bool {
         signInState == .signedIn
     }
 
@@ -59,7 +59,7 @@ struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
     /// a value. This type holds a credential and will end up in a log line one
     /// day, and `Never print cookie values, tokens, or message content` has to
     /// survive that.
-    var description: String {
+    public var description: String {
         let token = xsrfToken.map { "\($0.count) chars" } ?? "none"
         return "WizGlobalData(app: \(appName ?? "none"), xsrf: \(token), keys: \(keyCount))"
     }
@@ -67,7 +67,7 @@ struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
 
 // MARK: - Parsing
 
-extension WizGlobalData {
+public extension WizGlobalData {
     private static let assignment = "WIZ_global_data = ("
     private static let appNameKey = "qwAQke"
     private static let xsrfTokenKey = "SMqcke"
