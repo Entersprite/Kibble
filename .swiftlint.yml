@@ -22,6 +22,11 @@ disabled_rules:
   # this repo never runs. Confusing the two is what caused the predecessor's
   # formatting incident; see scripts/fmt.sh.)
   - trailing_comma
+  # Prefers the failable `String(bytes:encoding:)` over `String(decoding:as:)`.
+  # Everything converted here is `JSONEncoder` output, which is valid UTF-8 by
+  # construction, so the failable form would introduce an optional that cannot
+  # be nil and an unwrap that cannot be exercised by a test.
+  - optional_data_string_conversion
 
 opt_in_rules:
   - empty_count
@@ -40,6 +45,14 @@ line_length:
 identifier_name:
   min_length: 2
   excluded: [id, to, up, ok]
+
+# Every domain type in ChatKit nests an `ID`, and two characters is under
+# type_name's default floor. Allowing the name once here rather than suppressing
+# the rule at each declaration: the inline `disable:next` comments had to sit
+# between a doc comment and its struct, which is exactly what
+# `orphaned_doc_comment` reports.
+type_name:
+  excluded: [ID]
 
 type_body_length:
   warning: 300

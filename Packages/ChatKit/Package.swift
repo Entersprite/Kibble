@@ -26,6 +26,11 @@ let package = Package(
         .testTarget(
             name: "ChatKitTests",
             dependencies: ["ChatKit"],
+            // The wire format's golden files. Declared so they reach the test
+            // bundle - and so SwiftPM stops warning that a directory of JSON
+            // inside a target is unhandled, which it does for any undeclared
+            // file. They are data, not sources: nothing here links them.
+            resources: [.copy("Golden")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ]

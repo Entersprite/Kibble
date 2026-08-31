@@ -28,4 +28,18 @@ enum RFC3339 {
         let normalised = raw[..<afterDot] + milliseconds + remainder.dropFirst(digits.count)
         return try? withFraction.parse(String(normalised))
     }
+
+    /// Writes the format above back out, always with exactly three fractional
+    /// digits: `2026-08-30T10:15:30.123Z`.
+    ///
+    /// Milliseconds are a deliberate choice, not the input's precision echoed
+    /// back. A fixed width keeps the encoder's output canonical — one `Date`
+    /// has one representation — which is what makes golden-file comparison and
+    /// byte-identical round-tripping possible at all. The cost is that
+    /// sub-millisecond precision does not survive a round trip; Chat's own
+    /// microsecond timestamps are wall-clock metadata, not orderings we need to
+    /// preserve exactly.
+    static func string(from date: Date) -> String {
+        withFraction.format(date)
+    }
 }

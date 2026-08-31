@@ -1,0 +1,1 @@
+{"conversationID":"space:AAAA1111","members":[{"avatarURL":"https://example.com/ada.png","displayName":"Ada Lovelace","email":"ada@example.com","id":"users/1001","kind":"human","presence":"active"},{"id":"users/9000","kind":"app","presence":"SHARING_DISABLED"}],"type":"membersChanged"}

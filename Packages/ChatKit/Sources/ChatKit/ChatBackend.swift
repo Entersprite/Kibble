@@ -1,0 +1,100 @@
+import Foundation
+
+/// The seam.
+///
+/// Everything above this protocol is a chat client; everything below it is one
+/// way of talking to Google. A fake backend, an in-process backend driving the
+/// real internal protocol, and a client of a remote bridge server all conform
+/// to it, and the app cannot tell which it has — which is the property the
+/// whole package exists to buy.
+///
+/// `Sendable` and `async` throughout because a backend is a long-lived thing
+/// with a network connection, and the client that drives it is a UI.
+public protocol ChatBackend: Sendable {
+    /// What this backend can do. Read it before offering the user an action:
+    /// every flag defaults to `false`, so a backend that has not thought about
+    /// a capability is treated as not having it.
+    ///
+    /// Static for the lifetime of the backend. A capability that can change
+    /// while connected would need an event, and nothing needs that yet.
+    var capabilities: Capabilities { get }
+
+    /// Starts connecting. Returns once the attempt has been *started or has
+    /// failed outright*; progress is reported through `events` as
+    /// `connectionStateChanged`, because reconnection is a lifetime concern and
+    /// not a property of one call.
+    func connect() async throws
+
+    /// Stops. Deliberately non-throwing: there is nothing a caller could do
+    /// about a failure to disconnect, and shutdown paths that can throw get
+    /// written wrong.
+    func disconnect() async
+
+    /// The event stream.
+    ///
+    /// Two requirements on an implementation, both load-bearing:
+    ///
+    /// 1. **One stream for the backend's lifetime.** This property must hand
+    ///    back the same stream every time, and that stream must **not finish on
+    ///    `disconnect()`** — disconnection is an event
+    ///    (`connectionStateChanged(.disconnected)`), not the end of the
+    ///    conversation. A client that iterates this once, at launch, must be
+    ///    able to keep iterating it across every disconnect and reconnect for
+    ///    as long as the process lives. Finishing the stream on disconnect
+    ///    breaks that loop permanently, and the bug looks like "the app stops
+    ///    updating after the network blips".
+    ///
+    /// 2. **Single consumer.** `AsyncStream` distributes elements across
+    ///    concurrent iterations arbitrarily — two `for await` loops over one
+    ///    stream do not each see every element, they split them
+    ///    unpredictably. So exactly one place in the client may iterate this,
+    ///    and anything else that needs events gets them from that place. If
+    ///    genuine multicasting is needed later, it belongs in a client-side
+    ///    broadcaster, not in every backend.
+    var events: AsyncStream<ChatEvent> { get }
+
+    /// Submits a command. Throws only if the command could not be submitted —
+    /// not connected, or `capabilities` says no. The *outcome* arrives as an
+    /// event.
+    func send(_ command: ChatCommand) async throws
+
+    /// The conversation list, fully replacing whatever the client had.
+    func loadConversations() async throws -> [Conversation]
+
+    // [Verify] `before:` as a message-id cursor is an OPEN QUESTION, recorded
+    // here rather than designed away. The wire protocol has no message-id
+    // cursor: its model is two-level - topics containing messages - and it
+    // pages by revision anchors and per-topic page sizes. `ListTopicsRequest`
+    // takes `page_size_for_topics`, `page_size_for_replies` and
+    // `user_not_older_than` / `group_not_older_than` reference revisions;
+    // `CatchUpGroupRequest` takes a `CatchUpRange` of revision timestamps.
+    // Read from the vendored `googlechat.proto` in this repo, not from
+    // documentation, and not yet exercised against a live account.
+    //
+    // So a backend implementing this has to translate an opaque `Message.ID`
+    // into whatever anchor it actually pages by, and it is entirely possible
+    // that this parameter becomes an opaque `HistoryCursor` once we have seen
+    // one page work. The signature is deliberately left exactly as it stands:
+    // guessing at a cursor type before seeing a real page would be a worse
+    // mistake than changing this signature later.
+    /// A page of history, oldest-to-newest, ending just before `before`.
+    ///
+    /// `before: nil` means "the most recent page". See the `[Verify]` note
+    /// immediately above this declaration: the cursor type is provisional.
+    func loadMessages(
+        in conversation: Conversation.ID,
+        before: Message.ID?
+    ) async throws -> [Message]
+
+    /// Changes a conversation's notification level.
+    ///
+    /// Separate from `send(_:)` even though `ChatCommand` has a
+    /// `setNotificationLevel` case, because this one has a completion a caller
+    /// genuinely needs to await: a settings toggle must not spring back while a
+    /// round trip is in flight. The command case exists for a bridge server
+    /// forwarding it on.
+    func setNotificationSetting(
+        _ level: NotificationLevel,
+        for conversation: Conversation.ID
+    ) async throws
+}
