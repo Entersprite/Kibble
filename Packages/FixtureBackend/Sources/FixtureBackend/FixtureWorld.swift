@@ -12,9 +12,11 @@ import Foundation
 /// ## No clock in here
 ///
 /// `startedAt` is a literal instant, and every timestamp in a world is derived
-/// from it. Nothing in this package calls `Date()`. A fixture whose timestamps
-/// moved between runs would make every golden comparison above the seam a coin
-/// toss, and the failure would look like a bug in the code being tested.
+/// from it. Nothing in this package reads the wall clock; the scan in
+/// scripts/test.sh is the authoritative list of what that forbids. A fixture
+/// whose timestamps moved between runs would make every golden comparison above
+/// the seam a coin toss, and the failure would look like a bug in the code being
+/// tested.
 public struct FixtureWorld: Sendable, Hashable {
     /// The local user - the "me" whose messages render as outgoing, and whose
     /// reactions set `Reaction.includesMe`.

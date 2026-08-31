@@ -53,6 +53,29 @@ else
     pass "ChatKit imports only Foundation (no sources yet)"
 fi
 
+echo "Fixture determinism (FixtureBackend must not read a clock or wait):"
+# Everything above the seam is tested against FakeBackend, so a wall clock or a
+# random identifier in there makes those tests non-reproducible - and the
+# failure surfaces in the code under test, not in the fixture. The package's own
+# determinism test catches Date(); it cannot catch Task.sleep, which shows up as
+# a slow suite rather than a wrong one. Hence this scan.
+FIXTURE=Packages/FixtureBackend/Sources/FixtureBackend
+if [ -d "$FIXTURE" ]; then
+    # FixtureDemoDriver is the one file allowed to wait: it plays a script at
+    # human speed for the app's Debug backend. Nothing else may.
+    hits=$(swift_files "$FIXTURE" | xargs -0 grep -nE \
+             '\bDate\(\)|\bDate\.now\b|\bUUID\(|Task\.sleep|\.random' 2>/dev/null \
+           | grep -v '/FixtureDemoDriver\.swift:' || true)
+    if [ -n "$hits" ]; then
+        note "a clock, randomness or sleeping outside FixtureDemoDriver"
+        printf '%s\n' "$hits" | sed 's/^/         /' >&2
+    else
+        pass "no clock, randomness or waiting outside FixtureDemoDriver"
+    fi
+else
+    pass "no clock or waiting outside FixtureDemoDriver (no sources yet)"
+fi
+
 echo "Test-support containment:"
 # See scripts/lint-testsupport.py for the rule and why it reads the package
 # graph rather than the manifest source. Exit 2 (unusable input) is treated as
