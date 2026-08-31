@@ -30,6 +30,13 @@ public extension FakeBackend {
         }
     }
 
+    /// Reports something that went wrong outside a command - a broken script,
+    /// or whatever a host wants a client to see. It reaches the client as
+    /// `backendError`, which by design does not end the stream.
+    func report(_ error: any Error) {
+        emit(.backendError(error as? ChatError ?? .unknown(String(describing: error))))
+    }
+
     /// Applies one step.
     ///
     /// Throws when the step names something the world does not contain. That is
