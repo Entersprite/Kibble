@@ -106,7 +106,13 @@ private extension FakeBackend {
         try require(capabilities.canReact, "canReact")
         let me = world.me
         let updated = try updateMessage(id) { message in
-            Self.apply(emoji: emoji, add: add, by: me, isLocalUser: true, to: &message.reactions)
+            Self.applyReaction(
+                emoji: emoji,
+                add: add,
+                by: me,
+                isLocalUser: true,
+                to: &message.reactions
+            )
         }
         // The complete set, not a diff: reaction counts are small, and a diff
         // would need ordering guarantees this protocol does not offer.
@@ -140,7 +146,7 @@ extension FakeBackend {
     /// removing one that was never there changes nothing. The real protocol
     /// behaves that way because the client's button is a toggle over state it
     /// may not have seen yet.
-    static func apply(
+    static func applyReaction(
         emoji: String,
         add: Bool,
         by _: Member.ID,

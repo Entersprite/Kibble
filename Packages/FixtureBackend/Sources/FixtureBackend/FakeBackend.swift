@@ -56,6 +56,10 @@ public actor FakeBackend {
 
     var world: FixtureWorld
     var now: Date
+
+    /// Counts everything yielded, so a test can wait for exactly as many events
+    /// as were produced. See `emittedCount`.
+    var emitted = 0
     var isConnected = false
 
     /// Distinguishes the first connection from a reconnection, which is the
@@ -129,6 +133,7 @@ public extension FakeBackend {
 
 extension FakeBackend {
     func emit(_ event: ChatEvent) {
+        emitted += 1
         continuation.yield(event)
     }
 
