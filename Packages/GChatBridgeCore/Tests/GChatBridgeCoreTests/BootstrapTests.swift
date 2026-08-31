@@ -137,7 +137,7 @@ struct BootstrapTests {
     @Test("a page with no WIZ blob is a distinct failure from being signed out")
     func missingBlobThrows() async throws {
         let transport = FakeHTTPTransport(responses: [Self.ok("<html>nothing</html>")])
-        await #expect(throws: BootstrapFailure.noGlobalData) {
+        await #expect(throws: (any Error).self) {
             _ = try await Bootstrap(transport: transport)
                 .run(cookies: Self.cookies, endpoints: ChatEndpoints())
         }
@@ -184,5 +184,86 @@ struct BootstrapTests {
         let wiz = try await Bootstrap(transport: transport)
             .run(cookies: Self.cookies, endpoints: ChatEndpoints())
         #expect(wiz.isSignedIn)
+    }
+
+    // MARK: - Diagnosing a shell that did not parse
+
+    /// When the blob is missing, the probe has to say *why* in enough detail to
+    /// separate "this was not a shell" from "this was a shell and the parser
+    /// failed", because those have completely different fixes.
+    @Test("a missing blob is reported with the facts needed to tell what happened")
+    func missingBlobCarriesDiagnosis() async throws {
+        let page = "<html><head><title>Google Chat</title></head></html>"
+        let transport = FakeHTTPTransport(responses: [
+            HTTPResponse(
+                status: 200,
+                headers: HTTPHeaders([("Content-Type", "text/html; charset=utf-8")]),
+                body: Data(page.utf8),
+                url: URL(string: "https://chat.google.com/u/0/mole/world")
+            )
+        ])
+        do {
+            _ = try await Bootstrap(transport: transport)
+                .run(cookies: Self.cookies, endpoints: ChatEndpoints())
+            Issue.record("expected a failure")
+        } catch let BootstrapFailure.noGlobalData(diagnosis) {
+            #expect(diagnosis.status == 200)
+            #expect(diagnosis.byteCount == page.utf8.count)
+            #expect(diagnosis.title == "Google Chat")
+            #expect(diagnosis.contentType?.contains("text/html") == true)
+            #expect(diagnosis.markersFound.isEmpty)
+        }
+    }
+
+    /// **The distinction that matters.** If `qwAQke` is in the body but no blob
+    /// came out, the page was a shell and the *parser* is wrong — a completely
+    /// different bug from being served a non-shell page.
+    @Test("a body containing the marker but no parseable blob is flagged as a parser problem")
+    func markerPresentMeansParserProblem() async throws {
+        let transport = FakeHTTPTransport(responses: [
+            HTTPResponse(
+                status: 200,
+                headers: HTTPHeaders([]),
+                // Marker present, but the assignment is not in a shape the
+                // scanner recognises.
+                body: Data(#"<script>var x = {"qwAQke":"DynamiteWebUi"};</script>"#.utf8),
+                url: nil
+            )
+        ])
+        do {
+            _ = try await Bootstrap(transport: transport)
+                .run(cookies: Self.cookies, endpoints: ChatEndpoints())
+            Issue.record("expected a failure")
+        } catch let BootstrapFailure.noGlobalData(diagnosis) {
+            #expect(diagnosis.markersFound.contains("qwAQke"))
+            #expect(diagnosis.looksLikeAShell)
+        }
+    }
+
+    @Test("a page with none of the markers does not look like a shell")
+    func noMarkersMeansNotAShell() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.ok("<html>hello</html>")])
+        do {
+            _ = try await Bootstrap(transport: transport)
+                .run(cookies: Self.cookies, endpoints: ChatEndpoints())
+            Issue.record("expected a failure")
+        } catch let BootstrapFailure.noGlobalData(diagnosis) {
+            #expect(diagnosis.looksLikeAShell == false)
+        }
+    }
+
+    /// The diagnosis is printed, so it must not carry page content beyond a
+    /// title — and even that is capped.
+    @Test("the diagnosis never prints the body")
+    func diagnosisDoesNotPrintTheBody() async throws {
+        let secret = "a-colleagues-private-message"
+        let transport = FakeHTTPTransport(responses: [Self.ok("<html>\(secret)</html>")])
+        do {
+            _ = try await Bootstrap(transport: transport)
+                .run(cookies: Self.cookies, endpoints: ChatEndpoints())
+            Issue.record("expected a failure")
+        } catch let BootstrapFailure.noGlobalData(diagnosis) {
+            #expect(!"\(diagnosis)".contains(secret))
+        }
     }
 }

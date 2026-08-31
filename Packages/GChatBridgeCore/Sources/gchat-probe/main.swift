@@ -106,13 +106,28 @@ enum Probe {
     /// single best predictor of a capture that will not authenticate: the
     /// reference implementation's five-cookie list omits it entirely.
     static func reportCookieFamilies(_ cookies: SessionCookies) {
-        let names = cookies.cookies.map(\.name)
+        let names = Set(cookies.cookies.map(\.name))
         let modern = names.filter {
             $0.contains("PSID") || $0.contains("SAPISID") || $0.contains("APISID")
         }
         print(
-            "  modern-auth cookies: \(modern.isEmpty ? "NONE (suspicious)" : modern.joined(separator: ", "))"
+            "  modern-auth cookies: "
+                + (modern.isEmpty ? "NONE (suspicious)" : modern.sorted().joined(separator: ", "))
         )
+
+        // COMPASS in particular is set by Chat ITSELF, so a profile that signed
+        // in but never fully loaded Chat has every other cookie and not that one.
+        let missing = ["SID", "SSID", "HSID", "OSID", "COMPASS"].filter { !names.contains($0) }
+        if missing.isEmpty {
+            print("  classic five: all present")
+            return
+        }
+        print("  classic five: MISSING \(missing.joined(separator: ", "))")
+        guard missing.contains("COMPASS") else { return }
+        print("    COMPASS is set by Chat itself. If it is absent, the capture was")
+        print("    probably taken before Chat finished loading, or from a request to")
+        print("    a different Google host. Open chat.google.com, wait for the roster")
+        print("    to render, then re-copy from a chat.google.com request.")
     }
 
     static func accountOverride() -> ChatEndpoints.Account? {
