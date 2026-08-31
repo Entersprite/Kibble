@@ -266,4 +266,56 @@ struct BootstrapTests {
             #expect(!"\(diagnosis)".contains(secret))
         }
     }
+
+    // MARK: - The client has to look like a browser
+
+    /// Chat gates on `User-Agent`. Without one it authenticates the session
+    /// happily and then serves `/error/browser-not-supported` — so the request
+    /// succeeds, the cookies are fine, and nothing works. The reference
+    /// implementation sends a Chrome UA for exactly this reason.
+    @Test("a browser User-Agent is sent, because Chat rejects clients without one")
+    func sendsUserAgent() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.ok(Self.shell(app: "DynamiteWebUi"))])
+        _ = try await Bootstrap(transport: transport)
+            .run(cookies: Self.cookies, endpoints: ChatEndpoints())
+
+        let sent = try #require(await transport.sent.first)
+        let agent = try #require(sent.headers["User-Agent"])
+        #expect(agent.contains("Mozilla/5.0"))
+        #expect(agent.contains("Chrome/"))
+    }
+
+    @Test("the User-Agent is configurable, since the accepted set is Google's to change")
+    func userAgentIsConfigurable() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.ok(Self.shell(app: "DynamiteWebUi"))])
+        let endpoints = ChatEndpoints(userAgent: "Custom/1.0")
+        _ = try await Bootstrap(transport: transport)
+            .run(cookies: Self.cookies, endpoints: endpoints)
+
+        let sent = try #require(await transport.sent.first)
+        #expect(sent.headers["User-Agent"] == "Custom/1.0")
+    }
+
+    /// The unsupported-browser page **also carries `WIZ_global_data`**, so the
+    /// "markers present, so the parser is at fault" heuristic reports the wrong
+    /// culprit unless this case is recognised first. It is authenticated and
+    /// rejected, which is neither bad credentials nor a parser bug.
+    @Test("the unsupported-browser page is recognised as a rejected client")
+    func unsupportedBrowserIsItsOwnFailure() async throws {
+        let errorPage = try #require(
+            URL(string: "https://chat.google.com/u/0/error/browser-not-supported")
+        )
+        let transport = FakeHTTPTransport(responses: [
+            HTTPResponse(
+                status: 200,
+                headers: HTTPHeaders([("Content-Type", "text/html")]),
+                body: Data("<title>Chat: Unsupported Browser</title>qwAQke DynamiteWebUi".utf8),
+                url: errorPage
+            )
+        ])
+        await #expect(throws: BootstrapFailure.unsupportedClient(errorPage)) {
+            _ = try await Bootstrap(transport: transport)
+                .run(cookies: Self.cookies, endpoints: ChatEndpoints())
+        }
+    }
 }

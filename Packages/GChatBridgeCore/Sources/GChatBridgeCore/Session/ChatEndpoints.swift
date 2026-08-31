@@ -25,12 +25,33 @@ public struct ChatEndpoints: Sendable, Hashable {
     public let host: URL
     public let account: Account
 
+    /// **Chat gates on this.** A request without a browser `User-Agent` is
+    /// authenticated normally and then served `/error/browser-not-supported` —
+    /// so the cookies work, the status is 200, and nothing functions. There is
+    /// no error message and no clue in the status; the only symptom is a page
+    /// titled "Chat: Unsupported Browser", which itself carries a
+    /// `WIZ_global_data` blob and so looks superficially like a real shell.
+    ///
+    /// Configurable because the accepted set is Google's to change, and pinning
+    /// a version string in source that cannot be overridden would make a future
+    /// rejection require a rebuild.
+    public let userAgent: String
+
+    /// A current desktop Chrome, matching what the reference implementation
+    /// sends. Not an attempt to be sneaky — Chat's web client *is* a browser
+    /// client, and this is the client it expects to be talking to.
+    public static let defaultUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+            + "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+
     public init(
         host: URL = URL(string: "https://chat.google.com")!,
-        account: Account = .index(0)
+        account: Account = .index(0),
+        userAgent: String = ChatEndpoints.defaultUserAgent
     ) {
         self.host = host
         self.account = account
+        self.userAgent = userAgent
     }
 
     /// The base every path hangs off, with the account segment if there is one.

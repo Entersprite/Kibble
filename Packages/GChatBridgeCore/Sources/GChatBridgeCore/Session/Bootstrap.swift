@@ -80,6 +80,16 @@ public enum BootstrapFailure: Error, Hashable, CustomStringConvertible {
     /// the only thing that is scarce here — a live session to test against.
     case noGlobalData(ShellDiagnosis)
 
+    /// Authenticated, and then **rejected as a browser**.
+    ///
+    /// Chat gates on `User-Agent`. Without a browser one it serves
+    /// `/error/browser-not-supported` — HTTP 200, titled "Chat: Unsupported
+    /// Browser". This is neither a credential problem nor a parser problem, and
+    /// it is worth its own case because that page *does* carry a
+    /// `WIZ_global_data` blob, so every "does this look like a shell" heuristic
+    /// says yes and blames the wrong thing.
+    case unsupportedClient(URL)
+
     /// The request was redirected to Google's own sign-in page, which carries no
     /// `WIZ_global_data` at all.
     ///
@@ -100,6 +110,10 @@ public enum BootstrapFailure: Error, Hashable, CustomStringConvertible {
             "bootstrap got HTTP \(status); only 200 carries an app shell"
         case let .noGlobalData(diagnosis):
             "no WIZ_global_data in the response. \(diagnosis)"
+        case let .unsupportedClient(url):
+            "Chat served its unsupported-browser page (\(url.path)) - the session "
+                + "authenticated but the client was rejected, which means the "
+                + "User-Agent was missing or is no longer accepted"
         case let .signInRedirect(url):
             "redirected to \(url.host() ?? url.absoluteString) - the cookies are not usable"
         }
@@ -138,7 +152,10 @@ public struct Bootstrap: Sendable {
             url: endpoints.moleWorld,
             headers: HTTPHeaders([
                 ("Cookie", cookies.headerValue),
-                ("referer", ChatEndpoints.mailReferer)
+                ("referer", ChatEndpoints.mailReferer),
+                // Without this, Chat authenticates the session and then serves
+                // its unsupported-browser page. See ChatEndpoints.userAgent.
+                ("User-Agent", endpoints.userAgent)
             ])
         )
 
@@ -151,6 +168,12 @@ public struct Bootstrap: Sendable {
         else {
             // Where the response came from is the diagnosis. A bounce to the
             // accounts host means the credentials never got as far as Chat.
+            // Order matters: the unsupported-browser page carries the shell
+            // markers, so it has to be recognised before any heuristic that
+            // reads their presence as "this was a shell".
+            if let url = response.url, url.path.contains("/error/browser-not-supported") {
+                throw BootstrapFailure.unsupportedClient(url)
+            }
             if let url = response.url, url.host()?.contains("accounts.google.com") == true {
                 throw BootstrapFailure.signInRedirect(url)
             }
