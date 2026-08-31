@@ -34,6 +34,7 @@ enum Probe {
 
         guard let cookies = loadCookies() else { exit(2) }
         print("cookie header: \(cookies.count) cookies, \(cookies.byteCount) bytes")
+        reportCaptureAge()
         reportCookieFamilies(cookies)
 
         // A wrong account index fails identically to bad credentials, so try the
@@ -60,16 +61,25 @@ enum Probe {
             }
         }
 
-        print("""
-
-        NOT SIGNED IN under any account shape tried.
-
-        Two causes look identical here, and the second is not a credential
-        problem at all:
-          - the captured header is stale        -> re-capture, see
-                                                  docs/protocol/cookie-capture.md
-          - the account index is wrong          -> set GCHAT_ACCOUNT_INDEX=1 (etc)
-        """)
+        print("")
+        print("NOT SIGNED IN under any account shape tried.")
+        print("")
+        print("If the report above says 'redirected to accounts.google.com', the")
+        print("cookies are not usable at all - which for a header that worked")
+        print("minutes ago means it went stale, not that it was captured wrong.")
+        print("")
+        print("Most likely cause: the browser profile you captured from still has")
+        print("Chat open, and is rotating SIDCC / __Secure-1PSIDCC /")
+        print("__Secure-3PSIDCC server-side on every poll. Close the Chat tab in")
+        print("that profile (stay signed in), re-capture, and run this within a")
+        print("minute. See docs/protocol/cookie-capture.md step 5.")
+        print("")
+        print("If it says 'no shell markers', the response was not an app shell")
+        print("and the title above says what it actually was. If it says THE")
+        print("PARSER IS AT FAULT, the capture is fine and this code is wrong.")
+        print("")
+        print("A wrong account index fails identically to bad credentials:")
+        print("try GCHAT_ACCOUNT_INDEX=1 (or =none).")
         exit(1)
     }
 
@@ -128,6 +138,27 @@ enum Probe {
         print("    probably taken before Chat finished loading, or from a request to")
         print("    a different Google host. Open chat.google.com, wait for the roster")
         print("    to render, then re-copy from a chat.google.com request.")
+    }
+
+    /// How old the capture is.
+    ///
+    /// Captured headers have a shelf life measured in minutes: `SIDCC`,
+    /// `__Secure-1PSIDCC` and `__Secure-3PSIDCC` rotate on every long-poll
+    /// reopen, so a browser still running Chat keeps invalidating the copy on
+    /// disk. Age is therefore the first thing worth knowing when a header that
+    /// looked fine stops working.
+    static func reportCaptureAge() {
+        guard
+            let modified = try? FileManager.default
+            .attributesOfItem(atPath: headerPath.path)[.modificationDate] as? Date
+        else { return }
+        let age = Int(Date().timeIntervalSince(modified))
+        let rendered = age < 60 ? "\(age)s" : "\(age / 60)m \(age % 60)s"
+        print("  captured: \(rendered) ago")
+        guard age > 120 else { return }
+        print("    Older than two minutes. If this fails, re-capture before")
+        print("    concluding anything: a live browser session rotates the *SIDCC")
+        print("    cookies server-side and the copy on disk goes stale.")
     }
 
     static func accountOverride() -> ChatEndpoints.Account? {
