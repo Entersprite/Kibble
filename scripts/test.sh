@@ -53,6 +53,15 @@ else
     pass "ChatKit imports only Foundation (no sources yet)"
 fi
 
+echo "Reducer purity (the bridge server runs this file verbatim):"
+# The architecture's condition for read state and history not drifting into two
+# sources of truth is that the server reduces events with THIS reducer rather
+# than one written to match it. The moment the reducer knows about GRDB, the
+# server needs its own copy. Only the Store/ half may import a database.
+REDUCER=Packages/SyncEngine/Sources/SyncEngine/Reducer
+scan "$REDUCER" '^[[:space:]]*import[[:space:]]+(GRDB|SQLite3)\b' \
+  "the sync reducer imports no database"
+
 echo "Fixture determinism (FixtureBackend must not read a clock or wait):"
 # Everything above the seam is tested against FakeBackend, so a wall clock or a
 # random identifier in there makes those tests non-reproducible - and the

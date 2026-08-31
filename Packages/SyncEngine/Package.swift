@@ -19,12 +19,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../ChatKit"),
+        // Pinned to a major version: GRDB is the store, and a silent major
+        // upgrade would rewrite migration semantics under a shipped database.
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
         .package(path: "../FixtureBackend")
     ],
     targets: [
         .target(
             name: "SyncEngine",
-            dependencies: ["ChatKit"],
+            dependencies: ["ChatKit", .product(name: "GRDB", package: "GRDB.swift")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
