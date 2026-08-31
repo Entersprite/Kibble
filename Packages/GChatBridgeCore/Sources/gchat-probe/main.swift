@@ -133,11 +133,22 @@ enum Probe {
             return
         }
         print("  classic five: MISSING \(missing.joined(separator: ", "))")
-        guard missing.contains("COMPASS") else { return }
-        print("    COMPASS is set by Chat itself. If it is absent, the capture was")
-        print("    probably taken before Chat finished loading, or from a request to")
-        print("    a different Google host. Open chat.google.com, wait for the roster")
-        print("    to render, then re-copy from a chat.google.com request.")
+        guard missing.contains("COMPASS") || missing.contains("OSID") else { return }
+        // COMPASS and OSID are scoped to chat.google.com itself, unlike the
+        // __Secure-*PSID* family which is scoped to .google.com and so rides
+        // along on requests to ANY Google host. That asymmetry is the whole
+        // diagnostic: a header carrying the PSID family but not these two
+        // cannot have been copied from a chat.google.com request.
+        print("")
+        print("    ^ These are scoped to chat.google.com itself. The __Secure-*PSID*")
+        print("      family is scoped to .google.com and rides along on requests to")
+        print("      ANY Google host - so a header with those but WITHOUT these was")
+        print("      almost certainly copied from a request to the wrong host.")
+        print("")
+        print("      Fix: in DevTools > Network, set the filter to Doc, click the")
+        print("      request whose Domain column reads exactly chat.google.com, and")
+        print("      copy ITS cookie header. Chat must have finished loading first -")
+        print("      COMPASS does not exist until it has.")
     }
 
     /// How old the capture is.
