@@ -13,11 +13,22 @@ import SwiftUI
 struct GChatMacApp: App {
     @State private var environment = AppEnvironment()
 
+    /// `--login` opens the capture window instead of the client. A flag rather
+    /// than a menu item while it is a spike: it must be impossible to reach by
+    /// accident, and trivial to reach on purpose.
+    private var isCapturingLogin: Bool {
+        CommandLine.arguments.contains("--login")
+    }
+
     var body: some Scene {
         WindowGroup {
-            ChatWindow(state: environment.sceneState, actions: environment.actions)
-                .frame(minWidth: 760, minHeight: 460)
-                .task { await environment.start() }
+            if isCapturingLogin {
+                CookieCaptureView()
+            } else {
+                ChatWindow(state: environment.sceneState, actions: environment.actions)
+                    .frame(minWidth: 760, minHeight: 460)
+                    .task { await environment.start() }
+            }
         }
         .defaultSize(width: 1100, height: 720)
         .commands {
