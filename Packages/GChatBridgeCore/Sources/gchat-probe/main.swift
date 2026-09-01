@@ -58,6 +58,11 @@ enum Probe {
                 print("  not signed in (qwAQke = \(wiz.appName ?? "absent"))")
             } catch {
                 print("  failed: \(error)")
+                await dumpShellIfRequested(
+                    cookies: cookies,
+                    endpoints: endpoints,
+                    transport: transport
+                )
             }
         }
 
@@ -81,6 +86,40 @@ enum Probe {
         print("A wrong account index fails identically to bad credentials:")
         print("try GCHAT_ACCOUNT_INDEX=1 (or =none).")
         exit(1)
+    }
+
+    /// Writes the raw shell to a file, when `GCHAT_DUMP_SHELL` names one.
+    ///
+    /// **The dump contains a signed-in shell**, which means real names and
+    /// possibly message content. It is never printed, only written where asked,
+    /// and the path must be outside the repo - `Fixtures/raw/` is gitignored for
+    /// the same reason. Delete it when finished with it.
+    ///
+    /// It exists because "the parser found no blob in a page that has the
+    /// markers" is unfixable from a one-line diagnosis: the fix needs the
+    /// assignment's actual syntax, and this is the only path known to receive a
+    /// 200 (curl gets 400 with the same cookies, unexplained).
+    static func dumpShellIfRequested(
+        cookies: SessionCookies,
+        endpoints: ChatEndpoints,
+        transport: any HTTPTransport
+    ) async {
+        guard let path = ProcessInfo.processInfo.environment["GCHAT_DUMP_SHELL"] else { return }
+        let request = HTTPRequest(
+            url: endpoints.moleWorld,
+            headers: HTTPHeaders([
+                ("Cookie", cookies.headerValue),
+                ("referer", ChatEndpoints.mailReferer),
+                ("User-Agent", endpoints.userAgent)
+            ])
+        )
+        do {
+            let response = try await transport.send(request)
+            try response.body.write(to: URL(fileURLWithPath: path))
+            print("  dumped \(response.body.count) bytes to \(path) — contains real account data")
+        } catch {
+            print("  dump failed: \(error)")
+        }
     }
 
     // MARK: - Input

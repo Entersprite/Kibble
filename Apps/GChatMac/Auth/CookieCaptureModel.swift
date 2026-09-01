@@ -85,6 +85,19 @@ final class CookieCaptureModel {
         write(report.text, to: "cookie-capture-report.txt")
     }
 
+    /// Days until expiry, or `nil` for a session cookie.
+    ///
+    /// Clamped rather than converted directly. `Int(someDouble)` traps on NaN
+    /// and on anything outside `Int`'s range, and a cookie's expiry date is
+    /// data from a server - which is exactly the kind of value that should not
+    /// be able to kill a capture the user just spent a two-factor login on.
+    private static func days(until expiry: Date?, from now: Date) -> Int? {
+        guard let expiry else { return nil }
+        let days = expiry.timeIntervalSince(now) / 86400
+        guard days.isFinite else { return nil }
+        return Int(days.clamped(to: -3_650_000 ... 3_650_000))
+    }
+
     /// Writes the header where `--backend=local` looks for it.
     ///
     /// A separate, explicit action because it puts a credential in a file
@@ -109,5 +122,11 @@ final class CookieCaptureModel {
             atomically: true,
             encoding: .utf8
         )
+    }
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }

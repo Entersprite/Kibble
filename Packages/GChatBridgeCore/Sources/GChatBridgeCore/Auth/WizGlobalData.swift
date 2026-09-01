@@ -68,7 +68,20 @@ public struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
 // MARK: - Parsing
 
 public extension WizGlobalData {
-    private static let assignment = "WIZ_global_data = ("
+    /// The name only, with **no punctuation after it**.
+    ///
+    /// This anchor was `"WIZ_global_data = ("` and could never match a real
+    /// page. The reference Python is
+    /// `r">window.WIZ_global_data = ({.+?});</script>"`, where those
+    /// parentheses are a **regex capture group** - and they were transcribed
+    /// into Swift as literal text. A real shell sends
+    /// `window.WIZ_global_data = {"AB33kc":…`, with no paren at all.
+    ///
+    /// Anchoring on the name alone also absorbs a minified `WIZ_global_data={`
+    /// and a future reintroduced paren, because `objectText` scans forward to
+    /// the next `{` regardless. The punctuation was never worth being strict
+    /// about; being strict about it cost a session.
+    private static let assignment = "WIZ_global_data"
     private static let appNameKey = "qwAQke"
     private static let xsrfTokenKey = "SMqcke"
 

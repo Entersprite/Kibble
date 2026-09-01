@@ -25,7 +25,7 @@ struct WizGlobalDataTests {
             fields.append("\"k\(index)\":\(index)")
         }
         return """
-        <script nonce="abc">window.WIZ_global_data = ({\(fields.joined(separator: ","))});</script>
+        <script nonce="abc">window.WIZ_global_data = {\(fields.joined(separator: ","))};</script>
         """
     }
 
@@ -85,12 +85,12 @@ struct WizGlobalDataTests {
 
     @Test("a truncated blob is nil rather than a crash")
     func truncatedBlob() {
-        #expect(WizGlobalData(html: "<script>window.WIZ_global_data = ({\"qwAQke\":\"Dyn") == nil)
+        #expect(WizGlobalData(html: "<script>window.WIZ_global_data = {\"qwAQke\":\"Dyn") == nil)
     }
 
     @Test("a blob that is not an object is nil")
     func notAnObject() {
-        #expect(WizGlobalData(html: "<script>window.WIZ_global_data = ([1,2,3]);</script>") == nil)
+        #expect(WizGlobalData(html: "<script>window.WIZ_global_data = [1,2,3];</script>") == nil)
     }
 
     /// The blob is megabyte-scale and the shell contains other script tags, so
@@ -119,5 +119,44 @@ struct WizGlobalDataTests {
         #expect(!rendered.contains(secret))
         #expect(rendered.contains("42"))
         #expect(rendered.contains("DynamiteWebUi"))
+    }
+
+    // MARK: - The assignment's punctuation
+
+    /// **Regression, from a real signed-in shell.**
+    ///
+    /// The anchor used to be the literal text `WIZ_global_data = (`,
+    /// transcribed from the reference Python's
+    /// `r">window.WIZ_global_data = ({.+?});</script>"` - where the parentheses
+    /// are a regex capture group, not characters on the page. Every fixture in
+    /// this suite was written to match that mistake, so 133 tests passed
+    /// against a page shape Google has never sent.
+    ///
+    /// The byte sequence below is what a live shell actually contains, taken
+    /// from a capture on 2026-09-01. The key name is real; the value is not.
+    @Test("the real shell's syntax has no parenthesis, and it parses")
+    func theRealAssignmentSyntaxParses() {
+        let html = """
+        <script nonce="pS3B">window.WIZ_global_data = {"AB33kc":"https://example.invalid",\
+        "qwAQke":"DynamiteWebUi"};</script>
+        """
+        let wiz = WizGlobalData(html: html)
+        #expect(wiz?.isSignedIn == true)
+        #expect(wiz?.keyCount == 2)
+    }
+
+    /// Tolerated, not required. If Google ever wraps it in parentheses again,
+    /// the anchor should not care - being strict about punctuation is the
+    /// mistake this test exists to prevent recurring.
+    @Test("a parenthesised assignment still parses")
+    func aParenthesisedAssignmentStillParses() {
+        let html = #"<script>window.WIZ_global_data = ({"qwAQke":"DynamiteWebUi"});</script>"#
+        #expect(WizGlobalData(html: html)?.isSignedIn == true)
+    }
+
+    @Test("a minified assignment with no spaces still parses")
+    func aMinifiedAssignmentStillParses() {
+        let html = #"<script>window.WIZ_global_data={"qwAQke":"DynamiteWebUi"}</script>"#
+        #expect(WizGlobalData(html: html)?.isSignedIn == true)
     }
 }

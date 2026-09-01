@@ -9,8 +9,8 @@ import Testing
 struct BootstrapTests {
     static func shell(app: String) -> String {
         """
-        <script nonce="x">window.WIZ_global_data = ({"qwAQke":"\(app)",\
-        "SMqcke":"\(String(repeating: "t", count: 42))","cfb2h":"boq_x"});</script>
+        <script nonce="x">window.WIZ_global_data = {"qwAQke":"\(app)",\
+        "SMqcke":"\(String(repeating: "t", count: 42))","cfb2h":"boq_x"};</script>
         """
     }
 
