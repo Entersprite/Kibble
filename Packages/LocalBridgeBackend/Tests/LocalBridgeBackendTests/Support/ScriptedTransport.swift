@@ -10,11 +10,26 @@ import GChatBridgeCore
 actor ScriptedTransport: HTTPTransport {
     struct Exhausted: Error {}
 
+    /// One scripted streaming response: a head, then body chunks in order.
+    struct Script: Sendable {
+        let status: Int
+        let headers: HTTPHeaders
+        let chunks: [String]
+
+        init(status: Int = 200, headers: HTTPHeaders = HTTPHeaders([]), chunks: [String]) {
+            self.status = status
+            self.headers = headers
+            self.chunks = chunks
+        }
+    }
+
     private var responses: [Result<HTTPResponse, any Error>]
+    private var streams: [Script]
     private(set) var sent: [HTTPRequest] = []
 
-    init(_ responses: [Result<HTTPResponse, any Error>]) {
+    init(_ responses: [Result<HTTPResponse, any Error>], streams: [Script] = []) {
         self.responses = responses
+        self.streams = streams
     }
 
     static func ok(_ body: String, url: URL? = nil) -> Result<HTTPResponse, any Error> {
@@ -30,7 +45,18 @@ actor ScriptedTransport: HTTPTransport {
     }
 
     func stream(_ request: HTTPRequest) async throws -> HTTPStream {
-        _ = request
-        throw Exhausted()
+        sent.append(request)
+        guard !streams.isEmpty else { throw Exhausted() }
+        let script = streams.removeFirst()
+        return HTTPStream(
+            status: script.status,
+            headers: script.headers,
+            body: AsyncThrowingStream { continuation in
+                for chunk in script.chunks {
+                    continuation.yield(Data(chunk.utf8))
+                }
+                continuation.finish()
+            }
+        )
     }
 }

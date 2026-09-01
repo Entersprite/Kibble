@@ -177,3 +177,26 @@ struct KeychainSecretStorage: SecretStorage {
         }
     }
 }
+
+public extension KeychainCredentialStore {
+    /// Replaces the stored cookies, keeping everything else about the session.
+    ///
+    /// For a rotation rather than a new sign-in: the cookies changed, the
+    /// session did not. `capturedAt` and `expiresAt` are carried over because a
+    /// rotated `SIDCC` says nothing about when the person last authenticated,
+    /// and refreshing them would hide the deadline the store exists to report.
+    ///
+    /// Does nothing when there is no stored session. A rotation belongs to a
+    /// session; without one there is nothing for it to be a rotation *of*, and
+    /// inventing a record would store a credential nobody signed in for.
+    func replaceCredential(with cookies: SessionCookies) async throws {
+        guard let existing = try await currentSession() else { return }
+        try await store(
+            StoredSession(
+                credential: cookies,
+                capturedAt: existing.capturedAt,
+                expiresAt: existing.expiresAt
+            )
+        )
+    }
+}

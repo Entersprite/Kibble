@@ -153,3 +153,113 @@ struct SessionHandoffTests {
         #expect(try await LocalBridgeBackend.using(store) != nil)
     }
 }
+
+/// Closing the loop: a cookie rotated on the live channel has to reach the
+/// Keychain, or the next launch replays a credential that went stale on the
+/// first poll of the last one.
+struct RotationWriteBackTests {
+    private final class FakeStorage: SecretStorage, @unchecked Sendable {
+        var items: [String: Data] = [:]
+        func read(account: String) throws -> Data? {
+            items[account]
+        }
+
+        func write(_ data: Data, account: String) throws {
+            items[account] = data
+        }
+
+        func delete(account: String) throws {
+            items[account] = nil
+        }
+    }
+
+    private func storedSession(_ store: KeychainCredentialStore) async throws -> StoredSession? {
+        try await store.currentSession()
+    }
+
+    @Test func aRotationOnTheChannelIsPersisted() async throws {
+        let store = KeychainCredentialStore(storage: FakeStorage(), account: "test")
+        let capture = CookieCapture(
+            cookies: [
+                CapturedCookie(
+                    name: "COMPASS",
+                    value: "old",
+                    domain: "chat.google.com",
+                    path: "/",
+                    isSecure: true,
+                    isHTTPOnly: true,
+                    expiresAt: nil
+                )
+            ],
+            capturedAt: Date(timeIntervalSince1970: 1_788_166_800),
+            pageURL: "https://chat.google.com/app/home",
+            pageTitle: "Chat"
+        )
+        _ = try await capture.save(to: store)
+
+        let transport = ScriptedTransport(
+            [
+                ScriptedTransport.ok(LocalBridgeBackendTests.shell(app: "DynamiteWebUi")),
+                .success(HTTPResponse(
+                    status: 200,
+                    headers: HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
+                    body: Data()
+                )),
+                ScriptedTransport.ok("")
+            ],
+            streams: [
+                ScriptedTransport.Script(
+                    headers: HTTPHeaders([
+                        ("X-HTTP-Initial-Response", #"[[0,["c","S3ss10n","",8,12,30000]]]"#)
+                    ]),
+                    chunks: []
+                )
+            ]
+        )
+        let backend = try #require(await LocalBridgeBackend.using(store, transport: transport))
+        try await backend.connect()
+        await backend.waitForChannel()
+
+        #expect(try await storedSession(store)?.credential["COMPASS"] == "grown")
+    }
+
+    /// The rewritten session keeps its capture date. Treating a rotation as a
+    /// fresh login would reset the age of a credential that is no younger.
+    @Test func aRotationDoesNotPretendTheSessionWasJustCaptured() async throws {
+        let store = KeychainCredentialStore(storage: FakeStorage(), account: "test")
+        let captured = Date(timeIntervalSince1970: 1_788_166_800)
+        let original = try StoredSession(
+            credential: #require(SessionCookies(header: "COMPASS=old")),
+            capturedAt: captured,
+            expiresAt: captured.addingTimeInterval(9 * 86400)
+        )
+        try await store.store(original)
+
+        let transport = ScriptedTransport(
+            [
+                ScriptedTransport.ok(LocalBridgeBackendTests.shell(app: "DynamiteWebUi")),
+                .success(HTTPResponse(
+                    status: 200,
+                    headers: HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
+                    body: Data()
+                )),
+                ScriptedTransport.ok("")
+            ],
+            streams: [
+                ScriptedTransport.Script(
+                    headers: HTTPHeaders([
+                        ("X-HTTP-Initial-Response", #"[[0,["c","S3ss10n","",8,12,30000]]]"#)
+                    ]),
+                    chunks: []
+                )
+            ]
+        )
+        let backend = try #require(await LocalBridgeBackend.using(store, transport: transport))
+        try await backend.connect()
+        await backend.waitForChannel()
+
+        let reloaded = try await storedSession(store)
+        #expect(reloaded?.capturedAt == captured)
+        #expect(reloaded?.expiresAt == captured.addingTimeInterval(9 * 86400))
+    }
+}

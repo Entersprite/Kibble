@@ -72,11 +72,26 @@ public extension LocalBridgeBackend {
     /// every stated expiry (`findings.md` §11), and one past its expiry can
     /// still be accepted. The request that settles it costs a single round
     /// trip, and refusing to make it would promote a guess to a policy.
-    static func using(_ store: KeychainCredentialStore) async throws -> LocalBridgeBackend? {
+    static func using(
+        _ store: KeychainCredentialStore,
+        transport: any HTTPTransport = URLSessionTransport()
+    ) async throws -> LocalBridgeBackend? {
         guard let session = try await store.currentSession() else { return nil }
         return LocalBridgeBackend(
             cookies: session.credential,
-            transport: URLSessionTransport()
+            transport: transport,
+            // Closing the loop the cookie jar exists for. `findings.md` §12.3:
+            // the `*SIDCC` family rotates on every poll cycle, so a session
+            // that is not written back goes stale between one launch and the
+            // next even though nobody signed out.
+            onRotation: { rotated in
+                // The capture date and expiry are **not** refreshed. A rotation
+                // is the same session continuing, and treating it as a fresh
+                // login would keep resetting the age of a credential that is no
+                // younger - which would make the nine-day `COMPASS` fuse look
+                // like it never burned down.
+                try? await store.replaceCredential(with: rotated)
+            }
         )
     }
 }
