@@ -15,6 +15,15 @@ import Testing
 struct APIProbeReportTests {
     private struct Boom: Error {}
 
+    /// A transport-level error carrying a payload distinctive enough that its
+    /// presence in a report is unambiguously a leak. `CustomStringConvertible`
+    /// so `\(error)` and `String(describing: error)` - what a raw, unguarded
+    /// catch site actually calls - produce `description` exactly, the same
+    /// way a real `URLError` or any other transport failure would.
+    private struct SentinelError: Error, CustomStringConvertible {
+        let description: String
+    }
+
     /// A `SecretStorage` that lives in memory and can be told to fail.
     ///
     /// `KeychainCredentialStoreTests.FakeStorage` is `private` to that file and
@@ -154,6 +163,83 @@ struct APIProbeReportTests {
         #expect(!text.contains("SECRET-COOKIE-VALUE-DO-NOT-LEAK"))
     }
 
+    // MARK: - Leak tests for each error path
+
+    //
+    // The fix-round finding: a happy-path leak test proves nothing about the
+    // catch blocks, and those are exactly where an unguarded `\(error)` can
+    // put a live transport error's own `description` into a report that gets
+    // pasted into a committed file. Each test here plants a `SentinelError`
+    // whose `description` is a distinctive sentinel at one specific failure
+    // site and asserts the sentinel never reaches the returned string -
+    // proving the claim rather than assuming today's concrete error types
+    // stay the only ones that can ever reach that catch.
+
+    /// `Bootstrap.run`'s `transport.send` is unguarded (`Bootstrap.swift:162`),
+    /// so a raw transport failure reaches `appendBootstrap`'s catch as
+    /// whatever type the transport happens to throw - not a type this
+    /// package controls the `description` of.
+    @Test func aBootstrapFailureNeverLeaksTheUnderlyingErrorDescription() async throws {
+        let storage = FakeSecretStorage()
+        let credentialStore = store(storage)
+        try await credentialStore.store(storedSession())
+        let sentinel = "SENTINEL-BOOTSTRAP-abc123"
+        let text = await APIProbeReport.run(
+            store: credentialStore,
+            transport: ScriptedTransport([.failure(SentinelError(description: sentinel))]),
+            endpoints: ChatEndpoints()
+        )
+        #expect(text.contains("bootstrap failed"))
+        #expect(!text.contains(sentinel))
+    }
+
+    /// The `get_self_user_status` catch in `appendVerifiedCall`.
+    @Test func aVerifiedCallFailureNeverLeaksTheUnderlyingErrorDescription() async throws {
+        let storage = FakeSecretStorage()
+        let credentialStore = store(storage)
+        try await credentialStore.store(storedSession())
+        let sentinel = "SENTINEL-VERIFIED-CALL-def456"
+        let responses: [Result<HTTPResponse, any Error>] = [
+            .success(shell(app: "DynamiteWebUi")),
+            .failure(SentinelError(description: sentinel))
+        ]
+        let text = await APIProbeReport.run(
+            store: credentialStore,
+            transport: ScriptedTransport(responses),
+            endpoints: ChatEndpoints()
+        )
+        #expect(text.contains("FAILED"))
+        #expect(!text.contains("paginated_world"))
+        #expect(!text.contains(sentinel))
+    }
+
+    /// A `paginated_world` rung failing. The sentinel is baked into
+    /// `WorldRungResult.failure` inside `WorldRequestLadder.swift`, well
+    /// before `APIProbeReport` sees it, so this also covers that this file
+    /// does not own.
+    @Test func aLadderRungFailureNeverLeaksTheUnderlyingErrorDescription() async throws {
+        let storage = FakeSecretStorage()
+        let credentialStore = store(storage)
+        try await credentialStore.store(storedSession())
+        let sentinel = "SENTINEL-LADDER-ghi789"
+        let responses: [Result<HTTPResponse, any Error>] = try [
+            .success(shell(app: "DynamiteWebUi")),
+            .success(selfStatusResponse()),
+            .failure(SentinelError(description: sentinel)),
+            .failure(SentinelError(description: sentinel)),
+            .failure(SentinelError(description: sentinel)),
+            .failure(SentinelError(description: sentinel))
+        ]
+        let text = await APIProbeReport.run(
+            store: credentialStore,
+            transport: ScriptedTransport(responses),
+            endpoints: ChatEndpoints()
+        )
+        #expect(text.contains("paginated_world ladder:"))
+        #expect(text.contains("FAILED"))
+        #expect(!text.contains(sentinel))
+    }
+
     // MARK: - The full run, and the leak tests that justify the whole file
 
     @Test func aFullRunReportsTheLadderAndItsVerdict() async throws {
@@ -181,8 +267,10 @@ struct APIProbeReportTests {
 
     /// The report is pasted verbatim into `findings.md` by a human. It must
     /// never carry the cookie value, the xsrf token or a user id - only their
-    /// lengths.
-    @Test func theFullRunNeverCarriesACookieValueOrToken() async throws {
+    /// lengths. Named for the path it actually covers - the happy path -
+    /// because the three tests above carry the rest of the claim, for the
+    /// three catch blocks a success never reaches.
+    @Test func aSuccessfulRunNeverCarriesACookieValueOrToken() async throws {
         let storage = FakeSecretStorage()
         let credentialStore = store(storage)
         try await credentialStore.store(storedSession())

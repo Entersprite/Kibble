@@ -172,9 +172,17 @@ public enum WorldRequestLadder {
                 failure: nil
             )
         } catch {
+            // `callRaw` only ever throws `APIFailure`, but the fallback below
+            // is not for that case - it is for whatever it gets replaced with
+            // later not staying that way. `String(describing: error)` on
+            // anything else risks carrying request content: this is written
+            // to a file a human pastes into `findings.md`, and "never a
+            // value" has to hold for the failure line too, not only the
+            // success one.
+            let apiFailure = error as? APIFailure
             return WorldRungResult(
                 label: rung.label,
-                status: (error as? APIFailure).flatMap {
+                status: apiFailure.flatMap {
                     if case let .httpStatus(status) = $0 {
                         return status
                     }
@@ -184,7 +192,7 @@ public enum WorldRequestLadder {
                 encoding: nil,
                 fields: [],
                 truncated: false,
-                failure: String(describing: error)
+                failure: apiFailure?.safeDescription ?? String(describing: type(of: error))
             )
         }
     }

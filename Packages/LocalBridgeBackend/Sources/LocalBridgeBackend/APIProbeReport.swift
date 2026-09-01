@@ -104,7 +104,7 @@ public enum APIProbeReport {
                 endpoints: endpoints
             )
         } catch {
-            lines.append("bootstrap failed: \(error)")
+            lines.append("bootstrap failed: \(safeDescription(of: error))")
             return nil
         }
         lines.append(header(
@@ -136,11 +136,34 @@ public enum APIProbeReport {
                 + "user id \(response.userStatus.userID.id.count) chars")
             return true
         } catch {
-            lines.append("  FAILED: \(error)")
+            lines.append("  FAILED: \(safeDescription(of: error))")
             lines.append("")
             lines.append("Stopping: the machinery is what failed, not a request shape.")
             return false
         }
+    }
+
+    /// A description safe for a report a human pastes into `findings.md`.
+    ///
+    /// `\(error)` interpolates whatever `description` the concrete error type
+    /// happens to have, and nothing here can vouch for that staying free of
+    /// request content — `Bootstrap.run`'s `transport.send` in particular is
+    /// unguarded, so a live transport failure arrives as whatever type
+    /// `URLSessionTransport` (or a future transport) throws, not as a type
+    /// this package controls. `BootstrapFailure`'s own cases are already
+    /// scrubbed to counts, statuses and a capped title (`Bootstrap.swift`),
+    /// so those print verbatim; `APIFailure` uses its own `safeDescription`
+    /// for the same reason; anything else is reduced to its type name, which
+    /// cannot carry a cookie or a token the way an arbitrary `description` is
+    /// free to.
+    private static func safeDescription(of error: any Error) -> String {
+        if let failure = error as? BootstrapFailure {
+            return String(describing: failure)
+        }
+        if let failure = error as? APIFailure {
+            return failure.safeDescription
+        }
+        return String(describing: type(of: error))
     }
 
     private static func appendLadder(client: ProtoAPIClient, lines: inout [String]) async {

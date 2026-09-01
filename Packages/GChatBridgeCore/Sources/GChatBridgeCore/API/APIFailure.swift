@@ -20,3 +20,29 @@ public enum APIFailure: Error, Sendable, Equatable {
     /// protobuf and we read it the wrong way round".
     case undecodable(encodings: [APIResponseEncoding], detail: String)
 }
+
+public extension APIFailure {
+    /// A description safe for a report that gets pasted somewhere durable -
+    /// `findings.md` is the reason this exists.
+    ///
+    /// `.transport`'s and `.undecodable`'s associated strings both come from
+    /// `String(describing:)` on an arbitrary underlying `Error` -
+    /// `ProtoAPIClient.callRaw` for the first, a `SwiftProtobuf` decode
+    /// failure for the second - and neither is a type this package controls,
+    /// so neither is a type whose `description` this package can vouch for
+    /// staying free of request content. The case name and any value this
+    /// enum itself put there (a status code, the list of encodings tried)
+    /// carry the diagnosis without carrying that risk.
+    var safeDescription: String {
+        switch self {
+        case .transport:
+            "transport error"
+        case let .httpStatus(status):
+            "HTTP \(status)"
+        case .emptyBody:
+            "empty body"
+        case let .undecodable(encodings, _):
+            "undecodable (tried: \(encodings.map(\.rawValue).joined(separator: ", ")))"
+        }
+    }
+}
