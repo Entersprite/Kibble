@@ -106,6 +106,31 @@ struct ProtoAPIClientTests {
         #expect(await credentials.header() == "SID=fresh")
     }
 
+    /// §12.3: `Set-Cookie` rotates on every long-poll cycle, and a response
+    /// that rotates a cookie and then fails still rotated it. `callRaw`
+    /// absorbs headers *before* judging the status precisely so a failing
+    /// call cannot leave the jar behind the server - silently, since the
+    /// symptom would only surface later as an inexplicable expiry.
+    @Test func aFailingResponseStillRotatesTheCookiesItCarried() async throws {
+        let response = HTTPResponse(
+            status: 403,
+            headers: HTTPHeaders([("Set-Cookie", "SID=rotated-on-failure")]),
+            body: Data()
+        )
+        let transport = FakeHTTPTransport(responses: [response])
+        let credentials = SessionCredentials(cookies())
+        let client = ProtoAPIClient(
+            transport: transport,
+            endpoints: ChatEndpoints(),
+            credentials: credentials,
+            xsrfToken: "tok"
+        )
+        await #expect(throws: APIFailure.httpStatus(403)) {
+            try await client.call(.getSelfUserStatus, GetSelfUserStatusRequest())
+        }
+        #expect(await credentials.header() == "SID=rotated-on-failure")
+    }
+
     @Test func aNonSuccessStatusIsReportedFaithfully() async throws {
         let transport = FakeHTTPTransport(responses: [
             HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data())
