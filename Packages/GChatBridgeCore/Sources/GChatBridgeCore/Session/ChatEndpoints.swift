@@ -73,7 +73,7 @@ public struct ChatEndpoints: Sendable, Hashable {
         )!
         // Values are taken from the reference implementation. `hs` is an opaque
         // JSON array the server expects verbatim; it is not ours to tidy.
-        components.percentEncodedQuery = Self.query([
+        components.percentEncodedQuery = QueryEncoding.query([
             ("origin", "https://mail.google.com"),
             ("shell", "9"),
             ("hl", "en"),
@@ -81,31 +81,6 @@ public struct ChatEndpoints: Sendable, Hashable {
             ("hs", Self.handshakeBlob)
         ])
         return components.url!
-    }
-
-    /// Builds a query string, encoding everything outside the unreserved set.
-    ///
-    /// `URLComponents` is deliberately not trusted with this. It leaves `:`,
-    /// `/` and `,` unescaped in query values — legal per RFC 3986, and *not*
-    /// what the reference implementation sends: its `urlencode` produces
-    /// `origin=https%3A%2F%2Fmail.google.com` and `%2C` for every comma.
-    ///
-    /// The encoded form is the only one observed to work against the live
-    /// server; the relaxed form is untested there. On a protocol where `$req`
-    /// turns out to need *double* percent-encoding, guessing that a laxer
-    /// encoding is equivalent is not a risk worth taking for tidier code — and
-    /// matching byte-for-byte keeps a request diffable against a capture, which
-    /// is the only debugging tool available here.
-    private static func query(_ items: [(String, String)]) -> String {
-        items
-            .map { "\(encode($0.0))=\(encode($0.1))" }
-            .joined(separator: "&")
-    }
-
-    private static func encode(_ value: String) -> String {
-        var unreserved = CharacterSet.alphanumerics
-        unreserved.insert(charactersIn: "-._~")
-        return value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? value
     }
 
     private static let handshakeBlob = #"["h_hs",null,null,[1,0],null,null,"#
