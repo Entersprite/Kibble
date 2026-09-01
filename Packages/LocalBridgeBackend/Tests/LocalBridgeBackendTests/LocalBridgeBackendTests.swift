@@ -102,21 +102,21 @@ struct LocalBridgeBackendTests {
 
     // MARK: - Honest capabilities
 
-    /// Every flag is false until a channel exists. That is not modesty: the UI
-    /// reads capabilities to decide what to offer, and a bridge that claimed it
-    /// could send would give the user a composer that silently fails.
-    @Test func itAdvertisesNothingItCannotYetDo() {
+    /// Every flag is false except `supportsThreads`, which is not conditioned
+    /// on connection state at all - it is a fact about what `WorldMapping` can
+    /// now compute, not about whether a channel is open. Everything else stays
+    /// false: the UI reads capabilities to decide what to offer, and a bridge
+    /// that claimed it could send would give the user a composer that
+    /// silently fails.
+    @Test func itAdvertisesOnlyThreadSupport() {
         let backend = backend([])
-        #expect(backend.capabilities == Capabilities())
+        #expect(backend.capabilities == Capabilities(supportsThreads: true))
     }
 
     @Test func everyActionSaysWhatIsMissingRatherThanFailingVaguely() async throws {
         let backend = backend([ScriptedTransport.ok(Self.shell(app: "DynamiteWebUi"))])
         try await backend.connect()
 
-        await #expect(throws: ChatError.unsupported(capability: LocalBridgeBackend.missingChannel)) {
-            _ = try await backend.loadConversations()
-        }
         await #expect(throws: ChatError.unsupported(capability: LocalBridgeBackend.missingChannel)) {
             _ = try await backend.loadMessages(in: Conversation.ID("space:1"), before: nil)
         }
@@ -125,6 +125,29 @@ struct LocalBridgeBackendTests {
         }
         await #expect(throws: ChatError.unsupported(capability: LocalBridgeBackend.missingChannel)) {
             try await backend.setNotificationSetting(.less, for: Conversation.ID("space:1"))
+        }
+    }
+
+    // MARK: - loadConversations
+
+    /// Sending a `/api/` request with no verified session and no xsrf token is
+    /// not a real attempt - it is one known in advance to fail. This is the
+    /// clear failure the task asks for, rather than a request built out of
+    /// nothing and shipped anyway.
+    @Test func loadConversationsBeforeConnectFailsClearly() async {
+        let backend = backend([])
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.loadConversations()
+        }
+    }
+
+    @Test func loadConversationsBeforeConnectNamesWhatIsMissing() async throws {
+        let backend = backend([])
+        do {
+            _ = try await backend.loadConversations()
+            Issue.record("expected loadConversations() to throw before connect()")
+        } catch {
+            #expect(String(describing: error).lowercased().contains("connect"))
         }
     }
 

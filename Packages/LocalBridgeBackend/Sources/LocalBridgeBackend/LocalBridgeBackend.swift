@@ -22,12 +22,15 @@ public actor LocalBridgeBackend: ChatBackend {
     /// caller that logs it learns something true.
     public static let missingChannel = "liveChannel"
 
-    /// Nothing is advertised until it works.
+    /// Almost nothing is advertised until it works.
     ///
     /// Not modesty - the UI reads `capabilities` to decide what to offer, so a
     /// bridge claiming it could send would hand the user a composer that
-    /// silently swallowed their messages.
-    public nonisolated let capabilities = Capabilities()
+    /// silently swallowed their messages. `supportsThreads` is the one
+    /// exception: `loadConversations()` now maps `isThreaded` for real
+    /// (`WorldMapping`), so a client can tell a flat group from a threaded one
+    /// without guessing.
+    public nonisolated let capabilities = Capabilities(supportsThreads: true)
 
     public nonisolated let events: AsyncStream<ChatEvent>
 
@@ -40,10 +43,19 @@ public actor LocalBridgeBackend: ChatBackend {
     private let endpoints: ChatEndpoints
     private let transport: any HTTPTransport
     private let bootstrap: Bootstrap
-    private let onRotation: (@Sendable (SessionCookies) async -> Void)?
+    /// Shared with `ChannelSession`, which is the entire reason this exists as
+    /// a hoisted actor rather than a value each caller copies: two jars for one
+    /// session means the second is stale within seconds (`findings.md` §12.3).
+    private let credentials: SessionCredentials
     private var isConnected = false
     private var channel: ChannelSession?
     private var channelTask: Task<Void, Never>?
+
+    /// The `/api/` client, built once `connect()` has a verified session and
+    /// an xsrf token. `nil` before that - `loadConversations()` reads this
+    /// rather than the raw pieces, so "not connected yet" is one check instead
+    /// of two.
+    private var apiClient: ProtoAPIClient?
 
     public init(
         cookies: SessionCookies,
@@ -54,7 +66,7 @@ public actor LocalBridgeBackend: ChatBackend {
         self.cookies = cookies
         self.endpoints = endpoints
         self.transport = transport
-        self.onRotation = onRotation
+        credentials = SessionCredentials(cookies, onRotation: onRotation)
         bootstrap = Bootstrap(transport: transport)
         (events, continuation) = AsyncStream.makeStream(
             of: ChatEvent.self,
@@ -89,6 +101,14 @@ public actor LocalBridgeBackend: ChatBackend {
             }
             isConnected = true
             lastFailure = nil
+            // The xsrf token `connect()` used to discard - every `/api/` call
+            // needs it, and it only ever comes from a fresh bootstrap.
+            apiClient = ProtoAPIClient(
+                transport: transport,
+                endpoints: endpoints,
+                credentials: credentials,
+                xsrfToken: wiz.xsrfToken
+            )
             emit(.connectionStateChanged(.connected))
             startChannel()
         } catch {
@@ -103,6 +123,7 @@ public actor LocalBridgeBackend: ChatBackend {
     public func disconnect() async {
         guard isConnected else { return }
         isConnected = false
+        apiClient = nil
         await stopChannel()
         emit(.connectionStateChanged(.disconnected(reason: nil)))
     }
@@ -114,11 +135,15 @@ public actor LocalBridgeBackend: ChatBackend {
     /// blocked on that would never return.
     private func startChannel() {
         guard channelTask == nil else { return }
+        // Shares this backend's own `credentials` rather than constructing a
+        // second jar - two jars for one session means the second is stale
+        // within seconds (`findings.md` §12.3), and it is what lets the
+        // channel and `apiClient` put the *same* rotated cookies on their
+        // requests.
         let channel = ChannelSession(
-            cookies: cookies,
+            credentials: credentials,
             transport: transport,
-            endpoints: endpoints,
-            onRotation: onRotation
+            endpoints: endpoints
         )
         self.channel = channel
         channelTask = Task { [weak self] in
@@ -163,6 +188,7 @@ public actor LocalBridgeBackend: ChatBackend {
         channelTask = nil
         self.channel = nil
         isConnected = false
+        apiClient = nil
         let failure = await channel.failure
         let reason = failure.map(String.init(describing:)) ?? "the channel closed"
         if let failure {
@@ -177,8 +203,33 @@ public actor LocalBridgeBackend: ChatBackend {
         throw ChatError.unsupported(capability: Self.missingChannel)
     }
 
+    /// The conversation list, via the one request shape `findings.md` §20.1
+    /// proved works: `request_header` + `fetch_from_user_spaces` + one
+    /// `WorldSectionRequest(page_size: 999)` - rung 2 of `WorldRequestLadder`.
+    ///
+    /// **Requires `connect()` to have already succeeded.** Without it there is
+    /// no verified session and no xsrf token, and sending a `/api/` request
+    /// with neither would not be a real attempt - it would be a request known
+    /// in advance to fail, dressed up as one that tried.
     public func loadConversations() async throws -> [Conversation] {
-        throw ChatError.unsupported(capability: Self.missingChannel)
+        guard let apiClient else {
+            throw ChatError.unknown(
+                "loadConversations() requires connect() to succeed first - "
+                    + "there is no verified session or xsrf token yet"
+            )
+        }
+        let rung = WorldRequestLadder.rungs[1]
+        do {
+            let response = try await apiClient.call(.paginatedWorld, rung.request)
+            // `.skipped` is not surfaced here - `ChatBackend.loadConversations()`
+            // returns `[Conversation]` and cannot carry a count alongside it.
+            // `WorldMapping.Result` exists so a caller that *can* report it
+            // (the `/api/` probe) does; this call site is the one place that
+            // cannot.
+            return WorldMapping.map(response).conversations
+        } catch {
+            throw Self.chatError(fromAPI: error)
+        }
     }
 
     /// `ChatKit.Message`, spelled out.
@@ -244,6 +295,27 @@ extension LocalBridgeBackend {
         switch error {
         case .notAuthenticated, .sessionExpired: "not signed in"
         default: "could not reach Chat"
+        }
+    }
+
+    /// Maps an `/api/` call's failure onto the domain's error vocabulary.
+    ///
+    /// **There is deliberately no `.notAuthenticated` case here**, mirroring
+    /// `APIFailure`'s own doc comment: whether `/api/` answers a dead session
+    /// the way the Chat shell does (HTTP 200 plus a sign-in page, per §13) is
+    /// unrecorded - no run has put an expired credential in front of it.
+    /// Guessing either way would promote a guess to a policy.
+    static func chatError(fromAPI error: any Error) -> ChatError {
+        guard let failure = error as? APIFailure else {
+            return .transport(String(describing: error))
+        }
+        switch failure {
+        case let .httpStatus(status):
+            return .server(status: status, message: "the /api/ paginated_world call")
+        case .transport:
+            return .transport(failure.safeDescription)
+        case .emptyBody, .undecodable:
+            return .decoding(failure.safeDescription)
         }
     }
 }
