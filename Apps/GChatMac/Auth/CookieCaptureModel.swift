@@ -74,6 +74,8 @@ final class CookieCaptureModel {
             }
         )
         lastReport = report
+        // Written on every capture, not only on success: the interesting
+        // report is often the failing one.
         // Rebuilt in the store's own order and never shown: the report is what
         // is displayed, and it carries no values.
         lastHeader = relevant.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
