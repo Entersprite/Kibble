@@ -42,9 +42,8 @@ public actor ChannelSession {
     private let continuation: AsyncStream<ChannelArray>.Continuation
     private let transport: any HTTPTransport
     private let requests: ChannelRequests
-    private let onRotation: (@Sendable (SessionCookies) async -> Void)?
+    private let credentials: SessionCredentials
 
-    private var jar: CookieJar
     private var state = ChannelState()
     private var pending: [ChannelEffect] = []
     private var task: Task<Void, Never>?
@@ -58,9 +57,31 @@ public actor ChannelSession {
         onRotation: (@Sendable (SessionCookies) async -> Void)? = nil
     ) {
         self.transport = transport
-        self.onRotation = onRotation
+        credentials = SessionCredentials(cookies, onRotation: onRotation)
         requests = ChannelRequests(endpoints: endpoints)
-        jar = CookieJar(cookies)
+        var generator = SystemRandomNumberGenerator()
+        requestIdentifier = ChannelIdentifiers.initialRequestIdentifier(using: &generator)
+        (events, continuation) = AsyncStream.makeStream(
+            of: ChannelArray.self,
+            bufferingPolicy: .unbounded
+        )
+    }
+
+    /// Shares an existing credential rather than constructing one.
+    ///
+    /// This is what lets the `/api/` client and the channel put the *same*
+    /// rotated cookies on their requests. Two jars for one session means the
+    /// second is stale within seconds - §12.3 measured 13 rotations in 100
+    /// seconds - and `onRotation` belongs to whoever owns the credential, which
+    /// is why it is absent here.
+    public init(
+        credentials: SessionCredentials,
+        transport: any HTTPTransport,
+        endpoints: ChatEndpoints = ChatEndpoints()
+    ) {
+        self.transport = transport
+        self.credentials = credentials
+        requests = ChannelRequests(endpoints: endpoints)
         var generator = SystemRandomNumberGenerator()
         requestIdentifier = ChannelIdentifiers.initialRequestIdentifier(using: &generator)
         (events, continuation) = AsyncStream.makeStream(
@@ -148,7 +169,8 @@ public actor ChannelSession {
 
     private func send(_ request: HTTPRequest, then next: () -> Void) async {
         do {
-            let response = try await transport.send(authorised(request))
+            let request = await credentials.authorising(request)
+            let response = try await transport.send(request)
             await absorb(response.headers)
             next()
         } catch {
@@ -158,7 +180,8 @@ public actor ChannelSession {
 
     private func openStream(_ request: HTTPRequest) async {
         do {
-            let stream = try await transport.stream(authorised(request))
+            let request = await credentials.authorising(request)
+            let stream = try await transport.stream(request)
             await absorb(stream.headers)
             apply(.streamOpened(
                 status: stream.status,
@@ -196,20 +219,8 @@ public actor ChannelSession {
 
     // MARK: - Credentials
 
-    /// Puts the *current* jar on the request, not the captured snapshot.
-    private func authorised(_ request: HTTPRequest) -> HTTPRequest {
-        var request = request
-        request.headers = HTTPHeaders(fields:
-            request.headers.fields + [HTTPHeaders.Field(name: "Cookie", value: jar.headerValue)]
-        )
-        return request
-    }
-
     private func absorb(_ headers: HTTPHeaders) async {
-        let before = jar.rotations.count
-        jar.absorb(setCookie: headers.setCookies)
-        guard jar.rotations.count > before, let snapshot = jar.snapshot else { return }
-        await onRotation?(snapshot)
+        await credentials.absorb(headers)
     }
 
     private func nextCacheBuster() -> String {
