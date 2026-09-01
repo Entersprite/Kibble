@@ -3,7 +3,15 @@ import LocalBridgeBackend
 import Observation
 import WebKit
 
-/// Watches the login web view and drains its cookie store.
+/// Watches the login web view, drains its cookie store, and puts the result in
+/// the Keychain.
+///
+/// Deliberately thin. Every decision worth testing - which cookies may be
+/// replayed to Chat, what the report says, how the credential is encoded and
+/// stored - lives in `LocalBridgeBackend`, because the app target is a shell
+/// and because this file cannot be unit-tested: it needs a web view, a Google
+/// account and a Keychain. What is left here is plumbing between three things
+/// that each have their own tests.
 @MainActor
 @Observable
 final class CookieCaptureModel {
@@ -11,9 +19,13 @@ final class CookieCaptureModel {
     private(set) var pageURL = ""
     private(set) var canSave = false
 
+    /// What is already in the Keychain, for the window to show. Refreshed after
+    /// a save so the person sees the thing they just created.
+    private(set) var storedSession: String?
+
     private weak var webView: WKWebView?
-    private var lastReport: CookieCaptureReport?
-    private var lastHeader: String?
+    private var lastCapture: CookieCapture?
+    private let credentials = KeychainCredentialStore()
 
     func attach(_ webView: WKWebView) {
         self.webView = webView
@@ -53,62 +65,70 @@ final class CookieCaptureModel {
         }
     }
 
+    /// Hands every cookie the store held to `CookieCapture`, unfiltered.
+    ///
+    /// Unfiltered on purpose. Deciding *here* which cookies matter is what
+    /// produced the defect this replaces - a `domain.contains("google.com")`
+    /// test that swept `accounts.google.com` credentials and
+    /// `workspace.google.com` analytics into a header meant for Chat. The rule
+    /// belongs somewhere it can be tested against the real inventory, and the
+    /// excluded cookies stay in the report so the next such defect is visible.
     private func record(_ cookies: [HTTPCookie], url: String, title: String) {
-        let relevant = cookies.filter { $0.domain.contains("google.com") }
-        let now = Date()
-        let report = CookieCaptureReport(
-            capturedAt: now,
-            pageURL: url,
-            pageTitle: title,
-            entries: relevant.map { cookie in
-                CookieCaptureReport.Entry(
-                    name: cookie.name,
-                    domain: cookie.domain,
-                    valueLength: cookie.value.count,
-                    isHTTPOnly: cookie.isHTTPOnly,
-                    isSecure: cookie.isSecure,
-                    expiresInDays: cookie.expiresDate.map {
-                        Int($0.timeIntervalSince(now) / 86400)
-                    }
+        let capture = CookieCapture(
+            cookies: cookies.map {
+                CapturedCookie(
+                    name: $0.name,
+                    value: $0.value,
+                    domain: $0.domain,
+                    path: $0.path,
+                    isSecure: $0.isSecure,
+                    isHTTPOnly: $0.isHTTPOnly,
+                    expiresAt: $0.expiresDate
                 )
-            }
+            },
+            capturedAt: Date(),
+            pageURL: url,
+            pageTitle: title
         )
-        lastReport = report
-        // Written on every capture, not only on success: the interesting
-        // report is often the failing one.
-        // Rebuilt in the store's own order and never shown: the report is what
-        // is displayed, and it carries no values.
-        lastHeader = relevant.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
-        canSave = report.hasChatScopedCookies
-
-        status = report.verdict
-        write(report.text, to: "cookie-capture-report.txt")
+        lastCapture = capture
+        canSave = capture.session != nil
+        status = capture.report.verdict
+        write(capture.report.text, to: "cookie-capture-report.txt")
     }
 
-    /// Days until expiry, or `nil` for a session cookie.
+    /// Puts the captured session in the Keychain.
     ///
-    /// Clamped rather than converted directly. `Int(someDouble)` traps on NaN
-    /// and on anything outside `Int`'s range, and a cookie's expiry date is
-    /// data from a server - which is exactly the kind of value that should not
-    /// be able to kill a capture the user just spent a two-factor login on.
-    private static func days(until expiry: Date?, from now: Date) -> Int? {
-        guard let expiry else { return nil }
-        let days = expiry.timeIntervalSince(now) / 86400
-        guard days.isFinite else { return nil }
-        return Int(days.clamped(to: -3_650_000 ... 3_650_000))
+    /// This is what retired `cookie-header.txt`: the credential no longer
+    /// touches the filesystem in plain text. It is still an explicit action
+    /// rather than an automatic one, because overwriting a working session with
+    /// a worse capture is a real way to lose one.
+    func save() {
+        guard let capture = lastCapture else { return }
+        Task { @MainActor in
+            do {
+                let saved = try await capture.save(to: credentials)
+                status = saved
+                    ? "Saved to the Keychain. Relaunch with --backend=local to use it."
+                    : "Nothing to save: no cookie in this capture belongs to Chat."
+                await refreshStoredSession()
+            } catch {
+                // Named rather than swallowed: a Keychain refusal on a
+                // self-signed build reads exactly like "you are not signed in",
+                // and the fix is nothing to do with signing in.
+                status = "Could not save: \(KeychainDiagnosis.explain(error))"
+            }
+        }
     }
 
-    /// Writes the header where `--backend=local` looks for it.
-    ///
-    /// A separate, explicit action because it puts a credential in a file
-    /// rather than the Keychain. That is the developer escape hatch, not the
-    /// product; `CredentialStore` is what replaces it.
-    func saveHeader() {
-        guard let lastHeader else { return }
-        write(lastHeader, to: "cookie-header.txt")
-        status = "Saved. Relaunch with --backend=local to use it."
+    func refreshStoredSession() async {
+        do {
+            storedSession = try await credentials.summary(at: Date())?.description
+        } catch {
+            storedSession = KeychainDiagnosis.explain(error)
+        }
     }
 
+    /// Writes the report - never the credential - beside the app's database.
     private func write(_ contents: String, to name: String) {
         guard let directory = try? FileManager.default.url(
             for: .applicationSupportDirectory,
@@ -122,11 +142,5 @@ final class CookieCaptureModel {
             atomically: true,
             encoding: .utf8
         )
-    }
-}
-
-private extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        min(max(self, range.lowerBound), range.upperBound)
     }
 }

@@ -28,6 +28,10 @@ final class AppEnvironment {
 
     func start() async {
         guard model == nil else { return }
+        if Self.isKeychainCheckRequested {
+            await runKeychainCheck()
+            return
+        }
         do {
             let store = try ChatStore.onDisk(at: Self.databasePath())
             // Before a backend is even chosen: this is a fresh process, so
@@ -35,7 +39,7 @@ final class AppEnvironment {
             // disk last said. SyncEngine.start() does this too, and a launch
             // that fails before reaching it still has to be honest.
             try store.apply([.clearEphemeralState])
-            let selection = try Self.makeBackend()
+            let selection = try await Self.makeBackend()
             let engine = SyncEngine(backend: selection.backend, store: store)
             let model = ChatSessionModel(store: store, engine: engine, me: selection.me)
 
@@ -62,6 +66,32 @@ final class AppEnvironment {
         }
     }
 
+    /// `--probe=keychain`, in the shape `AppNapProbe` established.
+    ///
+    /// Whether a sandboxed app can use the Keychain depends on how it was
+    /// signed rather than on anything in this repository, and the failure is a
+    /// silent `-34018` that reads exactly like "no session stored". Kept rather
+    /// than deleted once it first answered, because the question returns every
+    /// time the signing identity does.
+    static var isKeychainCheckRequested: Bool {
+        CommandLine.arguments.contains("--probe=keychain")
+    }
+
+    private func runKeychainCheck() async {
+        let result = await KeychainCredentialStore.forSelfCheck().selfCheck()
+        startupError = result
+        // Written as well as shown: the window is not readable from a script,
+        // and this is a check somebody runs after changing how the app is
+        // signed.
+        if let directory = try? Self.supportDirectory() {
+            try? result.write(
+                to: directory.appendingPathComponent("keychain-check.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+    }
+
     private struct Selection {
         let backend: any ChatBackend
         let me: Member.ID?
@@ -75,32 +105,32 @@ final class AppEnvironment {
     /// `LocalBridgeBackend`; anything else gets the fixture. Defaulting to the
     /// fixture is deliberate: launching the app must never touch a Google
     /// account by accident.
-    private static func makeBackend() throws -> Selection {
+    private static func makeBackend() async throws -> Selection {
         guard CommandLine.arguments.contains("--backend=local") else {
             let fixture = FakeBackend(world: .acme)
             return Selection(backend: fixture, me: Acme.alex, fixture: fixture)
         }
-        guard let backend = try LocalBridgeBackend.capturing(header: capturedHeader()) else {
-            throw ChatError.notAuthenticated
+        // The session comes from the Keychain, put there by the login window.
+        // There is no longer a file to copy: a live Google session in plain
+        // text inside the container was the developer escape hatch, and this
+        // is what retired it.
+        let backend: LocalBridgeBackend?
+        do {
+            backend = try await LocalBridgeBackend.using(KeychainCredentialStore())
+        } catch {
+            // A Keychain that refuses is not an absent credential, and reporting
+            // it as one would send someone through a two-factor login that
+            // cannot fix it.
+            throw ChatError.unknown(KeychainDiagnosis.explain(error))
+        }
+        guard let backend else {
+            throw ChatError.unknown(
+                "No session in the Keychain. Open the login window and sign in."
+            )
         }
         // Nothing tells us who we are yet - that needs the channel - so no
         // message renders as outgoing. Wrong-looking, and honest.
         return Selection(backend: backend, me: nil, fixture: nil)
-    }
-
-    /// Reads a captured `Cookie` header from inside the sandbox container.
-    ///
-    /// Inside the container on purpose: the app is sandboxed, so a path
-    /// anywhere else is denied, and discovering that at the moment someone
-    /// tries their first real session would be a bad time to learn it. Copy the
-    /// captured header to:
-    /// `~/Library/Containers/com.entersprite.gchat/Data/Library/Application Support/GChat/cookie-header.txt`
-    private static func capturedHeader() throws -> String {
-        let path = try supportDirectory().appendingPathComponent("cookie-header.txt")
-        guard let raw = try? String(contentsOf: path, encoding: .utf8) else {
-            throw ChatError.notAuthenticated
-        }
-        return raw
     }
 
     var sceneState: ChatSceneState {

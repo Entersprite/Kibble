@@ -23,6 +23,7 @@ struct CookieCaptureView: View {
             controls
         }
         .frame(minWidth: 900, minHeight: 700)
+        .task { await model.refreshStoredSession() }
     }
 
     private var controls: some View {
@@ -34,10 +35,18 @@ struct CookieCaptureView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                // The nine-day fuse on COMPASS is what decides how often
+                // somebody signs in again, so it belongs on screen rather than
+                // in a log.
+                if let stored = model.storedSession {
+                    Text("Keychain: \(stored)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
             Button("Capture now") { model.capture() }
-            Button("Save for --backend=local") { model.saveHeader() }
+            Button("Save to Keychain") { model.save() }
                 .disabled(!model.canSave)
         }
         .padding(12)
