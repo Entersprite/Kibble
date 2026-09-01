@@ -19,6 +19,12 @@ final class AppEnvironment {
     private(set) var startupError: String?
 
     private var demo: FixtureDemoDriver?
+    private let probe = AppNapProbe()
+
+    /// For the menu-bar agent, which has no room for a sidebar.
+    var totalUnread: Int {
+        (model?.conversations ?? []).reduce(0) { $0 + $1.unreadCount }
+    }
 
     func start() async {
         guard model == nil else { return }
@@ -35,6 +41,11 @@ final class AppEnvironment {
 
             try await model.start()
             self.model = model
+
+            if AppNapProbe.isRequested {
+                try probe.start(writingTo: Self.supportDirectory()
+                    .appendingPathComponent("appnap-probe.csv"))
+            }
 
             if let fixture = selection.fixture {
                 // The demo world does not move on its own. The driver is what

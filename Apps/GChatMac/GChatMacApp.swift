@@ -1,3 +1,4 @@
+import ChatKit
 import DesignSystem
 import SwiftUI
 
