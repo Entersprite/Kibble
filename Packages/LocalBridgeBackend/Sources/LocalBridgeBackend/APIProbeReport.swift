@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 import URLSessionTransport
@@ -184,6 +185,68 @@ public enum APIProbeReport {
         lines.append(WorldRequestLadder.report(results))
         lines.append("")
         lines.append(verdict(for: results))
+        lines.append("")
+        appendNestedItemShapes(results, lines: &lines)
+        lines.append("")
+        await appendMappingSummary(client: client, lines: &lines)
+    }
+
+    /// §20.4's `[Verify]`: the ladder's own scan is top-level only, so which
+    /// `WorldItemLite` fields are actually populated has never been observed.
+    /// Field numbers, wire types and byte counts - the same vocabulary the
+    /// top-level report already uses, never a value.
+    private static func appendNestedItemShapes(_ results: [WorldRungResult], lines: inout [String]) {
+        lines.append("world_item nested shape (field numbers inside each field-4 entry):")
+        var any = false
+        for result in results {
+            guard !result.worldItemFields.isEmpty else { continue }
+            any = true
+            lines.append("  \(result.label):")
+            for (index, fields) in result.worldItemFields.enumerated() {
+                let rendered = fields
+                    .map { "\($0.number):w\($0.wireType)=\($0.byteCount)B" }
+                    .joined(separator: " ")
+                lines.append("    item \(index + 1): \(rendered.isEmpty ? "(none)" : rendered)")
+            }
+        }
+        if !any {
+            lines.append("  no world_items in any rung")
+        }
+    }
+
+    /// Runs `WorldMapping` over rung 2 - the shape `findings.md` §20.1 proved
+    /// works, and the one `LocalBridgeBackend.loadConversations()` actually
+    /// sends. **Counts only** - never a room name, a member id, a title or
+    /// any other value the mapping produced. A second `/api/` call rather than
+    /// reusing the ladder's own rung-2 bytes: the ladder deliberately never
+    /// keeps a typed message or raw bytes around (`WorldRungResult`'s whole
+    /// contract), and this is the one place in the probe that needs one.
+    private static func appendMappingSummary(client: ProtoAPIClient, lines: inout [String]) async {
+        lines.append("world mapping summary (rung 2):")
+        let rung = WorldRequestLadder.rungs[1]
+        let response: PaginatedWorldResponse
+        do {
+            response = try await client.call(.paginatedWorld, rung.request)
+        } catch {
+            lines.append("  FAILED: \(safeDescription(of: error))")
+            return
+        }
+        let mapped = WorldMapping.map(response)
+        let conversations = mapped.conversations
+        let spaces = conversations.count(where: { $0.kind == .space })
+        lines.append("  conversations: \(conversations.count), skipped: \(mapped.skipped)")
+        lines.append("  spaces: \(spaces), DMs: \(conversations.count - spaces)")
+        lines.append(
+            "  with title: \(conversations.count(where: { $0.title != nil })), "
+                + "with avatar: \(conversations.count(where: { $0.avatarURL != nil }))"
+        )
+        lines.append(
+            "  threaded: \(conversations.count(where: \.isThreaded)), "
+                + "with unread: \(conversations.count(where: { $0.unreadCount > 0 }))"
+        )
+        lines.append(
+            "  total members across all conversations: \(conversations.reduce(0) { $0 + $1.members.count })"
+        )
     }
 
     /// Rung 1 is expected to answer with field 11 and nothing else. A rung that

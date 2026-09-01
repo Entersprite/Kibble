@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 import Testing
