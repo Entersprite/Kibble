@@ -53,6 +53,23 @@ else
     pass "ChatKit imports only Foundation (no sources yet)"
 fi
 
+echo "Core containment (a future iOS binary must carry no protocol code):"
+# LocalBridgeBackend is the ONLY package allowed to import GChatBridgeCore, and
+# the app is not allowed to import it at all. That is the architecture's whole
+# distribution argument: RemoteBackend and an iOS binary link the seam and the
+# store, and contain nothing reverse-engineered. It erodes the moment one file
+# reaches for SessionCookies directly, so it is checked rather than remembered.
+importers=$(grep -rlE '^[[:space:]]*import[[:space:]]+(GChatBridgeCore|URLSessionTransport)\b' \
+              Apps Packages --include='*.swift' 2>/dev/null \
+            | grep -v '^Packages/GChatBridgeCore/' \
+            | grep -v '^Packages/LocalBridgeBackend/' || true)
+if [ -n "$importers" ]; then
+    note "GChatBridgeCore is imported outside LocalBridgeBackend"
+    printf '%s\n' "$importers" | sed 's/^/         /' >&2
+else
+    pass "only LocalBridgeBackend imports the reverse-engineered core"
+fi
+
 echo "Reducer purity (the bridge server runs this file verbatim):"
 # The architecture's condition for read state and history not drifting into two
 # sources of truth is that the server reduces events with THIS reducer rather

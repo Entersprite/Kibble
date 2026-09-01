@@ -16,10 +16,10 @@ configFiles:
   Debug: Config/Base.xcconfig
   Release: Config/Base.xcconfig
 
-# One local package per library. The app target links only what it assembles:
-# the domain, the store, the views, and - for now - the fixture backend. It does
-# NOT link GChatBridgeCore, because nothing reverse-engineered is wired up yet;
-# adding it is what Phase 3 does.
+# One local package per library. The app links the domain, the store, the views,
+# and both backends it can select at launch. GChatBridgeCore arrives only
+# through LocalBridgeBackend, never directly - that containment is what lets a
+# future iOS binary link RemoteBackend and contain no protocol code at all.
 packages:
   ChatKit:
     path: Packages/ChatKit
@@ -29,6 +29,11 @@ packages:
     path: Packages/DesignSystem
   FixtureBackend:
     path: Packages/FixtureBackend
+  # The only package that links GChatBridgeCore. Present so the reverse-
+  # engineered core is exercised in a real app target - the architecture's
+  # spike 3 - and reachable at runtime only behind --backend=local.
+  LocalBridgeBackend:
+    path: Packages/LocalBridgeBackend
 
 targets:
   GChatMac:
@@ -45,6 +50,8 @@ targets:
         product: DesignSystem
       - package: FixtureBackend
         product: FixtureBackend
+      - package: LocalBridgeBackend
+        product: LocalBridgeBackend
     settings:
       base:
         PRODUCT_NAME: GChat

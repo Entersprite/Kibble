@@ -47,8 +47,13 @@ public enum StoreWrite: Sendable, Equatable {
     /// and a string cannot be switched on. `nil` clears it.
     case setLastError(ChatError?)
 
-    /// Drops everything that is a claim about *now* - typing, and presence.
-    /// Issued at startup, not by the reducer: restoring "Maya is typing" from
-    /// three days ago is a bug, not a cache hit.
+    /// Drops everything that is a claim about *now*: typing, presence, the
+    /// connection state and the last error.
+    ///
+    /// Issued at startup, not by the reducer. Restoring "Maya is typing" from
+    /// three days ago is a bug rather than a cache hit - and so is a fresh
+    /// process showing "connected" because that is what the database said when
+    /// it was last written. Found by launching the app against a backend that
+    /// could not authenticate and watching it claim to be connected.
     case clearEphemeralState
 }

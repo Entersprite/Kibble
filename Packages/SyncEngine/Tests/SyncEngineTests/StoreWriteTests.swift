@@ -258,15 +258,19 @@ struct StoreWriteTests {
         #expect(try store.lastError() == nil)
     }
 
-    /// Typing and presence are claims about *now*. Restoring them from disk
-    /// would show someone typing a message they finished three days ago.
-    @Test func clearingEphemeralStateDropsTypingAndPresenceAndNothingElse() throws {
+    /// Typing, presence, the connection state and the last error are all
+    /// claims about *now*. Restoring them from disk would show someone typing a
+    /// message they finished three days ago - or, as an actual launch did,
+    /// report a connection that does not exist.
+    @Test func clearingEphemeralStateDropsWhatWasOnlyTrueBefore() throws {
         let store = try store()
         try store.apply([
             .upsertConversation(conversation(space)),
             .upsertMembers([Member(id: alice, kind: .human, displayName: "Alice")]),
             .setPresence(member: alice, presence: .active),
             .setTyping(conversation: space, member: alice, isTyping: true),
+            .setConnectionState(.connected),
+            .setLastError(.sessionExpired),
             .upsertMessage(message("msg:1", in: space, at: at))
         ])
 
@@ -274,6 +278,21 @@ struct StoreWriteTests {
 
         #expect(try store.typingMembers(in: space).isEmpty)
         #expect(try store.members().first?.presence == nil)
+        #expect(try store.connectionState() == .idle)
+        #expect(try store.lastError() == nil)
+    }
+
+    /// The durable half must survive it, or "clear what is stale" quietly
+    /// becomes "wipe the cache".
+    @Test func clearingEphemeralStateKeepsEverythingDurable() throws {
+        let store = try store()
+        try store.apply([
+            .upsertConversation(conversation(space)),
+            .upsertMembers([Member(id: alice, kind: .human, displayName: "Alice")]),
+            .upsertMessage(message("msg:1", in: space, at: at)),
+            .clearEphemeralState
+        ])
+
         #expect(try store.members().count == 1)
         #expect(try store.conversations().count == 1)
         #expect(try store.messages(in: space).count == 1)

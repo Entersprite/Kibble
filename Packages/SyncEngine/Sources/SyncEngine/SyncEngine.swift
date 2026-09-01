@@ -17,6 +17,12 @@ public actor SyncEngine {
     private let store: ChatStore
     private var consumer: Task<Void, Never>?
 
+    /// What the backend behind this engine can do. Forwarded rather than
+    /// copied, so it cannot drift from the thing that enforces it.
+    public nonisolated var capabilities: Capabilities {
+        backend.capabilities
+    }
+
     public init(backend: any ChatBackend, store: ChatStore) {
         self.backend = backend
         self.store = store

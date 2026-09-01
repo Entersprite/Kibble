@@ -33,6 +33,11 @@ public final class ChatSessionModel {
     /// supplies it.
     public let me: Member.ID?
 
+    /// Forwarded from the backend so a view can degrade without meeting one.
+    public var capabilities: Capabilities {
+        engine.capabilities
+    }
+
     private let store: ChatStore
     private let engine: SyncEngine
     private var watchers: [Task<Void, Never>] = []

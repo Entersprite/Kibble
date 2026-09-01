@@ -16,6 +16,12 @@ public struct ChatSceneState: Sendable, Equatable {
     public var connection: ConnectionState
     public var lastError: ChatError?
 
+    /// What the backend behind all this can actually do. The window reads it
+    /// rather than assuming, which is the entire reason `Capabilities` exists:
+    /// offering an action a backend cannot perform is worse than not offering
+    /// it.
+    public var capabilities: Capabilities
+
     public init(
         conversations: [Conversation] = [],
         directory: [Member.ID: Member] = [:],
@@ -24,7 +30,8 @@ public struct ChatSceneState: Sendable, Equatable {
         messages: [Message] = [],
         typing: [Member.ID] = [],
         connection: ConnectionState = .idle,
-        lastError: ChatError? = nil
+        lastError: ChatError? = nil,
+        capabilities: Capabilities = Capabilities()
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -34,6 +41,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.typing = typing
         self.connection = connection
         self.lastError = lastError
+        self.capabilities = capabilities
     }
 
     public var selectedConversation: Conversation? {

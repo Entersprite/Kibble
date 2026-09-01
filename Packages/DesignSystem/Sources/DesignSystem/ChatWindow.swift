@@ -26,14 +26,25 @@ public struct ChatWindow: View {
                     MessageList(state: state)
                     TypingStrip(state: state)
                     Divider()
-                    Composer(
-                        placeholder: Display.title(
-                            of: conversation,
-                            directory: state.directory,
-                            me: state.me
-                        ),
-                        send: actions.send
-                    )
+                    if state.capabilities.canSendMessages {
+                        Composer(
+                            placeholder: Display.title(
+                                of: conversation,
+                                directory: state.directory,
+                                me: state.me
+                            ),
+                            send: actions.send
+                        )
+                    } else {
+                        // Not a disabled field: a greyed-out composer invites
+                        // the user to keep clicking it. Saying why is kinder.
+                        Text("This backend cannot send messages yet.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                    }
                 } else {
                     ContentUnavailableView(
                         "Pick a conversation",
