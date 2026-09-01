@@ -54,6 +54,41 @@ struct APIResponseBodyTests {
         #expect(APIResponseBody.looksBase64(Data("CAMS/w==".utf8)) == true)
     }
 
+    /// §3.6 is why this file exists: an assumption about the wire format
+    /// turned out wrong, so on an encoding shape not yet observed live,
+    /// tolerating it is the correct side to be wrong on. A trailing newline is
+    /// a plausible shape for a base64 body - not a corner case - and must not
+    /// disqualify it: measured, `Data(base64Encoded:)` rejects it outright
+    /// with the default options.
+    @Test func aTrailingNewlineDoesNotDisqualifyABase64Body() {
+        let withTrailingNewline = Data((binary.base64EncodedString() + "\n").utf8)
+        let candidates = APIResponseBody.candidates(withTrailingNewline)
+        #expect(candidates.first?.encoding == .base64)
+        #expect(candidates.first?.bytes == binary)
+    }
+
+    /// MIME base64 conventionally wraps at 76 columns, so a body broken across
+    /// lines is a plausible shape a real response could take, not a corner
+    /// case invented for coverage.
+    @Test func lineWrappedBase64IsStillRecognised() {
+        let wrapped = Data("CAMS\nAmhp".utf8)
+        let candidates = APIResponseBody.candidates(wrapped)
+        #expect(candidates.first?.encoding == .base64)
+        #expect(candidates.first?.bytes == binary)
+    }
+
+    /// The boundary this fix must not cross: stripping whitespace before the
+    /// length check must not let an otherwise-invalid raw body slip past the
+    /// alphabet check just because removing a newline happens to leave a
+    /// multiple of four bytes behind. "CAM" plus a byte outside the alphabet,
+    /// with a newline spliced in - after stripping, four bytes remain, so only
+    /// the alphabet check (not the length check) can catch the invalid byte.
+    @Test func rawBinaryContainingANewlineByteIsStillNotMisreadAsBase64() {
+        let withNewlineByte = Data([0x43, 0x41, 0x0A, 0x4D, 0x00])
+        #expect(APIResponseBody.looksBase64(withNewlineByte) == false)
+        #expect(APIResponseBody.candidates(withNewlineByte).map(\.encoding) == [.raw])
+    }
+
     @Test func anEmptyBodyOffersNothing() {
         #expect(APIResponseBody.candidates(Data()).isEmpty)
     }
