@@ -16,27 +16,41 @@ configFiles:
   Debug: Config/Base.xcconfig
   Release: Config/Base.xcconfig
 
+# One local package per library. The app target links only what it assembles:
+# the domain, the store, the views, and - for now - the fixture backend. It does
+# NOT link GChatBridgeCore, because nothing reverse-engineered is wired up yet;
+# adding it is what Phase 3 does.
 packages:
-  GChatKit:
-    path: Packages/GChatKit
+  ChatKit:
+    path: Packages/ChatKit
+  SyncEngine:
+    path: Packages/SyncEngine
+  DesignSystem:
+    path: Packages/DesignSystem
+  FixtureBackend:
+    path: Packages/FixtureBackend
 
 targets:
-  GChat:
+  GChatMac:
     type: application
     platform: macOS
     sources:
-      - path: App
+      - path: Apps/GChatMac
     dependencies:
-      - package: GChatKit
-        product: ChatUI
-      - package: GChatKit
-        product: ChatAuth
+      - package: ChatKit
+        product: ChatKit
+      - package: SyncEngine
+        product: SyncEngine
+      - package: DesignSystem
+        product: DesignSystem
+      - package: FixtureBackend
+        product: FixtureBackend
     settings:
       base:
         PRODUCT_NAME: GChat
         PRODUCT_BUNDLE_IDENTIFIER: com.entersprite.gchat
-        INFOPLIST_FILE: App/Info.plist
-        CODE_SIGN_ENTITLEMENTS: App/GChat.entitlements
+        INFOPLIST_FILE: Apps/GChatMac/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Apps/GChatMac/GChatMac.entitlements
         CODE_SIGN_IDENTITY: $(GCHAT_SIGN_IDENTITY)
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         DEAD_CODE_STRIPPING: YES
@@ -59,10 +73,10 @@ targets:
           ENABLE_HARDENED_RUNTIME: YES
 
 schemes:
-  GChat:
+  GChatMac:
     build:
       targets:
-        GChat: all
+        GChatMac: all
     run:
       config: Debug
     archive:

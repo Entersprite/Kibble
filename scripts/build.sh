@@ -8,7 +8,7 @@ DEV_IDENTITY="GChat Dev"
 
 args=(
     -project GChat.xcodeproj
-    -scheme GChat
+    -scheme GChatMac
     -configuration "$CONFIG"
     -destination "platform=macOS"
     -derivedDataPath DerivedData

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sandboxed from the start. Turning it on later, once a WKWebView is
+	     capturing cookies and a database is on disk, means discovering every
+	     path problem at once. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- The bridge talks to chat.google.com. Nothing needs it yet - the
+	     fixture backend has no network - but the app it is becoming does. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

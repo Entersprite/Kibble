@@ -66,9 +66,28 @@ public actor SyncEngine {
     }
 }
 
+// MARK: - Sending
+
+public extension SyncEngine {
+    /// Submits a command, recording a refusal where the UI can see it.
+    ///
+    /// `ChatBackend.send(_:)` throws only when a command could not be
+    /// submitted - not connected, or a capability the backend does not have -
+    /// and both are things a person should be told about rather than a silent
+    /// no-op. The command's *outcome* arrives as an event, like everything
+    /// else.
+    func submit(_ command: ChatCommand) async {
+        do {
+            try await backend.send(command)
+        } catch {
+            record(error)
+        }
+    }
+}
+
 // MARK: - The loop
 
-private extension SyncEngine {
+extension SyncEngine {
     func handle(_ event: ChatEvent) async {
         let reduction = SyncReducer.reduce(event)
         do {
