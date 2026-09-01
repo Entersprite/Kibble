@@ -148,7 +148,7 @@ public enum WorldRequestLadder {
     private static func runOne(_ rung: Rung, with client: ProtoAPIClient) async -> WorldRungResult {
         do {
             let body: Data = try rung.request.serializedBytes()
-            let raw = try await client.callRaw("paginated_world", body: body)
+            let raw = try await client.callRaw(APIMethod.paginatedWorld.name, body: body)
             // Untyped on purpose: a typed decode drops the fields the vendored
             // proto cannot name, which is exactly what this is looking for.
             let candidates = APIResponseBody.candidates(raw.body)
@@ -210,7 +210,12 @@ public enum WorldRequestLadder {
         }
         let status = result.status.map(String.init) ?? "-"
         let encoding = result.encoding?.rawValue ?? "-"
-        parts.append("    HTTP \(status), \(result.byteCount) bytes, \(encoding)")
+        // "wire bytes", not "bytes": `result.byteCount` is the length of the
+        // raw HTTP body, and `encoding` may say `base64` - in which case the
+        // decoded protobuf is roughly 3/4 of this number. A reader pasting
+        // this line into `findings.md` would otherwise take it as the
+        // protobuf's own size.
+        parts.append("    HTTP \(status), \(result.byteCount) wire bytes, \(encoding)")
         let fields = result.fields
             .map { "\($0.number):w\($0.wireType)=\($0.byteCount)B" }
             .joined(separator: " ")

@@ -163,6 +163,54 @@ struct APIProbeReportTests {
         #expect(!text.contains("SECRET-COOKIE-VALUE-DO-NOT-LEAK"))
     }
 
+    // MARK: - Cookie rotation reaches the store
+
+    /// `findings.md` §12.3: the `*SIDCC` family rotates on essentially every
+    /// request, and this probe makes six of them. Without an `onRotation`
+    /// callback wired to the same `store` it was given, the probe would finish
+    /// having caused several rotations server-side while leaving the Keychain
+    /// holding the pre-probe credential - staler than what the user started
+    /// with, on the account the app depends on.
+    ///
+    /// The rotation is carried on the `get_self_user_status` response rather
+    /// than the bootstrap one: `Bootstrap.run` sends a static `Cookie` header
+    /// and never absorbs `Set-Cookie` (it holds no `SessionCredentials`),
+    /// while `ProtoAPIClient.callRaw` does - the same absorption path
+    /// `ChannelSession` uses.
+    @Test func aRotationDuringTheProbeReachesTheStore() async throws {
+        let storage = FakeSecretStorage()
+        let credentialStore = store(storage)
+        try await credentialStore.store(storedSession())
+        let capturedAt = try #require(try await credentialStore.currentSession()).capturedAt
+
+        var rotatedStatusResponse = try selfStatusResponse()
+        rotatedStatusResponse.headers = HTTPHeaders([
+            ("Set-Cookie", "SID=SECRET-COOKIE-VALUE-ROTATED; Path=/")
+        ])
+        let responses: [Result<HTTPResponse, any Error>] = [
+            .success(shell(app: "DynamiteWebUi")),
+            .success(rotatedStatusResponse),
+            // The ladder rungs are irrelevant to this test and are left to
+            // fail - the rotation already happened on the call above, and a
+            // failing rung must not undo it.
+            .failure(Boom()),
+            .failure(Boom()),
+            .failure(Boom()),
+            .failure(Boom())
+        ]
+        _ = await APIProbeReport.run(
+            store: credentialStore,
+            transport: ScriptedTransport(responses),
+            endpoints: ChatEndpoints()
+        )
+
+        let stored = try #require(try await credentialStore.currentSession())
+        #expect(stored.credential["SID"] == "SECRET-COOKIE-VALUE-ROTATED")
+        // The same session continuing, not a new one: rotation must not reset
+        // the clock the nine-day `COMPASS` fuse is measured against.
+        #expect(stored.capturedAt == capturedAt)
+    }
+
     // MARK: - Leak tests for each error path
 
     //

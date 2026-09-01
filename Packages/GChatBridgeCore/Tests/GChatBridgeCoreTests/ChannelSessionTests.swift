@@ -175,6 +175,64 @@ struct ChannelSessionTests {
         #expect(handshake.headers["Cookie"] == "COMPASS=grown")
     }
 
+    // MARK: - Sharing a credential
+
+    /// `init(credentials:transport:endpoints:)` exists so the channel and the
+    /// `/api/` client can share one jar (`findings.md` §12.3) instead of each
+    /// holding a copy that goes stale within seconds - see the doc comment on
+    /// the initialiser itself. Nothing before this test called it, in sources
+    /// or in tests, so nothing pinned that a session built this way actually
+    /// authorises its requests with the shared credential rather than some
+    /// private state of its own.
+    @Test func aSessionBuiltFromSharedCredentialsWritesItsRotationsBackToTheSharedJar() async {
+        let credentials = SessionCredentials(cookies())
+        let transport = FakeHTTPTransport(
+            responses: [ok(["COMPASS=grown; Path=/"]), ok()],
+            streams: [handshakeStream(chunks: [])]
+        )
+        let session = ChannelSession(
+            credentials: credentials,
+            transport: transport,
+            endpoints: ChatEndpoints()
+        )
+        await session.start()
+        _ = await collect(session)
+
+        let sent = await transport.sent
+        // The first request, sent before any response has arrived, carries
+        // the credential's starting value.
+        #expect(sent.first?.headers["Cookie"] == "COMPASS=old")
+        // This initialiser takes no `onRotation` (unlike `init(cookies:...)`)
+        // because none is needed: the rotation the channel absorbed is
+        // visible on the *shared* `credentials` instance itself, the same way
+        // a second consumer such as `ProtoAPIClient` would read it.
+        #expect(await credentials.header() == "COMPASS=grown")
+    }
+
+    /// The other direction of the same property: a rotation another consumer
+    /// absorbed into the shared instance - before this channel ever opened -
+    /// must be what the channel authorises with, not the value the credential
+    /// happened to hold at construction.
+    @Test func aSessionBuiltFromSharedCredentialsSeesARotationMadeByAnotherConsumer() async {
+        let credentials = SessionCredentials(cookies())
+        await credentials.absorb(HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]))
+
+        let transport = FakeHTTPTransport(
+            responses: [ok(), ok()],
+            streams: [handshakeStream(chunks: [])]
+        )
+        let session = ChannelSession(
+            credentials: credentials,
+            transport: transport,
+            endpoints: ChatEndpoints()
+        )
+        await session.start()
+        _ = await collect(session)
+
+        let sent = await transport.sent
+        #expect(sent.first?.headers["Cookie"] == "COMPASS=grown")
+    }
+
     // MARK: - Stopping
 
     @Test func aNonOKHandshakeEndsTheSessionWithTheReason() async {

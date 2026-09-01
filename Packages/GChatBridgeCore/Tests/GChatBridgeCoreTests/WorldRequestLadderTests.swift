@@ -105,6 +105,6 @@ struct WorldRequestLadderTests {
         let text = WorldRequestLadder.report(results)
         #expect(text.contains("11"))
         #expect(text.contains("200"))
-        #expect(text.contains("2 bytes"))
+        #expect(text.contains("2 wire bytes"))
     }
 }

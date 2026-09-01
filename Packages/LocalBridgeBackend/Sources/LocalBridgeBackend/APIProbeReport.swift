@@ -44,7 +44,7 @@ public enum APIProbeReport {
             return lines.joined(separator: "\n")
         }
         guard let bootstrapped = await appendBootstrap(
-            cookies: cookies, transport: transport, endpoints: endpoints, lines: &lines
+            cookies: cookies, store: store, transport: transport, endpoints: endpoints, lines: &lines
         ) else {
             return lines.joined(separator: "\n")
         }
@@ -92,11 +92,22 @@ public enum APIProbeReport {
     /// been appended.
     private static func appendBootstrap(
         cookies: SessionCookies,
+        store: KeychainCredentialStore,
         transport: any HTTPTransport,
         endpoints: ChatEndpoints,
         lines: inout [String]
     ) async -> (wiz: WizGlobalData, credentials: SessionCredentials)? {
-        let credentials = SessionCredentials(cookies)
+        // Same convention as `LocalBridgeBackend.using(_:transport:)` in
+        // `SessionHandoff.swift`: the six live requests this probe makes rotate
+        // the `*SIDCC` family on essentially every one of them (`findings.md`
+        // §12.3), and a rotation not written back leaves the Keychain holding a
+        // staler credential than the one the probe started with. `capturedAt`
+        // and `expiresAt` are not refreshed - a rotation is the same session
+        // continuing, not a new sign-in, and refreshing them would make the
+        // nine-day `COMPASS` fuse look like it never burned down.
+        let credentials = SessionCredentials(cookies, onRotation: { rotated in
+            try? await store.replaceCredential(with: rotated)
+        })
         let wiz: WizGlobalData
         do {
             wiz = try await Bootstrap(transport: transport).run(
