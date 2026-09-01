@@ -50,6 +50,12 @@ enum Probe {
                 let wiz = try await Bootstrap(transport: transport)
                     .run(cookies: cookies, endpoints: endpoints)
                 print("  \(wiz)")
+                await runAPILadderIfRequested(
+                    wiz: wiz,
+                    cookies: cookies,
+                    endpoints: endpoints,
+                    transport: transport
+                )
                 if wiz.isSignedIn {
                     print("\nSIGNED IN — the Swift stack reached Chat and was accepted.")
                     print("criterion 1 (bootstrap) in Swift: PASS")
@@ -66,6 +72,15 @@ enum Probe {
             }
         }
 
+        printNotSignedInHelp()
+        exit(1)
+    }
+
+    /// The diagnosis printed once every account shape has failed. Its own
+    /// function rather than inline in `main()`, which is already the whole
+    /// connect sequence - `swiftlint`'s `function_body_length` is a real
+    /// signal that a growing block of explanation belongs elsewhere.
+    static func printNotSignedInHelp() {
         print("")
         print("NOT SIGNED IN under any account shape tried.")
         print("")
@@ -85,7 +100,6 @@ enum Probe {
         print("")
         print("A wrong account index fails identically to bad credentials:")
         print("try GCHAT_ACCOUNT_INDEX=1 (or =none).")
-        exit(1)
     }
 
     /// Writes the raw shell to a file, when `GCHAT_DUMP_SHELL` names one.
@@ -120,6 +134,33 @@ enum Probe {
         } catch {
             print("  dump failed: \(error)")
         }
+    }
+
+    /// The `/api/` ladder, run only when `--api` is on the command line and
+    /// the bootstrap actually reported a signed-in session - sending it
+    /// against a signed-out shell would answer nothing but "as expected,
+    /// nothing".
+    ///
+    /// Its own function rather than inline in `main()` partly for the same
+    /// reason `dumpShellIfRequested` is: `main()` is already the whole connect
+    /// sequence, and `swiftlint`'s `function_body_length` is a real signal that
+    /// a growing branch belongs elsewhere.
+    static func runAPILadderIfRequested(
+        wiz: WizGlobalData,
+        cookies: SessionCookies,
+        endpoints: ChatEndpoints,
+        transport: any HTTPTransport
+    ) async {
+        guard wiz.isSignedIn, CommandLine.arguments.contains("--api") else { return }
+        let client = ProtoAPIClient(
+            transport: transport,
+            endpoints: endpoints,
+            credentials: SessionCredentials(cookies),
+            xsrfToken: wiz.xsrfToken
+        )
+        print("\n--- /api/ ladder ---")
+        let results = await WorldRequestLadder.run(WorldRequestLadder.rungs, with: client)
+        print(WorldRequestLadder.report(results))
     }
 
     // MARK: - Input

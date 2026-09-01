@@ -32,6 +32,10 @@ final class AppEnvironment {
             await runKeychainCheck()
             return
         }
+        if Self.isAPIProbeRequested {
+            await runAPIProbe()
+            return
+        }
         do {
             let store = try ChatStore.onDisk(at: Self.databasePath())
             // Before a backend is even chosen: this is a fresh process, so
@@ -86,6 +90,31 @@ final class AppEnvironment {
         if let directory = try? Self.supportDirectory() {
             try? result.write(
                 to: directory.appendingPathComponent("keychain-check.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+    }
+
+    /// The `/api/` probe. Same reasoning as the Keychain check: it answers a
+    /// question that returns, and it needs the real credential rather than a
+    /// hand-pasted header.
+    static var isAPIProbeRequested: Bool {
+        CommandLine.arguments.contains("--probe=api")
+    }
+
+    private func runAPIProbe() async {
+        // No arguments: the defaults supply the Keychain store and the live
+        // transport, so the app names no core type. Same shape as
+        // `LocalBridgeBackend.using(_:transport:)` at SessionHandoff.swift:77.
+        let report = await APIProbeReport.run()
+        startupError = report
+        // Written as well as shown, for the same reason the Keychain check is:
+        // the window is not readable from a script, and this report is meant to
+        // be pasted into findings.md.
+        if let directory = try? Self.supportDirectory() {
+            try? report.write(
+                to: directory.appendingPathComponent("api-probe.txt"),
                 atomically: true,
                 encoding: .utf8
             )
