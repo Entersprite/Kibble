@@ -51,6 +51,11 @@ let package = Package(
         .testTarget(
             name: "GChatBridgeCoreTests",
             dependencies: ["GChatBridgeCore"],
+            // The redacted captures. Declared so they reach the test bundle,
+            // and so SwiftPM stops warning about an unhandled directory. They
+            // are data, not sources. `Fixtures/raw/` is gitignored and must
+            // never appear here.
+            resources: [.copy("Fixtures/shape")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
