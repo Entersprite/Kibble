@@ -10,7 +10,8 @@ public struct ProtoField: Sendable, Hashable {
     /// 0 varint, 1 fixed64, 2 length-delimited, 5 fixed32.
     public let wireType: Int
 
-    /// Payload size in bytes, excluding the tag.
+    /// Payload size in bytes, excluding the tag - and, for a length-delimited
+    /// field (wire type 2), excluding its length-prefix varint too.
     public let byteCount: Int
 
     public init(number: Int, wireType: Int, byteCount: Int) {

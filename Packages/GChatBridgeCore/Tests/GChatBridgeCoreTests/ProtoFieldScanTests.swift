@@ -52,9 +52,15 @@ struct ProtoFieldScanTests {
     /// The §4 lesson, in a different codec: a wrong width does not fail at the
     /// mistake, it desynchronises everything after it. Stopping is the only safe
     /// move, and saying so is what stops a partial read looking complete.
+    ///
+    /// The trailing bytes matter: a fixture that happens to be followed by an
+    /// invalid tag would still read `truncated == true` even if the scanner
+    /// wrongly kept going, because that next tag independently fails. Field
+    /// 1 varint 3; tag 0x13 = field 2 wire type 3 (deprecated group start,
+    /// unreadable); then 0x08 0x05, which a scanner that wrongly continued
+    /// would read as a second, valid-looking field.
     @Test func anUnknownWireTypeStopsTheScanAndSaysSo() {
-        // Field 1 varint 3, then field 2 wire type 3 (deprecated group start).
-        let scan = ProtoFieldScan.fields(in: Data([0x08, 0x03, 0x13, 0x00]))
+        let scan = ProtoFieldScan.fields(in: Data([0x08, 0x03, 0x13, 0x08, 0x05]))
         #expect(scan.truncated == true)
         #expect(scan.fields == [ProtoField(number: 1, wireType: 0, byteCount: 1)])
     }
@@ -77,6 +83,38 @@ struct ProtoFieldScanTests {
     @Test func anEmptyBodyScansCleanlyAsNothing() {
         let scan = ProtoFieldScan.fields(in: Data())
         #expect(scan.truncated == false)
+        #expect(scan.fields.isEmpty)
+    }
+
+    /// A tag varint ten bytes long, every byte carrying the continuation bit,
+    /// exceeds the 64-bit `shift >= 64` guard. An off-by-one here would still
+    /// pass every other test in this file, since none of them drive a varint
+    /// anywhere near that wide.
+    @Test func aTagVarintWiderThanSixtyFourBitsIsTruncated() {
+        let scan = ProtoFieldScan.fields(in: Data(repeating: 0x80, count: 10))
+        #expect(scan.truncated == true)
+        #expect(scan.fields.isEmpty)
+    }
+
+    /// Real captures arrive as slices of a larger buffer, not fresh `Data`
+    /// starting at index 0 - this is the same bug class as §4's chunk framing.
+    /// The implementation uses `distance(from:to:)` and `index(_:offsetBy:)`
+    /// rather than integer arithmetic on indices specifically so this holds;
+    /// a slice must scan identically to the equivalent standalone `Data`.
+    @Test func aSliceWithANonZeroStartIndexScansIdenticallyToFreshData() {
+        let sliced = Data([0xFF, 0xFF, 0x08, 0x03])[2...]
+        let unsliced = Data([0x08, 0x03])
+        #expect(ProtoFieldScan.fields(in: sliced) == ProtoFieldScan.fields(in: unsliced))
+    }
+
+    /// A length-delimited field whose declared length varint is near
+    /// `UInt64.max` must report truncated rather than trapping when the
+    /// scanner tries to work with it as an `Int`. Covers the `Int(exactly:)`
+    /// path in the wire-type-2 branch.
+    @Test func aHugeDeclaredLengthIsTruncatedRatherThanTrapping() {
+        // Field 2, wire type 2, then a length varint encoding UInt64.max.
+        let scan = ProtoFieldScan.fields(in: Data([0x12]) + Data(repeating: 0xFF, count: 9) + Data([0x01]))
+        #expect(scan.truncated == true)
         #expect(scan.fields.isEmpty)
     }
 }
