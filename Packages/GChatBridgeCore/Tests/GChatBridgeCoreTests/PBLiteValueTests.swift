@@ -65,4 +65,35 @@ struct PBLiteValueTests {
         #expect(!PBLiteValue.bool(false).isTrivial)
         #expect(!PBLiteValue.null.isTrivial)
     }
+
+    // MARK: - Reading an integer out
+
+    /// The channel's `aid` is an integer used to build the next request's
+    /// `AID` parameter, so it needs an accessor that refuses anything else
+    /// rather than one that rounds.
+    @Test func anIntegerNumberReadsAsAnInt() {
+        #expect(PBLiteValue.number(.integer(7)).intValue == 7)
+        #expect(PBLiteValue.number(.unsigned(7)).intValue == 7)
+    }
+
+    /// JSON draws no distinction between `1` and `1.0`, and a serialiser may
+    /// hand back either for the same wire bytes.
+    @Test func aWholeDoubleReadsAsAnInt() {
+        #expect(PBLiteValue.number(.double(7.0)).intValue == 7)
+    }
+
+    @Test func aFractionalNumberIsNotAnInt() {
+        #expect(PBLiteValue.number(.double(7.5)).intValue == nil)
+    }
+
+    @Test func aNumberTooLargeForIntIsNotAnInt() {
+        #expect(PBLiteValue.number(.unsigned(UInt64.max)).intValue == nil)
+    }
+
+    @Test func nothingElseReadsAsAnInt() {
+        #expect(PBLiteValue.string("7").intValue == nil)
+        #expect(PBLiteValue.bool(true).intValue == nil)
+        #expect(PBLiteValue.null.intValue == nil)
+        #expect(PBLiteValue.array([]).intValue == nil)
+    }
 }

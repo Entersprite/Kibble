@@ -124,6 +124,29 @@ public extension PBLiteValue {
         return text
     }
 
+    /// The value as an `Int`, or `nil` if it is not exactly one.
+    ///
+    /// Exactly, in both directions: a fractional double is not an integer, and
+    /// a value outside `Int`'s range is not one either. `Int(exactly:)` rather
+    /// than a truncating conversion because the caller that wants this is
+    /// building a request parameter out of it — the channel's `aid` — and an
+    /// `AID` quietly rounded is a client that replays or skips events without
+    /// ever reporting a failure.
+    ///
+    /// A whole `Double` counts. JSON draws no distinction between `1` and
+    /// `1.0`, so refusing the second would make the answer depend on which
+    /// serialiser produced the tree.
+    var intValue: Int? {
+        guard case let .number(number) = self else {
+            return nil
+        }
+        switch number {
+        case let .integer(value): return Int(exactly: value)
+        case let .unsigned(value): return Int(exactly: value)
+        case let .double(value): return Int(exactly: value)
+        }
+    }
+
     /// True for the three values upstream considers "trivial" and therefore not
     /// worth reporting when they land on an unknown field number
     /// (`value not in [[], "", 0]`, pblite.py:114).
