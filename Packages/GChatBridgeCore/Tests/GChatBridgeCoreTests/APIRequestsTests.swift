@@ -30,6 +30,16 @@ struct APIRequestsTests {
         #expect(request.headers["X-Goog-Encode-Response-If-Executable"] == "base64")
     }
 
+    /// Unlike `ChannelRequests` (the long-poll family), `findings.md` §3.6's
+    /// captured `/api/` header list has no referer, and neither does
+    /// `client.py:598-668`'s `_base_request`. A referer crept in here once by
+    /// analogy with the channel; this pins its absence so it cannot return
+    /// unnoticed.
+    @Test func thereIsNoRefererUnlikeTheChannelFamily() {
+        let request = requests.request(method: "m", counter: 1, body: Data(), xsrfToken: nil)
+        #expect(request.headers["referer"] == nil)
+    }
+
     /// Chat answers a request without a browser User-Agent with HTTP 200 and its
     /// unsupported-browser page - authenticated, and non-functional, with no
     /// clue in the status. §15.3 says that applies to every later request, not

@@ -21,8 +21,6 @@ public struct APIRequests: Sendable {
     /// stops being valid, that should be one edit.
     public static let defaultAPIKey = "AIzaSyD7InnYR3VKdb4j2rMUEbTCIr2VyEazl6k"
 
-    static let referer = "https://chat.google.com/"
-
     /// An `/api/` call is a request/response, not a long poll. The default 70
     /// seconds exists for a poll that is *meant* to hang, and inheriting it here
     /// would turn a dead endpoint into a 70-second stall.
@@ -60,7 +58,6 @@ public struct APIRequests: Sendable {
             // Sent anyway, because it is what the reference sends and what the
             // verified run sent; the decoder accepts both encodings.
             ("X-Goog-Encode-Response-If-Executable", "base64"),
-            ("referer", Self.referer),
             // Chat gates on this and answers a rejection with HTTP 200 plus its
             // unsupported-browser page (§15.3). Every request, not just the
             // bootstrap.
