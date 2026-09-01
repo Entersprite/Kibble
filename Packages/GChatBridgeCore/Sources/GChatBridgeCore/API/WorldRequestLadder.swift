@@ -14,6 +14,15 @@ public struct WorldRungResult: Sendable, Hashable {
     public let truncated: Bool
     public let failure: String?
 
+    /// Field numbers found **inside** each `world_items` (field 4) entry, one
+    /// array per item, in response order. Never the raw bytes: `findings.md`
+    /// §20.4 flagged that nothing has scanned inside a `WorldItemLite`, and
+    /// this closes that gap the same way `fields` closes it for the top level
+    /// - numbers, wire types and sizes, nothing a human would recognise as a
+    /// value. Empty when the rung carried no `world_items` (the control is
+    /// expected to be one of these).
+    public let worldItemFields: [[ProtoField]]
+
     public init(
         label: String,
         status: Int?,
@@ -21,7 +30,8 @@ public struct WorldRungResult: Sendable, Hashable {
         encoding: APIResponseEncoding?,
         fields: [ProtoField],
         truncated: Bool,
-        failure: String?
+        failure: String?,
+        worldItemFields: [[ProtoField]] = []
     ) {
         self.label = label
         self.status = status
@@ -30,6 +40,7 @@ public struct WorldRungResult: Sendable, Hashable {
         self.fields = fields
         self.truncated = truncated
         self.failure = failure
+        self.worldItemFields = worldItemFields
     }
 }
 
@@ -162,6 +173,16 @@ public enum WorldRequestLadder {
             } else {
                 (fields: [], truncated: false)
             }
+            // Every `world_items` (field 4) entry, scanned again one level
+            // down. Untyped, like the top-level scan above - a typed decode
+            // would drop the fields the vendored proto cannot name, which is
+            // exactly what §20.4 is asking about.
+            let worldItemFields: [[ProtoField]] = if let best {
+                ProtoFieldScan.payloads(ofField: 4, in: best.bytes)
+                    .map { ProtoFieldScan.fields(in: $0).fields }
+            } else {
+                []
+            }
             return WorldRungResult(
                 label: rung.label,
                 status: raw.status,
@@ -169,7 +190,8 @@ public enum WorldRequestLadder {
                 encoding: best?.encoding,
                 fields: scan.fields,
                 truncated: scan.truncated,
-                failure: nil
+                failure: nil,
+                worldItemFields: worldItemFields
             )
         } catch {
             // `callRaw` only ever throws `APIFailure`, but the fallback below

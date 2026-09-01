@@ -92,6 +92,79 @@ public enum ProtoFieldScan {
         return (fields, false)
     }
 
+    /// The raw bytes of every top-level occurrence of `number` as a
+    /// length-delimited (wire type 2) field - every `world_items` (field 4)
+    /// entry in a `PaginatedWorldResponse`, still encoded, so a caller can
+    /// scan **inside** one without a typed decode.
+    ///
+    /// `findings.md` §20.4: the top-level scan never looked inside a
+    /// `world_items` entry, so which `WorldItemLite` fields are actually
+    /// populated has never been observed. This is what makes that scan
+    /// possible without teaching this file anything about `WorldItemLite` -
+    /// it stays what it already is, a generic walk over field numbers.
+    ///
+    /// A mismatched wire type, or anything the walk cannot read, simply ends
+    /// the search - `fields(in:)`'s `truncated` flag already exists for a
+    /// caller that needs to know the top level was incomplete; duplicating it
+    /// here would be a second way to say the same thing.
+    public static func payloads(ofField number: Int, in data: Data) -> [Data] {
+        var results: [Data] = []
+        var index = data.startIndex
+
+        while index < data.endIndex {
+            guard let key = varint(data, &index) else { return results }
+            let fieldNumber = Int(key >> 3)
+            let wireType = Int(key & 7)
+            guard fieldNumber > 0 else { return results }
+
+            var payload: Range<Data.Index>?
+            guard skipValue(wireType: wireType, in: data, index: &index, payload: &payload) else {
+                return results
+            }
+            if fieldNumber == number, let payload {
+                results.append(data[payload])
+            }
+        }
+        return results
+    }
+
+    /// Advances `index` past one field's value, given its `wireType`.
+    ///
+    /// `false` means the value could not be read - the walk stops there, the
+    /// same rule `fields(in:)` and `payloads(ofField:in:)` both apply. For a
+    /// length-delimited field (wire type 2), `payload` is set to its byte
+    /// range; every other wire type leaves it `nil`.
+    private static func skipValue(
+        wireType: Int,
+        in data: Data,
+        index: inout Data.Index,
+        payload: inout Range<Data.Index>?
+    ) -> Bool {
+        switch wireType {
+        case 0:
+            return varint(data, &index) != nil
+
+        case 1, 5:
+            let width = wireType == 1 ? 8 : 4
+            guard data.distance(from: index, to: data.endIndex) >= width else { return false }
+            index = data.index(index, offsetBy: width)
+            return true
+
+        case 2:
+            guard let length = varint(data, &index),
+                  let count = Int(exactly: length),
+                  data.distance(from: index, to: data.endIndex) >= count
+            else { return false }
+            let start = index
+            index = data.index(index, offsetBy: count)
+            payload = start ..< index
+            return true
+
+        default:
+            return false
+        }
+    }
+
     /// A base-128 varint. `nil` when the data ends mid-value or the value is
     /// wider than 64 bits.
     private static func varint(_ data: Data, _ index: inout Data.Index) -> UInt64? {

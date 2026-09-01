@@ -31,9 +31,12 @@ public extension APIMethod where Request == GetSelfUserStatusRequest, Response =
 }
 
 public extension APIMethod where Request == PaginatedWorldRequest, Response == PaginatedWorldResponse {
-    /// The conversation list. **The minimum viable request shape is unproven** -
-    /// §3.6 recorded a minimal one answering with field 11 only. `WorldRequestLadder`
-    /// exists to settle it; until it has, do not build a mapping on this.
+    /// The conversation list. **The minimum viable request shape is answered**
+    /// - `findings.md` §20.1: `request_header` + `fetch_from_user_spaces` +
+    /// one `WorldSectionRequest(page_size: 999)`, which is `WorldRequestLadder.rungs[1]`.
+    /// `WorldMapping` builds `[Conversation]` from what this returns; what is
+    /// still `[Verify]` (§20.4) is which fields *inside* one `WorldItemLite`
+    /// are populated - the ladder's scan was top-level only.
     static var paginatedWorld: Self {
         Self("paginated_world")
     }

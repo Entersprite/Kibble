@@ -117,4 +117,62 @@ struct ProtoFieldScanTests {
         #expect(scan.truncated == true)
         #expect(scan.fields.isEmpty)
     }
+
+    // MARK: - payloads(ofField:in:)
+
+    @Test func aMatchingLengthDelimitedFieldReturnsItsPayloadBytes() {
+        // Field 4, wire type 2, length 2, "hi".
+        let payloads = ProtoFieldScan.payloads(ofField: 4, in: Data([0x22, 0x02, 0x68, 0x69]))
+        #expect(payloads == [Data([0x68, 0x69])])
+    }
+
+    @Test func multipleOccurrencesOfTheSameFieldAreReturnedInOrder() {
+        // Two field-4 entries: "ab" then "cd".
+        let data = Data([0x22, 0x02, 0x61, 0x62, 0x22, 0x02, 0x63, 0x64])
+        let payloads = ProtoFieldScan.payloads(ofField: 4, in: data)
+        #expect(payloads == [Data([0x61, 0x62]), Data([0x63, 0x64])])
+    }
+
+    @Test func aDifferentFieldNumberIsNotReturned() {
+        // Field 2, wire type 2, length 2, "hi" - asking for field 4 finds nothing.
+        let payloads = ProtoFieldScan.payloads(ofField: 4, in: Data([0x12, 0x02, 0x68, 0x69]))
+        #expect(payloads.isEmpty)
+    }
+
+    /// A varint field sharing the target's number must not be mistaken for a
+    /// length-delimited one - only wire type 2 occurrences of `number` count.
+    @Test func aVarintFieldWithTheSameNumberIsIgnored() {
+        // Field 4, wire type 0 (varint), value 3.
+        let payloads = ProtoFieldScan.payloads(ofField: 4, in: Data([0x20, 0x03]))
+        #expect(payloads.isEmpty)
+    }
+
+    @Test func fieldsBeforeAndAfterTheTargetAreSkippedCorrectly() {
+        // Field 1 varint 3, field 4 "xy", field 6 varint 1.
+        let data = Data([0x08, 0x03, 0x22, 0x02, 0x78, 0x79, 0x30, 0x01])
+        let payloads = ProtoFieldScan.payloads(ofField: 4, in: data)
+        #expect(payloads == [Data([0x78, 0x79])])
+    }
+
+    @Test func anEmptyBufferReturnsNoPayloads() {
+        #expect(ProtoFieldScan.payloads(ofField: 4, in: Data()).isEmpty)
+    }
+
+    @Test func aTruncatedBufferReturnsWhateverWasFoundBeforeTheCutoff() {
+        // A valid field-4 entry, then a tag cut off mid-varint.
+        let data = Data([0x22, 0x02, 0x68, 0x69, 0xA2])
+        #expect(ProtoFieldScan.payloads(ofField: 4, in: data) == [Data([0x68, 0x69])])
+    }
+
+    /// The same slicing hazard `fields(in:)` guards against: a payload has to
+    /// scan identically whether it starts at index 0 or is a slice of a larger
+    /// buffer.
+    @Test func aSliceWithANonZeroStartIndexScansIdenticallyForPayloads() {
+        let sliced = Data([0xFF, 0xFF, 0x22, 0x02, 0x68, 0x69])[2...]
+        let unsliced = Data([0x22, 0x02, 0x68, 0x69])
+        #expect(
+            ProtoFieldScan.payloads(ofField: 4, in: sliced)
+                == ProtoFieldScan.payloads(ofField: 4, in: unsliced)
+        )
+    }
 }

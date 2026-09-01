@@ -107,4 +107,72 @@ struct WorldRequestLadderTests {
         #expect(text.contains("200"))
         #expect(text.contains("2 wire bytes"))
     }
+
+    // MARK: - worldItemFields: §20.4's nested-shape gap
+
+    /// A rung whose response carries `world_items` (field 4) reports the
+    /// field numbers found *inside* each one, not only at the top level.
+    @Test func aRunReportsTheFieldsInsideEachWorldItem() async throws {
+        // Top level: field 4 (world_items), containing field 1 varint 9 and
+        // field 5 (length 2, "hi").
+        let item = Data([0x08, 0x09, 0x2A, 0x02, 0x68, 0x69])
+        var body = Data([0x22, UInt8(item.count)])
+        body += item
+        let transport = FakeHTTPTransport(responses: (0 ..< 4).map { _ in
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: body)
+        })
+        let client = try ProtoAPIClient(
+            transport: transport,
+            endpoints: ChatEndpoints(),
+            credentials: SessionCredentials(
+                #require(SessionCookies(cookies: [SessionCookies.Cookie(name: "SID", value: "s")]))
+            ),
+            xsrfToken: "tok"
+        )
+        let results = await WorldRequestLadder.run(WorldRequestLadder.rungs, with: client)
+        #expect(results[0].worldItemFields == [[
+            ProtoField(number: 1, wireType: 0, byteCount: 1),
+            ProtoField(number: 5, wireType: 2, byteCount: 2)
+        ]])
+    }
+
+    /// The control is expected to carry no `world_items` at all - `[]`, not a
+    /// crash or a truncated read.
+    @Test func aRungWithNoWorldItemsReportsAnEmptyNestedShape() async throws {
+        let transport = FakeHTTPTransport(responses: (0 ..< 4).map { _ in
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data([0x58, 0x15]))
+        })
+        let client = try ProtoAPIClient(
+            transport: transport,
+            endpoints: ChatEndpoints(),
+            credentials: SessionCredentials(
+                #require(SessionCookies(cookies: [SessionCookies.Cookie(name: "SID", value: "s")]))
+            ),
+            xsrfToken: "tok"
+        )
+        let results = await WorldRequestLadder.run(WorldRequestLadder.rungs, with: client)
+        #expect(results[0].worldItemFields.isEmpty)
+    }
+
+    /// A rung with no parseable candidate at all - a failed call - must not
+    /// crash computing the nested shape; it is simply empty, the same as the
+    /// top-level `fields`.
+    @Test func aFailingRungHasAnEmptyNestedShapeRatherThanCrashing() async throws {
+        let transport = FakeHTTPTransport(responses: [
+            HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data()),
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data([0x58, 0x15])),
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data([0x58, 0x15])),
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data([0x58, 0x15]))
+        ])
+        let client = try ProtoAPIClient(
+            transport: transport,
+            endpoints: ChatEndpoints(),
+            credentials: SessionCredentials(
+                #require(SessionCookies(cookies: [SessionCookies.Cookie(name: "SID", value: "s")]))
+            ),
+            xsrfToken: "tok"
+        )
+        let results = await WorldRequestLadder.run(WorldRequestLadder.rungs, with: client)
+        #expect(results[0].worldItemFields.isEmpty)
+    }
 }
