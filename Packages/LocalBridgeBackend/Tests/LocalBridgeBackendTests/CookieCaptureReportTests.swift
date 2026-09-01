@@ -4,19 +4,24 @@ import Testing
 
 /// The report the login spike reads its answer off.
 struct CookieCaptureReportTests {
+    /// In scope unless a test says otherwise: these cases predate scoping and
+    /// were all written about cookies that were being sent.
     private func entry(
         _ name: String,
         domain: String = ".google.com",
         length: Int = 100,
-        httpOnly: Bool = true
+        httpOnly: Bool = true,
+        inScope: Bool = true
     ) -> CookieCaptureReport.Entry {
         CookieCaptureReport.Entry(
             name: name,
             domain: domain,
+            path: "/",
             valueLength: length,
             isHTTPOnly: httpOnly,
             isSecure: true,
-            expiresInDays: 30
+            expiresInDays: 30,
+            isInScope: inScope
         )
     }
 

@@ -13,25 +13,38 @@ public struct CookieCaptureReport: Sendable, Hashable {
     public struct Entry: Sendable, Hashable {
         public let name: String
         public let domain: String
+        public let path: String
         public let valueLength: Int
         public let isHTTPOnly: Bool
         public let isSecure: Bool
         public let expiresInDays: Int?
 
+        /// Whether this cookie is one a browser would send to Chat, and
+        /// therefore one that reaches the credential.
+        ///
+        /// Recorded rather than filtered out: the excluded cookies are the
+        /// evidence that the scoping is working, and the first version of this
+        /// capture shipped without any and nobody could see it.
+        public let isInScope: Bool
+
         public init(
             name: String,
             domain: String,
+            path: String,
             valueLength: Int,
             isHTTPOnly: Bool,
             isSecure: Bool,
-            expiresInDays: Int?
+            expiresInDays: Int?,
+            isInScope: Bool
         ) {
             self.name = name
             self.domain = domain
+            self.path = path
             self.valueLength = valueLength
             self.isHTTPOnly = isHTTPOnly
             self.isSecure = isSecure
             self.expiresInDays = expiresInDays
+            self.isInScope = isInScope
         }
     }
 
@@ -47,13 +60,22 @@ public struct CookieCaptureReport: Sendable, Hashable {
         self.entries = entries
     }
 
-    /// What the rebuilt `Cookie` header would weigh: `name=value; ` per entry.
+    /// The cookies that will actually be replayed to Chat.
+    ///
+    /// Every question about the *credential* is asked of these, not of
+    /// everything the store happened to hold. An out-of-scope `COMPASS` is a
+    /// cookie for somewhere else and must not read as a pass.
+    public var inScope: [Entry] {
+        entries.filter(\.isInScope)
+    }
+
+    /// What the rebuilt `Cookie` header will weigh: `name=value; ` per entry.
     public var totalHeaderLength: Int {
-        entries.reduce(0) { $0 + $1.name.count + 1 + $1.valueLength + 2 }
+        inScope.reduce(0) { $0 + $1.name.count + 1 + $1.valueLength + 2 }
     }
 
     public var names: Set<String> {
-        Set(entries.map(\.name))
+        Set(inScope.map(\.name))
     }
 
     /// The two cookies scoped to `chat.google.com` and issued by Chat itself,
@@ -106,29 +128,45 @@ public struct CookieCaptureReport: Sendable, Hashable {
             "title:    \(pageTitle)",
             "",
             "verdict:  \(verdict)",
-            "cookies:  \(entries.count)  (\(httpOnlyCount) HttpOnly)",
+            "cookies:  \(entries.count) captured, \(inScope.count) sent to "
+                + "\(Self.scopeHost)  (\(httpOnlyCount) HttpOnly)",
             "header:   \(totalHeaderLength) bytes",
             "COMPASS:  \(names.contains("COMPASS") ? "present" : "MISSING")",
             "OSID:     \(names.contains("OSID") ? "present" : "MISSING")",
             "",
             Self.header
         ]
-        for entry in entries.sorted(by: { $0.name < $1.name }) {
+        // Sent first, then excluded. The two groups answer different questions
+        // - what the credential is, and what a browser would have withheld -
+        // and interleaving them by name makes both harder to read.
+        let sorted = entries.sorted {
+            ($0.isInScope ? 0 : 1, $0.name) < ($1.isInScope ? 0 : 1, $1.name)
+        }
+        for entry in sorted {
             lines.append(Self.row(for: entry))
         }
         return lines.joined(separator: "\n") + "\n"
     }
 
+    /// Named in the report so a reader knows which origin the scoping was
+    /// against without going to look it up. Taken from the scope itself rather
+    /// than restated, so the two cannot drift.
+    public static var scopeHost: String {
+        CookieCapture.scope.host
+    }
+
     private static let header =
         pad("NAME", 34) + " " + pad("DOMAIN", 24) + " " + pad("LEN", 6)
-            + " " + pad("HTTP", 5) + " " + pad("SEC", 5) + " EXPIRES"
+            + " " + pad("HTTP", 5) + " " + pad("SEC", 5) + " "
+            + pad("EXPIRES", 10) + " SENT"
 
     private static func row(for entry: Entry) -> String {
         pad(entry.name, 34) + " " + pad(entry.domain, 24)
             + " " + pad("\(entry.valueLength)", 6)
             + " " + pad(entry.isHTTPOnly ? "yes" : "no", 5)
             + " " + pad(entry.isSecure ? "yes" : "no", 5)
-            + " " + (entry.expiresInDays.map { "\($0)d" } ?? "session")
+            + " " + pad(entry.expiresInDays.map { "\($0)d" } ?? "session", 10)
+            + " " + (entry.isInScope ? "yes" : "excluded (\(entry.domain)\(entry.path))")
     }
 
     /// Left-aligned to `width`, never truncating: a cookie name that overflows
