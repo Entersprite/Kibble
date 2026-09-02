@@ -40,6 +40,9 @@ struct WorldMappingTests {
         case threadedGroup
         case flatGroup
         case neither(groupLiteIsFlat: Bool)
+        /// None of `threaded_group`, `flat_group` or `group_lite` set at all -
+        /// distinct from `.neither`, which always sets `group_lite`.
+        case none
     }
 
     private func item(
@@ -77,6 +80,8 @@ struct WorldMappingTests {
             var groupLite = WorldItemLite.GroupLite()
             groupLite.isFlat = isFlat
             item.groupLite = groupLite
+        case .none:
+            break
         }
         return item
     }
@@ -125,16 +130,22 @@ struct WorldMappingTests {
         #expect(mapped.conversations.first?.kind == .groupDirectMessage)
     }
 
-    // MARK: - Title: nil when empty, never an empty string
+    // MARK: - Title: nil only when the wire never set the field
 
-    @Test func anEmptyRoomNameBecomesANilTitleRatherThanAnEmptyString() {
-        let mapped = WorldMapping.map(response([item(groupID: dmGroupID("d-1"), roomName: "")]))
+    /// An absent `room_name` - the field never set on the wire at all -
+    /// becomes `nil`, per `Conversation.title`'s "derive from members" case.
+    @Test func anAbsentRoomNameBecomesANilTitle() {
+        let mapped = WorldMapping.map(response([item(groupID: dmGroupID("d-1"))]))
         #expect(mapped.conversations.first?.title == nil)
     }
 
-    @Test func aRoomNameNeverSetAlsoBecomesANilTitle() {
-        let mapped = WorldMapping.map(response([item(groupID: dmGroupID("d-1"))]))
-        #expect(mapped.conversations.first?.title == nil)
+    /// A `room_name` the wire explicitly set to `""` is a real, present title
+    /// - kept as `""`, not collapsed into the "absent" case. This is the
+    /// fixture `hasRoomName` exists to distinguish from the test above: both
+    /// end up with an empty Swift string, but only one has the field set.
+    @Test func aPresentButEmptyRoomNameIsKeptAsAnEmptyStringTitle() {
+        let mapped = WorldMapping.map(response([item(groupID: dmGroupID("d-1"), roomName: "")]))
+        #expect(mapped.conversations.first?.title == "")
     }
 
     @Test func aNonEmptyRoomNameIsKeptAsTheTitle() {
@@ -216,6 +227,16 @@ struct WorldMappingTests {
             item(groupID: spaceGroupID("s-2"), threading: .neither(groupLiteIsFlat: false))
         ]))
         #expect(threaded.conversations.first?.isThreaded == true)
+    }
+
+    /// None of `threaded_group`, `flat_group` or `group_lite` present at all -
+    /// `findings.md` §20.1 found `EXCLUDE_GROUP_LITE` can produce exactly this
+    /// shape. "No information" must not read as "threaded".
+    @Test func noThreadingInformationAtAllIsNotThreaded() {
+        let mapped = WorldMapping.map(response([
+            item(groupID: spaceGroupID("s-1"), threading: .none)
+        ]))
+        #expect(mapped.conversations.first?.isThreaded == false)
     }
 
     // MARK: - Nothing is silently dropped

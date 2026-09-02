@@ -33,7 +33,8 @@ public extension APIMethod where Request == GetSelfUserStatusRequest, Response =
 public extension APIMethod where Request == PaginatedWorldRequest, Response == PaginatedWorldResponse {
     /// The conversation list. **The minimum viable request shape is answered**
     /// - `findings.md` §20.1: `request_header` + `fetch_from_user_spaces` +
-    /// one `WorldSectionRequest(page_size: 999)`, which is `WorldRequestLadder.rungs[1]`.
+    /// one `WorldSectionRequest(page_size: 999)`, which is
+    /// `WorldRequestLadder.minimumViable`.
     /// `WorldMapping` builds `[Conversation]` from what this returns; what is
     /// still `[Verify]` (§20.4) is which fields *inside* one `WorldItemLite`
     /// are populated - the ladder's scan was top-level only.

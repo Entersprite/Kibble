@@ -54,40 +54,22 @@ public enum ProtoFieldScan {
             let wireType = Int(key & 7)
             guard number > 0 else { return (fields, true) }
 
-            switch wireType {
-            case 0:
-                let start = index
-                guard varint(data, &index) != nil else { return (fields, true) }
-                fields.append(ProtoField(
-                    number: number,
-                    wireType: wireType,
-                    byteCount: data.distance(from: start, to: index)
-                ))
-
-            case 1, 5:
-                let width = wireType == 1 ? 8 : 4
-                guard data.distance(from: index, to: data.endIndex) >= width else {
-                    return (fields, true)
-                }
-                index = data.index(index, offsetBy: width)
-                fields.append(ProtoField(number: number, wireType: wireType, byteCount: width))
-
-            case 2:
-                guard let length = varint(data, &index),
-                      let count = Int(exactly: length),
-                      data.distance(from: index, to: data.endIndex) >= count
-                else {
-                    return (fields, true)
-                }
-                index = data.index(index, offsetBy: count)
-                fields.append(ProtoField(number: number, wireType: wireType, byteCount: count))
-
-            default:
-                // 3 and 4 are the deprecated group markers; anything else is not
-                // a wire type at all. Either way the width of what follows is
-                // unknown, and guessing it desynchronises the rest.
+            let start = index
+            var payload: Range<Data.Index>?
+            guard skipValue(wireType: wireType, in: data, index: &index, payload: &payload) else {
+                // Wire type 3/4 (deprecated group markers) or anything else
+                // that is not a wire type at all - `skipValue` cannot advance
+                // past it, and guessing the width desynchronises everything
+                // that follows.
                 return (fields, true)
             }
+            // A length-delimited field's byte count is its payload alone,
+            // excluding the length-prefix varint `skipValue` already
+            // consumed; every other wire type's count is simply how far
+            // `skipValue` moved `index`.
+            let byteCount = payload.map { data.distance(from: $0.lowerBound, to: $0.upperBound) }
+                ?? data.distance(from: start, to: index)
+            fields.append(ProtoField(number: number, wireType: wireType, byteCount: byteCount))
         }
         return (fields, false)
     }

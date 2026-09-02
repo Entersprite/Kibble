@@ -205,7 +205,7 @@ public actor LocalBridgeBackend: ChatBackend {
 
     /// The conversation list, via the one request shape `findings.md` §20.1
     /// proved works: `request_header` + `fetch_from_user_spaces` + one
-    /// `WorldSectionRequest(page_size: 999)` - rung 2 of `WorldRequestLadder`.
+    /// `WorldSectionRequest(page_size: 999)` - `WorldRequestLadder.minimumViable`.
     ///
     /// **Requires `connect()` to have already succeeded.** Without it there is
     /// no verified session and no xsrf token, and sending a `/api/` request
@@ -218,15 +218,22 @@ public actor LocalBridgeBackend: ChatBackend {
                     + "there is no verified session or xsrf token yet"
             )
         }
-        let rung = WorldRequestLadder.rungs[1]
+        let rung = WorldRequestLadder.minimumViable
         do {
             let response = try await apiClient.call(.paginatedWorld, rung.request)
-            // `.skipped` is not surfaced here - `ChatBackend.loadConversations()`
-            // returns `[Conversation]` and cannot carry a count alongside it.
-            // `WorldMapping.Result` exists so a caller that *can* report it
-            // (the `/api/` probe) does; this call site is the one place that
-            // cannot.
-            return WorldMapping.map(response).conversations
+            let mapped = WorldMapping.map(response)
+            // `ChatBackend.loadConversations()` returns `[Conversation]` and
+            // cannot carry `.skipped` alongside it, but silently returning a
+            // shorter array is exactly the kind of loss `WorldMapping.Result`
+            // exists to prevent - a count, never an id or a name, reaches the
+            // store the UI observes instead of vanishing between two layers
+            // that each assumed the other reported it.
+            if mapped.skipped > 0 {
+                emit(.backendError(.unknown(
+                    "\(mapped.skipped) conversation(s) could not be mapped and were skipped"
+                )))
+            }
+            return mapped.conversations
         } catch {
             throw Self.chatError(fromAPI: error)
         }

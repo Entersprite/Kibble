@@ -163,6 +163,10 @@ struct APIProbeReportWorldMappingTests {
         #expect(text.contains("no world_items in any rung"))
         #expect(text.contains("world mapping summary (rung 2):"))
         #expect(text.contains("conversations: 0, skipped: 0"))
+        #expect(text.contains("room_name: absent 0, present-empty 0, present-non-empty 0"))
+        #expect(text.contains(
+            "threading fields: threaded_group 0, flat_group 0, group_lite 0, none 0"
+        ))
     }
 
     /// The nested-shape section reports real field numbers once a rung
@@ -197,6 +201,10 @@ struct APIProbeReportWorldMappingTests {
         #expect(text.contains("spaces: 1, DMs: 0"))
         #expect(text.contains("with title: 1"))
         #expect(text.contains("total members across all conversations: 1"))
+        #expect(text.contains("room_name: absent 0, present-empty 0, present-non-empty 1"))
+        #expect(text.contains(
+            "threading fields: threaded_group 0, flat_group 0, group_lite 0, none 1"
+        ))
         #expect(!text.contains(roomName))
         #expect(!text.contains(memberID))
     }

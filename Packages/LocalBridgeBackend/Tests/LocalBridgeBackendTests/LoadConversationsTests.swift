@@ -113,6 +113,39 @@ struct LoadConversationsTests {
         #expect(conversations.first?.title == "Kept")
     }
 
+    /// A skipped item must not vanish with nothing said - it does not throw
+    /// (the call above already covers that), but it has to leave a trace
+    /// somewhere the UI's store can see, or a conversation could disappear
+    /// from the sidebar across a run with no evidence anything went wrong.
+    /// `.backendError(.unknown(...))` carries the **count only** - never the
+    /// dropped item's room name or space id.
+    @Test func loadConversationsEmitsABackendErrorCountWhenItemsAreSkipped() async throws {
+        let droppedName = "Dropped - empty space id"
+        let backend = try backend(apiResponse: apiResponse(items: [
+            worldItem(spaceID: "s-1", roomName: "Kept"),
+            worldItem(spaceID: "", roomName: droppedName)
+        ]))
+        var iterator = backend.events.makeAsyncIterator()
+
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+
+        var found: ChatError?
+        for _ in 0 ..< 20 where found == nil {
+            guard let event = await iterator.next() else { break }
+            if case let .backendError(error) = event, case .unknown = error {
+                found = error
+            }
+        }
+        guard case let .unknown(message)? = found else {
+            Issue.record("expected a .backendError(.unknown) event reporting the skip count")
+            return
+        }
+        #expect(message.contains("1"))
+        #expect(!message.contains(droppedName))
+        #expect(!message.contains("s-1"))
+    }
+
     // MARK: - A failing `/api/` call
 
     @Test func loadConversationsMapsAnHTTPFailureToAChatServerError() async throws {

@@ -44,6 +44,18 @@ struct WorldRequestLadderTests {
         #expect(WorldRequestLadder.rungs.allSatisfy { !$0.source.isEmpty })
     }
 
+    /// `minimumViable` is what production sends - `LocalBridgeBackend` and
+    /// `APIProbeReport` both read it instead of indexing into `rungs`
+    /// directly, so a reorder or an inserted rung cannot silently change what
+    /// goes out on the wire. Asserting byte-identical serialisation, rather
+    /// than just equal field values, is what makes the two provably unable to
+    /// drift apart.
+    @Test func minimumViableSerializesByteIdenticallyToRungsIndex1() throws {
+        let viaAccessor: Data = try WorldRequestLadder.minimumViable.request.serializedBytes()
+        let viaIndex: Data = try WorldRequestLadder.rungs[1].request.serializedBytes()
+        #expect(viaAccessor == viaIndex)
+    }
+
     @Test func aRunReportsTheFieldNumbersThatCameBack() async throws {
         // §3.6's observed world response: field 11, varint 21.
         let body = Data([0x58, 0x15])

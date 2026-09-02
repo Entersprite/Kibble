@@ -57,12 +57,22 @@ public enum WorldMapping {
         return Conversation(
             id: id,
             kind: kind(for: item),
-            // An absent `room_name` and an empty one are the same fact on
-            // this wire - Chat does not name most DMs - and `Conversation.title`'s
-            // own doc comment draws the line here: `nil` means "derive from
-            // members"; only a real, non-empty string may claim to be a
-            // server-provided title.
-            title: item.roomName.isEmpty ? nil : item.roomName,
+            // `Conversation.title`'s own doc comment draws a line the proto
+            // can actually express: `nil` means "no server title, derive from
+            // members"; an empty string means "the server really sent one".
+            // `hasRoomName` is the wire's own presence bit, so it - not
+            // `roomName.isEmpty` - is what decides which side of that line an
+            // item falls on.
+            //
+            // `[Verify]`: the field **numbers** here are confirmed against the
+            // vendored proto, but whether Chat ever actually sends `room_name`
+            // absent versus present-and-empty for a DM has not been observed
+            // on the wire - `findings.md` §20.4 flags every field inside a
+            // `WorldItemLite` as unconfirmed, and this is one of them. Trusting
+            // the presence bit is the conservative reading of `Conversation`'s
+            // contract either way; it is the "is it ever sent empty" question
+            // that remains open.
+            title: item.hasRoomName ? item.roomName : nil,
             avatarURL: item.avatarURL.isEmpty ? nil : URL(string: item.avatarURL),
             lastActivity: item.hasSortTimestamp
                 ? Date(timeIntervalSince1970: Double(item.sortTimestamp) / 1_000_000)
@@ -99,17 +109,32 @@ public enum WorldMapping {
     }
 
     /// `threaded_group` present beats `flat_group` present beats
-    /// `group_lite.is_flat`, inverted.
+    /// `group_lite.is_flat`, inverted - and when **none** of the three is
+    /// present, `false`.
     ///
     /// The ladder run (`findings.md` §20.1) is why `group_lite` cannot be
     /// dropped from the request even though `EXCLUDE_GROUP_LITE` costs ~48
     /// bytes an item: it is the only place `is_flat` lives when neither
-    /// oneof case is set.
+    /// oneof case is set. But §20.1 also found that `EXCLUDE_GROUP_LITE`
+    /// *can* strip `group_lite` entirely, so "none of the three present" is a
+    /// real, reachable shape and not just a hypothetical - proto3's default
+    /// for an absent `is_flat` is `false`, and reading that default as
+    /// "threaded" was inventing structure from silence.
+    ///
+    /// `[Verify]`: whether "no information" should default to flat rather
+    /// than threaded has not been checked against a live response - this
+    /// picks the less invasive wrong answer. `Conversation.isThreaded`'s own
+    /// doc comment calls the difference structural, not cosmetic: a threaded
+    /// space rendered flat is a degraded but still coherent view, whereas a
+    /// flat group rendered threaded invents a structure that was never there.
     private static func isThreaded(_ item: WorldItemLite) -> Bool {
         if item.hasThreadedGroup {
             return true
         }
         if item.hasFlatGroup {
+            return false
+        }
+        guard item.hasGroupLite else {
             return false
         }
         return !item.groupLite.isFlat

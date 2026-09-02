@@ -109,6 +109,21 @@ public enum WorldRequestLadder {
         ]
     }
 
+    /// The shape `findings.md` §20.1 proved works: the control plus one
+    /// `WorldSectionRequest(page_size: 999)`, and nothing else - `rungs[1]`.
+    ///
+    /// Production reads this instead of indexing into the ladder directly.
+    /// `rungs` exists to be reordered or grown as new candidates come up for
+    /// comparison; a bare `rungs[1]` in a call site would silently start
+    /// sending a different request the moment that happens, and the failure
+    /// would look like a Google-side protocol change rather than our own
+    /// edit. Returning `rungs[1]` rather than rebuilding the request is what
+    /// makes the two provably identical - there is no second construction to
+    /// drift out of step with the first.
+    public static var minimumViable: Rung {
+        rungs[1]
+    }
+
     private static func control() -> PaginatedWorldRequest {
         var request = PaginatedWorldRequest()
         request.requestHeader = APIRequestHeader.make()
