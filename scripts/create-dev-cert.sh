@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Create a stable self-signed code-signing identity named "GChat Bridge Dev" in the
-# login keychain.
+# Create a stable self-signed code-signing identity named by
+# scripts/dev-identity.sh in the login keychain.
 #
 # Why: ad-hoc signing (CODE_SIGN_IDENTITY=-) produces a different code hash on
 # every build. macOS binds Keychain item ACLs to that hash, so every rebuild
@@ -12,7 +12,9 @@
 # Developer ID certificate plus notarization.
 set -euo pipefail
 
-NAME="GChat Bridge Dev"
+# shellcheck source=dev-identity.sh
+source "$(dirname "$0")/dev-identity.sh"
+NAME="$GCHAT_DEV_IDENTITY"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if security find-identity -v -p codesigning | grep -q "$NAME"; then
@@ -34,13 +36,13 @@ read -r -p "Continue? [y/N] " reply
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-cat > "$tmp/ext.cnf" <<'CNF'
+cat > "$tmp/ext.cnf" <<CNF
 [req]
 distinguished_name = dn
 prompt = no
 x509_extensions = v3
 [dn]
-CN = GChat Bridge Dev
+CN = $NAME
 [v3]
 basicConstraints = critical,CA:true
 keyUsage = critical,digitalSignature
@@ -107,14 +109,14 @@ if security find-identity -v -p codesigning | grep "$NAME"; then
     echo
     echo "Success. scripts/build.sh will pick this identity up automatically."
 else
-    cat <<'FIXUP'
+    cat <<FIXUP
 
 The certificate imported but is not yet a *valid* codesigning identity, which
 means its trust setting did not apply. Fix it by hand:
 
   1. open -a "Keychain Access"
   2. Select the "login" keychain, category "Certificates"
-  3. Double-click "GChat Bridge Dev" -> expand "Trust"
+  3. Double-click "$NAME" -> expand "Trust"
   4. Set "Code Signing" to "Always Trust", close the window, authenticate
   5. Re-check with:  security find-identity -v -p codesigning
 

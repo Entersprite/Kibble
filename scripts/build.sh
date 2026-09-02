@@ -4,7 +4,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-Debug}"
-DEV_IDENTITY="GChat Dev"
+# shellcheck source=dev-identity.sh
+source "$(dirname "$0")/dev-identity.sh"
+DEV_IDENTITY="$GCHAT_DEV_IDENTITY"
 
 args=(
     -project GChat.xcodeproj
