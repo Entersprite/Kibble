@@ -49,3 +49,17 @@ public extension APIMethod where Request == ListTopicsRequest, Response == ListT
         Self("list_topics")
     }
 }
+
+public extension APIMethod where Request == GetMembersRequest, Response == GetMembersResponse {
+    /// Member names, keyed by `MemberId`. **Never yet sent by this
+    /// implementation.** `paginated_world` carries no names at all
+    /// (`findings.md` §20.4: `room_name`, `name_users` and `avatar_url` are
+    /// all absent from a live `WorldItemLite`), so this is the reference's
+    /// separate call for resolving them - `client.py:691-697`. Its response
+    /// shape is `[Verify]` in the same sense §20.4 flags `WorldItemLite`:
+    /// field numbers confirmed against the vendored proto, never observed on
+    /// the wire.
+    static var getMembers: Self {
+        Self("get_members")
+    }
+}

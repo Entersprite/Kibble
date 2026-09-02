@@ -248,6 +248,50 @@ public enum APIProbeReport {
             "  total members across all conversations: \(conversations.reduce(0) { $0 + $1.members.count })"
         )
         appendFieldPresenceCounts(response.worldItems, lines: &lines)
+        await appendMemberResolutionSummary(conversations: conversations, client: client, lines: &lines)
+    }
+
+    /// One `get_members` call over the union of every rung-2 conversation's
+    /// members - the same request `LocalBridgeBackend.resolveAndEmitMembers`
+    /// sends. **Counts only** - never a name, an email, an avatar URL or a
+    /// member id; `MemberMapping`'s own doc comment carries the same posture
+    /// `WorldMapping`'s does toward `WorldItemLite`, and `get_members` has
+    /// never been sent by this implementation before this call, so this is
+    /// this call's first live evidence, not a confirmed shape.
+    private static func appendMemberResolutionSummary(
+        conversations: [Conversation],
+        client: ProtoAPIClient,
+        lines: inout [String]
+    ) async {
+        lines.append("member resolution summary (get_members):")
+        let ids = Array(Set(conversations.flatMap(\.members)))
+        lines.append("  member ids collected: \(ids.count)")
+        guard !ids.isEmpty else { return }
+
+        var request = GetMembersRequest()
+        request.requestHeader = APIRequestHeader.make()
+        request.memberIds = ids.map { id in
+            var userID = UserId()
+            userID.id = id.rawValue
+            var memberID = MemberId()
+            memberID.userID = userID
+            return memberID
+        }
+
+        let response: GetMembersResponse
+        do {
+            response = try await client.call(.getMembers, request)
+        } catch {
+            lines.append("  FAILED: \(safeDescription(of: error))")
+            return
+        }
+        lines.append("  members returned: \(response.members.count)")
+        let mapped = MemberMapping.map(response)
+        lines.append(
+            "  resolved with a name: \(mapped.members.count(where: { $0.displayName != nil })), "
+                + "app: \(mapped.members.count(where: { $0.kind == .app })), "
+                + "skipped (empty id): \(mapped.skipped)"
+        )
     }
 
     /// Settles two `[Verify]`s from `WorldMapping.swift` with one live run:

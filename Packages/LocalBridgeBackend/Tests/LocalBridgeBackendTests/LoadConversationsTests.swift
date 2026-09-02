@@ -16,23 +16,50 @@ import Testing
 /// response, and everything the channel needs gets something that lets it
 /// fail quickly and harmlessly - what `LoadConversationsTests` is testing is
 /// `loadConversations()`, not the channel.
+///
+/// Duplicated in `LoadConversationsMemberResolutionTests.swift` rather than
+/// shared - `private` is `private` because `ScriptedTransport.swift`'s own
+/// doc comment already made that call for this test target, and
+/// `swiftlint`'s `file_length` is what actually split the member-resolution
+/// tests into that second file in the first place.
 private actor RoutingTransport: HTTPTransport {
     struct NoStream: Error {}
 
     private let shell: HTTPResponse
-    private let apiResponse: HTTPResponse
+    private let worldResponse: HTTPResponse
+    private let membersResponse: HTTPResponse
+    /// Thrown from `send()` instead of `membersResponse` when set - lets a
+    /// test put a failing `get_members` call in front of `loadConversations()`
+    /// without a second transport type.
+    private let membersFailure: (any Error)?
 
-    init(shell: HTTPResponse, apiResponse: HTTPResponse) {
+    init(
+        shell: HTTPResponse,
+        worldResponse: HTTPResponse,
+        membersResponse: HTTPResponse,
+        membersFailure: (any Error)? = nil
+    ) {
         self.shell = shell
-        self.apiResponse = apiResponse
+        self.worldResponse = worldResponse
+        self.membersResponse = membersResponse
+        self.membersFailure = membersFailure
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         if request.url.path.contains("/mole/world") {
             return shell
         }
+        // Checked before the general `/api/` case below - both
+        // `paginated_world` and `get_members` live under `/api/`, and only
+        // the method name in the path tells them apart.
+        if request.url.path.contains("/api/get_members") {
+            if let membersFailure {
+                throw membersFailure
+            }
+            return membersResponse
+        }
         if request.url.path.contains("/api/") {
-            return apiResponse
+            return worldResponse
         }
         // The channel's `register()`/`acknowledge()` - neither reads its
         // response body, so a bare 200 is enough.
@@ -48,7 +75,8 @@ private actor RoutingTransport: HTTPTransport {
 }
 
 /// `loadConversations()` after a real `connect()`, against `RoutingTransport`
-/// above.
+/// above. Member resolution has its own file,
+/// `LoadConversationsMemberResolutionTests.swift`.
 @Suite(.timeLimit(.minutes(1)))
 struct LoadConversationsTests {
     private static let cookies = SessionCookies(header: "SID=a; COMPASS=b; OSID=c")!
@@ -79,10 +107,24 @@ struct LoadConversationsTests {
         return try HTTPResponse(status: status, headers: HTTPHeaders([]), body: response.serializedBytes())
     }
 
-    private func backend(apiResponse: HTTPResponse, app: String = "DynamiteWebUi") -> LocalBridgeBackend {
-        LocalBridgeBackend(
+    private func emptyMembersResponse() throws -> HTTPResponse {
+        try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: GetMembersResponse().serializedBytes())
+    }
+
+    private func backend(
+        apiResponse: HTTPResponse,
+        membersResponse: HTTPResponse? = nil,
+        membersFailure: (any Error)? = nil,
+        app: String = "DynamiteWebUi"
+    ) throws -> LocalBridgeBackend {
+        try LocalBridgeBackend(
             cookies: Self.cookies,
-            transport: RoutingTransport(shell: shellResponse(app: app), apiResponse: apiResponse)
+            transport: RoutingTransport(
+                shell: shellResponse(app: app),
+                worldResponse: apiResponse,
+                membersResponse: membersResponse ?? emptyMembersResponse(),
+                membersFailure: membersFailure
+            )
         )
     }
 

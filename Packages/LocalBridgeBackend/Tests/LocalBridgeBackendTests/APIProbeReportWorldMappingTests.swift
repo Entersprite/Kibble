@@ -109,6 +109,22 @@ struct APIProbeReportWorldMappingTests {
         return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedBytes())
     }
 
+    /// A `GetMembersResponse` carrying one named `User` - the mapping
+    /// summary's own `get_members` call, once `worldResponse(roomName:memberID:)`
+    /// has given it a member id worth resolving.
+    private func membersResponse(memberID: String, name: String) throws -> HTTPResponse {
+        var userID = UserId()
+        userID.id = memberID
+        var user = User()
+        user.userID = userID
+        user.name = name
+        var member = GChatBridgeCore.Member()
+        member.user = user
+        var response = GetMembersResponse()
+        response.members = [member]
+        return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedBytes())
+    }
+
     // MARK: - Leak test for the mapping summary's own catch block
 
     /// A second `/api/` call, separate from the ladder, and its own place an
@@ -167,6 +183,11 @@ struct APIProbeReportWorldMappingTests {
         #expect(text.contains(
             "threading fields: threaded_group 0, flat_group 0, group_lite 0, none 0"
         ))
+        // No conversations means no member ids to resolve - `get_members` is
+        // never called (no 8th response is even queued above), and the
+        // section says so rather than reporting nothing.
+        #expect(text.contains("member resolution summary (get_members):"))
+        #expect(text.contains("member ids collected: 0"))
     }
 
     /// The nested-shape section reports real field numbers once a rung
@@ -179,6 +200,7 @@ struct APIProbeReportWorldMappingTests {
         try await credentialStore.store(storedSession())
         let roomName = "SENTINEL-ROOM-NAME-should-not-appear"
         let memberID = "SENTINEL-MEMBER-ID-should-not-appear"
+        let memberName = "SENTINEL-MEMBER-NAME-should-not-appear"
         let itemResponse = try worldResponse(roomName: roomName, memberID: memberID)
         let responses: [Result<HTTPResponse, any Error>] = try [
             .success(shell(app: "DynamiteWebUi")),
@@ -187,7 +209,8 @@ struct APIProbeReportWorldMappingTests {
             .success(itemResponse),
             .success(itemResponse),
             .success(itemResponse),
-            .success(itemResponse) // the mapping summary's own call
+            .success(itemResponse), // the mapping summary's own call
+            .success(membersResponse(memberID: memberID, name: memberName)) // its get_members call
         ]
         let text = await APIProbeReport.run(
             store: credentialStore,
@@ -205,6 +228,48 @@ struct APIProbeReportWorldMappingTests {
         #expect(text.contains(
             "threading fields: threaded_group 0, flat_group 0, group_lite 0, none 1"
         ))
+        #expect(text.contains("member resolution summary (get_members):"))
+        #expect(text.contains("member ids collected: 1"))
+        #expect(text.contains("members returned: 1"))
+        #expect(text.contains("resolved with a name: 1, app: 0, skipped (empty id): 0"))
+        #expect(!text.contains(roomName))
+        #expect(!text.contains(memberID))
+        #expect(!text.contains(memberName))
+    }
+
+    // MARK: - Leak test for the member resolution section's own catch block
+
+    /// A third `/api/` call, separate from both the ladder and the mapping
+    /// summary's own `paginated_world` call - `resolveAndEmitMembers`'s twin
+    /// inside the probe - and its own place an unguarded `\(error)` could
+    /// leak.
+    @Test func aMemberResolutionFailureNeverLeaksTheUnderlyingErrorDescription() async throws {
+        let storage = FakeSecretStorage()
+        let credentialStore = store(storage)
+        try await credentialStore.store(storedSession())
+        let roomName = "SENTINEL-ROOM-NAME-should-not-appear"
+        let memberID = "SENTINEL-MEMBER-ID-should-not-appear"
+        let itemResponse = try worldResponse(roomName: roomName, memberID: memberID)
+        let sentinel = "SENTINEL-MEMBER-RESOLUTION-mno345"
+        let responses: [Result<HTTPResponse, any Error>] = try [
+            .success(shell(app: "DynamiteWebUi")),
+            .success(selfStatusResponse()),
+            .success(controlWorldResponse()),
+            .success(itemResponse),
+            .success(itemResponse),
+            .success(itemResponse),
+            .success(itemResponse), // the mapping summary's own call
+            .failure(SentinelError(description: sentinel)) // its get_members call
+        ]
+        let text = await APIProbeReport.run(
+            store: credentialStore,
+            transport: ScriptedTransport(responses),
+            endpoints: ChatEndpoints()
+        )
+        #expect(text.contains("member resolution summary (get_members):"))
+        #expect(text.contains("member ids collected: 1"))
+        #expect(text.contains("FAILED"))
+        #expect(!text.contains(sentinel))
         #expect(!text.contains(roomName))
         #expect(!text.contains(memberID))
     }

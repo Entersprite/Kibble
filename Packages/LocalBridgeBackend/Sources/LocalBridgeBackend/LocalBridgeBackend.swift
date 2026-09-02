@@ -61,6 +61,11 @@ public actor LocalBridgeBackend: ChatBackend {
     /// of two.
     private var apiClient: ProtoAPIClient?
 
+    /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
+    /// and so a second `loadConversations()` supersedes the first rather than
+    /// racing it to emit `membersChanged` for a world that has moved on.
+    private var memberResolution: Task<Void, Never>?
+
     public init(
         cookies: SessionCookies,
         transport: any HTTPTransport,
@@ -142,6 +147,8 @@ public actor LocalBridgeBackend: ChatBackend {
         guard isConnected else { return }
         isConnected = false
         apiClient = nil
+        memberResolution?.cancel()
+        memberResolution = nil
         await stopChannel()
         emit(.connectionStateChanged(.disconnected(reason: nil)))
     }
@@ -251,9 +258,81 @@ public actor LocalBridgeBackend: ChatBackend {
                     "\(mapped.skipped) conversation(s) could not be mapped and were skipped"
                 )))
             }
+            // **Started, not awaited.** `SyncEngine` writes the conversations
+            // to the store only once this returns, so awaiting the name lookup
+            // would hold the entire sidebar behind it - and `get_members` has
+            // never been sent by this implementation, carries a 30-second
+            // timeout, and is exactly the wrong call to bet a first render on.
+            //
+            // Names arrive afterwards as `membersChanged`, which the store
+            // already reduces and the views already observe. Ids first and
+            // names a moment later is what the observation path is for; an
+            // empty sidebar for thirty seconds is not.
+            //
+            // It also cannot throw by construction, so a failed name lookup can
+            // never be mistaken for the world call failing and turn a degraded
+            // sidebar into an empty one - the bug this package's own history
+            // records as "exactly what an empty sidebar and no error message
+            // looked like".
+            memberResolution?.cancel()
+            memberResolution = Task { [weak self] in
+                await self?.resolveAndEmitMembers(for: mapped.conversations, using: apiClient)
+            }
             return mapped.conversations
         } catch {
             throw Self.chatError(fromAPI: error)
+        }
+    }
+
+    /// Names, via one `get_members` call over the union of every returned
+    /// conversation's members - `MemberMapping` builds `[ChatKit.Member]`
+    /// from what it returns, the way `WorldMapping` does for the world
+    /// itself. One `.membersChanged` event per conversation that has any
+    /// members, never for one that has none (`findings.md` §20.4: one of the
+    /// four observed conversations - a space - has no `dm_members` at all).
+    ///
+    /// **Never throws.** `loadConversations()`'s whole point is that it
+    /// "must still return promptly and must not fail because names failed" -
+    /// a name lookup that errors is a degraded sidebar, not a broken one, so
+    /// any failure here becomes a `.backendError` event instead of
+    /// propagating to the caller.
+    private func resolveAndEmitMembers(
+        for conversations: [Conversation],
+        using apiClient: ProtoAPIClient
+    ) async {
+        let ids = Array(Set(conversations.flatMap(\.members)))
+        guard !ids.isEmpty else { return }
+
+        var request = GetMembersRequest()
+        request.requestHeader = APIRequestHeader.make()
+        request.memberIds = ids.map { id in
+            var userID = UserId()
+            userID.id = id.rawValue
+            var memberID = MemberId()
+            memberID.userID = userID
+            return memberID
+        }
+
+        let response: GetMembersResponse
+        do {
+            response = try await apiClient.call(.getMembers, request)
+        } catch {
+            emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_members call")))
+            return
+        }
+
+        let mapped = MemberMapping.map(response)
+        if mapped.skipped > 0 {
+            emit(.backendError(.unknown(
+                "\(mapped.skipped) member(s) could not be mapped and were skipped"
+            )))
+        }
+
+        let byID = Dictionary(uniqueKeysWithValues: mapped.members.map { ($0.id, $0) })
+        for conversation in conversations {
+            let members = conversation.members.compactMap { byID[$0] }
+            guard !members.isEmpty else { continue }
+            emit(.membersChanged(conversationID: conversation.id, members: members))
         }
     }
 
@@ -279,68 +358,5 @@ public actor LocalBridgeBackend: ChatBackend {
 
     private func emit(_ event: ChatEvent) {
         continuation.yield(event)
-    }
-}
-
-// MARK: - Translating the core's failures
-
-extension LocalBridgeBackend {
-    /// Maps a bootstrap failure onto the domain's error vocabulary.
-    ///
-    /// The distinctions are the point. A previous session spent three cookie
-    /// captures on what turned out to be a rejected *client*, because every
-    /// failure on this protocol arrives as HTTP 200 and the diagnosis had been
-    /// flattened to "your credentials are bad".
-    static func chatError(from error: any Error) -> ChatError {
-        if let error = error as? ChatError {
-            return error
-        }
-        guard let failure = error as? BootstrapFailure else {
-            return .transport(String(describing: error))
-        }
-        switch failure {
-        case .signInRedirect:
-            return .notAuthenticated
-        case let .unsupportedClient(url):
-            // Not a credentials problem: the session authenticated and the
-            // client was refused. Naming the browser is what stops the next
-            // person re-capturing cookies that were fine.
-            return .transport("Chat rejected this client as an unsupported browser (\(url.path))")
-        case let .unexpectedStatus(status):
-            return .server(status: status, message: "the Chat shell")
-        case let .noGlobalData(diagnosis):
-            // Carries no page content - the diagnosis is counts, a status and a
-            // capped title, which is deliberate, because a signed-in shell has
-            // real names and messages in it.
-            return .unknown(String(describing: diagnosis))
-        }
-    }
-
-    static func reason(for error: ChatError) -> String {
-        switch error {
-        case .notAuthenticated, .sessionExpired: "not signed in"
-        default: "could not reach Chat"
-        }
-    }
-
-    /// Maps an `/api/` call's failure onto the domain's error vocabulary.
-    ///
-    /// **There is deliberately no `.notAuthenticated` case here**, mirroring
-    /// `APIFailure`'s own doc comment: whether `/api/` answers a dead session
-    /// the way the Chat shell does (HTTP 200 plus a sign-in page, per §13) is
-    /// unrecorded - no run has put an expired credential in front of it.
-    /// Guessing either way would promote a guess to a policy.
-    static func chatError(fromAPI error: any Error) -> ChatError {
-        guard let failure = error as? APIFailure else {
-            return .transport(String(describing: error))
-        }
-        switch failure {
-        case let .httpStatus(status):
-            return .server(status: status, message: "the /api/ paginated_world call")
-        case .transport:
-            return .transport(failure.safeDescription)
-        case .emptyBody, .undecodable:
-            return .decoding(failure.safeDescription)
-        }
     }
 }
