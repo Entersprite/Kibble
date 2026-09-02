@@ -29,7 +29,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AppCoreTests",
-            dependencies: ["AppCore", "ChatKit", "SyncEngine"],
+            dependencies: ["AppCore", "ChatKit", "SyncEngine", "DesignSystem"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ]
