@@ -99,18 +99,10 @@ extension LocalBridgeBackend {
         return updated
     }
 
-    /// `ChatKit.Message`, spelled out.
-    ///
-    /// This is the one package that imports both the domain and the generated
-    /// protobuf, and the protobuf has a `Message` of its own. Every domain type
-    /// whose name the wire also uses has to be qualified here - which is a real
-    /// cost of hosting the core, and an argument for keeping this package thin.
-    public func loadMessages(
-        in _: Conversation.ID,
-        before _: ChatKit.Message.ID?
-    ) async throws -> [ChatKit.Message] {
-        throw ChatError.unsupported(capability: Self.missingChannel)
-    }
+    // `loadMessages(in:before:)` moved to `LocalBridgeBackend+History.swift` -
+    // it is now a real implementation rather than a stub, and this file's own
+    // convention (see the top-of-file doc comment) is a new extension file
+    // per concern rather than growing one indefinitely.
 
     public func setNotificationSetting(
         _: NotificationLevel,

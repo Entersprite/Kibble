@@ -168,7 +168,10 @@ public enum APIProbeReport {
     /// for the same reason; anything else is reduced to its type name, which
     /// cannot carry a cookie or a token the way an arbitrary `description` is
     /// free to.
-    private static func safeDescription(of error: any Error) -> String {
+    /// Not `private`: `APIProbeReport+History.swift`'s topics-ladder section
+    /// needs the same scrubbing rule for its own `/api/` calls, the same
+    /// reason `appendMappingSummary` below is not `private` either.
+    static func safeDescription(of error: any Error) -> String {
         if let failure = error as? BootstrapFailure {
             return String(describing: failure)
         }
@@ -188,7 +191,12 @@ public enum APIProbeReport {
         lines.append("")
         appendNestedItemShapes(results, lines: &lines)
         lines.append("")
-        await appendMappingSummary(client: client, lines: &lines)
+        let conversations = await appendMappingSummary(client: client, lines: &lines)
+        lines.append("")
+        // The topics ladder - step 6 of this slice - runs against one of the
+        // conversations the world call already produced, rather than a
+        // second `paginated_world` round trip just to get one to probe.
+        await appendTopicsLadderSection(client: client, conversations: conversations, lines: &lines)
     }
 
     /// §20.4's `[Verify]`: the ladder's own scan is top-level only, so which
@@ -221,7 +229,13 @@ public enum APIProbeReport {
     /// reusing the ladder's own rung-2 bytes: the ladder deliberately never
     /// keeps a typed message or raw bytes around (`WorldRungResult`'s whole
     /// contract), and this is the one place in the probe that needs one.
-    private static func appendMappingSummary(client: ProtoAPIClient, lines: inout [String]) async {
+    ///
+    /// Not `private`, and returns the mapped conversations: `appendLadder`
+    /// hands them to `APIProbeReport+History.swift`'s topics-ladder section,
+    /// which needs one real conversation's `GroupId` to probe. `[]` on
+    /// failure, the same "nothing to report further" the empty-array return
+    /// already implied before this had a caller outside this file.
+    static func appendMappingSummary(client: ProtoAPIClient, lines: inout [String]) async -> [Conversation] {
         lines.append("world mapping summary (rung 2):")
         let rung = WorldRequestLadder.minimumViable
         let response: PaginatedWorldResponse
@@ -229,7 +243,7 @@ public enum APIProbeReport {
             response = try await client.call(.paginatedWorld, rung.request)
         } catch {
             lines.append("  FAILED: \(safeDescription(of: error))")
-            return
+            return []
         }
         let mapped = WorldMapping.map(response)
         let conversations = mapped.conversations
@@ -249,6 +263,7 @@ public enum APIProbeReport {
         )
         appendFieldPresenceCounts(response.worldItems, lines: &lines)
         await appendMemberResolutionSummary(conversations: conversations, client: client, lines: &lines)
+        return conversations
     }
 
     /// One `get_members` call over the union of every rung-2 conversation's

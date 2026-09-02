@@ -44,9 +44,28 @@ public extension APIMethod where Request == PaginatedWorldRequest, Response == P
 }
 
 public extension APIMethod where Request == ListTopicsRequest, Response == ListTopicsResponse {
-    /// History for one conversation. Never yet sent by this implementation.
+    /// History for one conversation - `TopicsRequestLadder` builds the four
+    /// candidate shapes and `HistoryMapping` (in `LocalBridgeBackend`) turns
+    /// what comes back into `[ChatKit.Message]`. **Never yet sent by this
+    /// implementation.** Same posture `paginatedWorld`'s doc comment held
+    /// before `findings.md` §20.1's live run answered which shape actually
+    /// works - a request built from the proto and the reference
+    /// (`mautrix_googlechat/portal.py:406-446`), not yet confirmed against
+    /// live traffic.
     static var listTopics: Self {
         Self("list_topics")
+    }
+}
+
+public extension APIMethod where Request == ListMessagesRequest, Response == ListMessagesResponse {
+    /// The threaded-reply follow-up `portal.py:428-436` sends per topic, only
+    /// when a group is threaded or `topic.topic_read_state.thread_created_usec
+    /// > 0`. **Declared and never sent.** `findings.md` §20.4 observed
+    /// `flat_group` on all four of this account's conversations and
+    /// `threaded_group` on none, so exercising this call would be untestable
+    /// guesswork against an account that cannot reach the threaded branch.
+    static var listMessages: Self {
+        Self("list_messages")
     }
 }
 

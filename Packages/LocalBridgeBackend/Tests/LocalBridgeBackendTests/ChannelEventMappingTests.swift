@@ -224,6 +224,65 @@ struct ChannelEventMappingTests {
         #expect(payload != .null)
     }
 
+    // MARK: - groupID(for:), the inverse of conversationID(_:)
+
+    @Test func aSpaceConversationIDRoundTripsToItsGroupID() throws {
+        let original = spaceGroupIDValue("s-1")
+        let conversationID = try #require(ChannelEventMapping.conversationID(original))
+        let recovered = try #require(ChannelEventMapping.groupID(for: conversationID))
+        #expect(recovered == original)
+    }
+
+    @Test func aDMConversationIDRoundTripsToItsGroupID() throws {
+        let original = dmGroupIDValue("d-1")
+        let conversationID = try #require(ChannelEventMapping.conversationID(original))
+        let recovered = try #require(ChannelEventMapping.groupID(for: conversationID))
+        #expect(recovered == original)
+    }
+
+    @Test func groupIDForASpacePrefixedIDBuildsASpaceGroupID() {
+        let group = ChannelEventMapping.groupID(for: Conversation.ID("space/s-1"))
+        #expect(group?.spaceID.spaceID == "s-1")
+    }
+
+    @Test func groupIDForADMPrefixedIDBuildsADMGroupID() {
+        let group = ChannelEventMapping.groupID(for: Conversation.ID("dm/d-1"))
+        #expect(group?.dmID.dmID == "d-1")
+    }
+
+    /// Neither prefix this package ever produces - must return `nil` rather
+    /// than guessing which namespace an unrecognised id belongs to.
+    @Test func anIDWithNeitherPrefixReturnsNil() {
+        #expect(ChannelEventMapping.groupID(for: Conversation.ID("space:1")) == nil)
+        #expect(ChannelEventMapping.groupID(for: Conversation.ID("unrelated")) == nil)
+        #expect(ChannelEventMapping.groupID(for: Conversation.ID("")) == nil)
+    }
+
+    /// `conversationID(_:)` never emits a bare `"space/"` or `"dm/"` - it
+    /// requires a non-empty inner id - so the inverse must not accept one
+    /// either. Accepting it would build a `GroupId` the forward function
+    /// could never have produced.
+    @Test func aPrefixWithNothingAfterItReturnsNilRatherThanAnEmptyID() {
+        #expect(ChannelEventMapping.groupID(for: Conversation.ID("space/")) == nil)
+        #expect(ChannelEventMapping.groupID(for: Conversation.ID("dm/")) == nil)
+    }
+
+    private func spaceGroupIDValue(_ id: String) -> GroupId {
+        var group = GroupId()
+        var space = SpaceId()
+        space.spaceID = id
+        group.spaceID = space
+        return group
+    }
+
+    private func dmGroupIDValue(_ id: String) -> GroupId {
+        var group = GroupId()
+        var dm = DmId()
+        dm.dmID = id
+        group.dmID = dm
+        return group
+    }
+
     // MARK: - Nothing is lost
 
     @Test func everyBodyProducesExactlyOneEvent() throws {

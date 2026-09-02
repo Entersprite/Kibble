@@ -74,7 +74,12 @@ public enum ChannelEventMapping {
         return domainMessage(event.message)
     }
 
-    private static func domainMessage(_ message: GChatBridgeCore.Message) -> ChatKit.Message? {
+    /// Not `private`: `HistoryMapping` reuses this exact translation for
+    /// `Topic.replies`, so the channel and the history call cannot drift apart
+    /// on the microsecond-string `create_time` handling `findings.md` §2.3
+    /// documents. Duplicating this would be the same defect a reviewer already
+    /// caught once on this branch.
+    static func domainMessage(_ message: GChatBridgeCore.Message) -> ChatKit.Message? {
         let identifier = message.id.messageID
         guard !identifier.isEmpty else { return nil }
         guard let conversationID = conversationID(message.id.parentID.topicID.groupID) else {
@@ -112,6 +117,47 @@ public enum ChannelEventMapping {
         default:
             nil
         }
+    }
+
+    /// The inverse of `conversationID(_:)` - the one other place this
+    /// namespace rule has to be applied, so it lives right next to the
+    /// function it undoes rather than being re-derived somewhere that could
+    /// drift out of step with it (`LocalBridgeBackend+History.swift` needs a
+    /// `GroupId` to ask `list_topics` for one conversation's history).
+    ///
+    /// `nil` for anything that is not exactly one of the two prefixes this
+    /// package ever produces, **including a prefix with nothing after it** -
+    /// `conversationID(_:)` itself never emits `"space/"` or `"dm/"` alone,
+    /// since it requires a non-empty inner id, so accepting the empty suffix
+    /// here would build a `GroupId` `conversationID(_:)` could never have
+    /// produced and that would not round-trip back to the id it came from.
+    static func groupID(for conversationID: Conversation.ID) -> GroupId? {
+        let raw = conversationID.rawValue
+        var group = GroupId()
+        if let suffix = raw.dropFirstIfPrefixed(with: "space/"), !suffix.isEmpty {
+            var space = SpaceId()
+            space.spaceID = String(suffix)
+            group.spaceID = space
+            return group
+        }
+        if let suffix = raw.dropFirstIfPrefixed(with: "dm/"), !suffix.isEmpty {
+            var dm = DmId()
+            dm.dmID = String(suffix)
+            group.dmID = dm
+            return group
+        }
+        return nil
+    }
+}
+
+private extension String {
+    /// `nil` when `self` does not start with `prefix` at all - distinct from
+    /// an empty result, which means the prefix matched and nothing followed
+    /// it. `groupID(for:)` needs that distinction to reject `"space/"` alone
+    /// rather than reading it as a valid, empty-id space.
+    func dropFirstIfPrefixed(with prefix: String) -> Substring? {
+        guard hasPrefix(prefix) else { return nil }
+        return dropFirst(prefix.count)
     }
 }
 

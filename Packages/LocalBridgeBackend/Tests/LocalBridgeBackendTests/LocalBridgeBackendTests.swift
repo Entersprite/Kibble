@@ -113,13 +113,13 @@ struct LocalBridgeBackendTests {
         #expect(backend.capabilities == Capabilities(supportsThreads: true))
     }
 
+    /// `loadMessages(in:before:)` is a real implementation now -
+    /// `LoadMessagesTests.swift` covers what it actually does. The two
+    /// genuinely unimplemented actions still say so by name.
     @Test func everyActionSaysWhatIsMissingRatherThanFailingVaguely() async throws {
         let backend = backend([ScriptedTransport.ok(Self.shell(app: "DynamiteWebUi"))])
         try await backend.connect()
 
-        await #expect(throws: ChatError.unsupported(capability: LocalBridgeBackend.missingChannel)) {
-            _ = try await backend.loadMessages(in: Conversation.ID("space:1"), before: nil)
-        }
         await #expect(throws: ChatError.unsupported(capability: LocalBridgeBackend.missingChannel)) {
             try await backend.send(.deleteMessage(id: Message.ID("m")))
         }
