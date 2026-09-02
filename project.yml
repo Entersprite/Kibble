@@ -40,6 +40,10 @@ packages:
   # to the fixture instead.
   LocalBridgeBackend:
     path: Packages/LocalBridgeBackend
+  # The macOS half of the shell: the LaunchServices conformance, cookie
+  # capture, the probes. The package a future iOS app does not link.
+  MacHost:
+    path: Packages/MacHost
 
 targets:
   GChatMac:
@@ -60,6 +64,8 @@ targets:
         product: FixtureBackend
       - package: LocalBridgeBackend
         product: LocalBridgeBackend
+      - package: MacHost
+        product: MacHost
     settings:
       base:
         PRODUCT_NAME: GChat
