@@ -58,6 +58,25 @@ final class CookieCaptureModel {
     /// nothing.
     private var hasAutoSaved = false
 
+    /// Whether `CookieCaptureView` should show its manual "Capture now" /
+    /// "Save and continue" buttons.
+    ///
+    /// Auto-save exists precisely so those buttons need no press; while it is
+    /// still working towards one, they are confusing furniture. But they are
+    /// also the only fallback for the one thing auto-save cannot recover
+    /// from itself - a capture that never turns into a session, reported on
+    /// `status` as "Could not save: ..." or "Nothing to save: ...". No
+    /// second flag is needed to notice that: `hasAutoSaved` already marks the
+    /// moment the one automatic attempt this window will ever make has been
+    /// spent (see its own doc comment), which is exactly when either outcome
+    /// is now knowable. If it is about to succeed, `onSaved()` is already
+    /// replacing this whole window, so the buttons reappearing for a moment
+    /// costs nothing; if it did not, they are the way forward that keeps
+    /// this from being a dead end.
+    var showsManualControls: Bool {
+        !autoSaveAllowed || hasAutoSaved
+    }
+
     init(autoSaveAllowed: Bool = false, onSaved: @escaping () async -> Void = {}) {
         self.autoSaveAllowed = autoSaveAllowed
         self.onSaved = onSaved

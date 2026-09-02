@@ -74,15 +74,21 @@ struct CookieCaptureView: View {
                 }
             }
             Spacer()
-            Button("Capture now") { model.capture() }
-            Button("Save and continue") {
-                Task {
-                    if await model.save() {
-                        await onSaved()
+            // Hidden while auto-save is still working towards a session -
+            // see `CookieCaptureModel.showsManualControls`. They reappear the
+            // moment that path can no longer finish on its own, so a failed
+            // automatic capture is never a dead end.
+            if model.showsManualControls {
+                Button("Capture now") { model.capture() }
+                Button("Save and continue") {
+                    Task {
+                        if await model.save() {
+                            await onSaved()
+                        }
                     }
                 }
+                .disabled(!model.canSave)
             }
-            .disabled(!model.canSave)
         }
         .padding(12)
     }

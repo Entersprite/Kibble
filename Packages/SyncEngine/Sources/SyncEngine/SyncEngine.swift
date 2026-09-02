@@ -138,12 +138,29 @@ public extension SyncEngine {
     func requestMoreMessages(in conversation: Conversation.ID, before: Message.ID? = nil) async {
         do {
             try await loadMoreMessages(in: conversation, before: before)
-        } catch is CancellationError {
-            // A deliberate stop, not a failure. Recording it would itself be
-            // a write from a session that no longer owns this store - the
-            // same trap `loadMoreMessages`'s cancellation check exists to
-            // close, one layer up.
         } catch {
+            // A deliberate stop is not a failure - `ChatSessionModel.select(_:)`
+            // and `.stop()` both cancel `historyTask` to drop interest in an
+            // in-flight fetch. Matching on `CancellationError` here used to be
+            // how that was told apart from a real failure, but cancelling a
+            // `Task` does not oblige whatever is underneath it to throw
+            // Swift's own error: `URLSessionTransport` throws
+            // `URLError(.cancelled)`, which `LocalBridgeBackend` then turns
+            // into an ordinary-looking `ChatError.transport(...)` -
+            // indistinguishable, by type, from a real one. The error's shape
+            // is an implementation detail of whatever transport produced it,
+            // and a future one could throw something else again.
+            //
+            // `Task.isCancelled` asks the question that actually matters:
+            // did *this* task ask to stop. Recording despite that would
+            // itself be a write from a session that no longer owns this
+            // store - the same trap `loadMoreMessages`'s own cancellation
+            // check exists to close, one layer up. And because this reads
+            // our own task rather than the error, a failure that merely
+            // *looks* like a cancellation - thrown while nobody here
+            // cancelled anything - still falls through to `record` below,
+            // exactly as it should.
+            guard !Task.isCancelled else { return }
             record(error)
         }
     }
@@ -174,6 +191,13 @@ extension SyncEngine {
                 try await loadMoreMessages(in: conversation)
             }
         } catch {
+            // The same hole `requestMoreMessages` closes, one effect over:
+            // `stop()` cancels the consumer task this runs under (see
+            // `start()`), and a gap-fill in flight when that happens can
+            // throw a cancellation dressed as any error type - see that
+            // function's comment for the full reasoning. `Task.isCancelled`
+            // names our own cancellation regardless of shape.
+            guard !Task.isCancelled else { return }
             record(error)
         }
     }

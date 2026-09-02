@@ -12,6 +12,11 @@ actor HangingHistoryBackend: ChatBackend {
     private let continuation: AsyncStream<ChatEvent>.Continuation
     private var release: CheckedContinuation<Void, Never>?
 
+    /// Set by `releaseHungRequest(throwing:)`, consumed the next time
+    /// `loadMessages` wakes up. Modelling a *failure* the hung call answers
+    /// with, rather than only ever a message - see that method's doc comment.
+    private var pendingFailure: (any Error)?
+
     init() {
         (events, continuation) = AsyncStream.makeStream(
             of: ChatEvent.self,
@@ -28,6 +33,12 @@ actor HangingHistoryBackend: ChatBackend {
 
     func loadMessages(in conversation: Conversation.ID, before _: Message.ID?) async throws -> [Message] {
         await withCheckedContinuation { self.release = $0 }
+        // A pending failure wins over the ordinary answer below - see
+        // `releaseHungRequest(throwing:)`.
+        if let pendingFailure {
+            self.pendingFailure = nil
+            throw pendingFailure
+        }
         // Answers only once released, as though a slow server finally came
         // back - the message a caller that had already moved on must never
         // see land.
@@ -43,9 +54,31 @@ actor HangingHistoryBackend: ChatBackend {
 
     func setNotificationSetting(_: NotificationLevel, for _: Conversation.ID) async throws {}
 
-    /// Lets the blocked `loadMessages` call return. Safe to call at most
-    /// once per fetch; a test drives this by hand rather than a clock.
+    /// Lets the blocked `loadMessages` call return with a message. Safe to
+    /// call at most once per fetch; a test drives this by hand rather than a
+    /// clock.
     func releaseHungRequest() {
+        release?.resume()
+        release = nil
+    }
+
+    /// Lets the blocked `loadMessages` call return by *throwing* `error`
+    /// instead of answering with a message.
+    ///
+    /// Models the real shape a cancelled `/api/` call takes: cancelling the
+    /// `Task` awaiting `URLSessionTransport` does not abort `loadMessages`
+    /// here any more than it does in production - nothing at this layer can
+    /// force a hung call to return early - but once whatever finally wakes it
+    /// answers, it should be able to answer with a *transport-shaped* failure
+    /// such as `ChatError.transport("... transport error (NSURLErrorDomain
+    /// -999)")`, never `CancellationError` itself. A test uses this to prove
+    /// `SyncEngine.requestMoreMessages` tells "our own task was cancelled"
+    /// from "the error merely looks like one" by asking `Task.isCancelled`,
+    /// not by matching the error's type - the same error can be handed to a
+    /// task that was cancelled and to one that was not, and only the first
+    /// should stay unrecorded.
+    func releaseHungRequest(throwing error: any Error) {
+        pendingFailure = error
         release?.resume()
         release = nil
     }

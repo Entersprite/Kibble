@@ -78,3 +78,105 @@ struct ChatSessionModelTeardownTests {
         #expect(try store.messages(in: conversation).isEmpty)
     }
 }
+
+/// The bug the owner actually saw: switching conversations faster than
+/// `list_topics` returns produced "Connection problem: the /api/ list_topics
+/// call: transport error (NSURLErrorDomain -999)" - our own cancellation,
+/// reported as though the network had failed.
+///
+/// `SyncEngine.requestMoreMessages` used to catch `is CancellationError`, but
+/// cancelling `historyTask` (see `ChatSessionModel.select(_:)` and `.stop()`)
+/// only cancels the `Task`; it never guarantees the backend underneath
+/// throws Swift's own `CancellationError` - `URLSessionTransport` throws
+/// `URLError(.cancelled)`, which `LocalBridgeBackend.chatError(fromAPI:call:)`
+/// then turns into an ordinary-looking `ChatError.transport(...)`, same as
+/// any other failed call. `HangingHistoryBackend.releaseHungRequest(throwing:)`
+/// answers a hung fetch with exactly that shape - a `ChatError`, never
+/// `CancellationError` - so these tests key the fix on `Task.isCancelled`
+/// rather than on what the backend happened to throw, and prove the two
+/// scenarios that shape alone cannot tell apart: whether *our* task asked to
+/// stop.
+@Suite(.timeLimit(.minutes(1)))
+struct CancelledHistoryFetchReportingTests {
+    /// `historyTask` is ours, and `stop()` cancels it. The backend then
+    /// answers the (still-hanging) fetch with a transport-shaped failure, the
+    /// same one the owner saw - and it must never reach `lastError`, because
+    /// nothing here failed: the session simply stopped caring first.
+    @MainActor
+    @Test func aFetchCancelledByOurOwnTaskIsNeverRecorded() async throws {
+        let backend = HangingHistoryBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: Member.ID("people/me"))
+        let conversation = Conversation.ID("space:1")
+
+        try await model.start()
+        model.select(conversation)
+
+        // Gives `select`'s Task a moment to actually reach `loadMessages` and
+        // block inside it, so `stop()` below cancels a genuinely in-flight
+        // fetch rather than one that has not started.
+        for _ in 0 ..< 50 {
+            await Task.yield()
+        }
+
+        // Cancels `historyTask` without erasing anything - the guarantee
+        // under test is about reporting, not storage.
+        await model.stop()
+
+        // The hung request "finally answers" only now - after our own
+        // cancellation - with the exact shape `URLSessionTransport` produces
+        // for a cancelled call, never `CancellationError` itself.
+        await backend.releaseHungRequest(throwing: ChatError.transport(
+            "the /api/ list_topics call: transport error (NSURLErrorDomain -999)"
+        ))
+        for _ in 0 ..< 50 {
+            await Task.yield()
+        }
+
+        #expect(try store.lastError() == nil)
+    }
+
+    /// The same error shape, but nothing here ever cancelled anything: the
+    /// fetch is still the one `select(_:)` started, and it is answered while
+    /// still current. Whatever produced this failure was not this session's
+    /// own teardown, so it is still news and must still reach `lastError` -
+    /// otherwise the fix above would have gone too far and started
+    /// swallowing every `.cancelled`-shaped failure, ours or not.
+    @MainActor
+    @Test func anEquivalentErrorNotCausedByOurCancellationIsStillRecorded() async throws {
+        let backend = HangingHistoryBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: Member.ID("people/me"))
+        let conversation = Conversation.ID("space:1")
+
+        try await model.start()
+        model.select(conversation)
+
+        for _ in 0 ..< 50 {
+            await Task.yield()
+        }
+
+        // Nobody cancelled `historyTask` - it is still the one fetch this
+        // session asked for when the backend answers it with a failure that
+        // merely looks identical to the one above.
+        await backend.releaseHungRequest(throwing: ChatError.transport(
+            "the /api/ list_topics call: transport error (NSURLErrorDomain -999)"
+        ))
+
+        var lastError: ChatError?
+        for _ in 0 ..< 200 {
+            lastError = try store.lastError()
+            if lastError != nil {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(try #require(lastError) == .transport(
+            "the /api/ list_topics call: transport error (NSURLErrorDomain -999)"
+        ))
+
+        await model.stop()
+    }
+}
