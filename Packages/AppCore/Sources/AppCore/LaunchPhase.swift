@@ -13,7 +13,7 @@ import SyncEngine
 /// nine-day `COMPASS` fuse burning out (`findings.md` §17.2), and telling a
 /// person the second is the first invites them to wonder what they did wrong.
 @MainActor
-enum LaunchPhase {
+public enum LaunchPhase {
     case loading
     case needsSignIn(reason: String?)
     case running(ChatSessionModel)

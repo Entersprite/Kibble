@@ -23,6 +23,11 @@ configFiles:
 packages:
   ChatKit:
     path: Packages/ChatKit
+  # The launch machine and the phase-to-scene mapping, so they are covered by
+  # `scripts/test.sh` rather than living in a target nothing can test. Names no
+  # backend - see the design doc §3.1.
+  AppCore:
+    path: Packages/AppCore
   SyncEngine:
     path: Packages/SyncEngine
   DesignSystem:
@@ -43,6 +48,8 @@ targets:
     sources:
       - path: Apps/GChatMac
     dependencies:
+      - package: AppCore
+        product: AppCore
       - package: ChatKit
         product: ChatKit
       - package: SyncEngine

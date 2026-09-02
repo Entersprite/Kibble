@@ -1,3 +1,4 @@
+import AppCore
 import ChatKit
 import DesignSystem
 import FixtureBackend
