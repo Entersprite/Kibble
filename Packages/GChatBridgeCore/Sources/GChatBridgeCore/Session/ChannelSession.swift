@@ -223,8 +223,19 @@ public actor ChannelSession {
             let response = try await transport.send(request)
             await absorb(response.headers)
             next()
+        } catch let classified as ClassifiedTransportFailure {
+            // `URLSessionTransport` has already classified this - see its own
+            // doc comment on why `send`/`stream` do that rather than this
+            // actor trying to, which would mean naming a networking type
+            // `test.sh`'s portability scan forbids here.
+            apply(.failed(.transport(classified.reason)))
         } catch {
-            apply(.failed(.transport(String(describing: error))))
+            // Nothing above the transport boundary may call
+            // `String(describing:)` on whatever it caught: this request
+            // carries the long-poll's live SID, and that call is exactly how
+            // one used to reach `ChannelFailure.description` and, from
+            // there, a screen and `docs/protocol/findings.md`.
+            apply(.failed(.transport(nil)))
         }
     }
 
@@ -256,8 +267,19 @@ public actor ChannelSession {
                 guard !state.phase.isTerminal else { return }
             }
             apply(.bodyEnded)
+        } catch let classified as ClassifiedTransportFailure {
+            // `URLSessionTransport` has already classified this - see its own
+            // doc comment on why `send`/`stream` do that rather than this
+            // actor trying to, which would mean naming a networking type
+            // `test.sh`'s portability scan forbids here.
+            apply(.failed(.transport(classified.reason)))
         } catch {
-            apply(.failed(.transport(String(describing: error))))
+            // Nothing above the transport boundary may call
+            // `String(describing:)` on whatever it caught: this request
+            // carries the long-poll's live SID, and that call is exactly how
+            // one used to reach `ChannelFailure.description` and, from
+            // there, a screen and `docs/protocol/findings.md`.
+            apply(.failed(.transport(nil)))
         }
     }
 

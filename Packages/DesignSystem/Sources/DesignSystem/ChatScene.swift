@@ -86,13 +86,33 @@ public struct ChatSceneActions {
     /// sign-in.
     public var signIn: (() -> Void)?
 
+    /// Stop looking at this account. **Optional, and `nil` for the same
+    /// reason as `signIn`**: a host with no running session has nothing to
+    /// sign out of, so the sidebar footer that offers this draws nothing
+    /// rather than a button with no effect.
+    ///
+    /// Symmetric with `signIn` in shape, not in when each is offered:
+    /// `signIn` is offered only from a *failed* launch, because a running
+    /// session must never invite someone to re-authenticate over one
+    /// transient banner. `signOut` is the opposite - it is exactly a
+    /// *running* session that has an account to stop looking at - so a host
+    /// supplies this while `.running`, not while `.failed`.
+    ///
+    /// The confirmation this leads to is not this closure's job: the host
+    /// already owns one confirmation dialog for the existing Sign Out menu
+    /// command, and this is the same action reached a second way, so it
+    /// triggers that same dialog rather than a second one living here.
+    public var signOut: (() -> Void)?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
-        signIn: (() -> Void)? = nil
+        signIn: (() -> Void)? = nil,
+        signOut: (() -> Void)? = nil
     ) {
         self.select = select
         self.send = send
         self.signIn = signIn
+        self.signOut = signOut
     }
 }

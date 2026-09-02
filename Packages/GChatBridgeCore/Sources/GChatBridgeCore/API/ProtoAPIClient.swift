@@ -93,8 +93,16 @@ public actor ProtoAPIClient {
             // this client never carry two divergent ideas of what authorising a
             // request means.
             response = try await transport.send(credentials.authorising(request))
+        } catch let classified as ClassifiedTransportFailure {
+            throw APIFailure.transport(classified.reason)
         } catch {
-            throw APIFailure.transport(String(describing: error))
+            // Whatever this was, this package cannot classify it - only an
+            // `HTTPTransport` that actually touches a socket can, by throwing
+            // `ClassifiedTransportFailure` instead. `nil` carries that "no
+            // classification available" fact without ever interpolating
+            // `error` itself, which is where a live transport failure's URL -
+            // `key=` and `c=` included - would otherwise leak in.
+            throw APIFailure.transport(nil)
         }
         // Absorbed before the status is judged: a response that rotated a cookie
         // and then failed still rotated the cookie, and dropping it would leave

@@ -70,6 +70,26 @@ struct DisplayTests {
         #expect(Display.initials(of: alice, in: directory) == "AA")
         #expect(Display.initials(of: Member.ID("app"), in: directory) == "AP")
     }
+
+    // MARK: - The sidebar footer's identity row
+
+    @Test func aResolvedMeShowsItsDisplayName() {
+        #expect(Display.signedInLabel(me: me, directory: directory) == "Me")
+    }
+
+    /// A resolved id the directory has not caught up with yet still shows
+    /// something, the same fallback `name(of:in:)` already gives anyone else -
+    /// a signed-in person is not a special case.
+    @Test func aResolvedMeWithNoDirectoryEntryFallsBackToItsIdentifier() {
+        #expect(Display.signedInLabel(me: Member.ID("ghost"), directory: directory) == "ghost")
+    }
+
+    /// `me == nil` - the one gap `AppEnvironment` documents as real, if brief,
+    /// on the live backend - draws a plain placeholder rather than an empty
+    /// or half-built row.
+    @Test func anUnresolvedMeShowsAPlaceholderRatherThanBeingBlank() {
+        #expect(Display.signedInLabel(me: nil, directory: directory) == "Signed in")
+    }
 }
 
 /// Avatar colours are derived from identifiers, so they must be derived the

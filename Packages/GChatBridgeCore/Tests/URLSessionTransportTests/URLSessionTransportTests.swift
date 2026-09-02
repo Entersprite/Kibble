@@ -64,6 +64,92 @@ struct URLSessionTransportTests {
         }
     }
 
+    // MARK: - Classification
+
+    /// The whole reason `ClassifiedTransportFailure` exists: a real
+    /// `URLError` here carries the failing request's URL in its own
+    /// `userInfo` (`NSURLErrorFailingURLErrorKey` - `StubURLProtocol` puts one
+    /// there deliberately, the way a live failure would), and the transport
+    /// must classify it into a value that cannot carry that URL forward,
+    /// rather than letting a caller's `String(describing:)` rediscover it.
+    @Test("a not-connected URLError classifies without the request's URL")
+    func notConnectedClassifies() async {
+        stub.enqueueFailure(.notConnectedToInternet)
+        await #expect(throws: ClassifiedTransportFailure(.notConnectedToInternet)) {
+            _ = try await transport.send(HTTPRequest(url: stub.baseURL))
+        }
+    }
+
+    @Test("a timed-out URLError classifies")
+    func timedOutClassifies() async {
+        stub.enqueueFailure(.timedOut)
+        await #expect(throws: ClassifiedTransportFailure(.timedOut)) {
+            _ = try await transport.send(HTTPRequest(url: stub.baseURL))
+        }
+    }
+
+    @Test("a dropped-connection URLError classifies")
+    func connectionLostClassifies() async {
+        stub.enqueueFailure(.networkConnectionLost)
+        await #expect(throws: ClassifiedTransportFailure(.connectionLost)) {
+            _ = try await transport.send(HTTPRequest(url: stub.baseURL))
+        }
+    }
+
+    /// A code none of the three named cases match is not discarded - it
+    /// becomes `.other(domain:code:)`, still safe to print because it is a
+    /// domain string and an integer, never the request that failed.
+    @Test("an unrecognised URLError code classifies as .other, not silently as one of the three")
+    func unrecognisedCodeClassifiesAsOther() async {
+        stub.enqueueFailure(.badServerResponse)
+        await #expect(
+            throws: ClassifiedTransportFailure(.other(domain: URLError.errorDomain, code: -1011))
+        ) {
+            _ = try await transport.send(HTTPRequest(url: stub.baseURL))
+        }
+    }
+
+    /// The end-to-end proof, one layer up: a real `ProtoAPIClient` call
+    /// builds a URL carrying `key=` and a `c=` counter
+    /// (`ProtoAPIClientTests.theFirstRequestSendsCounterOne` pins that exact
+    /// shape), and a real `URLError` for that request carries the URL right
+    /// back in its own `userInfo` - which is the leak `ClassifiedTransportFailure`
+    /// exists to close.
+    ///
+    /// Written to fail on a regression, not just to pass today: if
+    /// `URLSessionTransport.send` stopped classifying, or
+    /// `ProtoAPIClient.callRaw` went back to `String(describing: error)`, the
+    /// real `URLError` - which does carry this exact request's URL - would
+    /// flow through untouched, and the three negative assertions below would
+    /// catch it: the host, `key=` and `c=` would all appear in
+    /// `safeDescription`.
+    @Test("APIFailure.safeDescription carries the classification and never the request's URL")
+    func apiFailureNeverLeaksTheRequestURL() async throws {
+        stub.enqueueFailure(.notConnectedToInternet)
+        let client = try ProtoAPIClient(
+            transport: transport,
+            endpoints: ChatEndpoints(host: #require(URL(string: "https://\(stub.host)"))),
+            credentials: SessionCredentials(
+                #require(SessionCookies(cookies: [SessionCookies.Cookie(name: "SID", value: "s")]))
+            ),
+            xsrfToken: "tok"
+        )
+        do {
+            _ = try await client.callRaw("paginated_world", body: Data())
+            Issue.record("expected callRaw to throw")
+        } catch {
+            guard let failure = error as? APIFailure else {
+                Issue.record("expected an APIFailure, got \(type(of: error))")
+                return
+            }
+            let description = failure.safeDescription
+            #expect(description.contains("not connected to the internet"))
+            #expect(!description.contains(stub.host))
+            #expect(!description.contains("key="))
+            #expect(!description.contains("c="))
+        }
+    }
+
     // MARK: - The cookie payoff
 
     /// The end-to-end reason `HTTPHeaders(collapsed:)` exists. Foundation hands
@@ -131,5 +217,53 @@ struct URLSessionTransportTests {
             body.append(chunk)
         }
         #expect(String(decoding: body, as: UTF8.self) == "52\n[[1,[\"noop\"]]]")
+    }
+
+    /// Fix-round finding: `send` classified a caught `URLError` and `stream`
+    /// did not, even though the channel's own request carries the long
+    /// poll's *live SID* directly on the query string
+    /// (`ChannelRequests.reopen(sid:aid:zx:)`, verified at
+    /// `ChannelRequests.swift:76,97`) and a poll that runs for minutes times
+    /// out in the ordinary case, not the exceptional one - making an
+    /// unclassified failure here the likeliest path in the whole app for a
+    /// session identifier to reach a screen and `docs/protocol/findings.md`.
+    ///
+    /// The SID comes from the real production builder rather than being
+    /// typed by hand; `key=` and `c=` are appended synthetically since no
+    /// single channel request carries all three - the property under test is
+    /// "nothing on this URL reaches the failure", not these three names
+    /// specifically, and `key=`/`c=` are the two the `/api/` fix round
+    /// already named.
+    @Test("a stream failure classifies and never leaks the request's URL, including a live SID")
+    func streamFailureNeverLeaksTheRequestURL() async throws {
+        stub.enqueueFailure(.timedOut)
+
+        let endpoints = try ChatEndpoints(host: #require(URL(string: "https://\(stub.host)")))
+        let reopenRequest = ChannelRequests(endpoints: endpoints)
+            .reopen(sid: "SECRET-SESSION-ID-DO-NOT-LEAK", aid: 1, zx: "zx-value")
+        var components = try #require(URLComponents(url: reopenRequest.url, resolvingAgainstBaseURL: false))
+        components.percentEncodedQuery = (components.percentEncodedQuery ?? "")
+            + "&key=AIzaSyD7InnYR3VKdb4j2rMUEbTCIr2VyEazl6k&c=1"
+        let request = try HTTPRequest(url: #require(components.url))
+
+        do {
+            _ = try await transport.stream(request)
+            Issue.record("expected stream to throw")
+        } catch {
+            guard let failure = error as? ClassifiedTransportFailure else {
+                Issue.record("expected a ClassifiedTransportFailure, got \(type(of: error))")
+                return
+            }
+            #expect(failure.reason == .timedOut)
+            // Checked on the raw `String(describing:)` output, not just
+            // `.reason` - `ClassifiedTransportFailure` has no custom
+            // description, so this is what a careless `\(error)` at any
+            // catch site downstream would actually print.
+            let description = String(describing: failure)
+            #expect(!description.contains("SECRET-SESSION-ID-DO-NOT-LEAK"))
+            #expect(!description.contains(stub.host))
+            #expect(!description.contains("key="))
+            #expect(!description.contains("c="))
+        }
     }
 }

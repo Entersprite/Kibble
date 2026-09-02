@@ -56,7 +56,19 @@ public final class URLSessionTransport: HTTPTransport {
     // MARK: - Unary
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        let (data, response) = try await session.data(for: Self.urlRequest(from: request))
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: Self.urlRequest(from: request))
+        } catch {
+            // Classified here, and only here: this is the one place in the
+            // package that knows the concrete error came from the URL loading
+            // system, and `String(describing:)` on one of those carries the
+            // failing request's URL - `key=` and `c=` included - in its
+            // `userInfo`. `ProtoAPIClient.callRaw`, which never touches a
+            // socket, could not make this call itself.
+            throw Self.classify(error)
+        }
         let http = try Self.httpResponse(from: response)
         return HTTPResponse(
             status: http.statusCode,
@@ -71,7 +83,19 @@ public final class URLSessionTransport: HTTPTransport {
     // MARK: - Streaming
 
     public func stream(_ request: HTTPRequest) async throws -> HTTPStream {
-        let (bytes, response) = try await session.bytes(for: Self.urlRequest(from: request))
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: Self.urlRequest(from: request))
+        } catch {
+            // The same reasoning as `send`, and the more important of the
+            // two: this request carries the long-poll's live SID
+            // (`ChannelRequests`), the poll runs for minutes, and a timeout is
+            // the ordinary way it fails - so an unclassified `URLError` here
+            // is the likeliest path in the whole app for a session identifier
+            // to reach a screen, and from there `docs/protocol/findings.md`.
+            throw Self.classify(error)
+        }
         let http = try Self.httpResponse(from: response)
 
         return HTTPStream(
@@ -99,7 +123,11 @@ public final class URLSessionTransport: HTTPTransport {
                         }
                         continuation.finish()
                     } catch {
-                        continuation.finish(throwing: error)
+                        // The socket dying mid-body is the other throw site
+                        // this stream owns - same request, same SID, same
+                        // reason to classify before it can reach
+                        // `ChannelSession.openStream`'s catch.
+                        continuation.finish(throwing: Self.classify(error))
                     }
                 }
                 continuation.onTermination = { _ in task.cancel() }
@@ -128,6 +156,28 @@ public final class URLSessionTransport: HTTPTransport {
             throw TransportFailure.notHTTP
         }
         return http
+    }
+
+    /// Classifies what the URL loading system threw, so nothing above this
+    /// file ever holds that error's own description.
+    ///
+    /// Only three codes are named explicitly - the ones a person can act on
+    /// ("check your connection", "try again", "the network dropped"). Every
+    /// other code becomes `.other(domain:code:)`, which is still exactly as
+    /// safe to print: a domain string and an integer, never request content.
+    /// An error that is not a `URLError` at all (a cancellation, say) is
+    /// passed through unchanged - `ProtoAPIClient.callRaw` already treats
+    /// anything it cannot recognise as unclassified, which is the correct
+    /// fallback here too.
+    private static func classify(_ error: any Error) -> any Error {
+        guard let urlError = error as? URLError else { return error }
+        let reason: TransportFailureReason = switch urlError.code {
+        case .notConnectedToInternet: .notConnectedToInternet
+        case .timedOut: .timedOut
+        case .networkConnectionLost: .connectionLost
+        default: .other(domain: URLError.errorDomain, code: urlError.errorCode)
+        }
+        return ClassifiedTransportFailure(reason)
     }
 
     /// Rebuilds the headers, restoring the repeated `Set-Cookie` fields

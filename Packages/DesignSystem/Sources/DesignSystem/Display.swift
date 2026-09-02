@@ -36,6 +36,24 @@ public enum Display {
         return name
     }
 
+    /// Who the sidebar footer says is signed in, including the moment before
+    /// `me` has resolved at all.
+    ///
+    /// A resolved id with no directory entry yet still falls through to
+    /// `name(of:in:)`'s own fallback - the raw identifier - the same partial
+    /// answer `ConversationRow` and `TypingStrip` already show for anyone
+    /// else not yet in the directory, so a signed-in person is not a special
+    /// case. Only `me == nil` gets a different answer: there is no
+    /// identifier at all to fall back to yet, and a footer visible the
+    /// instant a session starts still needs to draw something during that
+    /// gap. "Signed in" says a session exists without asserting an identity
+    /// this client does not have - the same choice as leaving a control out
+    /// entirely rather than drawing it half-empty.
+    public static func signedInLabel(me: Member.ID?, directory: [Member.ID: Member]) -> String {
+        guard let me else { return "Signed in" }
+        return name(of: me, in: directory)
+    }
+
     /// Up to two letters for an avatar circle.
     public static func initials(of member: Member.ID, in directory: [Member.ID: Member]) -> String {
         let resolved = name(of: member, in: directory)

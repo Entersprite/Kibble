@@ -34,7 +34,11 @@ public enum ChannelFailure: Error, Hashable, Sendable, CustomStringConvertible {
     case unexpectedStatus(Int)
     case noSessionIdentifier
     case malformedChunk(String)
-    case transport(String)
+    /// A classification, not a raw description - this request carries the
+    /// long-poll's live SID, so `String(describing:)` on an unclassified
+    /// `URLError` was a leak. `nil` means `ChannelSession` caught something
+    /// that did not classify as a `ClassifiedTransportFailure`.
+    case transport(TransportFailureReason?)
 
     public var description: String {
         switch self {
@@ -44,8 +48,8 @@ public enum ChannelFailure: Error, Hashable, Sendable, CustomStringConvertible {
             "the handshake carried no SID"
         case let .malformedChunk(detail):
             "a chunk could not be read: \(detail)"
-        case let .transport(detail):
-            "the connection failed: \(detail)"
+        case let .transport(reason):
+            "the connection failed: \(reason?.safeDescription ?? "transport error")"
         }
     }
 

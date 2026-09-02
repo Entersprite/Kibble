@@ -67,12 +67,17 @@ struct ReducerTests {
     /// checks below: who the local user is, *and* the record itself, so the
     /// name resolves out of the directory like anyone else's rather than
     /// needing a special case.
+    ///
+    /// Also supersedes a stale error - `get_self_user_status` succeeding is
+    /// exactly the kind of forward progress `supersedingStaleError` exists
+    /// to notice.
     @Test func selfIdentifiedRecordsWhoWeAreAndUpsertsTheRecord() {
         let me = Member(id: member, kind: .human, displayName: "One")
         let reduction = SyncReducer.reduce(.selfIdentified(me))
         #expect(reduction.writes == [
             .setLocalMember(member),
-            .upsertMembers([me])
+            .upsertMembers([me]),
+            .setLastError(nil)
         ])
     }
 
@@ -85,18 +90,24 @@ struct ReducerTests {
 
     // MARK: - Conversations
 
+    //
+    // Every case below also carries a trailing `.setLastError(nil)` -
+    // `supersedingStaleError`'s doc comment on `SyncReducer.reduce(_:)`
+    // explains why forward progress like this supersedes a stale banner
+    // rather than only a connection-state change doing so.
+
     @Test func theConversationListReplacesRatherThanMerges() {
         let list = [Conversation(id: conversation, kind: .space)]
         let reduction = SyncReducer.reduce(.conversationsChanged(list))
         // ChatEvent documents this as "the whole list, not a delta", so a
         // conversation that has gone must actually go.
-        #expect(reduction.writes == [.replaceConversations(list)])
+        #expect(reduction.writes == [.replaceConversations(list), .setLastError(nil)])
     }
 
     @Test func oneConversationsSnapshotIsAnUpsert() {
         let updated = Conversation(id: conversation, kind: .space, title: "renamed")
         #expect(SyncReducer.reduce(.conversationUpdated(updated)).writes
-            == [.upsertConversation(updated)])
+            == [.upsertConversation(updated), .setLastError(nil)])
     }
 
     @Test func membersChangedFillsTheStoreAndTheMembership() {
@@ -105,10 +116,14 @@ struct ReducerTests {
             .membersChanged(conversationID: conversation, members: people)
         )
         // Both halves are needed: the records themselves, and which
-        // conversation they belong to in what order.
+        // conversation they belong to in what order. A successful
+        // `get_members` is also exactly the call the fix-round bug report
+        // was about, so this is the case that matters most for the trailing
+        // `.setLastError(nil)`.
         #expect(reduction.writes == [
             .upsertMembers(people),
-            .setMembership(conversation: conversation, members: [member])
+            .setMembership(conversation: conversation, members: [member]),
+            .setLastError(nil)
         ])
     }
 
@@ -117,7 +132,7 @@ struct ReducerTests {
             .readStateChanged(conversationID: conversation, lastReadAt: at, unread: 3)
         )
         #expect(reduction.writes
-            == [.setReadState(conversation: conversation, lastReadAt: at, unread: 3)])
+            == [.setReadState(conversation: conversation, lastReadAt: at, unread: 3), .setLastError(nil)])
     }
 
     @Test func typingIsAWriteLikeAnythingElse() {
@@ -125,30 +140,38 @@ struct ReducerTests {
             .typingChanged(conversationID: conversation, member: member, isTyping: true)
         )
         #expect(reduction.writes
-            == [.setTyping(conversation: conversation, member: member, isTyping: true)])
+            == [
+                .setTyping(conversation: conversation, member: member, isTyping: true),
+                .setLastError(nil)
+            ])
     }
 
     @Test func presenceLandsOnTheMemberRecord() {
         #expect(SyncReducer.reduce(.presenceChanged(member: member, presence: .doNotDisturb)).writes
-            == [.setPresence(member: member, presence: .doNotDisturb)])
+            == [.setPresence(member: member, presence: .doNotDisturb), .setLastError(nil)])
     }
 
     // MARK: - Messages
 
     @Test func aReceivedMessageIsAnUpsert() {
-        #expect(SyncReducer.reduce(.messageReceived(sample())).writes == [.upsertMessage(sample())])
+        #expect(SyncReducer.reduce(.messageReceived(sample())).writes
+            == [.upsertMessage(sample()), .setLastError(nil)])
     }
 
     /// Received and updated reduce identically, on purpose: the store's job is
     /// to end up with the message, and an upsert already says that.
     @Test func anUpdatedMessageIsTheSameUpsert() {
         let edited = sample("corrected")
-        #expect(SyncReducer.reduce(.messageUpdated(edited)).writes == [.upsertMessage(edited)])
+        #expect(SyncReducer.reduce(.messageUpdated(edited)).writes
+            == [.upsertMessage(edited), .setLastError(nil)])
     }
 
     @Test func aDeletionIsATombstoneNotARemoval() {
         let reduction = SyncReducer.reduce(.messageDeleted(id: messageID, in: conversation))
-        #expect(reduction.writes == [.markMessageDeleted(id: messageID, in: conversation)])
+        #expect(reduction.writes == [
+            .markMessageDeleted(id: messageID, in: conversation),
+            .setLastError(nil)
+        ])
     }
 
     @Test func reactionsAreReplacedWholesale() {
@@ -156,7 +179,22 @@ struct ReducerTests {
         let reduction = SyncReducer.reduce(
             .reactionChanged(messageID: messageID, reactions: reactions)
         )
-        #expect(reduction.writes == [.setReactions(messageID: messageID, reactions: reactions)])
+        #expect(reduction.writes
+            == [.setReactions(messageID: messageID, reactions: reactions), .setLastError(nil)])
+    }
+
+    /// The fix-round regression test: a `.backendError` on its own does not
+    /// clear itself (asserted by `anErrorIsRecordedWholeRatherThanAsAString`
+    /// above), but the very next unrelated forward-progress event does -
+    /// which is what stops a one-off `/api/` failure on an otherwise healthy
+    /// channel from outliving its own relevance for the rest of the session.
+    @Test func aLaterUnrelatedEventSupersedesAnEarlierBackendError() {
+        let failed = SyncReducer
+            .reduce(.backendError(.transport("the /api/ get_members call: transport error")))
+        #expect(failed.writes == [.setLastError(.transport("the /api/ get_members call: transport error"))])
+
+        let recovered = SyncReducer.reduce(.messageReceived(sample()))
+        #expect(recovered.writes.contains(.setLastError(nil)))
     }
 
     // MARK: - Gaps

@@ -3,6 +3,11 @@ import SwiftProtobuf
 import Testing
 @testable import GChatBridgeCore
 
+/// Thrown by `ProtoAPIClientTests.UnclassifiedThrowingTransport` - top-level
+/// rather than nested inside it, since swiftlint's `nesting` rule caps types
+/// at one level deep and that transport is already nested inside the suite.
+private struct UnclassifiedBoom: Error {}
+
 @Suite("ProtoAPIClient")
 struct ProtoAPIClientTests {
     private func cookies() -> SessionCookies {
@@ -153,5 +158,61 @@ struct ProtoAPIClientTests {
         let raw = try await client(transport).callRaw("paginated_world", body: Data())
         #expect(raw.status == 200)
         #expect(raw.body == body)
+    }
+
+    // MARK: - Classification
+
+    /// A transport that has already classified its own failure - the shape
+    /// `URLSessionTransport` produces once it recognises a `URLError` -
+    /// carries that classification through `callRaw` untouched.
+    private struct ClassifiedThrowingTransport: HTTPTransport {
+        let reason: TransportFailureReason
+        func send(_: HTTPRequest) async throws -> HTTPResponse {
+            throw ClassifiedTransportFailure(reason)
+        }
+
+        func stream(_: HTTPRequest) async throws -> HTTPStream {
+            throw ClassifiedTransportFailure(reason)
+        }
+    }
+
+    /// A transport that fails with something `callRaw` cannot possibly
+    /// recognise - standing in for every `HTTPTransport` conformance that
+    /// cannot classify its own failures, `FakeHTTPTransport` included.
+    private struct UnclassifiedThrowingTransport: HTTPTransport {
+        func send(_: HTTPRequest) async throws -> HTTPResponse {
+            throw UnclassifiedBoom()
+        }
+
+        func stream(_: HTTPRequest) async throws -> HTTPStream {
+            throw UnclassifiedBoom()
+        }
+    }
+
+    @Test func aClassifiedTransportFailureCarriesItsReasonThroughCallRaw() async {
+        let client = ProtoAPIClient(
+            transport: ClassifiedThrowingTransport(reason: .timedOut),
+            endpoints: ChatEndpoints(),
+            credentials: SessionCredentials(cookies()),
+            xsrfToken: "tok"
+        )
+        await #expect(throws: APIFailure.transport(.timedOut)) {
+            try await client.callRaw("paginated_world", body: Data())
+        }
+    }
+
+    /// `callRaw` itself must never classify - only an `HTTPTransport` that
+    /// actually touches a socket can - so anything it did not recognise
+    /// becomes `nil`, not a guess.
+    @Test func anUnclassifiableTransportFailureBecomesNilReason() async {
+        let client = ProtoAPIClient(
+            transport: UnclassifiedThrowingTransport(),
+            endpoints: ChatEndpoints(),
+            credentials: SessionCredentials(cookies()),
+            xsrfToken: "tok"
+        )
+        await #expect(throws: APIFailure.transport(nil)) {
+            try await client.callRaw("paginated_world", body: Data())
+        }
     }
 }

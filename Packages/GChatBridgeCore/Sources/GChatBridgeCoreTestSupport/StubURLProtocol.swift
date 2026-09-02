@@ -34,17 +34,27 @@ public final class StubURLProtocol: URLProtocol {
         public let body: Data?
     }
 
+    /// A queued outcome: an ordinary answer, or a `URLError` to fail the
+    /// request with - the second is what lets a test exercise
+    /// `URLSessionTransport`'s classification of a real `URLError` rather
+    /// than only the "no stub queued" failure every suite already gets for
+    /// free.
+    public enum Outcome {
+        case success(Stub)
+        case failure(URLError.Code)
+    }
+
     /// Host-partitioned stub queues and request logs.
     public final class Registry {
         private let lock = NSLock()
-        private var stubs: [String: [Stub]] = [:]
+        private var stubs: [String: [Outcome]] = [:]
         private var recorded: [String: [Recorded]] = [:]
 
-        public func enqueue(_ stub: Stub, host: String) {
-            lock.withLock { stubs[host, default: []].append(stub) }
+        public func enqueue(_ outcome: Outcome, host: String) {
+            lock.withLock { stubs[host, default: []].append(outcome) }
         }
 
-        public func take(host: String, recording: Recorded) -> Stub? {
+        public func take(host: String, recording: Recorded) -> Outcome? {
             lock.withLock {
                 recorded[host, default: []].append(recording)
                 guard var queue = stubs[host], !queue.isEmpty else { return nil }
@@ -103,7 +113,7 @@ public final class StubURLProtocol: URLProtocol {
     override public func startLoading() {
         let host = request.url?.host() ?? ""
         let recording = Recorded(request: request, body: Self.body(of: request))
-        guard let stub = Self.registry.take(host: host, recording: recording) else {
+        guard let outcome = Self.registry.take(host: host, recording: recording) else {
             client?.urlProtocol(
                 self,
                 didFailWithError: URLError(
@@ -116,15 +126,26 @@ public final class StubURLProtocol: URLProtocol {
             return
         }
 
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: stub.status,
-            httpVersion: "HTTP/1.1",
-            headerFields: stub.headers
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: stub.body)
-        client?.urlProtocolDidFinishLoading(self)
+        switch outcome {
+        case let .failure(code):
+            // The failing URL travels on the real error the same way a live
+            // one would - `NSURLErrorFailingURLErrorKey` is exactly where
+            // `URLSessionTransportTests` proves classification never leaks it.
+            client?.urlProtocol(
+                self,
+                didFailWithError: URLError(code, userInfo: [NSURLErrorFailingURLErrorKey: request.url as Any])
+            )
+        case let .success(stub):
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: stub.status,
+                httpVersion: "HTTP/1.1",
+                headerFields: stub.headers
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: stub.body)
+            client?.urlProtocolDidFinishLoading(self)
+        }
     }
 
     override public func stopLoading() {}
@@ -153,7 +174,15 @@ public final class StubSession {
     }
 
     public func enqueue(_ stub: StubURLProtocol.Stub) {
-        StubURLProtocol.registry.enqueue(stub, host: host)
+        StubURLProtocol.registry.enqueue(.success(stub), host: host)
+    }
+
+    /// Fails the next request with `code` instead of answering it - what a
+    /// test reaches for to exercise `URLSessionTransport`'s classification of
+    /// a real `URLError`, rather than only the "no stub queued" one every
+    /// suite gets without asking.
+    public func enqueueFailure(_ code: URLError.Code) {
+        StubURLProtocol.registry.enqueue(.failure(code), host: host)
     }
 
     public func enqueue(json: String, status: Int = 200) {

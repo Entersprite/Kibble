@@ -11,7 +11,10 @@ import Foundation
 /// guess to a policy, which is the exact move that cost three cookie captures in
 /// session 3. The status is surfaced and the question stays open.
 public enum APIFailure: Error, Sendable, Equatable {
-    case transport(String)
+    /// `nil` when whatever `HTTPTransport` conformance threw could not be
+    /// classified - see ``TransportFailureReason`` for who produces one and
+    /// why `ProtoAPIClient.callRaw` itself never can.
+    case transport(TransportFailureReason?)
     case httpStatus(Int)
     case emptyBody
 
@@ -25,18 +28,23 @@ public extension APIFailure {
     /// A description safe for a report that gets pasted somewhere durable -
     /// `findings.md` is the reason this exists.
     ///
-    /// `.transport`'s and `.undecodable`'s associated strings both come from
-    /// `String(describing:)` on an arbitrary underlying `Error` -
-    /// `ProtoAPIClient.callRaw` for the first, a `SwiftProtobuf` decode
-    /// failure for the second - and neither is a type this package controls,
-    /// so neither is a type whose `description` this package can vouch for
-    /// staying free of request content. The case name and any value this
-    /// enum itself put there (a status code, the list of encodings tried)
-    /// carry the diagnosis without carrying that risk.
+    /// `.transport`'s payload is a classification `TransportFailureReason`
+    /// gives no route back to the request that failed, never the error's own
+    /// description - see that type's doc comment for why `callRaw` cannot
+    /// classify one itself. `.undecodable`'s `detail` still comes from
+    /// `String(describing:)` on a `SwiftProtobuf` decode failure, which is
+    /// not a type this package controls, so it is left out here exactly as
+    /// before. The case name and any value this enum itself put there (a
+    /// status code, the list of encodings tried, the classification) carry
+    /// the diagnosis without carrying that risk.
     var safeDescription: String {
         switch self {
-        case .transport:
-            "transport error"
+        case let .transport(reason):
+            if let reason {
+                "transport error (\(reason.safeDescription))"
+            } else {
+                "transport error"
+            }
         case let .httpStatus(status):
             "HTTP \(status)"
         case .emptyBody:

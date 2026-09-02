@@ -54,24 +54,35 @@ extension LocalBridgeBackend {
     /// unrecorded - no run has put an expired credential in front of it.
     /// Guessing either way would promote a guess to a policy.
     ///
-    /// `call` names which `/api/` call failed, for `.server`'s message -
-    /// defaulted to `loadConversations()`'s own call so its existing call
-    /// site did not need to change when `resolveAndEmitMembers` became a
-    /// second caller with a different call to name.
+    /// `call` names which `/api/` call failed, and now reaches every branch's
+    /// message, not just `.httpStatus`'s - a banner that only ever said
+    /// "Connection problem: transport error" left nobody able to tell a
+    /// failed `get_members` from a failed `create_message`. Defaulted to
+    /// `loadConversations()`'s own call so its existing call site did not
+    /// need to change when `resolveAndEmitMembers` became a second caller
+    /// with a different call to name.
     static func chatError(
         fromAPI error: any Error,
         call: String = "the /api/ paginated_world call"
     ) -> ChatError {
         guard let failure = error as? APIFailure else {
-            return .transport(String(describing: error))
+            // `apiClient.call(_:_:)` only ever throws `APIFailure` - see
+            // `TopicsRequestLadder.swift`'s and `WorldRequestLadder.swift`'s
+            // own comments on the same fact - so this is a defensive
+            // fallback for a case that should not occur, not a path any test
+            // exercises through a real call site. It still must not
+            // interpolate `error` itself: an error escaping the transport
+            // and decoding layers untyped is exactly the kind this function
+            // exists to keep off the banner.
+            return .transport("\(call): an unrecognised error type")
         }
         switch failure {
         case let .httpStatus(status):
             return .server(status: status, message: call)
         case .transport:
-            return .transport(failure.safeDescription)
+            return .transport("\(call): \(failure.safeDescription)")
         case .emptyBody, .undecodable:
-            return .decoding(failure.safeDescription)
+            return .decoding("\(call): \(failure.safeDescription)")
         }
     }
 }

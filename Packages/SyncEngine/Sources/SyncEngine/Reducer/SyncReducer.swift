@@ -23,13 +23,52 @@ public enum SyncReducer {
     public static func reduce(_ event: ChatEvent) -> Reduction {
         switch event {
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged:
-            reduceMessageEvent(event)
+            supersedingStaleError(reduceMessageEvent(event))
         case .conversationsChanged, .conversationUpdated, .membersChanged,
              .readStateChanged, .typingChanged, .presenceChanged:
-            reduceConversationEvent(event)
-        case .connectionStateChanged, .selfIdentified, .backendError, .gap, .unknown:
+            supersedingStaleError(reduceConversationEvent(event))
+        case .selfIdentified:
+            supersedingStaleError(reduceSessionEvent(event))
+        case .connectionStateChanged, .backendError, .gap, .unknown:
             reduceSessionEvent(event)
         }
+    }
+
+    /// Marks a stale `lastError` superseded by the forward progress `reduction`
+    /// itself proves just happened.
+    ///
+    /// **Why this exists.** A one-off `/api/` failure - a `get_members` call
+    /// that failed on an otherwise healthy channel, say - used to outlive its
+    /// own relevance: nothing about *connection state* changes when a single
+    /// call fails, so `clearedError(by:)` alone never fired again, and the
+    /// banner sat there for the rest of the session even after the exact same
+    /// kind of call went on to succeed. This is the same reasoning
+    /// `clearedError(by:)`'s own doc comment already states for
+    /// `.connectionStateChanged` - "an error is a claim about a moment that
+    /// has passed; ... the newer claim wins" - generalised to every event
+    /// whose very existence is proof the channel just did something real:
+    /// a message that arrived, a conversation that changed, a membership list
+    /// that resolved, this client's own identity confirmed.
+    ///
+    /// **Why it does not chase which specific action failed.** `ChatEvent`
+    /// carries no link back to the `/api/` call that produced it, so
+    /// "supersede only the matching error" is not expressible without adding
+    /// causality this protocol does not have. What is expressible, and is
+    /// exactly what `.connectionStateChanged` already does at a coarser
+    /// grain, is "the channel just proved it is working, so whatever went
+    /// wrong before this moment is no longer the last word." A banner that
+    /// clears a little too eagerly is a UI nit; one that never clears is the
+    /// bug this fixes.
+    ///
+    /// **Why a persistent problem still shows.** `.backendError`, `.gap` and
+    /// `.unknown` are excluded, and `.connectionStateChanged` keeps going
+    /// through its own narrower `clearedError(by:)` untouched - blanket
+    /// superseding there would erase the diagnosis `.disconnected` exists to
+    /// carry, one event after it arrived. For everything routed through here,
+    /// a session that is actually dead cannot keep producing the events that
+    /// supersede it, so the newer claim only wins because it is true.
+    private static func supersedingStaleError(_ reduction: Reduction) -> Reduction {
+        Reduction(writes: reduction.writes + [.setLastError(nil)], effects: reduction.effects)
     }
 
     private static func reduceMessageEvent(_ event: ChatEvent) -> Reduction {

@@ -197,6 +197,29 @@ struct ChannelReducerTests {
         #expect(state.phase.isFailed)
     }
 
+    /// Fix-round finding: a desynchronised stream puts mid-payload bytes where
+    /// the length prefix belongs, and a chunk payload is JSON on one line, so
+    /// "everything before the first newline" can be an entire message body -
+    /// worse than the SID the transport-level fix closed, because this is
+    /// message content. `String(describing:)` on the resulting
+    /// `ChannelFailure` is exactly what `LocalBridgeBackend.channelStopped`
+    /// wraps into `ChatError.transport(_:)`, so proving it clean here proves
+    /// the `ChatError` clean too - there is no further transformation between
+    /// this string and that one.
+    @Test func aMalformedPrefixNeverLeaksTheBufferedTextItReplaced() {
+        var state = connected()
+        let secret = "SECRET-MESSAGE-CONTENT-DO-NOT-LEAK"
+        let effects = ChannelReducer.reduce(&state, body(#"{"text":"\#(secret)"}"# + "\n[[1]]"))
+        #expect(effects.last == .finished)
+        guard case let .failed(failure) = state.phase else {
+            Issue.record("expected .failed, got \(state.phase)")
+            return
+        }
+        let description = String(describing: failure)
+        #expect(!description.contains(secret))
+        #expect(!description.contains("SECRET"))
+    }
+
     @Test func aChunkOfTheWrongShapeFails() {
         var state = connected()
         let effects = ChannelReducer.reduce(&state, body("5\n[[1]]"))

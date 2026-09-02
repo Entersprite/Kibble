@@ -271,12 +271,17 @@ struct LoadConversationsMemberResolutionTests {
     /// `LoadConversationsTests.loadConversationsEmitsABackendErrorCountWhenItemsAreSkipped`,
     /// one layer up.
     ///
-    /// Matched on the exact `.transport("transport error")` shape -
-    /// `APIFailure.transport`'s `safeDescription` is that fixed string,
-    /// unlike whatever description the channel's own unrelated, concurrent
-    /// failure carries (`stream()` throws `RoutingTransport.NoStream`) -
-    /// so this cannot pass because of a `.backendError` the background
-    /// channel emitted for a different reason.
+    /// Matched on the exact `.transport("the /api/ get_members call: transport
+    /// error")` shape - `chatError(fromAPI:call:)` now weaves the failing
+    /// call's name into every branch's message, not just `.httpStatus`'s, and
+    /// `APIFailure.transport(nil)`'s `safeDescription` is the fixed string
+    /// "transport error" (`Boom` classifies as nothing, since only a real
+    /// `HTTPTransport` that touches a socket can throw
+    /// `ClassifiedTransportFailure`). Matching the whole string, rather than
+    /// merely checking it is non-empty, is what keeps this from passing
+    /// because of a `.backendError` the channel's own unrelated, concurrent
+    /// failure emitted for a different reason (`stream()` throws
+    /// `RoutingTransport.NoStream`).
     @Test func loadConversationsEmitsABackendErrorWhenMemberResolutionFails() async throws {
         struct Boom: Error {}
         let backend = try backend(
@@ -290,11 +295,8 @@ struct LoadConversationsMemberResolutionTests {
 
         let events = await collectEvents(backend)
         let found = events.contains {
-            if case let .backendError(error) = $0, case .transport("transport error") = error {
-                true
-            } else {
-                false
-            }
+            guard case let .backendError(error) = $0 else { return false }
+            return error == .transport("the /api/ get_members call: transport error")
         }
         #expect(found)
     }

@@ -34,7 +34,7 @@ struct ChannelReducerReconnectTests {
     /// makes a precondition for classifying the others.
     @Test func aTransportFailureAsksToReconnectRatherThanStopping() {
         var state = connected()
-        let effects = ChannelReducer.reduce(&state, .failed(.transport("socket died")))
+        let effects = ChannelReducer.reduce(&state, .failed(.transport(.connectionLost)))
         #expect(effects == [.reconnect(attempt: 1)])
         #expect(state.phase == .reconnecting(attempt: 1))
     }
@@ -77,7 +77,7 @@ struct ChannelReducerReconnectTests {
     /// costs a round trip where guessing wrong costs the whole session.
     @Test func aRetryStartsANewRegistration() {
         var state = connected()
-        _ = ChannelReducer.reduce(&state, .failed(.transport("x")))
+        _ = ChannelReducer.reduce(&state, .failed(.transport(nil)))
         let effects = ChannelReducer.reduce(&state, .retry)
         #expect(effects == [.register])
         #expect(state.phase == .registering)
@@ -88,13 +88,13 @@ struct ChannelReducerReconnectTests {
     @Test func reconnectingStopsAfterTheAttemptLimit() {
         var state = connected()
         for attempt in 1 ... 4 {
-            let effects = ChannelReducer.reduce(&state, .failed(.transport("x")))
+            let effects = ChannelReducer.reduce(&state, .failed(.transport(nil)))
             #expect(effects == [.reconnect(attempt: attempt)])
             _ = ChannelReducer.reduce(&state, .retry)
         }
-        let effects = ChannelReducer.reduce(&state, .failed(.transport("x")))
-        #expect(effects == [.report(.transport("x")), .finished])
-        #expect(state.phase == .failed(.transport("x")))
+        let effects = ChannelReducer.reduce(&state, .failed(.transport(nil)))
+        #expect(effects == [.report(.transport(nil)), .finished])
+        #expect(state.phase == .failed(.transport(nil)))
     }
 
     /// Same bound, same shape, for the other recoverable class: a channel
@@ -120,7 +120,7 @@ struct ChannelReducerReconnectTests {
     @Test func transportAndStatus400ShareOneRetryBudget() {
         var state = connected()
         let failures: [ChannelFailure] = [
-            .transport("a"), .unexpectedStatus(400), .transport("b"), .unexpectedStatus(400)
+            .transport(.timedOut), .unexpectedStatus(400), .transport(.connectionLost), .unexpectedStatus(400)
         ]
         for (index, failure) in failures.enumerated() {
             let attempt = index + 1
@@ -128,9 +128,9 @@ struct ChannelReducerReconnectTests {
             #expect(effects == [.reconnect(attempt: attempt)])
             _ = ChannelReducer.reduce(&state, .retry)
         }
-        let effects = ChannelReducer.reduce(&state, .failed(.transport("c")))
-        #expect(effects == [.report(.transport("c")), .finished])
-        #expect(state.phase == .failed(.transport("c")))
+        let effects = ChannelReducer.reduce(&state, .failed(.transport(.notConnectedToInternet)))
+        #expect(effects == [.report(.transport(.notConnectedToInternet)), .finished])
+        #expect(state.phase == .failed(.transport(.notConnectedToInternet)))
     }
 
     /// A body that ends the way a healthy poll ends resets the count, so a
@@ -159,7 +159,7 @@ struct ChannelReducerReconnectTests {
         #expect(state.attempt == 1)
         // The body dies instead of ending: the same input the driver applies
         // when a read throws.
-        let effects = ChannelReducer.reduce(&state, .failed(.transport("dropped again")))
+        let effects = ChannelReducer.reduce(&state, .failed(.transport(.connectionLost)))
         #expect(effects == [.reconnect(attempt: 2)])
         #expect(state.attempt == 2)
     }
@@ -169,7 +169,7 @@ struct ChannelReducerReconnectTests {
     /// earned it back yet.
     private func recovered() -> ChannelState {
         var state = connected()
-        _ = ChannelReducer.reduce(&state, .failed(.transport("x")))
+        _ = ChannelReducer.reduce(&state, .failed(.transport(nil)))
         _ = ChannelReducer.reduce(&state, .retry)
         _ = ChannelReducer.reduce(&state, .registered)
         _ = ChannelReducer.reduce(

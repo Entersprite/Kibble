@@ -8,15 +8,25 @@ import Foundation
 /// hostile peer.
 public enum ChunkParserError: Error, Hashable, CustomStringConvertible {
     /// The bytes before the first newline were not a length.
-    case malformedLengthPrefix(String)
+    ///
+    /// A count and an ASCII flag, never the bytes themselves - fix-round
+    /// finding: a desynchronised stream puts mid-payload bytes here instead of
+    /// a length, and a chunk payload is JSON on one line, so "everything
+    /// before the first newline" can be an entire message body. Length and
+    /// ASCII-ness are exactly what tells a protocol change (a still-numeric
+    /// but differently-shaped prefix) apart from a broken peer (binary
+    /// garbage), which is the distinction this type's own doc comment exists
+    /// for - and neither can ever be message content.
+    case malformedLengthPrefix(length: Int, isASCII: Bool)
 
     /// A length was declared that this client will not wait for.
     case declaredLengthTooLarge(String)
 
     public var description: String {
         switch self {
-        case let .malformedLengthPrefix(prefix):
-            "the chunk length prefix was not a number: \(prefix.debugDescription)"
+        case let .malformedLengthPrefix(length, isASCII):
+            "the chunk length prefix was not a number: "
+                + "\(length) character(s), \(isASCII ? "ASCII" : "non-ASCII")"
         case let .declaredLengthTooLarge(length):
             "a chunk declared a length of \(length), which exceeds the limit"
         }
@@ -98,7 +108,10 @@ public struct ChunkParser: Sendable {
         guard let newline = text.firstIndex(of: "\n") else { return nil }
         let digits = text[text.startIndex ..< newline]
         guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else {
-            throw ChunkParserError.malformedLengthPrefix(String(digits))
+            throw ChunkParserError.malformedLengthPrefix(
+                length: digits.count,
+                isASCII: digits.allSatisfy(\.isASCII)
+            )
         }
         guard let length = Int(digits), length <= Self.maximumChunkLength else {
             throw ChunkParserError.declaredLengthTooLarge(String(digits))
