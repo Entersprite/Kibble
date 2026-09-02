@@ -24,7 +24,21 @@ struct CookieCaptureView: View {
     /// one value rather than of two views agreeing.
     let onSaved: () async -> Void
 
-    @State private var model = CookieCaptureModel()
+    @State private var model: CookieCaptureModel
+
+    /// `autoSaveAllowed` defaults to `false` - the safe behaviour, not the
+    /// convenient one - so guard 2 is structural: a call site that forgets to
+    /// opt in gets the manual button, never a silent auto-save, and it is
+    /// `GChatMacApp` alone that passes `true`, because `.needsSignIn` is the
+    /// one place there is nothing yet in the Keychain to overwrite. See
+    /// `CookieCaptureModel.autoSaveAllowed`.
+    init(reason: String?, autoSaveAllowed: Bool = false, onSaved: @escaping () async -> Void) {
+        self.reason = reason
+        self.onSaved = onSaved
+        _model = State(
+            initialValue: CookieCaptureModel(autoSaveAllowed: autoSaveAllowed, onSaved: onSaved)
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {

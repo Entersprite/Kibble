@@ -30,12 +30,12 @@ final class AppEnvironment {
         if case .running = phase {
             return
         }
-        if Self.isKeychainCheckRequested {
-            await runKeychainCheck()
+        if AppEnvironmentProbes.isKeychainCheckRequested {
+            phase = await .report(AppEnvironmentProbes.keychainCheck())
             return
         }
-        if Self.isAPIProbeRequested {
-            await runAPIProbe()
+        if AppEnvironmentProbes.isAPIProbeRequested {
+            phase = await .report(AppEnvironmentProbes.apiProbe())
             return
         }
         do {
@@ -43,7 +43,7 @@ final class AppEnvironment {
             // is not an error and must not be reported as one - it is a first
             // run, and the only sensible thing to show is a sign-in.
             if Self.isRealBackendRequested, try await Self.storedSession() == nil {
-                phase = .needsSignIn(reason: nil)
+                await enterNeedsSignIn(reason: nil)
                 return
             }
             let store = try ChatStore.onDisk(at: Self.databasePath())
@@ -75,7 +75,16 @@ final class AppEnvironment {
             // Google has stopped accepting it. Expiry never proves this and
             // never disproves it (`findings.md` §11), so it is only knowable
             // from a round trip - and this is that round trip having happened.
-            phase = .needsSignIn(reason: "Your Google session stopped working. Sign in again.")
+            //
+            // This is the commonest way a *different* account ends up
+            // reopening `chat-local.sqlite`: the nine-day `COMPASS` fuse
+            // burns out far more often than anyone clicks Sign Out. Routing
+            // it through `enterNeedsSignIn` rather than setting `phase`
+            // directly is what makes the erase happen here too, not only on
+            // the menu command.
+            await enterNeedsSignIn(
+                reason: "Your Google session stopped working. Sign in again."
+            )
         } catch {
             phase = .failed(String(describing: error))
         }
@@ -101,65 +110,85 @@ final class AppEnvironment {
         await start()
     }
 
-    /// `--probe=keychain`, in the shape `AppNapProbe` established.
+    /// Forgets this account on this Mac.
     ///
-    /// Whether a sandboxed app can use the Keychain depends on how it was
-    /// signed rather than on anything in this repository, and the failure is a
-    /// silent `-34018` that reads exactly like "no session stored". Kept rather
-    /// than deleted once it first answered, because the question returns every
-    /// time the signing identity does.
-    static var isKeychainCheckRequested: Bool {
-        CommandLine.arguments.contains("--probe=keychain")
-    }
-
-    private func runKeychainCheck() async {
-        let store = KeychainCredentialStore.forSelfCheck()
-        let legacy = await store.selfCheck()
-        let modern = await store.dataProtectionSelfCheck()
-        let result = """
-        legacy keychain:          \(legacy)
-        data-protection keychain: \(modern)
-        """
-        // A phase, not a bare string. Nothing but `phase` decides what is on
-        // screen, so a probe that only wrote a property left the window on
-        // `loading`'s spinner for ever - the report was on disk and the person
-        // running it had no way to know it had even finished.
-        phase = .report(result)
-        // Written as well as shown: the window is not readable from a script,
-        // and this is a check somebody runs after changing how the app is
-        // signed.
-        if let directory = try? Self.supportDirectory() {
-            try? result.write(
-                to: directory.appendingPathComponent("keychain-check.txt"),
-                atomically: true,
-                encoding: .utf8
-            )
+    /// **Not a revocation.** The session Google issued stays valid there
+    /// until it expires on its own; "sign out" here means only that this Mac
+    /// stops remembering it - the Keychain item is deleted, so the next
+    /// launch has nothing to reconnect with and asks for a fresh login.
+    ///
+    /// Invalidating the Keychain item happens **before** `enterNeedsSignIn`
+    /// rather than after: that function is the one and only place the store
+    /// gets erased before this Mac may show a login window at all (see its
+    /// own doc comment), and a failure inside it must not have already
+    /// discarded the credential behind it - that would strand someone with
+    /// no session and no way to reach one without the erase problem also
+    /// getting fixed first. If invalidating itself fails, nothing is erased
+    /// and nothing changes to `.needsSignIn` - the session is still there to
+    /// retry signing out of.
+    func signOut() async {
+        do {
+            try await KeychainCredentialStore().invalidate()
+        } catch {
+            phase = .failed(String(describing: error))
+            return
         }
+        await enterNeedsSignIn(reason: nil)
     }
 
-    /// The `/api/` probe. Same reasoning as the Keychain check: it answers a
-    /// question that returns, and it needs the real credential rather than a
-    /// hand-pasted header.
-    static var isAPIProbeRequested: Bool {
-        CommandLine.arguments.contains("--probe=api")
-    }
-
-    private func runAPIProbe() async {
-        // No arguments: the defaults supply the Keychain store and the live
-        // transport, so the app names no core type. Same shape as
-        // `LocalBridgeBackend.using(_:transport:)` at SessionHandoff.swift:77.
-        let report = await APIProbeReport.run()
-        phase = .report(report)
-        // Written as well as shown, for the same reason the Keychain check is:
-        // the window is not readable from a script, and this report is meant to
-        // be pasted into findings.md.
-        if let directory = try? Self.supportDirectory() {
-            try? report.write(
-                to: directory.appendingPathComponent("api-probe.txt"),
-                atomically: true,
-                encoding: .utf8
-            )
+    /// The only way `phase` may become `.needsSignIn` - **erasing the store
+    /// first is what makes that structural rather than a convention.**
+    ///
+    /// Erasing used to be tied to the Sign Out menu command alone, but that
+    /// is not the likeliest way a different account ends up reopening
+    /// `chat-local.sqlite`: the nine-day `COMPASS` fuse
+    /// (`findings.md` §17.2) burning out and `requestSignIn()`'s escape from
+    /// `.failed` both used to set `phase` directly and leave whatever was
+    /// already in the database exactly where it was. Routing every entry
+    /// into `.needsSignIn` through this one function - `start()`'s two
+    /// paths, `requestSignIn()`, and `signOut()` - is what makes it
+    /// impossible to reach the login window without the erase having
+    /// already happened, rather than something each call site has to
+    /// remember.
+    ///
+    /// A `.running` session is stopped and its own store erased through
+    /// `ChatSessionModel.stopAndEraseStore()`, in that order, inside one
+    /// call - the ordering guarantee `signOut()` used to state on its own is
+    /// now this function's alone to keep. Anything else (no session was
+    /// ever running, or one already failed) erases the database at the
+    /// standard path directly, since there is no live model to ask; erasing
+    /// an already-empty store is a cheap no-op, which is the point - nothing
+    /// here has to know whether there is anything to erase.
+    private func enterNeedsSignIn(reason: String?) async {
+        do {
+            if case let .running(model) = phase {
+                // The fixture backend's own demo world, ticking on its own
+                // actor. Its writes reach the store only through
+                // `SyncEngine`'s consumer loop, which `stopAndEraseStore()`
+                // has already drained by the time this stops it - so this is
+                // hygiene, not a second guard against the same race.
+                if let demo {
+                    await demo.stop()
+                    self.demo = nil
+                }
+                try await model.stopAndEraseStore()
+            } else {
+                try ChatStore.onDisk(at: Self.databasePath()).erase()
+            }
+        } catch {
+            phase = .failed(String(describing: error))
+            return
         }
+        phase = .needsSignIn(reason: reason)
+    }
+
+    /// Whether `signOut()` has a running session to act on. The menu command
+    /// is disabled otherwise - there is nothing to confirm forgetting.
+    var canSignOut: Bool {
+        if case .running = phase {
+            return true
+        }
+        return false
     }
 
     private struct Selection {
@@ -219,9 +248,21 @@ final class AppEnvironment {
 
     var sceneState: ChatSceneState {
         guard case let .running(model) = phase else {
-            return ChatSceneState(
-                lastError: nonRunningErrorMessage.map { ChatError.unknown($0) }
-            )
+            // `.failed` and `.report` are not the same kind of non-running:
+            // one is a real problem and the other is a clean diagnostic run
+            // that merely finished, and the two must not render under the
+            // same warning triangle - see `StatusStrip` in `ChatWindow.swift`.
+            // `lastError` and `notice` are how that distinction survives past
+            // this point; collapsing them back into one string is exactly
+            // the bug that put a triangle over a passing keychain check.
+            switch phase {
+            case let .failed(message):
+                return ChatSceneState(lastError: .unknown(message))
+            case let .report(message):
+                return ChatSceneState(notice: message)
+            case .loading, .needsSignIn, .running:
+                return ChatSceneState()
+            }
         }
         return ChatSceneState(
             conversations: model.conversations,
@@ -234,20 +275,6 @@ final class AppEnvironment {
             lastError: model.lastError,
             capabilities: model.capabilities
         )
-    }
-
-    /// What `sceneState` shows in the status strip when nothing is running.
-    ///
-    /// Both non-running phases that have anything to say carry their own text,
-    /// and there is no fallback property behind them: "a launch that silently
-    /// does nothing is the worst possible report" is exactly the failure this
-    /// exists to prevent, and a second source for the same line is how the
-    /// probe branches came to write one nothing read.
-    private var nonRunningErrorMessage: String? {
-        switch phase {
-        case let .failed(message), let .report(message): message
-        case .loading, .needsSignIn, .running: nil
-        }
     }
 
     var actions: ChatSceneActions {
@@ -290,9 +317,14 @@ final class AppEnvironment {
     ///
     /// The reason carried forward is the failure itself, so the capture window
     /// says what went wrong rather than implying the person did something.
+    ///
+    /// A `Task` rather than a direct call because `ChatSceneActions.signIn`
+    /// is synchronous - SwiftUI's `Button(_:action:)` needs that - while
+    /// reaching `.needsSignIn` now always goes through `enterNeedsSignIn`,
+    /// which erases first and is therefore `async`.
     private func requestSignIn() {
         guard case let .failed(message) = phase else { return }
-        phase = .needsSignIn(reason: message)
+        Task { await enterNeedsSignIn(reason: message) }
     }
 
     /// One database per backend, and that separation is load-bearing.
@@ -314,7 +346,10 @@ final class AppEnvironment {
         return try supportDirectory().appendingPathComponent(name).path
     }
 
-    private static func supportDirectory() throws -> URL {
+    /// Not `private`: `AppEnvironmentProbes` writes its own report files
+    /// beside the same database, and this is the one place that path is
+    /// computed - module-internal rather than duplicated.
+    static func supportDirectory() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,

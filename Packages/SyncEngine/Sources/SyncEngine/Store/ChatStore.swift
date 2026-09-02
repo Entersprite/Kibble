@@ -219,3 +219,28 @@ public extension ChatStore {
         }
     }
 }
+
+// MARK: - Erasing
+
+public extension ChatStore {
+    /// Wipes every row and every table, then restores the schema empty.
+    ///
+    /// Goes through GRDB's own `erase()` rather than a hand-written sequence
+    /// of `DELETE FROM` statements. A hand-written list is exactly the kind
+    /// of list a table added later gets left off, and this database is
+    /// shared by every account that ever signs in on one Mac - see
+    /// `AppEnvironment.signOut()`'s doc comment for why forgetting one is
+    /// "the next account inherits rows that are not theirs" rather than
+    /// merely untidy.
+    ///
+    /// `erase()` drops the schema entirely, including GRDB's own migration
+    /// bookkeeping, so the migrator is re-run in the same call. Without that,
+    /// the store would come back with no tables at all, and the very next
+    /// read - even one from a task that outlived whatever called this -
+    /// would fail with "no such table" instead of finding an empty,
+    /// well-shaped database.
+    func erase() throws {
+        try database.erase()
+        try Schema.migrator.migrate(database)
+    }
+}

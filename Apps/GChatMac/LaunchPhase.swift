@@ -19,8 +19,21 @@ enum LaunchPhase {
     case running(ChatSessionModel)
     case failed(String)
 
-    /// A diagnostic run finished and this is its text - `--probe=keychain` and
-    /// `--probe=api`.
+    /// A diagnostic run finished - `--probe=keychain` and `--probe=api`.
+    ///
+    /// The associated string is a **short confirmation naming the file the
+    /// full report was written to**, not the report itself. The whole
+    /// multi-line report used to travel here into a one-row status strip,
+    /// where it clipped. The full text still goes to `keychain-check.txt` or
+    /// `api-probe.txt`, unchanged - that file is what gets pasted into
+    /// `findings.md`.
+    ///
+    /// This string reaches the window as `ChatSceneState.notice`, not
+    /// `.lastError` - see `AppEnvironment.sceneState`. That is what actually
+    /// stops a clean probe from drawing under `StatusStrip`'s warning
+    /// triangle; shortening the text alone did not, since the triangle is
+    /// drawn for *any* `lastError`, and `.failed` and `.report` used to share
+    /// that one field.
     ///
     /// Separate from `failed` rather than folded into it, because the two want
     /// different affordances: a failed launch offers a way back to sign-in, and

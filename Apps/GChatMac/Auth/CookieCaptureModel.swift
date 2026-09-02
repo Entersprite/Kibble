@@ -27,6 +27,42 @@ final class CookieCaptureModel {
     private var lastCapture: CookieCapture?
     private let credentials = KeychainCredentialStore()
 
+    /// Whether this window may complete sign-in with no button press.
+    ///
+    /// A property of *this window*, passed in rather than inferred, because
+    /// the reason `save()` was ever an explicit action - "overwriting a
+    /// working session with a worse capture is a real way to lose one" -
+    /// only stops applying when there is nothing yet to overwrite.
+    /// Defaults to `false` - the safe behaviour - so a call site that forgets
+    /// to pass it gets the manual button rather than a silent auto-save.
+    /// `CookieCaptureView` is presented only from `.needsSignIn` today, where
+    /// it is explicitly passed `true`, but a future call site that reopens
+    /// this view over a session already in the Keychain inherits safety by
+    /// doing nothing, rather than this file guessing why it was opened.
+    private let autoSaveAllowed: Bool
+
+    /// Called once a save - automatic or by the button - has reached the
+    /// Keychain.
+    private let onSaved: () async -> Void
+
+    /// Latches the moment a capture looks complete enough to auto-save, and
+    /// never resets.
+    ///
+    /// `pageSettled` fires on every navigation that settles on Chat's own
+    /// origin, and Google's post-login redirect chain settles more than
+    /// once. Without this, a later, unluckier navigation - a rotated cookie,
+    /// a redirect that briefly holds a smaller cookie set - could silently
+    /// replace a good session with a worse one. It only latches once a
+    /// capture actually looked save-worthy, so a settle that arrives before
+    /// Chat has issued its own cookies does not spend the one attempt on
+    /// nothing.
+    private var hasAutoSaved = false
+
+    init(autoSaveAllowed: Bool = false, onSaved: @escaping () async -> Void = {}) {
+        self.autoSaveAllowed = autoSaveAllowed
+        self.onSaved = onSaved
+    }
+
     func attach(_ webView: WKWebView) {
         self.webView = webView
     }
@@ -94,6 +130,31 @@ final class CookieCaptureModel {
         canSave = capture.session != nil
         status = capture.report.verdict
         write(capture.report.text, to: "cookie-capture-report.txt")
+        attemptAutoSave(capture)
+    }
+
+    /// Saves without a button press, the first time a capture looks
+    /// complete. See `autoSaveAllowed` and `hasAutoSaved` for the two guards
+    /// this rests on.
+    ///
+    /// Deliberately does not call `save()`: that path sets "Saved to the
+    /// Keychain." and then awaits `refreshStoredSession()` before returning,
+    /// which is a real round trip a person reading the manual button's
+    /// result should see - and exactly the round trip that would flash a
+    /// success message nobody has time to read here, since `onSaved()` is
+    /// about to replace this whole window. This writes the credential and,
+    /// on success, goes straight to `onSaved()` with no message in between.
+    private func attemptAutoSave(_ capture: CookieCapture) {
+        guard autoSaveAllowed, capture.session != nil, !hasAutoSaved else { return }
+        hasAutoSaved = true
+        // Overwrites `capture.report.verdict`, which is a diagnostic line -
+        // "PASS", "TOO EARLY" - meant for a person deciding whether to click
+        // the button, not for someone watching sign-in complete on its own.
+        status = "Signing in…"
+        Task {
+            guard await writeToKeychain(capture) else { return }
+            await onSaved()
+        }
     }
 
     /// Puts the captured session in the Keychain, and says whether it landed.
@@ -109,12 +170,23 @@ final class CookieCaptureModel {
     @discardableResult
     func save() async -> Bool {
         guard let capture = lastCapture else { return false }
+        let saved = await writeToKeychain(capture)
+        if saved {
+            status = "Saved to the Keychain."
+        }
+        await refreshStoredSession()
+        return saved
+    }
+
+    /// The actual Keychain write, shared by `save()` and `attemptAutoSave(_:)`.
+    /// Sets `status` on every outcome except a clean success, which the two
+    /// callers disagree about showing at all.
+    private func writeToKeychain(_ capture: CookieCapture) async -> Bool {
         do {
             let saved = try await capture.save(to: credentials)
-            status = saved
-                ? "Saved to the Keychain."
-                : "Nothing to save: no cookie in this capture belongs to Chat."
-            await refreshStoredSession()
+            if !saved {
+                status = "Nothing to save: no cookie in this capture belongs to Chat."
+            }
             return saved
         } catch {
             status = "Could not save: \(KeychainDiagnosis.explain(error))"

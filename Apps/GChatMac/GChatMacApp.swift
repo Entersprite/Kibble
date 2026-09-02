@@ -12,16 +12,43 @@ import SwiftUI
 @main
 struct GChatMacApp: App {
     @State private var environment = AppEnvironment()
+    @State private var isConfirmingSignOut = false
 
     var body: some Scene {
         WindowGroup {
             content
                 .frame(minWidth: 760, minHeight: 460)
                 .task { await environment.start() }
+                // A confirmation, not a plain button action: an accidental
+                // click here costs a full two-factor login, and
+                // `AppEnvironment.signOut()`'s own doc comment is where the
+                // honesty requirement lives - this dialog only restates it.
+                .confirmationDialog(
+                    "Sign out of GChat?",
+                    isPresented: $isConfirmingSignOut,
+                    titleVisibility: .visible
+                ) {
+                    Button("Sign Out", role: .destructive) {
+                        Task { await environment.signOut() }
+                    }
+                } message: {
+                    Text(
+                        "This Mac will forget your account and its local history. " +
+                            "This does not sign you out of Google - your session " +
+                            "stays valid there until it expires on its own."
+                    )
+                }
         }
         .defaultSize(width: 1100, height: 720)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) {
+                Divider()
+                Button("Sign Out…") {
+                    isConfirmingSignOut = true
+                }
+                .disabled(!environment.canSignOut)
+            }
         }
     }
 
@@ -31,7 +58,11 @@ struct GChatMacApp: App {
         case .loading:
             ProgressView("Starting…")
         case let .needsSignIn(reason):
-            CookieCaptureView(reason: reason) {
+            // Explicit, not the default: `.needsSignIn` is the one place
+            // there is nothing yet in the Keychain to overwrite, and that
+            // fact belongs here rather than in `CookieCaptureView`'s default
+            // parameter value.
+            CookieCaptureView(reason: reason, autoSaveAllowed: true) {
                 await environment.signedIn()
             }
         case .running, .failed, .report:

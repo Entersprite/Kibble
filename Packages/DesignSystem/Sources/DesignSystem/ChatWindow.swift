@@ -87,6 +87,10 @@ struct StatusStrip: View {
     let actions: ChatSceneActions
 
     var body: some View {
+        // `banner` (a real problem) takes priority over `notice` (a clean
+        // diagnostic run that merely finished) - nothing sets both at once
+        // today, but a warning worth acting on must never be the one that
+        // loses if that ever changes.
         if let message = banner {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -105,6 +109,20 @@ struct StatusStrip: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
             .background(.yellow.opacity(0.22))
+        } else if let notice = state.notice {
+            // Neither the triangle nor the yellow wash: this is what closes
+            // the finding that a clean `--probe=keychain` run drew exactly
+            // like a failure. A different icon and background are the whole
+            // fix - the words already said "written to a file", not "wrong".
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                Text(notice)
+                Spacer()
+            }
+            .font(.caption)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(.secondary.opacity(0.12))
         }
     }
 

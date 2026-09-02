@@ -68,6 +68,16 @@ public actor SyncEngine {
     /// again with the oldest message it holds when they scroll up.
     public func loadMoreMessages(in conversation: Conversation.ID, before: Message.ID? = nil) async throws {
         let page = try await backend.loadMessages(in: conversation, before: before)
+        // The caller may have stopped caring while `backend.loadMessages`
+        // was in flight - `ChatSessionModel.stop()` cancels the `Task` this
+        // runs under whenever a conversation's history fetch outlives the
+        // session that asked for it. Cancelling that `Task` does not promise
+        // the network call above was itself aborted, so this check is what
+        // actually stops the write from landing once it does return: without
+        // it, a hung `list_topics` answering after a sign-out has already
+        // erased the store would repopulate it with the account that just
+        // left.
+        try Task.checkCancellation()
         try store.apply(page.map { .upsertMessage($0) })
     }
 }
@@ -128,6 +138,11 @@ public extension SyncEngine {
     func requestMoreMessages(in conversation: Conversation.ID, before: Message.ID? = nil) async {
         do {
             try await loadMoreMessages(in: conversation, before: before)
+        } catch is CancellationError {
+            // A deliberate stop, not a failure. Recording it would itself be
+            // a write from a session that no longer owns this store - the
+            // same trap `loadMoreMessages`'s cancellation check exists to
+            // close, one layer up.
         } catch {
             record(error)
         }

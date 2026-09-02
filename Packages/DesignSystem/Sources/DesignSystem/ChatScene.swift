@@ -16,6 +16,16 @@ public struct ChatSceneState: Sendable, Equatable {
     public var connection: ConnectionState
     public var lastError: ChatError?
 
+    /// A confirmation that is not an error - `AppEnvironment`'s two
+    /// diagnostic probes use this so a clean run does not draw under the
+    /// same warning triangle a real failure does. Its own field rather than
+    /// a second meaning for `lastError`, because that collapsing is exactly
+    /// what put a triangle over a passing keychain check: `ChatError`'s
+    /// `.unknown(String)` could not tell "the session broke" from "here is
+    /// where the report went" apart once both had been rendered into plain
+    /// text.
+    public var notice: String?
+
     /// What the backend behind all this can actually do. The window reads it
     /// rather than assuming, which is the entire reason `Capabilities` exists:
     /// offering an action a backend cannot perform is worse than not offering
@@ -31,6 +41,7 @@ public struct ChatSceneState: Sendable, Equatable {
         typing: [Member.ID] = [],
         connection: ConnectionState = .idle,
         lastError: ChatError? = nil,
+        notice: String? = nil,
         capabilities: Capabilities = Capabilities()
     ) {
         self.conversations = conversations
@@ -41,6 +52,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.typing = typing
         self.connection = connection
         self.lastError = lastError
+        self.notice = notice
         self.capabilities = capabilities
     }
 

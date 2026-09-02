@@ -58,6 +58,20 @@ public final class ChatSessionModel {
     /// conversation is observed rather than every conversation ever opened.
     private var conversationWatchers: [Task<Void, Never>] = []
 
+    /// The one history fetch `select(_:)` has in flight, if any.
+    ///
+    /// Tracked - and cancelled by `stop()` - rather than left to finish on
+    /// its own, because an untracked `Task` here is exactly how a previous
+    /// account's message could land in a database `stopAndEraseStore()` has
+    /// already erased: open a conversation whose history call hangs, sign
+    /// out, and the moment it eventually answers `SyncEngine.loadMoreMessages`
+    /// would upsert into a store nothing here still owns. Cancelling does not
+    /// promise the underlying network call stops - `stop()` cannot promise
+    /// that at this layer - so `loadMoreMessages` itself checks cancellation
+    /// again right before it writes; this task is only the signal that
+    /// makes that check see `true`.
+    private var historyTask: Task<Void, Never>?
+
     public init(store: ChatStore, engine: SyncEngine, me: Member.ID? = nil) {
         self.store = store
         self.engine = engine
@@ -84,7 +98,33 @@ public final class ChatSessionModel {
         }
         watchers = []
         conversationWatchers = []
+        // Cancelled, not joined: the request behind it may not itself be
+        // abortable, and blocking `stop()` on a hung call would make sign-out
+        // hang with it. `SyncEngine.loadMoreMessages`'s own cancellation
+        // check is what actually stops it from writing whenever it does
+        // return - see `historyTask`'s doc comment.
+        historyTask?.cancel()
+        historyTask = nil
         await engine.stop()
+    }
+
+    /// Stops the sync loop and erases the database behind it - in that
+    /// order, and inside one call, so the order is not something a caller has
+    /// to get right by its own timing.
+    ///
+    /// `stop()` already documents that it *awaits* its consuming task rather
+    /// than merely cancelling it, so "no further event can reach the store"
+    /// is true the instant it returns - which is exactly the guarantee
+    /// erasing needs. Calling these two out of order, or from two separate
+    /// `await`s a future edit could interleave, would let a write already in
+    /// flight from this very session land after the tables are wiped and
+    /// repopulate them.
+    ///
+    /// Used by `AppEnvironment.signOut()`, which explains what "sign out"
+    /// does and does not mean.
+    public func stopAndEraseStore() async throws {
+        await stop()
+        try store.erase()
     }
 
     /// Opens a conversation: swaps the observations over, then fetches a page
@@ -112,7 +152,13 @@ public final class ChatSessionModel {
         // worst failure shape this project produces. `requestMoreMessages`
         // records instead of throwing, because a view has nowhere to put a
         // thrown error.
-        Task { [engine] in
+        //
+        // Cancels whatever `select(_:)` last started, the same as the
+        // watchers just above - a history fetch for a conversation nobody is
+        // looking at anymore is not worth keeping, and `historyTask` is the
+        // one this session's own `stop()` needs to find later.
+        historyTask?.cancel()
+        historyTask = Task { [engine] in
             await engine.requestMoreMessages(in: id)
         }
     }
