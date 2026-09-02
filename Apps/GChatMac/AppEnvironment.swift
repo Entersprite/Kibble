@@ -134,8 +134,15 @@ final class AppEnvironment {
     /// `LocalBridgeBackend`; anything else gets the fixture. Defaulting to the
     /// fixture is deliberate: launching the app must never touch a Google
     /// account by accident.
+    /// Whether the real bridge was asked for. Read by `databasePath()` too,
+    /// which runs *before* a backend is built and must already know which of
+    /// the two stores to open.
+    static var isLocalBackendRequested: Bool {
+        CommandLine.arguments.contains("--backend=local")
+    }
+
     private static func makeBackend() async throws -> Selection {
-        guard CommandLine.arguments.contains("--backend=local") else {
+        guard isLocalBackendRequested else {
             let fixture = FakeBackend(world: .acme)
             return Selection(backend: fixture, me: Acme.alex, fixture: fixture)
         }
@@ -188,14 +195,23 @@ final class AppEnvironment {
         )
     }
 
-    /// `~/Library/Application Support/GChat/chat.sqlite`.
+    /// One database per backend, and that separation is load-bearing.
     ///
     /// On disk rather than in memory even though the backend is a fixture:
     /// instant cold launch is one of the three things the store exists for, and
     /// the fixture's identifiers are deterministic, so relaunching upserts the
     /// same rows instead of duplicating them.
+    ///
+    /// **But the views observe the store, not the backend**, so a single file
+    /// shared between the two means the fixture's invented conversations are
+    /// still on screen the next time a real session launches - indistinguishable
+    /// from real ones, because by then nothing on screen remembers where a row
+    /// came from. That is not a stale cache; it is fabricated data presented as
+    /// a person's actual chats, and it was observed happening. Two files, so it
+    /// cannot.
     private static func databasePath() throws -> String {
-        try supportDirectory().appendingPathComponent("chat.sqlite").path
+        let name = isLocalBackendRequested ? "chat-local.sqlite" : "chat-fixture.sqlite"
+        return try supportDirectory().appendingPathComponent(name).path
     }
 
     private static func supportDirectory() throws -> URL {
