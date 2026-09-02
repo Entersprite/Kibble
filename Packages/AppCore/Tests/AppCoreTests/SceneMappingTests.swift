@@ -43,20 +43,56 @@ struct SceneMappingTests {
 
     /// An earlier draft asserted `connection != .idle || messages.isEmpty`,
     /// whose right operand is always true - a tautology that would have passed
-    /// against any implementation. Ruling R4 in the SDD ledger. These two
-    /// assertions are deterministic and do not depend on store observation
-    /// having propagated.
+    /// against any implementation. Ruling R4 in the SDD ledger.
+    ///
+    /// A later version of this test - after R4's fix - asserted `me == nil`
+    /// and `notice == nil`. Those are `ChatSceneState`'s own defaults, so they
+    /// would have passed even with the `.running` branch forwarding nothing
+    /// at all: `conversations`, `directory`, `selected`, `messages`, `typing`,
+    /// `connection` and `lastError` were asserted nowhere in this suite. This
+    /// version seeds the store with a real conversation before `start()`, so
+    /// `conversations`, `selected` and `totalUnread` are pinned with values
+    /// that cannot arrive by default.
     @Test func aRunningSessionCarriesTheModelsView() async throws {
         let services = try FakeLaunchServices()
+        let space = Conversation.ID("space/1")
+        try services.store.apply([.replaceConversations([
+            Conversation(
+                id: space,
+                kind: .space,
+                title: "Support",
+                lastActivity: nil,
+                unreadCount: 3,
+                members: []
+            )
+        ])])
         let environment = AppEnvironment(services: services)
-        await environment.start()
 
+        await environment.start()
+        // The model reaches the store through a GRDB observation, so give the
+        // first value a turn to land - the same shape the other async tests
+        // in this package already use (`SignOutAndEraseTests`).
+        await Task.yield()
+        try await Task.sleep(for: .milliseconds(50))
+
+        guard case .running = environment.phase else {
+            Issue.record("expected .running")
+            return
+        }
         // From `FakeLaunchBackend.capabilities`, through the model, to here.
+        // `Capabilities` defaults every flag to `false`, so `true` can only be
+        // a real forward.
         #expect(environment.sceneState.capabilities.canSendMessages)
-        // The fake selection returns `me: nil`, which is the real bridge's
-        // behaviour too for the instant before `get_self_user_status` answers.
-        #expect(environment.sceneState.me == nil)
-        #expect(environment.sceneState.notice == nil)
+        // conversations: forwarded, with a value that cannot be a default.
+        #expect(environment.sceneState.conversations.map(\.id) == [space])
+        #expect(environment.sceneState.conversations.first?.title == "Support")
+        // selected: forwarded, driven through the action the window would use.
+        environment.actions.select(space)
+        #expect(environment.sceneState.selected == space)
+        // The sum `totalUnread` exists to compute, taken for free from the
+        // same seeded conversation - nothing else in this suite exercises it
+        // beyond the before-anything-runs zero case below.
+        #expect(environment.totalUnread == 3)
     }
 
     /// Offered **only** from `.failed`, which is the phase that had no way
