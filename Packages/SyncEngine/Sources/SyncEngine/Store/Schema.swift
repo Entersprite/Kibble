@@ -11,6 +11,7 @@ enum Schema {
     static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1", migrate: createV1)
+        migrator.registerMigration("v2", migrate: addLocalMemberID)
         return migrator
     }
 
@@ -18,6 +19,18 @@ enum Schema {
         try createConversationTables(db)
         try createMessageTable(db)
         try createEphemeralTables(db)
+    }
+
+    /// Who the local user is, once a backend has said. Its own column rather
+    /// than folded into `connectionState` or `lastError`: those are claims
+    /// about *now* and `clearEphemeralState` deliberately drops them, while
+    /// this is durable - an account signing in stays who it is on the next
+    /// launch. Nullable because a store that has never connected has never
+    /// been told.
+    private static func addLocalMemberID(_ db: Database) throws {
+        try db.alter(table: "syncState") { table in
+            table.add(column: "localMemberID", .text)
+        }
     }
 
     private static func createConversationTables(_ db: Database) throws {

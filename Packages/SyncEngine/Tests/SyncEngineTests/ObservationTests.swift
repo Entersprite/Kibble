@@ -77,6 +77,28 @@ struct ObservationTests {
         #expect(try await iterator.next() == .connected)
     }
 
+    /// `ChatSessionModel.me` rests on this: it watches `observeMe()` exactly
+    /// like the connection state above, rather than taking a value once at
+    /// init.
+    ///
+    /// `Member.ID?` is itself the observed value, so each `next()` hands back
+    /// `Member.ID??` - the outer optional is "the stream ended", the inner one
+    /// is "nobody has told us yet". `.flatMap { $0 }` flattens that outer
+    /// layer away so the assertion is about the value, not the stream -
+    /// `?? nil` would say the same thing but swiftlint reads it as always
+    /// redundant, which here it is not.
+    @Test func theLocalMemberEmitsOnceImmediatelyAndAgainWhenIdentified() async throws {
+        let store = try ChatStore.inMemory()
+        var iterator = store.observeMe().makeAsyncIterator()
+        let initial = try await iterator.next().flatMap(\.self)
+        #expect(initial == nil)
+
+        try store.apply([.setLocalMember(alice)])
+
+        let after = try await iterator.next().flatMap(\.self)
+        #expect(after == alice)
+    }
+
     /// A write to an unrelated table must not wake a message observer, or every
     /// keystroke somewhere else redraws a thread.
     @Test func anObserverIsNotWokenByAnUnrelatedTable() async throws {

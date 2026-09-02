@@ -15,15 +15,17 @@ struct LifecycleTests {
 
         try await backend.connect()
 
-        let events = await collector.next(2 + world.conversations.count + 1)
+        let events = await collector.next(3 + world.conversations.count + 1)
         // #require rather than #expect: every assertion below indexes, and a
         // short array should fail this test by name, not trap and take the
         // whole run with it. Found by mutation-testing the stream contract.
-        try #require(events.count == 2 + world.conversations.count + 1)
+        try #require(events.count == 3 + world.conversations.count + 1)
         #expect(events[0] == .connectionStateChanged(.connecting))
         #expect(events[1] == .connectionStateChanged(.connected))
-        guard case let .conversationsChanged(list) = events[2] else {
-            Issue.record("expected conversationsChanged, got \(events[2])")
+        let me = try #require(world.member(world.me))
+        #expect(events[2] == .selfIdentified(me))
+        guard case let .conversationsChanged(list) = events[3] else {
+            Issue.record("expected conversationsChanged, got \(events[3])")
             return
         }
         #expect(list == world.conversations)
@@ -31,7 +33,7 @@ struct LifecycleTests {
         // One membersChanged per conversation: Conversation.members carries
         // identifiers only, so something has to fill the store they point into
         // before the first render, and connect is the only moment that can be.
-        let membersEvents = events.dropFirst(3)
+        let membersEvents = events.dropFirst(4)
         #expect(membersEvents.count == world.conversations.count)
         for (event, conversation) in zip(membersEvents, world.conversations) {
             guard case let .membersChanged(conversationID, members) = event else {
@@ -52,17 +54,19 @@ struct LifecycleTests {
         let collector = EventCollector(backend.events) // iterated once, here
 
         try await backend.connect()
-        _ = await collector.next(5)
+        _ = await collector.next(6)
 
         await backend.disconnect()
         #expect(await collector.nextOne() == .connectionStateChanged(.disconnected(reason: nil)))
 
         try await backend.connect()
-        let again = await collector.next(3)
-        try #require(again.count == 3)
+        let again = await collector.next(4)
+        try #require(again.count == 4)
         #expect(again[0] == .connectionStateChanged(.connecting))
         #expect(again[1] == .connectionStateChanged(.connected))
-        #expect(again[2] == .gap(scope: .everything, reason: FakeBackend.reconnectGapReason))
+        let me = try #require(world.member(world.me))
+        #expect(again[2] == .selfIdentified(me))
+        #expect(again[3] == .gap(scope: .everything, reason: FakeBackend.reconnectGapReason))
     }
 
     @Test func theSamePropertyHandsBackTheSameStream() async throws {
@@ -85,7 +89,7 @@ struct LifecycleTests {
         let collector = EventCollector(backend.events)
 
         try await backend.connect()
-        _ = await collector.next(5)
+        _ = await collector.next(6)
         try await backend.connect()
         await backend.disconnect()
 
@@ -109,7 +113,7 @@ struct LifecycleTests {
 
         try await backend.connect()
 
-        let events = await collector.next(5)
+        let events = await collector.next(6)
         #expect(!events.contains {
             if case .gap = $0 {
                 true

@@ -61,6 +61,7 @@ struct FrameCodingTests {
     func eventCoverage() throws {
         let expected: Set = [
             "connectionStateChanged",
+            "selfIdentified",
             "conversationsChanged",
             "conversationUpdated",
             "messageReceived",

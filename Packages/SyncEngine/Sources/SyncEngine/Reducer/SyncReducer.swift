@@ -27,7 +27,7 @@ public enum SyncReducer {
         case .conversationsChanged, .conversationUpdated, .membersChanged,
              .readStateChanged, .typingChanged, .presenceChanged:
             reduceConversationEvent(event)
-        case .connectionStateChanged, .backendError, .gap, .unknown:
+        case .connectionStateChanged, .selfIdentified, .backendError, .gap, .unknown:
             reduceSessionEvent(event)
         }
     }
@@ -77,6 +77,14 @@ public enum SyncReducer {
         switch event {
         case let .connectionStateChanged(state):
             Reduction(writes: [.setConnectionState(state)])
+        case let .selfIdentified(member):
+            // Both halves, the same way membersChanged does: who the local
+            // user is, and the record itself so the name resolves like
+            // anyone else's.
+            Reduction(writes: [
+                .setLocalMember(member.id),
+                .upsertMembers([member])
+            ])
         case let .backendError(error):
             Reduction(writes: [.setLastError(error)])
         case let .gap(scope, _):

@@ -35,6 +35,7 @@ extension ChatEvent {
     /// drift apart. The raw values are the case names.
     enum Tag: String {
         case connectionStateChanged
+        case selfIdentified
         case conversationsChanged
         case conversationUpdated
         case messageReceived
@@ -68,6 +69,8 @@ extension ChatEvent {
         switch tag {
         case Tag.connectionStateChanged.rawValue:
             try .connectionStateChanged(container.decode(ConnectionState.self, forKey: .state))
+        case Tag.selfIdentified.rawValue:
+            try .selfIdentified(container.decode(Member.self, forKey: .member))
         case Tag.gap.rawValue:
             try .gap(
                 scope: container.decode(GapScope.self, forKey: .scope),
@@ -178,6 +181,9 @@ extension ChatEvent {
         case let .connectionStateChanged(state):
             try container.encode(Tag.connectionStateChanged.rawValue, forKey: .type)
             try container.encode(state, forKey: .state)
+        case let .selfIdentified(member):
+            try container.encode(Tag.selfIdentified.rawValue, forKey: .type)
+            try container.encode(member, forKey: .member)
         case let .gap(scope, reason):
             try container.encode(Tag.gap.rawValue, forKey: .type)
             try container.encode(scope, forKey: .scope)

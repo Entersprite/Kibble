@@ -34,6 +34,13 @@ public extension ChatStore {
         try database.read(Self.fetchLastError)
     }
 
+    /// Who the local user is, if a backend has ever said. Durable across
+    /// launches: unlike `connectionState` and `lastError`, this is not a claim
+    /// about *now*, so `clearEphemeralState` does not touch it.
+    func me() throws -> Member.ID? {
+        try database.read(Self.fetchMe)
+    }
+
     /// The read watermark, which is not part of `Conversation` because it is a
     /// client-side bookmark rather than something the server describes.
     func lastReadAt(_ conversation: Conversation.ID) throws -> Date? {
@@ -76,6 +83,12 @@ public extension ChatStore {
     /// backend keeps working when the backend is swapped for another one.
     func observeConnectionState() -> AsyncValueObservation<ConnectionState> {
         ValueObservation.tracking(Self.fetchConnectionState).values(in: database)
+    }
+
+    /// For `ChatSessionModel.me`, which watches this the way it watches every
+    /// other store-fed property rather than taking it once at init.
+    func observeMe() -> AsyncValueObservation<Member.ID?> {
+        ValueObservation.tracking(Self.fetchMe).values(in: database)
     }
 }
 
@@ -126,5 +139,10 @@ extension ChatStore {
     static func fetchLastError(_ db: Database) throws -> ChatError? {
         guard let raw = try SyncStateRow.fetchOne(db)?.lastError else { return nil }
         return try Wire.value(ChatError.self, from: raw)
+    }
+
+    static func fetchMe(_ db: Database) throws -> Member.ID? {
+        guard let raw = try SyncStateRow.fetchOne(db)?.localMemberID else { return nil }
+        return Member.ID(raw)
     }
 }

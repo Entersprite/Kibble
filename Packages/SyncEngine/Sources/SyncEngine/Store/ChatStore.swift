@@ -50,7 +50,7 @@ public extension ChatStore {
             try performConversationWrite(write, in: db)
         case .upsertMessage, .markMessageDeleted, .setReactions:
             try performMessageWrite(write, in: db)
-        case .setTyping, .setConnectionState, .setLastError, .clearEphemeralState:
+        case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .clearEphemeralState:
             try performSessionWrite(write, in: db)
         }
     }
@@ -135,12 +135,20 @@ public extension ChatStore {
                 sql: "UPDATE syncState SET lastError = ? WHERE id = 1",
                 arguments: [error.map(Wire.json)]
             )
+        case let .setLocalMember(id):
+            try db.execute(
+                sql: "UPDATE syncState SET localMemberID = ? WHERE id = 1",
+                arguments: [id.rawValue]
+            )
         case .clearEphemeralState:
             try db.execute(sql: "DELETE FROM typing")
             try db.execute(sql: "UPDATE member SET presence = NULL")
             // The connection state and the last error are claims about now
             // too. A fresh process that has not connected must not inherit
             // "connected" from whatever the last one wrote.
+            //
+            // localMemberID is deliberately untouched: unlike the two columns
+            // above, who the local user is stays true across a relaunch.
             try db.execute(
                 sql: "UPDATE syncState SET connectionState = ?, lastError = NULL WHERE id = 1",
                 arguments: [Wire.json(ConnectionState.idle)]

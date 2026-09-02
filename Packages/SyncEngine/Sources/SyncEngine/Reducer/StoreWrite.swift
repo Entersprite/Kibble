@@ -42,6 +42,11 @@ public enum StoreWrite: Sendable, Equatable {
     case setTyping(conversation: Conversation.ID, member: Member.ID, isTyping: Bool)
     case setPresence(member: Member.ID, presence: Presence)
 
+    /// Who the local user is. Durable, unlike the rest of this file's session
+    /// writes: an account signing in stays who it is on the next launch, so
+    /// this is deliberately not among what `clearEphemeralState` drops.
+    case setLocalMember(Member.ID)
+
     /// The last thing that went wrong, kept **typed** rather than rendered: a
     /// client must be able to tell "sign in again" from "the network hiccuped",
     /// and a string cannot be switched on. `nil` clears it.

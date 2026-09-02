@@ -41,6 +41,12 @@ enum Fixture {
     /// value this build does not model — both of which the seam has to survive.
     static let bot = Member(id: botID, kind: .app, presence: .unknown("SHARING_DISABLED"))
 
+    /// What `get_self_user_status` actually returns: an id and a kind, never a
+    /// name. Deliberately not `human` above, which carries a full profile - a
+    /// `selfIdentified` sample that looked like every other member fixture
+    /// would hide the one property this event is honest about.
+    static let localUser = Member(id: humanID, kind: .human)
+
     static let reaction = Reaction(emoji: "🛞", count: 3, includesMe: true)
 
     static let attachment = Attachment(
@@ -120,6 +126,7 @@ extension Fixture {
     /// quietly going untested.
     static let events: [Sample<ChatEvent>] = [
         Sample("event-connectionStateChanged", .connectionStateChanged(.reconnecting(attempt: 2))),
+        Sample("event-selfIdentified", .selfIdentified(localUser)),
         Sample("event-conversationsChanged", .conversationsChanged([conversation, dm])),
         Sample("event-conversationUpdated", .conversationUpdated(conversation)),
         Sample("event-messageReceived", .messageReceived(message)),

@@ -163,4 +163,5 @@ struct SyncStateRow: Codable, FetchableRecord, PersistableRecord {
     var id: Int
     var connectionState: String
     var lastError: String?
+    var localMemberID: String?
 }

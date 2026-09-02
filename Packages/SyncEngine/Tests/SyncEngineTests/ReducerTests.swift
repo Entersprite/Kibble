@@ -31,6 +31,19 @@ struct ReducerTests {
         #expect(reduction.effects.isEmpty)
     }
 
+    /// Both halves, the same shape `membersChangedFillsTheStoreAndTheMembership`
+    /// checks below: who the local user is, *and* the record itself, so the
+    /// name resolves out of the directory like anyone else's rather than
+    /// needing a special case.
+    @Test func selfIdentifiedRecordsWhoWeAreAndUpsertsTheRecord() {
+        let me = Member(id: member, kind: .human, displayName: "One")
+        let reduction = SyncReducer.reduce(.selfIdentified(me))
+        #expect(reduction.writes == [
+            .setLocalMember(member),
+            .upsertMembers([me])
+        ])
+    }
+
     @Test func anErrorIsRecordedWholeRatherThanAsAString() {
         let reduction = SyncReducer.reduce(.backendError(.sessionExpired))
         // Kept typed: a client has to be able to tell "sign in again" from
@@ -145,7 +158,7 @@ struct ReducerTests {
     /// derived list would start passing the moment a case was added, which is
     /// the one moment it must fail.
     @Test func everyEventCaseIsCovered() {
-        #expect(EventSamples.all.count == 14)
+        #expect(EventSamples.all.count == 15)
         for sample in EventSamples.all {
             let reduction = SyncReducer.reduce(sample.event)
             #expect(

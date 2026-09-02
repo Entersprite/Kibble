@@ -58,7 +58,7 @@ struct DeterminismTests {
         let backend = FakeBackend(world: .minimal, tick: .seconds(5))
         let collector = EventCollector(backend.events)
         try await backend.connect()
-        _ = await collector.next(5)
+        _ = await collector.next(6)
 
         try await backend.send(
             .sendMessage(conversationID: .init("dm:1"), threadID: nil, text: "a", localID: nil)
@@ -85,7 +85,7 @@ struct DeterminismTests {
         let backend = FakeBackend(world: .minimal)
         let collector = EventCollector(backend.events)
         try await backend.connect()
-        _ = await collector.next(5)
+        _ = await collector.next(6)
 
         for index in 1 ... 3 {
             try await backend.send(

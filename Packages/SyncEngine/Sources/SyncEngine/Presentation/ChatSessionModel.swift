@@ -28,10 +28,16 @@ public final class ChatSessionModel {
     public private(set) var lastError: ChatError?
     public private(set) var selected: Conversation.ID?
 
-    /// Who the local user is. Not discoverable from the store - the store holds
-    /// what a backend said, and no event says "this one is you" - so the host
-    /// supplies it.
-    public let me: Member.ID?
+    /// Who the local user is.
+    ///
+    /// Fed by `store.observeMe()` in `start()`, the same way `conversations`
+    /// and `connectionState` are - `ChatEvent.selfIdentified` is what makes
+    /// that possible, where once no event said "this one is you" and the host
+    /// had to supply it. `init`'s `me:` parameter is still a starting value,
+    /// not deleted: `FakeBackend` already knows its fixture's local user
+    /// before `start()` ever reaches the store, and a value the store later
+    /// confirms should replace it, not race it to draw first.
+    public private(set) var me: Member.ID?
 
     /// Forwarded from the backend so a view can degrade without meeting one.
     public var capabilities: Capabilities {
@@ -46,7 +52,7 @@ public final class ChatSessionModel {
     /// conversation is observed rather than every conversation ever opened.
     private var conversationWatchers: [Task<Void, Never>] = []
 
-    public init(store: ChatStore, engine: SyncEngine, me: Member.ID?) {
+    public init(store: ChatStore, engine: SyncEngine, me: Member.ID? = nil) {
         self.store = store
         self.engine = engine
         self.me = me
@@ -57,6 +63,7 @@ public final class ChatSessionModel {
         guard watchers.isEmpty else { return }
         watch(store.observeConversations()) { [weak self] in self?.conversations = $0 }
         watch(store.observeConnectionState()) { [weak self] in self?.connectionState = $0 }
+        watch(store.observeMe()) { [weak self] in self?.me = $0 }
         try await engine.start()
     }
 

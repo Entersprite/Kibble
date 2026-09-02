@@ -128,12 +128,6 @@ final class AppEnvironment {
         let fixture: FakeBackend?
     }
 
-    /// The only place in the repo that picks a backend.
-    ///
-    /// `--backend=local` hosts `GChatBridgeCore` in-process through
-    /// `LocalBridgeBackend`; anything else gets the fixture. Defaulting to the
-    /// fixture is deliberate: launching the app must never touch a Google
-    /// account by accident.
     /// Whether the real bridge was asked for. Read by `databasePath()` too,
     /// which runs *before* a backend is built and must already know which of
     /// the two stores to open.
@@ -141,6 +135,12 @@ final class AppEnvironment {
         CommandLine.arguments.contains("--backend=local")
     }
 
+    /// The only place in the repo that picks a backend.
+    ///
+    /// `--backend=local` hosts `GChatBridgeCore` in-process through
+    /// `LocalBridgeBackend`; anything else gets the fixture. Defaulting to the
+    /// fixture is deliberate: launching the app must never touch a Google
+    /// account by accident.
     private static func makeBackend() async throws -> Selection {
         guard isLocalBackendRequested else {
             let fixture = FakeBackend(world: .acme)
@@ -164,8 +164,12 @@ final class AppEnvironment {
                 "No session in the Keychain. Open the login window and sign in."
             )
         }
-        // Nothing tells us who we are yet - that needs the channel - so no
-        // message renders as outgoing. Wrong-looking, and honest.
+        // nil is only the instant before the answer, not a standing gap: the
+        // bridge does not know who we are synchronously the way the fixture's
+        // world does, but `connect()` starts `get_self_user_status` in the
+        // background and `ChatSessionModel.me` now watches the store for it,
+        // so a message renders as incoming for one heartbeat and then
+        // correctly as outgoing - never a session-long "wrong-looking".
         return Selection(backend: backend, me: nil, fixture: nil)
     }
 

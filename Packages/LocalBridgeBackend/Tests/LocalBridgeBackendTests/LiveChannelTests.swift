@@ -44,11 +44,50 @@ struct LiveChannelTests {
         return events
     }
 
+    /// Collects every event emitted within `duration`, rather than a fixed
+    /// count.
+    ///
+    /// `connect()` now races the channel's handshake against
+    /// `resolveAndEmitSelf()`, both concurrent and both consuming this
+    /// suite's finite scripted responses - so how many events a given run
+    /// emits, and in what order, is no longer fixed the way a purely
+    /// sequential `connect()` used to make it. A fixed `collect(_:_:)` count
+    /// either cuts off before a late event arrives, or - the version that
+    /// actually happened here - hangs forever asking for one more event than
+    /// this finite scenario will ever produce, timing out the whole suite.
+    /// Same shape and same reasoning as
+    /// `LoadConversationsMemberResolutionTests.collectEvents`.
+    private func collectEvents(
+        _ backend: LocalBridgeBackend,
+        for duration: Duration = .milliseconds(300)
+    ) async -> [ChatEvent] {
+        let collector = Task<[ChatEvent], Never> {
+            var events: [ChatEvent] = []
+            for await event in backend.events {
+                events.append(event)
+            }
+            return events
+        }
+        try? await Task.sleep(for: duration)
+        collector.cancel()
+        return await collector.value
+    }
+
     // MARK: - Real traffic reaching the domain
 
     @Test func aPostedMessageOnTheChannelReachesTheEventStream() async throws {
+        // Four non-shell responses, not two: `connect()` now also starts
+        // `resolveAndEmitSelf()`, a third concurrent `send()` caller racing
+        // the channel's own `register()` and (because a chunk arrives below)
+        // `acknowledge()` for the same scripted queue. Content does not
+        // matter to any of the three - `register`/`acknowledge` ignore it and
+        // a failed `get_self_user_status` only produces a harmless
+        // `.backendError` - but there must be enough of it, or whichever call
+        // loses the race gets `Exhausted()` and the channel this test is
+        // actually about never opens. See the slice report for the exact
+        // failure text that produced.
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),
@@ -57,14 +96,12 @@ struct LiveChannelTests {
             ]
         )
         let backend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
-        // Six rather than three, and the message is *found* rather than
-        // assumed last: `connect()` legitimately emits a connect-time gap now,
-        // and a test about a wire message reaching the domain should not break
-        // when the events around it change.
-        async let events = collect(backend, 6)
         try await backend.connect()
 
-        let received = await events
+        // Not a fixed count: the message is *found* within whatever landed in
+        // the window, rather than assumed at a particular index. See
+        // `collectEvents`'s own doc comment for why a fixed count broke here.
+        let received = await collectEvents(backend)
         let posted = received.first {
             if case .messageReceived = $0 {
                 return true
@@ -104,8 +141,18 @@ struct LiveChannelTests {
     /// verified and the channel is running, or a caller would block until the
     /// account signed out.
     @Test func connectReturnsWithoutWaitingForTheChannelToFinish() async throws {
+        // Three non-shell responses for the same reason
+        // `aPostedMessageOnTheChannelReachesTheEventStream` needed a fourth:
+        // a chunk arrives below, so the channel needs both `register()` and
+        // `acknowledge()`, and `resolveAndEmitSelf()` now races both for the
+        // same scripted queue.
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            [
+                shell(),
+                ScriptedTransport.ok(""),
+                ScriptedTransport.ok(""),
+                ScriptedTransport.ok("")
+            ],
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),

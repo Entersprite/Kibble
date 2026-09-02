@@ -242,6 +242,17 @@ struct StoreWriteTests {
         #expect(try store.typingMembers(in: space).isEmpty)
     }
 
+    @Test func theLocalMemberIsReadableAndStartsUnset() throws {
+        let store = try store()
+        #expect(try store.me() == nil)
+
+        try store.apply([.setLocalMember(alice)])
+        #expect(try store.me() == alice)
+
+        try store.apply([.setLocalMember(bob)])
+        #expect(try store.me() == bob)
+    }
+
     @Test func theConnectionStateAndLastErrorAreReadableAndTyped() throws {
         let store = try store()
         #expect(try store.connectionState() == .idle)
@@ -290,12 +301,16 @@ struct StoreWriteTests {
             .upsertConversation(conversation(space)),
             .upsertMembers([Member(id: alice, kind: .human, displayName: "Alice")]),
             .upsertMessage(message("msg:1", in: space, at: at)),
+            .setLocalMember(alice),
             .clearEphemeralState
         ])
 
         #expect(try store.members().count == 1)
         #expect(try store.conversations().count == 1)
         #expect(try store.messages(in: space).count == 1)
+        // Who we are stays true across a relaunch, unlike the connection state
+        // or the last error just above - it is not a claim about *now*.
+        #expect(try store.me() == alice)
     }
 
     // MARK: - Missing references

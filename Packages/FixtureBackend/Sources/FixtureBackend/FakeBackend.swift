@@ -113,6 +113,14 @@ public extension FakeBackend {
 
         emit(.connectionStateChanged(.connecting))
         emit(.connectionStateChanged(.connected))
+        // The one path both backends share: `LocalBridgeBackend` emits this
+        // from `get_self_user_status` after a real connect, and this is the
+        // fixture's equivalent rather than a second, injected way of saying
+        // who `me` is. `world.member(world.me)` is expected to resolve -
+        // `FixtureWorld.inconsistencies()` flags a world where it would not -
+        // but the fallback keeps this connect from crashing a test over a
+        // fixture bug a different assertion already exists to catch.
+        emit(.selfIdentified(world.member(world.me) ?? Member(id: world.me, kind: .human)))
         if hasEverConnected {
             emit(.gap(scope: .everything, reason: Self.reconnectGapReason))
         }

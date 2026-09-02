@@ -33,6 +33,10 @@ enum EventSamples {
     static let all: [Sample] = [
         Sample(name: "connectionStateChanged", event: .connectionStateChanged(.connected)),
         Sample(
+            name: "selfIdentified",
+            event: .selfIdentified(Member(id: member, kind: .human))
+        ),
+        Sample(
             name: "conversationsChanged",
             event: .conversationsChanged([Conversation(id: conversation, kind: .space)])
         ),

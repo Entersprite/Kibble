@@ -59,12 +59,20 @@ public actor LocalBridgeBackend: ChatBackend {
     /// an xsrf token. `nil` before that - `loadConversations()` reads this
     /// rather than the raw pieces, so "not connected yet" is one check instead
     /// of two.
-    private var apiClient: ProtoAPIClient?
+    /// Not `private`: `LocalBridgeBackend+SelfIdentification.swift` reads it
+    /// too, the same reason `emit(_:)` below is not `private` either.
+    var apiClient: ProtoAPIClient?
 
     /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
     /// and so a second `loadConversations()` supersedes the first rather than
     /// racing it to emit `membersChanged` for a world that has moved on.
     private var memberResolution: Task<Void, Never>?
+
+    /// The in-flight `get_self_user_status` call, if any. Same shape as
+    /// `memberResolution` and cancelled in `disconnect()` for the same reason:
+    /// a session that has moved on must not have a stale identity land after
+    /// it.
+    private var selfIdentification: Task<Void, Never>?
 
     public init(
         cookies: SessionCookies,
@@ -119,6 +127,16 @@ public actor LocalBridgeBackend: ChatBackend {
                 xsrfToken: wiz.xsrfToken
             )
             emit(.connectionStateChanged(.connected))
+            // **Started, not awaited**, the same rule `loadConversations()`
+            // follows for `resolveAndEmitMembers` and for the same reason:
+            // `connect()` must not hold the whole launch behind one `/api/`
+            // call. A failure here is a degraded title, not a broken
+            // session - `resolveAndEmitSelf()` turns it into a
+            // `.backendError` and nothing stronger.
+            selfIdentification?.cancel()
+            selfIdentification = Task { [weak self] in
+                await self?.resolveAndEmitSelf()
+            }
             // **Nothing else asks for the world.** `SyncEngine` reaches
             // `loadConversations()` only through the `.reloadConversations`
             // effect, and `SyncReducer` produces that only for
@@ -149,6 +167,8 @@ public actor LocalBridgeBackend: ChatBackend {
         apiClient = nil
         memberResolution?.cancel()
         memberResolution = nil
+        selfIdentification?.cancel()
+        selfIdentification = nil
         await stopChannel()
         emit(.connectionStateChanged(.disconnected(reason: nil)))
     }
@@ -356,7 +376,9 @@ public actor LocalBridgeBackend: ChatBackend {
         throw ChatError.unsupported(capability: Self.missingChannel)
     }
 
-    private func emit(_ event: ChatEvent) {
+    /// Not `private`: `resolveAndEmitSelf()` moved to its own file once this
+    /// one crossed swiftlint's `file_length`, and still needs to call this.
+    func emit(_ event: ChatEvent) {
         continuation.yield(event)
     }
 }

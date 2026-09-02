@@ -19,7 +19,7 @@ struct CommandTests {
         let backend = FakeBackend(world: .minimal, capabilities: capabilities)
         let collector = EventCollector(backend.events)
         try await backend.connect()
-        _ = await collector.next(5)
+        _ = await collector.next(6)
         return (backend, collector)
     }
 

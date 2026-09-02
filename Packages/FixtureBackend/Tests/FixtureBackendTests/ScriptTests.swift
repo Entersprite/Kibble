@@ -17,7 +17,7 @@ struct ScriptTests {
         let backend = FakeBackend(world: .minimal)
         let collector = EventCollector(backend.events)
         try await backend.connect()
-        _ = await collector.next(5)
+        _ = await collector.next(6)
         return (backend, collector)
     }
 

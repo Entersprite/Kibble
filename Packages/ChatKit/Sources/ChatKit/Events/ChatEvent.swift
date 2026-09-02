@@ -38,6 +38,21 @@ import Foundation
 public enum ChatEvent: Codable, Hashable, Sendable {
     case connectionStateChanged(ConnectionState)
 
+    /// The account operating this session, discovered once per connect
+    /// (`get_self_user_status`, for a real bridge) or supplied up front by a
+    /// fixture. Carries a full `Member` rather than a bare `Member.ID`: the
+    /// server already knows the local user's id and kind when it says this,
+    /// `get_members` need not be asked about someone the client was just told
+    /// about, and an id with nothing behind it cannot be rendered as "you"
+    /// anywhere.
+    ///
+    /// `displayName` is very often `nil` here: `get_self_user_status` returns
+    /// only an id, never a name. A client fills the name in the ordinary way,
+    /// once `get_members` reports the same id as a member of some
+    /// conversation - the same record, arriving twice, is not a conflict to
+    /// resolve.
+    case selfIdentified(Member)
+
     /// The whole list, not a delta. Sent on connect and whenever the set of
     /// conversations changes shape.
     case conversationsChanged([Conversation])
