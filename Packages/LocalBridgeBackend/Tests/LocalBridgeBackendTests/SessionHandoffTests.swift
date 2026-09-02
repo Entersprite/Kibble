@@ -216,7 +216,13 @@ struct RotationWriteBackTests {
                 )
             ]
         )
-        let backend = try #require(await LocalBridgeBackend.using(store, transport: transport))
+        // `retry: .immediate` because this test waits for the channel to
+        // finish, and the scripted transport always runs out - so on the
+        // default policy it would sleep out the whole reconnect ladder
+        // (0.5 + 1 + 2 + 4 real seconds) to assert something about cookies.
+        let backend = try #require(
+            await LocalBridgeBackend.using(store, transport: transport, retry: .immediate)
+        )
         try await backend.connect()
         await backend.waitForChannel()
 
@@ -254,7 +260,13 @@ struct RotationWriteBackTests {
                 )
             ]
         )
-        let backend = try #require(await LocalBridgeBackend.using(store, transport: transport))
+        // `retry: .immediate` because this test waits for the channel to
+        // finish, and the scripted transport always runs out - so on the
+        // default policy it would sleep out the whole reconnect ladder
+        // (0.5 + 1 + 2 + 4 real seconds) to assert something about cookies.
+        let backend = try #require(
+            await LocalBridgeBackend.using(store, transport: transport, retry: .immediate)
+        )
         try await backend.connect()
         await backend.waitForChannel()
 

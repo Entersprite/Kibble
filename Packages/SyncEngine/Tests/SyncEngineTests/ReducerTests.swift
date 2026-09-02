@@ -25,10 +25,42 @@ struct ReducerTests {
 
     // MARK: - Connection and errors
 
+    /// The state is recorded, and a state that means "we are trying now"
+    /// clears the last error along with it.
+    ///
+    /// The banner is one line and `lastError` wins it (`ChatWindow`'s
+    /// `StatusStrip`), so a permanent error is a permanently hidden
+    /// connection state: one failed send and the client could never say
+    /// "Reconnecting, attempt 2…" again for the rest of the session.
     @Test func connectionStateIsRecordedSoTheUICanReadItFromTheStore() {
         let reduction = SyncReducer.reduce(.connectionStateChanged(.reconnecting(attempt: 2)))
-        #expect(reduction.writes == [.setConnectionState(.reconnecting(attempt: 2))])
+        #expect(reduction.writes == [
+            .setConnectionState(.reconnecting(attempt: 2)),
+            .setLastError(nil)
+        ])
         #expect(reduction.effects.isEmpty)
+    }
+
+    /// Connecting and connected clear it for the same reason reconnecting
+    /// does: the newer claim is about now.
+    @Test func aConnectionAttemptClearsTheLastError() {
+        for state in [ConnectionState.connecting, .connected] {
+            let reduction = SyncReducer.reduce(.connectionStateChanged(state))
+            #expect(reduction.writes == [.setConnectionState(state), .setLastError(nil)])
+        }
+    }
+
+    /// **And disconnecting does not.** A backend reports why it stopped as
+    /// `.backendError` and then reports the stop -
+    /// `LocalBridgeBackend.channelStopped` emits that pair in that order - so
+    /// clearing here would erase the diagnosis one event after it arrived and
+    /// leave a bare "Disconnected." `idle` is the value a fresh process starts
+    /// from rather than one a session moves into, and is left alone too.
+    @Test func stoppingLeavesTheReasonItStoppedInPlace() {
+        for state in [ConnectionState.disconnected(reason: "the channel closed"), .idle] {
+            let reduction = SyncReducer.reduce(.connectionStateChanged(state))
+            #expect(reduction.writes == [.setConnectionState(state)])
+        }
     }
 
     /// Both halves, the same shape `membersChangedFillsTheStoreAndTheMembership`

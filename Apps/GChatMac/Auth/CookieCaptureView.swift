@@ -14,6 +14,16 @@ import WebKit
 /// behind in a shared cache and signing out is deleting an object.
 @MainActor
 struct CookieCaptureView: View {
+    /// Why the person is looking at this. `nil` on a first run, where there is
+    /// nothing to explain.
+    let reason: String?
+
+    /// Called once a capture has reached the Keychain. The window does not
+    /// dismiss itself - the environment re-runs its launch and the phase
+    /// changes underneath it, which keeps "what is on screen" a function of
+    /// one value rather than of two views agreeing.
+    let onSaved: () async -> Void
+
     @State private var model = CookieCaptureModel()
 
     var body: some View {
@@ -29,6 +39,11 @@ struct CookieCaptureView: View {
     private var controls: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
+                if let reason {
+                    Text(reason)
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                }
                 Text(model.status).font(.callout)
                 Text(model.pageURL)
                     .font(.caption)
@@ -46,8 +61,14 @@ struct CookieCaptureView: View {
             }
             Spacer()
             Button("Capture now") { model.capture() }
-            Button("Save to Keychain") { model.save() }
-                .disabled(!model.canSave)
+            Button("Save and continue") {
+                Task {
+                    if await model.save() {
+                        await onSaved()
+                    }
+                }
+            }
+            .disabled(!model.canSave)
         }
         .padding(12)
     }

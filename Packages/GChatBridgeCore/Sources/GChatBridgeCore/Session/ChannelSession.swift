@@ -24,10 +24,19 @@ import Foundation
 ///
 /// ## What this deliberately does not do
 ///
-/// It does not reconnect. A failure stops the channel and reports why, because
-/// the inputs a recovery policy would be built from are recorded as uncollected
-/// in §6 — and a policy written against the reference's guesses is work that
-/// gets thrown away when the evidence arrives.
+/// It reconnects from a **dead socket only**. `ChannelFailure.transport` gets
+/// `RetryPolicy.default`'s bounded backoff, because a socket that died says
+/// nothing about whether the credential is still good. The other three classes
+/// stop and report why: the inputs that would tell a recovery from a stop for
+/// those are recorded as uncollected in §6, and a policy written against the
+/// reference's guesses is work that gets thrown away when the evidence arrives.
+///
+/// **Bounded means bounded.** The budget is four consecutive attempts and is
+/// cleared only by a body that ends cleanly - never by one that merely opens.
+/// A channel that registers, handshakes, opens and then dies over and over
+/// therefore stops after four, rather than looping at roughly five requests a
+/// second against a live account for as long as the machine is awake. See
+/// `ChannelState.attempt`.
 public actor ChannelSession {
     /// The arrays as they arrive, in order.
     ///
@@ -49,14 +58,34 @@ public actor ChannelSession {
     private var task: Task<Void, Never>?
     private var requestIdentifier: Int
     private var generator = SystemRandomNumberGenerator()
+    /// The backoff between reconnect attempts.
+    ///
+    /// **Only the delay comes from here.** The *number* of attempts is the
+    /// reducer's, read statically from `RetryPolicy.default.maxAttempts` in
+    /// `ChannelState.failed(_:)`, because the reducer is pure and carries no
+    /// policy of its own.
+    private let retry: RetryPolicy
+    private let onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)?
+    /// Whether the last stream open followed a reconnect, so `.resumed` is sent
+    /// once per recovery rather than on every reopen of a healthy channel.
+    private var isRecovering = false
 
+    /// - Parameter retry: The backoff between reconnect attempts. **Its
+    /// `maxAttempts` is ignored**: the bound lives in the reducer, which reads
+    /// `RetryPolicy.default.maxAttempts` statically, so a policy built with
+    /// `maxAttempts: 10` still gets four attempts and says nothing about it.
+    /// Pass this to change the *waiting*, which is what `.immediate` is for.
     public init(
         cookies: SessionCookies,
         transport: any HTTPTransport,
         endpoints: ChatEndpoints = ChatEndpoints(),
-        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil
+        retry: RetryPolicy = .default,
+        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
+        onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)? = nil
     ) {
         self.transport = transport
+        self.retry = retry
+        self.onLifecycle = onLifecycle
         credentials = SessionCredentials(cookies, onRotation: onRotation)
         requests = ChannelRequests(endpoints: endpoints)
         var generator = SystemRandomNumberGenerator()
@@ -74,13 +103,20 @@ public actor ChannelSession {
     /// second is stale within seconds - §12.3 measured 13 rotations in 100
     /// seconds - and `onRotation` belongs to whoever owns the credential, which
     /// is why it is absent here.
+    ///
+    /// - Parameter retry: As above - the delay only. `maxAttempts` is the
+    /// reducer's and is not read from here.
     public init(
         credentials: SessionCredentials,
         transport: any HTTPTransport,
-        endpoints: ChatEndpoints = ChatEndpoints()
+        endpoints: ChatEndpoints = ChatEndpoints(),
+        retry: RetryPolicy = .default,
+        onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)? = nil
     ) {
         self.transport = transport
         self.credentials = credentials
+        self.retry = retry
+        self.onLifecycle = onLifecycle
         requests = ChannelRequests(endpoints: endpoints)
         var generator = SystemRandomNumberGenerator()
         requestIdentifier = ChannelIdentifiers.initialRequestIdentifier(using: &generator)
@@ -162,6 +198,16 @@ public actor ChannelSession {
         case let .reopen(sid, aid):
             await openStream(requests.reopen(sid: sid, aid: aid, zx: nextCacheBuster()))
 
+        case let .reconnect(attempt):
+            isRecovering = true
+            await onLifecycle?(.reconnecting(attempt: attempt))
+            // The wait lives here rather than in the reducer, which carries no
+            // clock. `RetryPolicy` was written for exactly this and has been
+            // dead code since it landed.
+            try? await retry.waitBeforeRetry(attempt: attempt)
+            guard !Task.isCancelled else { return }
+            apply(.retry)
+
         case .deliver, .report, .finished:
             break // handled in apply(_:)
         }
@@ -187,6 +233,14 @@ public actor ChannelSession {
                 status: stream.status,
                 initialResponse: stream.headers["X-HTTP-Initial-Response"]
             ))
+            if isRecovering, case .listening = state.phase {
+                isRecovering = false
+                // Cleared because it is no longer true, and a host reading it
+                // after a recovery would report a session that is working as
+                // one that failed.
+                failure = nil
+                await onLifecycle?(.resumed)
+            }
             // The ack goes out before the body is read, not after it: the
             // reference sends it and then falls into the read loop, and a
             // client that acks afterwards has acked minutes late.

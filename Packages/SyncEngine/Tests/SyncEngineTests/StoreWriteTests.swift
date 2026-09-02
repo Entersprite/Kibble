@@ -204,6 +204,27 @@ struct StoreWriteTests {
         #expect(stored.first?.isDeleted == true)
     }
 
+    /// The opposite of a tombstone, and it has to be. A send that threw was
+    /// never posted, so a row that keeps its place and renders as "deleted"
+    /// would still be claiming something happened. Nothing did.
+    ///
+    /// Keyed on the id the client invented, so the message beside it is
+    /// untouched - and so is the *delivered* copy of this very message, which
+    /// carries the same `localID` and a different id.
+    @Test func removingAMessageByIDLeavesNoRowBehind() throws {
+        let store = try store()
+        var ours = message("local/l-1", in: space, at: at)
+        ours.localID = "l-1"
+        try store.apply([
+            .upsertMessage(ours),
+            .upsertMessage(message("msg:2", in: space, at: at.addingTimeInterval(60)))
+        ])
+        #expect(try store.messages(in: space).count == 2)
+
+        try store.apply([.removeMessage(id: Message.ID("local/l-1"))])
+        #expect(try store.messages(in: space).map(\.id.rawValue) == ["msg:2"])
+    }
+
     @Test func reactionsAreReplacedWholesale() throws {
         let store = try store()
         try store.apply([
@@ -324,6 +345,10 @@ struct StoreWriteTests {
         try store.apply([
             .setReactions(messageID: Message.ID("msg:unheld"), reactions: []),
             .markMessageDeleted(id: Message.ID("msg:unheld"), in: space),
+            // Routine rather than exceptional: `ChatSessionModel.send` skips
+            // the optimistic write whenever the local member is not yet known,
+            // so a failed send often has nothing to retract.
+            .removeMessage(id: Message.ID("local/never-written")),
             .setReadState(conversation: Conversation.ID("space:unheld"), lastReadAt: at, unread: 1)
         ])
         #expect(try store.messages(in: space).isEmpty)

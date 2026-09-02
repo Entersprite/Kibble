@@ -98,7 +98,13 @@ public enum ChannelEventMapping {
             editedAt: message.hasLastEditTime
                 ? Date(timeIntervalSince1970: Double(message.lastEditTime) / 1_000_000)
                 : nil,
-            isDeleted: message.hasDeleteTime && message.deleteTime > 0
+            isDeleted: message.hasDeleteTime && message.deleteTime > 0,
+            // Echoed straight back by the server on a message we sent, and
+            // absent on everyone else's - which is exactly the distinction
+            // `Message.localID` documents. `nil` rather than `""` for absent,
+            // because an empty string would match an optimistic copy that also
+            // had none.
+            localID: message.hasLocalID ? message.localID : nil
         )
     }
 

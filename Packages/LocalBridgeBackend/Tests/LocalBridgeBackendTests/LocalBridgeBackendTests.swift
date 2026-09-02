@@ -102,27 +102,26 @@ struct LocalBridgeBackendTests {
 
     // MARK: - Honest capabilities
 
-    /// Every flag is false except `supportsThreads`, which is not conditioned
-    /// on connection state at all - it is a fact about what `WorldMapping` can
-    /// now compute, not about whether a channel is open. Everything else stays
-    /// false: the UI reads capabilities to decide what to offer, and a bridge
-    /// that claimed it could send would give the user a composer that
+    /// `canSendMessages` and `supportsThreads` are both true now, and neither
+    /// is conditioned on connection state - `canSendMessages` is a fact about
+    /// what `send(_:)` implements (`LocalBridgeBackend+Send.swift`),
+    /// `supportsThreads` about what `WorldMapping` can compute. Everything
+    /// else stays false: the UI reads capabilities to decide what to offer,
+    /// and a bridge that claimed more would give the user a button that
     /// silently fails.
-    @Test func itAdvertisesOnlyThreadSupport() {
+    @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
-        #expect(backend.capabilities == Capabilities(supportsThreads: true))
+        #expect(backend.capabilities == Capabilities(canSendMessages: true, supportsThreads: true))
     }
 
-    /// `loadMessages(in:before:)` is a real implementation now -
-    /// `LoadMessagesTests.swift` covers what it actually does. The two
-    /// genuinely unimplemented actions still say so by name.
+    /// `loadMessages(in:before:)` and `send(_:)` are real implementations now -
+    /// `LoadMessagesTests.swift` and `SendMessageTests.swift` cover what they
+    /// actually do. The one remaining genuinely unimplemented action still
+    /// says so by name.
     @Test func everyActionSaysWhatIsMissingRatherThanFailingVaguely() async throws {
         let backend = backend([ScriptedTransport.ok(Self.shell(app: "DynamiteWebUi"))])
         try await backend.connect()
 
-        await #expect(throws: ChatError.unsupported(capability: LocalBridgeBackend.missingChannel)) {
-            try await backend.send(.deleteMessage(id: Message.ID("m")))
-        }
         await #expect(throws: ChatError.unsupported(capability: LocalBridgeBackend.missingChannel)) {
             try await backend.setNotificationSetting(.less, for: Conversation.ID("space:1"))
         }

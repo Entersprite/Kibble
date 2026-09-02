@@ -10,16 +10,32 @@ import GChatBridgeCore
 actor ScriptedTransport: HTTPTransport {
     struct Exhausted: Error {}
 
+    /// A body that died rather than ended. The twin of
+    /// `FakeHTTPTransport.Dropped`, for the same reason the whole fake is a
+    /// twin.
+    struct Dropped: Error {}
+
     /// One scripted streaming response: a head, then body chunks in order.
     struct Script: Sendable {
         let status: Int
         let headers: HTTPHeaders
         let chunks: [String]
 
-        init(status: Int = 200, headers: HTTPHeaders = HTTPHeaders([]), chunks: [String]) {
+        /// Whether the body throws after `chunks` instead of finishing. A body
+        /// that ends is ordinary and reopens; a body that throws is a dropped
+        /// socket, which is the only thing the channel reconnects from.
+        let dropsAfterChunks: Bool
+
+        init(
+            status: Int = 200,
+            headers: HTTPHeaders = HTTPHeaders([]),
+            chunks: [String],
+            dropsAfterChunks: Bool = false
+        ) {
             self.status = status
             self.headers = headers
             self.chunks = chunks
+            self.dropsAfterChunks = dropsAfterChunks
         }
     }
 
@@ -55,7 +71,7 @@ actor ScriptedTransport: HTTPTransport {
                 for chunk in script.chunks {
                     continuation.yield(Data(chunk.utf8))
                 }
-                continuation.finish()
+                continuation.finish(throwing: script.dropsAfterChunks ? Dropped() : nil)
             }
         )
     }

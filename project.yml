@@ -31,7 +31,8 @@ packages:
     path: Packages/FixtureBackend
   # The only package that links GChatBridgeCore. Present so the reverse-
   # engineered core is exercised in a real app target - the architecture's
-  # spike 3 - and reachable at runtime only behind --backend=local.
+  # spike 3 - and reachable at runtime by default; --backend=fixture switches
+  # to the fixture instead.
   LocalBridgeBackend:
     path: Packages/LocalBridgeBackend
 

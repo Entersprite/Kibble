@@ -21,7 +21,7 @@ public struct ChatWindow: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
             VStack(spacing: 0) {
-                StatusStrip(state: state)
+                StatusStrip(state: state, actions: actions)
                 if let conversation = state.selectedConversation {
                     MessageList(state: state)
                     TypingStrip(state: state)
@@ -35,6 +35,13 @@ public struct ChatWindow: View {
                             ),
                             send: actions.send
                         )
+                        // The draft belongs to the conversation it was typed
+                        // in. Without this the `if let` branch keeps its
+                        // identity across a selection change, `@State draft`
+                        // survives, and a half-typed line addressed to one
+                        // person posts to whoever was opened next. Cheap to
+                        // miss, expensive to send.
+                        .id(conversation.id)
                     } else {
                         // Not a disabled field: a greyed-out composer invites
                         // the user to keep clicking it. Saying why is kinder.
@@ -74,6 +81,10 @@ public struct ChatWindow: View {
 /// why a view can show them without ever touching a backend.
 struct StatusStrip: View {
     let state: ChatSceneState
+    /// Required rather than defaulted: a defaulted `ChatSceneActions()` has no
+    /// `signIn`, so a call site that forgot it would silently draw a banner
+    /// with no way out - which is the bug this parameter exists to fix.
+    let actions: ChatSceneActions
 
     var body: some View {
         if let message = banner {
@@ -81,6 +92,14 @@ struct StatusStrip: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                 Text(message)
                 Spacer()
+                // Drawn only where the host offered one. A window with no
+                // route back to sign-in is a window a person can only escape
+                // by editing their Keychain - see `ChatSceneActions.signIn`.
+                if let signIn = actions.signIn {
+                    Button("Sign in again", action: signIn)
+                        .buttonStyle(.link)
+                        .font(.caption)
+                }
             }
             .font(.caption)
             .padding(.horizontal, 12)

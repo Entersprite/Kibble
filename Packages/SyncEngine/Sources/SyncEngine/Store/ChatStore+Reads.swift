@@ -90,6 +90,19 @@ public extension ChatStore {
     func observeMe() -> AsyncValueObservation<Member.ID?> {
         ValueObservation.tracking(Self.fetchMe).values(in: database)
     }
+
+    /// For the error banner, and it is the half that was missing.
+    ///
+    /// `setLastError` had a writer, a one-shot read and no observation, so
+    /// every recorded failure - a refused send, a backend error, a page of
+    /// history that would not load - landed in the database and was never
+    /// drawn. The only thing that ever set `ChatSessionModel.lastError` was an
+    /// *observation* itself throwing, which is the one failure that does not
+    /// go through `SyncEngine.record`. A store the UI reads is only a seam if
+    /// the UI reads all of it.
+    func observeLastError() -> AsyncValueObservation<ChatError?> {
+        ValueObservation.tracking(Self.fetchLastError).values(in: database)
+    }
 }
 
 // MARK: - The queries themselves

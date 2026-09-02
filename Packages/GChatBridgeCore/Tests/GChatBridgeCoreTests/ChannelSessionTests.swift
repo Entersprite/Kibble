@@ -8,6 +8,13 @@ import Testing
 /// transitions themselves are `ChannelReducerTests`. The fake transport refuses
 /// to improvise, so a session that asks for one request too many ends in a
 /// transport failure rather than in a passing test.
+///
+/// **Every session here is built with `retry: .immediate`.** Since task 4 a
+/// transport failure reconnects with `RetryPolicy.default`'s backoff, and the
+/// fake's script always runs out eventually — so on the default policy every
+/// test in this file would sleep the full ladder (0.5 + 1 + 2 + 4 seconds)
+/// before its stream finished. `.immediate` keeps the same four attempts with
+/// no waiting, which is what it was written for.
 struct ChannelSessionTests {
     private let initialResponse = #"[[0,["c","S3ss10n","",8,12,30000]]]"#
 
@@ -23,10 +30,14 @@ struct ChannelSessionTests {
         )
     }
 
-    private func handshakeStream(chunks: [String]) -> FakeHTTPTransport.Script {
+    private func handshakeStream(
+        chunks: [String],
+        dropsAfterChunks: Bool = false
+    ) -> FakeHTTPTransport.Script {
         FakeHTTPTransport.Script(
             headers: HTTPHeaders([("X-HTTP-Initial-Response", initialResponse)]),
-            chunks: chunks
+            chunks: chunks,
+            dropsAfterChunks: dropsAfterChunks
         )
     }
 
@@ -48,7 +59,8 @@ struct ChannelSessionTests {
         let session = ChannelSession(
             cookies: cookies(),
             transport: transport,
-            endpoints: ChatEndpoints()
+            endpoints: ChatEndpoints(),
+            retry: .immediate
         )
         await session.start()
         let arrays = await collect(session)
@@ -64,7 +76,7 @@ struct ChannelSessionTests {
             responses: [ok(), ok()],
             streams: [handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"])]
         )
-        let session = ChannelSession(cookies: cookies(), transport: transport)
+        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
         _ = await collect(session)
 
@@ -73,12 +85,17 @@ struct ChannelSessionTests {
                 .percentEncodedQuery ?? ""
             return request.url.lastPathComponent + "?" + query
         }
-        #expect(paths.count == 4)
         #expect(paths[0].hasPrefix("register?"))
         #expect(paths[1].contains("SID=null"))
         #expect(paths[2].contains("RID=rpc") && paths[2].contains("AID=0"))
         // The reopen carries the watermark from the array that was delivered.
         #expect(paths[3].contains("AID=1"))
+        // Was `paths.count == 4`. Since task 4 the reopen that exhausts the
+        // fake is a transport failure, and a transport failure reconnects -
+        // so the tail is the bounded ladder of retried registrations rather
+        // than the fake being asked to improvise.
+        #expect(paths.count >= 4)
+        #expect(paths.dropFirst(4).allSatisfy { $0.hasPrefix("register?") })
     }
 
     @Test func aReopenContinuesDeliveringOnTheSameSession() async {
@@ -89,7 +106,7 @@ struct ChannelSessionTests {
                 FakeHTTPTransport.Script(chunks: ["11\n[[2,[\"b\"]]]"])
             ]
         )
-        let session = ChannelSession(cookies: cookies(), transport: transport)
+        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
         #expect(await collect(session).map(\.aid) == [1, 2])
     }
@@ -109,6 +126,7 @@ struct ChannelSessionTests {
         let session = ChannelSession(
             cookies: cookies(),
             transport: transport,
+            retry: .immediate,
             onRotation: { await rotated.record($0) }
         )
         await session.start()
@@ -136,6 +154,7 @@ struct ChannelSessionTests {
         let session = ChannelSession(
             cookies: cookies(),
             transport: transport,
+            retry: .immediate,
             onRotation: { await rotated.record($0) }
         )
         await session.start()
@@ -155,6 +174,7 @@ struct ChannelSessionTests {
         let session = ChannelSession(
             cookies: cookies(),
             transport: transport,
+            retry: .immediate,
             onRotation: { await rotated.record($0) }
         )
         await session.start()
@@ -168,7 +188,7 @@ struct ChannelSessionTests {
             responses: [ok(["COMPASS=grown; Path=/"]), ok()],
             streams: [handshakeStream(chunks: [])]
         )
-        let session = ChannelSession(cookies: cookies(), transport: transport)
+        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
         _ = await collect(session)
         let handshake = await transport.sent[1]
@@ -193,7 +213,8 @@ struct ChannelSessionTests {
         let session = ChannelSession(
             credentials: credentials,
             transport: transport,
-            endpoints: ChatEndpoints()
+            endpoints: ChatEndpoints(),
+            retry: .immediate
         )
         await session.start()
         _ = await collect(session)
@@ -224,7 +245,8 @@ struct ChannelSessionTests {
         let session = ChannelSession(
             credentials: credentials,
             transport: transport,
-            endpoints: ChatEndpoints()
+            endpoints: ChatEndpoints(),
+            retry: .immediate
         )
         await session.start()
         _ = await collect(session)
@@ -240,7 +262,7 @@ struct ChannelSessionTests {
             responses: [ok()],
             streams: [FakeHTTPTransport.Script(status: 500, chunks: [])]
         )
-        let session = ChannelSession(cookies: cookies(), transport: transport)
+        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
         _ = await collect(session)
         #expect(await session.failure == .unexpectedStatus(500))
@@ -250,7 +272,7 @@ struct ChannelSessionTests {
     /// transport failure - which is exactly what a socket closing looks like.
     @Test func aTransportFailureEndsTheStreamRatherThanHangingIt() async {
         let transport = FakeHTTPTransport(responses: [], streams: [])
-        let session = ChannelSession(cookies: cookies(), transport: transport)
+        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
         _ = await collect(session)
         #expect(await session.failure != nil)
@@ -258,7 +280,7 @@ struct ChannelSessionTests {
 
     @Test func stoppingFinishesTheEventStream() async {
         let transport = FakeHTTPTransport(responses: [ok()], streams: [])
-        let session = ChannelSession(cookies: cookies(), transport: transport)
+        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.stop()
         #expect(await collect(session).isEmpty)
     }
@@ -268,13 +290,21 @@ struct ChannelSessionTests {
             responses: [ok(), ok()],
             streams: [handshakeStream(chunks: [])]
         )
-        let session = ChannelSession(cookies: cookies(), transport: transport)
+        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
         await session.start()
         _ = await collect(session)
-        // Four requests, not eight: register, handshake, ack, and the reopen
-        // that exhausts the fake.
-        #expect(await transport.sent.count <= 4)
+        // One handshake, not two. Counting *requests* stopped being the test
+        // for this in task 4: the reopen that exhausts the fake now reconnects,
+        // so the total legitimately grows past four. A second channel would
+        // show up as a second `SID=null` handshake, which is the thing this
+        // test is actually about.
+        let handshakes = await transport.sent.filter { request in
+            let query = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?
+                .percentEncodedQuery ?? ""
+            return query.contains("SID=null")
+        }
+        #expect(handshakes.count == 1)
     }
 }
 

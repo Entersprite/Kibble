@@ -2,13 +2,18 @@ import Foundation
 
 /// Why a channel stopped.
 ///
-/// Everything here is terminal today. The inputs that would drive a *recovery*
-/// rather than a stop — `400 Unknown SID`, a cookie expiring mid-stream, a
+/// Three of these four are terminal. The inputs that would tell a *recovery*
+/// apart from a stop — `400 Unknown SID`, a cookie expiring mid-stream, a
 /// truncated payload — are recorded as uncollected in `findings.md` §6, and the
 /// experiment that collects them is one someone has to run against a real
 /// account over days. Writing a reconnect policy against the reference's
 /// guesses and rewriting it when the evidence lands is more work than waiting,
-/// so this stops and says why.
+/// so those stop and say why.
+///
+/// `.transport` is the exception, and it needs no experiment: a socket that
+/// died says nothing about whether the credential is still good, so
+/// re-registering is the right answer whatever §6 eventually finds. See
+/// `ChannelState.failed(_:)`.
 public enum ChannelFailure: Error, Hashable, Sendable, CustomStringConvertible {
     case unexpectedStatus(Int)
     case noSessionIdentifier
@@ -39,6 +44,10 @@ public enum ChannelPhase: Sendable, Hashable {
     /// The previous poll ended and a new one has been asked for. Ordinary: the
     /// poll closes on its own within seconds of the handshake (§3.5).
     case reopening(sid: String)
+    /// The socket died and a fresh registration has been asked for. `attempt`
+    /// counts from 1, matching `ChatKit.ConnectionState.reconnecting(attempt:)`
+    /// so a host can forward the number without re-basing it.
+    case reconnecting(attempt: Int)
     case failed(ChannelFailure)
     case closed
 
@@ -83,6 +92,11 @@ public enum ChannelInput: Sendable {
     /// The response body ended. Ordinary, not an error.
     case bodyEnded
     case failed(ChannelFailure)
+    /// The driver has waited out the backoff and is ready to start again.
+    /// Separate from `.connect` because `connect()` is single-flight from
+    /// `.idle` and a reconnect is not starting from nothing - it is resuming
+    /// from a known-dead socket.
+    case retry
     case disconnect
 }
 
@@ -96,6 +110,10 @@ public enum ChannelEffect: Sendable, Hashable {
     case handshake
     case acknowledge(sid: String, aid: Int)
     case reopen(sid: String, aid: Int)
+    /// Wait, then send `.retry`. The delay lives in the driver: this side
+    /// carries no clock and no randomness, which is `ChannelInput`'s stated
+    /// contract and the reason the reducer is testable without waiting.
+    case reconnect(attempt: Int)
     case deliver([ChannelArray])
     case report(ChannelFailure)
     case finished
@@ -113,6 +131,25 @@ public struct ChannelState: Sendable {
     /// that is too low costs a resend, one that is too high loses events
     /// silently.
     public fileprivate(set) var highestProcessedAid = 0
+
+    /// Consecutive failed connection attempts.
+    ///
+    /// Reset by a body that **ends cleanly**, not by one that merely opens.
+    /// The difference is the whole bound. A stream that opens is only a
+    /// promise; a stream that ends the way §3.5 says a healthy poll ends -
+    /// within seconds, on its own - is proof the channel worked. Resetting on
+    /// the promise made the ladder unbounded for the one failure that matters:
+    /// register + handshake reach HTTP 200 with a SID, the body then dies
+    /// rather than ending, and every cycle cleared the budget it had just
+    /// spent. That is ~5 requests a second against a real account, forever,
+    /// and a middlebox, a VPN or a machine that sleeps and wakes all produce
+    /// it.
+    ///
+    /// A healthy channel still never exhausts its budget, because it reaches
+    /// `bodyEnded` every few seconds. One that drops once an hour resets on
+    /// the first clean close after each recovery. One that never closes
+    /// cleanly stops after four.
+    public fileprivate(set) var attempt = 0
 
     /// Framing state for the *current* stream. Reset on every reopen: a partial
     /// chunk belongs to the body it started in, and prepending it to the next
@@ -141,8 +178,10 @@ public enum ChannelReducer {
             return [.finished]
 
         case let .failed(failure):
-            state.stop(.failed(failure))
-            return [.report(failure), .finished]
+            return state.failed(failure)
+
+        case .retry:
+            return state.retry()
 
         case .connect:
             return state.connect()
@@ -175,6 +214,17 @@ private extension ChannelState {
         parser = ChunkParser()
     }
 
+    /// A stream that actually opened.
+    ///
+    /// Deliberately does **not** clear `attempt`. A stream that opens has
+    /// proved only that register and handshake answered; the body can still
+    /// die a millisecond later, and clearing the budget here meant that
+    /// failure mode retried without limit. `bodyEnded()` is where the budget
+    /// is earned back - see `ChannelState.attempt`.
+    mutating func listen(sid: String) {
+        phase = .listening(sid: sid)
+    }
+
     /// Single-flight. Two SIDs on one account is a way to have events delivered
     /// to the one nobody is reading.
     mutating func connect() -> [ChannelEffect] {
@@ -192,8 +242,12 @@ private extension ChannelState {
     /// The end of a body is ordinary: the poll closes on its own within seconds
     /// of the handshake (§3.5). A client that read it as a failure would see one
     /// handshake and conclude nothing was arriving.
+    ///
+    /// It is also the only evidence the channel is genuinely working, so this
+    /// is where the retry budget is cleared. See `ChannelState.attempt`.
     mutating func bodyEnded() -> [ChannelEffect] {
         guard let sid = phase.sid else { return [] }
+        attempt = 0
         reopen(sid: sid)
         return [.reopen(sid: sid, aid: highestProcessedAid)]
     }
@@ -213,7 +267,7 @@ private extension ChannelState {
                 stop(.failed(.noSessionIdentifier))
                 return [.report(.noSessionIdentifier), .finished]
             }
-            phase = .listening(sid: sid)
+            listen(sid: sid)
             return []
         }
 
@@ -227,14 +281,14 @@ private extension ChannelState {
 
         // An unchanged SID on a reopen is just the stream continuing.
         if phase.sid == sid {
-            phase = .listening(sid: sid)
+            listen(sid: sid)
             return []
         }
 
         // A new session numbers its arrays from scratch; carrying the old
         // watermark over would ask it to skip past events it has not sent.
         highestProcessedAid = 0
-        phase = .listening(sid: sid)
+        listen(sid: sid)
         return [.acknowledge(sid: sid, aid: 0)]
     }
 
@@ -268,5 +322,31 @@ private extension ChannelState {
     mutating func fail(_ failure: ChannelFailure) -> [ChannelEffect] {
         stop(.failed(failure))
         return [.report(failure), .finished]
+    }
+
+    /// Only `.transport` recovers.
+    ///
+    /// Session 8 §1.4 deferred reconnect because the inputs to a recovery
+    /// policy - `400 Unknown SID`, a cookie expiring mid-stream, a truncated
+    /// payload - are uncollected in `findings.md` §6, and a policy written
+    /// against the reference's guesses gets discarded when the evidence lands.
+    /// That objection is about *classification*, and it still stands for those
+    /// three. It does not apply to a transport failure: a socket that died
+    /// says nothing about the credential, so re-registering is right whatever
+    /// the stale-session experiment eventually finds.
+    mutating func failed(_ failure: ChannelFailure) -> [ChannelEffect] {
+        guard case .transport = failure, attempt < RetryPolicy.default.maxAttempts else {
+            return fail(failure)
+        }
+        attempt += 1
+        phase = .reconnecting(attempt: attempt)
+        parser = ChunkParser()
+        return [.reconnect(attempt: attempt)]
+    }
+
+    mutating func retry() -> [ChannelEffect] {
+        guard case .reconnecting = phase else { return [] }
+        phase = .registering
+        return [.register]
     }
 }

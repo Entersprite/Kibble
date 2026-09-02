@@ -18,16 +18,39 @@ actor FakeHTTPTransport: HTTPTransport {
         }
     }
 
+    /// A body that died rather than ended.
+    struct Dropped: Error, CustomStringConvertible {
+        var description: String {
+            "the connection dropped mid-body"
+        }
+    }
+
     /// One scripted streaming response: a head, then body chunks in order.
     struct Script: Sendable {
         let status: Int
         let headers: HTTPHeaders
         let chunks: [String]
 
-        init(status: Int = 200, headers: HTTPHeaders = HTTPHeaders([]), chunks: [String]) {
+        /// Whether the body throws after `chunks` instead of finishing.
+        ///
+        /// The distinction this fake could not express before, and the reason
+        /// no test could reach a *successful* reconnect: a body that **ends**
+        /// is ordinary (§3.5) and reopens on the same SID, while a body that
+        /// **throws** is the dropped socket. Without it every retry died on
+        /// the next script being absent rather than on the connection dying,
+        /// so the script after a drop was never reached.
+        let dropsAfterChunks: Bool
+
+        init(
+            status: Int = 200,
+            headers: HTTPHeaders = HTTPHeaders([]),
+            chunks: [String],
+            dropsAfterChunks: Bool = false
+        ) {
             self.status = status
             self.headers = headers
             self.chunks = chunks
+            self.dropsAfterChunks = dropsAfterChunks
         }
     }
 
@@ -61,7 +84,7 @@ actor FakeHTTPTransport: HTTPTransport {
                 for chunk in script.chunks {
                     continuation.yield(Data(chunk.utf8))
                 }
-                continuation.finish()
+                continuation.finish(throwing: script.dropsAfterChunks ? Dropped() : nil)
             }
         )
     }

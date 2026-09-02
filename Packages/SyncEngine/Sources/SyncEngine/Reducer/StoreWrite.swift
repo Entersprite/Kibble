@@ -32,6 +32,30 @@ public enum StoreWrite: Sendable, Equatable {
     /// protocol keeps sending it and a hole would break paging.
     case markMessageDeleted(id: Message.ID, in: Conversation.ID)
 
+    /// Removes one row outright, by id.
+    ///
+    /// **Not `markMessageDeleted`.** That is a tombstone for a message the
+    /// server knows about and keeps sending, and it renders as "deleted" - a
+    /// claim that something was posted and then withdrawn. This is for the
+    /// opposite: an optimistic row for a send that *threw*, which the server
+    /// never accepted, and which must leave no trace at all.
+    ///
+    /// **Keyed on the exact `Message.ID`, and that is the whole safety
+    /// property.** Keying on `localID` looks equivalent and is not: the server
+    /// echoes the client's `localID` back onto the *delivered* message
+    /// (`ChannelEventMapping` maps it, `Message.localID` documents it), so on
+    /// the `/api/` timeout where the POST actually landed - the echo arrives
+    /// at a second, the send throws at thirty - a `localID` delete would
+    /// remove the real, posted message. The user would watch a genuine message
+    /// vanish beside a send-failed banner and re-send it, which is precisely
+    /// the double post this retraction exists to prevent.
+    ///
+    /// An id the store does not hold is a no-op, not an error, and that is the
+    /// mechanism rather than a leniency: once the echo has replaced the
+    /// optimistic row, the id named here is already gone and the retraction
+    /// correctly does nothing.
+    case removeMessage(id: Message.ID)
+
     /// The complete reaction set for a message, not a diff.
     case setReactions(messageID: Message.ID, reactions: [Reaction])
 

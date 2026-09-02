@@ -28,13 +28,16 @@ public actor LocalBridgeBackend: ChatBackend {
 
     /// Almost nothing is advertised until it works.
     ///
-    /// Not modesty - the UI reads `capabilities` to decide what to offer, so a
-    /// bridge claiming it could send would hand the user a composer that
-    /// silently swallowed their messages. `supportsThreads` is the one
-    /// exception: `loadConversations()` now maps `isThreaded` for real
-    /// (`WorldMapping`), so a client can tell a flat group from a threaded one
-    /// without guessing.
-    public nonisolated let capabilities = Capabilities(supportsThreads: true)
+    /// Not modesty - the UI reads `capabilities` to decide what to offer, and a
+    /// bridge claiming it could do something it could not would hand the user a
+    /// composer that silently swallowed their messages. `canSendMessages` is
+    /// now true: `send(_:)` posts through `create_topic` /
+    /// `create_message` (`LocalBridgeBackend+Send.swift`), `[Verify]` until a
+    /// deliberate single send against live traffic confirms the shape.
+    /// `supportsThreads` is the other exception: `loadConversations()` now maps
+    /// `isThreaded` for real (`WorldMapping`), so a client can tell a flat
+    /// group from a threaded one without guessing.
+    public nonisolated let capabilities = Capabilities(canSendMessages: true, supportsThreads: true)
 
     public nonisolated let events: AsyncStream<ChatEvent>
 
@@ -51,6 +54,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// a hoisted actor rather than a value each caller copies: two jars for one
     /// session means the second is stale within seconds (`findings.md` §12.3).
     private let credentials: SessionCredentials
+    /// Handed to every `ChannelSession` this backend opens. Always `.default`
+    /// outside tests - see the internal initialiser.
+    private let channelRetry: RetryPolicy
     private var isConnected = false
     private var channel: ChannelSession?
     private var channelTask: Task<Void, Never>?
@@ -80,9 +86,39 @@ public actor LocalBridgeBackend: ChatBackend {
         endpoints: ChatEndpoints = ChatEndpoints(),
         onRotation: (@Sendable (SessionCookies) async -> Void)? = nil
     ) {
+        self.init(
+            cookies: cookies,
+            transport: transport,
+            endpoints: endpoints,
+            retry: .default,
+            onRotation: onRotation
+        )
+    }
+
+    /// The same thing, plus the channel's reconnect backoff.
+    ///
+    /// **Internal, and it has to stay internal.** `RetryPolicy` is a
+    /// `GChatBridgeCore` type, and a public parameter would put a core type in
+    /// this package's app-facing surface - the containment `CLAUDE.md` keeps so
+    /// that a future iOS binary carries no protocol code. Tests reach it
+    /// through `@testable import`; the app cannot see it at all, and the public
+    /// initialiser above is unchanged.
+    ///
+    /// It exists because the default policy is four attempts over seven and a
+    /// half real seconds, and a scripted transport always runs out - so without
+    /// it every test that waits for a channel to finish waits out the whole
+    /// ladder.
+    init(
+        cookies: SessionCookies,
+        transport: any HTTPTransport,
+        endpoints: ChatEndpoints = ChatEndpoints(),
+        retry: RetryPolicy,
+        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil
+    ) {
         self.cookies = cookies
         self.endpoints = endpoints
         self.transport = transport
+        channelRetry = retry
         credentials = SessionCredentials(cookies, onRotation: onRotation)
         bootstrap = Bootstrap(transport: transport)
         (events, continuation) = AsyncStream.makeStream(
@@ -188,7 +224,11 @@ public actor LocalBridgeBackend: ChatBackend {
         let channel = ChannelSession(
             credentials: credentials,
             transport: transport,
-            endpoints: endpoints
+            endpoints: endpoints,
+            retry: channelRetry,
+            onLifecycle: { [weak self] event in
+                await self?.channelLifecycleChanged(event)
+            }
         )
         self.channel = channel
         channelTask = Task { [weak self] in
@@ -225,11 +265,42 @@ public actor LocalBridgeBackend: ChatBackend {
         }
     }
 
-    /// The channel does not reconnect - it reports and stops - so its ending is
-    /// news, and saying nothing would leave a window showing a healthy session
-    /// that has quietly stopped delivering.
-    private func channelStopped(_ channel: ChannelSession) async {
-        guard channelTask != nil else { return } // a deliberate disconnect
+    /// The channel's own recovery, forwarded as connection state.
+    ///
+    /// `ConnectionState.reconnecting(attempt:)` has existed in `ChatKit` since
+    /// the seam was written and has been emitted by nobody. It is what lets a
+    /// window say "attempt 2" instead of spinning silently, and it needs no
+    /// wire-format change to reach a hosted tier later.
+    private func channelLifecycleChanged(_ event: ChannelLifecycle) {
+        switch event {
+        case let .reconnecting(attempt):
+            emit(.connectionStateChanged(.reconnecting(attempt: attempt)))
+        case .resumed:
+            lastFailure = nil
+            emit(.connectionStateChanged(.connected))
+        }
+    }
+
+    /// The channel reconnects only from a dead socket, and only four times, so
+    /// it still ends - and its ending is news. Saying nothing would leave a
+    /// window showing a healthy session that has quietly stopped delivering.
+    ///
+    /// The guard is on **identity**, not merely on there being a channel. A
+    /// `disconnect()` → `connect()` sequence leaves the old task still
+    /// unwinding, and its `channelStopped` arriving after the new channel is
+    /// running would tear down the *new* session - `channelTask`, `channel`,
+    /// `isConnected` and `apiClient` all nilled for a channel that is
+    /// perfectly alive, presenting as a session that connects and instantly
+    /// reports itself disconnected. Unreachable from the app as it stands,
+    /// because nothing reconnects; latent, and the fix is one clause.
+    /// Internal rather than private only so a test can hand it a channel that
+    /// is not the current one, which is the whole condition being guarded and
+    /// is otherwise a race no test could schedule. Same reason
+    /// `isRunningChannel` and `waitForChannel()` exist.
+    func channelStopped(_ channel: ChannelSession) async {
+        // `channelTask == nil` is a deliberate disconnect; a channel that is
+        // not the current one is a straggler from a previous session.
+        guard channel === self.channel, channelTask != nil else { return }
         channelTask = nil
         self.channel = nil
         isConnected = false
@@ -242,10 +313,6 @@ public actor LocalBridgeBackend: ChatBackend {
             emit(.backendError(error))
         }
         emit(.connectionStateChanged(.disconnected(reason: reason)))
-    }
-
-    public func send(_: ChatCommand) async throws {
-        throw ChatError.unsupported(capability: Self.missingChannel)
     }
 
     /// The conversation list, via the one request shape `findings.md` §20.1

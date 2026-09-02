@@ -82,9 +82,52 @@ public extension SyncEngine {
     /// and both are things a person should be told about rather than a silent
     /// no-op. The command's *outcome* arrives as an event, like everything
     /// else.
-    func submit(_ command: ChatCommand) async {
+    ///
+    /// **A throw also undoes what the caller optimistically claimed**, and
+    /// `undoing` is how the caller says what that was. The optimistic row
+    /// written by `ChatSessionModel.send` renders identically to a delivered
+    /// message and survives relaunch, so leaving it behind tells the user
+    /// their message was sent when it was not - and invites a re-send that, on
+    /// a lost response to a POST that did land, posts the message twice for
+    /// real. The retraction and the error go in one transaction, so a window
+    /// can never draw one without the other.
+    ///
+    /// **The writes come from the caller rather than being inferred here, and
+    /// that is a correctness requirement rather than a style choice.** This
+    /// actor sees a `ChatCommand`, which carries a `localID` and no row
+    /// identity. Retracting on that `localID` would delete the *delivered*
+    /// message whenever the echo arrived before the failure did, because the
+    /// server echoes the client's `localID` back onto the real message. Only
+    /// the caller that wrote the optimistic row knows the id it invented, so
+    /// only the caller can name the row that is safe to remove.
+    ///
+    /// The typed text is lost. That is the accepted cost of the honest
+    /// minimum: a pending/failed state on `Message` is the better product and
+    /// is its own slice, because it needs a new field, a migration and
+    /// `MessageList` work.
+    ///
+    /// If the message really did post, the long-poll echo delivers it moments
+    /// later and it reappears as a real message - which is strictly better
+    /// than a phantom nobody can distinguish from one that arrived.
+    func submit(_ command: ChatCommand, undoing writes: [StoreWrite] = []) async {
         do {
             try await backend.send(command)
+        } catch {
+            record(error, undoing: writes)
+        }
+    }
+
+    /// Fetches a page of history, recording a failure rather than throwing.
+    ///
+    /// The same contract as `submit(_:)` and for the same reason: the caller
+    /// is a view opening a conversation, and a view has nowhere to put a
+    /// thrown error. `loadMoreMessages` still throws for callers that can
+    /// handle it - the reducer's `.reloadMessages` effect is one - but the
+    /// UI path had been swallowing that throw with `try?`, so a dead channel
+    /// rendered as an empty transcript with no explanation.
+    func requestMoreMessages(in conversation: Conversation.ID, before: Message.ID? = nil) async {
+        do {
+            try await loadMoreMessages(in: conversation, before: before)
         } catch {
             record(error)
         }
@@ -122,8 +165,14 @@ extension SyncEngine {
 
     /// Puts a failure where the UI can see it. Typed, not rendered: a client
     /// has to tell "sign in again" from "the network hiccuped".
-    func record(_ error: any Error) {
+    ///
+    /// `undoing` carries any writes that retract what the failed operation had
+    /// already claimed. They go in the **same batch** as the error, because
+    /// `apply` is one transaction per batch and a window that saw the error
+    /// land before the retraction would draw a banner next to the message it
+    /// is about to remove.
+    func record(_ error: any Error, undoing writes: [StoreWrite] = []) {
         let chatError = error as? ChatError ?? .unknown(String(describing: error))
-        try? store.apply([.setLastError(chatError)])
+        try? store.apply(writes + [.setLastError(chatError)])
     }
 }

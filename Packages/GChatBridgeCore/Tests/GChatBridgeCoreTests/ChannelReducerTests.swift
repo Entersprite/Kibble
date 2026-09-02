@@ -11,12 +11,14 @@ import Testing
 /// side free of randomness and `ChannelRequests` the only place a URL is
 /// spelled.
 ///
-/// **Failures are terminal here, on purpose.** The inputs that drive a real
-/// reconnect — `400 Unknown SID`, a cookie expiring mid-stream, a truncated
-/// payload — are recorded as uncollected in `findings.md` §6, and inventing a
-/// recovery policy against the reference's guesses is work that gets thrown
-/// away when the evidence arrives. So every failure reports and stops. Adding
-/// recovery is additive: new phases and transitions, not a rewrite of these.
+/// **Three of the four failure classes are terminal here, on purpose.** The
+/// inputs that would classify them — `400 Unknown SID`, a cookie expiring
+/// mid-stream, a truncated payload — are recorded as uncollected in
+/// `findings.md` §6, and inventing a recovery policy against the reference's
+/// guesses is work that gets thrown away when the evidence arrives. So
+/// `.unexpectedStatus`, `.noSessionIdentifier` and `.malformedChunk` still
+/// report and stop. `.transport` does not, because a socket that died says
+/// nothing about the credential — see the reconnecting section below.
 struct ChannelReducerTests {
     private let initialResponse = #"[[0,["c","S3ss10n","",8,12,30000]]]"#
 
@@ -202,21 +204,128 @@ struct ChannelReducerTests {
         #expect(state.phase.isFailed)
     }
 
-    @Test func aTransportFailureIsReportedAndStops() {
+    /// Was `aTransportFailureIsReportedAndStops`, and pinned exactly the
+    /// behaviour task 4 changed. Retargeted onto `.unexpectedStatus`, which
+    /// still stops: a status the channel did not expect might mean the session
+    /// is dead, and session 8 §1.4 refuses to guess which. `.transport` is now
+    /// `aTransportFailureAsksToReconnectRatherThanStopping`.
+    @Test func aFailureThatMightMeanTheSessionIsDeadIsReportedAndStops() {
         var state = connected()
-        let effects = ChannelReducer.reduce(&state, .failed(.transport("socket died")))
-        #expect(effects == [.report(.transport("socket died")), .finished])
-        #expect(state.phase == .failed(.transport("socket died")))
+        let effects = ChannelReducer.reduce(&state, .failed(.unexpectedStatus(400)))
+        #expect(effects == [.report(.unexpectedStatus(400)), .finished])
+        #expect(state.phase == .failed(.unexpectedStatus(400)))
     }
 
     /// Once it has stopped it stays stopped. A machine that answered inputs
     /// after failing would keep a dead session looking alive.
+    ///
+    /// On a non-transport failure since task 4: a transport failure no longer
+    /// stops on the first one, so it is the wrong input for a test about what
+    /// a *stopped* machine does.
     @Test func nothingHappensAfterAFailure() {
         var state = connected()
-        _ = ChannelReducer.reduce(&state, .failed(.transport("x")))
+        _ = ChannelReducer.reduce(&state, .failed(.unexpectedStatus(400)))
         #expect(ChannelReducer.reduce(&state, body("11\n[[1,[\"a\"]]]")).isEmpty)
         #expect(ChannelReducer.reduce(&state, .bodyEnded).isEmpty)
+        #expect(state.phase == .failed(.unexpectedStatus(400)))
+    }
+
+    // MARK: - Reconnecting, for the one failure class that earns it
+
+    /// A dead socket is a dead socket. It says nothing about whether Google
+    /// still accepts the credential, which is why this one failure class can
+    /// be recovered from without the stale-session experiment session 8 §1.4
+    /// makes a precondition for classifying the others.
+    @Test func aTransportFailureAsksToReconnectRatherThanStopping() {
+        var state = connected()
+        let effects = ChannelReducer.reduce(&state, .failed(.transport("socket died")))
+        #expect(effects == [.reconnect(attempt: 1)])
+        #expect(state.phase == .reconnecting(attempt: 1))
+    }
+
+    /// The retry re-registers from scratch rather than resuming a SID. A SID
+    /// whose socket died may or may not still be live, and asking for a new one
+    /// costs a round trip where guessing wrong costs the whole session.
+    @Test func aRetryStartsANewRegistration() {
+        var state = connected()
+        _ = ChannelReducer.reduce(&state, .failed(.transport("x")))
+        let effects = ChannelReducer.reduce(&state, .retry)
+        #expect(effects == [.register])
+        #expect(state.phase == .registering)
+    }
+
+    /// Bounded. `RetryPolicy.default.maxAttempts` is 4, and an unbounded
+    /// reconnect against an outage is a client hammering Google.
+    @Test func reconnectingStopsAfterTheAttemptLimit() {
+        var state = connected()
+        for attempt in 1 ... 4 {
+            let effects = ChannelReducer.reduce(&state, .failed(.transport("x")))
+            #expect(effects == [.reconnect(attempt: attempt)])
+            _ = ChannelReducer.reduce(&state, .retry)
+        }
+        let effects = ChannelReducer.reduce(&state, .failed(.transport("x")))
+        #expect(effects == [.report(.transport("x")), .finished])
         #expect(state.phase == .failed(.transport("x")))
+    }
+
+    /// A body that ends the way a healthy poll ends resets the count, so a
+    /// client that drops once an hour all day never exhausts its attempts.
+    ///
+    /// §3.5: the long poll closes on its own within seconds, so a working
+    /// channel reaches this input constantly and the budget is never a
+    /// standing debt.
+    @Test func aBodyThatEndsCleanlyResetsTheAttemptCount() {
+        var state = recovered()
+        #expect(state.attempt == 1)
+        _ = ChannelReducer.reduce(&state, .bodyEnded)
+        #expect(state.attempt == 0)
+    }
+
+    /// The other half, and the account-safety half: **opening is not proof.**
+    ///
+    /// This is the failure the reset used to sit in front of. Register and
+    /// handshake reach HTTP 200 with a valid SID, so the stream opens - and
+    /// then the body dies rather than ending. Clearing `attempt` on the open
+    /// made each such cycle refund the attempt it had just spent, which is an
+    /// unbounded ladder of roughly three requests every 0.5-0.75 s against a
+    /// live Google account. Overnight that is six figures of requests.
+    @Test func aStreamThatOnlyOpensDoesNotResetTheAttemptCount() {
+        var state = recovered()
+        #expect(state.attempt == 1)
+        // The body dies instead of ending: the same input the driver applies
+        // when a read throws.
+        let effects = ChannelReducer.reduce(&state, .failed(.transport("dropped again")))
+        #expect(effects == [.reconnect(attempt: 2)])
+        #expect(state.attempt == 2)
+    }
+
+    /// A channel that has failed once, retried, and opened a fresh stream.
+    /// `attempt` is 1 on the way out: the retry was spent and nothing has
+    /// earned it back yet.
+    private func recovered() -> ChannelState {
+        var state = connected()
+        _ = ChannelReducer.reduce(&state, .failed(.transport("x")))
+        _ = ChannelReducer.reduce(&state, .retry)
+        _ = ChannelReducer.reduce(&state, .registered)
+        _ = ChannelReducer.reduce(
+            &state, .streamOpened(status: 200, initialResponse: initialResponse)
+        )
+        return state
+    }
+
+    /// The three failure classes session 8 §1.4 refuses to guess about stay
+    /// exactly as they were. This test is the guard on that refusal.
+    @Test func everyOtherFailureClassIsStillTerminal() {
+        for failure in [
+            ChannelFailure.unexpectedStatus(400),
+            .noSessionIdentifier,
+            .malformedChunk("bad")
+        ] {
+            var state = connected()
+            let effects = ChannelReducer.reduce(&state, .failed(failure))
+            #expect(effects == [.report(failure), .finished])
+            #expect(state.phase == .failed(failure))
+        }
     }
 
     // MARK: - Closing

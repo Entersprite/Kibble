@@ -178,4 +178,34 @@ struct KeychainQueryTests {
         #expect(query[kSecAttrService as String] as? String == "svc")
         #expect(query[kSecAttrAccount as String] as? String == "acct")
     }
+
+    /// Which keychain this is, made explicit rather than inherited from a
+    /// default nobody chose.
+    ///
+    /// Without `kSecUseDataProtectionKeychain`, macOS uses the legacy
+    /// file-based keychain, where `kSecAttrAccessible` is ignored entirely and
+    /// item ACLs are bound to the accessing binary's code signature - which is
+    /// what produces the "wants to use your confidential information" password
+    /// dialog on a signature change. The flag is therefore a custody decision,
+    /// exactly like the two beside it, and gets the same treatment: pinned.
+    @Test func theQueryNamesWhichKeychainItMeans() {
+        let legacy = KeychainSecretStorage.baseQuery(
+            service: "s", account: "a", useDataProtection: false
+        )
+        #expect(legacy[kSecUseDataProtectionKeychain as String] as? Bool == false)
+
+        let modern = KeychainSecretStorage.baseQuery(
+            service: "s", account: "a", useDataProtection: true
+        )
+        #expect(modern[kSecUseDataProtectionKeychain as String] as? Bool == true)
+    }
+
+    /// The default must not change silently. Whatever the measurement in
+    /// findings.md §19.4 concludes, the value that ships is the one written
+    /// here, and changing it is a deliberate edit to a test rather than a
+    /// side effect of touching the query builder.
+    @Test func theDefaultKeychainIsTheLegacyOneUntilTheMigrationIsMeasured() {
+        let query = KeychainSecretStorage.baseQuery(service: "s", account: "a")
+        #expect(query[kSecUseDataProtectionKeychain as String] as? Bool == false)
+    }
 }

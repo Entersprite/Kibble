@@ -56,11 +56,31 @@ public struct ChatSceneActions {
     public var select: (Conversation.ID) -> Void
     public var send: (String) -> Void
 
+    /// Take the person back to sign-in. **Optional, and its absence is the
+    /// point**: `nil` means the host has no sign-in to offer here, so no
+    /// affordance is drawn.
+    ///
+    /// A running session must leave this `nil`. Otherwise every transient
+    /// banner - one rate limit, one hiccup on a reopen - would grow a button
+    /// inviting a person to re-authenticate a session that is working, which
+    /// is the more expensive wrong answer of the two.
+    ///
+    /// A host that has failed to launch supplies it. Before this existed the
+    /// only escape from a failed launch was deleting a Keychain item by hand:
+    /// a page-shape change (`findings.md` §18), a client rejected as an
+    /// unsupported browser, or a `StoredSession` that no longer decodes all
+    /// reproduce on every relaunch, and none of them is
+    /// `ChatError.notAuthenticated`, which was the only input that reached
+    /// sign-in.
+    public var signIn: (() -> Void)?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
-        send: @escaping (String) -> Void = { _ in }
+        send: @escaping (String) -> Void = { _ in },
+        signIn: (() -> Void)? = nil
     ) {
         self.select = select
         self.send = send
+        self.signIn = signIn
     }
 }

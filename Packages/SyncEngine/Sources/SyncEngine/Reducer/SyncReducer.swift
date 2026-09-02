@@ -76,7 +76,7 @@ public enum SyncReducer {
     private static func reduceSessionEvent(_ event: ChatEvent) -> Reduction {
         switch event {
         case let .connectionStateChanged(state):
-            Reduction(writes: [.setConnectionState(state)])
+            Reduction(writes: [.setConnectionState(state)] + clearedError(by: state))
         case let .selfIdentified(member):
             // Both halves, the same way membersChanged does: who the local
             // user is, and the record itself so the name resolves like
@@ -101,6 +101,30 @@ public enum SyncReducer {
             Reduction()
         default:
             Reduction()
+        }
+    }
+
+    /// Whether a new connection state supersedes the last error.
+    ///
+    /// Nothing but `clearEphemeralState` at launch used to clear `lastError`,
+    /// so one failed send made the banner permanent for the rest of the
+    /// session - and the banner is where `reconnecting(attempt:)` is drawn, so
+    /// the client silently stopped being able to say "Reconnecting, attempt
+    /// 2…" ever again. An error is a claim about a moment that has passed;
+    /// a connection that is being *established* is a claim about now, and the
+    /// newer claim wins.
+    ///
+    /// **`disconnected` deliberately does not clear.** A backend reports the
+    /// reason it stopped as `.backendError` and then reports the stop itself -
+    /// `LocalBridgeBackend.channelStopped` emits exactly that pair - so
+    /// clearing here would erase the diagnosis one event after it arrived and
+    /// leave "Disconnected." with no cause. `idle` does not clear either: it
+    /// is the value a fresh process starts from, not something a session
+    /// transitions into.
+    private static func clearedError(by state: ConnectionState) -> [StoreWrite] {
+        switch state {
+        case .connecting, .reconnecting, .connected: [.setLastError(nil)]
+        case .idle, .disconnected: []
         }
     }
 }

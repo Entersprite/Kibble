@@ -15,19 +15,21 @@ import SyncEngine
 @MainActor
 @Observable
 final class AppEnvironment {
-    private(set) var model: ChatSessionModel?
-    private(set) var startupError: String?
+    private(set) var phase: LaunchPhase = .loading
 
     private var demo: FixtureDemoDriver?
     private let probe = AppNapProbe()
 
     /// For the menu-bar agent, which has no room for a sidebar.
     var totalUnread: Int {
-        (model?.conversations ?? []).reduce(0) { $0 + $1.unreadCount }
+        guard case let .running(model) = phase else { return 0 }
+        return model.conversations.reduce(0) { $0 + $1.unreadCount }
     }
 
     func start() async {
-        guard model == nil else { return }
+        if case .running = phase {
+            return
+        }
         if Self.isKeychainCheckRequested {
             await runKeychainCheck()
             return
@@ -37,18 +39,24 @@ final class AppEnvironment {
             return
         }
         do {
+            // Asked before anything is built. A launch with no stored session
+            // is not an error and must not be reported as one - it is a first
+            // run, and the only sensible thing to show is a sign-in.
+            if Self.isRealBackendRequested, try await Self.storedSession() == nil {
+                phase = .needsSignIn(reason: nil)
+                return
+            }
             let store = try ChatStore.onDisk(at: Self.databasePath())
             // Before a backend is even chosen: this is a fresh process, so
             // nothing is typing and nothing is connected, whatever the file on
-            // disk last said. SyncEngine.start() does this too, and a launch
-            // that fails before reaching it still has to be honest.
+            // disk last said.
             try store.apply([.clearEphemeralState])
             let selection = try await Self.makeBackend()
             let engine = SyncEngine(backend: selection.backend, store: store)
             let model = ChatSessionModel(store: store, engine: engine, me: selection.me)
 
             try await model.start()
-            self.model = model
+            phase = .running(model)
 
             if AppNapProbe.isRequested {
                 try probe.start(writingTo: Self.supportDirectory()
@@ -62,12 +70,35 @@ final class AppEnvironment {
                 await demo.start()
                 self.demo = demo
             }
+        } catch ChatError.notAuthenticated {
+            // The one error that is not a failure: the credential is there and
+            // Google has stopped accepting it. Expiry never proves this and
+            // never disproves it (`findings.md` §11), so it is only knowable
+            // from a round trip - and this is that round trip having happened.
+            phase = .needsSignIn(reason: "Your Google session stopped working. Sign in again.")
         } catch {
-            // Including a bridge that could not authenticate: the window shows
-            // it, because a launch that silently does nothing is the worst
-            // possible report.
-            startupError = String(describing: error)
+            phase = .failed(String(describing: error))
         }
+    }
+
+    /// What is in the Keychain, or `nil`. Throws rather than returning `nil`
+    /// when the Keychain refuses: "no credential" and "could not look" lead to
+    /// opposite recoveries, and collapsing them sends someone through a
+    /// two-factor login that cannot possibly help.
+    private static func storedSession() async throws -> StoredSessionSummary? {
+        do {
+            return try await KeychainCredentialStore().summary(at: Date())
+        } catch {
+            throw ChatError.unknown(KeychainDiagnosis.explain(error))
+        }
+    }
+
+    /// Called by the login window once a capture has reached the Keychain.
+    /// Re-runs `start()`, which now finds a session where a moment ago there
+    /// was none - so signing in connects rather than printing "relaunch me".
+    func signedIn() async {
+        phase = .loading
+        await start()
     }
 
     /// `--probe=keychain`, in the shape `AppNapProbe` established.
@@ -82,8 +113,18 @@ final class AppEnvironment {
     }
 
     private func runKeychainCheck() async {
-        let result = await KeychainCredentialStore.forSelfCheck().selfCheck()
-        startupError = result
+        let store = KeychainCredentialStore.forSelfCheck()
+        let legacy = await store.selfCheck()
+        let modern = await store.dataProtectionSelfCheck()
+        let result = """
+        legacy keychain:          \(legacy)
+        data-protection keychain: \(modern)
+        """
+        // A phase, not a bare string. Nothing but `phase` decides what is on
+        // screen, so a probe that only wrote a property left the window on
+        // `loading`'s spinner for ever - the report was on disk and the person
+        // running it had no way to know it had even finished.
+        phase = .report(result)
         // Written as well as shown: the window is not readable from a script,
         // and this is a check somebody runs after changing how the app is
         // signed.
@@ -108,7 +149,7 @@ final class AppEnvironment {
         // transport, so the app names no core type. Same shape as
         // `LocalBridgeBackend.using(_:transport:)` at SessionHandoff.swift:77.
         let report = await APIProbeReport.run()
-        startupError = report
+        phase = .report(report)
         // Written as well as shown, for the same reason the Keychain check is:
         // the window is not readable from a script, and this report is meant to
         // be pasted into findings.md.
@@ -128,21 +169,24 @@ final class AppEnvironment {
         let fixture: FakeBackend?
     }
 
-    /// Whether the real bridge was asked for. Read by `databasePath()` too,
-    /// which runs *before* a backend is built and must already know which of
-    /// the two stores to open.
-    static var isLocalBackendRequested: Bool {
-        CommandLine.arguments.contains("--backend=local")
+    /// Whether the real bridge was asked for - now the default.
+    ///
+    /// Inverted from `--backend=local` deliberately. The fixture stays
+    /// reachable because `scripts/test.sh` enforces that this app consumes
+    /// `FixtureBackend`, and because a fake backend with every capability on is
+    /// the only way the degradation paths in `ChatWindow` are exercised at all.
+    /// What changes is which one a person gets by double-clicking the app.
+    static var isRealBackendRequested: Bool {
+        !CommandLine.arguments.contains("--backend=fixture")
     }
 
     /// The only place in the repo that picks a backend.
     ///
-    /// `--backend=local` hosts `GChatBridgeCore` in-process through
-    /// `LocalBridgeBackend`; anything else gets the fixture. Defaulting to the
-    /// fixture is deliberate: launching the app must never touch a Google
-    /// account by accident.
+    /// Anything but `--backend=fixture` hosts `GChatBridgeCore` in-process
+    /// through `LocalBridgeBackend`, using whatever session `start()` already
+    /// confirmed is in the Keychain.
     private static func makeBackend() async throws -> Selection {
-        guard isLocalBackendRequested else {
+        guard isRealBackendRequested else {
             let fixture = FakeBackend(world: .acme)
             return Selection(backend: fixture, me: Acme.alex, fixture: fixture)
         }
@@ -174,9 +218,9 @@ final class AppEnvironment {
     }
 
     var sceneState: ChatSceneState {
-        guard let model else {
+        guard case let .running(model) = phase else {
             return ChatSceneState(
-                lastError: startupError.map { ChatError.unknown($0) }
+                lastError: nonRunningErrorMessage.map { ChatError.unknown($0) }
             )
         }
         return ChatSceneState(
@@ -192,11 +236,63 @@ final class AppEnvironment {
         )
     }
 
+    /// What `sceneState` shows in the status strip when nothing is running.
+    ///
+    /// Both non-running phases that have anything to say carry their own text,
+    /// and there is no fallback property behind them: "a launch that silently
+    /// does nothing is the worst possible report" is exactly the failure this
+    /// exists to prevent, and a second source for the same line is how the
+    /// probe branches came to write one nothing read.
+    private var nonRunningErrorMessage: String? {
+        switch phase {
+        case let .failed(message), let .report(message): message
+        case .loading, .needsSignIn, .running: nil
+        }
+    }
+
     var actions: ChatSceneActions {
         ChatSceneActions(
-            select: { [weak self] id in self?.model?.select(id) },
-            send: { [weak self] text in self?.model?.send(text) }
+            select: { [weak self] id in
+                guard case let .running(model) = self?.phase else { return }
+                model.select(id)
+            },
+            send: { [weak self] text in
+                guard case let .running(model) = self?.phase else { return }
+                model.send(text)
+            },
+            // Offered **only** from `.failed`, which is the phase that had no
+            // way out. `.needsSignIn` already shows the capture window,
+            // `.running` must not invite someone to re-authenticate a working
+            // session over one transient banner, and a probe report is not a
+            // session problem at all.
+            signIn: isFailed ? { [weak self] in self?.requestSignIn() } : nil
         )
+    }
+
+    private var isFailed: Bool {
+        if case .failed = phase {
+            return true
+        }
+        return false
+    }
+
+    /// The way back to sign-in from a launch that failed.
+    ///
+    /// Before this, `.needsSignIn` was reachable from exactly two inputs - no
+    /// stored session, and `ChatError.notAuthenticated` - and task 3 deleted
+    /// the `--login` flag that used to reach the capture window directly.
+    /// Everything else landed in `.failed` and stayed there: a page-shape
+    /// change (`findings.md` §18), a client refused as an unsupported browser
+    /// (where re-capturing with a different user agent is the actual fix), a
+    /// `StoredSession` that no longer decodes. Each reproduces on every
+    /// relaunch, and the only escape was deleting a Keychain item by hand -
+    /// which is not something this app's intended user can do.
+    ///
+    /// The reason carried forward is the failure itself, so the capture window
+    /// says what went wrong rather than implying the person did something.
+    private func requestSignIn() {
+        guard case let .failed(message) = phase else { return }
+        phase = .needsSignIn(reason: message)
     }
 
     /// One database per backend, and that separation is load-bearing.
@@ -214,7 +310,7 @@ final class AppEnvironment {
     /// a person's actual chats, and it was observed happening. Two files, so it
     /// cannot.
     private static func databasePath() throws -> String {
-        let name = isLocalBackendRequested ? "chat-local.sqlite" : "chat-fixture.sqlite"
+        let name = isRealBackendRequested ? "chat-local.sqlite" : "chat-fixture.sqlite"
         return try supportDirectory().appendingPathComponent(name).path
     }
 

@@ -76,10 +76,26 @@ public extension LocalBridgeBackend {
         _ store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport()
     ) async throws -> LocalBridgeBackend? {
+        try await using(store, transport: transport, retry: .default)
+    }
+}
+
+extension LocalBridgeBackend {
+    /// `using(_:transport:)` with the channel's reconnect backoff supplied.
+    ///
+    /// Internal for the same reason the initialiser it forwards to is:
+    /// `RetryPolicy` is a `GChatBridgeCore` type and must not appear in a
+    /// signature the app can see. The public overload above is unchanged.
+    static func using(
+        _ store: KeychainCredentialStore,
+        transport: any HTTPTransport,
+        retry: RetryPolicy
+    ) async throws -> LocalBridgeBackend? {
         guard let session = try await store.currentSession() else { return nil }
         return LocalBridgeBackend(
             cookies: session.credential,
             transport: transport,
+            retry: retry,
             // Closing the loop the cookie jar exists for. `findings.md` §12.3:
             // the `*SIDCC` family rotates on every poll cycle, so a session
             // that is not written back goes stale between one launch and the
@@ -109,6 +125,14 @@ public extension KeychainCredentialStore {
         KeychainCredentialStore(account: selfCheckAccount)
     }
 
+    /// The account the data-protection probe writes to.
+    ///
+    /// Distinct from `selfCheckAccount` because the two keychains are separate
+    /// stores: writing both probes to one account name would still be two
+    /// items, and naming them apart is what makes a report saying "legacy PASS,
+    /// data-protection FAIL" unambiguous about which item it means.
+    static let dataProtectionSelfCheckAccount = "selfcheck-dp"
+
     /// Round-trips a throwaway credential and reports whether it worked.
     ///
     /// Whether this app can use the Keychain at all depends on how it was
@@ -137,6 +161,34 @@ public extension KeychainCredentialStore {
             // probe behind would be litter.
             try? await invalidate()
             return "FAIL - \(KeychainDiagnosis.explain(error))"
+        }
+    }
+
+    /// Whether this build can use the **data-protection** keychain.
+    ///
+    /// Asked separately from `selfCheck()` because the answer decides a
+    /// migration, and the two failure modes are opposite: the legacy keychain
+    /// works today and can prompt for a password; the data-protection keychain
+    /// never prompts but needs an access group a self-signed certificate may
+    /// not supply, which returns as `-34018` (`findings.md` §19.1).
+    ///
+    /// Built on a concrete `KeychainSecretStorage` rather than the injected
+    /// `storage`, since `SecretStorage` stays a one-keychain protocol on
+    /// purpose — see `KeychainSecretStorage`'s own note on why.
+    func dataProtectionSelfCheck() async -> String {
+        let storage = KeychainSecretStorage(service: KeychainCredentialStore.defaultService)
+        let account = Self.dataProtectionSelfCheckAccount
+        let probe = Data("probe".utf8)
+        do {
+            try storage.write(probe, account: account, useDataProtection: true)
+            let read = try storage.read(account: account, useDataProtection: true)
+            try storage.delete(account: account, useDataProtection: true)
+            guard read == probe else {
+                return "FAIL - the data-protection keychain returned different bytes."
+            }
+            return "PASS - this build can also use the data-protection keychain."
+        } catch {
+            return "FAIL (data-protection) - \(KeychainDiagnosis.explain(error))"
         }
     }
 }

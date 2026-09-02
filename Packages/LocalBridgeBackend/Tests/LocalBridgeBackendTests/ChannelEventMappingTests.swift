@@ -14,7 +14,8 @@ import Testing
 /// ```
 /// EventBody      12 = event_type, 6 = message_posted
 /// MessageEvent    1 = message
-/// Message         1 = id, 2 = creator, 3 = create_time, 10 = text_body
+/// Message         1 = id, 2 = creator, 3 = create_time, 10 = text_body,
+///                 14 = local_id
 /// MessageId       1 = parent_id, 2 = message_id
 /// MessageParentId 4 = topic_id
 /// TopicId         2 = topic_id, 3 = group_id
@@ -62,15 +63,23 @@ struct ChannelEventMappingTests {
         text: String = "hello",
         topic: String = "t-1",
         space: String? = nil,
-        dm: String? = "dm-1"
+        dm: String? = "dm-1",
+        localID: String? = nil
     ) -> String {
         let creator = padded([1: padded([1: quoted(sender)], upTo: 1)], upTo: 1)
-        return padded([
+        var fields: [Int: String] = [
             1: messageID(id, topic: topic, space: space, dm: dm),
             2: creator,
             3: quoted(createdAtMicros),
             10: quoted(text)
-        ], upTo: 10)
+        ]
+        // Field 14 - `local_id` - is left absent by default, the same way the
+        // wire leaves it absent for anyone else's message. `localID(_:)`
+        // supplies it only for the tests about echo suppression.
+        if let localID {
+            fields[14] = quoted(localID)
+        }
+        return padded(fields, upTo: 14)
     }
 
     private func body(type: Int, message: String? = nil) -> String {
@@ -167,6 +176,32 @@ struct ChannelEventMappingTests {
             return
         }
         #expect(message.text.isEmpty)
+    }
+
+    // MARK: - Echo suppression: local_id (field 14)
+
+    /// The server echoes `local_id` back verbatim on a message we sent -
+    /// `Task 6`'s optimistic-copy matching reads exactly this field.
+    @Test func aLocalIDOnTheWireSurvivesIntoTheDomainMessage() throws {
+        let events = try mapped([body(type: 6, message: message(localID: "gchat%7"))])
+        guard case let .messageReceived(message) = events.first else {
+            Issue.record("expected .messageReceived")
+            return
+        }
+        #expect(message.localID == "gchat%7")
+    }
+
+    /// Absent must map to `nil`, never `""`. `Message.localID`'s own contract
+    /// is that `nil` means "not one of ours" - an empty string would match an
+    /// optimistic copy that also had none, showing every message from anyone
+    /// else as a duplicate of the client's own unsent draft.
+    @Test func anAbsentLocalIDBecomesNilRatherThanAnEmptyString() throws {
+        let events = try mapped([body(type: 6, message: message())])
+        guard case let .messageReceived(message) = events.first else {
+            Issue.record("expected .messageReceived")
+            return
+        }
+        #expect(message.localID == nil)
     }
 
     // MARK: - Everything else is routed, never dropped

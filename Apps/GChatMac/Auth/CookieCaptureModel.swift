@@ -96,27 +96,29 @@ final class CookieCaptureModel {
         write(capture.report.text, to: "cookie-capture-report.txt")
     }
 
-    /// Puts the captured session in the Keychain.
+    /// Puts the captured session in the Keychain, and says whether it landed.
     ///
-    /// This is what retired `cookie-header.txt`: the credential no longer
-    /// touches the filesystem in plain text. It is still an explicit action
-    /// rather than an automatic one, because overwriting a working session with
-    /// a worse capture is a real way to lose one.
-    func save() {
-        guard let capture = lastCapture else { return }
-        Task { @MainActor in
-            do {
-                let saved = try await capture.save(to: credentials)
-                status = saved
-                    ? "Saved to the Keychain. Relaunch with --backend=local to use it."
-                    : "Nothing to save: no cookie in this capture belongs to Chat."
-                await refreshStoredSession()
-            } catch {
-                // Named rather than swallowed: a Keychain refusal on a
-                // self-signed build reads exactly like "you are not signed in",
-                // and the fix is nothing to do with signing in.
-                status = "Could not save: \(KeychainDiagnosis.explain(error))"
-            }
+    /// Returns `false` for both "nothing in this capture belongs to Chat" and
+    /// "the Keychain refused" - the caller's only decision is whether to
+    /// continue into the app, and neither of those is a session it could
+    /// continue with. `status` carries which one it was, on screen, in words.
+    ///
+    /// It is still an explicit action rather than an automatic one, because
+    /// overwriting a working session with a worse capture is a real way to
+    /// lose one.
+    @discardableResult
+    func save() async -> Bool {
+        guard let capture = lastCapture else { return false }
+        do {
+            let saved = try await capture.save(to: credentials)
+            status = saved
+                ? "Saved to the Keychain."
+                : "Nothing to save: no cookie in this capture belongs to Chat."
+            await refreshStoredSession()
+            return saved
+        } catch {
+            status = "Could not save: \(KeychainDiagnosis.explain(error))"
+            return false
         }
     }
 

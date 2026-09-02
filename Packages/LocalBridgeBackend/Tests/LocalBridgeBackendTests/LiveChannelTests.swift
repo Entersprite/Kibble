@@ -178,18 +178,33 @@ struct LiveChannelTests {
         #expect(await !backend.isRunningChannel)
     }
 
-    /// The channel stopping is not silent. `ChannelSession` reports and stops
-    /// rather than reconnecting, so the backend has to say so or the window
-    /// shows a session that looks healthy and has stopped delivering.
+    /// The channel stopping is not silent. Since task 4 `ChannelSession`
+    /// reconnects from a dead socket, but only four times - so it still stops,
+    /// and the backend still has to say so or the window shows a session that
+    /// looks healthy and has stopped delivering.
     @Test func aChannelFailureIsReportedOnTheEventStream() async throws {
         // No streams scripted: the handshake fails, which is what a closed
         // socket looks like.
         let transport = ScriptedTransport([shell(), ScriptedTransport.ok("")])
-        let backend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
-        async let events = collect(backend, 4)
+        // `retry: .immediate` because this test waits for the channel to give
+        // up, and giving up now means four attempts - 7.5 real seconds of
+        // backoff on the default policy, to assert one event.
+        let backend = LocalBridgeBackend(
+            cookies: Self.cookies,
+            transport: transport,
+            retry: .immediate
+        )
         try await backend.connect()
+        // Was `collect(backend, 4)` racing `connect()`. A fixed count is no
+        // longer safe: the channel now emits `.reconnecting` up to four times
+        // before it gives up, any of which can take the fourth slot ahead of
+        // the `.backendError` this test is about. Waiting for the channel to
+        // actually stop makes it deterministic, and nothing has consumed the
+        // stream yet - the events are all still buffered when the collector
+        // starts.
+        await backend.waitForChannel()
 
-        let received = await events
+        let received = await collectEvents(backend)
         #expect(received.contains {
             if case .backendError = $0 {
                 true
@@ -197,6 +212,52 @@ struct LiveChannelTests {
                 false
             }
         })
+    }
+
+    /// The domain's half of the recovery: a window is told the channel is
+    /// coming back, and then told it is back.
+    ///
+    /// `ConnectionState.reconnecting(attempt:)` had existed in `ChatKit` since
+    /// the seam was written and had been emitted by nobody. Nothing asserted
+    /// the `.resumed` leg at all until this test, because
+    /// `ScriptedTransport.Script` could not drop a body - so every retry died
+    /// at `register` and the channel never got back to `.connected`.
+    @Test func aRecoveredChannelIsReportedAsReconnectingThenConnected() async throws {
+        let head = HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)])
+        let transport = ScriptedTransport(
+            // Six, generously: `resolveAndEmitSelf()` races the channel for
+            // this queue, and the channel needs a register and an ack on each
+            // side of the drop. Content is ignored by all of them.
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 6),
+            streams: [
+                ScriptedTransport.Script(
+                    headers: head,
+                    chunks: [messageChunk(aid: 1, text: "before the drop")],
+                    dropsAfterChunks: true
+                ),
+                ScriptedTransport.Script(headers: head, chunks: [])
+            ]
+        )
+        let backend = LocalBridgeBackend(
+            cookies: Self.cookies,
+            transport: transport,
+            retry: .immediate
+        )
+        try await backend.connect()
+        await backend.waitForChannel()
+
+        let states: [ConnectionState] = await collectEvents(backend).compactMap { event in
+            if case let .connectionStateChanged(state) = event {
+                state
+            } else {
+                nil
+            }
+        }
+        let reconnecting = try #require(states.firstIndex(of: .reconnecting(attempt: 1)))
+        // `.connected` *after* the reconnect, not the one `connect()` emitted
+        // before it - that is the whole distinction the `.resumed` leg exists
+        // to make.
+        #expect(states[reconnecting...].contains(.connected))
     }
 
     // MARK: - Stopping
@@ -215,6 +276,42 @@ struct LiveChannelTests {
         try await backend.connect()
         await backend.disconnect()
         #expect(await !backend.isRunningChannel)
+    }
+
+    /// A channel that is no longer the current one must not be able to close
+    /// the session that replaced it.
+    ///
+    /// `channelStopped` took the channel as a parameter and then ignored it,
+    /// guarding only on `channelTask != nil`. A `disconnect()` → `connect()`
+    /// sequence leaves the old task still unwinding, so its late
+    /// `channelStopped` would nil `channelTask`, `channel`, `isConnected` and
+    /// `apiClient` out from under the new session - a session that connects
+    /// and immediately reports itself disconnected, with a live long poll
+    /// still running and nothing reading it.
+    ///
+    /// Called directly rather than raced, because the race is exactly what a
+    /// test cannot schedule. The straggler here is a `ChannelSession` this
+    /// backend has never heard of, which is indistinguishable to
+    /// `channelStopped` from one it has retired.
+    @Test func aStragglingChannelDoesNotStopTheCurrentSession() async throws {
+        let transport = ScriptedTransport(
+            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            streams: [
+                ScriptedTransport.Script(
+                    headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),
+                    chunks: []
+                )
+            ]
+        )
+        let backend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
+        try await backend.connect()
+        #expect(await backend.isRunningChannel)
+
+        let straggler = ChannelSession(cookies: Self.cookies, transport: ScriptedTransport([]))
+        await backend.channelStopped(straggler)
+
+        #expect(await backend.isRunningChannel)
+        await backend.disconnect()
     }
 
     // MARK: - Rotation
@@ -244,6 +341,8 @@ struct LiveChannelTests {
         let backend = LocalBridgeBackend(
             cookies: Self.cookies,
             transport: transport,
+            // Same reason as above: this one waits for the channel to finish.
+            retry: .immediate,
             onRotation: { await rotations.record($0) }
         )
         try await backend.connect()

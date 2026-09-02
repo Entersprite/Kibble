@@ -25,6 +25,12 @@ public final class ChatSessionModel {
     public private(set) var messages: [Message] = []
     public private(set) var typing: [Member.ID] = []
     public private(set) var connectionState: ConnectionState = .idle
+    /// The last thing that went wrong, from the store.
+    ///
+    /// Fed by `store.observeLastError()` in `start()`, like every other
+    /// store-backed property. The direct assignment in `observe(_:_:)`'s catch
+    /// is the exception and has to be: an observation that has thrown cannot
+    /// report itself through the database it just failed to read.
     public private(set) var lastError: ChatError?
     public private(set) var selected: Conversation.ID?
 
@@ -64,6 +70,11 @@ public final class ChatSessionModel {
         watch(store.observeConversations()) { [weak self] in self?.conversations = $0 }
         watch(store.observeConnectionState()) { [weak self] in self?.connectionState = $0 }
         watch(store.observeMe()) { [weak self] in self?.me = $0 }
+        // Everything `SyncEngine.record` writes arrives here. Without this
+        // watch the property below was only ever set by an observation
+        // throwing, so a refused send or a failed history page was recorded
+        // and never rendered.
+        watch(store.observeLastError()) { [weak self] in self?.lastError = $0 }
         try await engine.start()
     }
 
@@ -95,16 +106,59 @@ public final class ChatSessionModel {
             observe(store.observeTypingMembers(in: id)) { [weak self] in self?.typing = $0 }
         )
 
+        // Not `try?`. A dead channel, a rejected `/api/` call or a timeout
+        // used to leave the transcript reading "No messages" - nothing
+        // failed, so nothing was reported, which session 13 §2.2 names as the
+        // worst failure shape this project produces. `requestMoreMessages`
+        // records instead of throwing, because a view has nowhere to put a
+        // thrown error.
         Task { [engine] in
-            try? await engine.loadMoreMessages(in: id)
+            await engine.requestMoreMessages(in: id)
         }
     }
 
+    /// Sends, and shows the message immediately.
+    ///
+    /// The optimistic row carries a `local/`-prefixed id because it has no
+    /// server id yet and inventing one that later collides with a real message
+    /// id would be worse than an obviously-local one. `ChatStore` replaces it
+    /// when the echo arrives, matched on `localID` - see `Message.localID`,
+    /// which has documented exactly this since the seam was written.
+    ///
+    /// A backend that cannot send is not asked. The composer is already hidden
+    /// in that case, but a model that wrote an optimistic row anyway would show
+    /// a message that never leaves.
     public func send(_ text: String) {
-        guard let selected else { return }
+        guard let selected, capabilities.canSendMessages else { return }
+        let localID = UUID().uuidString
+        // Invented here, and therefore retracted from here. The `local/`
+        // prefix is this file's convention and stays this file's business:
+        // `ChatStore` deletes a row by id and has never heard of it.
+        let optimisticID = Message.ID("local/\(localID)")
+        var undo: [StoreWrite] = []
+        if let me {
+            try? store.apply([.upsertMessage(Message(
+                id: optimisticID,
+                conversationID: selected,
+                threadID: MessageThread.ID(""),
+                sender: me,
+                text: text,
+                createdAt: Date(),
+                localID: localID
+            ))])
+            // Only what was actually written. With no `me` there is no
+            // optimistic row and nothing to take back.
+            undo = [.removeMessage(id: optimisticID)]
+        }
         Task { [engine] in
             await engine.submit(
-                .sendMessage(conversationID: selected, threadID: nil, text: text, localID: nil)
+                .sendMessage(conversationID: selected, threadID: nil, text: text, localID: localID),
+                // By id, not by `localID`. The server echoes `localID` back on
+                // the delivered message, so a `localID` retraction would
+                // delete the real one whenever the echo beat the failure -
+                // which is exactly the `/api/` timeout this whole retraction
+                // was written for.
+                undoing: undo
             )
         }
     }

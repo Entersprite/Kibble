@@ -82,3 +82,26 @@ public extension APIMethod where Request == GetMembersRequest, Response == GetMe
         Self("get_members")
     }
 }
+
+public extension APIMethod where Request == CreateTopicRequest, Response == CreateTopicResponse {
+    /// Posting a new message. **The first write this client has ever made.**
+    ///
+    /// Every other method in this file reads. That difference is why
+    /// `SendRequests` has no ladder: a wrong read shape costs a round trip, a
+    /// wrong write shape costs somebody a message in a real conversation.
+    /// Shape from `mautrix_googlechat/maugclib/client.py:459-470`, `[Verify]`
+    /// until a deliberate single send confirms it.
+    static var createTopic: Self {
+        Self("create_topic")
+    }
+}
+
+public extension APIMethod where Request == CreateMessageRequest, Response == CreateMessageResponse {
+    /// Replying inside an existing thread - `client.py:441-457`. **Declared and
+    /// unexercised**, for the same reason `listMessages` is: `findings.md`
+    /// §20.4 observed `flat_group` on all four of this account's conversations
+    /// and `threaded_group` on none, so nothing here can reach this branch.
+    static var createMessage: Self {
+        Self("create_message")
+    }
+}

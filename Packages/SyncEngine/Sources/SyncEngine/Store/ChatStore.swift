@@ -48,7 +48,7 @@ public extension ChatStore {
         case .replaceConversations, .upsertConversation, .upsertMembers,
              .setMembership, .setReadState, .setPresence:
             try performConversationWrite(write, in: db)
-        case .upsertMessage, .markMessageDeleted, .setReactions:
+        case .upsertMessage, .markMessageDeleted, .removeMessage, .setReactions:
             try performMessageWrite(write, in: db)
         case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .clearEphemeralState:
             try performSessionWrite(write, in: db)
@@ -96,6 +96,20 @@ public extension ChatStore {
     private static func performMessageWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case let .upsertMessage(message):
+            // An optimistic copy and its echo are the same message with two
+            // different ids: the client invented one, the server assigned the
+            // other. Keyed on `localID`, which the server echoes back and which
+            // is `nil` on everyone else's messages - so this can never merge two
+            // messages that merely both lack one.
+            //
+            // The `id <> ?` clause is what keeps an ordinary re-delivery of the
+            // same server message from deleting the row it is about to write.
+            if let localID = message.localID {
+                try db.execute(
+                    sql: "DELETE FROM message WHERE localID = ? AND id <> ?",
+                    arguments: [localID, message.id.rawValue]
+                )
+            }
             try MessageRow(message).upsert(db)
         case let .markMessageDeleted(id, _):
             // A tombstone, not a removal: the message keeps its place in the
@@ -104,6 +118,20 @@ public extension ChatStore {
             // it holds pages, not all of history - so this is a no-op then.
             try db.execute(
                 sql: "UPDATE message SET isDeleted = 1, text = '' WHERE id = ?",
+                arguments: [id.rawValue]
+            )
+        case let .removeMessage(id):
+            // Gone, not tombstoned: nothing was ever posted, so there is no
+            // place in the ordering to keep.
+            //
+            // By id, never by `localID`. The server echoes the client's
+            // `localID` back onto the delivered message, so a `localID` delete
+            // would take the real row whenever the echo beat the failure -
+            // which is exactly what a lost response to a POST that landed
+            // looks like. A row that is already gone is a no-op, which is what
+            // makes this safe in that case rather than merely lucky.
+            try db.execute(
+                sql: "DELETE FROM message WHERE id = ?",
                 arguments: [id.rawValue]
             )
         case let .setReactions(messageID, reactions):
