@@ -1,7 +1,6 @@
 import Foundation
 import LocalBridgeBackend
 import Observation
-import WebKit
 
 /// Watches the login web view, drains its cookie store, and puts the result in
 /// the Keychain.
@@ -14,18 +13,35 @@ import WebKit
 /// that each have their own tests.
 @MainActor
 @Observable
-final class CookieCaptureModel {
-    private(set) var status = "Loading Google sign-in…"
-    private(set) var pageURL = ""
-    private(set) var canSave = false
+public final class CookieCaptureModel {
+    public private(set) var status = "Loading Google sign-in…"
+    public private(set) var pageURL = ""
+    public private(set) var canSave = false
 
     /// What is already in the Keychain, for the window to show. Refreshed after
     /// a save so the person sees the thing they just created.
-    private(set) var storedSession: String?
+    public private(set) var storedSession: String?
 
-    private weak var webView: WKWebView?
+    private weak var webView: (any LoginWebView)?
     private var lastCapture: CookieCapture?
-    private let credentials = KeychainCredentialStore()
+
+    /// What the login web view is pointed at, and what host it claims to be.
+    ///
+    /// The host gate in `pageSettled` still reads a literal rather than
+    /// `configuration.host` - that fix is Task 7's, which needs to see the
+    /// existing `contains` check fail first. The value is threaded through
+    /// from here regardless, so that fix is a one-line change rather than a
+    /// second injection point this task would otherwise have to add later.
+    private let configuration: LoginWebViewConfiguration
+
+    /// Where the captured session is stored. Never the Keychain directly -
+    /// see `CaptureCustody`'s own doc comment (ruling R7).
+    private let custody: any CaptureCustody
+
+    /// Where the safe-to-share report is written. `nil` when the directory
+    /// could not be resolved, in which case the report is silently skipped
+    /// rather than the login window crashing over a diagnostic file.
+    private let reportDirectory: URL?
 
     /// Whether this window may complete sign-in with no button press.
     ///
@@ -41,8 +57,8 @@ final class CookieCaptureModel {
     /// doing nothing, rather than this file guessing why it was opened.
     private let autoSaveAllowed: Bool
 
-    /// Called once a save - automatic or by the button - has reached the
-    /// Keychain.
+    /// Called once a save - automatic or by the button - has reached
+    /// storage.
     private let onSaved: () async -> Void
 
     /// Latches the moment a capture looks complete enough to auto-save, and
@@ -73,16 +89,25 @@ final class CookieCaptureModel {
     /// replacing this whole window, so the buttons reappearing for a moment
     /// costs nothing; if it did not, they are the way forward that keeps
     /// this from being a dead end.
-    var showsManualControls: Bool {
+    public var showsManualControls: Bool {
         !autoSaveAllowed || hasAutoSaved
     }
 
-    init(autoSaveAllowed: Bool = false, onSaved: @escaping () async -> Void = {}) {
+    public init(
+        autoSaveAllowed: Bool = false,
+        configuration: LoginWebViewConfiguration = .chat,
+        custody: any CaptureCustody = KeychainCaptureCustody(),
+        reportDirectory: URL? = try? SystemLaunchServices.supportDirectory(),
+        onSaved: @escaping () async -> Void = {}
+    ) {
         self.autoSaveAllowed = autoSaveAllowed
+        self.configuration = configuration
+        self.custody = custody
+        self.reportDirectory = reportDirectory
         self.onSaved = onSaved
     }
 
-    func attach(_ webView: WKWebView) {
+    public func attach(_ webView: any LoginWebView) {
         self.webView = webView
     }
 
@@ -92,9 +117,9 @@ final class CookieCaptureModel {
     /// whole re-scope of this spike: `COMPASS` and `OSID` are issued by Chat,
     /// not by the accounts host, so a capture taken when sign-in completes
     /// looks complete and is missing exactly the two cookies that matter.
-    func pageSettled(_ webView: WKWebView) {
-        pageURL = webView.url?.absoluteString ?? ""
-        guard let host = webView.url?.host(), host.contains("chat.google.com") else {
+    public func pageSettled(_ webView: any LoginWebView) {
+        pageURL = webView.currentURL?.absoluteString ?? ""
+        guard let host = webView.currentURL?.host(), host.contains("chat.google.com") else {
             status = "Signing in… (waiting for Chat itself to load)"
             return
         }
@@ -102,20 +127,19 @@ final class CookieCaptureModel {
         capture()
     }
 
-    func failed(_ webView: WKWebView, _ error: any Error) {
-        pageURL = webView.url?.absoluteString ?? ""
+    public func failed(_ webView: any LoginWebView, _ error: any Error) {
+        pageURL = webView.currentURL?.absoluteString ?? ""
         // Worth surfacing rather than swallowing: if Google refuses an embedded
         // web view, this is where it shows up.
         status = "Navigation failed: \(error.localizedDescription)"
     }
 
-    func capture() {
+    public func capture() {
         guard let webView else { return }
-        let store = webView.configuration.websiteDataStore.httpCookieStore
-        let title = webView.title ?? ""
-        let url = webView.url?.absoluteString ?? ""
+        let title = webView.currentTitle ?? ""
+        let url = webView.currentURL?.absoluteString ?? ""
         Task { @MainActor in
-            let cookies = await store.allCookies()
+            let cookies = await webView.allCookies()
             self.record(cookies, url: url, title: title)
         }
     }
@@ -176,18 +200,18 @@ final class CookieCaptureModel {
         }
     }
 
-    /// Puts the captured session in the Keychain, and says whether it landed.
+    /// Puts the captured session in storage, and says whether it landed.
     ///
     /// Returns `false` for both "nothing in this capture belongs to Chat" and
-    /// "the Keychain refused" - the caller's only decision is whether to
-    /// continue into the app, and neither of those is a session it could
-    /// continue with. `status` carries which one it was, on screen, in words.
+    /// "storage refused" - the caller's only decision is whether to continue
+    /// into the app, and neither of those is a session it could continue
+    /// with. `status` carries which one it was, on screen, in words.
     ///
     /// It is still an explicit action rather than an automatic one, because
     /// overwriting a working session with a worse capture is a real way to
     /// lose one.
     @discardableResult
-    func save() async -> Bool {
+    public func save() async -> Bool {
         guard let capture = lastCapture else { return false }
         let saved = await writeToKeychain(capture)
         if saved {
@@ -197,12 +221,12 @@ final class CookieCaptureModel {
         return saved
     }
 
-    /// The actual Keychain write, shared by `save()` and `attemptAutoSave(_:)`.
+    /// The actual save, shared by `save()` and `attemptAutoSave(_:)`.
     /// Sets `status` on every outcome except a clean success, which the two
     /// callers disagree about showing at all.
     private func writeToKeychain(_ capture: CookieCapture) async -> Bool {
         do {
-            let saved = try await capture.save(to: credentials)
+            let saved = try await custody.save(capture)
             if !saved {
                 status = "Nothing to save: no cookie in this capture belongs to Chat."
             }
@@ -213,9 +237,9 @@ final class CookieCaptureModel {
         }
     }
 
-    func refreshStoredSession() async {
+    public func refreshStoredSession() async {
         do {
-            storedSession = try await credentials.summary(at: Date())?.description
+            storedSession = try await custody.storedDescription()
         } catch {
             storedSession = KeychainDiagnosis.explain(error)
         }
@@ -223,15 +247,10 @@ final class CookieCaptureModel {
 
     /// Writes the report - never the credential - beside the app's database.
     private func write(_ contents: String, to name: String) {
-        guard let directory = try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ).appendingPathComponent("GChat", isDirectory: true) else { return }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard let reportDirectory else { return }
+        try? FileManager.default.createDirectory(at: reportDirectory, withIntermediateDirectories: true)
         try? contents.write(
-            to: directory.appendingPathComponent(name),
+            to: reportDirectory.appendingPathComponent(name),
             atomically: true,
             encoding: .utf8
         )
