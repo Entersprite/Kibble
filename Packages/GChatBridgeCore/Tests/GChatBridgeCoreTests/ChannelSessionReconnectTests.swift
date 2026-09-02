@@ -11,8 +11,12 @@ import Testing
 /// the alternative, and test scaffolding shared through a third type is a type
 /// nobody reads.
 ///
-/// **Only `ChannelFailure.transport` reaches any of this.** The other three
-/// classes are still terminal, and `ChannelReducerTests` guards that.
+/// **These tests all drive `.transport`.** `.unexpectedStatus(400)` shares the
+/// same reducer machinery and the same budget - it is exercised at the
+/// reducer level in `ChannelReducerTests` rather than duplicated here, since
+/// nothing session-specific distinguishes how the two recoverable classes
+/// drive the driver. `.noSessionIdentifier` and `.malformedChunk` are still
+/// terminal, and `ChannelReducerTests` guards that too.
 struct ChannelSessionReconnectTests {
     private let initialResponse = #"[[0,["c","S3ss10n","",8,12,30000]]]"#
 

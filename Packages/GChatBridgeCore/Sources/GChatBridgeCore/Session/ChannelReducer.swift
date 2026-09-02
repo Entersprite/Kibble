@@ -2,17 +2,33 @@ import Foundation
 
 /// Why a channel stopped.
 ///
-/// Three of these four are terminal. The inputs that would tell a *recovery*
-/// apart from a stop — `400 Unknown SID`, a cookie expiring mid-stream, a
+/// Two of these four are unconditionally terminal. The inputs that would tell
+/// a *recovery* apart from a stop for them — a cookie expiring mid-stream, a
 /// truncated payload — are recorded as uncollected in `findings.md` §6, and the
 /// experiment that collects them is one someone has to run against a real
 /// account over days. Writing a reconnect policy against the reference's
 /// guesses and rewriting it when the evidence lands is more work than waiting,
-/// so those stop and say why.
+/// so `.noSessionIdentifier` and `.malformedChunk` stop and say why.
 ///
-/// `.transport` is the exception, and it needs no experiment: a socket that
-/// died says nothing about whether the credential is still good, so
-/// re-registering is the right answer whatever §6 eventually finds. See
+/// `.transport` recovers unconditionally: a socket that died says nothing
+/// about whether the credential is still good, so re-registering is right
+/// whatever §6 eventually finds.
+///
+/// `.unexpectedStatus` recovers **only for the literal value 400**, not "any
+/// 4xx" or "any non-200". `reference/googlechat-master/maugclib/channel.py:
+/// 408-411` raises `SIDInvalidError` when a long poll answers 400 with
+/// `Unknown SID`. `exceptions.py:27-34` makes `SIDInvalidError` and
+/// `SIDExpiringError` *siblings* under `SIDError`, not parent and child, so
+/// `listen`'s `except SIDExpiringError` clause (`channel.py:233-239`, which
+/// re-registers in place) does not catch it — the 400 propagates out of
+/// `listen` and the reference rebuilds the channel from a fresh `_register()`,
+/// which is exactly what this side's `.retry` transition already does. A 2026-
+/// 09-02 lid-close (app open, screen locked, lid closed two minutes, lid
+/// opened) produced exactly this: HTTP 400, no other status observed before
+/// or since. `[Verify]`: the response body was not read, so "Unknown SID" is
+/// the probable cause by mechanism, not a confirmed one. A 401 or 403
+/// plausibly means the credential itself is dead, and retrying those is the
+/// hammering this bound exists to prevent — see `isRecoverable` and
 /// `ChannelState.failed(_:)`.
 public enum ChannelFailure: Error, Hashable, Sendable, CustomStringConvertible {
     case unexpectedStatus(Int)
@@ -30,6 +46,20 @@ public enum ChannelFailure: Error, Hashable, Sendable, CustomStringConvertible {
             "a chunk could not be read: \(detail)"
         case let .transport(detail):
             "the connection failed: \(detail)"
+        }
+    }
+
+    /// Whether `ChannelState.failed(_:)` should ask to reconnect, bounded by
+    /// `RetryPolicy.default.maxAttempts`, rather than stopping outright.
+    ///
+    /// Exactly `.transport` and `.unexpectedStatus(400)` — see the type's own
+    /// doc comment for why each earns it and why 400 alone, not every 4xx.
+    var isRecoverable: Bool {
+        switch self {
+        case .transport, .unexpectedStatus(400):
+            true
+        case .unexpectedStatus, .noSessionIdentifier, .malformedChunk:
+            false
         }
     }
 }
@@ -253,9 +283,15 @@ private extension ChannelState {
     }
 
     mutating func streamOpened(status: Int, initialResponse: String?) -> [ChannelEffect] {
+        // Routed through `failed(_:)` rather than stopped directly: a
+        // handshake or reopen answering with an unexpected status is where
+        // `.unexpectedStatus` actually originates in production (`ChannelSession
+        // .openStream` feeds every stream response through `.streamOpened`,
+        // never through a raw `.failed(.unexpectedStatus(_))` input), so this
+        // is the one place that must honour `isRecoverable` for a 400 to
+        // reconnect rather than merely being classified recoverable in theory.
         guard status == 200 else {
-            stop(.failed(.unexpectedStatus(status)))
-            return [.report(.unexpectedStatus(status)), .finished]
+            return failed(.unexpectedStatus(status))
         }
 
         // A reopen usually carries no new SID and simply continues.
@@ -324,18 +360,26 @@ private extension ChannelState {
         return [.report(failure), .finished]
     }
 
-    /// Only `.transport` recovers.
+    /// Only the two `isRecoverable` classes reconnect: `.transport`
+    /// unconditionally, `.unexpectedStatus` only at the literal value 400.
     ///
     /// Session 8 §1.4 deferred reconnect because the inputs to a recovery
     /// policy - `400 Unknown SID`, a cookie expiring mid-stream, a truncated
-    /// payload - are uncollected in `findings.md` §6, and a policy written
+    /// payload - were uncollected in `findings.md` §6, and a policy written
     /// against the reference's guesses gets discarded when the evidence lands.
-    /// That objection is about *classification*, and it still stands for those
-    /// three. It does not apply to a transport failure: a socket that died
-    /// says nothing about the credential, so re-registering is right whatever
-    /// the stale-session experiment eventually finds.
+    /// That objection is about *classification*. It still stands for
+    /// `.noSessionIdentifier` and `.malformedChunk`. It never applied to a
+    /// transport failure, which says nothing about the credential either way.
+    /// And 400 has since been collected (see `ChannelFailure`'s doc comment):
+    /// the reference's own reaction to it is a full re-registration, which is
+    /// what `.retry` already does here, so classifying it recoverable adds no
+    /// new machinery.
+    ///
+    /// Both recoverable classes share one budget - `attempt` does not reset
+    /// between them - because the bound exists to cap total hammering of a
+    /// possibly-dead account, not to give each failure shape its own quota.
     mutating func failed(_ failure: ChannelFailure) -> [ChannelEffect] {
-        guard case .transport = failure, attempt < RetryPolicy.default.maxAttempts else {
+        guard failure.isRecoverable, attempt < RetryPolicy.default.maxAttempts else {
             return fail(failure)
         }
         attempt += 1

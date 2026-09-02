@@ -24,10 +24,14 @@ import Foundation
 ///
 /// ## What this deliberately does not do
 ///
-/// It reconnects from a **dead socket only**. `ChannelFailure.transport` gets
-/// `RetryPolicy.default`'s bounded backoff, because a socket that died says
-/// nothing about whether the credential is still good. The other three classes
-/// stop and report why: the inputs that would tell a recovery from a stop for
+/// It reconnects from exactly two failure shapes, both via
+/// `ChannelFailure.isRecoverable` and sharing `RetryPolicy.default`'s one
+/// bounded backoff budget: a dead socket (`.transport`), because that says
+/// nothing about whether the credential is still good, and an HTTP 400
+/// (`.unexpectedStatus(400)`), because the reference treats that status as a
+/// stale-SID signal and reacts by re-registering — which is what `.retry`
+/// already does here. `.noSessionIdentifier` and `.malformedChunk` still stop
+/// and report why: the inputs that would tell a recovery from a stop for
 /// those are recorded as uncollected in §6, and a policy written against the
 /// reference's guesses is work that gets thrown away when the evidence arrives.
 ///
