@@ -40,10 +40,16 @@ struct LaunchDecisionTests {
 
     @Test func anAPIProbeDoesTheSame() async throws {
         let services = try FakeLaunchServices(arguments: LaunchArguments(probe: .api))
+        services.probeReport = "Written to api-probe.txt."
         let environment = AppEnvironment(services: services)
 
         await environment.start()
 
+        guard case let .report(message) = environment.phase else {
+            Issue.record("expected .report, got \(phaseName(environment.phase))")
+            return
+        }
+        #expect(message == "Written to api-probe.txt.")
         #expect(services.calls == [.runProbe(.api)])
         #expect(!services.calls.contains(.openStore))
     }
@@ -96,12 +102,12 @@ struct LaunchDecisionTests {
             Issue.record("expected .running, got \(phaseName(environment.phase))")
             return
         }
-        #expect(try services.store.connectionState() != .connected)
-        // Order matters: the wipe of last-process state happens before a
-        // backend exists to write new state.
-        let opened = try #require(services.calls.firstIndex(of: .openStore))
-        let made = try #require(services.calls.firstIndex(of: .makeSession))
-        #expect(opened < made)
+        // The claim that matters, checked where it happens: by the time a
+        // backend was asked for, the previous process's state was already
+        // gone. An earlier version of this test compared call-log indices,
+        // which would have passed with the clear moved after makeSession().
+        #expect(services.connectionStateWhenSessionMade != nil)
+        #expect(services.connectionStateWhenSessionMade != .connected)
     }
 
     /// The commonest way a different account ends up reopening the same

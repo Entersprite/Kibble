@@ -41,6 +41,17 @@ final class FakeLaunchServices: LaunchServices {
     let backend: FakeLaunchBackend
     let driver: RecordingDemoDriver?
 
+    /// The store's connection state at the instant `makeSession()` was
+    /// entered.
+    ///
+    /// `.clearEphemeralState` must have been applied before a backend exists
+    /// to write new state - a fresh process must not inherit the last one's
+    /// "connected". Recording the state *at that moment* is what actually
+    /// proves the ordering; comparing two call-log indices only proves
+    /// `openStore` came before `makeSession`, which is a different claim and
+    /// would survive the clear being moved.
+    private(set) var connectionStateWhenSessionMade: ConnectionState?
+
     init(
         arguments: LaunchArguments = LaunchArguments(),
         driver: RecordingDemoDriver? = nil
@@ -84,6 +95,7 @@ final class FakeLaunchServices: LaunchServices {
 
     func makeSession() async throws -> SessionSelection {
         calls.append(.makeSession)
+        connectionStateWhenSessionMade = try? store.connectionState()
         if let makeSessionFailure {
             throw makeSessionFailure
         }
