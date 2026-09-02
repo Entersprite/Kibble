@@ -86,6 +86,37 @@ struct LoadConversationsTests {
         )
     }
 
+    // MARK: - Somebody has to ask
+
+    /// **The bug this catches produced an empty sidebar and no error.**
+    ///
+    /// `SyncEngine` reaches `loadConversations()` only through the
+    /// `.reloadConversations` effect, and `SyncReducer` produces that effect
+    /// only for `gap(scope: .everything)`. So a `connect()` that does not emit
+    /// one leaves the conversation list implemented, correct, and never called
+    /// - and nothing anywhere reports a problem, because nothing failed.
+    ///
+    /// `FakeBackend` pushes a snapshot instead; the bridge pulls, so the gap is
+    /// the whole link between connecting and having a world.
+    @Test func connectingEmitsAnEverythingGapSoSomethingAsksForTheWorld() async throws {
+        let backend = try backend(apiResponse: apiResponse(items: [
+            worldItem(spaceID: "s-1", roomName: "Engineering")
+        ]))
+        try await backend.connect()
+
+        var sawGap = false
+        for await event in backend.events {
+            if case let .gap(scope, _) = event, scope == .everything {
+                sawGap = true
+                break
+            }
+            if case .backendError = event {
+                break
+            }
+        }
+        #expect(sawGap)
+    }
+
     // MARK: - The happy path
 
     @Test func loadConversationsAfterConnectMapsTheWorldResponse() async throws {

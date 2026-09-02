@@ -57,13 +57,22 @@ struct LiveChannelTests {
             ]
         )
         let backend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
-        async let events = collect(backend, 3)
+        // Six rather than three, and the message is *found* rather than
+        // assumed last: `connect()` legitimately emits a connect-time gap now,
+        // and a test about a wire message reaching the domain should not break
+        // when the events around it change.
+        async let events = collect(backend, 6)
         try await backend.connect()
 
         let received = await events
-        #expect(received.count == 3)
-        guard case let .messageReceived(message) = received.last else {
-            Issue.record("expected .messageReceived, got \(String(describing: received.last))")
+        let posted = received.first {
+            if case .messageReceived = $0 {
+                return true
+            }
+            return false
+        }
+        guard case let .messageReceived(message) = posted else {
+            Issue.record("no .messageReceived in \(received.count) events: \(received)")
             return
         }
         #expect(message.text == "hello from the wire")

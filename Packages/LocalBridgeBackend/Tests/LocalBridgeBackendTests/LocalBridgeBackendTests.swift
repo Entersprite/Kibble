@@ -155,11 +155,21 @@ struct LocalBridgeBackendTests {
         let backend = backend([ScriptedTransport.ok(Self.shell(app: "DynamiteWebUi"))])
         var iterator = backend.events.makeAsyncIterator()
         try await backend.connect()
-        _ = await iterator.next()
-        _ = await iterator.next()
-
         await backend.disconnect()
 
-        #expect(await iterator.next() == .connectionStateChanged(.disconnected(reason: nil)))
+        // Searched for rather than counted to. This used to drain a fixed two
+        // events and then assert on the third, which pinned the exact
+        // connect-time sequence - so adding one legitimate event to `connect()`
+        // broke a test about `disconnect()`. What this is actually about is
+        // that disconnecting says so and does not end the stream.
+        var found = false
+        for _ in 0 ..< 8 {
+            guard let event = await iterator.next() else { break }
+            if event == .connectionStateChanged(.disconnected(reason: nil)) {
+                found = true
+                break
+            }
+        }
+        #expect(found)
     }
 }

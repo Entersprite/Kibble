@@ -22,6 +22,10 @@ public actor LocalBridgeBackend: ChatBackend {
     /// caller that logs it learns something true.
     public static let missingChannel = "liveChannel"
 
+    /// Why a freshly connected session reports a gap. For logs only - a client
+    /// must never branch on a gap's reason, because the set of reasons is open.
+    static let connectedGapReason = "connected: nothing is known about this session yet"
+
     /// Almost nothing is advertised until it works.
     ///
     /// Not modesty - the UI reads `capabilities` to decide what to offer, so a
@@ -110,6 +114,20 @@ public actor LocalBridgeBackend: ChatBackend {
                 xsrfToken: wiz.xsrfToken
             )
             emit(.connectionStateChanged(.connected))
+            // **Nothing else asks for the world.** `SyncEngine` reaches
+            // `loadConversations()` only through the `.reloadConversations`
+            // effect, and `SyncReducer` produces that only for
+            // `gap(scope: .everything)`. Without this the conversation list is
+            // implemented, correct, and never called - which is exactly what
+            // an empty sidebar and no error message looked like.
+            //
+            // A gap rather than a pushed snapshot, because that is what this is:
+            // `ChatEvent.gap`'s own contract is "whatever the client believes
+            // about this scope may be wrong, reconcile from scratch", and a
+            // client that has just connected believes nothing. It also keeps
+            // the pull in one place instead of having `connect()` do I/O the
+            // reducer already owns.
+            emit(.gap(scope: .everything, reason: Self.connectedGapReason))
             startChannel()
         } catch {
             let chatError = Self.chatError(from: error)
