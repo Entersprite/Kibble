@@ -142,3 +142,75 @@ struct MemberMappingTests {
         #expect(mapped.members.first?.presence == nil)
     }
 }
+
+@Suite("App DM reclassification")
+struct AppDirectMessageTests {
+    private func conversation(kind: Conversation.Kind, members: [String]) -> Conversation {
+        Conversation(
+            id: Conversation.ID("dm/d-1"),
+            kind: kind,
+            members: members.map { ChatKit.Member.ID($0) }
+        )
+    }
+
+    private func member(_ id: String, kind: ChatKit.Member.Kind) -> ChatKit.Member {
+        ChatKit.Member(id: ChatKit.Member.ID(id), kind: kind, displayName: "n")
+    }
+
+    /// The case that prompted this: Google Drive is a real Chat app DM, and it
+    /// sat under "Direct messages" looking like a colleague because a `dm_id`
+    /// does not say whether the other party is a person.
+    @Test func aDirectMessageWithAnAppBecomesAnAppDirectMessage() {
+        let updated = LocalBridgeBackend.asAppDirectMessage(
+            conversation(kind: .directMessage, members: ["me", "bot"]),
+            members: [member("me", kind: .human), member("bot", kind: .app)]
+        )
+        #expect(updated?.kind == .appDirectMessage)
+        #expect(updated?.id.rawValue == "dm/d-1")
+    }
+
+    @Test func aDirectMessageBetweenHumansIsLeftAlone() {
+        let updated = LocalBridgeBackend.asAppDirectMessage(
+            conversation(kind: .directMessage, members: ["me", "you"]),
+            members: [member("me", kind: .human), member("you", kind: .human)]
+        )
+        #expect(updated == nil)
+    }
+
+    /// A group chat containing an app is still a group chat - only the guess
+    /// `WorldMapping` actually makes is corrected.
+    @Test func aGroupChatContainingAnAppIsStillAGroupChat() {
+        let updated = LocalBridgeBackend.asAppDirectMessage(
+            conversation(kind: .groupDirectMessage, members: ["me", "you", "bot"]),
+            members: [
+                member("me", kind: .human),
+                member("you", kind: .human),
+                member("bot", kind: .app)
+            ]
+        )
+        #expect(updated == nil)
+    }
+
+    @Test func aSpaceIsNeverReclassified() {
+        let updated = LocalBridgeBackend.asAppDirectMessage(
+            conversation(kind: .space, members: ["me", "bot"]),
+            members: [member("me", kind: .human), member("bot", kind: .app)]
+        )
+        #expect(updated == nil)
+    }
+
+    /// Everything else about the conversation survives the correction - only
+    /// `kind` changes, because the rest was already right.
+    @Test func onlyTheKindChanges() {
+        var original = conversation(kind: .directMessage, members: ["me", "bot"])
+        original.unreadCount = 3
+        original.isThreaded = true
+        let updated = LocalBridgeBackend.asAppDirectMessage(
+            original,
+            members: [member("bot", kind: .app)]
+        )
+        #expect(updated?.unreadCount == 3)
+        #expect(updated?.isThreaded == true)
+        #expect(updated?.members == original.members)
+    }
+}
