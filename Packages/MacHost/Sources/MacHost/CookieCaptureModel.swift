@@ -27,11 +27,10 @@ public final class CookieCaptureModel {
 
     /// What the login web view is pointed at, and what host it claims to be.
     ///
-    /// The host gate in `pageSettled` still reads a literal rather than
-    /// `configuration.host` - that fix is Task 7's, which needs to see the
-    /// existing `contains` check fail first. The value is threaded through
-    /// from here regardless, so that fix is a one-line change rather than a
-    /// second injection point this task would otherwise have to add later.
+    /// `pageSettled`'s host gate reads `configuration.host` through
+    /// `accepts(host:for:)` rather than a literal, so the navigation target
+    /// and the accepted origin cannot drift apart the way session 6's own
+    /// hard-coded pair once did.
     private let configuration: LoginWebViewConfiguration
 
     /// Where the captured session is stored. Never the Keychain directly -
@@ -111,6 +110,19 @@ public final class CookieCaptureModel {
         self.webView = webView
     }
 
+    /// Whether a settled page is Chat's own origin.
+    ///
+    /// The label boundary is load-bearing rather than pedantic, and this is
+    /// the second time the project has needed to say so: `CookieScope
+    /// .domainMatches` carries the same rule for the cookies themselves, and
+    /// this file used `contains`, which admits `chat.google.com.evil.example`.
+    /// Kept deliberately identical in shape to that one - a second rule for
+    /// the same question is how the two drift.
+    static func accepts(host: String, for configuration: LoginWebViewConfiguration) -> Bool {
+        guard let candidate = configuration.host else { return false }
+        return host == candidate || host.hasSuffix("." + candidate)
+    }
+
     /// Called when a navigation finishes.
     ///
     /// It captures **only once Chat's own origin has loaded**, which is the
@@ -119,7 +131,7 @@ public final class CookieCaptureModel {
     /// looks complete and is missing exactly the two cookies that matter.
     public func pageSettled(_ webView: any LoginWebView) {
         pageURL = webView.currentURL?.absoluteString ?? ""
-        guard let host = webView.currentURL?.host(), host.contains("chat.google.com") else {
+        guard let host = webView.currentURL?.host(), Self.accepts(host: host, for: configuration) else {
             status = "Signing in… (waiting for Chat itself to load)"
             return
         }
