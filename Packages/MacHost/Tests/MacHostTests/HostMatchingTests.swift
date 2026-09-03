@@ -47,4 +47,14 @@ struct HostMatchingTests {
     @Test func theBareParentDomainIsRejected() {
         #expect(!CookieCaptureModel.accepts(host: "google.com", for: configuration))
     }
+
+    /// `domainMatches` lowercases both operands; this must too, or the claim
+    /// that the two carry the same rule is not true. Hosts are
+    /// case-insensitive, and a mixed-case one previously failed closed - a
+    /// legitimate Chat page that did not capture.
+    @Test func hostMatchingIsCaseInsensitiveLikeCookieScope() {
+        #expect(CookieCaptureModel.accepts(host: "Chat.Google.Com", for: configuration))
+        #expect(CookieCaptureModel.accepts(host: "FOO.CHAT.GOOGLE.COM", for: configuration))
+        #expect(!CookieCaptureModel.accepts(host: "CHAT.GOOGLE.COM.EVIL.EXAMPLE", for: configuration))
+    }
 }

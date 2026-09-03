@@ -29,8 +29,9 @@ public final class CookieCaptureModel {
     ///
     /// `pageSettled`'s host gate reads `configuration.host` through
     /// `accepts(host:for:)` rather than a literal, so the navigation target
-    /// and the accepted origin cannot drift apart the way session 6's own
-    /// hard-coded pair once did.
+    /// and the accepted origin cannot separately drift the way
+    /// `LoginWebViewConfiguration`'s own doc comment says the two hard-coded
+    /// copies once did.
     private let configuration: LoginWebViewConfiguration
 
     /// Where the captured session is stored. Never the Keychain directly -
@@ -116,10 +117,15 @@ public final class CookieCaptureModel {
     /// the second time the project has needed to say so: `CookieScope
     /// .domainMatches` carries the same rule for the cookies themselves, and
     /// this file used `contains`, which admits `chat.google.com.evil.example`.
-    /// Kept deliberately identical in shape to that one - a second rule for
-    /// the same question is how the two drift.
+    /// Kept deliberately identical in shape to that one, lowercasing both
+    /// sides the same way it does - a second rule for the same question is
+    /// how the two drift. Not copied: `domainMatches` also strips a leading
+    /// dot, which is legacy spelling for a *cookie's* `domain` attribute
+    /// (RFC 6265) and cannot appear in a URL's `host()`, which this compares
+    /// instead.
     static func accepts(host: String, for configuration: LoginWebViewConfiguration) -> Bool {
-        guard let candidate = configuration.host else { return false }
+        guard let candidate = configuration.host?.lowercased() else { return false }
+        let host = host.lowercased()
         return host == candidate || host.hasSuffix("." + candidate)
     }
 
