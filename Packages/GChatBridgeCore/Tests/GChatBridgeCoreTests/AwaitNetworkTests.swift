@@ -31,37 +31,69 @@ struct AwaitNetworkTests {
         }
     }
 
+    /// Fix round 2 finding (Important): wrapped in `awaitBounded`, the same
+    /// helper `aSilentMonitorStillEndsTheWaitViaTheFallback` uses, and for a
+    /// reason that only came into existence in fix round 1 - it did not
+    /// need this before. Once this test's own fallback closure below
+    /// started sleeping for a real hour (to make the happy path
+    /// deterministic rather than a coin flip - see that closure's comment),
+    /// a broken signal path stopped being "wrong outcome, fast" and became
+    /// "wrong outcome, after a real hour": `scripts/test.sh` runs `swift
+    /// test` with no timeout, so an hour-long stall is indistinguishable
+    /// from a genuine hang in practice. Confirmed mechanically, not just
+    /// reasoned about: with `onReady` changed to never call `monitor.fire()`
+    /// and `.seconds(3600)` dropped to `.seconds(2)` for the experiment
+    /// only, the unguarded version of this test failed correctly on
+    /// `#expect(waited == .signal)` - but only after 2.13 real seconds. At
+    /// the shipped hour scale that is the same failure mode Finding 1
+    /// already exists to cap, just with a much longer fuse.
     @Test func aNetworkSignalEndsTheWaitImmediately() async {
         let monitor = FakeReachability()
-        let waited = await ChannelSession.awaitNetwork(
-            monitor: monitor,
-            fallback: .seconds(60),
-            // Entering this closure is not itself a failure. In production
-            // `sleep` is a real, cancellable `Task.sleep`, and `awaitNetwork`
-            // reads `group.next()` exactly once, so a fallback side that
-            // merely starts before the signal wins the race never has its
-            // return value looked at. `#expect(waited == .signal)` below
-            // already carries the whole property: had the fallback won
-            // instead, `waited` would be `.fallback`.
-            //
-            // This does not use a bare `{ _ in }`, though: measured over 20
-            // repeated runs, a truly zero-cost fallback wins the race
-            // against `AsyncStream`'s buffered-delivery latency the
-            // *majority* of the time (fix round 1's own report has the
-            // numbers) - an artifact of racing a synthetic zero-cost path
-            // against delivery machinery that is never actually zero-cost,
-            // which no real fallback (a genuine multi-second `Task.sleep`)
-            // ever does. So this closure sleeps for an hour: `Task.sleep`'s
-            // cancellation is prompt by contract (not tuned), so it never
-            // actually waits that long - `awaitNetwork` cancels it the
-            // instant the signal side wins, the same instant it would
-            // cancel a real 60-second fallback in production. The only way
-            // this closure's `Task.sleep` ever elapses on its own is a
-            // multi-decade-slow machine, at which point failing this test
-            // is the right outcome anyway.
-            sleep: { _ in try? await Task.sleep(for: .seconds(3600)) },
-            onReady: { monitor.fire() }
-        )
+        guard let waited = await awaitBounded(
+            {
+                await ChannelSession.awaitNetwork(
+                    monitor: monitor,
+                    fallback: .seconds(60),
+                    // Entering this closure is not itself a failure. In
+                    // production `sleep` is a real, cancellable `Task.sleep`,
+                    // and `awaitNetwork` reads `group.next()` exactly once,
+                    // so a fallback side that merely starts before the
+                    // signal wins the race never has its return value
+                    // looked at. `#expect(waited == .signal)` below already
+                    // carries the whole property: had the fallback won
+                    // instead, `waited` would be `.fallback`.
+                    //
+                    // This does not use a bare `{ _ in }`, though: measured
+                    // over 20 repeated runs, a truly zero-cost fallback wins
+                    // the race against `AsyncStream`'s buffered-delivery
+                    // latency the *majority* of the time (fix round 1's own
+                    // report has the numbers) - an artifact of racing a
+                    // synthetic zero-cost path against delivery machinery
+                    // that is never actually zero-cost, which no real
+                    // fallback (a genuine multi-second `Task.sleep`) ever
+                    // does. So this closure sleeps for an hour: `Task.sleep`'s
+                    // cancellation is prompt by contract (not tuned), so it
+                    // never actually waits that long - `awaitNetwork`
+                    // cancels it the instant the signal side wins, the same
+                    // instant it would cancel a real 60-second fallback in
+                    // production. The only way this closure's `Task.sleep`
+                    // ever elapses on its own is a multi-decade-slow
+                    // machine, at which point failing this test is the
+                    // right outcome anyway - or the signal path being
+                    // broken, which is exactly what `awaitBounded`'s
+                    // 10-second deadline below is for.
+                    sleep: { _ in try? await Task.sleep(for: .seconds(3600)) },
+                    onReady: { monitor.fire() }
+                )
+            },
+            timeoutMessage: """
+            timed out waiting for awaitNetwork to return - the signal path may be broken: the fake \
+            monitor fires unconditionally, so a signal that never reached group.next() points at the \
+            consuming side, not at the fallback (which can only end via cancellation, never on its own).
+            """
+        ) else {
+            return // awaitBounded already recorded why.
+        }
         #expect(waited == .signal)
     }
 
@@ -76,14 +108,20 @@ struct AwaitNetworkTests {
     /// the identical regression now fails red instead of hanging
     /// `scripts/test.sh`, which invokes `swift test` with no timeout.
     @Test func aSilentMonitorStillEndsTheWaitViaTheFallback() async {
-        guard let waited = await awaitBounded({
-            await ChannelSession.awaitNetwork(
-                monitor: SilentReachability(),
-                fallback: .seconds(60),
-                sleep: { _ in }, // returns instantly, standing in for 60s
-                onReady: {}
-            )
-        }) else {
+        guard let waited = await awaitBounded(
+            {
+                await ChannelSession.awaitNetwork(
+                    monitor: SilentReachability(),
+                    fallback: .seconds(60),
+                    sleep: { _ in }, // returns instantly, standing in for 60s
+                    onReady: {}
+                )
+            },
+            timeoutMessage: """
+            timed out waiting for awaitNetwork to return - the production fallback path may be \
+            broken, leaving only a signal a silent monitor never sends.
+            """
+        ) else {
             return // awaitBounded already recorded why.
         }
         #expect(waited == .fallback)
@@ -115,8 +153,22 @@ struct AwaitNetworkTests {
 /// polled rather than raced against via a sibling task awaiting `.value` -
 /// that shape reproducibly hung there (see that helper's doc comment for
 /// the isolated repro) rather than bounding anything.
+///
+/// `timeoutMessage` is a parameter, not a fixed string, because this is now
+/// shared by two call sites that time out for opposite reasons - one when a
+/// signal never arrives, the other when a fallback never fires - and a
+/// generic message would misname whichever one actually failed.
+///
+/// Deferred, not fixed this round: the `Task { ... }` below is unstructured
+/// and is never explicitly cancelled, so a genuine timeout leaks a
+/// suspended task rather than being torn down the way
+/// `ChannelSessionReconnectTests`'s equivalent path is (that suite's callers
+/// call `session.stop()`, which this helper's callers have no analogue of).
+/// Low practical cost at rest; recorded for the whole-branch review rather
+/// than addressed here.
 private func awaitBounded<Value: Sendable>(
-    _ body: @escaping @Sendable () async -> Value
+    _ body: @escaping @Sendable () async -> Value,
+    timeoutMessage: Comment
 ) async -> Value? {
     let result = ResultBox<Value>()
     Task {
@@ -133,10 +185,7 @@ private func awaitBounded<Value: Sendable>(
             return value
         }
         if ContinuousClock.now >= deadline {
-            Issue.record("""
-            timed out waiting for awaitNetwork to return - the production fallback path may be \
-            broken, leaving only a signal a silent monitor never sends.
-            """)
+            Issue.record(timeoutMessage)
             return nil
         }
         await Task.yield()
