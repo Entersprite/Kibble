@@ -104,15 +104,25 @@ public struct ChatSceneActions {
     /// triggers that same dialog rather than a second one living here.
     public var signOut: (() -> Void)?
 
+    /// Hurry a reconnect along. **Optional, and `nil` for the same reason as
+    /// `signIn` and `signOut`**: most of the time nothing is broken, and
+    /// `StatusStrip` draws the button only where `ConnectionBanner
+    /// .offersReconnect` says the wait has earned one *and* the host actually
+    /// supplied this - a window with no route out here is not a fallback
+    /// worth building, because the reducer keeps retrying either way.
+    public var reconnect: (() -> Void)?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
         signIn: (() -> Void)? = nil,
-        signOut: (() -> Void)? = nil
+        signOut: (() -> Void)? = nil,
+        reconnect: (() -> Void)? = nil
     ) {
         self.select = select
         self.send = send
         self.signIn = signIn
         self.signOut = signOut
+        self.reconnect = reconnect
     }
 }

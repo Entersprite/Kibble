@@ -96,6 +96,14 @@ struct StatusStrip: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                 Text(message)
                 Spacer()
+                // Drawn only where the host offered one, and only once
+                // `ConnectionBanner.offersReconnect` says the wait has earned
+                // it - see `ChatSceneActions.reconnect`.
+                if canReconnect, let reconnect = actions.reconnect {
+                    Button("Reconnect now", action: reconnect)
+                        .buttonStyle(.link)
+                        .font(.caption)
+                }
                 // Drawn only where the host offered one. A window with no
                 // route back to sign-in is a window a person can only escape
                 // by editing their Keychain - see `ChatSceneActions.signIn`.
@@ -127,23 +135,17 @@ struct StatusStrip: View {
     }
 
     private var banner: String? {
+        // A real error outranks a connection state: `lastError` is what a
+        // client can act on (sign in again, retry a send), and a connection
+        // banner under it would be true but beside the point.
         if let error = state.lastError {
             return description(of: error)
         }
-        switch state.connection {
-        case .connected: return nil
-        case .idle: return "Not connected."
-        case .connecting: return "Connecting…"
-        case let .reconnecting(attempt, _, _): return "Reconnecting, attempt \(attempt)…"
-        case let .disconnected(reason, _): return reason.map { "Disconnected: \($0)" } ?? "Disconnected."
-        case .unknown:
-            // Degrades toward optimism rather than alarming over a state
-            // nobody here understands (spec §3.4). The case's raw tag is
-            // dropped here on purpose for now - there is no detail line yet to
-            // put it in. Spec §8 wants one; wiring it up is a later task's
-            // job, not this arm's.
-            return "Connecting…"
-        }
+        return ConnectionBanner.text(for: state.connection)
+    }
+
+    private var canReconnect: Bool {
+        ConnectionBanner.offersReconnect(for: state.connection)
     }
 
     /// Rendered here rather than stored as a string, because the store keeps
