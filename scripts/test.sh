@@ -59,7 +59,11 @@ echo "Core containment (a future iOS binary must carry no protocol code):"
 # distribution argument: RemoteBackend and an iOS binary link the seam and the
 # store, and contain nothing reverse-engineered. It erodes the moment one file
 # reaches for SessionCookies directly, so it is checked rather than remembered.
-importers=$(grep -rlE '^[[:space:]]*import[[:space:]]+(GChatBridgeCore|URLSessionTransport)\b' \
+# The regex tolerates an attribute prefix (@preconcurrency, @testable,
+# @_implementationOnly, ...) and Swift's scoped-import form
+# (`import class Module.Symbol`, where the kind word sits between `import`
+# and the module) - a bare `^import` anchor lets both spellings through.
+importers=$(grep -rlE '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(GChatBridgeCore|URLSessionTransport)\b' \
               Apps Packages --include='*.swift' 2>/dev/null \
             | grep -v '^Packages/GChatBridgeCore/' \
             | grep -v '^Packages/LocalBridgeBackend/' || true)
@@ -76,9 +80,13 @@ APPCORE=Packages/AppCore/Sources/AppCore
 # any connection - checked above the seam for the first time. AppCore naming a
 # backend gives two futures, both bad: iOS links it and ships the protocol
 # core, or iOS does not and reimplements the launch machine. See the design doc
-# §3.1; this scan is what would have caught its first draft.
+# §3.1; this scan is what would have caught its first draft. The regex
+# tolerates an attribute prefix (@preconcurrency being the one a Swift 6
+# developer plausibly types to silence a Sendable warning, not a contrivance)
+# and the scoped-import form (`import class Module.Symbol`) - see Core
+# containment above, which has the identical shape for the identical reason.
 scan "$APPCORE" \
-  '^[[:space:]]*import[[:space:]]+(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security)\b' \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security)\b' \
   "AppCore imports no backend, no credential store and no web view"
 
 # The app target is a shell. This was the one structure rule in CLAUDE.md with
@@ -88,18 +96,39 @@ scan "$APPCORE" \
 # because a symbol list only forbids the three things someone already thought
 # of.
 scan "Apps" \
-  '^[[:space:]]*import[[:space:]]+(GRDB|SyncEngine|LocalBridgeBackend|FixtureBackend)\b' \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(GRDB|SyncEngine|LocalBridgeBackend|FixtureBackend)\b' \
   "the app target imports no store and no backend"
 
 # Every entry into .needsSignIn must erase the store first, and the way that is
 # structural rather than a convention is that exactly one function constructs
 # the phase. Session 15 §2 found four routes where the brief assumed one; three
 # of them did not erase. Without this scan a fifth reintroduces the bug.
-needs=$(swift_files "$APPCORE" | xargs -0 grep -ln '\.needsSignIn(' 2>/dev/null \
-        | grep -v '/LaunchPhase\.swift$' | grep -v '/AppEnvironment\.swift$' || true)
+#
+# Matches the bare word, not ".needsSignIn(" - a first-class reference to the
+# case (`let ctor = LaunchPhase.needsSignIn`) never writes ".needsSignIn(" as a
+# contiguous substring, so anchoring on the call form alone would miss it. Two
+# kinds of line legitimately say the word without constructing anything: a
+# comment, and a `case` pattern match - `sceneState` in
+# AppEnvironment+Scene.swift switches on `phase` to route the window, which
+# reads the case rather than building one. Both are filtered by the shape of
+# the line rather than by which file it is in, on purpose: a filename
+# whitelist would blind the scan to a real construction added to that same
+# file, which is exactly the bug this scan exists to catch. LaunchPhase.swift
+# (the declaration) and AppEnvironment.swift (the one legitimate construction,
+# inside enterNeedsSignIn) stay excluded by name, same as before.
+needs=""
+while IFS= read -r -d '' f; do
+    case "$f" in
+        */LaunchPhase.swift | */AppEnvironment.swift) continue ;;
+    esac
+    hit=$(grep -nE 'needsSignIn' "$f" 2>/dev/null \
+          | grep -vE '^[0-9]+:[[:space:]]*(case[[:space:]]|//)' || true)
+    [ -n "$hit" ] && needs="${needs}${f}
+"
+done < <(swift_files "$APPCORE")
 if [ -n "$needs" ]; then
     note "the .needsSignIn phase is constructed outside enterNeedsSignIn"
-    printf '%s\n' "$needs" | sed 's/^/         /' >&2
+    printf '%s' "$needs" | sed 's/^/         /' >&2
 else
     pass ".needsSignIn is constructed in exactly one place"
 fi
