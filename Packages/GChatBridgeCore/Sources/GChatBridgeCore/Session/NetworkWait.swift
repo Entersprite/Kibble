@@ -35,50 +35,21 @@ extension ChannelSession {
     /// returns instantly, so nothing here ever waits on a real clock or a
     /// real network.
     ///
-    /// **Race structure, and why it cannot starve.** Both exits run as
-    /// sibling child tasks of one `withTaskGroup`: the signal side suspends
-    /// inside `for await` on the monitor's stream, the fallback side is
-    /// built to suspend too (see below) rather than run to completion in one
-    /// shot. Neither ever spins - there is no *unbounded*, non-suspending
-    /// loop on either side - which is exactly the shape that starved a
-    /// sibling in task 3's first attempt at a similar wait (see
-    /// `ChannelSessionReconnectTests.startAndWait`'s doc comment: there, one
-    /// sibling awaited `Task.value` on a task whose own body was an
-    /// *unbounded* `.immediate`-retry loop that never suspended, and that
-    /// starved the other sibling of the cooperative thread pool outright).
-    /// Whichever finishes first is taken from the group and the other is
-    /// cancelled; `Task.sleep` and `AsyncStream.Iterator.next()` both end
-    /// promptly on cancellation rather than hanging, so the loser never
-    /// leaks and the implicit drain `withTaskGroup` performs on exit never
-    /// blocks behind it.
-    ///
-    /// **What "verify empirically" actually found.** The first cut of this
-    /// raced the two sides as pure peers - add both tasks, call `onReady`,
-    /// take whichever `group.next()` returns first. It reliably reported
-    /// `.fallback` for `aNetworkSignalEndsTheWaitImmediately` anyway, and
-    /// `sleep`'s "the fallback timer should not have been reached" trap
-    /// fired every single time (confirmed over dozens of runs, not assumed):
-    /// a fallback side with no genuine suspension of its own (exactly what
-    /// every test here injects, standing in for a real clock) runs to
-    /// completion the instant it is scheduled, while `AsyncStream` delivery
-    /// - even of a value already sitting in the buffer, which is
-    /// `FakeReachability`'s default `.unbounded` policy - still costs the
-    /// signal side one or more genuine scheduler round-trips through its
-    /// continuation. Cancelling the loser *after* `group.next()` returns
-    /// cannot undo a side effect (the trap's `Issue.record`) the loser's
-    /// body already ran before that cancellation was even requested - by
-    /// construction, structured concurrency cannot preempt a task mid-body,
-    /// only at a suspension point the task itself checks. So the fallback
-    /// side below gives a concurrently-arriving cancellation a bounded
-    /// number of real scheduler turns to land - `Task.yield()` in a loop,
-    /// checking `Task.isCancelled` each time - before it ever touches
-    /// `sleep`. It costs a genuine fallback (nothing to cancel it) a
-    /// handful of cheap turns, immaterial against a 60-second real timer,
-    /// and every test here still reports sub-millisecond. Confirmed over 20+
-    /// repeated runs of the full suite, and separately by deleting the
-    /// fallback branch entirely and watching
-    /// `aSilentMonitorStillEndsTheWaitViaTheFallback` hang rather than
-    /// assuming it would - see task 4's report for both investigations.
+    /// **Race structure, and why the loser's side effects don't matter.**
+    /// Both exits run as sibling child tasks of one `withTaskGroup`: the
+    /// signal side suspends inside `for await` on the monitor's stream, the
+    /// fallback side suspends inside `sleep`. `group.next()` is awaited
+    /// exactly once, so whichever child finishes first supplies the single
+    /// returned outcome; the loser is cancelled by `group.cancelAll()`
+    /// afterwards and its own return value is never read. In production
+    /// `sleep` is a real, cancellable `Task.sleep` (see the `.awaitNetwork`
+    /// effect arm in `ChannelSession.handle(_:)`), so a fallback side that
+    /// has merely started sleeping when the signal wins just gets cancelled
+    /// mid-sleep - harmless, because nothing downstream ever looks at what
+    /// it would have returned. A test's injected `sleep` may likewise be
+    /// entered before it loses the race; entering it is not itself a
+    /// failure - see `AwaitNetworkTests.aNetworkSignalEndsTheWaitImmediately`'s
+    /// own comment for why that test asserts correctly on the outcome alone.
     ///
     /// Only one iterator over `monitor.networkReturned` is ever live at a
     /// time - a fresh `for await` each call, cancelled before the next call
@@ -92,16 +63,16 @@ extension ChannelSession {
     ///   - fallback: The bounded ceiling on this wait, regardless of `monitor`.
     ///   - sleep: Injectable so a test never waits on a real clock, the same
     ///     reason `RetryPolicy.sleep` is.
-    ///   - onReady: Fires once this call has begun consuming
-    ///     `monitor?.networkReturned` - never before. It exists solely so a
-    ///     test can fire a fake monitor's signal *from inside* this function,
-    ///     after the signal side is already listening: firing any earlier
-    ///     (before the race is even set up) risks the signal reaching a
-    ///     stream nobody is yet positioned to consume, which would take this
-    ///     call down the fallback path instead of the signal path - or hang,
-    ///     if the fallback path had also been removed to test exactly that.
-    ///     Production passes an empty closure; only tests pass one with an
-    ///     effect.
+    ///   - onReady: A test hook so a fake monitor's signal can be fired from
+    ///     inside this call, once the race has been assembled. `addTask`
+    ///     only *schedules* the signal-consuming child - it does not wait
+    ///     for that child to start running before returning control - so
+    ///     this is not "after the child is listening" in any ordering sense.
+    ///     What actually keeps a signal fired here from being lost is
+    ///     `AsyncStream`'s default `.unbounded` buffering, which retains a
+    ///     yielded value whether or not a consumer has attached yet - not an
+    ///     ordering `addTask` establishes. Production passes an empty
+    ///     closure; only tests pass one with an effect.
     static func awaitNetwork(
         monitor: (any ReachabilityMonitor)?,
         fallback: Duration,
@@ -123,15 +94,13 @@ extension ChannelSession {
                 // looping keeps this side effect-free either way.
                 return .fallback
             }
-            // Only reachable once the task above is queued to consume
-            // `networkReturned` - see the parameter doc above for why this
-            // must not fire any earlier.
+            // `addTask` only schedules the child above; it does not wait
+            // for it to start running before returning control here. See
+            // the `onReady` parameter doc above for what actually keeps a
+            // signal fired at this point from being lost.
             onReady()
 
             group.addTask {
-                guard await !(Self.yieldToAnyPendingCancellation()) else {
-                    return .fallback
-                }
                 await sleep(fallback)
                 return .fallback
             }
@@ -140,27 +109,5 @@ extension ChannelSession {
             group.cancelAll()
             return outcome
         }
-    }
-
-    /// Gives a concurrently-arriving cancellation up to `turns` cooperative
-    /// scheduler turns to land before returning `false` - see the empirical
-    /// note on `awaitNetwork` above for exactly why this exists: without it,
-    /// a fallback side racing a signal that already fired can still run its
-    /// side effect before the signal side's cancellation ever reaches it.
-    /// Each turn is a bare `Task.yield()`, so a genuine fallback (nothing
-    /// ever cancels this call) pays for at most `turns` of them - cheap
-    /// scheduler churn, not a wait on any clock, and immaterial next to the
-    /// real `fallback` duration this guards. `turns`' default was tuned
-    /// empirically (20-plus repeated runs at 256, none flaky) rather than
-    /// derived; a larger number is always safe, a rethink is only warranted
-    /// if this ever proves flaky in practice.
-    private static func yieldToAnyPendingCancellation(turns: Int = 256) async -> Bool {
-        for _ in 0 ..< turns {
-            if Task.isCancelled {
-                return true
-            }
-            await Task.yield()
-        }
-        return Task.isCancelled
     }
 }
