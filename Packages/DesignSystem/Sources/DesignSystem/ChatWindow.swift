@@ -92,25 +92,35 @@ struct StatusStrip: View {
         // today, but a warning worth acting on must never be the one that
         // loses if that ever changes.
         if let message = banner {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                Text(message)
-                Spacer()
-                // Drawn only where the host offered one, and only once
-                // `ConnectionBanner.offersReconnect` says the wait has earned
-                // it - see `ChatSceneActions.reconnect`.
-                if canReconnect, let reconnect = actions.reconnect {
-                    Button("Reconnect now", action: reconnect)
-                        .buttonStyle(.link)
-                        .font(.caption)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(message)
+                    Spacer()
+                    // Drawn only where the host offered one, and only once
+                    // `ConnectionBanner.offersReconnect` says the wait has
+                    // earned it - see `ChatSceneActions.reconnect`.
+                    if canReconnect, let reconnect = actions.reconnect {
+                        Button("Reconnect now", action: reconnect)
+                            .buttonStyle(.link)
+                            .font(.caption)
+                    }
+                    // Drawn only where the host offered one. A window with no
+                    // route back to sign-in is a window a person can only
+                    // escape by editing their Keychain - see
+                    // `ChatSceneActions.signIn`.
+                    if let signIn = actions.signIn {
+                        Button("Sign in again", action: signIn)
+                            .buttonStyle(.link)
+                            .font(.caption)
+                    }
                 }
-                // Drawn only where the host offered one. A window with no
-                // route back to sign-in is a window a person can only escape
-                // by editing their Keychain - see `ChatSceneActions.signIn`.
-                if let signIn = actions.signIn {
-                    Button("Sign in again", action: signIn)
-                        .buttonStyle(.link)
-                        .font(.caption)
+                // Secondary, never the headline - diagnostic only (spec §8).
+                // Drawn only when there is one, so the banner's height is
+                // unchanged whenever there is nothing to add.
+                if let detail = bannerDetail {
+                    Text(detail)
+                        .foregroundStyle(.secondary)
                 }
             }
             .font(.caption)
@@ -142,6 +152,14 @@ struct StatusStrip: View {
             return description(of: error)
         }
         return ConnectionBanner.text(for: state.connection)
+    }
+
+    /// Same precedence as `banner`: a real error's own description already
+    /// carries everything relevant (a status code, a capability name), so
+    /// there is no separate diagnostic line to add underneath it.
+    private var bannerDetail: String? {
+        guard state.lastError == nil else { return nil }
+        return ConnectionBanner.detail(for: state.connection)
     }
 
     private var canReconnect: Bool {

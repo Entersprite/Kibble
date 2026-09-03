@@ -70,4 +70,44 @@ struct ConnectionBannerTests {
     @Test func aHealthySessionOffersNoReconnect() {
         #expect(!ConnectionBanner.offersReconnect(for: .connected))
     }
+
+    // MARK: - detail(for:)
+
+    /// `detail` is diagnostic only, never the headline - CLAUDE.md's protocol
+    /// rules say it carries an error domain and code, or a status number,
+    /// never a URL or message content. These tests only check it round-trips
+    /// what `ConnectionState` already carries; they cannot enforce that
+    /// callers keep feeding it safe values.
+    @Test func reconnectingCarriesItsDetailVerbatim() {
+        #expect(ConnectionBanner.detail(
+            for: .reconnecting(attempt: 1, issue: .unresponsive, detail: "NSURLErrorDomain -1001")
+        ) == "NSURLErrorDomain -1001")
+    }
+
+    @Test func reconnectingWithNoDetailShowsNone() {
+        #expect(ConnectionBanner.detail(
+            for: .reconnecting(attempt: 1, issue: .unresponsive, detail: nil)
+        ) == nil)
+    }
+
+    /// The raw tag an unknown state carries was captured and decoded but
+    /// never shown anywhere until now (`ConnectionState.unknown`'s own doc
+    /// comment) - this is where it goes: the secondary line, not the
+    /// headline `text(for:)` already renders as "Connecting…".
+    @Test func anUnknownStatesRawTagAppearsAsDetail() {
+        #expect(ConnectionBanner.detail(for: .unknown("hibernating")) == "hibernating")
+    }
+
+    @Test func aHealthySessionHasNoDetail() {
+        #expect(ConnectionBanner.detail(for: .connected) == nil)
+    }
+
+    /// Every other state has nothing to add on a second line either -
+    /// `.idle`, `.connecting` and `.disconnected` carry no field this
+    /// function reads from.
+    @Test func statesWithNoDiagnosticFieldShowNoDetail() {
+        #expect(ConnectionBanner.detail(for: .idle) == nil)
+        #expect(ConnectionBanner.detail(for: .connecting) == nil)
+        #expect(ConnectionBanner.detail(for: .disconnected(reason: "closed", issue: nil)) == nil)
+    }
 }

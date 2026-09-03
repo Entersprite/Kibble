@@ -38,12 +38,14 @@ public enum ConnectionState: Codable, Hashable, Sendable {
     /// that a *client* with an uninterpretable state can still degrade toward
     /// optimism.
     ///
-    /// **Today**, that means only this: `ChatWindow` renders this case as
-    /// "Connecting…" rather than alarming someone about a state nobody here
-    /// understands. The raw `String` this case carries is captured and decoded
-    /// but not yet shown anywhere - there is no detail line yet for it to go
-    /// in. Surfacing it (spec §8) is a later task's wiring; this comment used
-    /// to claim that wiring already existed, and it did not.
+    /// **Today**, that wiring exists: `DesignSystem`'s `ConnectionBanner
+    /// .text(for:)` renders this case as "Connecting…" rather than alarming
+    /// someone about a state nobody here understands, and `ConnectionBanner
+    /// .detail(for:)` surfaces the raw `String` this case carries as the
+    /// secondary line `StatusStrip` draws beneath it (spec §8) - so the tag
+    /// is captured, decoded, *and* shown, just never in the headline. This
+    /// comment twice claimed wiring that did not exist yet (first the whole
+    /// thing, then the detail line specifically); both claims are now true.
     case unknown(String)
 }
 

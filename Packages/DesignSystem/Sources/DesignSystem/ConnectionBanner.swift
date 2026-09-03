@@ -16,14 +16,22 @@ import ChatKit
 /// the precedent: a confidently wrong diagnosis on screen is worse than an
 /// honest vague one.
 public enum ConnectionBanner {
-    /// Attempts below this may still just be slow; at or above it, roughly a
-    /// minute has passed. `RetryPolicy`'s backoff is 0.5, 1, 2, 4, 8 seconds
-    /// for attempts 1-5 (capped at 32s per step) - that sums to about 15.5s,
-    /// so attempt 6 is the first attempt that starts past a minute of trying.
-    /// `DesignSystem` depends on `ChatKit` alone and cannot import
-    /// `RetryPolicy` (it lives in `GChatBridgeCore`) to derive this number, so
-    /// it is a named constant with the arithmetic spelled out here instead,
-    /// for whoever changes the backoff shape to reconcile against.
+    /// Attempts below this may still just be slow. `RetryPolicy`'s backoff is
+    /// 0.5, 1, 2, 4, 8 seconds for attempts 1-5 (capped at 32s per step) -
+    /// that sums to about 15.5s elapsed by the time attempt 6 begins, which
+    /// is **sooner** than spec §8.1's "roughly a minute," not the "first
+    /// attempt past a minute" an earlier draft of this comment claimed (the
+    /// 60-second mark is not actually crossed until partway through attempt
+    /// 7). Deliberately kept at 6 rather than moved to 7 anyway (ruling
+    /// R19): the threshold's real job is only to avoid flashing the control
+    /// during an ordinary blip, and a healthy poll reopens within seconds, so
+    /// ~15s of failure already clears that bar. Offering the accelerant
+    /// sooner than the spec's rough number costs nothing and is kinder,
+    /// because it is never framed as giving up - see `offersReconnect`'s own
+    /// doc comment. `DesignSystem` depends on `ChatKit` alone and cannot
+    /// import `RetryPolicy` (it lives in `GChatBridgeCore`) to derive this
+    /// number, so it is a named constant with the arithmetic spelled out here
+    /// instead, for whoever changes the backoff shape to reconcile against.
     private static let attemptsPastAMinute = 6
 
     /// What to show for `state`. `nil` means there is nothing to say - either
@@ -45,6 +53,26 @@ public enum ConnectionBanner {
             // Degrades toward optimism rather than alarming someone about a
             // state this build does not understand (design §3.4).
             "Connecting…"
+        }
+    }
+
+    /// A diagnostic second line for `state`, or `nil` when there is none.
+    ///
+    /// Rendered as secondary text, never in the headline `text(for:)`
+    /// produces (spec §8) - and diagnostic only. It carries an error domain
+    /// and code, or a status number, never a URL or message content; callers
+    /// must keep it that way, because this function only relays what
+    /// `ConnectionState` already decided to carry.
+    public static func detail(for state: ConnectionState) -> String? {
+        switch state {
+        case .connected, .idle, .connecting, .disconnected:
+            nil
+        case let .reconnecting(_, _, detail):
+            detail
+        case let .unknown(raw):
+            // Captured and decoded but never shown until now - this is where
+            // it goes. See `ConnectionState.unknown`'s own doc comment.
+            raw
         }
     }
 
