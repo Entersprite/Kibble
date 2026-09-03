@@ -108,31 +108,33 @@ scan "Apps" \
 # case (`let ctor = LaunchPhase.needsSignIn`) never writes ".needsSignIn(" as a
 # contiguous substring, so anchoring on the call form alone would miss it. Two
 # kinds of line legitimately say the word without constructing anything: a
-# comment, and a `case` line where the word names a pattern rather than a
-# construction. A pattern mention is not "the line starts with case" - a
-# switch arm can construct the phase on the same line as an unrelated pattern
-# (`case .somethingElse: return LaunchPhase.needsSignIn(reason: nil)`), and
-# `sceneState`'s real arm lists the case as one of several comma-separated
-# patterns (`case .loading, .needsSignIn, .running:`), so the word is not the
-# token right after `case` either. What actually distinguishes the two is
-# which side of the arm's own terminating ":" the word falls on - inside the
-# pattern list (legitimate, whatever else is in that list) or after it, in the
-# body (a construction). `[^:]*\bneedsSignIn\b[^:]*:` requires the word and
-# everything around it up to that colon to contain no other colon, which is
-# exactly "before this arm's own terminator" for ordinary case syntax. Both
-# exclusions are filtered by the shape of the line rather than by which file
-# it is in, on purpose: a filename whitelist would blind the scan to a real
-# construction added to that same file, which is exactly the bug this scan
-# exists to catch. LaunchPhase.swift (the declaration) and AppEnvironment.swift
-# (the one legitimate construction, inside enterNeedsSignIn) stay excluded by
-# name, same as before.
+# comment, and any line where `case` introduces the word as a *pattern* rather
+# than a construction. "Pattern" is not "the line starts with case" in either
+# direction: a switch arm can construct the phase on the same line as an
+# unrelated pattern (`case .somethingElse: return LaunchPhase.needsSignIn(...)`),
+# so starting with `case` does not make a line safe; and the idiomatic
+# single-check read forms, `if case .needsSignIn = phase` /
+# `guard case .needsSignIn = phase else { ... }`, do not start with `case` at
+# all, so requiring that would flag a correct read as a violation - worse than
+# missing a construction, because a scan that cries wolf on ordinary code is a
+# scan someone deletes (see `lint-testsupport.py`'s header).
+#
+# What actually distinguishes a pattern mention from a construction is what
+# comes between `case` and the word: nothing that could only appear in a
+# value expression. A switch arm's pattern list ends at `:`; an `if`/`guard
+# case` binding ends at `=`. So `case` followed by anything except `:` or `=`
+# up to the word is a pattern mention regardless of where `case` sits in the
+# line (a bare arm, an `if case`, a `guard case`, or a compound condition
+# after a comma) - and a real construction can never satisfy that, because
+# reaching a construction's own `LaunchPhase.needsSignIn(` from a `case`
+# earlier in the line always crosses that `case`'s terminating `:` or `=` first.
 needs=""
 while IFS= read -r -d '' f; do
     case "$f" in
         */LaunchPhase.swift | */AppEnvironment.swift) continue ;;
     esac
     hit=$(grep -nE 'needsSignIn' "$f" 2>/dev/null \
-          | grep -vE '^[0-9]+:[[:space:]]*(//|case[[:space:]]+[^:]*\bneedsSignIn\b[^:]*:)' || true)
+          | grep -vE '^[0-9]+:[[:space:]]*//|(^|[^A-Za-z])case[[:space:]]+[^:=]*\bneedsSignIn\b' || true)
     [ -n "$hit" ] && needs="${needs}${f}
 "
 done < <(swift_files "$APPCORE")
