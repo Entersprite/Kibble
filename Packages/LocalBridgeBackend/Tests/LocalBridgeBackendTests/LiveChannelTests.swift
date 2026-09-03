@@ -288,8 +288,17 @@ struct LiveChannelTests {
                 nil
             }
         }
+        // `issue`/`detail` are non-nil now: the drop is `ScriptedTransport.Dropped`,
+        // not a `ClassifiedTransportFailure`, so it lands on `ChannelSession`'s
+        // generic catch as `.transport(nil)` - `ConnectionIssueMapping` still owes
+        // it a `ConnectionIssue`, which is `.unknown("transport")` per that
+        // mapping's own test.
         let reconnecting = try #require(
-            states.firstIndex(of: .reconnecting(attempt: 1, issue: nil, detail: nil))
+            states.firstIndex(of: .reconnecting(
+                attempt: 1,
+                issue: .unknown("transport"),
+                detail: "the connection failed: transport error"
+            ))
         )
         // `.connected` *after* the reconnect, not the one `connect()` emitted
         // before it - that is the whole distinction the `.resumed` leg exists

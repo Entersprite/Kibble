@@ -238,8 +238,12 @@ struct ChannelSessionReconnectTests {
         let arrays = await collect(session)
 
         #expect(arrays.map(\.aid) == [1, 2])
+        // `.transport(nil)`: `FakeHTTPTransport.Dropped` is not a
+        // `ClassifiedTransportFailure`, so it lands on `ChannelSession`'s
+        // generic catch, the same path production takes for an error its own
+        // transport never classified.
         #expect(await events.recorded == [
-            .reconnecting(attempt: 1),
+            .reconnecting(attempt: 1, failure: .transport(nil)),
             .resumed
         ])
         // Deliberately *not* nil. `failure` is only ever written by a
@@ -288,7 +292,7 @@ struct ChannelSessionReconnectTests {
             await "recorded \(events.recorded)"
         }
         until: {
-            await events.recorded.contains(.reconnecting(attempt: 5))
+            await events.recorded.contains(.reconnecting(attempt: 5, failure: .transport(nil)))
         }
         await session.stop()
         _ = await running.value
@@ -346,7 +350,7 @@ struct ChannelSessionReconnectTests {
         _ = await collect(session)
 
         let recorded = await events.recorded
-        #expect(recorded.contains(.reconnecting(attempt: 1)))
+        #expect(recorded.contains(.reconnecting(attempt: 1, failure: .transport(nil))))
     }
 }
 

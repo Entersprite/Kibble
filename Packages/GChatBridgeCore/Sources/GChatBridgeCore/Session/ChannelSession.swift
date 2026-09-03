@@ -67,6 +67,21 @@ public actor ChannelSession {
     /// Why the channel stopped, if it did.
     public private(set) var failure: ChannelFailure?
 
+    /// The most recent failure the reducer has been told about, terminal or
+    /// not.
+    ///
+    /// **Not the same thing as `failure` above, on purpose.** `failure` is
+    /// only ever set from a `.report(_:)` effect, and the reducer emits
+    /// `.report` only from the terminal `fail(_:)` path - a *recoverable*
+    /// failure produces `.reconnect`/`.awaitNetwork` with no `.report` at
+    /// all, so `failure` is exactly `nil` while this is needed. This is set
+    /// on every `.failed(_:)` input, recoverable or not, which is what lets
+    /// the `.reconnect` and `.awaitNetwork` arms below hand
+    /// `ChannelLifecycle.reconnecting` the failure that actually caused it.
+    /// Cleared alongside `failure` on a successful resume, for the same
+    /// reason: a stale value here would outlive the outage it described.
+    private var lastFailure: ChannelFailure?
+
     private let continuation: AsyncStream<ChannelArray>.Continuation
     private let transport: any HTTPTransport
     private let requests: ChannelRequests
@@ -199,6 +214,9 @@ public actor ChannelSession {
     /// poll ends, which is minutes after it arrived. Only the effects that need
     /// the network are queued.
     private func apply(_ input: ChannelInput) {
+        if case let .failed(failure) = input {
+            lastFailure = failure
+        }
         for effect in ChannelReducer.reduce(&state, input) {
             switch effect {
             case let .deliver(arrays):
@@ -237,7 +255,7 @@ public actor ChannelSession {
 
         case let .reconnect(attempt):
             isRecovering = true
-            await onLifecycle?(.reconnecting(attempt: attempt))
+            await onLifecycle?(.reconnecting(attempt: attempt, failure: lastFailure))
             // The wait lives here rather than in the reducer, which carries no
             // clock. `RetryPolicy` was written for exactly this and has been
             // dead code since it landed.
@@ -247,7 +265,7 @@ public actor ChannelSession {
 
         case let .awaitNetwork(attempt):
             isRecovering = true
-            await onLifecycle?(.reconnecting(attempt: attempt))
+            await onLifecycle?(.reconnecting(attempt: attempt, failure: lastFailure))
             // No timed backoff: the device says there is no network, so
             // spending requests to rediscover that is waste. The fallback is
             // what stops a monitor that never fires from hanging the channel.
@@ -300,8 +318,13 @@ public actor ChannelSession {
                 isRecovering = false
                 // Cleared because it is no longer true, and a host reading it
                 // after a recovery would report a session that is working as
-                // one that failed.
+                // one that failed. `lastFailure` goes with it for the same
+                // reason - the next reconnect (if any) will set its own
+                // before this is read again, so nothing here relies on the
+                // stale value, but a resumed channel has no known failure and
+                // should not carry one around regardless.
                 failure = nil
+                lastFailure = nil
                 await onLifecycle?(.resumed)
             }
             // The ack goes out before the body is read, not after it: the

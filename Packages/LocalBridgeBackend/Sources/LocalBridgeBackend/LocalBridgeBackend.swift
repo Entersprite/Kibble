@@ -274,20 +274,36 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `ConnectionState.reconnecting(attempt:)` has existed in `ChatKit` since
     /// the seam was written and has been emitted by nobody. It is what lets a
     /// window say "attempt 2" instead of spinning silently, and it needs no
-    /// wire-format change to reach a hosted tier later.
+    /// wire-format change to reach a hosted tier later. `failure` is what
+    /// `ChannelSession` classified as the cause of this particular reconnect;
+    /// `ConnectionIssueMapping` is the one place it becomes a
+    /// `ChatKit.ConnectionIssue`, behind the exhaustive switch that keeps this
+    /// package's copy of the taxonomy from silently drifting from the core's.
     private func channelLifecycleChanged(_ event: ChannelLifecycle) {
         switch event {
-        case let .reconnecting(attempt):
-            emit(.connectionStateChanged(.reconnecting(attempt: attempt, issue: nil, detail: nil)))
+        case let .reconnecting(attempt, failure):
+            let issue = failure.map(ConnectionIssueMapping.issue(for:))
+            emit(.connectionStateChanged(.reconnecting(
+                attempt: attempt,
+                issue: issue,
+                detail: failure?.description
+            )))
         case .resumed:
             lastFailure = nil
             emit(.connectionStateChanged(.connected))
         }
     }
 
-    /// The channel reconnects only from a dead socket, and only four times, so
-    /// it still ends - and its ending is news. Saying nothing would leave a
-    /// window showing a healthy session that has quietly stopped delivering.
+    /// Reached for a **terminal** failure - a dead credential
+    /// (`.unexpectedStatus(401)`/`(403)`), an unrecognised status, or a
+    /// framing desync (`.noSessionIdentifier`, `.malformedChunk`) - or for a
+    /// deliberate `disconnect()`. Since task 3 of the reconnect taxonomy, a
+    /// *recoverable* failure no longer arrives here at all:
+    /// `ChannelSession` reconnects on its own for those
+    /// (`ChannelFailure.isRecoverable`), and this only runs once the
+    /// channel's own state machine has genuinely stopped responding. Saying
+    /// nothing here would still leave a window showing a healthy session
+    /// that has quietly stopped delivering, for the one case that still ends.
     ///
     /// The guard is on **identity**, not merely on there being a channel. A
     /// `disconnect()` → `connect()` sequence leaves the old task still
