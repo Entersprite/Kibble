@@ -297,27 +297,11 @@ struct ChannelSessionTests {
         #expect(await session.failure == .unexpectedStatus(403))
     }
 
-    /// Was "a transport failure ends the stream rather than hanging it" -
-    /// task 3 of the reconnect taxonomy made that literally false: a
-    /// transport failure no longer ends a session on its own, it reconnects
-    /// forever (that is the fix for the reported bug). The fake here can
-    /// never succeed (nothing is scripted), so the ladder climbs
-    /// indefinitely; this now asserts that it really does climb well past the
-    /// old four-attempt bound, and that only an explicit `stop()` ends it.
-    @Test func aTransportFailureNoLongerEndsTheSessionOnItsOwn() async {
-        let transport = FakeHTTPTransport(responses: [], streams: [])
-        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
-        let running = Task { await session.start() }
-        // Past the old four-attempt bound (five register calls, including the
-        // first), and still climbing - proof the ladder does not give up on
-        // its own. `stop()` below is what ends it.
-        while await transport.sent.count < 10 {
-            await Task.yield()
-        }
-        await session.stop()
-        _ = await running.value
-        #expect(await session.failure == nil)
-    }
+    // Was "a transport failure ends the stream rather than hanging it" -
+    // task 3 of the reconnect taxonomy made that literally false. Moved to
+    // `ChannelSessionReconnectTests` (which already has the `startAndWait`
+    // helper this now needs) to keep this file under swiftlint's 400-line
+    // ceiling once fix round 1 added that helper here too.
 
     @Test func stoppingFinishesTheEventStream() async {
         let transport = FakeHTTPTransport(responses: [ok()], streams: [])

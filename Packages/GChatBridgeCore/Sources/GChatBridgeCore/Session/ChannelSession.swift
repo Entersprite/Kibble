@@ -22,25 +22,38 @@ import Foundation
 /// something actually changed. Only when: the store is on disk and rewriting an
 /// unchanged session once per poll cycle is a write per second, forever.
 ///
-/// ## What this deliberately does not do
+/// ## Reconnecting - unbounded on purpose, since the reconnect taxonomy
 ///
-/// It reconnects from exactly two failure shapes, both via
-/// `ChannelFailure.isRecoverable` and sharing `RetryPolicy.default`'s one
-/// bounded backoff budget: a dead socket (`.transport`), because that says
-/// nothing about whether the credential is still good, and an HTTP 400
-/// (`.unexpectedStatus(400)`), because the reference treats that status as a
-/// stale-SID signal and reacts by re-registering — which is what `.retry`
-/// already does here. `.noSessionIdentifier` and `.malformedChunk` still stop
-/// and report why: the inputs that would tell a recovery from a stop for
-/// those are recorded as uncollected in §6, and a policy written against the
-/// reference's guesses is work that gets thrown away when the evidence arrives.
+/// It reconnects from every *recoverable* failure shape - via
+/// `ChannelFailure.isRecoverable`: `.transport` unconditionally, because a
+/// dead socket says nothing about whether the credential is still good, and
+/// `.unexpectedStatus` at 400 (the reference's stale-SID signal, answered by
+/// re-registering - what `.retry` already does here), 429 and every 5xx (on
+/// HTTP semantics, not on traffic observed from Chat - see that property's own
+/// doc comment). `.unexpectedStatus(401)`/`(403)`, `.noSessionIdentifier` and
+/// `.malformedChunk` still stop and report why: a credential HTTP itself
+/// rejects is not something a retry fixes, and the inputs that would tell a
+/// *recovery* from a stop for the other two are recorded as uncollected in
+/// §6.
 ///
-/// **Bounded means bounded.** The budget is four consecutive attempts and is
-/// cleared only by a body that ends cleanly - never by one that merely opens.
-/// A channel that registers, handshakes, opens and then dies over and over
-/// therefore stops after four, rather than looping at roughly five requests a
-/// second against a live account for as long as the machine is awake. See
-/// `ChannelState.attempt`.
+/// **No longer bounded by an attempt count.** A four-consecutive-attempt
+/// ceiling used to stop a recoverable failure outright; that ceiling was
+/// itself the bug a live run reported - an outage longer than roughly eight
+/// seconds was permanent until relaunch - so recoverable failures now retry
+/// indefinitely instead. What still caps request pressure on a possibly-dead
+/// account is the backoff: it climbs to `RetryPolicy`'s 32-second ceiling and
+/// holds there, under two requests a minute, and the budget behind that climb
+/// is cleared only by a body that ends cleanly - never by one that merely
+/// opens. A channel that registers, handshakes, opens and then dies over and
+/// over therefore keeps retrying at that capped rate rather than looping at
+/// roughly five requests a second forever, which is the incident
+/// `ChannelState.attempt`'s own doc comment records and the reason the reset
+/// stays keyed to a clean close rather than to opening.
+///
+/// `.notConnectedToInternet` gets `.awaitNetwork` instead of the timer -
+/// see the `.awaitNetwork` effect arm in `handle(_:)` below, which is a task-3
+/// stopgap (identical to `.reconnect` today) until task 4 replaces it with a
+/// real wait on `ReachabilityMonitor`.
 public actor ChannelSession {
     /// The arrays as they arrive, in order.
     ///
@@ -64,10 +77,12 @@ public actor ChannelSession {
     private var generator = SystemRandomNumberGenerator()
     /// The backoff between reconnect attempts.
     ///
-    /// **Only the delay comes from here.** The *number* of attempts is the
-    /// reducer's, read statically from `RetryPolicy.default.maxAttempts` in
-    /// `ChannelState.failed(_:)`, because the reducer is pure and carries no
-    /// policy of its own.
+    /// **Only the delay comes from here, and there is no longer an attempt
+    /// count to come from anywhere else.** `RetryPolicy.maxAttempts` is
+    /// unused - the reducer's `ChannelState.failed(_:)` does not read it, or
+    /// any bound, at all; a recoverable failure reconnects unconditionally.
+    /// What this actually governs is how long each wait is, capped at the
+    /// 32-second ceiling `RetryPolicy.default` itself defines.
     private let retry: RetryPolicy
     private let onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)?
     /// Whether the last stream open followed a reconnect, so `.resumed` is sent
@@ -75,10 +90,11 @@ public actor ChannelSession {
     private var isRecovering = false
 
     /// - Parameter retry: The backoff between reconnect attempts. **Its
-    /// `maxAttempts` is ignored**: the bound lives in the reducer, which reads
-    /// `RetryPolicy.default.maxAttempts` statically, so a policy built with
-    /// `maxAttempts: 10` still gets four attempts and says nothing about it.
-    /// Pass this to change the *waiting*, which is what `.immediate` is for.
+    /// `maxAttempts` is unused**: the reducer no longer bounds attempts at
+    /// all, so a policy built with `maxAttempts: 10` behaves identically to
+    /// one built with `maxAttempts: 4` - reconnecting is unconditional for a
+    /// recoverable failure, and this only changes the *waiting* between
+    /// attempts, which is what `.immediate` is for.
     public init(
         cookies: SessionCookies,
         transport: any HTTPTransport,
@@ -108,8 +124,8 @@ public actor ChannelSession {
     /// seconds - and `onRotation` belongs to whoever owns the credential, which
     /// is why it is absent here.
     ///
-    /// - Parameter retry: As above - the delay only. `maxAttempts` is the
-    /// reducer's and is not read from here.
+    /// - Parameter retry: As above - the delay only. `maxAttempts` is unused;
+    /// nothing bounds the attempt count any more.
     public init(
         credentials: SessionCredentials,
         transport: any HTTPTransport,
