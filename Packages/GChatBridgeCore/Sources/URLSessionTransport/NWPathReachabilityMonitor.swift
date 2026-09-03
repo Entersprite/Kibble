@@ -68,18 +68,18 @@ private final class PathTransitionState: @unchecked Sendable {
 /// a launch while genuinely offline needs one real unsatisfied → satisfied
 /// edge before its first yield, exactly like every later recovery - so no
 /// real recovery is ever missed.
-///
-/// **`networkReturned` is a single stored stream, not a fresh one per
-/// access.** It is a `let`, created once in `init`, so every read of the
-/// property returns the same `AsyncStream`. `AsyncStream` delivers each
-/// yielded value to exactly one attached iterator - chosen arbitrarily when
-/// more than one is attached, not broadcast to all of them - so one instance
-/// of this type must back at most one live consumer at a time. Sharing a
-/// single instance across two `ChannelSession`s means each network-return
-/// signal reaches only one of them, unpredictably, and the other silently
-/// falls back to its own timer with no signal ever arriving. Construct a
-/// separate `NWPathReachabilityMonitor` per consumer instead of sharing one.
 public final class NWPathReachabilityMonitor: ReachabilityMonitor, Sendable {
+    /// A single stored stream, not a fresh one per access. It is a `let`,
+    /// created once in `init`, so every read of this property returns the
+    /// same `AsyncStream`. `AsyncStream` delivers each yielded value to
+    /// exactly one attached iterator - chosen arbitrarily when more than one
+    /// is attached, not broadcast to all of them - so one instance of this
+    /// type must back at most one live consumer at a time. Sharing a single
+    /// instance across two `ChannelSession`s means each network-return
+    /// signal reaches only one of them, unpredictably, and the other
+    /// silently falls back to its own timer with no signal ever arriving.
+    /// Construct a separate `NWPathReachabilityMonitor` per consumer instead
+    /// of sharing one.
     public let networkReturned: AsyncStream<Void>
     private let monitor = NWPathMonitor()
 
