@@ -44,9 +44,33 @@ struct ConnectionIssueMappingTests {
         )
     }
 
+    /// Fix round 1, Finding 2: 400 is the status `ChannelFailure`'s own doc
+    /// comment cites as the live-observed motivating case (the 2026-09-02
+    /// lid-close), and the one status besides 429/5xx actually reachable
+    /// through the recoverable path - it was unasserted here even though the
+    /// mapping treats it the same as any other status this taxonomy does not
+    /// name (an `.unknown`, not `.rateLimited` or `.serverError`).
+    @Test func status400IsNotRateLimitedOrServerError() {
+        #expect(ConnectionIssueMapping.issue(for: .unexpectedStatus(400)) == .unknown("status 400"))
+    }
+
     /// A nil reason is what a transport that could not classify itself hands
     /// over. It must still say something.
     @Test func aTransportFailureWithNoReasonIsStillAnIssue() {
         #expect(ConnectionIssueMapping.issue(for: .transport(nil)) == .unknown("transport"))
+    }
+
+    /// Fix round 1, Finding 2: neither of the mapping's two non-`.transport`,
+    /// non-status arms was asserted at all - a swapped or mistyped case body
+    /// in either would have compiled and passed everything.
+    @Test func aMissingSessionIdentifierIsAnUnknownIssueWithItsOwnTag() {
+        #expect(ConnectionIssueMapping.issue(for: .noSessionIdentifier) == .unknown("no session identifier"))
+    }
+
+    @Test func aMalformedChunkIsAnUnknownIssueCarryingItsDetail() {
+        #expect(
+            ConnectionIssueMapping.issue(for: .malformedChunk("bad length prefix"))
+                == .unknown("malformed chunk: bad length prefix")
+        )
     }
 }

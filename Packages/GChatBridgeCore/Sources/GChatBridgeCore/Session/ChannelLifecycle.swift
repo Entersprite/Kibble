@@ -14,13 +14,19 @@ import Foundation
 public enum ChannelLifecycle: Sendable, Hashable {
     /// The socket died and a fresh registration is coming. `attempt` counts
     /// from 1. `failure` is the `ChannelFailure` that triggered this
-    /// reconnect - `ChannelSession` retains the most recent one it applied
-    /// specifically to populate this, since `failure` (the property) is only
-    /// ever set by a *terminal* `.report` and is `nil` throughout a
-    /// recoverable run. `LocalBridgeBackend`'s `ConnectionIssueMapping` is
-    /// the one place this becomes a `ChatKit.ConnectionIssue`, behind an
-    /// exhaustive switch - this package may not import `ChatKit` to do that
-    /// translation itself.
+    /// particular reconnect attempt - `ChannelSession` pairs it with the
+    /// effect that produces this event at the moment the effect is enqueued
+    /// (`QueuedEffect`), not by reading a stored "last failure" back later
+    /// when the effect is handled; fix round 1's Finding 1 is the reason that
+    /// distinction matters (two failures can be applied back-to-back before
+    /// either one's effect is dequeued, and reading a shared property at
+    /// dequeue time can pair the wrong one with the wrong attempt).
+    /// `failure` is distinct from `ChannelSession.failure` (the property),
+    /// which is only ever set by a *terminal* `.report` and stays `nil`
+    /// throughout a recoverable run. `LocalBridgeBackend`'s
+    /// `ConnectionIssueMapping` is the one place this becomes a
+    /// `ChatKit.ConnectionIssue`, behind an exhaustive switch - this package
+    /// may not import `ChatKit` to do that translation itself.
     case reconnecting(attempt: Int, failure: ChannelFailure?)
 
     /// A stream opened again after a reconnect. Sent only after a recovery,

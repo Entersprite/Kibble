@@ -26,6 +26,14 @@ import Testing
 /// on a background `Task` and calls `stop()` once enough evidence has
 /// accumulated - a fake that merely runs out would otherwise retry forever
 /// and hang the test, which is the change task 3 makes.
+///
+/// **The tests that drive a session on a background `Task`, plus
+/// `DualFailureTransport` and fix round 1's Finding 1 reproduction, moved to
+/// `ChannelSessionFailurePairingTests`** once that addition pushed this file
+/// past swiftlint's 400-line ceiling a second time. What remains here needs
+/// no unbounded background `Task` - either a deliberate terminal status ends
+/// the session on its own, or the test only inspects lifecycle events without
+/// waiting for the session to stop.
 struct ChannelSessionReconnectTests {
     private let initialResponse = #"[[0,["c","S3ss10n","",8,12,30000]]]"#
 
@@ -63,76 +71,6 @@ struct ChannelSessionReconnectTests {
         return arrays
     }
 
-    /// Starts `body` on a background `Task` and waits for `condition` to
-    /// become true, without ever hanging the suite if it does not. Returns
-    /// the `Task` so the caller can `stop()` the session and await it, the
-    /// same as before this helper existed.
-    ///
-    /// Fix round 1 finding (Critical): the two tests below that drive a
-    /// session on a background `Task` used to spin `while await <condition>
-    /// { await Task.yield() }` with no bail-out. Under the *old*, bounded
-    /// `failed(_:)` the channel stops well before either test's condition is
-    /// ever satisfied - `reconnectingNeverGivesUpOnItsOwn`'s `events.recorded
-    /// .count` plateaus at 4, `aStreamThatOpensAndDiesKeepsRetryingPastTheOldBudget`
-    /// never reaches `.reconnecting(attempt: 5)` at all - so a regression
-    /// back to that bound would hang `swift test` (no timeout flag, no
-    /// `.timeLimit` trait here) instead of failing it, which is strictly
-    /// worse than a red test.
-    ///
-    /// **Tried and rejected: racing `await running.value` against the poll in
-    /// a sibling `withTaskGroup` child.** That is the literal reading of
-    /// "notice early completion of `running`", and it compiles, but it
-    /// reproducibly hangs - confirmed empirically, not just reasoned about,
-    /// with a single isolated test run pegging one core for 80+ seconds past
-    /// its own ten-second deadline. Removing only the second child (so the
-    /// group held just the poll) made it resolve in under a millisecond
-    /// again, which isolates the cause to awaiting `.value` on a task whose
-    /// own body is this file's unbounded, never-blocking `.immediate`-retry
-    /// loop: something about a sibling task awaiting that value starves the
-    /// polling sibling of scheduling time on Swift's cooperative thread pool.
-    /// The fix below still notices early completion, just not by racing
-    /// `.value` at all - `body` is wrapped so it marks a plain actor flag
-    /// itself, from *inside* its own task, the instant it returns. Polling
-    /// that flag (which needs no `.value` await from anywhere) reproduced
-    /// the original sub-millisecond timing in the same isolated runs.
-    private func startAndWait(
-        _ body: @escaping @Sendable () async -> Void,
-        observed: @escaping @Sendable () async -> String,
-        until condition: @escaping @Sendable () async -> Bool
-    ) async -> Task<Void, Never> {
-        let doneFlag = CompletionFlag()
-        let running = Task {
-            await body()
-            await doneFlag.markDone()
-        }
-        // Ten seconds is generous on purpose: every condition this is used
-        // for is satisfied in well under a millisecond when the fix is in
-        // place (confirmed above), so this is a hang guard, not a realistic
-        // timing budget - a slow CI machine should never come close to it.
-        let deadline = ContinuousClock.now + .seconds(10)
-        while true {
-            if await condition() {
-                break
-            }
-            if await doneFlag.isDone {
-                await Issue.record("""
-                the channel finished on its own before the expected condition was met - \
-                the pre-task-3 four-attempt bound may have reoccurred. Observed: \(observed())
-                """)
-                break
-            }
-            if ContinuousClock.now >= deadline {
-                await Issue.record("""
-                timed out waiting for the expected condition - a hang guard, not the real \
-                assertion. Observed: \(observed())
-                """)
-                break
-            }
-            await Task.yield()
-        }
-        return running
-    }
-
     /// The socket dies once and the session comes back on its own.
     ///
     /// Used to assert the request count was **five**, because
@@ -166,38 +104,6 @@ struct ChannelSessionReconnectTests {
         #expect(arrays.map(\.aid) == [1])
         let paths = await transport.sent.map(\.url.lastPathComponent)
         #expect(paths.filter { $0.hasPrefix("register") }.count == 2)
-    }
-
-    /// Used to assert the ladder gave up after four attempts
-    /// (`RetryPolicy.default.maxAttempts`), since nothing here can ever
-    /// succeed (no streams scripted, so every handshake - and eventually
-    /// every register too, once the one scripted response is spent - fails).
-    /// That bound is the bug the repo owner reported from a live run (an
-    /// outage longer than it produced was permanent until relaunch), so task
-    /// 3 of the reconnect taxonomy removed it. This now asserts the
-    /// opposite: the ladder climbs straight past the old ceiling, and only
-    /// an explicit `stop()` - not the ladder giving up - ends the session.
-    @Test func reconnectingNeverGivesUpOnItsOwn() async {
-        let events = LifecycleRecorder()
-        let transport = FakeHTTPTransport(responses: [ok()], streams: [])
-        let session = ChannelSession(
-            cookies: cookies(),
-            transport: transport,
-            retry: .immediate,
-            onLifecycle: { await events.record($0) }
-        )
-        // Past the old four-attempt bound.
-        let running = await startAndWait {
-            await session.start()
-        } observed: {
-            await "recorded \(events.recorded)"
-        }
-        until: {
-            await events.recorded.count >= 6
-        }
-        await session.stop()
-        _ = await running.value
-        #expect(await session.failure == nil)
     }
 
     /// The slice's actual name: it does not only *try* to come back, it comes
@@ -254,81 +160,6 @@ struct ChannelSessionReconnectTests {
         #expect(await session.failure != nil)
     }
 
-    /// Was "the unbounded loop, bounded: a channel that opens and dies for
-    /// ever still stops after four" - the account-safety bound this pinned
-    /// is the bug the repo owner reported (task 3 of the reconnect
-    /// taxonomy): an outage longer than four attempts' worth was permanent
-    /// until relaunch. This now asserts the opposite - the ladder keeps
-    /// climbing well past the old ceiling - which is exactly why
-    /// `ChannelState.attempt` still resets only on a clean body end and
-    /// never on stream-*open*: removing the four-attempt bound without that
-    /// distinction would have reintroduced the ~5-requests-a-second
-    /// hammering incident `ChannelState.attempt`'s doc comment records,
-    /// instead of fixing anything. Every cycle here is still register +
-    /// handshake + acknowledge, opening with a valid
-    /// `X-HTTP-Initial-Response` and then dying rather than ending - the
-    /// exact shape a middlebox, a VPN or a machine that sleeps and wakes
-    /// produces.
-    @Test func aStreamThatOpensAndDiesKeepsRetryingPastTheOldBudget() async {
-        let events = LifecycleRecorder()
-        let dying = handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"], dropsAfterChunks: true)
-        let transport = FakeHTTPTransport(
-            responses: Array(repeating: ok(), count: 12),
-            streams: Array(repeating: dying, count: 6)
-        )
-        let session = ChannelSession(
-            cookies: cookies(),
-            transport: transport,
-            retry: .immediate,
-            onLifecycle: { await events.record($0) }
-        )
-        // The old bound stopped at attempt 4. Once the six scripted streams
-        // (and the twelve scripted responses) run out too, the ladder keeps
-        // climbing anyway via plain transport exhaustion - proof that
-        // nothing here, opening-and-dying or otherwise, gives up on its own.
-        let running = await startAndWait {
-            await session.start()
-        } observed: {
-            await "recorded \(events.recorded)"
-        }
-        until: {
-            await events.recorded.contains(.reconnecting(attempt: 5, failure: .transport(nil)))
-        }
-        await session.stop()
-        _ = await running.value
-        #expect(await session.failure == nil)
-    }
-
-    /// Was "a transport failure ends the stream rather than hanging it" -
-    /// task 3 of the reconnect taxonomy made that literally false: a
-    /// transport failure no longer ends a session on its own, it reconnects
-    /// forever (that is the fix for the reported bug). The fake here can
-    /// never succeed (nothing is scripted), so the ladder climbs
-    /// indefinitely; this now asserts that it really does climb well past the
-    /// old four-attempt bound, and that only an explicit `stop()` ends it.
-    ///
-    /// Moved from `ChannelSessionTests` (fix round 1) to reuse `startAndWait`
-    /// rather than duplicate it a third time - that file's own remaining
-    /// tests no longer need it.
-    @Test func aTransportFailureNoLongerEndsTheSessionOnItsOwn() async {
-        let transport = FakeHTTPTransport(responses: [], streams: [])
-        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
-        // Past the old four-attempt bound (five register calls, including the
-        // first), and still climbing - proof the ladder does not give up on
-        // its own. `stop()` below is what ends it.
-        let running = await startAndWait {
-            await session.start()
-        } observed: {
-            await "sent \(transport.sent.count) requests"
-        }
-        until: {
-            await transport.sent.count >= 10
-        }
-        await session.stop()
-        _ = await running.value
-        #expect(await session.failure == nil)
-    }
-
     /// The host is told, so a window can say "reconnecting" rather than
     /// showing a healthy session that has quietly stopped delivering.
     @Test func theHostIsToldWhileReconnecting() async {
@@ -360,16 +191,5 @@ private actor LifecycleRecorder {
 
     func record(_ event: ChannelLifecycle) {
         recorded.append(event)
-    }
-}
-
-/// Set by `startAndWait`'s wrapped `body`, from inside its own task, the
-/// instant it returns - see that helper's doc comment for why this exists
-/// instead of a sibling task awaiting `Task.value`.
-private actor CompletionFlag {
-    private(set) var isDone = false
-
-    func markDone() {
-        isDone = true
     }
 }

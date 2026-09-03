@@ -43,7 +43,10 @@ public actor LocalBridgeBackend: ChatBackend {
 
     /// The last failure, for a host that wants to report more than the stream
     /// carries. The event stream remains the supported channel.
-    public private(set) var lastFailure: ChatError?
+    ///
+    /// `internal(set)`, not `private(set)`: `channelStopped(_:)`
+    /// (`LocalBridgeBackend+ChannelStopped.swift`) sets it too.
+    public internal(set) var lastFailure: ChatError?
 
     private let continuation: AsyncStream<ChatEvent>.Continuation
     private let cookies: SessionCookies
@@ -57,9 +60,16 @@ public actor LocalBridgeBackend: ChatBackend {
     /// Handed to every `ChannelSession` this backend opens. Always `.default`
     /// outside tests - see the internal initialiser.
     private let channelRetry: RetryPolicy
-    private var isConnected = false
-    private var channel: ChannelSession?
-    private var channelTask: Task<Void, Never>?
+    /// Not `private`: `LocalBridgeBackend+ChannelStopped.swift` reads and
+    /// writes it too, the same reason `apiClient` and `emit(_:)` are not
+    /// `private` either.
+    var isConnected = false
+    /// Not `private`: `channelStopped(_:)` (`LocalBridgeBackend+ChannelStopped.swift`)
+    /// takes a channel to compare by identity against this one.
+    var channel: ChannelSession?
+    /// Not `private`: `channelStopped(_:)`'s guard reads this, and clears it,
+    /// from `LocalBridgeBackend+ChannelStopped.swift`.
+    var channelTask: Task<Void, Never>?
 
     /// The `/api/` client, built once `connect()` has a verified session and
     /// an xsrf token. `nil` before that - `loadConversations()` reads this
@@ -292,47 +302,6 @@ public actor LocalBridgeBackend: ChatBackend {
             lastFailure = nil
             emit(.connectionStateChanged(.connected))
         }
-    }
-
-    /// Reached for a **terminal** failure - a dead credential
-    /// (`.unexpectedStatus(401)`/`(403)`), an unrecognised status, or a
-    /// framing desync (`.noSessionIdentifier`, `.malformedChunk`) - or for a
-    /// deliberate `disconnect()`. Since task 3 of the reconnect taxonomy, a
-    /// *recoverable* failure no longer arrives here at all:
-    /// `ChannelSession` reconnects on its own for those
-    /// (`ChannelFailure.isRecoverable`), and this only runs once the
-    /// channel's own state machine has genuinely stopped responding. Saying
-    /// nothing here would still leave a window showing a healthy session
-    /// that has quietly stopped delivering, for the one case that still ends.
-    ///
-    /// The guard is on **identity**, not merely on there being a channel. A
-    /// `disconnect()` → `connect()` sequence leaves the old task still
-    /// unwinding, and its `channelStopped` arriving after the new channel is
-    /// running would tear down the *new* session - `channelTask`, `channel`,
-    /// `isConnected` and `apiClient` all nilled for a channel that is
-    /// perfectly alive, presenting as a session that connects and instantly
-    /// reports itself disconnected. Unreachable from the app as it stands,
-    /// because nothing reconnects; latent, and the fix is one clause.
-    /// Internal rather than private only so a test can hand it a channel that
-    /// is not the current one, which is the whole condition being guarded and
-    /// is otherwise a race no test could schedule. Same reason
-    /// `isRunningChannel` and `waitForChannel()` exist.
-    func channelStopped(_ channel: ChannelSession) async {
-        // `channelTask == nil` is a deliberate disconnect; a channel that is
-        // not the current one is a straggler from a previous session.
-        guard channel === self.channel, channelTask != nil else { return }
-        channelTask = nil
-        self.channel = nil
-        isConnected = false
-        apiClient = nil
-        let failure = await channel.failure
-        let reason = failure.map(String.init(describing:)) ?? "the channel closed"
-        if let failure {
-            let error = ChatError.transport(String(describing: failure))
-            lastFailure = error
-            emit(.backendError(error))
-        }
-        emit(.connectionStateChanged(.disconnected(reason: reason, issue: nil)))
     }
 
     /// The conversation list, via the one request shape `findings.md` §20.1

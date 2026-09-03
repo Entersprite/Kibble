@@ -67,28 +67,13 @@ public actor ChannelSession {
     /// Why the channel stopped, if it did.
     public private(set) var failure: ChannelFailure?
 
-    /// The most recent failure the reducer has been told about, terminal or
-    /// not.
-    ///
-    /// **Not the same thing as `failure` above, on purpose.** `failure` is
-    /// only ever set from a `.report(_:)` effect, and the reducer emits
-    /// `.report` only from the terminal `fail(_:)` path - a *recoverable*
-    /// failure produces `.reconnect`/`.awaitNetwork` with no `.report` at
-    /// all, so `failure` is exactly `nil` while this is needed. This is set
-    /// on every `.failed(_:)` input, recoverable or not, which is what lets
-    /// the `.reconnect` and `.awaitNetwork` arms below hand
-    /// `ChannelLifecycle.reconnecting` the failure that actually caused it.
-    /// Cleared alongside `failure` on a successful resume, for the same
-    /// reason: a stale value here would outlive the outage it described.
-    private var lastFailure: ChannelFailure?
-
     private let continuation: AsyncStream<ChannelArray>.Continuation
     private let transport: any HTTPTransport
     private let requests: ChannelRequests
     private let credentials: SessionCredentials
 
     private var state = ChannelState()
-    private var pending: [ChannelEffect] = []
+    private var pending: [QueuedEffect] = []
     private var task: Task<Void, Never>?
     private var requestIdentifier: Int
     private var generator = SystemRandomNumberGenerator()
@@ -213,9 +198,26 @@ public actor ChannelSession {
     /// queued: an array queued behind a long poll would be delivered when that
     /// poll ends, which is minutes after it arrived. Only the effects that need
     /// the network are queued.
+    ///
+    /// **`enqueuedFailure` is captured once, here, and travels inside the
+    /// queued effect itself - it is not read again later from a stored
+    /// property.** Fix round 1's Finding 1 traced why that distinction is
+    /// load-bearing: `openStream` can apply *two* separate `.failed(_:)`
+    /// inputs - one from the acknowledge's `send()`, one from the freshly
+    /// opened body's read - before `run()`'s loop ever gets a turn to
+    /// dequeue either one's resulting `.reconnect`/`.awaitNetwork` effect. A
+    /// session-wide "last failure", read at dequeue time, paired the
+    /// *second* failure with the *first* attempt's lifecycle event when that
+    /// happened - confirmed by
+    /// `ChannelSessionReconnectTests.eachReconnectAttemptCarriesTheFailureThatCausedIt`,
+    /// which failed exactly that way before this fix. Snapshotting the
+    /// failure at the moment `ChannelReducer.reduce(_:_:)` actually produces
+    /// the effect ties each attempt to the failure that caused *it*,
+    /// independent of the order attempts are later handled in.
     private func apply(_ input: ChannelInput) {
-        if case let .failed(failure) = input {
-            lastFailure = failure
+        var enqueuedFailure: ChannelFailure?
+        if case let .failed(reason) = input {
+            enqueuedFailure = reason
         }
         for effect in ChannelReducer.reduce(&state, input) {
             switch effect {
@@ -228,13 +230,13 @@ public actor ChannelSession {
             case .finished:
                 continue
             default:
-                pending.append(effect)
+                pending.append(QueuedEffect(effect: effect, failure: enqueuedFailure))
             }
         }
     }
 
-    private func handle(_ effect: ChannelEffect) async {
-        switch effect {
+    private func handle(_ queued: QueuedEffect) async {
+        switch queued.effect {
         case .register:
             await send(requests.register()) { self.apply(.registered) }
 
@@ -255,7 +257,7 @@ public actor ChannelSession {
 
         case let .reconnect(attempt):
             isRecovering = true
-            await onLifecycle?(.reconnecting(attempt: attempt, failure: lastFailure))
+            await onLifecycle?(.reconnecting(attempt: attempt, failure: queued.failure))
             // The wait lives here rather than in the reducer, which carries no
             // clock. `RetryPolicy` was written for exactly this and has been
             // dead code since it landed.
@@ -265,7 +267,7 @@ public actor ChannelSession {
 
         case let .awaitNetwork(attempt):
             isRecovering = true
-            await onLifecycle?(.reconnecting(attempt: attempt, failure: lastFailure))
+            await onLifecycle?(.reconnecting(attempt: attempt, failure: queued.failure))
             // No timed backoff: the device says there is no network, so
             // spending requests to rediscover that is waste. The fallback is
             // what stops a monitor that never fires from hanging the channel.
@@ -318,13 +320,8 @@ public actor ChannelSession {
                 isRecovering = false
                 // Cleared because it is no longer true, and a host reading it
                 // after a recovery would report a session that is working as
-                // one that failed. `lastFailure` goes with it for the same
-                // reason - the next reconnect (if any) will set its own
-                // before this is read again, so nothing here relies on the
-                // stale value, but a resumed channel has no known failure and
-                // should not carry one around regardless.
+                // one that failed.
                 failure = nil
-                lastFailure = nil
                 await onLifecycle?(.resumed)
             }
             // The ack goes out before the body is read, not after it: the
@@ -359,7 +356,7 @@ public actor ChannelSession {
     /// channel ends up with two SIDs.
     private func acknowledgeIfPending() async {
         while let index = pending.firstIndex(where: {
-            if case .acknowledge = $0 {
+            if case .acknowledge = $0.effect {
                 return true
             }
             return false
@@ -377,4 +374,22 @@ public actor ChannelSession {
     private func nextCacheBuster() -> String {
         ChannelIdentifiers.cacheBuster(using: &generator)
     }
+}
+
+/// One effect together with the failure that was current at the moment it
+/// was *enqueued* - not read again later, at the moment it is dequeued and
+/// handled.
+///
+/// This is fix round 1's Finding 1 fix. `apply(_:)`'s own doc comment has the
+/// full trace of why a session-wide "last failure", read at handle time,
+/// could pair the wrong failure with the wrong reconnect attempt: two
+/// `.failed(_:)` inputs can be applied back-to-back, inside one
+/// `openStream()` call, before `run()`'s loop gets a turn to dequeue either
+/// one's effect. Carrying the failure inside the queue entry itself removes
+/// the stored property that ordering could corrupt.
+private struct QueuedEffect: Sendable {
+    let effect: ChannelEffect
+    /// Only meaningful for `.reconnect`/`.awaitNetwork` - every other effect
+    /// shape ignores it.
+    let failure: ChannelFailure?
 }
