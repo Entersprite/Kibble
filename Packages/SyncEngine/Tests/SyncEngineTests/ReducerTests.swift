@@ -52,13 +52,24 @@ struct ReducerTests {
         }
     }
 
-    /// A state this build does not recognise clears the last error the same
-    /// way a connection attempt does - "degrade toward optimism" applies here
-    /// too, the same call `ChatWindow` makes rendering `.unknown` as
-    /// connecting rather than alarming.
-    @Test func anUnrecognisedConnectionStateClearsTheLastErrorToo() {
+    /// **Reversed from this test's first version**, which asserted `.unknown`
+    /// cleared `lastError` the same way a connection attempt does, reading
+    /// "degrade toward optimism" (spec §3.4) as licensing it. It does not:
+    /// that rule governs how an *uninterpretable state is rendered*, not
+    /// whether a diagnosis that already arrived gets discarded. An
+    /// unrecognised state is absence of information about what a newer peer
+    /// meant, not evidence of recovery - the same "assume less, never more"
+    /// rule this repo applies everywhere else - so `.unknown` is grouped with
+    /// `idle`/`disconnected` and leaves `lastError` alone. Concretely: a
+    /// backend reports `.backendError(.notAuthenticated)`, then a newer server
+    /// sends some interim state this build does not recognise - clearing here
+    /// would wipe that diagnosis, and `ChatWindow.banner` (which gives
+    /// `lastError` precedence over connection state) would silently downgrade
+    /// "Signed out. Sign in again to keep syncing." - with its sign-in button
+    /// - to "Connecting…".
+    @Test func anUnrecognisedConnectionStateLeavesTheLastErrorInPlace() {
         let reduction = SyncReducer.reduce(.connectionStateChanged(.unknown("hibernating")))
-        #expect(reduction.writes == [.setConnectionState(.unknown("hibernating")), .setLastError(nil)])
+        #expect(reduction.writes == [.setConnectionState(.unknown("hibernating"))])
     }
 
     /// **And disconnecting does not.** A backend reports why it stopped as

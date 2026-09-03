@@ -161,15 +161,31 @@ public enum SyncReducer {
     /// is the value a fresh process starts from, not something a session
     /// transitions into.
     ///
-    /// `.unknown` clears, grouped with the states that mean "trying now"
-    /// rather than with `idle`/`disconnected`: it is the same "degrade toward
-    /// optimism" call `ChatWindow` makes for the same case, and for the same
-    /// reason - a state nobody here understands is not evidence the old error
-    /// still applies.
+    /// **`.unknown` does not clear either, grouped with `idle`/`disconnected`
+    /// rather than with the states that mean "trying now".** An earlier
+    /// version of this grouped it with `.connecting`/`.reconnecting`/
+    /// `.connected` instead, reading spec §3.4's "degrade toward optimism" as
+    /// licensing that. It does not: that rule governs how an
+    /// *uninterpretable state is rendered* - `ChatWindow` shows "Connecting…"
+    /// rather than alarming someone - and it does not license discarding a
+    /// diagnosis that has already arrived. An unrecognised state is absence of
+    /// information about what a newer peer meant, not evidence of recovery,
+    /// and the repo's harder wire rule - assume less, never more - is the one
+    /// that actually governs here.
+    ///
+    /// Concretely: a backend reports `.backendError(.notAuthenticated)`, and
+    /// then a newer server sends some interim state this build does not
+    /// recognise. Clearing here would wipe that diagnosis, and
+    /// `ChatWindow.banner` - which gives `state.lastError` precedence over
+    /// connection state - would silently downgrade "Signed out. Sign in again
+    /// to keep syncing." (with its sign-in button) to "Connecting…": a real,
+    /// actionable auth failure understated as routine reconnection, with the
+    /// sign-in route gone. That is the "banner with no way out" bug class
+    /// session 15 recorded.
     private static func clearedError(by state: ConnectionState) -> [StoreWrite] {
         switch state {
-        case .connecting, .reconnecting, .connected, .unknown: [.setLastError(nil)]
-        case .idle, .disconnected: []
+        case .connecting, .reconnecting, .connected: [.setLastError(nil)]
+        case .idle, .disconnected, .unknown: []
         }
     }
 }

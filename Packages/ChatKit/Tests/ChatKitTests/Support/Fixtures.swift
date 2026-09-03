@@ -199,7 +199,8 @@ extension Fixture {
         Sample("state-connected", .connected),
         Sample("state-reconnecting", .reconnecting(attempt: 7, issue: nil, detail: nil)),
         Sample("state-disconnected", .disconnected(reason: "long poll closed", issue: nil)),
-        Sample("state-disconnected-deliberate", .disconnected(reason: nil, issue: nil))
+        Sample("state-disconnected-deliberate", .disconnected(reason: nil, issue: nil)),
+        Sample("state-unknown", .unknown("somethingNewer"))
     ]
 
     static let gapScopes: [Sample<GapScope>] = [

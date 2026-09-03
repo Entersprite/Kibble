@@ -36,9 +36,14 @@ public enum ConnectionState: Codable, Hashable, Sendable {
     /// older client." The old doc comment argued a state machine with an
     /// uninterpretable state is no better than a lost frame; the answer is
     /// that a *client* with an uninterpretable state can still degrade toward
-    /// optimism, and `ChatWindow` does exactly that - it renders this as
-    /// connecting, with the raw tag in the detail line, rather than alarming
-    /// someone about a state nobody here understands.
+    /// optimism.
+    ///
+    /// **Today**, that means only this: `ChatWindow` renders this case as
+    /// "Connecting…" rather than alarming someone about a state nobody here
+    /// understands. The raw `String` this case carries is captured and decoded
+    /// but not yet shown anywhere - there is no detail line yet for it to go
+    /// in. Surfacing it (spec §8) is a later task's wiring; this comment used
+    /// to claim that wiring already existed, and it did not.
     case unknown(String)
 }
 

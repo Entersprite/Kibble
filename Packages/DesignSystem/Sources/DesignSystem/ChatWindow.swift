@@ -136,7 +136,13 @@ struct StatusStrip: View {
         case .connecting: return "Connecting…"
         case let .reconnecting(attempt, _, _): return "Reconnecting, attempt \(attempt)…"
         case let .disconnected(reason, _): return reason.map { "Disconnected: \($0)" } ?? "Disconnected."
-        case .unknown: return "Connecting…"
+        case .unknown:
+            // Degrades toward optimism rather than alarming over a state
+            // nobody here understands (spec §3.4). The case's raw tag is
+            // dropped here on purpose for now - there is no detail line yet to
+            // put it in. Spec §8 wants one; wiring it up is a later task's
+            // job, not this arm's.
+            return "Connecting…"
         }
     }
 
