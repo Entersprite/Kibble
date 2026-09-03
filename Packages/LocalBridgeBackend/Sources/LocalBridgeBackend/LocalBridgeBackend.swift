@@ -67,7 +67,18 @@ public actor LocalBridgeBackend: ChatBackend {
     /// .swift`'s `using(_:transport:)` is the one place this defaults to a real
     /// `NWPathReachabilityMonitor`; every other entry point, including the
     /// public initialiser below, leaves it `nil`.
-    private let channelReachability: (any ReachabilityMonitor)?
+    ///
+    /// Not `private`, for the same reason `isConnected`, `channel` and
+    /// `channelTask` below are not: `private` blocks even `@testable import`
+    /// from another file in this target, and there would otherwise be no way
+    /// for a test to assert that the public `using(_:transport:)` call site
+    /// - the one `SystemLaunchServices` actually uses - produces a backend
+    /// carrying a real, non-nil monitor. `SessionHandoffTests
+    /// .theRealUsingOverloadSuppliesARealReachabilityMonitor` is that test;
+    /// without this relaxation, a future edit reverting that default to `nil`
+    /// would compile cleanly and every test would still pass while the whole
+    /// feature went silently inert.
+    let channelReachability: (any ReachabilityMonitor)?
     /// Not `private`: `LocalBridgeBackend+ChannelStopped.swift` reads and
     /// writes it too, the same reason `apiClient` and `emit(_:)` are not
     /// `private` either.

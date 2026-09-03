@@ -130,14 +130,25 @@ struct SessionHandoffTests {
 
     // MARK: - Building the bridge
 
+    /// `reachability: nil` on every test in this section but the last one,
+    /// deliberately: `using(_:transport:)`'s real default is a live
+    /// `NWPathReachabilityMonitor`, and CLAUDE.md's testing rule is that a
+    /// test must not need network and must inject a fake. A default argument
+    /// is still evaluated at the call site even when the function returns
+    /// before touching it, so leaving this out here would start a real
+    /// `NWPathMonitor` for no reason. `theRealUsingOverloadSuppliesA
+    /// RealReachabilityMonitor` below is the one place that default is
+    /// exercised on purpose, because it exists to assert what the default
+    /// *is* - see its own doc comment for how that stays consistent with this
+    /// one.
     @Test func thereIsNoBridgeWithoutAStoredSession() async throws {
-        #expect(try await LocalBridgeBackend.using(store()) == nil)
+        #expect(try await LocalBridgeBackend.using(store(), reachability: nil) == nil)
     }
 
     @Test func aStoredSessionProducesABridge() async throws {
         let store = store()
         _ = try await capture([cookie("COMPASS"), cookie("OSID")]).save(to: store)
-        #expect(try await LocalBridgeBackend.using(store) != nil)
+        #expect(try await LocalBridgeBackend.using(store, reachability: nil) != nil)
     }
 
     /// An expired session still builds a bridge.
@@ -150,7 +161,25 @@ struct SessionHandoffTests {
         let store = store()
         _ = try await capture([cookie("COMPASS", expiresAt: now.addingTimeInterval(-86400))])
             .save(to: store)
-        #expect(try await LocalBridgeBackend.using(store) != nil)
+        #expect(try await LocalBridgeBackend.using(store, reachability: nil) != nil)
+    }
+
+    /// The one test in this file that must **not** pass `reachability: nil` -
+    /// every test above does, to keep this package's unit suite off a real
+    /// network monitor. This one exists to assert what `using(_:transport:)`'s
+    /// *default* actually is, because `SystemLaunchServices.swift:67` calls it
+    /// with nothing extra and relies on exactly this default for the whole
+    /// reachability feature to reach production. `channelReachability` is
+    /// internal rather than `private` for the same reason: a `private`
+    /// property would make this assertion impossible even through `@testable
+    /// import`, and a future edit reverting the default to `nil` would then
+    /// compile clean and pass every other test in this suite while the
+    /// feature went silently inert.
+    @Test func theRealUsingOverloadSuppliesARealReachabilityMonitor() async throws {
+        let store = store()
+        _ = try await capture([cookie("COMPASS"), cookie("OSID")]).save(to: store)
+        let backend = try #require(await LocalBridgeBackend.using(store))
+        #expect(await backend.channelReachability != nil)
     }
 }
 

@@ -59,15 +59,20 @@ public extension AppEnvironment {
     ///
     /// - **A bare `connect()` is a safe no-op, which is worse than useless.**
     ///   `LocalBridgeBackend.connect()` opens with `guard !isConnected else {
-    ///   return }`. `isConnected` only ever flips back to `false` in
-    ///   `channelStopped(_:)` (`LocalBridgeBackend+ChannelStopped.swift`),
-    ///   which its own doc comment says is reached only for a **terminal**
-    ///   failure - never for `.reconnecting`, because a recoverable failure no
-    ///   longer stops the channel at all since task 3 of the reconnect
-    ///   taxonomy. `ConnectionBanner.offersReconnect(for:)` only ever returns
-    ///   `true` for `.reconnecting`. So the one state this button could be
-    ///   drawn in is exactly the state where `isConnected` is still `true` and
-    ///   `connect()` returns instantly, having done nothing. A button that
+    ///   return }`. `isConnected` flips back to `false` in exactly two places:
+    ///   `channelStopped(_:)` (`LocalBridgeBackend+ChannelStopped.swift`) and
+    ///   `disconnect()` itself (`LocalBridgeBackend.swift`: `guard isConnected
+    ///   else { return }; isConnected = false`). Neither runs during ordinary
+    ///   auto-retry: `channelStopped(_:)`'s own doc comment says it is reached
+    ///   only for a **terminal** failure - never for `.reconnecting`, because a
+    ///   recoverable failure no longer stops the channel at all since task 3 of
+    ///   the reconnect taxonomy - and `disconnect()` is a deliberate call
+    ///   nothing in the automatic retry path makes on its own.
+    ///   `ConnectionBanner.offersReconnect(for:)` only ever returns `true` for
+    ///   `.reconnecting`. So the one state this button could be drawn in is
+    ///   exactly the state where nothing has touched `isConnected` since the
+    ///   original successful `connect()` - it is still `true`, and a fresh
+    ///   `connect()` call returns instantly, having done nothing. A button that
     ///   silently does nothing is a worse affordance than no button.
     /// - **`disconnect()` then `connect()` would use only existing members,
     ///   and still is not obviously safe.** `ChatBackend`'s own contract
