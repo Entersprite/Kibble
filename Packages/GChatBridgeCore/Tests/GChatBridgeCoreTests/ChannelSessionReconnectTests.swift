@@ -17,6 +17,15 @@ import Testing
 /// nothing session-specific distinguishes how the two recoverable classes
 /// drive the driver. `.noSessionIdentifier` and `.malformedChunk` are still
 /// terminal, and `ChannelReducerTests` guards that too.
+///
+/// **Since task 3 of the reconnect taxonomy, `.transport` never gives up on
+/// its own** - the bug the repo owner reported was exactly that it used to,
+/// after four attempts. Every test below that used to rely on the fake
+/// running dry to produce a clean, terminal stop now either scripts a
+/// deliberate terminal status (`terminatingStream()`) or drives the session
+/// on a background `Task` and calls `stop()` once enough evidence has
+/// accumulated - a fake that merely runs out would otherwise retry forever
+/// and hang the test, which is the change task 3 makes.
 struct ChannelSessionReconnectTests {
     private let initialResponse = #"[[0,["c","S3ss10n","",8,12,30000]]]"#
 
@@ -39,6 +48,13 @@ struct ChannelSessionReconnectTests {
         )
     }
 
+    /// A stream reply that stays terminal even after task 3's changes (403 is
+    /// not 400, 429 or any 5xx - see `ChannelFailure.isRecoverable`), so a
+    /// test can end a session deterministically.
+    private func terminatingStream() -> FakeHTTPTransport.Script {
+        FakeHTTPTransport.Script(status: 403, chunks: [])
+    }
+
     private func collect(_ session: ChannelSession) async -> [ChannelArray] {
         var arrays: [ChannelArray] = []
         for await array in session.events {
@@ -49,22 +65,23 @@ struct ChannelSessionReconnectTests {
 
     /// The socket dies once and the session comes back on its own.
     ///
-    /// `FakeHTTPTransport` refuses to improvise, so the second script running
-    /// out is what plays the role of the dropped connection - and the assertion
-    /// is on the request count, because a reconnect that never re-registered
-    /// would leave it at the pre-failure number.
-    ///
-    /// That number is **five**, not two. The handshake and the reopen consume
-    /// `streams`, not `responses`, so the four scripted responses feed the
-    /// first `register`, its `acknowledge`, and two of the retried
-    /// registrations - and every one of `RetryPolicy.default`'s four attempts
-    /// sends a `register` whether or not a response is left for it. One
-    /// initial plus four bounded attempts is five; the pre-failure number
-    /// would have been one.
+    /// Used to assert the request count was **five**, because
+    /// `RetryPolicy.default`'s four-attempt bound was spent entirely on
+    /// retried registrations before the fake ran dry - "one initial plus
+    /// four bounded attempts". Task 3 of the reconnect taxonomy removed that
+    /// bound, so relying on the fake to run dry no longer produces a
+    /// terminal stop; it would hang this test. The reopen below is scripted
+    /// to drop explicitly (`dropsAfterChunks`, not exhaustion) and the
+    /// retry's handshake gets a deliberate terminal status, so the session
+    /// still ends after exactly one retry cycle - two registers, not five.
     @Test func aDroppedSocketIsRetriedWithoutEndingTheSession() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok(), ok(), ok()],
-            streams: [handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"])]
+            responses: [ok(), ok(), ok()],
+            streams: [
+                handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"]),
+                FakeHTTPTransport.Script(chunks: [], dropsAfterChunks: true),
+                terminatingStream()
+            ]
         )
         let session = ChannelSession(
             cookies: cookies(),
@@ -78,29 +95,35 @@ struct ChannelSessionReconnectTests {
         // session recovered rather than being replaced.
         #expect(arrays.map(\.aid) == [1])
         let paths = await transport.sent.map(\.url.lastPathComponent)
-        #expect(paths.filter { $0.hasPrefix("register") }.count == 5)
+        #expect(paths.filter { $0.hasPrefix("register") }.count == 2)
     }
 
-    /// Bounded, so an outage does not become a client hammering Google.
-    ///
-    /// This is the easy half: no stream ever opens, so nothing could have
-    /// cleared the budget anyway. `aStreamThatOpensAndDiesStillExhaustsTheBudget`
-    /// below is the half that was broken.
-    @Test func reconnectingGivesUpAfterFourAttempts() async {
+    /// Used to assert the ladder gave up after four attempts
+    /// (`RetryPolicy.default.maxAttempts`), since nothing here can ever
+    /// succeed (no streams scripted, so every handshake - and eventually
+    /// every register too, once the one scripted response is spent - fails).
+    /// That bound is the bug the repo owner reported from a live run (an
+    /// outage longer than it produced was permanent until relaunch), so task
+    /// 3 of the reconnect taxonomy removed it. This now asserts the
+    /// opposite: the ladder climbs straight past the old ceiling, and only
+    /// an explicit `stop()` - not the ladder giving up - ends the session.
+    @Test func reconnectingNeverGivesUpOnItsOwn() async {
+        let events = LifecycleRecorder()
         let transport = FakeHTTPTransport(responses: [ok()], streams: [])
         let session = ChannelSession(
             cookies: cookies(),
             transport: transport,
-            retry: .immediate
+            retry: .immediate,
+            onLifecycle: { await events.record($0) }
         )
-        await session.start()
-        _ = await collect(session)
-
-        let failure = await session.failure
-        #expect(failure != nil)
-        let registers = await transport.sent
-            .filter { $0.url.lastPathComponent.hasPrefix("register") }
-        #expect(registers.count <= 5)
+        let running = Task { await session.start() }
+        // Past the old four-attempt bound.
+        while await events.recorded.count < 6 {
+            await Task.yield()
+        }
+        await session.stop()
+        _ = await running.value
+        #expect(await session.failure == nil)
     }
 
     /// The slice's actual name: it does not only *try* to come back, it comes
@@ -111,26 +134,24 @@ struct ChannelSessionReconnectTests {
     /// absent, so `.resumed`, `isRecovering = false` and the reset of
     /// `ChannelState.attempt` were all written and never executed.
     ///
-    /// The single equality below is doing three jobs: `.resumed` fires exactly
-    /// once and only after a recovery; the arrays from the stream *after* the
-    /// drop still reach the consumer; and the second ladder starts again at 1,
-    /// which is the observable proof that the recovered channel got its budget
-    /// back.
-    ///
-    /// **What clears the budget is the second stream's clean end, not its
-    /// opening.** The distinction did not matter while it was written down
-    /// wrongly - the reset used to live in `listen(sid:)` and this test passed
-    /// either way, because the recovered stream here both opens *and* ends
-    /// cleanly before the fake runs out. It matters now:
-    /// `aStreamThatOpensAndDiesStillExhaustsTheBudget` is the case that only
-    /// one of the two placements survives.
+    /// Used to assert a further ladder of `.reconnecting(attempt: 1...4)`
+    /// after the recovery, spent because the fake ran dry at the
+    /// post-recovery reopen and (before task 3) running dry there stopped
+    /// the channel after four. Task 3 removed that stop, so running dry
+    /// there would now hang this test instead of ending it - the third
+    /// stream below scripts a deliberate terminal status for that reopen so
+    /// the session still ends deterministically. What remains and is still
+    /// the point: `.resumed` fires exactly once, right after the recovery,
+    /// and the arrays from the stream *after* the drop still reach the
+    /// consumer.
     @Test func aDroppedSocketRecoversAndKeepsDelivering() async {
         let events = LifecycleRecorder()
         let transport = FakeHTTPTransport(
             responses: [ok(), ok(), ok(), ok()],
             streams: [
                 handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"], dropsAfterChunks: true),
-                handshakeStream(chunks: ["11\n[[2,[\"b\"]]]"])
+                handshakeStream(chunks: ["11\n[[2,[\"b\"]]]"]),
+                terminatingStream()
             ]
         )
         let session = ChannelSession(
@@ -145,43 +166,32 @@ struct ChannelSessionReconnectTests {
         #expect(arrays.map(\.aid) == [1, 2])
         #expect(await events.recorded == [
             .reconnecting(attempt: 1),
-            .resumed,
-            // The fake runs out for good after the recovery, so the channel
-            // then spends its whole budget and stops - starting from 1, not
-            // from 2, because the recovered stream ended cleanly before the
-            // reopen it asked for found no script left.
-            .reconnecting(attempt: 1),
-            .reconnecting(attempt: 2),
-            .reconnecting(attempt: 3),
-            .reconnecting(attempt: 4)
+            .resumed
         ])
-        // Deliberately *not* nil, and it could not be. `failure` is only ever
-        // written by a `.report`, and a transport failure that reconnects
-        // returns no `.report` - so the `failure = nil` beside `.resumed` in
-        // `openStream` has nothing to clear and is belt-and-braces. That is
-        // reviewer Minor 1, deferred rather than removed. What this asserts is
-        // the true half: a recovery does not stop the channel from eventually
-        // reporting the failure that does end it.
+        // Deliberately *not* nil. `failure` is only ever written by a
+        // `.report`, and a transport failure that reconnects returns no
+        // `.report` - so what proves the recovery actually happened is the
+        // terminal failure that ends the session afterwards, at the
+        // deliberately-scripted reopen above.
         #expect(await session.failure != nil)
     }
 
-    /// The unbounded loop, bounded: a channel that opens and dies for ever
-    /// still stops after four.
-    ///
-    /// Every cycle here is register + handshake + acknowledge, the stream
-    /// opens with a valid `X-HTTP-Initial-Response`, and the body then
-    /// **drops** rather than ending. That is what a middlebox, a VPN or a
-    /// machine that sleeps and wakes produces, and against a live account it
-    /// is roughly five requests a second for as long as it lasts - which is
-    /// why this is an account-safety test and not a tidiness one.
-    ///
-    /// Six streams are scripted and only five may be consumed. The lifecycle
-    /// equality is the assertion that matters: with the budget cleared by a
-    /// stream that merely *opens*, the ladder never climbs past
-    /// `.reconnecting(attempt: 1)` and simply repeats it until the fake runs
-    /// out. Climbing 1, 2, 3, 4 and stopping is only possible if nothing in
-    /// this run cleared it - and nothing did, because no body ever ended.
-    @Test func aStreamThatOpensAndDiesStillExhaustsTheBudget() async {
+    /// Was "the unbounded loop, bounded: a channel that opens and dies for
+    /// ever still stops after four" - the account-safety bound this pinned
+    /// is the bug the repo owner reported (task 3 of the reconnect
+    /// taxonomy): an outage longer than four attempts' worth was permanent
+    /// until relaunch. This now asserts the opposite - the ladder keeps
+    /// climbing well past the old ceiling - which is exactly why
+    /// `ChannelState.attempt` still resets only on a clean body end and
+    /// never on stream-*open*: removing the four-attempt bound without that
+    /// distinction would have reintroduced the ~5-requests-a-second
+    /// hammering incident `ChannelState.attempt`'s doc comment records,
+    /// instead of fixing anything. Every cycle here is still register +
+    /// handshake + acknowledge, opening with a valid
+    /// `X-HTTP-Initial-Response` and then dying rather than ending - the
+    /// exact shape a middlebox, a VPN or a machine that sleeps and wakes
+    /// produces.
+    @Test func aStreamThatOpensAndDiesKeepsRetryingPastTheOldBudget() async {
         let events = LifecycleRecorder()
         let dying = handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"], dropsAfterChunks: true)
         let transport = FakeHTTPTransport(
@@ -194,32 +204,30 @@ struct ChannelSessionReconnectTests {
             retry: .immediate,
             onLifecycle: { await events.record($0) }
         )
-        await session.start()
-        _ = await collect(session)
-
-        #expect(await events.recorded == [
-            .reconnecting(attempt: 1),
-            .resumed,
-            .reconnecting(attempt: 2),
-            .resumed,
-            .reconnecting(attempt: 3),
-            .resumed,
-            .reconnecting(attempt: 4),
-            .resumed
-        ])
-        // One initial registration plus the four the budget allows. The sixth
-        // scripted stream is deliberately never reached.
-        let registers = await transport.sent
-            .filter { $0.url.lastPathComponent.hasPrefix("register") }
-        #expect(registers.count == 5)
-        #expect(await session.failure != nil)
+        let running = Task { await session.start() }
+        // The old bound stopped at attempt 4. Once the six scripted streams
+        // (and the twelve scripted responses) run out too, the ladder keeps
+        // climbing anyway via plain transport exhaustion - proof that
+        // nothing here, opening-and-dying or otherwise, gives up on its own.
+        while await !(events.recorded.contains(.reconnecting(attempt: 5))) {
+            await Task.yield()
+        }
+        await session.stop()
+        _ = await running.value
+        #expect(await session.failure == nil)
     }
 
     /// The host is told, so a window can say "reconnecting" rather than
     /// showing a healthy session that has quietly stopped delivering.
     @Test func theHostIsToldWhileReconnecting() async {
         let events = LifecycleRecorder()
-        let transport = FakeHTTPTransport(responses: [ok()], streams: [])
+        let transport = FakeHTTPTransport(
+            responses: [ok(), ok(), ok()],
+            streams: [
+                handshakeStream(chunks: [], dropsAfterChunks: true),
+                terminatingStream()
+            ]
+        )
         let session = ChannelSession(
             cookies: cookies(),
             transport: transport,

@@ -83,9 +83,15 @@ struct ChannelReducerReconnectTests {
         #expect(state.phase == .registering)
     }
 
-    /// Bounded. `RetryPolicy.default.maxAttempts` is 4, and an unbounded
-    /// reconnect against an outage is a client hammering Google.
-    @Test func reconnectingStopsAfterTheAttemptLimit() {
+    /// Used to assert the reducer stopped after four attempts and reported a
+    /// terminal failure — `RetryPolicy.default.maxAttempts` bounded the
+    /// reducer itself. That bound is the bug the repo owner reported from a
+    /// live run (an outage longer than about eight seconds never recovered),
+    /// so task 3 of the reconnect taxonomy removed it. This now asserts the
+    /// opposite: attempt 5, well past the old ceiling, still reconnects
+    /// rather than stopping. See `ChannelReducerPolicyTests
+    /// .aLongOutageNeverStopsRetrying` for the sustained (20-attempt) version.
+    @Test func reconnectingNoLongerStopsAfterTheOldAttemptLimit() {
         var state = connected()
         for attempt in 1 ... 4 {
             let effects = ChannelReducer.reduce(&state, .failed(.transport(nil)))
@@ -93,14 +99,14 @@ struct ChannelReducerReconnectTests {
             _ = ChannelReducer.reduce(&state, .retry)
         }
         let effects = ChannelReducer.reduce(&state, .failed(.transport(nil)))
-        #expect(effects == [.report(.transport(nil)), .finished])
-        #expect(state.phase == .failed(.transport(nil)))
+        #expect(effects == [.reconnect(attempt: 5)])
+        #expect(state.phase == .reconnecting(attempt: 5))
     }
 
-    /// Same bound, same shape, for the other recoverable class: a channel
-    /// stuck answering every reopen with 400 stops after four rather than
-    /// looping forever against a possibly-dead credential.
-    @Test func reconnectingFromA400StopsAfterTheAttemptLimit() {
+    /// Same correction as `reconnectingNoLongerStopsAfterTheOldAttemptLimit`,
+    /// for the other originally-recoverable class: a channel stuck answering
+    /// every reopen with 400 used to stop after four; it no longer does.
+    @Test func reconnectingFromA400NoLongerStopsAfterTheOldAttemptLimit() {
         var state = connected()
         for attempt in 1 ... 4 {
             let effects = ChannelReducer.reduce(&state, .failed(.unexpectedStatus(400)))
@@ -108,16 +114,17 @@ struct ChannelReducerReconnectTests {
             _ = ChannelReducer.reduce(&state, .retry)
         }
         let effects = ChannelReducer.reduce(&state, .failed(.unexpectedStatus(400)))
-        #expect(effects == [.report(.unexpectedStatus(400)), .finished])
-        #expect(state.phase == .failed(.unexpectedStatus(400)))
+        #expect(effects == [.reconnect(attempt: 5)])
+        #expect(state.phase == .reconnecting(attempt: 5))
     }
 
-    /// One budget, not one per recoverable failure shape. Four attempts split
-    /// between `.transport` and `.unexpectedStatus(400)` still exhausts at
-    /// four, not eight (four each) — the bound exists to cap total hammering
-    /// of a possibly-dead account, not to give every recoverable class its own
-    /// quota.
-    @Test func transportAndStatus400ShareOneRetryBudget() {
+    /// Used to assert this shared budget exhausted at four attempts total
+    /// across classes, not four each (eight) — that ceiling is gone (see the
+    /// two tests above and `ChannelReducerPolicyTests`). What survives and is
+    /// still worth pinning: the budget really is shared, not per-class —
+    /// switching failure class does not reset the counter, it keeps climbing
+    /// straight past the old ceiling.
+    @Test func transportAndStatus400ShareOneRetryBudgetPastTheOldLimit() {
         var state = connected()
         let failures: [ChannelFailure] = [
             .transport(.timedOut), .unexpectedStatus(400), .transport(.connectionLost), .unexpectedStatus(400)
@@ -128,9 +135,11 @@ struct ChannelReducerReconnectTests {
             #expect(effects == [.reconnect(attempt: attempt)])
             _ = ChannelReducer.reduce(&state, .retry)
         }
-        let effects = ChannelReducer.reduce(&state, .failed(.transport(.notConnectedToInternet)))
-        #expect(effects == [.report(.transport(.notConnectedToInternet)), .finished])
-        #expect(state.phase == .failed(.transport(.notConnectedToInternet)))
+        // The old bound stopped here, at four combined. The fifth, from
+        // either class, no longer stops - it keeps the shared count climbing.
+        let effects = ChannelReducer.reduce(&state, .failed(.transport(.timedOut)))
+        #expect(effects == [.reconnect(attempt: 5)])
+        #expect(state.phase == .reconnecting(attempt: 5))
     }
 
     /// A body that ends the way a healthy poll ends resets the count, so a

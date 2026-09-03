@@ -104,10 +104,14 @@ public actor LocalBridgeBackend: ChatBackend {
     /// through `@testable import`; the app cannot see it at all, and the public
     /// initialiser above is unchanged.
     ///
-    /// It exists because the default policy is four attempts over seven and a
-    /// half real seconds, and a scripted transport always runs out - so without
-    /// it every test that waits for a channel to finish waits out the whole
-    /// ladder.
+    /// It exists because, without `.immediate`, a channel that keeps failing
+    /// waits out `RetryPolicy.default`'s real backoff before every retry. That
+    /// wait used to be bounded - four attempts, about seven and a half real
+    /// seconds, then the channel gave up. Since task 3 of the reconnect
+    /// taxonomy it no longer gives up on its own, so the wait a test would
+    /// otherwise sit through is unbounded rather than 7.5 seconds.
+    /// `.immediate` removes it, which is what every test that waits for a
+    /// channel to finish needs.
     init(
         cookies: SessionCookies,
         transport: any HTTPTransport,

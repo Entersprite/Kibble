@@ -177,6 +177,23 @@ struct RotationWriteBackTests {
         try await store.currentSession()
     }
 
+    /// `retry: .immediate` because this test waits for the channel to
+    /// finish, and the scripted transport always runs out - so on the
+    /// default policy it would sleep out the whole reconnect ladder before
+    /// asserting something about cookies.
+    ///
+    /// Was a single stream, ending cleanly with no chunks, and two non-shell
+    /// responses (register, ack). Since task 3 of the reconnect taxonomy a
+    /// transport failure never gives up on its own: the reopen this test
+    /// used to let exhaust the fake (and stop, via the old four-attempt
+    /// bound) would now retry forever, and `waitForChannel()` below would
+    /// hang. The second stream scripts a deliberate terminal status for that
+    /// reopen instead, once the rotation this test is about has already been
+    /// absorbed; the third response covers `connect()`'s concurrent
+    /// `resolveAndEmitSelf()`, which races the channel's own register/ack for
+    /// the same queue and - with only two responses for those three callers -
+    /// could otherwise steal one and send the channel's own register into
+    /// the same now-unbounded retry.
     @Test func aRotationOnTheChannelIsPersisted() async throws {
         let store = KeychainCredentialStore(storage: FakeStorage(), account: "test")
         let capture = CookieCapture(
@@ -205,6 +222,7 @@ struct RotationWriteBackTests {
                     headers: HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
                     body: Data()
                 )),
+                ScriptedTransport.ok(""),
                 ScriptedTransport.ok("")
             ],
             streams: [
@@ -213,13 +231,10 @@ struct RotationWriteBackTests {
                         ("X-HTTP-Initial-Response", #"[[0,["c","S3ss10n","",8,12,30000]]]"#)
                     ]),
                     chunks: []
-                )
+                ),
+                ScriptedTransport.Script(status: 403, chunks: [])
             ]
         )
-        // `retry: .immediate` because this test waits for the channel to
-        // finish, and the scripted transport always runs out - so on the
-        // default policy it would sleep out the whole reconnect ladder
-        // (0.5 + 1 + 2 + 4 real seconds) to assert something about cookies.
         let backend = try #require(
             await LocalBridgeBackend.using(store, transport: transport, retry: .immediate)
         )
@@ -231,6 +246,17 @@ struct RotationWriteBackTests {
 
     /// The rewritten session keeps its capture date. Treating a rotation as a
     /// fresh login would reset the age of a credential that is no younger.
+    ///
+    /// `retry: .immediate` because this test waits for the channel to
+    /// finish, and the scripted transport always runs out - so on the
+    /// default policy it would sleep out the whole reconnect ladder before
+    /// asserting something about cookies. Same fix as
+    /// `aRotationOnTheChannelIsPersisted` above and for the same reason: a
+    /// second, deliberately terminal stream so the reopen (now unbounded
+    /// since task 3 of the reconnect taxonomy) still ends the channel
+    /// cleanly, and a fourth response so `resolveAndEmitSelf()` racing the
+    /// channel's own register/ack cannot send it into that same unbounded
+    /// retry.
     @Test func aRotationDoesNotPretendTheSessionWasJustCaptured() async throws {
         let store = KeychainCredentialStore(storage: FakeStorage(), account: "test")
         let captured = Date(timeIntervalSince1970: 1_788_166_800)
@@ -249,6 +275,7 @@ struct RotationWriteBackTests {
                     headers: HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
                     body: Data()
                 )),
+                ScriptedTransport.ok(""),
                 ScriptedTransport.ok("")
             ],
             streams: [
@@ -257,13 +284,10 @@ struct RotationWriteBackTests {
                         ("X-HTTP-Initial-Response", #"[[0,["c","S3ss10n","",8,12,30000]]]"#)
                     ]),
                     chunks: []
-                )
+                ),
+                ScriptedTransport.Script(status: 403, chunks: [])
             ]
         )
-        // `retry: .immediate` because this test waits for the channel to
-        // finish, and the scripted transport always runs out - so on the
-        // default policy it would sleep out the whole reconnect ladder
-        // (0.5 + 1 + 2 + 4 real seconds) to assert something about cookies.
         let backend = try #require(
             await LocalBridgeBackend.using(store, transport: transport, retry: .immediate)
         )

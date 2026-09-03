@@ -212,6 +212,21 @@ public actor ChannelSession {
             guard !Task.isCancelled else { return }
             apply(.retry)
 
+        case let .awaitNetwork(attempt):
+            // Stopgap only: task 4 of the reconnect taxonomy replaces this with
+            // a wait on `ReachabilityMonitor` (a bounded fallback timer if the
+            // signal never comes), so the device offline case spends zero
+            // requests instead of the timer this shares with `.reconnect`
+            // today. Handled identically to `.reconnect` for now purely so this
+            // switch stays exhaustive and the channel still recovers - not
+            // because the two are policy-equivalent; `ChannelEffect
+            // .awaitNetwork`'s own doc comment says why they are not.
+            isRecovering = true
+            await onLifecycle?(.reconnecting(attempt: attempt))
+            try? await retry.waitBeforeRetry(attempt: attempt)
+            guard !Task.isCancelled else { return }
+            apply(.retry)
+
         case .deliver, .report, .finished:
             break // handled in apply(_:)
         }

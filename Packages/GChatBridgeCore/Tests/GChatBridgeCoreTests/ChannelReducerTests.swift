@@ -17,8 +17,10 @@ import Testing
 /// `findings.md` §6, and inventing a recovery policy against the reference's
 /// guesses is work that gets thrown away when the evidence arrives. So
 /// `.noSessionIdentifier` and `.malformedChunk` still report and stop.
-/// `.transport` recovers unconditionally, and `.unexpectedStatus` recovers
-/// only at the literal value 400 — see the reconnecting section below.
+/// `.transport` recovers unconditionally, and `.unexpectedStatus` recovers at
+/// 400, 429 and every 5xx — see the reconnecting section below, and
+/// `ChannelFailure.isRecoverable`'s own doc comment for why 429/5xx are
+/// different from 400: HTTP semantics, not traffic observed from Chat.
 struct ChannelReducerTests {
     private let initialResponse = #"[[0,["c","S3ss10n","",8,12,30000]]]"#
 
@@ -170,13 +172,16 @@ struct ChannelReducerTests {
 
     // MARK: - Failing, terminally and out loud
 
+    /// Was HTTP 500. Since task 3 of the reconnect taxonomy, every 5xx
+    /// recovers rather than stopping (`ChannelFailure.isRecoverable`), so 403
+    /// stands in as a status that still fails terminally.
     @Test func aNonOKHandshakeFails() {
         var state = ChannelState()
         _ = ChannelReducer.reduce(&state, .connect)
         _ = ChannelReducer.reduce(&state, .registered)
-        let effects = ChannelReducer.reduce(&state, .streamOpened(status: 500, initialResponse: nil))
-        #expect(effects == [.report(.unexpectedStatus(500)), .finished])
-        #expect(state.phase == .failed(.unexpectedStatus(500)))
+        let effects = ChannelReducer.reduce(&state, .streamOpened(status: 403, initialResponse: nil))
+        #expect(effects == [.report(.unexpectedStatus(403)), .finished])
+        #expect(state.phase == .failed(.unexpectedStatus(403)))
     }
 
     /// A 200 with no SID is the shape that matters: on this protocol a failure
@@ -267,13 +272,15 @@ struct ChannelReducerTests {
 
     /// The two failure classes session 8 §1.4 refuses to guess about stay
     /// exactly as they were, and `.unexpectedStatus` stays terminal for every
-    /// value other than the literal 400 — 500 and 403 stand in for "any other
-    /// status", 5xx and 4xx alike, deliberately not folded into the 400
-    /// exception the way "any 4xx" or "any non-200" would have been. This test
-    /// is the guard on that refusal.
+    /// value other than 400, 429 and 5xx (task 3 of the reconnect taxonomy
+    /// added 429 and 5xx as recoverable, on HTTP semantics rather than
+    /// observed Chat traffic — see `ChannelFailure.isRecoverable`). Used to
+    /// pin `.unexpectedStatus(500)` as terminal alongside 403; 500 is a 5xx
+    /// and is now recoverable, so 404 stands in its place — still "any other
+    /// status", just no longer one of the ranges that recovers.
     @Test func everyOtherFailureClassIsStillTerminal() {
         for failure in [
-            ChannelFailure.unexpectedStatus(500),
+            ChannelFailure.unexpectedStatus(404),
             .unexpectedStatus(403),
             .noSessionIdentifier,
             .malformedChunk("bad")

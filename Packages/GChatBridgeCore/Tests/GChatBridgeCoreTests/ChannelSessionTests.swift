@@ -9,12 +9,21 @@ import Testing
 /// to improvise, so a session that asks for one request too many ends in a
 /// transport failure rather than in a passing test.
 ///
-/// **Every session here is built with `retry: .immediate`.** Since task 4 a
-/// transport failure reconnects with `RetryPolicy.default`'s backoff, and the
-/// fake's script always runs out eventually — so on the default policy every
-/// test in this file would sleep the full ladder (0.5 + 1 + 2 + 4 seconds)
-/// before its stream finished. `.immediate` keeps the same four attempts with
-/// no waiting, which is what it was written for.
+/// **Every session here is built with `retry: .immediate`.** A transport
+/// failure reconnects with `RetryPolicy.default`'s backoff, so on the default
+/// policy every test in this file would sleep the full ladder before its
+/// stream finished. `.immediate` removes the wait, which is what it was
+/// written for.
+///
+/// **Since task 3 of the reconnect taxonomy, a transport failure never gives
+/// up on its own** (see `ChannelFailure.isRecoverable` and
+/// `ChannelState.attempt`) - so a fake that simply runs out of script now
+/// retries forever instead of failing terminally, which would hang a test
+/// that waits for the event stream to finish naturally. Every test below that
+/// needs the session to end deterministically scripts a final
+/// `terminatingStream()` (a status that still stays terminal - see that
+/// helper) rather than relying on the fake's exhaustion, which is what these
+/// tests did before task 3.
 struct ChannelSessionTests {
     private let initialResponse = #"[[0,["c","S3ss10n","",8,12,30000]]]"#
 
@@ -41,6 +50,14 @@ struct ChannelSessionTests {
         )
     }
 
+    /// A stream reply that stays terminal even after task 3's changes - 403
+    /// is not 400, 429 or any 5xx (see `ChannelFailure.isRecoverable`) - so a
+    /// test can end a session deterministically instead of either waiting out
+    /// an unbounded reconnect ladder or relying on the fake running dry.
+    private func terminatingStream() -> FakeHTTPTransport.Script {
+        FakeHTTPTransport.Script(status: 403, chunks: [])
+    }
+
     private func collect(_ session: ChannelSession) async -> [ChannelArray] {
         var arrays: [ChannelArray] = []
         for await array in session.events {
@@ -54,7 +71,10 @@ struct ChannelSessionTests {
     @Test func aSessionDeliversTheArraysItReceives() async {
         let transport = FakeHTTPTransport(
             responses: [ok(), ok()],
-            streams: [handshakeStream(chunks: ["11\n[[1,[\"a\"]]]", "11\n[[2,[\"b\"]]]"])]
+            streams: [
+                handshakeStream(chunks: ["11\n[[1,[\"a\"]]]", "11\n[[2,[\"b\"]]]"]),
+                terminatingStream()
+            ]
         )
         let session = ChannelSession(
             cookies: cookies(),
@@ -71,10 +91,19 @@ struct ChannelSessionTests {
     /// the reopen. The ack has to go **before** the body is read, not after it
     /// — the reference sends it and then falls into the read loop, and a client
     /// that acks after the poll ends has acked minutes late.
+    ///
+    /// Used to assert `paths.count >= 4` with a trailing "ladder of retried
+    /// registrations" once the fake ran out, because a transport failure used
+    /// to reconnect only up to `RetryPolicy.default.maxAttempts` and running
+    /// dry was the trigger. Task 3 of the reconnect taxonomy removed that
+    /// ceiling, so a fake that merely runs out now retries forever rather than
+    /// stopping - which would hang this test. The second stream below scripts
+    /// a deliberate terminal status instead, so the sequence is exactly these
+    /// four requests.
     @Test func theRequestSequenceIsRegisterHandshakeAcknowledgeReopen() async {
         let transport = FakeHTTPTransport(
             responses: [ok(), ok()],
-            streams: [handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"])]
+            streams: [handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"]), terminatingStream()]
         )
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
@@ -90,12 +119,7 @@ struct ChannelSessionTests {
         #expect(paths[2].contains("RID=rpc") && paths[2].contains("AID=0"))
         // The reopen carries the watermark from the array that was delivered.
         #expect(paths[3].contains("AID=1"))
-        // Was `paths.count == 4`. Since task 4 the reopen that exhausts the
-        // fake is a transport failure, and a transport failure reconnects -
-        // so the tail is the bounded ladder of retried registrations rather
-        // than the fake being asked to improvise.
-        #expect(paths.count >= 4)
-        #expect(paths.dropFirst(4).allSatisfy { $0.hasPrefix("register?") })
+        #expect(paths.count == 4)
     }
 
     @Test func aReopenContinuesDeliveringOnTheSameSession() async {
@@ -103,7 +127,8 @@ struct ChannelSessionTests {
             responses: [ok(), ok()],
             streams: [
                 handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"]),
-                FakeHTTPTransport.Script(chunks: ["11\n[[2,[\"b\"]]]"])
+                FakeHTTPTransport.Script(chunks: ["11\n[[2,[\"b\"]]]"]),
+                terminatingStream()
             ]
         )
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
@@ -120,7 +145,7 @@ struct ChannelSessionTests {
     @Test func aRotatedCookieIsAbsorbedAndHandedBackForPersisting() async {
         let transport = FakeHTTPTransport(
             responses: [ok(["COMPASS=grown; Path=/"]), ok()],
-            streams: [handshakeStream(chunks: [])]
+            streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let rotated = Rotations()
         let session = ChannelSession(
@@ -147,7 +172,8 @@ struct ChannelSessionTests {
                         ("Set-Cookie", "SIDCC=fresh; Path=/")
                     ]),
                     chunks: []
-                )
+                ),
+                terminatingStream()
             ]
         )
         let rotated = Rotations()
@@ -168,7 +194,7 @@ struct ChannelSessionTests {
     @Test func anUnchangedCookieSetIsNotWrittenBack() async {
         let transport = FakeHTTPTransport(
             responses: [ok(["COMPASS=old; Path=/"]), ok()],
-            streams: [handshakeStream(chunks: [])]
+            streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let rotated = Rotations()
         let session = ChannelSession(
@@ -186,7 +212,7 @@ struct ChannelSessionTests {
     @Test func requestsCarryTheRotatedCookieRatherThanTheCapturedOne() async {
         let transport = FakeHTTPTransport(
             responses: [ok(["COMPASS=grown; Path=/"]), ok()],
-            streams: [handshakeStream(chunks: [])]
+            streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
@@ -208,7 +234,7 @@ struct ChannelSessionTests {
         let credentials = SessionCredentials(cookies())
         let transport = FakeHTTPTransport(
             responses: [ok(["COMPASS=grown; Path=/"]), ok()],
-            streams: [handshakeStream(chunks: [])]
+            streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(
             credentials: credentials,
@@ -240,7 +266,7 @@ struct ChannelSessionTests {
 
         let transport = FakeHTTPTransport(
             responses: [ok(), ok()],
-            streams: [handshakeStream(chunks: [])]
+            streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(
             credentials: credentials,
@@ -257,25 +283,40 @@ struct ChannelSessionTests {
 
     // MARK: - Stopping
 
+    /// Was HTTP 500. Since task 3 of the reconnect taxonomy every 5xx
+    /// recovers rather than stopping (`ChannelFailure.isRecoverable`), so 403
+    /// stands in as a status that still ends the session.
     @Test func aNonOKHandshakeEndsTheSessionWithTheReason() async {
         let transport = FakeHTTPTransport(
             responses: [ok()],
-            streams: [FakeHTTPTransport.Script(status: 500, chunks: [])]
+            streams: [FakeHTTPTransport.Script(status: 403, chunks: [])]
         )
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
         _ = await collect(session)
-        #expect(await session.failure == .unexpectedStatus(500))
+        #expect(await session.failure == .unexpectedStatus(403))
     }
 
-    /// The fake refuses to improvise, so running out of scripted responses is a
-    /// transport failure - which is exactly what a socket closing looks like.
-    @Test func aTransportFailureEndsTheStreamRatherThanHangingIt() async {
+    /// Was "a transport failure ends the stream rather than hanging it" -
+    /// task 3 of the reconnect taxonomy made that literally false: a
+    /// transport failure no longer ends a session on its own, it reconnects
+    /// forever (that is the fix for the reported bug). The fake here can
+    /// never succeed (nothing is scripted), so the ladder climbs
+    /// indefinitely; this now asserts that it really does climb well past the
+    /// old four-attempt bound, and that only an explicit `stop()` ends it.
+    @Test func aTransportFailureNoLongerEndsTheSessionOnItsOwn() async {
         let transport = FakeHTTPTransport(responses: [], streams: [])
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
-        await session.start()
-        _ = await collect(session)
-        #expect(await session.failure != nil)
+        let running = Task { await session.start() }
+        // Past the old four-attempt bound (five register calls, including the
+        // first), and still climbing - proof the ladder does not give up on
+        // its own. `stop()` below is what ends it.
+        while await transport.sent.count < 10 {
+            await Task.yield()
+        }
+        await session.stop()
+        _ = await running.value
+        #expect(await session.failure == nil)
     }
 
     @Test func stoppingFinishesTheEventStream() async {
@@ -288,17 +329,15 @@ struct ChannelSessionTests {
     @Test func startingTwiceDoesNotOpenTwoChannels() async {
         let transport = FakeHTTPTransport(
             responses: [ok(), ok()],
-            streams: [handshakeStream(chunks: [])]
+            streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
         await session.start()
         await session.start()
         _ = await collect(session)
-        // One handshake, not two. Counting *requests* stopped being the test
-        // for this in task 4: the reopen that exhausts the fake now reconnects,
-        // so the total legitimately grows past four. A second channel would
-        // show up as a second `SID=null` handshake, which is the thing this
-        // test is actually about.
+        // One handshake, not two. A second channel would show up as a second
+        // `SID=null` handshake, which is the thing this test is actually
+        // about.
         let handshakes = await transport.sent.filter { request in
             let query = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?
                 .percentEncodedQuery ?? ""
