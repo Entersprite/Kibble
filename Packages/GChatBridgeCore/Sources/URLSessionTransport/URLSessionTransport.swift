@@ -161,20 +161,35 @@ public final class URLSessionTransport: HTTPTransport {
     /// Classifies what the URL loading system threw, so nothing above this
     /// file ever holds that error's own description.
     ///
-    /// Only three codes are named explicitly - the ones a person can act on
-    /// ("check your connection", "try again", "the network dropped"). Every
-    /// other code becomes `.other(domain:code:)`, which is still exactly as
-    /// safe to print: a domain string and an integer, never request content.
-    /// An error that is not a `URLError` at all (a cancellation, say) is
-    /// passed through unchanged - `ProtoAPIClient.callRaw` already treats
-    /// anything it cannot recognise as unclassified, which is the correct
-    /// fallback here too.
-    private static func classify(_ error: any Error) -> any Error {
+    /// Each named code is a distinct thing to tell a person, and each wants a
+    /// different retry cadence (design doc §5): connectivity, a timeout, a
+    /// mid-flight drop, a name that would not resolve, a connection the
+    /// network refused, and a TLS/certificate failure standing in for a
+    /// captive portal, a proxy or an intercepting VPN. Every other code
+    /// becomes `.other(domain:code:)`, which is still exactly as safe to
+    /// print: a domain string and an integer, never request content. An
+    /// error that is not a `URLError` at all (a cancellation, say) is passed
+    /// through unchanged - `ProtoAPIClient.callRaw` already treats anything
+    /// it cannot recognise as unclassified, which is the correct fallback
+    /// here too.
+    ///
+    /// Internal rather than private only so `URLSessionTransportTests` can
+    /// drive it directly with a synthesised `URLError`, via `@testable
+    /// import`, rather than through a stubbed session for every code this
+    /// maps. Same reason `LocalBridgeBackend.channelStopped` is `internal`.
+    static func classify(_ error: any Error) -> any Error {
         guard let urlError = error as? URLError else { return error }
         let reason: TransportFailureReason = switch urlError.code {
         case .notConnectedToInternet: .notConnectedToInternet
         case .timedOut: .timedOut
         case .networkConnectionLost: .connectionLost
+        case .cannotFindHost, .dnsLookupFailed: .nameResolution
+        case .cannotConnectToHost: .refused
+        case .secureConnectionFailed,
+             .serverCertificateUntrusted,
+             .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid: .intercepted
         default: .other(domain: URLError.errorDomain, code: urlError.errorCode)
         }
         return ClassifiedTransportFailure(reason)

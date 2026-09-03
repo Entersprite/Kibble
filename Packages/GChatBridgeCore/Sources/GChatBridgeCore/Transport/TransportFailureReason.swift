@@ -18,7 +18,16 @@ public enum TransportFailureReason: Sendable, Hashable {
     case notConnectedToInternet
     case timedOut
     case connectionLost
-    /// Whatever the three cases above did not match, kept as the domain and
+    /// DNS did not resolve.
+    case nameResolution
+    /// The network was reached; the connection was refused.
+    case refused
+    /// TLS or certificate failure - a captive portal, a proxy or an
+    /// intercepting VPN. Deliberately not named as any of them: nothing here
+    /// distinguishes them, and a confidently wrong diagnosis on screen is
+    /// worse than an honest vague one.
+    case intercepted
+    /// Whatever the cases above did not match, kept as the domain and
     /// code a classifier actually found. Both are diagnostic - never request
     /// content - which is what makes carrying them safe where carrying the
     /// error's own description would not be.
@@ -31,6 +40,9 @@ public enum TransportFailureReason: Sendable, Hashable {
         case .notConnectedToInternet: "not connected to the internet"
         case .timedOut: "timed out"
         case .connectionLost: "network connection lost"
+        case .nameResolution: "could not look up the host"
+        case .refused: "the connection was refused"
+        case .intercepted: "the secure connection failed"
         case let .other(domain, code): "\(domain) \(code)"
         }
     }

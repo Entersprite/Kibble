@@ -66,6 +66,55 @@ struct URLSessionTransportTests {
 
     // MARK: - Classification
 
+    /// Drives `URLSessionTransport.classify` directly with a synthesised
+    /// `URLError`, rather than through a stubbed session - the property under
+    /// test is the code-to-reason mapping itself, and this is the cheapest
+    /// thing that could exercise it. `classify` is `internal` (not `private`)
+    /// only so this `@testable import` can reach it.
+    private func classified(_ code: URLError.Code) -> TransportFailureReason {
+        guard let failure = URLSessionTransport.classify(URLError(code)) as? ClassifiedTransportFailure else {
+            Issue.record("expected a ClassifiedTransportFailure for \(code)")
+            return .other(domain: "unexpected", code: 0)
+        }
+        return failure.reason
+    }
+
+    /// Each of these is a distinct thing to tell a person, and each wants a
+    /// different retry cadence - see the design doc §5. Before this they all
+    /// collapsed into `.other(domain:code:)`.
+    @Test func dnsFailuresAreNamed() {
+        #expect(classified(.cannotFindHost) == .nameResolution)
+        #expect(classified(.dnsLookupFailed) == .nameResolution)
+    }
+
+    @Test func aRefusedConnectionIsNamed() {
+        #expect(classified(.cannotConnectToHost) == .refused)
+    }
+
+    /// The captive-portal / proxy / intercepting-VPN signature. Named for
+    /// what is observable rather than for any of those, because nothing here
+    /// distinguishes them.
+    @Test func tlsFailuresAreNamedAsInterception() {
+        #expect(classified(.secureConnectionFailed) == .intercepted)
+        #expect(classified(.serverCertificateUntrusted) == .intercepted)
+        #expect(classified(.serverCertificateHasBadDate) == .intercepted)
+        #expect(classified(.serverCertificateHasUnknownRoot) == .intercepted)
+        #expect(classified(.serverCertificateNotYetValid) == .intercepted)
+    }
+
+    @Test func theExistingThreeStillClassify() {
+        #expect(classified(.notConnectedToInternet) == .notConnectedToInternet)
+        #expect(classified(.timedOut) == .timedOut)
+        #expect(classified(.networkConnectionLost) == .connectionLost)
+    }
+
+    @Test func anythingElseStaysOther() {
+        #expect(classified(.userAuthenticationRequired) == .other(
+            domain: URLError.errorDomain,
+            code: URLError.Code.userAuthenticationRequired.rawValue
+        ))
+    }
+
     /// The whole reason `ClassifiedTransportFailure` exists: a real
     /// `URLError` here carries the failing request's URL in its own
     /// `userInfo` (`NSURLErrorFailingURLErrorKey` - `StubURLProtocol` puts one
