@@ -70,6 +70,40 @@ else
     pass "only LocalBridgeBackend imports the reverse-engineered core"
 fi
 
+echo "App layering (AppCore is what iOS links; MacHost is what it does not):"
+APPCORE=Packages/AppCore/Sources/AppCore
+# The design's load-bearing principle - the apps depend on ChatBackend, not on
+# any connection - checked above the seam for the first time. AppCore naming a
+# backend gives two futures, both bad: iOS links it and ships the protocol
+# core, or iOS does not and reimplements the launch machine. See the design doc
+# §3.1; this scan is what would have caught its first draft.
+scan "$APPCORE" \
+  '^[[:space:]]*import[[:space:]]+(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security)\b' \
+  "AppCore imports no backend, no credential store and no web view"
+
+# The app target is a shell. This was the one structure rule in CLAUDE.md with
+# no scan behind it, and it is the one that drifted: AppEnvironment.swift grew
+# to 363 lines of launch machine while its own header said there was no logic
+# in it. Stated as an import ban rather than a list of forbidden symbols,
+# because a symbol list only forbids the three things someone already thought
+# of.
+scan "Apps" \
+  '^[[:space:]]*import[[:space:]]+(GRDB|SyncEngine|LocalBridgeBackend|FixtureBackend)\b' \
+  "the app target imports no store and no backend"
+
+# Every entry into .needsSignIn must erase the store first, and the way that is
+# structural rather than a convention is that exactly one function constructs
+# the phase. Session 15 §2 found four routes where the brief assumed one; three
+# of them did not erase. Without this scan a fifth reintroduces the bug.
+needs=$(swift_files "$APPCORE" | xargs -0 grep -ln '\.needsSignIn(' 2>/dev/null \
+        | grep -v '/LaunchPhase\.swift$' | grep -v '/AppEnvironment\.swift$' || true)
+if [ -n "$needs" ]; then
+    note "the .needsSignIn phase is constructed outside enterNeedsSignIn"
+    printf '%s\n' "$needs" | sed 's/^/         /' >&2
+else
+    pass ".needsSignIn is constructed in exactly one place"
+fi
+
 echo "Reducer purity (the bridge server runs this file verbatim):"
 # The architecture's condition for read state and history not drifting into two
 # sources of truth is that the server reduces events with THIS reducer rather
