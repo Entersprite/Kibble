@@ -29,12 +29,14 @@ import Foundation
 /// out byte-for-byte. Nothing throws. Without that, shipping a bridge server
 /// that emits one new event would brick every client built before it.
 ///
-/// Two exceptions are worth knowing about, because they are gaps rather than
-/// design: `ConnectionState` and `GapScope` are closed enums, so an
-/// unrecognised discriminator *inside* `connectionStateChanged` or `gap` does
-/// throw, and takes the frame with it. `ChatError` absorbs one, losing the
-/// payload. A field that a version 1 encoder always writes is required when
-/// decoding: its absence is a malformed frame, not an old peer.
+/// One exception is worth knowing about, because it is a gap rather than
+/// design: `GapScope` is a closed enum, so an unrecognised discriminator
+/// *inside* `gap` does throw, and takes the frame with it. `ConnectionState`
+/// used to share that gap; it closed with the reconnect taxonomy's wire
+/// change, which gave it its own `.unknown(String)` case. `ChatError` absorbs
+/// an unrecognised discriminator, losing the payload. A field that a version 1
+/// encoder always writes is required when decoding: its absence is a
+/// malformed frame, not an old peer.
 public enum ChatEvent: Codable, Hashable, Sendable {
     case connectionStateChanged(ConnectionState)
 

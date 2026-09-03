@@ -60,7 +60,7 @@ struct LocalBridgeBackendTests {
         // never learn why nothing is syncing.
         let seen = await events
         #expect(seen.contains(.backendError(.notAuthenticated)))
-        #expect(seen.contains(.connectionStateChanged(.disconnected(reason: "not signed in"))))
+        #expect(seen.contains(.connectionStateChanged(.disconnected(reason: "not signed in", issue: nil))))
     }
 
     @Test func aBounceToTheAccountsHostIsAlsoNotAuthenticated() async throws {
@@ -164,7 +164,7 @@ struct LocalBridgeBackendTests {
         var found = false
         for _ in 0 ..< 8 {
             guard let event = await iterator.next() else { break }
-            if event == .connectionStateChanged(.disconnected(reason: nil)) {
+            if event == .connectionStateChanged(.disconnected(reason: nil, issue: nil)) {
                 found = true
                 break
             }

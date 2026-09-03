@@ -125,7 +125,10 @@ extension Fixture {
     /// suite, so adding a case without adding a sample fails rather than
     /// quietly going untested.
     static let events: [Sample<ChatEvent>] = [
-        Sample("event-connectionStateChanged", .connectionStateChanged(.reconnecting(attempt: 2))),
+        Sample(
+            "event-connectionStateChanged",
+            .connectionStateChanged(.reconnecting(attempt: 2, issue: nil, detail: nil))
+        ),
         Sample("event-selfIdentified", .selfIdentified(localUser)),
         Sample("event-conversationsChanged", .conversationsChanged([conversation, dm])),
         Sample("event-conversationUpdated", .conversationUpdated(conversation)),
@@ -194,9 +197,9 @@ extension Fixture {
         Sample("state-idle", .idle),
         Sample("state-connecting", .connecting),
         Sample("state-connected", .connected),
-        Sample("state-reconnecting", .reconnecting(attempt: 7)),
-        Sample("state-disconnected", .disconnected(reason: "long poll closed")),
-        Sample("state-disconnected-deliberate", .disconnected(reason: nil))
+        Sample("state-reconnecting", .reconnecting(attempt: 7, issue: nil, detail: nil)),
+        Sample("state-disconnected", .disconnected(reason: "long poll closed", issue: nil)),
+        Sample("state-disconnected-deliberate", .disconnected(reason: nil, issue: nil))
     ]
 
     static let gapScopes: [Sample<GapScope>] = [

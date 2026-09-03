@@ -1,28 +1,45 @@
 import Foundation
 
 /// Where the backend's connection currently is.
-///
-/// Note the asymmetry with the rest of this protocol: this enum has **no
-/// `.unknown` case**, so an unrecognised discriminator throws rather than
-/// degrading. That is a known sharp edge — see the note on `ChatEvent` — and
-/// the reason it is tolerable today is that a state machine with an
-/// uninterpretable state is not obviously better than a lost frame. If a
-/// backend ever needs a fifth state, this enum needs an `.unknown(String)` case
-/// and that is a wire-format change.
 public enum ConnectionState: Codable, Hashable, Sendable {
     /// Never connected, and not trying to.
     case idle
     case connecting
     case connected
 
-    /// Retrying after a failure. `attempt` counts from 1 and exists so a client
-    /// can say "attempt 4" rather than spinning silently forever.
-    case reconnecting(attempt: Int)
+    /// Retrying after a failure. `attempt` counts from 1 and exists so a
+    /// client can say "attempt 4" rather than spinning silently.
+    ///
+    /// **This is the steady state during an outage**, not a brief blip.
+    /// Nothing recoverable gives up any more (design §3.1), so a client that
+    /// treated `.reconnecting` as transient and `.disconnected` as the real
+    /// news has it backwards.
+    ///
+    /// `issue` is what the UI branches on; `detail` is a diagnostic phrase for
+    /// humans - an error domain and code, a status number - and never a URL or
+    /// any request content. Both are optional so a frame from a peer that
+    /// predates them still decodes.
+    case reconnecting(attempt: Int, issue: ConnectionIssue?, detail: String?)
 
-    /// `reason` is for humans and logs, never for branching: it is whatever the
-    /// backend had to say. `nil` means the disconnect was deliberate — the
-    /// answer to `disconnect()`.
-    case disconnected(reason: String?)
+    /// `reason` is for humans and logs, never for branching: it is whatever
+    /// the backend had to say. `nil` means the disconnect was deliberate - the
+    /// answer to `disconnect()`. `issue` is the branchable form, and is `nil`
+    /// for a deliberate disconnect for the same reason `reason` is.
+    case disconnected(reason: String?, issue: ConnectionIssue?)
+
+    /// A state this build does not know.
+    ///
+    /// Added because this enum used to **throw** on an unrecognised
+    /// discriminator, in documented violation of the rule every other enum in
+    /// this module follows: "an unknown discriminator decodes to `.unknown`
+    /// and never throws - without this, deploying a newer server bricks every
+    /// older client." The old doc comment argued a state machine with an
+    /// uninterpretable state is no better than a lost frame; the answer is
+    /// that a *client* with an uninterpretable state can still degrade toward
+    /// optimism, and `ChatWindow` does exactly that - it renders this as
+    /// connecting, with the raw tag in the detail line, rather than alarming
+    /// someone about a state nobody here understands.
+    case unknown(String)
 }
 
 extension ConnectionState {
@@ -30,6 +47,8 @@ extension ConnectionState {
         case type
         case attempt
         case reason
+        case issue
+        case detail
     }
 
     enum Tag: String {
@@ -51,18 +70,20 @@ extension ConnectionState {
         case .connected:
             self = .connected
         case .reconnecting:
-            self = try .reconnecting(attempt: container.decode(Int.self, forKey: .attempt))
+            self = try .reconnecting(
+                attempt: container.decode(Int.self, forKey: .attempt),
+                // Absent means nil, not a failure: "assume less" is the rule
+                // a missing key gets, the same one `Capabilities` follows.
+                issue: container.decodeIfPresent(ConnectionIssue.self, forKey: .issue),
+                detail: container.decodeIfPresent(String.self, forKey: .detail)
+            )
         case .disconnected:
             self = try .disconnected(
-                reason: container.decodeIfPresent(String.self, forKey: .reason)
+                reason: container.decodeIfPresent(String.self, forKey: .reason),
+                issue: container.decodeIfPresent(ConnectionIssue.self, forKey: .issue)
             )
         case nil:
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: container.codingPath,
-                    debugDescription: "Unknown ConnectionState type: \(raw)"
-                )
-            )
+            self = .unknown(raw)
         }
     }
 
@@ -75,12 +96,20 @@ extension ConnectionState {
             try container.encode(Tag.connecting.rawValue, forKey: .type)
         case .connected:
             try container.encode(Tag.connected.rawValue, forKey: .type)
-        case let .reconnecting(attempt):
+        case let .reconnecting(attempt, issue, detail):
             try container.encode(Tag.reconnecting.rawValue, forKey: .type)
             try container.encode(attempt, forKey: .attempt)
-        case let .disconnected(reason):
+            // encodeIfPresent, so a nil issue omits the key entirely and a
+            // fixture's frames stay byte-identical - `DeterminismTests`
+            // asserts that.
+            try container.encodeIfPresent(issue, forKey: .issue)
+            try container.encodeIfPresent(detail, forKey: .detail)
+        case let .disconnected(reason, issue):
             try container.encode(Tag.disconnected.rawValue, forKey: .type)
             try container.encodeIfPresent(reason, forKey: .reason)
+            try container.encodeIfPresent(issue, forKey: .issue)
+        case let .unknown(raw):
+            try container.encode(raw, forKey: .type)
         }
     }
 }

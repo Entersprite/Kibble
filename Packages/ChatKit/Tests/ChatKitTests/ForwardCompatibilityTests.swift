@@ -104,28 +104,42 @@ struct ForwardCompatibilityTests {
         }
     }
 
-    /// Documented gaps, pinned so they are visible rather than discovered.
+    /// A documented gap, pinned so it is visible rather than discovered.
     ///
-    /// `ConnectionState` and `GapScope` are *closed* enums, so an unrecognised
-    /// discriminator nested inside `connectionStateChanged` or `gap` throws and
-    /// takes the whole frame with it — exactly the failure the outer
-    /// `.unknown` case exists to prevent. This is a known asymmetry, not a
-    /// deliberate design, and these assertions are here so that closing the gap
-    /// shows up as a deliberate test change.
-    @Test("an unrecognised connection state throws, taking the frame with it")
-    func closedEnumsStillThrow() throws {
-        let frame = #"{"type":"connectionStateChanged","state":{"type":"quantumTunnelling"}}"#
-        #expect(throws: (any Error).self) {
-            try Wire.decode(ChatEvent.self, from: frame)
-        }
-    }
-
+    /// `GapScope` is a *closed* enum, so an unrecognised discriminator nested
+    /// inside `gap` throws and takes the whole frame with it — exactly the
+    /// failure the outer `.unknown` case exists to prevent. This is a known
+    /// asymmetry, not a deliberate design, and the assertion below is here so
+    /// that closing the gap shows up as a deliberate test change.
+    ///
+    /// `ConnectionState` used to share this gap, and a test here used to pin
+    /// it (`closedEnumsStillThrow`). The reconnect taxonomy's wire change gave
+    /// it its own `.unknown(String)` case, so that assertion is gone and
+    /// `anUnrecognisedConnectionStateDecodesRatherThanThrowing` below pins the
+    /// closed gap instead — exactly the "deliberate test change" this comment
+    /// asked for.
     @Test("an unrecognised gap scope throws, taking the frame with it")
     func unknownGapScopeThrows() throws {
         let frame = #"{"type":"gap","reason":"overflow","scope":{"type":"galaxy"}}"#
         #expect(throws: (any Error).self) {
             try Wire.decode(ChatEvent.self, from: frame)
         }
+    }
+
+    /// The gap `closedEnumsStillThrow` used to pin: a `connectionStateChanged`
+    /// frame naming an issue this build has never heard of now decodes to
+    /// `.unknown` instead of throwing and taking the envelope with it, the
+    /// same guarantee `unknownEventDoesNotThrow` makes for the outer frame.
+    @Test("an unrecognised connection state decodes rather than throwing")
+    func anUnrecognisedConnectionStateDecodesRatherThanThrowing() throws {
+        let frame = #"{"type":"connectionStateChanged","state":{"type":"quantumTunnelling"}}"#
+        let event = try Wire.decode(ChatEvent.self, from: frame)
+        #expect(event == .connectionStateChanged(.unknown("quantumTunnelling")))
+
+        let reencoded = try Wire.json(event)
+        let before = try Wire.decode(JSONValue.self, from: frame)
+        let after = try Wire.decode(JSONValue.self, from: reencoded)
+        #expect(after == before, "the frame lost or gained a field on the way through")
     }
 
     /// `ChatError` absorbs an unknown type instead of throwing, which is the

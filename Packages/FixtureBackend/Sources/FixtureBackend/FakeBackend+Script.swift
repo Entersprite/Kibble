@@ -114,9 +114,9 @@ private extension FakeBackend {
             // it had dropped would keep accepting commands the client has been
             // told cannot arrive.
             isConnected = false
-            emit(.connectionStateChanged(.disconnected(reason: reason)))
+            emit(.connectionStateChanged(.disconnected(reason: reason, issue: nil)))
         case let .reconnecting(attempt):
-            emit(.connectionStateChanged(.reconnecting(attempt: attempt)))
+            emit(.connectionStateChanged(.reconnecting(attempt: attempt, issue: nil, detail: nil)))
         case let .error(error):
             emit(.backendError(error))
         case .delay:

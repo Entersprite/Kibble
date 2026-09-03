@@ -33,9 +33,11 @@ struct ReducerTests {
     /// connection state: one failed send and the client could never say
     /// "Reconnecting, attempt 2…" again for the rest of the session.
     @Test func connectionStateIsRecordedSoTheUICanReadItFromTheStore() {
-        let reduction = SyncReducer.reduce(.connectionStateChanged(.reconnecting(attempt: 2)))
+        let reduction = SyncReducer.reduce(
+            .connectionStateChanged(.reconnecting(attempt: 2, issue: nil, detail: nil))
+        )
         #expect(reduction.writes == [
-            .setConnectionState(.reconnecting(attempt: 2)),
+            .setConnectionState(.reconnecting(attempt: 2, issue: nil, detail: nil)),
             .setLastError(nil)
         ])
         #expect(reduction.effects.isEmpty)
@@ -50,6 +52,15 @@ struct ReducerTests {
         }
     }
 
+    /// A state this build does not recognise clears the last error the same
+    /// way a connection attempt does - "degrade toward optimism" applies here
+    /// too, the same call `ChatWindow` makes rendering `.unknown` as
+    /// connecting rather than alarming.
+    @Test func anUnrecognisedConnectionStateClearsTheLastErrorToo() {
+        let reduction = SyncReducer.reduce(.connectionStateChanged(.unknown("hibernating")))
+        #expect(reduction.writes == [.setConnectionState(.unknown("hibernating")), .setLastError(nil)])
+    }
+
     /// **And disconnecting does not.** A backend reports why it stopped as
     /// `.backendError` and then reports the stop -
     /// `LocalBridgeBackend.channelStopped` emits that pair in that order - so
@@ -57,7 +68,7 @@ struct ReducerTests {
     /// leave a bare "Disconnected." `idle` is the value a fresh process starts
     /// from rather than one a session moves into, and is left alone too.
     @Test func stoppingLeavesTheReasonItStoppedInPlace() {
-        for state in [ConnectionState.disconnected(reason: "the channel closed"), .idle] {
+        for state in [ConnectionState.disconnected(reason: "the channel closed", issue: nil), .idle] {
             let reduction = SyncReducer.reduce(.connectionStateChanged(state))
             #expect(reduction.writes == [.setConnectionState(state)])
         }

@@ -130,7 +130,7 @@ struct ScriptTests {
 
         #expect(
             await collector.nextOne()
-                == .connectionStateChanged(.disconnected(reason: "server closed the channel"))
+                == .connectionStateChanged(.disconnected(reason: "server closed the channel", issue: nil))
         )
         // The state has to move too, or the next command would be accepted by a
         // backend the client has been told is gone.
@@ -144,7 +144,10 @@ struct ScriptTests {
 
         try await backend.apply(.reconnecting(attempt: 3))
 
-        #expect(await collector.nextOne() == .connectionStateChanged(.reconnecting(attempt: 3)))
+        #expect(
+            await collector.nextOne()
+                == .connectionStateChanged(.reconnecting(attempt: 3, issue: nil, detail: nil))
+        )
     }
 
     @Test func anErrorIsReportedWithoutEndingTheStream() async throws {

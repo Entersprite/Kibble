@@ -191,7 +191,7 @@ public actor LocalBridgeBackend: ChatBackend {
         } catch {
             let chatError = Self.chatError(from: error)
             lastFailure = chatError
-            emit(.connectionStateChanged(.disconnected(reason: Self.reason(for: chatError))))
+            emit(.connectionStateChanged(.disconnected(reason: Self.reason(for: chatError), issue: nil)))
             emit(.backendError(chatError))
             throw chatError
         }
@@ -206,7 +206,7 @@ public actor LocalBridgeBackend: ChatBackend {
         selfIdentification?.cancel()
         selfIdentification = nil
         await stopChannel()
-        emit(.connectionStateChanged(.disconnected(reason: nil)))
+        emit(.connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
 
     /// Opens the long poll and pumps it into the domain.
@@ -274,7 +274,7 @@ public actor LocalBridgeBackend: ChatBackend {
     private func channelLifecycleChanged(_ event: ChannelLifecycle) {
         switch event {
         case let .reconnecting(attempt):
-            emit(.connectionStateChanged(.reconnecting(attempt: attempt)))
+            emit(.connectionStateChanged(.reconnecting(attempt: attempt, issue: nil, detail: nil)))
         case .resumed:
             lastFailure = nil
             emit(.connectionStateChanged(.connected))
@@ -312,7 +312,7 @@ public actor LocalBridgeBackend: ChatBackend {
             lastFailure = error
             emit(.backendError(error))
         }
-        emit(.connectionStateChanged(.disconnected(reason: reason)))
+        emit(.connectionStateChanged(.disconnected(reason: reason, issue: nil)))
     }
 
     /// The conversation list, via the one request shape `findings.md` §20.1

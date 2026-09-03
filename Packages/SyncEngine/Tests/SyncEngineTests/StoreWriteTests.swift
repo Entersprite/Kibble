@@ -279,11 +279,11 @@ struct StoreWriteTests {
         #expect(try store.connectionState() == .idle)
 
         try store.apply([
-            .setConnectionState(.reconnecting(attempt: 4)),
+            .setConnectionState(.reconnecting(attempt: 4, issue: nil, detail: nil)),
             .setLastError(.rateLimited(retryAfter: .seconds(30)))
         ])
 
-        #expect(try store.connectionState() == .reconnecting(attempt: 4))
+        #expect(try store.connectionState() == .reconnecting(attempt: 4, issue: nil, detail: nil))
         #expect(try store.lastError() == .rateLimited(retryAfter: .seconds(30)))
 
         try store.apply([.setLastError(nil)])

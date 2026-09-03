@@ -133,7 +133,7 @@ public extension FakeBackend {
     func disconnect() async {
         guard isConnected else { return }
         isConnected = false
-        emit(.connectionStateChanged(.disconnected(reason: nil)))
+        emit(.connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
 }
 

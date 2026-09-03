@@ -47,6 +47,53 @@ struct FrameCodingTests {
         try expectWireStable(sample.value, golden: sample.name)
     }
 
+    // MARK: - The reconnect taxonomy's payloads
+
+    /// `issue` and `detail` are additions to an existing case, not a new one,
+    /// so they get their own goldens here rather than crowding
+    /// `Fixture.connectionStates` - which is a one-sample-per-*case* coverage
+    /// list, not a home for every payload combination a case can carry.
+    @Test("a reconnecting state carrying an issue and a detail matches its golden file")
+    func reconnectingWithIssueAndDetail() throws {
+        try expectWireStable(
+            ConnectionState.reconnecting(attempt: 2, issue: .noInternet, detail: "NSURLErrorDomain -1009"),
+            golden: "connection-reconnecting"
+        )
+    }
+
+    /// The shape an older peer sends - one that predates `issue` and
+    /// `detail` - and the shape this build must still decode.
+    @Test("a bare reconnecting state matches the shape an older peer sends")
+    func reconnectingBare() throws {
+        try expectWireStable(
+            ConnectionState.reconnecting(attempt: 1, issue: nil, detail: nil),
+            golden: "connection-reconnecting-bare"
+        )
+    }
+
+    @Test("a disconnected state carrying a reason and an issue matches its golden file")
+    func disconnectedWithReasonAndIssue() throws {
+        try expectWireStable(
+            ConnectionState.disconnected(reason: "your session expired", issue: .serverError(status: 503)),
+            golden: "connection-disconnected"
+        )
+    }
+
+    /// A deliberate disconnect - the answer to `disconnect()` - carries
+    /// neither a reason nor an issue.
+    @Test("a deliberate disconnect matches its golden file")
+    func disconnectedDeliberate() throws {
+        try expectWireStable(
+            ConnectionState.disconnected(reason: nil, issue: nil),
+            golden: "connection-disconnected-deliberate"
+        )
+    }
+
+    @Test("an unrecognised connection state matches its golden file")
+    func unknownConnectionState() throws {
+        try expectWireStable(ConnectionState.unknown("hibernating"), golden: "connection-unknown")
+    }
+
     // MARK: - Coverage
 
     /// The guard the fixtures' doc comment claims exists.

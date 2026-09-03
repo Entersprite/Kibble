@@ -57,7 +57,7 @@ struct LifecycleTests {
         _ = await collector.next(6)
 
         await backend.disconnect()
-        #expect(await collector.nextOne() == .connectionStateChanged(.disconnected(reason: nil)))
+        #expect(await collector.nextOne() == .connectionStateChanged(.disconnected(reason: nil, issue: nil)))
 
         try await backend.connect()
         let again = await collector.next(4)
@@ -93,7 +93,7 @@ struct LifecycleTests {
         try await backend.connect()
         await backend.disconnect()
 
-        #expect(await collector.nextOne() == .connectionStateChanged(.disconnected(reason: nil)))
+        #expect(await collector.nextOne() == .connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
 
     @Test func disconnectingWhileDisconnectedEmitsNothing() async throws {

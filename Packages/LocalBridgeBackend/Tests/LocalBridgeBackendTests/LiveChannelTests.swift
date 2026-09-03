@@ -253,7 +253,9 @@ struct LiveChannelTests {
                 nil
             }
         }
-        let reconnecting = try #require(states.firstIndex(of: .reconnecting(attempt: 1)))
+        let reconnecting = try #require(
+            states.firstIndex(of: .reconnecting(attempt: 1, issue: nil, detail: nil))
+        )
         // `.connected` *after* the reconnect, not the one `connect()` emitted
         // before it - that is the whole distinction the `.resumed` leg exists
         // to make.

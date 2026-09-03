@@ -217,7 +217,7 @@ struct CommandTests {
         try await backend.send(.setTyping(conversationID: dm, threadID: nil, isTyping: true))
         await backend.disconnect()
 
-        #expect(await collector.nextOne() == .connectionStateChanged(.disconnected(reason: nil)))
+        #expect(await collector.nextOne() == .connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
 
     @Test func markingReadZeroesTheUnreadCount() async throws {

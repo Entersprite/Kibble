@@ -134,8 +134,9 @@ struct StatusStrip: View {
         case .connected: return nil
         case .idle: return "Not connected."
         case .connecting: return "Connecting…"
-        case let .reconnecting(attempt): return "Reconnecting, attempt \(attempt)…"
-        case let .disconnected(reason): return reason.map { "Disconnected: \($0)" } ?? "Disconnected."
+        case let .reconnecting(attempt, _, _): return "Reconnecting, attempt \(attempt)…"
+        case let .disconnected(reason, _): return reason.map { "Disconnected: \($0)" } ?? "Disconnected."
+        case .unknown: return "Connecting…"
         }
     }
 

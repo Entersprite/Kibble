@@ -160,9 +160,15 @@ public enum SyncReducer {
     /// leave "Disconnected." with no cause. `idle` does not clear either: it
     /// is the value a fresh process starts from, not something a session
     /// transitions into.
+    ///
+    /// `.unknown` clears, grouped with the states that mean "trying now"
+    /// rather than with `idle`/`disconnected`: it is the same "degrade toward
+    /// optimism" call `ChatWindow` makes for the same case, and for the same
+    /// reason - a state nobody here understands is not evidence the old error
+    /// still applies.
     private static func clearedError(by state: ConnectionState) -> [StoreWrite] {
         switch state {
-        case .connecting, .reconnecting, .connected: [.setLastError(nil)]
+        case .connecting, .reconnecting, .connected, .unknown: [.setLastError(nil)]
         case .idle, .disconnected: []
         }
     }
