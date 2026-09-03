@@ -50,10 +50,12 @@ import Foundation
 /// `ChannelState.attempt`'s own doc comment records and the reason the reset
 /// stays keyed to a clean close rather than to opening.
 ///
-/// `.notConnectedToInternet` gets `.awaitNetwork` instead of the timer -
-/// see the `.awaitNetwork` effect arm in `handle(_:)` below, which is a task-3
-/// stopgap (identical to `.reconnect` today) until task 4 replaces it with a
-/// real wait on `ReachabilityMonitor`.
+/// `.notConnectedToInternet` gets `.awaitNetwork` instead of the timer - see
+/// the `.awaitNetwork` effect arm in `handle(_:)` below. It waits on
+/// `ReachabilityMonitor.networkReturned` or a bounded fallback timer,
+/// whichever comes first (`ChannelSession.awaitNetwork`, in
+/// `NetworkWait.swift`), so the device-offline case spends zero requests
+/// while it waits rather than sharing `.reconnect`'s timed backoff.
 public actor ChannelSession {
     /// The arrays as they arrive, in order.
     ///
@@ -85,6 +87,11 @@ public actor ChannelSession {
     /// 32-second ceiling `RetryPolicy.default` itself defines.
     private let retry: RetryPolicy
     private let onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)?
+    /// The reachability signal `.awaitNetwork` races against its fallback
+    /// timer. `nil` is a legitimate value everywhere - Linux, tests, and any
+    /// platform without a monitor - and `.awaitNetwork` degrades to the
+    /// fallback alone rather than failing; see `NetworkWait.swift`.
+    private let reachability: (any ReachabilityMonitor)?
     /// Whether the last stream open followed a reconnect, so `.resumed` is sent
     /// once per recovery rather than on every reopen of a healthy channel.
     private var isRecovering = false
@@ -95,17 +102,23 @@ public actor ChannelSession {
     /// one built with `maxAttempts: 4` - reconnecting is unconditional for a
     /// recoverable failure, and this only changes the *waiting* between
     /// attempts, which is what `.immediate` is for.
+    /// - Parameter reachability: The device's network-reachability signal, if
+    /// the host has one. Defaulted `nil` so every existing call site keeps
+    /// compiling; `.awaitNetwork` then relies entirely on its bounded
+    /// fallback timer - correct, just slower.
     public init(
         cookies: SessionCookies,
         transport: any HTTPTransport,
         endpoints: ChatEndpoints = ChatEndpoints(),
         retry: RetryPolicy = .default,
         onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
-        onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)? = nil
+        onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)? = nil,
+        reachability: (any ReachabilityMonitor)? = nil
     ) {
         self.transport = transport
         self.retry = retry
         self.onLifecycle = onLifecycle
+        self.reachability = reachability
         credentials = SessionCredentials(cookies, onRotation: onRotation)
         requests = ChannelRequests(endpoints: endpoints)
         var generator = SystemRandomNumberGenerator()
@@ -126,17 +139,21 @@ public actor ChannelSession {
     ///
     /// - Parameter retry: As above - the delay only. `maxAttempts` is unused;
     /// nothing bounds the attempt count any more.
+    /// - Parameter reachability: As on the other initialiser - defaulted `nil`
+    /// so every existing call site keeps compiling.
     public init(
         credentials: SessionCredentials,
         transport: any HTTPTransport,
         endpoints: ChatEndpoints = ChatEndpoints(),
         retry: RetryPolicy = .default,
-        onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)? = nil
+        onLifecycle: (@Sendable (ChannelLifecycle) async -> Void)? = nil,
+        reachability: (any ReachabilityMonitor)? = nil
     ) {
         self.transport = transport
         self.credentials = credentials
         self.retry = retry
         self.onLifecycle = onLifecycle
+        self.reachability = reachability
         requests = ChannelRequests(endpoints: endpoints)
         var generator = SystemRandomNumberGenerator()
         requestIdentifier = ChannelIdentifiers.initialRequestIdentifier(using: &generator)
@@ -229,17 +246,17 @@ public actor ChannelSession {
             apply(.retry)
 
         case let .awaitNetwork(attempt):
-            // Stopgap only: task 4 of the reconnect taxonomy replaces this with
-            // a wait on `ReachabilityMonitor` (a bounded fallback timer if the
-            // signal never comes), so the device offline case spends zero
-            // requests instead of the timer this shares with `.reconnect`
-            // today. Handled identically to `.reconnect` for now purely so this
-            // switch stays exhaustive and the channel still recovers - not
-            // because the two are policy-equivalent; `ChannelEffect
-            // .awaitNetwork`'s own doc comment says why they are not.
             isRecovering = true
             await onLifecycle?(.reconnecting(attempt: attempt))
-            try? await retry.waitBeforeRetry(attempt: attempt)
+            // No timed backoff: the device says there is no network, so
+            // spending requests to rediscover that is waste. The fallback is
+            // what stops a monitor that never fires from hanging the channel.
+            _ = await Self.awaitNetwork(
+                monitor: reachability,
+                fallback: Self.reachabilityFallback,
+                sleep: { try? await Task.sleep(for: $0) },
+                onReady: {}
+            )
             guard !Task.isCancelled else { return }
             apply(.retry)
 
