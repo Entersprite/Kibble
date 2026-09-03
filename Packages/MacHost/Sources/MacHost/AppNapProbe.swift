@@ -71,7 +71,7 @@ public final class AppNapProbe {
                 )
                 previous = now
                 if let handle = try? FileHandle(forWritingTo: url) {
-                    try? handle.seekToEnd()
+                    _ = try? handle.seekToEnd()
                     try? handle.write(contentsOf: Data(line.utf8))
                     try? handle.close()
                 }

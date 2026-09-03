@@ -54,16 +54,8 @@ targets:
     dependencies:
       - package: AppCore
         product: AppCore
-      - package: ChatKit
-        product: ChatKit
-      - package: SyncEngine
-        product: SyncEngine
       - package: DesignSystem
         product: DesignSystem
-      - package: FixtureBackend
-        product: FixtureBackend
-      - package: LocalBridgeBackend
-        product: LocalBridgeBackend
       - package: MacHost
         product: MacHost
     settings:

@@ -1,6 +1,6 @@
 import AppCore
-import ChatKit
 import DesignSystem
+import MacHost
 import SwiftUI
 
 /// The shell.
@@ -12,7 +12,9 @@ import SwiftUI
 /// pieces rather than reimplementing them.
 @main
 struct GChatMacApp: App {
-    @State private var environment = AppEnvironment()
+    @State private var environment = AppEnvironment(
+        services: SystemLaunchServices(arguments: .fromCommandLine())
+    )
     @State private var isConfirmingSignOut = false
 
     var body: some Scene {

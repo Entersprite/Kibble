@@ -1,4 +1,4 @@
-import LocalBridgeBackend
+import MacHost
 import SwiftUI
 import WebKit
 
@@ -113,11 +113,11 @@ private struct WebView: NSViewRepresentable {
         webView.allowsBackForwardNavigationGestures = true
         // Chat gates on this. Without an accepted User-Agent it authenticates
         // the session and then serves its unsupported-browser page.
-        webView.customUserAgent = LocalBridgeBackend.captureUserAgent
+        webView.customUserAgent = LoginWebViewConfiguration.chat.userAgent
         webView.navigationDelegate = context.coordinator
         model.attach(webView)
-        LoginTrace.note("UA: \(LocalBridgeBackend.captureUserAgent.prefix(60))…")
-        webView.load(URLRequest(url: URL(string: "https://chat.google.com/")!))
+        LoginTrace.note("UA: \(LoginWebViewConfiguration.chat.userAgent.prefix(60))…")
+        webView.load(URLRequest(url: LoginWebViewConfiguration.chat.startURL))
         return webView
     }
 
