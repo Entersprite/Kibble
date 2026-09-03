@@ -80,12 +80,15 @@ struct CookieCaptureView: View {
             // automatic capture is never a dead end.
             if model.showsManualControls {
                 Button("Capture now") { model.capture() }
+                // `save()` completes sign-in itself. This button used to call
+                // `onSaved()` on success, which meant two routes out of this
+                // window with nothing between them: it is clickable the
+                // instant `showsManualControls` flips, which happens while
+                // `attemptAutoSave`'s own write is still in flight, and both
+                // finished by signing in. One latch inside the model is what
+                // makes that one exit - see `CookieCaptureModel.hasCompleted`.
                 Button("Save and continue") {
-                    Task {
-                        if await model.save() {
-                            await onSaved()
-                        }
-                    }
+                    Task { await model.save() }
                 }
                 .disabled(!model.canSave)
             }

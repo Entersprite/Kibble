@@ -35,6 +35,15 @@ final class FakeLaunchServices: LaunchServices {
     var eraseFailure: (any Error)?
     var makeSessionFailure: (any Error)?
 
+    /// The knob this fake was missing, and its absence hid half a finding.
+    ///
+    /// `startDiagnostics()` is the one operation that can throw *after*
+    /// `phase = .running(model)` has already been set, which makes it the only
+    /// way to reach `.failed` holding a fully connected session. With no way to
+    /// make it fail, nothing could reach that state and nothing noticed that
+    /// the model was being dropped rather than stopped.
+    var startDiagnosticsFailure: (any Error)?
+
     /// The one store handed out by `openStore()`, so a test can put a row in
     /// it and then assert the erase actually removed it.
     let store: ChatStore
@@ -109,6 +118,9 @@ final class FakeLaunchServices: LaunchServices {
 
     func startDiagnostics() throws {
         calls.append(.startDiagnostics)
+        if let startDiagnosticsFailure {
+            throw startDiagnosticsFailure
+        }
     }
 }
 
@@ -122,6 +134,17 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
     nonisolated let capabilities = Capabilities(canSendMessages: true)
 
     var connectFailure: (any Error)?
+
+    /// How many times the engine behind this backend was shut down.
+    ///
+    /// **The only externally observable proof that a session was stopped.**
+    /// `SyncEngine.stop()` is `disconnect()`'s sole caller, and
+    /// `ChatSessionModel.stopAndEraseStore()` awaits it before touching the
+    /// tables - so a launch that erased *around* a live model instead of
+    /// through it leaves this at zero. Observed at this seam rather than
+    /// through a flag on the fake's `eraseStore()`, so what the assertion
+    /// checks is the backend's own lifecycle rather than a route the fix set.
+    private(set) var disconnectCount = 0
 
     private let stream: AsyncStream<ChatEvent>
     private let continuation: AsyncStream<ChatEvent>.Continuation
@@ -141,6 +164,7 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
     }
 
     func disconnect() async {
+        disconnectCount += 1
         continuation.finish()
     }
 

@@ -17,6 +17,32 @@ public final class AppEnvironment {
     private let services: any LaunchServices
     private var driver: (any DemoDriver)?
 
+    /// The session this launch built, held from the moment it exists rather
+    /// than from the moment it is parked in `.running`.
+    ///
+    /// **Not derivable from `phase`, and that was a bug rather than a
+    /// simplification.** Two production paths build a model, start it, and
+    /// then lose the launch to a transition that never parks it:
+    ///
+    /// - `model.start()` throws. `SyncEngine.start()` assigns its consuming
+    ///   `Task` *before* `backend.connect()`, deliberately, so that nothing
+    ///   emitted during connection is missed - which means a connect failure
+    ///   leaves a live consumer already draining the backend into the store.
+    ///   `ChatError.notAuthenticated` is the commonest way that happens (the
+    ///   nine-day `COMPASS` fuse, `findings.md` §17.2), and it routes straight
+    ///   into `enterNeedsSignIn`.
+    /// - `services.startDiagnostics()` throws *after* `phase = .running`. That
+    ///   lands on `.failed`, correctly, and takes a fully connected model out
+    ///   of reach with it until `requestSignIn()` asks for the way out.
+    ///
+    /// In both cases `enterNeedsSignIn` used to find no `.running` model and
+    /// erase through `LaunchServices.eraseStore()` instead - which opens a
+    /// *second* connection to the same file and never stops the session that
+    /// is still writing into it. That is precisely the interleaving
+    /// `ChatSessionModel.stopAndEraseStore()` exists to make impossible, so
+    /// the model has to be reachable before it is parked, not after.
+    private var model: ChatSessionModel?
+
     public init(services: any LaunchServices) {
         self.services = services
     }
@@ -48,6 +74,11 @@ public final class AppEnvironment {
             let selection = try await services.makeSession()
             let engine = SyncEngine(backend: selection.backend, store: store)
             let model = ChatSessionModel(store: store, engine: engine, me: selection.me)
+            // Held **before** it is started, not after it is parked in
+            // `.running`. By the time `start()` can throw, the engine's
+            // consumer is already live - see `model`'s own doc comment for why
+            // that one line's placement is the whole finding.
+            self.model = model
 
             try await model.start()
             phase = .running(model)
@@ -86,7 +117,22 @@ public final class AppEnvironment {
     /// store. Re-runs `start()`, which now finds a session where a moment ago
     /// there was none - so signing in connects rather than printing
     /// "relaunch me".
+    ///
+    /// **Idempotent against a session that is already up**, and that guard is
+    /// not defensive padding: one sign-in can reach here twice.
+    /// `CookieCaptureModel.attemptAutoSave` latches `hasAutoSaved`
+    /// synchronously, which flips `showsManualControls` to `true` while its own
+    /// Keychain write is still in flight - so "Save and continue" is clickable
+    /// during the automatic attempt and both routes call `onSaved()`. Setting
+    /// `phase = .loading` unconditionally defeated `start()`'s own
+    /// `if case .running` guard, and the second call then built a second engine
+    /// and a second model over one store, with the first leaked and never
+    /// stopped. `CookieCaptureModel` now also latches its completion, so this
+    /// is the second of two guards rather than the only one.
     public func signedIn() async {
+        if case .running = phase {
+            return
+        }
         phase = .loading
         await start()
     }
@@ -129,16 +175,25 @@ public final class AppEnvironment {
     /// makes it impossible to reach the login window without the erase having
     /// already happened, rather than something each call site has to remember.
     ///
-    /// A `.running` session is stopped and its own store erased through
-    /// `ChatSessionModel.stopAndEraseStore()`, in that order, inside one call.
-    /// Anything else (no session was ever running, or one already failed)
-    /// erases the store through `LaunchServices` directly, since there is no
-    /// live model to ask; erasing an already-empty store is a cheap no-op,
-    /// which is the point - nothing here has to know whether there is anything
-    /// to erase.
+    /// **Whenever a session exists at all** it is stopped and its own store
+    /// erased through `ChatSessionModel.stopAndEraseStore()`, in that order,
+    /// inside one call. The test is `model != nil`, not `phase == .running`:
+    /// a model that was built and started but never parked is still a live
+    /// consumer writing into the store, and asking `phase` about it answered
+    /// "no session" for exactly the two commonest failures - see `model`'s
+    /// own doc comment. Erasing around a running consumer through
+    /// `LaunchServices` is the interleaving `stopAndEraseStore()` documents
+    /// itself as preventing, and it opens a second connection to the same
+    /// file as well.
+    ///
+    /// Only when no model was ever built (a probe, a refused credential
+    /// store, an `openStore()` that threw) does the erase go through
+    /// `LaunchServices` directly, since there is genuinely no live model to
+    /// ask; erasing an already-empty store is a cheap no-op, which is the
+    /// point - nothing here has to know whether there is anything to erase.
     private func enterNeedsSignIn(reason: String?) async {
         do {
-            if case let .running(model) = phase {
+            if let model {
                 // The fixture's demo world, ticking on its own actor. Its
                 // writes reach the store only through `SyncEngine`'s consumer
                 // loop, which `stopAndEraseStore()` has already drained by the
@@ -156,6 +211,11 @@ public final class AppEnvironment {
             phase = .failed(String(describing: error))
             return
         }
+        // Released only once the erase actually landed. A `stopAndEraseStore()`
+        // that threw has stopped the session but not emptied it, and the retry
+        // must go back through that same connection rather than forward to
+        // `LaunchServices.eraseStore()` and a second one.
+        model = nil
         phase = .needsSignIn(reason: reason)
     }
 

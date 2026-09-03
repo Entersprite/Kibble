@@ -18,7 +18,19 @@ swift_files() { find "$1" -name '*.swift' -not -path '*/Generated/*' -print0 2>/
 
 scan() { # dir, regex, description
     local dir="$1" re="$2" desc="$3" hits
-    [ -d "$dir" ] || { pass "$desc (no sources yet)"; return 0; }
+    # A missing directory is a FAILURE, not a pass - the same rule this file
+    # already states for lint-testsupport.py below: a check that cannot run has
+    # not passed. Every caller addresses a literal path that exists today, so a
+    # "no sources yet" pass can now only mean a rename or a restructure has
+    # silently switched the check off. That matters most for the containment
+    # scans: in an Xcode build every module lands in one products directory, so
+    # `import LocalBridgeBackend` inside AppCore compiles with no declared
+    # dependency at all, and this scan is the only thing enforcing it.
+    if [ ! -d "$dir" ]; then
+        note "$desc"
+        printf '         (no such directory: %s - the scan could not run)\n' "$dir" >&2
+        return 0
+    fi
     hits=$(swift_files "$dir" | xargs -0 grep -nE "$re" 2>/dev/null || true)
     if [ -n "$hits" ]; then
         note "$desc"; printf '%s\n' "$hits" | sed 's/^/         /' >&2

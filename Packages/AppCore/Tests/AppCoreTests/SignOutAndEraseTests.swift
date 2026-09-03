@@ -135,6 +135,89 @@ struct SignOutAndEraseTests {
         }
     }
 
+    /// The erase has to go through the session that is still running, not
+    /// around it.
+    ///
+    /// `SyncEngine.start()` assigns its consuming `Task` *before*
+    /// `backend.connect()`, so a `.notAuthenticated` throw arrives with a live
+    /// consumer already draining the backend into the store. Erasing through
+    /// `LaunchServices.eraseStore()` at that moment is the interleaving
+    /// `ChatSessionModel.stopAndEraseStore()`'s own doc comment describes -
+    /// "a write already in flight from this very session land[ing] after the
+    /// tables are wiped" - and it opens a second connection to the same file
+    /// as well, since that method exists for when there is "no live model to
+    /// ask".
+    ///
+    /// **Why these three assertions and not a reproduction of the race.**
+    /// Racing the consumer would be flaky, so the observable guarantee is
+    /// asserted instead, at two seams the fix does not own: the store ended up
+    /// empty (the erase happened at all), the *backend* was disconnected
+    /// exactly once (the session was stopped - `SyncEngine.stop()` is
+    /// `disconnect()`'s only caller), and `LaunchServices.eraseStore()` was
+    /// never reached (so the erase went through the live model's own
+    /// connection). Nothing here reads a flag the fix sets. That the stop
+    /// precedes the wipe *inside* `stopAndEraseStore()` is that method's own
+    /// guarantee and already has its own test -
+    /// `SyncEngineTests.ChatSessionModelTeardownTests` - which is why this
+    /// asserts which door was used rather than re-asserting the ordering
+    /// behind it.
+    @Test func aRejectedSessionIsErasedThroughItsOwnModelNotASecondConnection() async throws {
+        let services = try FakeLaunchServices()
+        // A previous account's row, present before this launch begins.
+        try services.store.apply([.replaceConversations([conversation()])])
+        services.backend.connectFailure = ChatError.notAuthenticated
+        let environment = AppEnvironment(services: services)
+
+        await environment.start()
+
+        #expect(try services.store.conversations().isEmpty)
+        #expect(services.backend.disconnectCount == 1)
+        #expect(!services.calls.contains(.eraseStore))
+    }
+
+    /// The second path that built a model and lost it: `startDiagnostics()`
+    /// throwing *after* `phase = .running(model)` was set. That still lands on
+    /// `.failed` - a diagnostic that will not start is a failure, not a
+    /// sign-in problem - and the fully connected session it leaves behind is
+    /// what the escape from `.failed` has to erase through.
+    ///
+    /// `FakeLaunchServices` carried failure knobs for five operations and not
+    /// for this one, which is why nothing could reach this state.
+    @Test func aFailedDiagnosticStillErasesThroughTheSessionItBuilt() async throws {
+        let services = try FakeLaunchServices(
+            arguments: LaunchArguments(runsDiagnostics: true)
+        )
+        services.startDiagnosticsFailure = ChatError.unknown("the App Nap probe refused")
+        let environment = AppEnvironment(services: services)
+
+        await environment.start()
+
+        guard case .failed = environment.phase else {
+            Issue.record("a diagnostic that would not start must land on .failed")
+            return
+        }
+        // Deliberate, and recorded so a future change to it is a decision
+        // rather than a surprise: `.failed` does not tear the session down. A
+        // diagnostic refusing to start must not disconnect a working Chat
+        // session, and the escape below is what stops it.
+        #expect(services.backend.disconnectCount == 0)
+        try seed(services)
+
+        environment.requestSignIn()
+        // `requestSignIn()` is synchronous because SwiftUI's Button needs it
+        // to be, and hands off to a Task. Give that Task a turn.
+        await Task.yield()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(try services.store.conversations().isEmpty)
+        #expect(services.backend.disconnectCount == 1)
+        #expect(!services.calls.contains(.eraseStore))
+        guard case .needsSignIn = environment.phase else {
+            Issue.record("expected .needsSignIn after the escape from .failed")
+            return
+        }
+    }
+
     @Test func anEraseThatFailsShowsTheFailureRatherThanALoginWindow() async throws {
         let services = try FakeLaunchServices()
         services.storedSessionExists = false

@@ -5,17 +5,57 @@ import Observation
 /// Watches the login web view, drains its cookie store, and puts the result in
 /// the Keychain.
 ///
-/// Deliberately thin. Every decision worth testing - which cookies may be
-/// replayed to Chat, what the report says, how the credential is encoded and
-/// stored - lives in `LocalBridgeBackend`, because the app target is a shell
-/// and because this file cannot be unit-tested: it needs a web view, a Google
-/// account and a Keychain. What is left here is plumbing between three things
-/// that each have their own tests.
+/// ## The seams, and what each one is for
+///
+/// This header used to say the file could not be unit-tested - "it needs a web
+/// view, a Google account and a Keychain" - and that was true of the version
+/// that named `WKWebView` and `KeychainCredentialStore` directly. Two seams
+/// changed it, and `CookieCaptureModelTests` is what they bought:
+///
+/// - `LoginWebView` is the three things this needs from a web view
+///   (`currentURL`, `currentTitle`, `allCookies()`), handing back Foundation's
+///   `HTTPCookie` rather than a WebKit type. That is what keeps the
+///   `HTTPCookie` to `CapturedCookie` mapping in this package, where a test
+///   can reach it.
+/// - `CaptureCustody` is storage, and it exists because **the Keychain cannot
+///   be faked from here**: `SecretStorage` and `KeychainCredentialStore`'s
+///   injectable initialiser are both internal to `LocalBridgeBackend`, so a
+///   model that named the store directly could only ever be driven against
+///   the real Keychain - which would mean a test suite that overwrote the
+///   person's live session (ruling R7).
+///
+/// The untestable residue is now one `WKWebView` conformance in the app
+/// target, which is the shape CLAUDE.md asks for: a boundary that cannot be
+/// unit-tested should be one file wide.
+///
+/// ## What still belongs below the seam
+///
+/// Every decision about *content* - which cookies may be replayed to Chat
+/// (`CookieScope`), what the report says (`CookieCaptureReport`), how the
+/// credential is encoded and stored - lives in `LocalBridgeBackend` and has
+/// its own tests there. What this file decides is sequencing and disclosure:
+/// when to capture, when a capture may save itself, when sign-in is complete,
+/// and what may be shown on screen or written to a file.
 @MainActor
 @Observable
 public final class CookieCaptureModel {
     public private(set) var status = "Loading Google sign-in…"
+
+    /// What the web view is pointed at, **host and path only**.
+    ///
+    /// Redacted through `LoginTrace.redact(_:)` rather than kept as an
+    /// `absoluteString`, and reusing that function rather than restating the
+    /// rule: Google's sign-in URLs carry identifiers and one-time tokens in
+    /// their query strings, `LoginTrace`'s own header says so, and this string
+    /// reaches two sinks that must not carry them - `CookieCaptureView` draws
+    /// it, and `record(_:url:title:)` hands the same value to
+    /// `CookieCapture(pageURL:)`, from which `cookie-capture-report.txt`
+    /// writes it out under `page:`. That report's own doc comment promises
+    /// "nothing here needs redacting before it is pasted into an issue"; this
+    /// is what keeps that sentence true. One rule, in one place, for the same
+    /// reason `accepts(host:for:)` below defers to one host rule.
     public private(set) var pageURL = ""
+
     public private(set) var canSave = false
 
     /// What is already in the Keychain, for the window to show. Refreshed after
@@ -73,6 +113,23 @@ public final class CookieCaptureModel {
     /// Chat has issued its own cookies does not spend the one attempt on
     /// nothing.
     private var hasAutoSaved = false
+
+    /// Latches the one `onSaved()` this window will ever send.
+    ///
+    /// A **second** latch rather than a reuse of `hasAutoSaved`, whose meaning
+    /// is deliberately narrower: that one marks the single *automatic attempt*
+    /// having been spent, and `showsManualControls` depends on it flipping the
+    /// instant `attemptAutoSave` starts - before the Keychain write it started
+    /// has returned. That gap is the bug: "Save and continue" is clickable
+    /// while the automatic save is still in flight, and both routes finish by
+    /// completing sign-in. Two `onSaved()` calls meant two
+    /// `AppEnvironment.signedIn()` calls, which built two engines and two
+    /// models over one store with the first leaked and never stopped.
+    ///
+    /// `AppEnvironment.signedIn()` is now idempotent too. Both guards are
+    /// wanted: this one stops the duplicate at its source, and that one holds
+    /// for any future caller that reaches it another way.
+    private var hasCompleted = false
 
     /// Whether `CookieCaptureView` should show its manual "Capture now" /
     /// "Save and continue" buttons.
@@ -136,7 +193,10 @@ public final class CookieCaptureModel {
     /// not by the accounts host, so a capture taken when sign-in completes
     /// looks complete and is missing exactly the two cookies that matter.
     public func pageSettled(_ webView: any LoginWebView) {
-        pageURL = webView.currentURL?.absoluteString ?? ""
+        // Redacted **before** the host guard, not after it: every intermediate
+        // `accounts.google.com` navigation settles here too, and those are
+        // exactly the URLs whose query strings carry the one-time tokens.
+        pageURL = LoginTrace.redact(webView.currentURL)
         guard let host = webView.currentURL?.host(), Self.accepts(host: host, for: configuration) else {
             status = "Signing in… (waiting for Chat itself to load)"
             return
@@ -146,16 +206,22 @@ public final class CookieCaptureModel {
     }
 
     public func failed(_ webView: any LoginWebView, _ error: any Error) {
-        pageURL = webView.currentURL?.absoluteString ?? ""
+        pageURL = LoginTrace.redact(webView.currentURL)
         // Worth surfacing rather than swallowing: if Google refuses an embedded
         // web view, this is where it shows up.
         status = "Navigation failed: \(error.localizedDescription)"
     }
 
+    /// Note the missing host gate: "Capture now" may be pressed on any page,
+    /// and it becomes visible in exactly the "auto-save did not finish, try
+    /// manually" state where someone is plausibly still mid-flow on
+    /// `accounts.google.com`. That is deliberate - a manual escape hatch that
+    /// refused to fire would be no escape - which is why the URL is redacted
+    /// here rather than trusted to be Chat's own.
     public func capture() {
         guard let webView else { return }
         let title = webView.currentTitle ?? ""
-        let url = webView.currentURL?.absoluteString ?? ""
+        let url = LoginTrace.redact(webView.currentURL)
         Task { @MainActor in
             let cookies = await webView.allCookies()
             self.record(cookies, url: url, title: title)
@@ -214,8 +280,16 @@ public final class CookieCaptureModel {
         status = "Signing in…"
         Task {
             guard await writeToKeychain(capture) else { return }
-            await onSaved()
+            await completeSignIn()
         }
+    }
+
+    /// The one and only exit from this window, at most once. See
+    /// `hasCompleted`.
+    private func completeSignIn() async {
+        guard !hasCompleted else { return }
+        hasCompleted = true
+        await onSaved()
     }
 
     /// Puts the captured session in storage, and says whether it landed.
@@ -225,9 +299,20 @@ public final class CookieCaptureModel {
     /// into the app, and neither of those is a session it could continue
     /// with. `status` carries which one it was, on screen, in words.
     ///
-    /// It is still an explicit action rather than an automatic one, because
-    /// overwriting a working session with a worse capture is a real way to
-    /// lose one.
+    /// The manual route, for the one thing `attemptAutoSave` cannot recover
+    /// from itself - a capture that never became a session. It is no longer
+    /// the *only* route: `autoSaveAllowed` windows save without a press, and
+    /// this is what `showsManualControls` exists to offer once that attempt
+    /// has been spent. The caution it was written for - overwriting a working
+    /// session with a worse capture is a real way to lose one - is now carried
+    /// by `autoSaveAllowed` defaulting to `false`, which is where it belongs,
+    /// since it only ever applied when there was already something to
+    /// overwrite.
+    ///
+    /// **Completes sign-in itself on success**, rather than leaving that to
+    /// the button's own closure. That is what puts both routes behind one
+    /// latch - see `hasCompleted` - so a press landing while the automatic
+    /// save is still in flight cannot exit this window twice.
     @discardableResult
     public func save() async -> Bool {
         guard let capture = lastCapture else { return false }
@@ -236,6 +321,9 @@ public final class CookieCaptureModel {
             status = "Saved to the Keychain."
         }
         await refreshStoredSession()
+        if saved {
+            await completeSignIn()
+        }
         return saved
     }
 
