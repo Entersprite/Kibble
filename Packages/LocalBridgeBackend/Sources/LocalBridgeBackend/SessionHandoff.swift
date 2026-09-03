@@ -72,11 +72,21 @@ public extension LocalBridgeBackend {
     /// every stated expiry (`findings.md` §11), and one past its expiry can
     /// still be accepted. The request that settles it costs a single round
     /// trip, and refusing to make it would promote a guess to a policy.
+    ///
+    /// - Parameter reachability: The device's network-reachability signal.
+    /// Defaulted to a real `NWPathReachabilityMonitor` here, at the outermost
+    /// public entry point, so `SystemLaunchServices.swift` — the only file
+    /// allowed to name a concrete backend — stays a one-function change: it
+    /// calls this overload with nothing extra and gets the accelerant for
+    /// free. Pass `nil` explicitly to fall back to `ChannelSession`'s bounded
+    /// timer alone, which is what every test that reaches this does by
+    /// supplying its own transport and never asking for a monitor.
     static func using(
         _ store: KeychainCredentialStore,
-        transport: any HTTPTransport = URLSessionTransport()
+        transport: any HTTPTransport = URLSessionTransport(),
+        reachability: (any ReachabilityMonitor)? = NWPathReachabilityMonitor()
     ) async throws -> LocalBridgeBackend? {
-        try await using(store, transport: transport, retry: .default)
+        try await using(store, transport: transport, retry: .default, reachability: reachability)
     }
 }
 
@@ -89,7 +99,8 @@ extension LocalBridgeBackend {
     static func using(
         _ store: KeychainCredentialStore,
         transport: any HTTPTransport,
-        retry: RetryPolicy
+        retry: RetryPolicy,
+        reachability: (any ReachabilityMonitor)? = nil
     ) async throws -> LocalBridgeBackend? {
         guard let session = try await store.currentSession() else { return nil }
         return LocalBridgeBackend(
@@ -107,7 +118,8 @@ extension LocalBridgeBackend {
                 // younger - which would make the nine-day `COMPASS` fuse look
                 // like it never burned down.
                 try? await store.replaceCredential(with: rotated)
-            }
+            },
+            reachability: reachability
         )
     }
 }

@@ -60,6 +60,14 @@ public actor LocalBridgeBackend: ChatBackend {
     /// Handed to every `ChannelSession` this backend opens. Always `.default`
     /// outside tests - see the internal initialiser.
     private let channelRetry: RetryPolicy
+    /// Handed to every `ChannelSession` this backend opens, the same as
+    /// `channelRetry`. `nil` is a legitimate value everywhere - `ChannelSession`
+    /// itself degrades to its bounded fallback timer when there is no monitor -
+    /// so every existing call site keeps compiling unchanged. `SessionHandoff
+    /// .swift`'s `using(_:transport:)` is the one place this defaults to a real
+    /// `NWPathReachabilityMonitor`; every other entry point, including the
+    /// public initialiser below, leaves it `nil`.
+    private let channelReachability: (any ReachabilityMonitor)?
     /// Not `private`: `LocalBridgeBackend+ChannelStopped.swift` reads and
     /// writes it too, the same reason `apiClient` and `emit(_:)` are not
     /// `private` either.
@@ -122,17 +130,23 @@ public actor LocalBridgeBackend: ChatBackend {
     /// otherwise sit through is unbounded rather than 7.5 seconds.
     /// `.immediate` removes it, which is what every test that waits for a
     /// channel to finish needs.
+    /// - Parameter reachability: The device's network-reachability signal, if
+    /// the caller has one. Forwarded verbatim to every `ChannelSession` this
+    /// backend opens; see `ChannelSession`'s own doc comment on why `nil`
+    /// degrades rather than fails.
     init(
         cookies: SessionCookies,
         transport: any HTTPTransport,
         endpoints: ChatEndpoints = ChatEndpoints(),
         retry: RetryPolicy,
-        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil
+        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
+        reachability: (any ReachabilityMonitor)? = nil
     ) {
         self.cookies = cookies
         self.endpoints = endpoints
         self.transport = transport
         channelRetry = retry
+        channelReachability = reachability
         credentials = SessionCredentials(cookies, onRotation: onRotation)
         bootstrap = Bootstrap(transport: transport)
         (events, continuation) = AsyncStream.makeStream(
@@ -242,7 +256,8 @@ public actor LocalBridgeBackend: ChatBackend {
             retry: channelRetry,
             onLifecycle: { [weak self] event in
                 await self?.channelLifecycleChanged(event)
-            }
+            },
+            reachability: channelReachability
         )
         self.channel = channel
         channelTask = Task { [weak self] in

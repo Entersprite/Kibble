@@ -46,6 +46,52 @@ public extension AppEnvironment {
         )
     }
 
+    /// `reconnect` is left at its default `nil` - a deliberate choice, not a
+    /// gap, and the reasoning has to live here because nothing else in the
+    /// signature says so.
+    ///
+    /// `ChatBackend.connect()` is the only existing member that looks
+    /// relevant, and the task that wired the rest of this taxonomy
+    /// (`docs/journal/`) was explicit: wire it only if calling it on a
+    /// live-but-reconnecting session is *obviously* safe, and never invent a
+    /// new `ChatBackend` member to make a button work. Tracing both ends of
+    /// that call settles it:
+    ///
+    /// - **A bare `connect()` is a safe no-op, which is worse than useless.**
+    ///   `LocalBridgeBackend.connect()` opens with `guard !isConnected else {
+    ///   return }`. `isConnected` only ever flips back to `false` in
+    ///   `channelStopped(_:)` (`LocalBridgeBackend+ChannelStopped.swift`),
+    ///   which its own doc comment says is reached only for a **terminal**
+    ///   failure - never for `.reconnecting`, because a recoverable failure no
+    ///   longer stops the channel at all since task 3 of the reconnect
+    ///   taxonomy. `ConnectionBanner.offersReconnect(for:)` only ever returns
+    ///   `true` for `.reconnecting`. So the one state this button could be
+    ///   drawn in is exactly the state where `isConnected` is still `true` and
+    ///   `connect()` returns instantly, having done nothing. A button that
+    ///   silently does nothing is a worse affordance than no button.
+    /// - **`disconnect()` then `connect()` would use only existing members,
+    ///   and still is not obviously safe.** `ChatBackend`'s own contract
+    ///   allows a stream to survive a disconnect/reconnect cycle, so this
+    ///   composition is not forbidden by anything upstream. But
+    ///   `connect()`'s first step, `Bootstrap.run(cookies:endpoints:)`
+    ///   (`GChatBridgeCore/Session/Bootstrap.swift`), is one HTTP round trip
+    ///   with no retry of its own, and nothing in `connect()` schedules
+    ///   another attempt if that throws. Tearing down the channel's own
+    ///   indefinitely-retrying loop via `disconnect()` and then hitting a
+    ///   `connect()` that itself fails - plausible exactly when someone
+    ///   impatiently mashes "reconnect now" while the network is still bad -
+    ///   would leave the backend fully stopped with nothing left auto-
+    ///   retrying. That reintroduces, one layer higher, the "an outage longer
+    ///   than roughly eight seconds was permanent until relaunch" bug
+    ///   `ChannelSession`'s own doc comment says task 3 fixed.
+    ///
+    /// A version of this button that is both safe and useful needs `connect()`
+    /// itself to tolerate its own failure (or a narrower primitive that only
+    /// nudges the existing channel's backoff without tearing anything down) -
+    /// genuinely new `ChatBackend` surface, and out of scope here. Leaving
+    /// this `nil` means `StatusStrip` draws no control and the reducer's
+    /// unconditional retry stays the only recovery path, which is the part
+    /// that was actually asked for.
     var actions: ChatSceneActions {
         ChatSceneActions(
             select: { [weak self] id in
