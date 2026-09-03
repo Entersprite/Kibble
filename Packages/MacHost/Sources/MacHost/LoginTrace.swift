@@ -11,21 +11,21 @@ import Foundation
 /// URLs carry identifiers and one-time tokens in their query strings, and this
 /// file is meant to be readable and pasteable.
 @MainActor
-enum LoginTrace {
+public enum LoginTrace {
     private(set) static var lines: [String] = []
 
-    static func note(_ message: String) {
+    public static func note(_ message: String) {
         let stamp = Date().formatted(date: .omitted, time: .standard)
         lines.append("\(stamp)  \(message)")
         flush()
     }
 
-    static func note(_ message: String, url: URL?) {
+    public static func note(_ message: String, url: URL?) {
         note("\(message) \(redact(url))")
     }
 
     /// Host and path only. A sign-in query string is full of tokens.
-    static func redact(_ url: URL?) -> String {
+    public static func redact(_ url: URL?) -> String {
         guard let url else { return "(no url)" }
         guard let host = url.host() else { return url.scheme ?? "(opaque)" }
         let query = url.query() == nil ? "" : " ?<stripped>"
@@ -33,13 +33,7 @@ enum LoginTrace {
     }
 
     private static func flush() {
-        guard let directory = try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ).appendingPathComponent("GChat", isDirectory: true) else { return }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard let directory = try? SystemLaunchServices.supportDirectory() else { return }
         try? lines.joined(separator: "\n").appending("\n").write(
             to: directory.appendingPathComponent("login-trace.txt"),
             atomically: true,

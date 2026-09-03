@@ -84,19 +84,20 @@ public final class SystemLaunchServices: LaunchServices {
         return SessionSelection(backend: backend, me: nil, driver: nil)
     }
 
-    // MARK: - Task 8 stubs
-
-    // TASK 8 TODO: `LaunchProbes` and `AppNapProbe` move into this package in
-    // Task 8. Until then these two bodies are stubs; replace both, and restore
-    // the `appNapProbe` property (with its doc comment) that `startDiagnostics()`
-    // needs. Do not move `LaunchProbes`/`AppNapProbe` early - that is this
-    // task's job, not Task 5's.
-
     public func runProbe(_ probe: LaunchProbe) async -> String {
-        "Probe \(probe) is not wired yet."
+        switch probe {
+        case .keychain: await LaunchProbes.keychainCheck()
+        case .api: await LaunchProbes.apiProbe()
+        }
     }
 
-    public func startDiagnostics() throws {}
+    public func startDiagnostics() throws {
+        try appNapProbe.start(
+            writingTo: Self.supportDirectory().appendingPathComponent("appnap-probe.csv")
+        )
+    }
+
+    private let appNapProbe = AppNapProbe()
 
     /// One database per backend, and that separation is load-bearing.
     ///

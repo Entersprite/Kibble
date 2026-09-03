@@ -27,15 +27,13 @@ import Foundation
 /// system daemon and may keep arriving while the app's own timers are stretched.
 /// That second question needs live credentials and is recorded as still open.
 @MainActor
-final class AppNapProbe {
-    static var isRequested: Bool {
-        CommandLine.arguments.contains("--probe=appnap")
-    }
-
+public final class AppNapProbe {
     private var task: Task<Void, Never>?
     private var activity: NSObjectProtocol?
 
-    func start(writingTo url: URL) {
+    public init() {}
+
+    public func start(writingTo url: URL) {
         guard task == nil else { return }
 
         if CommandLine.arguments.contains("--probe-activity") {
@@ -81,7 +79,7 @@ final class AppNapProbe {
         }
     }
 
-    func stop() {
+    public func stop() {
         task?.cancel()
         task = nil
         if let activity {
