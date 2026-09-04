@@ -128,4 +128,24 @@ struct ChannelRequestsTests {
     @Test func aReopenIsAllowedToWait() {
         #expect(requests.reopen(sid: "S", aid: 0, zx: "z").timeout >= .seconds(60))
     }
+
+    // MARK: - Trace labels never change what is on the wire
+
+    /// `traceLabel` is diagnostic metadata for `ChannelTraceSink` alone - see
+    /// `HTTPTransport.swift`'s own doc comment on the field. These pin which
+    /// two requests carry one, matching `ChannelEffect.handshake`/`.reopen`
+    /// exactly, without touching a single assertion above that already pins
+    /// the exact bytes each request puts on the wire.
+    @Test func theHandshakeIsLabelledForTracing() {
+        #expect(requests.handshake(rid: 1, zx: "z").traceLabel == "handshake")
+    }
+
+    @Test func theReopenIsLabelledForTracing() {
+        #expect(requests.reopen(sid: "S", aid: 0, zx: "z").traceLabel == "reopen")
+    }
+
+    @Test func registerAndAcknowledgeCarryNoTraceLabel() {
+        #expect(requests.register().traceLabel == nil)
+        #expect(requests.acknowledge(sid: "S", aid: 0, zx: "z").traceLabel == nil)
+    }
 }

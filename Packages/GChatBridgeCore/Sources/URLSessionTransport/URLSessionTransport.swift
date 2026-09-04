@@ -17,15 +17,23 @@ import GChatBridgeCore
 /// promise from being a claim rather than a fact.
 public final class URLSessionTransport: HTTPTransport {
     private let session: URLSession
+    /// Where `stream()` reports the long poll's transport-level behaviour, if
+    /// anywhere. `nil` on every construction site but the one
+    /// `LocalBridgeBackend.SessionHandoff` builds when `--probe=channeltrace`
+    /// asked for it - see `ChannelTraceFileSink`'s own doc comment for why the
+    /// conformance lives in this target rather than in `MacHost`. A `nil` sink
+    /// costs `stream()` one pointer check per byte and nothing else.
+    private let channelTrace: (any ChannelTraceSink)?
 
     /// Injectable so tests can hand in a `StubURLProtocol`-backed session, and
     /// so a host that must share a session can.
-    public init(session: URLSession) {
+    public init(session: URLSession, channelTrace: (any ChannelTraceSink)? = nil) {
         self.session = session
+        self.channelTrace = channelTrace
     }
 
-    public convenience init() {
-        self.init(session: URLSession(configuration: Self.makeConfiguration()))
+    public convenience init(channelTrace: (any ChannelTraceSink)? = nil) {
+        self.init(session: URLSession(configuration: Self.makeConfiguration()), channelTrace: channelTrace)
     }
 
     /// The configuration this package wants when it owns the session.
@@ -85,6 +93,12 @@ public final class URLSessionTransport: HTTPTransport {
     public func stream(_ request: HTTPRequest) async throws -> HTTPStream {
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
+        // Taken before the request is handed to `URLSession`, and off
+        // `ContinuousClock` rather than `Date`, so a sleep/wake cycle between
+        // this stream and the next cannot masquerade as (or hide) a real
+        // delay - see `ChannelTraceSink`'s own doc comment.
+        let openedAt = ContinuousClock.now
+        channelTrace?.streamOpened(kind: request.traceLabel ?? "unlabeled", at: openedAt)
         do {
             (bytes, response) = try await session.bytes(for: Self.urlRequest(from: request))
         } catch {
@@ -97,12 +111,25 @@ public final class URLSessionTransport: HTTPTransport {
             throw Self.classify(error)
         }
         let http = try Self.httpResponse(from: response)
+        let headers = Self.headers(of: http)
+        channelTrace?.responseHeadReceived(
+            status: http.statusCode,
+            contentType: headers["Content-Type"],
+            contentEncoding: headers["Content-Encoding"],
+            transferEncoding: headers["Transfer-Encoding"],
+            at: .now
+        )
+        // A fresh recorder per stream, holding this one stream's batcher and
+        // running byte count - `nil` for the overwhelming majority of streams,
+        // which have no `channelTrace` to report to at all.
+        let recorder = channelTrace.map { StreamTraceRecorder(sink: $0) }
 
         return HTTPStream(
             status: http.statusCode,
-            headers: Self.headers(of: http),
+            headers: headers,
             body: AsyncThrowingStream { continuation in
                 let task = Task {
+                    var recorder = recorder
                     do {
                         // Bytes are forwarded as they arrive, with no buffering.
                         //
@@ -118,21 +145,46 @@ public final class URLSessionTransport: HTTPTransport {
                         // way, so granularity costs only CPU, never
                         // correctness. If it ever matters, the fix is a
                         // delegate-based chunker, not a timer.
+                        //
+                        // This same one-byte-at-a-time granularity is also
+                        // what makes `channelTrace` able to see real batch
+                        // boundaries at all - see `ChannelTraceBatcher`.
                         for try await byte in bytes {
                             continuation.yield(Data([byte]))
+                            recorder?.byteArrived()
                         }
+                        recorder?.finish(outcome: .eof)
                         continuation.finish()
                     } catch {
                         // The socket dying mid-body is the other throw site
                         // this stream owns - same request, same SID, same
                         // reason to classify before it can reach
                         // `ChannelSession.openStream`'s catch.
-                        continuation.finish(throwing: Self.classify(error))
+                        let classified = Self.classify(error)
+                        recorder?.finish(outcome: .error(Self.safeTraceDescription(classified)))
+                        continuation.finish(throwing: classified)
                     }
                 }
                 continuation.onTermination = { _ in task.cancel() }
             }
         )
+    }
+
+    /// A phrase safe to write to `ChannelTraceFileSink`'s file - never
+    /// `String(describing:)` on the error itself, which for an unclassified
+    /// `URLError` can carry the failing request's URL (`classify(_:)`'s own
+    /// doc comment). `error` here has already been through `classify(_:)`, so
+    /// the only two shapes left to name are a `ClassifiedTransportFailure`
+    /// and a plain `CancellationError` from `stop()` tearing down the stream's
+    /// task - anything else prints as `"unclassified"` rather than risk it.
+    private static func safeTraceDescription(_ error: any Error) -> String {
+        if let classified = error as? ClassifiedTransportFailure {
+            return classified.reason.safeDescription
+        }
+        if error is CancellationError {
+            return "cancelled"
+        }
+        return "unclassified"
     }
 
     // MARK: - Conversion
@@ -205,6 +257,39 @@ public final class URLSessionTransport: HTTPTransport {
             collapsed[name] = String(describing: value)
         }
         return HTTPHeaders(collapsed: collapsed)
+    }
+}
+
+/// One stream's trace bookkeeping - its batcher plus the running byte count.
+///
+/// Pulled out of `stream()` itself only to keep that one function under the
+/// lint's length ceiling; there is no reuse story beyond that. Never
+/// constructed when `channelTrace` is `nil`, so it costs nothing on the path
+/// every launch but `--probe=channeltrace` actually takes.
+private struct StreamTraceRecorder {
+    let sink: any ChannelTraceSink
+    private var batcher = ChannelTraceBatcher()
+    private var totalBytes = 0
+
+    init(sink: any ChannelTraceSink) {
+        self.sink = sink
+    }
+
+    /// One byte arrived, right now. Reports the batch it closed, if any.
+    mutating func byteArrived() {
+        totalBytes += 1
+        if let batch = batcher.arrived(at: .now) {
+            sink.batchArrived(batch)
+        }
+    }
+
+    /// The stream ended - flushes whatever batch was still open, then reports
+    /// the end itself, so a caller need not remember to do both in order.
+    mutating func finish(outcome: ChannelTraceOutcome) {
+        if let batch = batcher.flush() {
+            sink.batchArrived(batch)
+        }
+        sink.streamEnded(outcome: outcome, totalBytes: totalBytes, at: .now)
     }
 }
 

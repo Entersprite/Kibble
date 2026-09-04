@@ -77,18 +77,36 @@ public struct HTTPRequest: Sendable, Hashable {
     /// generous and callers shorten it rather than lengthen it.
     public var timeout: Duration
 
+    /// A short, human-readable tag - `"handshake"` or `"reopen"` - carried only
+    /// for `ChannelTraceSink.streamOpened(kind:at:)`.
+    ///
+    /// **Not protocol content and never sent on the wire**: `Self.urlRequest(from:)`
+    /// in `URLSessionTransport` never reads it. It exists here, on the request
+    /// rather than as a `stream()` parameter, because the two call sites that
+    /// need it - `ChannelRequests.handshake(rid:zx:)` and
+    /// `.reopen(sid:aid:zx:)` - are already the two places that know which kind
+    /// of stream they are building, and `ChannelSession.openStream(_:)` is one
+    /// level removed from that decision by the time it calls
+    /// `transport.stream(request)`. Every other request - `register()`,
+    /// `acknowledge(sid:aid:zx:)`, and anything `ProtoAPIClient` builds - leaves
+    /// this `nil`, and `send(_:)` never looks at it at all: only `stream(_:)`
+    /// forwards it, and only to a `channelTrace` that is actually configured.
+    public var traceLabel: String?
+
     public init(
         method: Method = .get,
         url: URL,
         headers: HTTPHeaders = HTTPHeaders([]),
         body: Data? = nil,
-        timeout: Duration = .seconds(70)
+        timeout: Duration = .seconds(70),
+        traceLabel: String? = nil
     ) {
         self.method = method
         self.url = url
         self.headers = headers
         self.body = body
         self.timeout = timeout
+        self.traceLabel = traceLabel
     }
 }
 

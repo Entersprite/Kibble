@@ -53,15 +53,18 @@ public struct ChannelRequests: Sendable {
     /// parameter and not a JSON null. The SID comes back in the
     /// `X-HTTP-Initial-Response` header rather than the body.
     public func handshake(rid: Int, zx: String) -> HTTPRequest {
-        events([
-            ("VER", "8"),
-            ("RID", String(rid)),
-            ("t", "1"),
-            ("zx", zx),
-            ("CVER", "22"),
-            ("$req", Self.initialForwardChannelRequest),
-            ("SID", "null")
-        ])
+        events(
+            [
+                ("VER", "8"),
+                ("RID", String(rid)),
+                ("t", "1"),
+                ("zx", zx),
+                ("CVER", "22"),
+                ("$req", Self.initialForwardChannelRequest),
+                ("SID", "null")
+            ],
+            traceLabel: "handshake"
+        )
     }
 
     /// Tells the server the SID arrived.
@@ -91,22 +94,25 @@ public struct ChannelRequests: Sendable {
     /// `AID` is the highest **fully processed** array, so the server knows what
     /// not to send again.
     public func reopen(sid: String, aid: Int, zx: String) -> HTTPRequest {
-        events([
-            ("VER", "8"),
-            ("RID", "rpc"),
-            ("SID", sid),
-            ("t", "1"),
-            ("zx", zx),
-            ("CI", "0"),
-            ("TYPE", "xmlhttp"),
-            ("AID", String(aid))
-        ])
+        events(
+            [
+                ("VER", "8"),
+                ("RID", "rpc"),
+                ("SID", sid),
+                ("t", "1"),
+                ("zx", zx),
+                ("CI", "0"),
+                ("TYPE", "xmlhttp"),
+                ("AID", String(aid))
+            ],
+            traceLabel: "reopen"
+        )
     }
 
-    private func events(_ items: [(String, String)]) -> HTTPRequest {
+    private func events(_ items: [(String, String)], traceLabel: String? = nil) -> HTTPRequest {
         var components = URLComponents(url: channelBase("events"), resolvingAgainstBaseURL: false)!
         components.percentEncodedQuery = QueryEncoding.query(items)
-        return HTTPRequest(url: components.url!, headers: headers())
+        return HTTPRequest(url: components.url!, headers: headers(), traceLabel: traceLabel)
     }
 
     private func channelBase(_ path: String) -> URL {

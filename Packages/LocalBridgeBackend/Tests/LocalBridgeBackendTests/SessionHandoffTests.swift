@@ -181,6 +181,28 @@ struct SessionHandoffTests {
         let backend = try #require(await LocalBridgeBackend.using(store))
         #expect(await backend.channelReachability != nil)
     }
+
+    /// `tracingChannelTo` is `nil` on every call in this file but this one -
+    /// diagnostic instrumentation for `findings.md` §12.4, and opt-in the same
+    /// way `reachability` above is, except this one never has a "real" default
+    /// to fall back to: nothing in this repo enables it unless
+    /// `SystemLaunchServices.makeSession()` saw `--probe=channeltrace`. This
+    /// only proves the parameter exists and does not stop a bridge from being
+    /// built - the file it would write to is a scratch path under the
+    /// system's own temporary directory, never anywhere this suite could
+    /// leave litter behind or that could be mistaken for a repo file.
+    @Test func aTracingURLStillProducesAWorkingBridge() async throws {
+        let store = store()
+        _ = try await capture([cookie("COMPASS"), cookie("OSID")]).save(to: store)
+        let traceFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gchat-channel-trace-test-\(UUID().uuidString).csv")
+        defer { try? FileManager.default.removeItem(at: traceFile) }
+        #expect(try await LocalBridgeBackend.using(
+            store,
+            reachability: nil,
+            tracingChannelTo: traceFile
+        ) != nil)
+    }
 }
 
 /// Closing the loop: a cookie rotated on the live channel has to reach the

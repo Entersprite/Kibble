@@ -64,7 +64,10 @@ public final class SystemLaunchServices: LaunchServices {
         // login window is what retired it.
         let backend: LocalBridgeBackend?
         do {
-            backend = try await LocalBridgeBackend.using(KeychainCredentialStore())
+            backend = try await LocalBridgeBackend.using(
+                KeychainCredentialStore(),
+                tracingChannelTo: Self.channelTraceFile()
+            )
         } catch {
             // A Keychain that refuses is not an absent credential, and
             // reporting it as one would send someone through a two-factor
@@ -98,6 +101,32 @@ public final class SystemLaunchServices: LaunchServices {
     }
 
     private let appNapProbe = AppNapProbe()
+
+    /// Where to write the channel trace, if `--probe=channeltrace` was asked
+    /// for - `nil` on every ordinary launch.
+    ///
+    /// **Not routed through `LaunchArguments`/`startDiagnostics()`**, unlike
+    /// `--probe=appnap`: `AppEnvironment.start()` calls
+    /// `services.makeSession()` well before it ever calls
+    /// `startDiagnostics()` (only once `phase == .running`), and the trace
+    /// has to be wired into `LocalBridgeBackend.using(_:tracingChannelTo:)`
+    /// *during* `makeSession()`, before the channel's first stream opens -
+    /// by `startDiagnostics()` time the channel may already be several
+    /// reopens in. Reading `CommandLine.arguments` directly here, rather than
+    /// teaching `AppCore`'s `LaunchArguments` a new field, is the same choice
+    /// `AppNapProbe.start(writingTo:)` already makes for its own
+    /// `--probe-activity`/`--probe-close-window` sub-flags - `AppCore` stays
+    /// unaware that this instrument exists at all, which is one of this
+    /// instrument's own hard requirements.
+    ///
+    /// Swallows a failed `supportDirectory()` rather than throwing: a
+    /// diagnostic that cannot find a place to write belongs to the same
+    /// launch failing to start tracing, not to the sign-in path failing to
+    /// start at all.
+    private static func channelTraceFile() -> URL? {
+        guard CommandLine.arguments.contains("--probe=channeltrace") else { return nil }
+        return try? supportDirectory().appendingPathComponent("channel-trace.csv")
+    }
 
     /// One database per backend, and that separation is load-bearing.
     ///

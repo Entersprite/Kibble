@@ -81,12 +81,30 @@ public extension LocalBridgeBackend {
     /// free. Pass `nil` explicitly to fall back to `ChannelSession`'s bounded
     /// timer alone, which is what every test that reaches this does by
     /// supplying its own transport and never asking for a monitor.
+    /// - Parameter tracingChannelTo: A file to write the long poll's
+    /// transport-level behaviour to - diagnostic instrumentation for
+    /// `findings.md` §12.4, never anything that changes what the channel
+    /// does. `nil` everywhere except `SystemLaunchServices.makeSession()`,
+    /// which supplies one only when launched with `--probe=channeltrace`.
+    /// When supplied, it wins over whatever `transport` would otherwise be -
+    /// explicit or defaulted - because tracing only makes sense wired into
+    /// the `URLSessionTransport` this call builds for itself; nothing in this
+    /// repo ever passes both at once. `MacHost` hands over a plain `URL`
+    /// rather than a `ChannelTraceSink` because that protocol, like
+    /// `HTTPTransport`, is a `GChatBridgeCore` type this package's app-facing
+    /// surface must not carry - `ChannelTraceFileSink` (in the
+    /// `URLSessionTransport` target, next to `NWPathReachabilityMonitor`, for
+    /// the identical containment reason) is what actually conforms to it.
     static func using(
         _ store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
-        reachability: (any ReachabilityMonitor)? = NWPathReachabilityMonitor()
+        reachability: (any ReachabilityMonitor)? = NWPathReachabilityMonitor(),
+        tracingChannelTo traceFile: URL? = nil
     ) async throws -> LocalBridgeBackend? {
-        try await using(store, transport: transport, retry: .default, reachability: reachability)
+        let transport = traceFile
+            .map { URLSessionTransport(channelTrace: ChannelTraceFileSink(writingTo: $0)) }
+            ?? transport
+        return try await using(store, transport: transport, retry: .default, reachability: reachability)
     }
 }
 
