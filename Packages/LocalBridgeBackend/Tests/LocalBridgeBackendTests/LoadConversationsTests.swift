@@ -67,9 +67,16 @@ private actor RoutingTransport: HTTPTransport {
     }
 
     func stream(_: HTTPRequest) async throws -> HTTPStream {
-        // The channel's handshake/reopen. Failing it here is deliberate -
-        // it lets the channel end on its own quickly, which is not what
-        // this suite is testing.
+        // The channel's handshake/reopen. Failing it here is deliberate:
+        // this suite is testing `loadConversations()`, not the channel, and
+        // it used to end the channel's own task quickly as a side effect.
+        // Since the reconnect taxonomy removed the attempt bound, it no
+        // longer does - `.transport` is unconditionally recoverable, so this
+        // failure now retries forever instead. That leaves the channel task
+        // `connect()` started running in the background, orphaned, for the
+        // rest of this suite's run. Known and deliberately deferred (see the
+        // whole-slice review's fix report), not something this comment
+        // should keep claiming isn't happening.
         throw NoStream()
     }
 }

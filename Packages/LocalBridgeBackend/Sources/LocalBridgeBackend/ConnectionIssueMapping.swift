@@ -7,7 +7,8 @@ import GChatBridgeCore
 /// `ConnectionIssue` in `ChatKit` - because `GChatBridgeCore` may not import
 /// `ChatKit` (it must stay portable to a future Linux bridge server, and the
 /// domain is a client concern). That is the "one rule, two places" shape this
-/// project keeps being bitten by (`findings.md` §24, and session 17 §7d's
+/// project keeps being bitten by (`findings.md` §24, and
+/// `docs/superpowers/specs/2026-09-02-testable-app-layer-design.md` §7d's
 /// login origin), so both switches below are exhaustive **with no `default`
 /// clause**: adding a case to either source enum stops this package
 /// compiling until someone decides what it means on screen. Same idiom as

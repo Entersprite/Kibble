@@ -11,16 +11,52 @@ import Testing
 /// signal it may never receive is a channel that can hang forever.
 struct AwaitNetworkTests {
     /// Fires on demand, so a test never waits on a real network.
+    ///
+    /// Mirrors `ReachabilityMonitor`'s contract exactly, the same shape
+    /// `NWPathReachabilityMonitor` implements: `networkReturned` hands out a
+    /// fresh, independent stream on every access and `fire()` broadcasts to
+    /// every stream currently subscribed - never to a single, stored stream
+    /// a second access would keep re-consuming.
+    ///
+    /// Before the fix for the whole-slice review's Critical 1, this was a
+    /// `let networkReturned: AsyncStream<Void>` - a single stored stream,
+    /// matching production's own bug precisely - and
+    /// `aSecondWaitOnTheSameMonitorStillHonoursASignal` below failed against
+    /// it: a cancelled first wait finished that one shared stream forever,
+    /// so the second wait's `for await` returned nothing and fell through to
+    /// `.fallback` in well under a millisecond (measured as low as 37
+    /// microseconds), never reaching `sleep` even though `fire()` was
+    /// called. `aSignalWithNobodyWaitingIsNotRedeemedByALaterWait` failed the
+    /// same way, for Important 3: a fire with nobody subscribed stayed
+    /// buffered on that one shared stream and was wrongly redeemed as an
+    /// instant `.signal` by whichever wait came next.
     final class FakeReachability: ReachabilityMonitor, @unchecked Sendable {
-        let networkReturned: AsyncStream<Void>
-        private let continuation: AsyncStream<Void>.Continuation
+        private let lock = NSLock()
+        private var continuations: [Int: AsyncStream<Void>.Continuation] = [:]
+        private var nextID = 0
 
-        init() {
-            (networkReturned, continuation) = AsyncStream<Void>.makeStream()
+        var networkReturned: AsyncStream<Void> {
+            let (stream, continuation) = AsyncStream<Void>.makeStream()
+            let id: Int = lock.withLock {
+                nextID += 1
+                continuations[nextID] = continuation
+                return nextID
+            }
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                lock.withLock { _ = continuations.removeValue(forKey: id) }
+            }
+            return stream
         }
 
+        /// Broadcasts to every stream currently subscribed - possibly zero,
+        /// if nothing is waiting right now. A fire with nobody subscribed is
+        /// simply not observed by anyone.
         func fire() {
-            continuation.yield(())
+            let current = lock.withLock { Array(continuations.values) }
+            for continuation in current {
+                continuation.yield(())
+            }
         }
     }
 
@@ -141,6 +177,132 @@ struct AwaitNetworkTests {
             onReady: {}
         )
         #expect(waited == .fallback)
+    }
+
+    /// Whole-slice review, Critical 1 - the worst of the two findings, and
+    /// worse than the bug the whole slice exists to fix, on the same input.
+    /// Every other test in this file calls `awaitNetwork` exactly once on a
+    /// fresh monitor; this is the one that calls it twice on the *same*
+    /// instance, which is what a real `ChannelSession` does on every
+    /// `.awaitNetwork` reconnect attempt against its one stored
+    /// `reachability` monitor.
+    ///
+    /// The first wait below ends via the fallback - nothing ever fires, so
+    /// the always-instant `sleep` wins the race and `group.cancelAll()`
+    /// cancels the signal-side child, which was suspended inside `for await
+    /// _ in monitor.networkReturned`. Before the fix, cancelling a task
+    /// suspended in `AsyncStream.Iterator.next()` finished the stream it was
+    /// iterating, and `FakeReachability.networkReturned` was a single stored
+    /// stream - the same shape `NWPathReachabilityMonitor` had - so that
+    /// finish was permanent for the life of the fake, not just for this one
+    /// wait. The second wait then found the stream already finished: `for
+    /// await` returned with no value, `awaitNetwork`'s signal-side child fell
+    /// through to `.fallback` without ever reaching `sleep`, and `group.next()`
+    /// resolved to that fallen-through `.fallback` before the deliberately
+    /// hour-long fallback sleep on the other child ever had a chance to run -
+    /// all in well under a millisecond, even though `monitor.fire()` was
+    /// called.
+    @Test func aSecondWaitOnTheSameMonitorStillHonoursASignal() async {
+        let monitor = FakeReachability()
+
+        // First wait: engineered to end via the fallback, which is the one
+        // that poisons a single shared stream.
+        guard let first = await awaitBounded(
+            {
+                await ChannelSession.awaitNetwork(
+                    monitor: monitor,
+                    fallback: .seconds(60),
+                    sleep: { _ in }, // instant, so the fallback always wins here
+                    onReady: {}
+                )
+            },
+            timeoutMessage: "first wait (expected to end via the fallback) never returned"
+        ) else {
+            return // awaitBounded already recorded why.
+        }
+        #expect(first == .fallback)
+
+        // Second wait, same monitor instance. Before the fix this returned
+        // `.fallback` in well under a millisecond - timed in this suite at
+        // as little as 37 microseconds - because the shared stream was
+        // already finished and `monitor.fire()` below had nowhere to land.
+        let clock = ContinuousClock()
+        var second: ChannelSession.NetworkWaitOutcome?
+        let elapsed = await clock.measure {
+            second = await awaitBounded(
+                {
+                    await ChannelSession.awaitNetwork(
+                        monitor: monitor,
+                        fallback: .seconds(60),
+                        sleep: { _ in try? await Task.sleep(for: .seconds(3600)) },
+                        onReady: { monitor.fire() }
+                    )
+                },
+                timeoutMessage: """
+                timed out waiting for the second awaitNetwork call to return - Critical 1's regression: a \
+                monitor whose networkReturned stream is shared rather than fresh per access has its stream \
+                finished by the first call's cancelled wait, so a signal fired here is never observed.
+                """
+            )
+        }
+        guard let second else {
+            return // awaitBounded already recorded why.
+        }
+        #expect(
+            second == .signal,
+            """
+            second wait returned \(String(describing: second)) after \(elapsed) - a fresh signal was fired \
+            via onReady, so anything but .signal means the monitor's stream did not survive the first \
+            wait's cancellation
+            """
+        )
+    }
+
+    /// Whole-slice review, Important 3 - the same root cause as Critical 1,
+    /// seen from the other side. `NWPathReachabilityMonitor` yields into an
+    /// `.unbounded` stream, so before the fix a transition firing while
+    /// nothing was waiting stayed buffered and was handed to whichever
+    /// `awaitNetwork` call came next - however much later, and with no real
+    /// wait behind it. Fixed, a fire with nobody currently subscribed reaches
+    /// zero continuations and is simply not observed by anyone; the next
+    /// wait gets its own fresh, empty stream rather than inheriting a stale
+    /// buffered value.
+    ///
+    /// The fallback here is a real, short `Task.sleep` rather than the
+    /// instant `{ _ in }` most other tests in this file use, and that is
+    /// deliberate, not an oversight: a buffered stale value delivers in
+    /// well under a millisecond, but so does an instant fallback closure -
+    /// `aNetworkSignalEndsTheWaitImmediately`'s own doc comment already
+    /// measured an instant fallback winning that race the *majority* of the
+    /// time. An instant fallback here would make this test pass whether or
+    /// not the stale value was wrongly redeemed, which is not a test at all.
+    /// A real sleep long enough for `AsyncStream` delivery to reliably win
+    /// if - and only if - something is actually buffered is what makes
+    /// `.fallback` a meaningful result rather than a coin flip.
+    @Test func aSignalWithNobodyWaitingIsNotRedeemedByALaterWait() async {
+        let monitor = FakeReachability()
+
+        // Fired with nothing subscribed yet - no `awaitNetwork` call is in
+        // progress, so there is no stream registered to receive this.
+        monitor.fire()
+
+        guard let waited = await awaitBounded(
+            {
+                await ChannelSession.awaitNetwork(
+                    monitor: monitor,
+                    fallback: .milliseconds(300),
+                    sleep: { try? await Task.sleep(for: $0) },
+                    onReady: {}
+                )
+            },
+            timeoutMessage: "awaitNetwork never returned after a stale, unrelated fire()"
+        ) else {
+            return // awaitBounded already recorded why.
+        }
+        #expect(
+            waited == .fallback,
+            "a fire() from before this wait started must not be redeemed as an instant .signal: \(waited)"
+        )
     }
 }
 

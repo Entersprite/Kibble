@@ -51,11 +51,26 @@ extension ChannelSession {
     /// failure - see `AwaitNetworkTests.aNetworkSignalEndsTheWaitImmediately`'s
     /// own comment for why that test asserts correctly on the outcome alone.
     ///
-    /// Only one iterator over `monitor.networkReturned` is ever live at a
-    /// time - a fresh `for await` each call, cancelled before the next call
-    /// starts one - because `AsyncStream` iteration is single-consumer, and
-    /// a second live consumer racing the first is undefined which one a
-    /// given value reaches.
+    /// `monitor.networkReturned` is read exactly once per call, here, before
+    /// either child task is spawned - not from inside the signal-consuming
+    /// child. Two things depend on that ordering:
+    ///
+    /// 1. **Isolation.** `ReachabilityMonitor.networkReturned` now hands out
+    ///    a fresh, independent stream on every access (see that protocol's
+    ///    own doc comment for the contract, and `NWPathReachabilityMonitor`
+    ///    for why a stored, shared stream was a bug this project shipped).
+    ///    Reading it here, once, means this call's stream is entirely its
+    ///    own: when the race ends and the losing child is cancelled,
+    ///    finishing *this* stream can never finish a stream some other call
+    ///    - past, concurrent, or future - is depending on.
+    /// 2. **No lost signal.** A conforming monitor registers this call's
+    ///    subscription the instant `networkReturned` is read - synchronously,
+    ///    on the calling task - not whenever the child task that will
+    ///    iterate it happens to get scheduled. Reading it before `onReady()`
+    ///    runs is what guarantees a signal fired inside `onReady` (a test
+    ///    hook) or by a real path transition can never land in a gap where
+    ///    nothing is subscribed yet; see `onReady`'s own doc below for what
+    ///    used to fill that role and why it no longer needs to.
     ///
     /// - Parameters:
     ///   - monitor: `nil` on a platform (or in a test) with no reachability
@@ -68,11 +83,13 @@ extension ChannelSession {
     ///     only *schedules* the signal-consuming child - it does not wait
     ///     for that child to start running before returning control - so
     ///     this is not "after the child is listening" in any ordering sense.
-    ///     What actually keeps a signal fired here from being lost is
-    ///     `AsyncStream`'s default `.unbounded` buffering, which retains a
-    ///     yielded value whether or not a consumer has attached yet - not an
-    ///     ordering `addTask` establishes. Production passes an empty
-    ///     closure; only tests pass one with an effect.
+    ///     What keeps a signal fired here from being lost is that this call
+    ///     already subscribed to the monitor before `onReady` ever runs (see
+    ///     this function's own doc comment above) together with
+    ///     `AsyncStream`'s default `.unbounded` buffering on that specific
+    ///     subscription, which retains a yielded value whether or not the
+    ///     consuming child has started running yet. Production passes an
+    ///     empty closure; only tests pass one with an effect.
     static func awaitNetwork(
         monitor: (any ReachabilityMonitor)?,
         fallback: Duration,
@@ -83,9 +100,13 @@ extension ChannelSession {
             await sleep(fallback)
             return .fallback
         }
+        // Subscribed here, synchronously, before either child task exists -
+        // see this function's own doc comment above for why that ordering,
+        // not just buffering, is what keeps a signal from being lost.
+        let signal = monitor.networkReturned
         return await withTaskGroup(of: NetworkWaitOutcome.self) { group in
             group.addTask {
-                for await _ in monitor.networkReturned {
+                for await _ in signal {
                     return .signal
                 }
                 // The stream finished without ever yielding. Not documented
