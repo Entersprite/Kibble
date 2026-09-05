@@ -88,6 +88,44 @@ public final class URLSessionTransport: HTTPTransport {
         )
     }
 
+    // MARK: - Fire-and-forget
+
+    /// Overrides the protocol's default. Returns as soon as this response's
+    /// **headers** arrive, via the same `bytes(for:)` entry point `stream()`
+    /// uses, and never awaits the body - mirroring the reference's
+    /// `fetch_raw`, which returns a `ClientResponse` at headers and never
+    /// reads this one's body either (`maugclib/http_utils.py:175-205`).
+    ///
+    /// **If the server delays the *headers*, this still waits** -
+    /// `bytes(for:)` does not return until the head arrives, same as `send`
+    /// and `stream`. What this removes is the other wait, the measured one:
+    /// `--probe=channeltrace` found the ack's *body* held open ~64 seconds
+    /// behind a head that, like every other request this transport has
+    /// traced, arrived promptly. A server that stalled the head itself would
+    /// still gate the caller, just for however long that stall lasted -
+    /// smaller than the fault this fixes, not zero.
+    ///
+    /// The byte stream itself is discarded immediately (`_`), not handed to a
+    /// background reader. A background `Task` iterating this same
+    /// `URLSession.AsyncBytes` after this function had already returned was
+    /// tried first and reproducibly crashed `LocalBridgeBackendPackageTests`
+    /// with SIGSEGV on every run - measured, not theoretical, and reverted
+    /// rather than chased further, since draining is a nice-to-have (a
+    /// connection returned to the pool sooner) and this crash is not.
+    /// Whatever happens to this response's body from here is exactly what
+    /// happens in the reference: nobody reads it, and nobody explicitly
+    /// closes it either.
+    public func fireAndForget(_ request: HTTPRequest) async throws -> HTTPHeaders {
+        let response: URLResponse
+        do {
+            (_, response) = try await session.bytes(for: Self.urlRequest(from: request))
+        } catch {
+            throw Self.classify(error)
+        }
+        let http = try Self.httpResponse(from: response)
+        return Self.headers(of: http)
+    }
+
     // MARK: - Streaming
 
     public func stream(_ request: HTTPRequest) async throws -> HTTPStream {

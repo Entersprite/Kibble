@@ -184,6 +184,37 @@ public protocol HTTPTransport: Sendable {
     /// the caller's job, because chunk boundaries are not message boundaries —
     /// a frame can be split across two reads.
     func stream(_ request: HTTPRequest) async throws -> HTTPStream
+
+    /// A request whose body nobody will ever read - genuinely fire-and-forget,
+    /// the way the reference's `fetch_raw` is (`maugclib/http_utils.py:175-205`):
+    /// it returns as soon as this response's **headers** arrive, and the body
+    /// is never read at all, so however long the server holds it open costs
+    /// this call nothing.
+    ///
+    /// This exists for exactly one caller - the channel's acknowledge request
+    /// - and the reason it cannot simply be `send(_:)` is measured, not
+    /// theoretical: `--probe=channeltrace` against a live account found the
+    /// server holding that response's body open for ~64 seconds, and
+    /// `send(_:)` - a whole-body call by contract, whatever a conformance
+    /// builds it on - waits for that complete body before returning at all.
+    /// A caller awaiting `send(_:)` for the ack was
+    /// therefore blocked those 64 seconds before it could get back to reading
+    /// the long poll's own, already-open stream - see
+    /// `ChannelAcknowledge.swift` for the full trace.
+    ///
+    /// Defaulted below to `send(_:)`, discarding the body: correct for a
+    /// scripted fake, where "sent" is all there is to simulate, and for any
+    /// future transport with no cheaper way to reach the headers than reading
+    /// the whole response. Only `URLSessionTransport` overrides this with
+    /// something that actually returns early; a conformance that does not
+    /// override it is not lying, it is only as slow as `send(_:)`.
+    func fireAndForget(_ request: HTTPRequest) async throws -> HTTPHeaders
+}
+
+public extension HTTPTransport {
+    func fireAndForget(_ request: HTTPRequest) async throws -> HTTPHeaders {
+        try await send(request).headers
+    }
 }
 
 // MARK: - Recovering collapsed headers

@@ -247,10 +247,13 @@ public actor ChannelSession {
             )
 
         case let .acknowledge(sid, aid):
-            // Fire-and-forget: the reference never inspects the response
-            // (`channel.py:440-442`), and neither does anyone else know what it
-            // is for beyond "it does seem to be required".
-            await send(requests.acknowledge(sid: sid, aid: aid, zx: nextCacheBuster())) {}
+            // Genuinely fire-and-forget - see `ChannelAcknowledge.swift` for
+            // what changed, why, and what the reference does.
+            let ack = requests.acknowledge(sid: sid, aid: aid, zx: nextCacheBuster())
+            await Self.acknowledge(
+                credentials.authorising(ack), via: transport,
+                onHeaders: { await absorb($0) }, onFailure: { await apply(.failed($0)) }
+            )
 
         case let .reopen(sid, aid):
             await openStream(requests.reopen(sid: sid, aid: aid, zx: nextCacheBuster()))

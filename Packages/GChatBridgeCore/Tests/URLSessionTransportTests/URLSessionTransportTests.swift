@@ -243,6 +243,43 @@ struct URLSessionTransportTests {
         #expect(URLSessionTransport.makeConfiguration().urlCache == nil)
     }
 
+    // MARK: - Fire-and-forget
+
+    /// The basic contract: it still sends the request and still hands back
+    /// the response's headers - `ChannelSession.acknowledge(...)` needs both,
+    /// since a rotated cookie on this response must not be silently dropped
+    /// just because nobody reads its body.
+    ///
+    /// **What this cannot exercise, given `StubURLProtocol`'s shape**: that
+    /// this returns *before* the body arrives. `StubURLProtocol.startLoading()`
+    /// delivers the head and the whole body in one synchronous call, so there
+    /// is no way here to make a body arrive late without a delayed-delivery
+    /// stub this suite does not have. That property is instead pinned at the
+    /// driver level, against a fake transport that can express "never
+    /// completes" - see `AcknowledgeFireAndForgetTests` in
+    /// `GChatBridgeCoreTests`.
+    @Test("fireAndForget still sends the request and returns its headers")
+    func fireAndForgetSendsAndReturnsHeaders() async throws {
+        stub.enqueue(.init(status: 200, body: Data("ignored".utf8), headers: ["X-Test": "1"]))
+        let headers = try await transport.fireAndForget(
+            HTTPRequest(method: .post, url: stub.baseURL, body: Data("a=1".utf8))
+        )
+        #expect(headers["X-Test"] == "1")
+        let recorded = try #require(stub.recordings.first)
+        #expect(recorded.request.httpMethod == "POST")
+        #expect(try String(decoding: #require(recorded.body), as: UTF8.self) == "a=1")
+    }
+
+    /// Same classification path as `send`/`stream` - a caller must never see
+    /// this method's own raw error, only what `classify(_:)` produced.
+    @Test("a fireAndForget failure classifies the same way send does")
+    func fireAndForgetFailureClassifies() async {
+        stub.enqueueFailure(.timedOut)
+        await #expect(throws: ClassifiedTransportFailure(.timedOut)) {
+            _ = try await transport.fireAndForget(HTTPRequest(url: stub.baseURL))
+        }
+    }
+
     // MARK: - Streaming
 
     /// The contract that makes the long poll possible: the head is available
