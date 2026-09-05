@@ -32,7 +32,8 @@ import GChatBridgeCore
 public final class ChannelTraceFileSink: ChannelTraceSink {
     private static let header = [
         "elapsedSeconds", "event", "kind", "status", "contentType", "contentEncoding",
-        "transferEncoding", "gapMillis", "byteCount", "totalBytes", "outcome"
+        "transferEncoding", "gapMillis", "byteCount", "totalBytes", "outcome", "httpMethod",
+        "requestByteCount", "responseByteCount", "durationMillis", "protoFields", "truncated"
     ].joined(separator: ",")
 
     private let url: URL
@@ -89,6 +90,36 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
         appendRow(at: instant, event: "end", totalBytes: String(totalBytes), outcome: outcomeText)
     }
 
+    /// `responseByteCount`/`responseBodyShape` being `nil` (a fire-and-forget
+    /// call - the acknowledge or the ping) is what tells `event` apart from a
+    /// call whose body was read (`register`, or an `/api/` call) - see
+    /// `ChannelTraceSink.unaryCallCompleted(...)`'s own doc comment.
+    public func unaryCallCompleted(_ record: UnaryCallRecord) {
+        let statusText: String
+        let outcomeText: String
+        switch record.outcome {
+        case let .completed(status):
+            statusText = String(status)
+            outcomeText = "completed"
+        case let .error(reason):
+            statusText = ""
+            outcomeText = "error:\(reason)"
+        }
+        appendRow(
+            at: record.instant,
+            event: record.responseByteCount == nil ? "fireAndForget" : "call",
+            kind: record.label,
+            status: statusText,
+            outcome: outcomeText,
+            httpMethod: record.method,
+            requestByteCount: String(record.requestByteCount),
+            responseByteCount: record.responseByteCount.map(String.init) ?? "",
+            durationMillis: Self.milliseconds(record.duration),
+            protoFields: record.responseBodyShape.map(Self.formattedFields) ?? "",
+            truncated: record.responseBodyShape.map { $0.truncated ? "true" : "false" } ?? ""
+        )
+    }
+
     // MARK: - Writing
 
     private func appendRow(
@@ -102,17 +133,36 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
         gapMillis: String = "",
         byteCount: String = "",
         totalBytes: String = "",
-        outcome: String = ""
+        outcome: String = "",
+        httpMethod: String = "",
+        requestByteCount: String = "",
+        responseByteCount: String = "",
+        durationMillis: String = "",
+        protoFields: String = "",
+        truncated: String = ""
     ) {
         let fields = [
             Self.seconds(instant - start), event, kind, status, contentType, contentEncoding,
-            transferEncoding, gapMillis, byteCount, totalBytes, outcome
+            transferEncoding, gapMillis, byteCount, totalBytes, outcome, httpMethod, requestByteCount,
+            responseByteCount, durationMillis, protoFields, truncated
         ].map(Self.sanitized)
         let line = fields.joined(separator: ",") + "\n"
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
         defer { try? handle.close() }
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: Data(line.utf8))
+    }
+
+    /// `number:wireType:byteCount`, `|`-joined - compact, and never a comma,
+    /// so `sanitized(_:)` has nothing to rewrite in this column. Field
+    /// numbers and wire types only, exactly what `ProtoFieldScan` reports;
+    /// never a value.
+    ///
+    /// Not `private`: `ChannelTraceFileSinkTests` exercises this directly as
+    /// the pure part of an otherwise file-writing sink, the same boundary
+    /// this type's own doc comment already draws for `SecItem`/`WKWebView`.
+    static func formattedFields(_ shape: ProtoShape) -> String {
+        shape.fields.map { "\($0.number):\($0.wireType):\($0.byteCount)" }.joined(separator: "|")
     }
 
     /// Fixed-point formatting, pinned to a POSIX locale so a decimal comma

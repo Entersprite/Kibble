@@ -240,11 +240,14 @@ struct RotationWriteBackTests {
     /// bound) would now retry forever, and `waitForChannel()` below would
     /// hang. The second stream scripts a deliberate terminal status for that
     /// reopen instead, once the rotation this test is about has already been
-    /// absorbed; the third response covers `connect()`'s concurrent
-    /// `resolveAndEmitSelf()`, which races the channel's own register/ack for
-    /// the same queue and - with only two responses for those three callers -
-    /// could otherwise steal one and send the channel's own register into
-    /// the same now-unbounded retry.
+    /// absorbed; a third and fourth response cover `connect()`'s concurrent
+    /// `resolveAndEmitSelf()` and (Part 1's addition) the initial ping, which
+    /// both race the channel's own register/ack for the same queue and -
+    /// with too few responses for those four callers - could otherwise steal
+    /// one and send the channel's own register or ack into the same
+    /// now-unbounded retry, which with `retry: .immediate` is a zero-wait
+    /// busy loop, not merely a slow one - see `LiveChannelRotationTests`'s
+    /// own comment for what that actually did to this suite.
     @Test func aRotationOnTheChannelIsPersisted() async throws {
         let store = KeychainCredentialStore(storage: FakeStorage(), account: "test")
         let capture = CookieCapture(
@@ -273,6 +276,7 @@ struct RotationWriteBackTests {
                     headers: HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
                     body: Data()
                 )),
+                ScriptedTransport.ok(""),
                 ScriptedTransport.ok(""),
                 ScriptedTransport.ok("")
             ],
@@ -305,9 +309,11 @@ struct RotationWriteBackTests {
     /// `aRotationOnTheChannelIsPersisted` above and for the same reason: a
     /// second, deliberately terminal stream so the reopen (now unbounded
     /// since task 3 of the reconnect taxonomy) still ends the channel
-    /// cleanly, and a fourth response so `resolveAndEmitSelf()` racing the
-    /// channel's own register/ack cannot send it into that same unbounded
-    /// retry.
+    /// cleanly, and a fourth and fifth response so `resolveAndEmitSelf()`
+    /// and (Part 1's addition) the initial ping, both racing the channel's
+    /// own register/ack, cannot send one of those into that same unbounded,
+    /// zero-wait retry - see `LiveChannelRotationTests`'s own comment for
+    /// what that actually did to this suite.
     @Test func aRotationDoesNotPretendTheSessionWasJustCaptured() async throws {
         let store = KeychainCredentialStore(storage: FakeStorage(), account: "test")
         let captured = Date(timeIntervalSince1970: 1_788_166_800)
@@ -326,6 +332,7 @@ struct RotationWriteBackTests {
                     headers: HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
                     body: Data()
                 )),
+                ScriptedTransport.ok(""),
                 ScriptedTransport.ok(""),
                 ScriptedTransport.ok("")
             ],

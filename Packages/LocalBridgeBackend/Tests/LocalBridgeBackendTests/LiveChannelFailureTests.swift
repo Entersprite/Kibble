@@ -84,18 +84,19 @@ struct LiveChannelFailureTests {
     /// range (429 and 5xx - see `ChannelFailure.isRecoverable`); 403 is
     /// neither.
     ///
-    /// Two non-shell responses, not one: `connect()` also races
-    /// `resolveAndEmitSelf()` for this same queue, and with only one
-    /// response for two concurrent callers (the channel's own `register`,
-    /// and `resolveAndEmitSelf()`), whichever lost used to produce a
-    /// `.transport` failure that the old four-attempt bound absorbed and
-    /// stopped on regardless. That bound is gone, so a lost race at
-    /// `register` now retries forever without ever reaching the terminal
-    /// stream scripted below - a hang that depended on scheduling order
-    /// rather than reliably reproducing.
+    /// Five non-shell responses, generously: `connect()` races
+    /// `resolveAndEmitSelf()`'s `get_self_user_status` against the channel's
+    /// own `register`, acknowledge and (Part 1's addition) initial ping for
+    /// this same queue - four real consumers - and with too few responses,
+    /// whichever loses used to produce a `.transport` failure that the old
+    /// four-attempt bound absorbed and stopped on regardless. That bound is
+    /// gone, so a lost race at `register`/acknowledge/ping now retries
+    /// forever without ever reaching the terminal stream scripted below - a
+    /// hang (with `retry: .immediate`, a tight spin rather than a true wait)
+    /// that depends on scheduling order rather than reliably reproducing.
     @Test func aChannelFailureIsReportedOnTheEventStream() async throws {
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 5),
             streams: [ScriptedTransport.Script(status: 403, chunks: [])]
         )
         let backend = LocalBridgeBackend(
@@ -130,10 +131,12 @@ struct LiveChannelFailureTests {
     @Test func aRecoveredChannelIsReportedAsReconnectingThenConnected() async throws {
         let head = HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)])
         let transport = ScriptedTransport(
-            // Six, generously: `resolveAndEmitSelf()` races the channel for
-            // this queue, and the channel needs a register and an ack on each
-            // side of the drop. Content is ignored by all of them.
-            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 6),
+            // Ten, generously: `resolveAndEmitSelf()` races the channel for
+            // this queue, and the channel needs a register, an acknowledge
+            // and (Part 1's addition) an initial ping on each side of the
+            // drop - two fresh SIDs, three consumers each, plus the one
+            // self-status call. Content is ignored by all of them.
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 10),
             streams: [
                 ScriptedTransport.Script(
                     headers: head,
@@ -189,7 +192,9 @@ struct LiveChannelFailureTests {
     /// `channel.failure` is always non-nil where it emits.
     @Test func aTerminalFailureReachesTheUIWithAMappedIssue() async throws {
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            // Five, generously - see `aChannelFailureIsReportedOnTheEventStream`'s
+            // own comment for why four real consumers race this queue.
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 5),
             streams: [ScriptedTransport.Script(status: 403, chunks: [])]
         )
         let backend = LocalBridgeBackend(
@@ -232,7 +237,12 @@ struct LiveChannelFailureTests {
     /// neither a reason nor an issue.
     @Test func aDeliberateDisconnectStillCarriesNoReasonOrIssue() async throws {
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            // Five, generously - see `aChannelFailureIsReportedOnTheEventStream`'s
+            // own comment. This backend uses the *default* retry policy
+            // (no `retry:` argument below), so a starved race here would be
+            // a real, timed backoff rather than an immediate spin - `stop()`
+            // still cancels it promptly, but there is no reason to invite it.
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 5),
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),

@@ -67,6 +67,65 @@ public protocol ChannelTraceSink: Sendable {
     /// stream delivered, batched or not, so a sink can sanity-check its own
     /// batch counts against it.
     func streamEnded(outcome: ChannelTraceOutcome, totalBytes: Int, at instant: ContinuousClock.Instant)
+
+    /// One unary or fire-and-forget call completed - `register`, the
+    /// acknowledge, the initial ping, or any `/api/` call
+    /// `ProtoAPIClient.callRaw` makes. This is what tells the difference
+    /// between a message reaching Google and Google dispatching it onward:
+    /// the send handler discards `create_message`'s response outright, so
+    /// this is the first data this project has ever recorded about what
+    /// Google actually says back.
+    ///
+    /// Takes one `UnaryCallRecord` rather than its fields spelled out -
+    /// swiftlint's `function_parameter_count` caps a function at five, and
+    /// this call genuinely has more than five independent facts to report.
+    func unaryCallCompleted(_ record: UnaryCallRecord)
+}
+
+/// `ChannelTraceSink.unaryCallCompleted(_:)`'s payload - see that method's
+/// own doc comment for what each field means and when it is `nil`.
+public struct UnaryCallRecord: Sendable {
+    /// `HTTPRequest.traceLabel` - widened here from streams-only to every
+    /// call this transport makes, so `"register"`/`"acknowledge"`/`"ping"`
+    /// and an `/api/` method name such as `"create_message"` are all
+    /// identified the same way. `"unlabeled"` when absent.
+    public let label: String
+    public let method: String
+    public let requestByteCount: Int
+    /// `nil` exactly when the response body was never read -
+    /// `HTTPTransport.fireAndForget(_:)`'s own contract, which is the
+    /// acknowledge and the ping.
+    public let responseByteCount: Int?
+    /// `ProtoFieldScan.fields(in:)` run against the raw response bytes,
+    /// whatever they turn out to be - `nil` under the same condition as
+    /// `responseByteCount`. A channel body is pblite/JSON rather than binary
+    /// protobuf, and this reports that unstructured shape rather than
+    /// special-casing which calls to scan; it is still only field numbers
+    /// and wire types, never a value.
+    public let responseBodyShape: ProtoShape?
+    public let outcome: UnaryTraceOutcome
+    public let duration: Duration
+    public let instant: ContinuousClock.Instant
+
+    public init(
+        label: String,
+        method: String,
+        requestByteCount: Int,
+        responseByteCount: Int?,
+        responseBodyShape: ProtoShape?,
+        outcome: UnaryTraceOutcome,
+        duration: Duration,
+        at instant: ContinuousClock.Instant
+    ) {
+        self.label = label
+        self.method = method
+        self.requestByteCount = requestByteCount
+        self.responseByteCount = responseByteCount
+        self.responseBodyShape = responseBodyShape
+        self.outcome = outcome
+        self.duration = duration
+        self.instant = instant
+    }
 }
 
 /// One run of bytes with near-zero gaps between them - `ChannelTraceBatcher`'s
@@ -97,5 +156,34 @@ public enum ChannelTraceOutcome: Sendable, Equatable {
     /// `URLSessionTransport.classify(_:)`, which is the only place this
     /// protocol's Darwin-side caller may read a real error's own description,
     /// and it never does.
+    case error(String)
+}
+
+/// A response body's top-level field-number shape - `ProtoFieldScan.fields(in:)`
+/// run against raw bytes, carried alongside whether the walk read the whole
+/// body or stopped early. Never a value, never a byte of content.
+public struct ProtoShape: Sendable, Equatable {
+    public let fields: [ProtoField]
+    /// Whether `ProtoFieldScan` stopped before the end of the body - a fact
+    /// about the read, not necessarily about the data; see its own doc
+    /// comment.
+    public let truncated: Bool
+
+    public init(fields: [ProtoField], truncated: Bool) {
+        self.fields = fields
+        self.truncated = truncated
+    }
+}
+
+/// Why a unary or fire-and-forget call ended, for
+/// `ChannelTraceSink.unaryCallCompleted(...)`.
+public enum UnaryTraceOutcome: Sendable, Equatable {
+    /// The transport returned - a status the caller may still treat as a
+    /// failure (a non-200, or the sign-in shell CLAUDE.md records `/api/`
+    /// answering with on this protocol) is still `.completed`; this only
+    /// says a response came back at all.
+    case completed(status: Int)
+    /// The transport itself threw. `reason` is a phrase safe to print
+    /// anywhere - the same rule `ChannelTraceOutcome.error(_:)` keeps.
     case error(String)
 }

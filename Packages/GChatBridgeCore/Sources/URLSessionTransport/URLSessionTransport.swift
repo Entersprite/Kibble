@@ -64,6 +64,7 @@ public final class URLSessionTransport: HTTPTransport {
     // MARK: - Unary
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let startedAt = ContinuousClock.now
         let data: Data
         let response: URLResponse
         do {
@@ -75,9 +76,14 @@ public final class URLSessionTransport: HTTPTransport {
             // failing request's URL - `key=` and `c=` included - in its
             // `userInfo`. `ProtoAPIClient.callRaw`, which never touches a
             // socket, could not make this call itself.
-            throw Self.classify(error)
+            let classified = Self.classify(error)
+            traceUnaryCall(
+                channelTrace, request, startedAt, .error(Self.safeTraceDescription(classified))
+            )
+            throw classified
         }
         let http = try Self.httpResponse(from: response)
+        traceUnaryCall(channelTrace, request, startedAt, .completed(status: http.statusCode), data)
         return HTTPResponse(
             status: http.statusCode,
             headers: Self.headers(of: http),
@@ -116,13 +122,19 @@ public final class URLSessionTransport: HTTPTransport {
     /// happens in the reference: nobody reads it, and nobody explicitly
     /// closes it either.
     public func fireAndForget(_ request: HTTPRequest) async throws -> HTTPHeaders {
+        let startedAt = ContinuousClock.now
         let response: URLResponse
         do {
             (_, response) = try await session.bytes(for: Self.urlRequest(from: request))
         } catch {
-            throw Self.classify(error)
+            let classified = Self.classify(error)
+            traceUnaryCall(
+                channelTrace, request, startedAt, .error(Self.safeTraceDescription(classified))
+            )
+            throw classified
         }
         let http = try Self.httpResponse(from: response)
+        traceUnaryCall(channelTrace, request, startedAt, .completed(status: http.statusCode))
         return Self.headers(of: http)
     }
 
@@ -296,6 +308,38 @@ public final class URLSessionTransport: HTTPTransport {
         }
         return HTTPHeaders(collapsed: collapsed)
     }
+}
+
+/// Reports one `send(_:)`/`fireAndForget(_:)` call to `sink`, or does
+/// nothing at all when there is none - the same "a nil sink costs one
+/// pointer check" contract `StreamTraceRecorder` already keeps for the long
+/// poll. File-scope rather than a method on `URLSessionTransport` so the
+/// class body itself stays under swiftlint's `type_body_length` ceiling.
+///
+/// `responseBody` is `nil` for a fire-and-forget call, which is exactly what
+/// makes `ChannelTraceSink.unaryCallCompleted(...)`'s own `responseByteCount`/
+/// `responseBodyShape` report `nil` too - the body genuinely was never read,
+/// not merely empty.
+private func traceUnaryCall(
+    _ sink: (any ChannelTraceSink)?,
+    _ request: HTTPRequest,
+    _ startedAt: ContinuousClock.Instant,
+    _ outcome: UnaryTraceOutcome,
+    _ responseBody: Data? = nil
+) {
+    sink?.unaryCallCompleted(UnaryCallRecord(
+        label: request.traceLabel ?? "unlabeled",
+        method: request.method.rawValue,
+        requestByteCount: request.body?.count ?? 0,
+        responseByteCount: responseBody?.count,
+        responseBodyShape: responseBody.map { body in
+            let scan = ProtoFieldScan.fields(in: body)
+            return ProtoShape(fields: scan.fields, truncated: scan.truncated)
+        },
+        outcome: outcome,
+        duration: .now - startedAt,
+        at: startedAt
+    ))
 }
 
 /// One stream's trace bookkeeping - its batcher plus the running byte count.

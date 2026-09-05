@@ -70,7 +70,8 @@ struct ChannelSessionTests {
 
     @Test func aSessionDeliversTheArraysItReceives() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok()],
+            // register, acknowledge, the initial ping.
+            responses: [ok(), ok(), ok()],
             streams: [
                 handshakeStream(chunks: ["11\n[[1,[\"a\"]]]", "11\n[[2,[\"b\"]]]"]),
                 terminatingStream()
@@ -87,10 +88,12 @@ struct ChannelSessionTests {
         #expect(arrays.map(\.aid) == [1, 2])
     }
 
-    /// The order §3 records: register, then the handshake, then the ack, then
-    /// the reopen. The ack has to go **before** the body is read, not after it
-    /// — the reference sends it and then falls into the read loop, and a client
-    /// that acks after the poll ends has acked minutes late.
+    /// The order §3 records, widened by Part 1's ping: register, then the
+    /// handshake, then the ack, then the initial ping, then the reopen. The
+    /// ack and the ping both have to go **before** the body is read, not
+    /// after it — the reference sends them and then falls into the read
+    /// loop, and a client that sends either after the poll ends has done so
+    /// minutes late.
     ///
     /// Used to assert `paths.count >= 4` with a trailing "ladder of retried
     /// registrations" once the fake ran out, because a transport failure used
@@ -99,10 +102,10 @@ struct ChannelSessionTests {
     /// ceiling, so a fake that merely runs out now retries forever rather than
     /// stopping - which would hang this test. The second stream below scripts
     /// a deliberate terminal status instead, so the sequence is exactly these
-    /// four requests.
-    @Test func theRequestSequenceIsRegisterHandshakeAcknowledgeReopen() async {
+    /// five requests.
+    @Test func theRequestSequenceIsRegisterHandshakeAcknowledgePingReopen() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok()],
+            responses: [ok(), ok(), ok()],
             streams: [handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"]), terminatingStream()]
         )
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
@@ -117,14 +120,19 @@ struct ChannelSessionTests {
         #expect(paths[0].hasPrefix("register?"))
         #expect(paths[1].contains("SID=null"))
         #expect(paths[2].contains("RID=rpc") && paths[2].contains("AID=0"))
+        // The ping: a POST to the same `events` path, RID the numeric
+        // counter (not the literal `rpc`) and no `CI` - see
+        // `ChannelRequestsTests.thePingSendsItsQueryParametersInOrderWithNoCI`.
+        #expect(paths[3].contains("AID=0") && !paths[3].contains("CI="))
+        #expect(await transport.sent[3].method == .post)
         // The reopen carries the watermark from the array that was delivered.
-        #expect(paths[3].contains("AID=1"))
-        #expect(paths.count == 4)
+        #expect(paths[4].contains("AID=1"))
+        #expect(paths.count == 5)
     }
 
     @Test func aReopenContinuesDeliveringOnTheSameSession() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok()],
+            responses: [ok(), ok(), ok()],
             streams: [
                 handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"]),
                 FakeHTTPTransport.Script(chunks: ["11\n[[2,[\"b\"]]]"]),
@@ -144,7 +152,8 @@ struct ChannelSessionTests {
     /// and this is the first component that lives long enough to need it.
     @Test func aRotatedCookieIsAbsorbedAndHandedBackForPersisting() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(["COMPASS=grown; Path=/"]), ok()],
+            // register (rotates COMPASS), acknowledge, the initial ping.
+            responses: [ok(["COMPASS=grown; Path=/"]), ok(), ok()],
             streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let rotated = Rotations()
@@ -164,7 +173,7 @@ struct ChannelSessionTests {
 
     @Test func aRotationOnTheLongPollIsAlsoAbsorbed() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok()],
+            responses: [ok(), ok(), ok()],
             streams: [
                 FakeHTTPTransport.Script(
                     headers: HTTPHeaders([
@@ -193,7 +202,7 @@ struct ChannelSessionTests {
     /// poll cycle is a write per second forever.
     @Test func anUnchangedCookieSetIsNotWrittenBack() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(["COMPASS=old; Path=/"]), ok()],
+            responses: [ok(["COMPASS=old; Path=/"]), ok(), ok()],
             streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let rotated = Rotations()
@@ -211,7 +220,7 @@ struct ChannelSessionTests {
     /// Every request carries the *current* jar, not the captured snapshot.
     @Test func requestsCarryTheRotatedCookieRatherThanTheCapturedOne() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(["COMPASS=grown; Path=/"]), ok()],
+            responses: [ok(["COMPASS=grown; Path=/"]), ok(), ok()],
             streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
@@ -233,7 +242,7 @@ struct ChannelSessionTests {
     @Test func aSessionBuiltFromSharedCredentialsWritesItsRotationsBackToTheSharedJar() async {
         let credentials = SessionCredentials(cookies())
         let transport = FakeHTTPTransport(
-            responses: [ok(["COMPASS=grown; Path=/"]), ok()],
+            responses: [ok(["COMPASS=grown; Path=/"]), ok(), ok()],
             streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(
@@ -265,7 +274,7 @@ struct ChannelSessionTests {
         await credentials.absorb(HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]))
 
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok()],
+            responses: [ok(), ok(), ok()],
             streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(
@@ -312,7 +321,7 @@ struct ChannelSessionTests {
 
     @Test func startingTwiceDoesNotOpenTwoChannels() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok()],
+            responses: [ok(), ok(), ok()],
             streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)

@@ -71,7 +71,8 @@ public struct APIRequests: Sendable {
             url: components.url!,
             headers: HTTPHeaders(fields),
             body: body,
-            timeout: Self.timeout
+            timeout: Self.timeout,
+            traceLabel: method
         )
     }
 

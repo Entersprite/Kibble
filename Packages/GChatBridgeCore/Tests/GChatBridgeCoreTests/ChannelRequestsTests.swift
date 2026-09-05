@@ -89,12 +89,14 @@ struct ChannelRequestsTests {
     /// Chat gates on the User-Agent and answers a rejected one with a 200 and
     /// its unsupported-browser page (§15.3), so this belongs on every request
     /// rather than only on the bootstrap.
-    @Test func everyChannelRequestCarriesTheUserAgentAndChatReferer() {
+    @Test func everyChannelRequestCarriesTheUserAgentAndChatReferer() throws {
+        let ping = try #require(requests.ping(sid: "S", aid: 0, rid: 1, ofs: 0))
         for request in [
             requests.register(),
             requests.handshake(rid: 1, zx: "z"),
             requests.acknowledge(sid: "S", aid: 0, zx: "z"),
-            requests.reopen(sid: "S", aid: 0, zx: "z")
+            requests.reopen(sid: "S", aid: 0, zx: "z"),
+            ping
         ] {
             #expect(request.headers["User-Agent"] == ChatEndpoints.defaultUserAgent)
             #expect(request.headers["referer"] == "https://chat.google.com/")
@@ -144,8 +146,70 @@ struct ChannelRequestsTests {
         #expect(requests.reopen(sid: "S", aid: 0, zx: "z").traceLabel == "reopen")
     }
 
-    @Test func registerAndAcknowledgeCarryNoTraceLabel() {
-        #expect(requests.register().traceLabel == nil)
-        #expect(requests.acknowledge(sid: "S", aid: 0, zx: "z").traceLabel == nil)
+    /// Widened once the `/api/` trace needed every unary and fire-and-forget
+    /// call identified the same way streams already were - `register` and
+    /// `acknowledge` used to carry no label at all.
+    @Test func registerAndAcknowledgeAreLabelledForTracing() {
+        #expect(requests.register().traceLabel == "register")
+        #expect(requests.acknowledge(sid: "S", aid: 0, zx: "z").traceLabel == "acknowledge")
+    }
+
+    @Test func thePingIsLabelledForTracing() throws {
+        let ping = try #require(requests.ping(sid: "S", aid: 0, rid: 1, ofs: 0))
+        #expect(ping.traceLabel == "ping")
+    }
+
+    // MARK: - The initial ping
+
+    /// The query parameters `send_stream_event` builds (`channel.py:304-311`),
+    /// in order. **`CI` is absent** - the reference's own comment reads "No
+    /// longer required with the web ui", and it is commented out there, not
+    /// merely defaulted to some value; a client that still sends it differs
+    /// from what the reference actually puts on the wire.
+    @Test func thePingSendsItsQueryParametersInOrderWithNoCI() throws {
+        let ping = try #require(requests.ping(sid: "abc", aid: 3, rid: 5, ofs: 0))
+        let url = ping.url
+        #expect(query(url) == "VER=8&RID=5&t=1&SID=abc&AID=3")
+        #expect(!query(url).contains("CI"))
+    }
+
+    @Test func thePingIsAPostWithAFormEncodedContentType() throws {
+        let request = try #require(requests.ping(sid: "abc", aid: 0, rid: 1, ofs: 0))
+        #expect(request.method == .post)
+        #expect(request.headers["Content-Type"] == "application/x-www-form-urlencoded")
+    }
+
+    /// The body's three fields, exact: `count=1`, `ofs=<ofs>`, and
+    /// `req0_data=` the pblite-encoded `StreamEventsRequest(ping_event:)` the
+    /// reference builds (`channel.py:347-354`) - `state: ACTIVE`,
+    /// `application_focus_state: FOCUS_STATE_FOREGROUND`,
+    /// `client_interactive_state: INTERACTIVE`,
+    /// `client_notifications_enabled: true` - which is field 2 of
+    /// `StreamEventsRequest` (`ping_event`), itself `[1,null,1,null,1,true]`
+    /// (fields 1, 3, 5, 6 of `PingEvent`; 2 and 4 are unset).
+    @Test func thePingBodyIsTheExactThreeFormFields() throws {
+        let request = try #require(requests.ping(sid: "abc", aid: 0, rid: 1, ofs: 0))
+        let body = String(decoding: request.body ?? Data(), as: UTF8.self)
+        #expect(
+            body == "count=1&ofs=0"
+                + "&req0_data=%5Bnull%2C%5B1%2Cnull%2C1%2Cnull%2C1%2Ctrue%5D%5D"
+        )
+    }
+
+    /// `RID` and `ofs` are independent parameters, not one derived from the
+    /// other: changing one changes only the part of the request it belongs
+    /// to (RID the query, ofs the body), and it is the *driver*'s job
+    /// (`ChannelSession.requestIdentifier`/`streamEventOfs`) to keep them
+    /// that way at runtime - this only pins that the builder itself never
+    /// conflates them.
+    @Test func ridAndOfsAreIndependentParameters() throws {
+        let sameRidDifferentOfs = try #require(requests.ping(sid: "s", aid: 0, rid: 5, ofs: 0))
+        let alsoSameRid = try #require(requests.ping(sid: "s", aid: 0, rid: 5, ofs: 7))
+        #expect(query(sameRidDifferentOfs.url) == query(alsoSameRid.url))
+        #expect(sameRidDifferentOfs.body != alsoSameRid.body)
+
+        let sameOfsDifferentRid = try #require(requests.ping(sid: "s", aid: 0, rid: 9, ofs: 0))
+        #expect(sameRidDifferentOfs.body == sameOfsDifferentRid.body)
+        #expect(query(sameRidDifferentOfs.url) != query(sameOfsDifferentRid.url))
     }
 }

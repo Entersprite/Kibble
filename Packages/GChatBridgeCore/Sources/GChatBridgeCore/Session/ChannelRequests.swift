@@ -43,7 +43,8 @@ public struct ChannelRequests: Sendable {
         components.percentEncodedQuery = QueryEncoding.query([("ignore_compass_cookie", "1")])
         return HTTPRequest(
             url: components.url!,
-            headers: headers([("Content-Type", "application/x-protobuf")])
+            headers: headers([("Content-Type", "application/x-protobuf")]),
+            traceLabel: "register"
         )
     }
 
@@ -73,16 +74,87 @@ public struct ChannelRequests: Sendable {
     /// but it does seem to be required", which is as much as anyone knows.
     /// `RID` is the literal string `rpc` here, not the numeric counter.
     public func acknowledge(sid: String, aid: Int, zx: String) -> HTTPRequest {
-        events([
-            ("VER", "8"),
-            ("RID", "rpc"),
-            ("SID", sid),
-            ("AID", String(aid)),
-            ("CI", "0"),
-            ("TYPE", "xmlhttp"),
-            ("zx", zx),
-            ("t", "1")
+        events(
+            [
+                ("VER", "8"),
+                ("RID", "rpc"),
+                ("SID", sid),
+                ("AID", String(aid)),
+                ("CI", "0"),
+                ("TYPE", "xmlhttp"),
+                ("zx", zx),
+                ("t", "1")
+            ],
+            traceLabel: "acknowledge"
+        )
+    }
+
+    /// The reference's `_send_initial_ping()` (`channel.py:347-360`), sent
+    /// once per fresh SID via `send_stream_event` (`channel.py:303-337`) -
+    /// `findings.md` §12.4 records this client never sent it, and its
+    /// absence was never ruled out as the reason a message the owner sends
+    /// waits for something else to prod the conversation before the other
+    /// party sees it.
+    ///
+    /// **A POST, unlike every other request this type builds.** The long
+    /// poll itself is a GET; `send_stream_event` posts a form-encoded body
+    /// onto the same `events` URL. `CI` is deliberately absent - the
+    /// reference's own comment at `channel.py:310-311` reads "No longer
+    /// required with the web ui", and it is commented out there, not merely
+    /// defaulted to some value.
+    ///
+    /// `rid`/`ofs` are driver state - the reference's `self._rid`/`self._ofs`,
+    /// two counters (`channel.py` around 326 and 336) this method never reads
+    /// or produces itself.
+    ///
+    /// **Returns `nil` rather than crashing if the event cannot be encoded.**
+    /// `PBLiteEncoder.encode` only throws for a proto2 `required` field left
+    /// unset or a map/group field, and every field reachable from
+    /// `StreamEventsRequest`/`PingEvent` is a proto3 `optional` scalar, enum,
+    /// or nested message of the same shape - see
+    /// `Protos/googlechat.proto:1507-1613` - so in practice this should
+    /// always succeed. "Should always" is not "cannot": this repo has a
+    /// documented history of confident "this cannot happen" claims that
+    /// turned out wrong (`findings.md` §18), and the ping is an accelerant
+    /// for message delivery, not the mechanism - losing one is survivable,
+    /// crashing the whole chat client over a diagnostic that failed to
+    /// encode is not. `ChannelSession.handle(_:)`'s `.sendInitialPing` arm
+    /// treats `nil` as "nothing to send" and the channel continues exactly
+    /// as if this ping had simply been dropped on the wire.
+    public func ping(sid: String, aid: Int, rid: Int, ofs: Int) -> HTTPRequest? {
+        var event = PingEvent()
+        event.state = .active
+        event.applicationFocusState = .focusStateForeground
+        event.clientInteractiveState = .interactive
+        event.clientNotificationsEnabled = true
+
+        var streamEvent = StreamEventsRequest()
+        streamEvent.pingEvent = event
+
+        guard let jsonBody = try? PBLiteEncoder.encodeJSON(streamEvent) else {
+            return nil
+        }
+        let requestBody = QueryEncoding.query([
+            ("count", "1"),
+            ("ofs", String(ofs)),
+            ("req0_data", String(decoding: jsonBody, as: UTF8.self))
         ])
+
+        var components = URLComponents(url: channelBase("events"), resolvingAgainstBaseURL: false)!
+        components.percentEncodedQuery = QueryEncoding.query([
+            ("VER", "8"),
+            ("RID", String(rid)),
+            ("t", "1"),
+            ("SID", sid),
+            ("AID", String(aid))
+        ])
+        return HTTPRequest(
+            method: .post,
+            url: components.url!,
+            headers: headers([("Content-Type", "application/x-www-form-urlencoded")]),
+            body: Data(requestBody.utf8),
+            traceLabel: "ping"
+        )
     }
 
     /// Re-opens the long poll after the previous one ended.

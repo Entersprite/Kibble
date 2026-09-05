@@ -4,7 +4,7 @@ import Testing
 
 /// Pins the fix for the ~64-second deaf window `--probe=channeltrace` measured
 /// against a live account: `ChannelSession.openStream(_:)` calls
-/// `acknowledgeIfPending()` before its own body-read loop, and the old
+/// `acknowledgeAndPingIfPending()` before its own body-read loop, and the old
 /// `.acknowledge` arm read `send(requests.acknowledge(...)) {}` -
 /// `send(_:)` awaits the transport's *whole* response body. The server held
 /// that body open for ~64 seconds, so every registration bought a window with
@@ -81,8 +81,8 @@ struct AcknowledgeFireAndForgetTests {
     /// `streamCallCount` reaching 2 is the reopen's own `transport.stream(_:)`
     /// call - it can only happen after `.bodyEnded`, which can only happen
     /// after the handshake's body was actually read, which (before the fix)
-    /// never happened because `acknowledgeIfPending()` was stuck awaiting
-    /// `send(_:)`'s full response.
+    /// never happened because `acknowledgeAndPingIfPending()` was stuck
+    /// awaiting `send(_:)`'s full response.
     @Test func theAcknowledgeNeverGatesTheBodyReadOrTheReopen() async {
         let transport = SlowAcknowledgeTransport(
             initialResponse: initialResponse,
@@ -104,12 +104,16 @@ struct AcknowledgeFireAndForgetTests {
         await session.stop()
         _ = await running.value
 
-        // The ack is still sent - fixing the gate must not silently stop
-        // sending it. See the reference's own comment: "I'm not sure what
-        // else this could be, but it does seem to be required."
-        #expect(await transport.fireAndForgetCallCount == 1)
+        // The ack and the initial ping are still both sent - fixing the gate
+        // must not silently stop sending either. See the reference's own
+        // comment on the ack: "I'm not sure what else this could be, but it
+        // does seem to be required." The ping is Part 1's addition, sent the
+        // identical fire-and-forget way immediately behind the ack, so this
+        // count is 2 rather than 1.
+        #expect(await transport.fireAndForgetCallCount == 2)
         // Only the registration ever goes through `send(_:)`; a regression
-        // back to routing the ack through it would show up here as 2.
+        // back to routing the ack or the ping through it would show up here
+        // as 2 or 3.
         #expect(await transport.sendCallCount == 1)
     }
 }

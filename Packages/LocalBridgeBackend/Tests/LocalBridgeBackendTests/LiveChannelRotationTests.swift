@@ -24,17 +24,18 @@ struct LiveChannelRotationTests {
     /// rotates mid-stream has to be written back, or the next launch replays a
     /// credential that went stale on the first poll.
     ///
-    /// Was two non-shell responses (register, ack). Since task 3 of the
-    /// reconnect taxonomy that undercount became a hang rather than a
-    /// tolerated race: `connect()` also races `resolveAndEmitSelf()` for this
-    /// same queue, so with only two responses for three concurrent callers
-    /// (register, ack, `resolveAndEmitSelf()`), whichever one lost used to
-    /// produce a `.transport` failure that the old four-attempt bound simply
-    /// absorbed and stopped on. That bound is gone, so the same lost race now
-    /// retries forever - at register/ack, never reaching the terminal stream
-    /// scripted below for the reopen. Two extra responses remove the race
-    /// entirely, generously, the same way `LiveChannelTests`'s own tests that
-    /// race `resolveAndEmitSelf()` already do.
+    /// Was two non-shell responses (register, ack), then four once task 3 of
+    /// the reconnect taxonomy turned an undercount into a hang rather than a
+    /// tolerated race - see the history this comment used to carry. Part 1's
+    /// initial ping added a fourth real consumer (register, ack, ping) racing
+    /// `resolveAndEmitSelf()`'s `get_self_user_status` for this same queue,
+    /// so four is now the bare minimum rather than generous - and with
+    /// `retry: .immediate` (zero delay between attempts) a starved race here
+    /// is not merely slow, it is a zero-wait busy loop that buffers a
+    /// `ChatEvent` per attempt onto this backend's *unbounded* `events`
+    /// stream forever, which is what actually happened running this task's
+    /// suite: a multi-gigabyte, CPU-pegged hang rather than a clean failure.
+    /// Six responses removes the race entirely, with margin.
     @Test func aCookieRotatedOnTheChannelIsHandedToTheCredentialStore() async throws {
         let transport = ScriptedTransport(
             [
@@ -43,11 +44,8 @@ struct LiveChannelRotationTests {
                     status: 200,
                     headers: HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
                     body: Data()
-                )),
-                ScriptedTransport.ok(""),
-                ScriptedTransport.ok(""),
-                ScriptedTransport.ok("")
-            ],
+                ))
+            ] + Array(repeating: ScriptedTransport.ok(""), count: 6),
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),

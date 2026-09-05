@@ -84,7 +84,9 @@ struct ChannelSessionReconnectTests {
     /// still ends after exactly one retry cycle - two registers, not five.
     @Test func aDroppedSocketIsRetriedWithoutEndingTheSession() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok(), ok()],
+            // Cycle 1: register, acknowledge, ping. Cycle 2: register only
+            // (the retry's handshake gets a deliberate terminal status).
+            responses: [ok(), ok(), ok(), ok()],
             streams: [
                 handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"]),
                 FakeHTTPTransport.Script(chunks: [], dropsAfterChunks: true),
@@ -127,7 +129,8 @@ struct ChannelSessionReconnectTests {
     @Test func aDroppedSocketRecoversAndKeepsDelivering() async {
         let events = LifecycleRecorder()
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok(), ok(), ok()],
+            // Two fresh-SID cycles, each register + acknowledge + ping.
+            responses: [ok(), ok(), ok(), ok(), ok(), ok()],
             streams: [
                 handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"], dropsAfterChunks: true),
                 handshakeStream(chunks: ["11\n[[2,[\"b\"]]]"]),
@@ -165,7 +168,8 @@ struct ChannelSessionReconnectTests {
     @Test func theHostIsToldWhileReconnecting() async {
         let events = LifecycleRecorder()
         let transport = FakeHTTPTransport(
-            responses: [ok(), ok(), ok()],
+            // register, acknowledge, ping, then the retry's register.
+            responses: [ok(), ok(), ok(), ok()],
             streams: [
                 handshakeStream(chunks: [], dropsAfterChunks: true),
                 terminatingStream()

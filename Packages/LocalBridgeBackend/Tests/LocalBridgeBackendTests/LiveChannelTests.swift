@@ -82,18 +82,19 @@ struct LiveChannelTests {
     // MARK: - Real traffic reaching the domain
 
     @Test func aPostedMessageOnTheChannelReachesTheEventStream() async throws {
-        // Four non-shell responses, not two: `connect()` now also starts
-        // `resolveAndEmitSelf()`, a third concurrent `send()` caller racing
-        // the channel's own `register()` and (because a chunk arrives below)
-        // `acknowledge()` for the same scripted queue. Content does not
-        // matter to any of the three - `register`/`acknowledge` ignore it and
-        // a failed `get_self_user_status` only produces a harmless
-        // `.backendError` - but there must be enough of it, or whichever call
-        // loses the race gets `Exhausted()` and the channel this test is
-        // actually about never opens. See the slice report for the exact
-        // failure text that produced.
+        // Five non-shell responses, generously: `connect()` also starts
+        // `resolveAndEmitSelf()`, racing the channel's own `register()`,
+        // `acknowledge()` (because a chunk arrives below) and - Part 1's
+        // addition - the initial ping, all for the same scripted queue.
+        // Content does not matter to any of the four - `register`/
+        // `acknowledge`/the ping ignore it and a failed
+        // `get_self_user_status` only produces a harmless `.backendError` -
+        // but there must be enough of it, or whichever call loses the race
+        // gets `Exhausted()` and the channel this test is actually about
+        // never opens. See the slice report for the exact failure text that
+        // produced.
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 5),
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),
@@ -132,7 +133,9 @@ struct LiveChannelTests {
     /// something true to show while the handshake is in flight.
     @Test func connectingStillAnnouncesItselfBeforeTheChannelOpens() async throws {
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            // Five, generously - see `aPostedMessageOnTheChannelReachesTheEventStream`'s
+            // own comment for why four real consumers race this queue.
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 5),
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),
@@ -157,18 +160,11 @@ struct LiveChannelTests {
     /// verified and the channel is running, or a caller would block until the
     /// account signed out.
     @Test func connectReturnsWithoutWaitingForTheChannelToFinish() async throws {
-        // Three non-shell responses for the same reason
-        // `aPostedMessageOnTheChannelReachesTheEventStream` needed a fourth:
-        // a chunk arrives below, so the channel needs both `register()` and
-        // `acknowledge()`, and `resolveAndEmitSelf()` now races both for the
-        // same scripted queue.
+        // Five non-shell responses - see
+        // `aPostedMessageOnTheChannelReachesTheEventStream`'s own comment for
+        // why four real consumers race this queue.
         let transport = ScriptedTransport(
-            [
-                shell(),
-                ScriptedTransport.ok(""),
-                ScriptedTransport.ok(""),
-                ScriptedTransport.ok("")
-            ],
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 5),
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),
@@ -189,7 +185,9 @@ struct LiveChannelTests {
 
     @Test func disconnectingStopsTheChannel() async throws {
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            // Five, generously - see `aPostedMessageOnTheChannelReachesTheEventStream`'s
+            // own comment for why four real consumers race this queue.
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 5),
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),
@@ -220,7 +218,9 @@ struct LiveChannelTests {
     /// `channelStopped` from one it has retired.
     @Test func aStragglingChannelDoesNotStopTheCurrentSession() async throws {
         let transport = ScriptedTransport(
-            [shell(), ScriptedTransport.ok(""), ScriptedTransport.ok("")],
+            // Five, generously - see `aPostedMessageOnTheChannelReachesTheEventStream`'s
+            // own comment for why four real consumers race this queue.
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 5),
             streams: [
                 ScriptedTransport.Script(
                     headers: HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)]),

@@ -27,11 +27,21 @@ private final class FakeChannelTraceSink: ChannelTraceSink, @unchecked Sendable 
         let totalBytes: Int
     }
 
+    struct Unary: Equatable {
+        let label: String
+        let method: String
+        let requestByteCount: Int
+        let responseByteCount: Int?
+        let responseBodyShape: ProtoShape?
+        let outcome: UnaryTraceOutcome
+    }
+
     private let lock = NSLock()
     private var openedKindsStorage: [String] = []
     private var headsStorage: [Head] = []
     private var batchesStorage: [ChannelTraceBatch] = []
     private var endedStorage: [Ended] = []
+    private var unariesStorage: [Unary] = []
 
     var openedKinds: [String] {
         lock.withLock { openedKindsStorage }
@@ -47,6 +57,10 @@ private final class FakeChannelTraceSink: ChannelTraceSink, @unchecked Sendable 
 
     var ended: [Ended] {
         lock.withLock { endedStorage }
+    }
+
+    var unaries: [Unary] {
+        lock.withLock { unariesStorage }
     }
 
     func streamOpened(kind: String, at instant: ContinuousClock.Instant) {
@@ -76,6 +90,19 @@ private final class FakeChannelTraceSink: ChannelTraceSink, @unchecked Sendable 
 
     func streamEnded(outcome: ChannelTraceOutcome, totalBytes: Int, at instant: ContinuousClock.Instant) {
         lock.withLock { endedStorage.append(Ended(outcome: outcome, totalBytes: totalBytes)) }
+    }
+
+    func unaryCallCompleted(_ record: UnaryCallRecord) {
+        lock.withLock {
+            unariesStorage.append(Unary(
+                label: record.label,
+                method: record.method,
+                requestByteCount: record.requestByteCount,
+                responseByteCount: record.responseByteCount,
+                responseBodyShape: record.responseBodyShape,
+                outcome: record.outcome
+            ))
+        }
     }
 }
 
@@ -244,6 +271,94 @@ struct ChannelTraceTests {
             #expect(request.url?.absoluteString.contains(marker) != true)
             let headerValues = request.allHTTPHeaderFields?.values.joined(separator: " ") ?? ""
             #expect(!headerValues.contains(marker))
+        }
+    }
+
+    // MARK: - Unary and fire-and-forget calls
+
+    /// Field 1, a varint `5` (`0x08 0x05`), then field 4, length-delimited
+    /// `"ab"` (`0x22 0x02 0x61 0x62`) - a minimal, deliberately-invented
+    /// binary protobuf body, exactly the shape `create_message`'s real
+    /// response would have `ProtoFieldScan` walk.
+    private static let syntheticProtoBody = Data([0x08, 0x05, 0x22, 0x02, 0x61, 0x62])
+
+    /// `send(_:)` is what `ProtoAPIClient.callRaw` and `register()` go
+    /// through: this is the "did `create_message` come back as a real
+    /// message object" instrument, pinned end to end for the first time.
+    @Test("a send() call reports both byte counts, the status and the field shape")
+    func aSendCallReportsByteCountsStatusAndFieldShape() async throws {
+        stub.enqueue(.init(status: 200, body: Self.syntheticProtoBody))
+        let sink = FakeChannelTraceSink()
+        let transport = URLSessionTransport(session: stub.session, channelTrace: sink)
+
+        _ = try await transport.send(HTTPRequest(
+            method: .post, url: stub.baseURL, body: Data("req".utf8), traceLabel: "create_message"
+        ))
+
+        let unary = try #require(sink.unaries.first)
+        #expect(unary.label == "create_message")
+        #expect(unary.method == "POST")
+        #expect(unary.requestByteCount == 3)
+        #expect(unary.responseByteCount == 6)
+        #expect(unary.outcome == .completed(status: 200))
+        #expect(unary.responseBodyShape?.truncated == false)
+        #expect(unary.responseBodyShape?.fields == [
+            ProtoField(number: 1, wireType: 0, byteCount: 1),
+            ProtoField(number: 4, wireType: 2, byteCount: 2)
+        ])
+    }
+
+    /// `fireAndForget(_:)` never reads a body - the acknowledge and the
+    /// ping's own mechanism - so this instrument must report that as `nil`,
+    /// not as zero: zero would misread as "the server answered empty".
+    @Test("a fireAndForget() call reports no response byte count or shape")
+    func aFireAndForgetCallReportsNoResponseBody() async throws {
+        stub.enqueue(.init(status: 200, body: Self.syntheticProtoBody))
+        let sink = FakeChannelTraceSink()
+        let transport = URLSessionTransport(session: stub.session, channelTrace: sink)
+
+        _ = try await transport.fireAndForget(
+            HTTPRequest(method: .post, url: stub.baseURL, traceLabel: "ping")
+        )
+
+        let unary = try #require(sink.unaries.first)
+        #expect(unary.label == "ping")
+        #expect(unary.responseByteCount == nil)
+        #expect(unary.responseBodyShape == nil)
+        #expect(unary.outcome == .completed(status: 200))
+    }
+
+    @Test("an unlabeled unary call reports \"unlabeled\", not a crash or a guess")
+    func anUnlabeledUnaryCallReportsUnlabeled() async throws {
+        stub.enqueue(.init(status: 200, body: Data()))
+        let sink = FakeChannelTraceSink()
+        let transport = URLSessionTransport(session: stub.session, channelTrace: sink)
+
+        _ = try await transport.send(HTTPRequest(url: stub.baseURL))
+
+        #expect(sink.unaries.first?.label == "unlabeled")
+    }
+
+    /// A transport failure on `send(_:)` still reports - as `.error(_:)`,
+    /// never the raw error's own description (which can carry the request's
+    /// URL) - so a run that never got a reply is visible in the trace too,
+    /// not just a silent gap.
+    @Test("a failed send() reports the classified failure, not the raw error")
+    func aFailedSendReportsTheClassifiedFailure() async throws {
+        stub.enqueueFailure(.timedOut)
+        let sink = FakeChannelTraceSink()
+        let transport = URLSessionTransport(session: stub.session, channelTrace: sink)
+
+        await #expect(throws: (any Error).self) {
+            _ = try await transport.send(HTTPRequest(url: stub.baseURL, traceLabel: "register"))
+        }
+
+        let unary = try #require(sink.unaries.first)
+        #expect(unary.label == "register")
+        if case let .error(reason) = unary.outcome {
+            #expect(reason == "timed out")
+        } else {
+            Issue.record("expected .error, got \(unary.outcome)")
         }
     }
 }

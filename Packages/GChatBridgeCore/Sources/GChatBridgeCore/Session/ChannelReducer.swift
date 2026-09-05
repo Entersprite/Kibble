@@ -75,6 +75,19 @@ public enum ChannelEffect: Sendable, Hashable {
     case register
     case handshake
     case acknowledge(sid: String, aid: Int)
+    /// The reference's own `_send_initial_ping()` (`channel.py:347-360`),
+    /// sent once per fresh SID via `send_stream_event` (`channel.py:303-337`)
+    /// - immediately after the acknowledge and before the poll's body is
+    /// read, matching the reference's own ordering. `findings.md` §12.4
+    /// records this client never sent it and its absence was never ruled
+    /// out as the reason a sent message waits for something else to prod
+    /// the conversation before the other party sees it.
+    ///
+    /// Carries only the SID and the AID this side already knows, the same
+    /// as `.acknowledge` - the `RID`/`ofs` counters the actual request needs
+    /// are driver state, never read or produced here. See
+    /// `ChannelSession`'s own `requestIdentifier`/`streamEventOfs`.
+    case sendInitialPing(sid: String, aid: Int)
     case reopen(sid: String, aid: Int)
     /// Wait, then send `.retry`. The delay lives in the driver: this side
     /// carries no clock and no randomness, which is `ChannelInput`'s stated
@@ -276,7 +289,10 @@ private extension ChannelState {
         // watermark over would ask it to skip past events it has not sent.
         highestProcessedAid = 0
         listen(sid: sid)
-        return [.acknowledge(sid: sid, aid: 0)]
+        // The ping rides along with the acknowledge, in that order - the
+        // reference sends its own ack-equivalent GET and then
+        // `_send_initial_ping()`, both before it ever reads the body.
+        return [.acknowledge(sid: sid, aid: 0), .sendInitialPing(sid: sid, aid: 0)]
     }
 
     mutating func received(_ data: Data) -> [ChannelEffect] {

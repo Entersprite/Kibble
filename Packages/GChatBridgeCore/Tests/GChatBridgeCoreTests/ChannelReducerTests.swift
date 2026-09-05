@@ -53,10 +53,10 @@ struct ChannelReducerTests {
         #expect(state.phase == .handshaking)
     }
 
-    /// The ack is fire-and-forget — the reference never inspects its response
-    /// (`channel.py:440-442`) — so the machine goes straight to listening and
-    /// does not wait for it. A state that waited would stall on a reply that
-    /// nobody promised to send.
+    /// The ack and the initial ping are both fire-and-forget — the reference
+    /// never inspects either response (`channel.py:440-442`, `:347-360`) — so
+    /// the machine goes straight to listening and does not wait for them. A
+    /// state that waited would stall on a reply that nobody promised to send.
     @Test func theHandshakeYieldsASIDAndAcknowledgesIt() {
         var state = ChannelState()
         _ = ChannelReducer.reduce(&state, .connect)
@@ -65,7 +65,10 @@ struct ChannelReducerTests {
             &state,
             .streamOpened(status: 200, initialResponse: initialResponse)
         )
-        #expect(effects == [.acknowledge(sid: "S3ss10n", aid: 0)])
+        #expect(effects == [
+            .acknowledge(sid: "S3ss10n", aid: 0),
+            .sendInitialPing(sid: "S3ss10n", aid: 0)
+        ])
         #expect(state.phase == .listening(sid: "S3ss10n"))
         #expect(state.highestProcessedAid == 0)
     }
@@ -154,7 +157,10 @@ struct ChannelReducerTests {
         _ = ChannelReducer.reduce(&state, .bodyEnded)
         let fresh = #"[[0,["c","0therS3ss","",8,12,30000]]]"#
         let effects = ChannelReducer.reduce(&state, .streamOpened(status: 200, initialResponse: fresh))
-        #expect(effects == [.acknowledge(sid: "0therS3ss", aid: 0)])
+        #expect(effects == [
+            .acknowledge(sid: "0therS3ss", aid: 0),
+            .sendInitialPing(sid: "0therS3ss", aid: 0)
+        ])
         #expect(state.phase == .listening(sid: "0therS3ss"))
         #expect(state.highestProcessedAid == 0)
     }

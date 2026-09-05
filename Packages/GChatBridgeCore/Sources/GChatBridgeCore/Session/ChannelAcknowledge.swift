@@ -1,6 +1,10 @@
 import Foundation
 
-/// The driver's half of the `.acknowledge` effect.
+/// The driver's half of the `.acknowledge` effect - and, since Part 1's
+/// ping, of `.sendInitialPing` too: `handle(_:)`'s `.sendInitialPing` arm
+/// calls this same function with the ping request rather than a second
+/// copy, because the mechanism below has nothing acknowledge-specific in
+/// it - only the request differs.
 ///
 /// Split out of `ChannelSession.swift` rather than added to it because that
 /// file was already at 395 lines against swiftlint's 400-line `file_length`
@@ -9,7 +13,8 @@ import Foundation
 /// in explicitly rather than read from `ChannelSession`'s own stored
 /// properties, so it needs no access to anything `private` there.
 extension ChannelSession {
-    /// Sends the acknowledge request and waits only for its headers.
+    /// Sends a fire-and-forget channel request and waits only for its
+    /// headers - the acknowledge, or (since Part 1) the initial ping.
     ///
     /// **This is what makes the ack genuinely fire-and-forget, not merely
     /// commented as one.** Before this fix, `ChannelSession.handle(_:)`'s
@@ -60,5 +65,39 @@ extension ChannelSession {
         } catch {
             await onFailure(.transport(nil))
         }
+    }
+
+    /// Authorises and sends the initial ping if the caller managed to build
+    /// one - or does nothing at all otherwise.
+    ///
+    /// `request` arrives already-optional and **not yet authorised** - the
+    /// caller (`ChannelSession.handle(_:)`'s `.sendInitialPing` arm) passes
+    /// `requests.ping(...)`'s result straight through, unguarded, which is
+    /// what keeps that arm - already carrying the counter bookkeeping - a
+    /// single straight-line statement under swiftlint's
+    /// `cyclomatic_complexity` ceiling; the nil check and the
+    /// `credentials.authorising(_:)` call both live here instead, and taking
+    /// `credentials` itself rather than an already-authorised request is what
+    /// keeps this function at exactly five parameters, swiftlint's
+    /// `function_parameter_count` ceiling. `nil` means
+    /// `ChannelRequests.ping(...)` could not encode the event - see that
+    /// method's own doc comment for why that should not happen, and why this
+    /// is a silent no-op rather than a reported failure regardless: the ping
+    /// is an accelerant for delivery, not the mechanism, and a channel that
+    /// cannot build one diagnostic form continues exactly as if it had been
+    /// dropped on the wire.
+    static func sendInitialPingIfPossible(
+        _ request: HTTPRequest?,
+        credentials: SessionCredentials,
+        via transport: any HTTPTransport,
+        onHeaders: @Sendable (HTTPHeaders) async -> Void,
+        onFailure: @Sendable (ChannelFailure) async -> Void
+    ) async {
+        guard let request else {
+            return
+        }
+        await acknowledge(
+            credentials.authorising(request), via: transport, onHeaders: onHeaders, onFailure: onFailure
+        )
     }
 }

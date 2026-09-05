@@ -76,6 +76,10 @@ public actor ChannelSession {
     private var pending: [QueuedEffect] = []
     private var task: Task<Void, Never>?
     private var requestIdentifier: Int
+    /// The reference's `self._ofs` (`channel.py:326,336`) - reset then
+    /// incremented in `.sendInitialPing`, independent of `requestIdentifier`,
+    /// which the ping's `RID` shares with the handshake and never resets.
+    private var streamEventOfs = 0
     private var generator = SystemRandomNumberGenerator()
     /// The backoff between reconnect attempts.
     ///
@@ -255,6 +259,20 @@ public actor ChannelSession {
                 onHeaders: { await absorb($0) }, onFailure: { await apply(.failed($0)) }
             )
 
+        case let .sendInitialPing(sid, aid):
+            // RID shares `requestIdentifier` with the handshake; ofs resets
+            // here - see `streamEventOfs`. `nil` means the ping could not be
+            // built - see `sendInitialPingIfPossible`'s own doc comment.
+            requestIdentifier += 1
+            streamEventOfs = 0
+            let ofs = streamEventOfs
+            streamEventOfs += 1
+            let ping = requests.ping(sid: sid, aid: aid, rid: requestIdentifier, ofs: ofs)
+            await Self.sendInitialPingIfPossible(
+                ping, credentials: credentials, via: transport,
+                onHeaders: { await absorb($0) }, onFailure: { await apply(.failed($0)) }
+            )
+
         case let .reopen(sid, aid):
             await openStream(requests.reopen(sid: sid, aid: aid, zx: nextCacheBuster()))
 
@@ -294,19 +312,8 @@ public actor ChannelSession {
             let response = try await transport.send(request)
             await absorb(response.headers)
             next()
-        } catch let classified as ClassifiedTransportFailure {
-            // `URLSessionTransport` has already classified this - see its own
-            // doc comment on why `send`/`stream` do that rather than this
-            // actor trying to, which would mean naming a networking type
-            // `test.sh`'s portability scan forbids here.
-            apply(.failed(.transport(classified.reason)))
         } catch {
-            // Nothing above the transport boundary may call
-            // `String(describing:)` on whatever it caught: this request
-            // carries the long-poll's live SID, and that call is exactly how
-            // one used to reach `ChannelFailure.description` and, from
-            // there, a screen and `docs/protocol/findings.md`.
-            apply(.failed(.transport(nil)))
+            applyTransportFailure(error)
         }
     }
 
@@ -330,7 +337,7 @@ public actor ChannelSession {
             // The ack goes out before the body is read, not after it: the
             // reference sends it and then falls into the read loop, and a
             // client that acks afterwards has acked minutes late.
-            await acknowledgeIfPending()
+            await acknowledgeAndPingIfPending()
             guard !state.phase.isTerminal else { return }
 
             for try await data in stream.body {
@@ -338,31 +345,43 @@ public actor ChannelSession {
                 guard !state.phase.isTerminal else { return }
             }
             apply(.bodyEnded)
-        } catch let classified as ClassifiedTransportFailure {
-            // `URLSessionTransport` has already classified this - see its own
-            // doc comment on why `send`/`stream` do that rather than this
-            // actor trying to, which would mean naming a networking type
-            // `test.sh`'s portability scan forbids here.
-            apply(.failed(.transport(classified.reason)))
         } catch {
-            // Nothing above the transport boundary may call
-            // `String(describing:)` on whatever it caught: this request
-            // carries the long-poll's live SID, and that call is exactly how
-            // one used to reach `ChannelFailure.description` and, from
-            // there, a screen and `docs/protocol/findings.md`.
+            applyTransportFailure(error)
+        }
+    }
+
+    /// Classifies a failure caught below the transport boundary and applies
+    /// it - shared by `send(_:then:)` and `openStream(_:)`, whose catch
+    /// blocks used to repeat this. Anything not already a
+    /// `ClassifiedTransportFailure` becomes `.transport(nil)` rather than
+    /// described: these requests carry the long-poll's live SID, and
+    /// `String(describing:)` on an unclassified error is how one used to
+    /// reach a screen and `docs/protocol/findings.md`.
+    private func applyTransportFailure(_ error: any Error) {
+        if let classified = error as? ClassifiedTransportFailure {
+            apply(.failed(.transport(classified.reason)))
+        } else {
             apply(.failed(.transport(nil)))
         }
     }
 
-    /// Drains only the acknowledgement. Anything else queued here would be a
-    /// new stream, and opening one while this body is still being read is how a
-    /// channel ends up with two SIDs.
-    private func acknowledgeIfPending() async {
-        while let index = pending.firstIndex(where: {
-            if case .acknowledge = $0.effect {
-                return true
+    /// Drains only the acknowledgement and the initial ping. Anything else
+    /// queued here would be a new stream, and opening one while this body is
+    /// still being read is how a channel ends up with two SIDs.
+    ///
+    /// **Stops as soon as the phase leaves `.listening`**, not merely once
+    /// nothing more matches: a failed acknowledge still leaves the ping
+    /// queued right behind it, matching the same predicate, and sending it
+    /// anyway can produce a *second* failure before `run()` dequeues the
+    /// first one's `.reconnect` - fix round 1's Finding 1 shape again, one
+    /// effect wider. Pinned by `ChannelSessionFailurePairingTests
+    /// .eachReconnectAttemptCarriesTheFailureThatCausedIt`.
+    private func acknowledgeAndPingIfPending() async {
+        while case .listening = state.phase, let index = pending.firstIndex(where: {
+            switch $0.effect {
+            case .acknowledge, .sendInitialPing: true
+            default: false
             }
-            return false
         }) {
             await handle(pending.remove(at: index))
         }
@@ -377,22 +396,4 @@ public actor ChannelSession {
     private func nextCacheBuster() -> String {
         ChannelIdentifiers.cacheBuster(using: &generator)
     }
-}
-
-/// One effect together with the failure that was current at the moment it
-/// was *enqueued* - not read again later, at the moment it is dequeued and
-/// handled.
-///
-/// This is fix round 1's Finding 1 fix. `apply(_:)`'s own doc comment has the
-/// full trace of why a session-wide "last failure", read at handle time,
-/// could pair the wrong failure with the wrong reconnect attempt: two
-/// `.failed(_:)` inputs can be applied back-to-back, inside one
-/// `openStream()` call, before `run()`'s loop gets a turn to dequeue either
-/// one's effect. Carrying the failure inside the queue entry itself removes
-/// the stored property that ordering could corrupt.
-private struct QueuedEffect: Sendable {
-    let effect: ChannelEffect
-    /// Only meaningful for `.reconnect`/`.awaitNetwork` - every other effect
-    /// shape ignores it.
-    let failure: ChannelFailure?
 }
