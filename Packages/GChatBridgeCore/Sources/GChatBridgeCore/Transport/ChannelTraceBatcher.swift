@@ -80,7 +80,8 @@ public struct ChannelTraceBatcher: Sendable {
         let closed = ChannelTraceBatch(
             byteCount: batchByteCount,
             gapSincePrevious: previousBatchEnd.map { openStart - $0 } ?? .zero,
-            start: openStart
+            start: openStart,
+            end: last
         )
         previousBatchEnd = last
         batchStart = instant
@@ -93,15 +94,16 @@ public struct ChannelTraceBatcher: Sendable {
     /// has to be flushed rather than lost. `nil` only when `arrived` was
     /// never called at all: a stream that delivered zero bytes.
     public mutating func flush() -> ChannelTraceBatch? {
-        guard let openStart = batchStart, batchByteCount > 0 else { return nil }
+        guard let openStart = batchStart, let lastArrival, batchByteCount > 0 else { return nil }
         let closed = ChannelTraceBatch(
             byteCount: batchByteCount,
             gapSincePrevious: previousBatchEnd.map { openStart - $0 } ?? .zero,
-            start: openStart
+            start: openStart,
+            end: lastArrival
         )
         batchStart = nil
         batchByteCount = 0
-        lastArrival = nil
+        self.lastArrival = nil
         return closed
     }
 }

@@ -29,6 +29,37 @@ struct ChannelTraceBatcherTests {
         let closed = batcher.arrived(at: start + ChannelTraceBatcher.gapThreshold + .nanoseconds(1))
         #expect(closed?.byteCount == 1)
         #expect(closed?.start == start)
+        // A single-byte batch's one byte is both its first and its last.
+        #expect(closed?.end == start)
+    }
+
+    // MARK: - `end` is the batch's own last byte, not the next batch's start
+
+    /// The property that makes `end` worth a separate column from `start`:
+    /// for a batch with more than one byte, its own last arrival is *before*
+    /// the arrival that closes it, not the same instant.
+    @Test func endIsTheBatchsOwnLastByteNotTheClosingArrival() {
+        var batcher = ChannelTraceBatcher()
+        #expect(batcher.arrived(at: start) == nil) // byte 1
+        let lastByteOfBatch = start + .microseconds(1)
+        #expect(batcher.arrived(at: lastByteOfBatch) == nil) // byte 2, still inside
+        let closingArrival = start + .milliseconds(20)
+        let closed = batcher.arrived(at: closingArrival) // byte 3, opens the next batch
+        #expect(closed?.start == start)
+        #expect(closed?.end == lastByteOfBatch)
+        #expect(closed?.end != closingArrival)
+    }
+
+    /// `flush()` reports the same `end` a closing arrival would have -
+    /// the last byte actually seen, never the moment the stream ended.
+    @Test func flushReportsTheLastByteSeenAsEnd() {
+        var batcher = ChannelTraceBatcher()
+        #expect(batcher.arrived(at: start) == nil)
+        let lastByte = start + .microseconds(5)
+        #expect(batcher.arrived(at: lastByte) == nil)
+        let flushed = batcher.flush()
+        #expect(flushed?.start == start)
+        #expect(flushed?.end == lastByte)
     }
 
     // MARK: - A single-byte batch
@@ -77,6 +108,8 @@ struct ChannelTraceBatcherTests {
         let firstClosed = batcher.arrived(at: secondBatchStart) // closes batch 1, opens batch 2
         #expect(firstClosed?.byteCount == 2)
         #expect(firstClosed?.start == start)
+        // Batch 1's last byte was its second arrival, not its first.
+        #expect(firstClosed?.end == start + .microseconds(1))
         #expect(firstClosed?.gapSincePrevious == .zero)
 
         let thirdBatchStart = secondBatchStart + .milliseconds(30)

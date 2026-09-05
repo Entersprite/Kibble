@@ -78,7 +78,8 @@ public struct HTTPRequest: Sendable, Hashable {
     public var timeout: Duration
 
     /// A short, human-readable tag - `"handshake"`, `"reopen"`,
-    /// `"register"`, `"acknowledge"`, `"ping"`, or an `/api/` method name
+    /// `"register"`, `"acknowledge"`, `"ping"`, `"bootstrap"`
+    /// (`Bootstrap.run(cookies:endpoints:)`), or an `/api/` method name
     /// such as `"create_message"` (`APIRequests.request(method:...:)`) -
     /// carried for `ChannelTraceSink`.
     ///
@@ -86,12 +87,15 @@ public struct HTTPRequest: Sendable, Hashable {
     /// `Self.urlRequest(from:)` in `URLSessionTransport` never reads it. It
     /// exists here, on the request, rather than as a parameter to
     /// `send`/`stream`/`fireAndForget`, because every call site that builds
-    /// a request - `ChannelRequests`' methods and `APIRequests.request(...)`
-    /// - already knows what it is building, and `ChannelSession`/
-    /// `ProtoAPIClient` are one level removed from that decision by the time
-    /// they call the transport. `nil` (`"unlabeled"` once reported) only for
-    /// a caller that reaches the transport without going through either
-    /// builder at all.
+    /// a request - `ChannelRequests`'/`Bootstrap`'s own methods and
+    /// `APIRequests.request(...)` - already knows what it is building, and
+    /// `ChannelSession`/`ProtoAPIClient` are one level removed from that
+    /// decision by the time they call the transport. `nil`
+    /// (`"unlabeled"` once reported) only for a caller that reaches the
+    /// transport without going through any of those builders at all -
+    /// `--probe=channeltrace` found exactly one such caller once
+    /// (`findings.md` §26.3), which is why every request-building site is
+    /// now checked against this rather than assumed to have one.
     public var traceLabel: String?
 
     public init(

@@ -24,24 +24,51 @@ import GChatBridgeCore
 /// destination `URL`, exactly as it hands `AppNapProbe`
 /// `SystemLaunchServices.supportDirectory()`.
 ///
-/// **Cost**: a `FileHandle` open, seek-to-end, write and close per event.
-/// Real, but paid only on the one `URLSessionTransport` instance
+/// **Cost**: a `FileHandle` open, seek-to-end, write and close per event,
+/// serialised behind `lock` so two concurrent events can never race that
+/// sequence. Real, but paid only on the one `URLSessionTransport` instance
 /// `--probe=channeltrace` asks for - `channelTrace` is `nil` on every other
 /// construction site, and `URLSessionTransport.stream()` never allocates one
 /// of these itself, so a normal launch never touches this file at all.
+///
+/// **Why `lock` exists.** A live capture once showed a row with its leading
+/// fields blank and every later column shifted - no timestamp, no event
+/// name, `completed`/`GET`/a real duration landing under the wrong headers.
+/// No branch in this file or in `URLSessionTransport.traceUnaryCall(...)`
+/// ever builds a row with fewer than the full field list - `appendRow`'s own
+/// `fields` array below is unconditional - so no single call here can have
+/// produced it. What can, and does: this transport genuinely issues calls
+/// concurrently (the register and the bootstrap's own API calls overlap on
+/// startup), and every call site reached `FileHandle(forWritingTo:)`,
+/// `seekToEnd()` and `write(contentsOf:)` as three separate, unsynchronised
+/// steps. Two `appendRow` calls racing that sequence can both `seekToEnd()`
+/// to the same offset before either has written, and whichever writes
+/// *second* overwrites the head of whichever wrote *first* - without
+/// truncating it, so the first row's own untouched tail survives as a
+/// following line missing exactly the bytes the second row's own length
+/// consumed. That is this bug (`findings.md` §26.1), reproduced under real
+/// concurrency by `ChannelTraceFileSinkConcurrencyTests`. `lock` makes the open-seek-write
+/// sequence one critical section, which is sufficient: every writer still
+/// goes through this same sink instance, there is exactly one file, and nothing
+/// here needs to coordinate with a second process.
 public final class ChannelTraceFileSink: ChannelTraceSink {
     private static let header = [
-        "elapsedSeconds", "event", "kind", "status", "contentType", "contentEncoding",
+        "startSeconds", "endSeconds", "event", "kind", "status", "contentType", "contentEncoding",
         "transferEncoding", "gapMillis", "byteCount", "totalBytes", "outcome", "httpMethod",
         "requestByteCount", "responseByteCount", "durationMillis", "protoFields", "truncated"
     ].joined(separator: ",")
 
     private let url: URL
-    /// Every row's timestamp is reported relative to this - a
+    /// Every row's two timestamps are reported relative to this - a
     /// `ContinuousClock` reading taken once, at construction - never a wall
     /// clock. `ChannelTraceSink`'s own header explains why: a Mac that sleeps
     /// mid-run must not turn a real gap into a fabricated one, or vice versa.
-    private let start = ContinuousClock.now
+    private let origin = ContinuousClock.now
+    /// Guards the open-seek-write sequence in `appendRow` - see this type's
+    /// own doc comment for the corruption that ran without it. This repo's
+    /// existing idiom for exactly this job; `NWPathReachabilityMonitor.swift`,
+    /// right next to this file, guards its own state the same way.
+    private let lock = NSLock()
 
     public init(writingTo url: URL) {
         self.url = url
@@ -49,7 +76,7 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
     }
 
     public func streamOpened(kind: String, at instant: ContinuousClock.Instant) {
-        appendRow(at: instant, event: "open", kind: kind)
+        appendRow(start: instant, end: instant, event: "open", kind: kind)
     }
 
     public func responseHeadReceived(
@@ -60,7 +87,8 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
         at instant: ContinuousClock.Instant
     ) {
         appendRow(
-            at: instant,
+            start: instant,
+            end: instant,
             event: "head",
             status: String(status),
             contentType: contentType ?? "",
@@ -71,7 +99,8 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
 
     public func batchArrived(_ batch: ChannelTraceBatch) {
         appendRow(
-            at: batch.start,
+            start: batch.start,
+            end: batch.end,
             event: "batch",
             gapMillis: Self.milliseconds(batch.gapSincePrevious),
             byteCount: String(batch.byteCount)
@@ -87,13 +116,23 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
         case .eof: "eof"
         case let .error(reason): "error:\(reason)"
         }
-        appendRow(at: instant, event: "end", totalBytes: String(totalBytes), outcome: outcomeText)
+        appendRow(
+            start: instant, end: instant, event: "end", totalBytes: String(totalBytes), outcome: outcomeText
+        )
     }
 
     /// `responseByteCount`/`responseBodyShape` being `nil` (a fire-and-forget
     /// call - the acknowledge or the ping) is what tells `event` apart from a
     /// call whose body was read (`register`, or an `/api/` call) - see
     /// `ChannelTraceSink.unaryCallCompleted(...)`'s own doc comment.
+    ///
+    /// The row's `end` is derived as `startedAt + duration` rather than
+    /// carried on `UnaryCallRecord` itself - see that type's own doc comment
+    /// on `startedAt` for why - and it is that derived value, not
+    /// `startedAt`, that a reader sorting the file chronologically should
+    /// trust: `startedAt` is stamped before the call was issued, but this row
+    /// is not appended until the call has already completed, so a slower
+    /// concurrent call started earlier can still be written later.
     public func unaryCallCompleted(_ record: UnaryCallRecord) {
         let statusText: String
         let outcomeText: String
@@ -106,7 +145,8 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
             outcomeText = "error:\(reason)"
         }
         appendRow(
-            at: record.instant,
+            start: record.startedAt,
+            end: record.startedAt + record.duration,
             event: record.responseByteCount == nil ? "fireAndForget" : "call",
             kind: record.label,
             status: statusText,
@@ -123,7 +163,8 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
     // MARK: - Writing
 
     private func appendRow(
-        at instant: ContinuousClock.Instant,
+        start: ContinuousClock.Instant,
+        end: ContinuousClock.Instant,
         event: String,
         kind: String = "",
         status: String = "",
@@ -142,15 +183,21 @@ public final class ChannelTraceFileSink: ChannelTraceSink {
         truncated: String = ""
     ) {
         let fields = [
-            Self.seconds(instant - start), event, kind, status, contentType, contentEncoding,
-            transferEncoding, gapMillis, byteCount, totalBytes, outcome, httpMethod, requestByteCount,
-            responseByteCount, durationMillis, protoFields, truncated
+            Self.seconds(start - origin), Self.seconds(end - origin), event, kind, status, contentType,
+            contentEncoding, transferEncoding, gapMillis, byteCount, totalBytes, outcome, httpMethod,
+            requestByteCount, responseByteCount, durationMillis, protoFields, truncated
         ].map(Self.sanitized)
         let line = fields.joined(separator: ",") + "\n"
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data(line.utf8))
+        // The whole open-seek-write sequence is the critical section - see
+        // this type's own doc comment. Splitting the lock any finer (e.g.
+        // only around `write`) would still let two handles race their
+        // `seekToEnd()` calls against each other.
+        lock.withLock {
+            guard let handle = try? FileHandle(forWritingTo: url) else { return }
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+        }
     }
 
     /// `number:wireType:byteCount`, `|`-joined - compact, and never a comma,

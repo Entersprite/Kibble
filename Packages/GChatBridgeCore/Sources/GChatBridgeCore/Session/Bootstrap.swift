@@ -156,7 +156,17 @@ public struct Bootstrap: Sendable {
                 // Without this, Chat authenticates the session and then serves
                 // its unsupported-browser page. See ChatEndpoints.userAgent.
                 ("User-Agent", endpoints.userAgent)
-            ])
+            ]),
+            // `--probe=channeltrace` (`findings.md` §26.3) once recorded this
+            // as an 887 KB GET with no name at all - the one request this
+            // package issues without going through `ChannelRequests` or
+            // `APIRequests`, both of which tag their own requests. It is the
+            // request this method's own doc comment describes: "the first
+            // call of the connect sequence: fetch the app shell" - so
+            // `"bootstrap"`, matching this type's own name, is the honest
+            // label rather than inventing one that mirrors `moleWorld`'s
+            // implementation detail.
+            traceLabel: "bootstrap"
         )
 
         let response = try await transport.send(request)

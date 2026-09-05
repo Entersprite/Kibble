@@ -105,7 +105,24 @@ public struct UnaryCallRecord: Sendable {
     public let responseBodyShape: ProtoShape?
     public let outcome: UnaryTraceOutcome
     public let duration: Duration
-    public let instant: ContinuousClock.Instant
+    /// When the request was handed to the transport - **not** when it
+    /// completed. `ChannelTraceFileSink` derives the completion instant as
+    /// `startedAt + duration` rather than taking it as a second parameter
+    /// here, which is what keeps this initialiser at eight parameters rather
+    /// than nine against swiftlint's `function_parameter_count` ceiling.
+    ///
+    /// Recording the start rather than the completion is deliberate: a
+    /// caller that only sees the timestamp `unaryCallCompleted(_:)` is named
+    /// for would still know exactly when the call was made, because
+    /// `duration` is right there next to it. See `findings.md` §26.2 and this
+    /// call's own site in `URLSessionTransport.traceUnaryCall(...)`, which
+    /// captures this **before** issuing the request and calls this
+    /// initialiser only after the response (or failure) is in hand - so a
+    /// row's `startedAt` and the moment it is actually appended to the file
+    /// are two different instants whenever another row's write races it in
+    /// between, which is why the sink writes both a start and an end column
+    /// rather than one.
+    public let startedAt: ContinuousClock.Instant
 
     public init(
         label: String,
@@ -115,7 +132,7 @@ public struct UnaryCallRecord: Sendable {
         responseBodyShape: ProtoShape?,
         outcome: UnaryTraceOutcome,
         duration: Duration,
-        at instant: ContinuousClock.Instant
+        startedAt: ContinuousClock.Instant
     ) {
         self.label = label
         self.method = method
@@ -124,7 +141,7 @@ public struct UnaryCallRecord: Sendable {
         self.responseBodyShape = responseBodyShape
         self.outcome = outcome
         self.duration = duration
-        self.instant = instant
+        self.startedAt = startedAt
     }
 }
 
@@ -139,11 +156,29 @@ public struct ChannelTraceBatch: Sendable, Equatable {
     public let gapSincePrevious: Duration
     /// When this batch's first byte arrived.
     public let start: ContinuousClock.Instant
+    /// When this batch's last byte arrived - the same arrival that, once the
+    /// *next* byte's gap exceeded `ChannelTraceBatcher.gapThreshold`, is what
+    /// closed this batch. Equal to `start` for a single-byte batch.
+    ///
+    /// This is reported later than it happened by construction: a batch's
+    /// `end` cannot be known until either the next batch's first byte proves
+    /// no more bytes are coming for this one, or the stream itself ends -
+    /// see `ChannelTraceBatcher.arrived(at:byteCount:)`/`flush()`. That gap
+    /// between "this instant occurred" and "this row got written" is exactly
+    /// what a caller sorting the file by `end` rather than trusting row order
+    /// corrects for.
+    public let end: ContinuousClock.Instant
 
-    public init(byteCount: Int, gapSincePrevious: Duration, start: ContinuousClock.Instant) {
+    public init(
+        byteCount: Int,
+        gapSincePrevious: Duration,
+        start: ContinuousClock.Instant,
+        end: ContinuousClock.Instant
+    ) {
         self.byteCount = byteCount
         self.gapSincePrevious = gapSincePrevious
         self.start = start
+        self.end = end
     }
 }
 

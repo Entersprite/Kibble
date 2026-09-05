@@ -97,6 +97,24 @@ struct BootstrapTests {
         #expect(!query.contains(","), "commas must be encoded, as the reference does")
     }
 
+    // MARK: - Trace label
+
+    /// `--probe=channeltrace` (`findings.md` §26.3) once recorded this exact
+    /// request as an 887 KB GET with no name at all - the one request this
+    /// package builds without going through `ChannelRequests` or
+    /// `APIRequests`, both of which already tag their own. Pinned the same
+    /// way `ChannelRequestsTests.theHandshakeIsLabelledForTracing()` pins
+    /// `handshake`/`reopen`, so a future request built here cannot silently
+    /// go unlabelled again.
+    @Test("the bootstrap request is labelled for tracing")
+    func requestIsLabelledForTracing() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.ok(Self.shell(app: "DynamiteWebUi"))])
+        _ = try await Bootstrap(transport: transport)
+            .run(cookies: Self.cookies, endpoints: ChatEndpoints())
+        let sent = try #require(await transport.sent.first)
+        #expect(sent.traceLabel == "bootstrap")
+    }
+
     // MARK: - What it concludes
 
     @Test("a Dynamite shell reports signed in")
