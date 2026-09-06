@@ -36,8 +36,8 @@ extension Acme {
     }
 
     static func allMessages() -> [Message] {
-        (priceEngineLines + otherSpaceLines + directLines)
-            .map(\.message)
+        ((priceEngineLines + otherSpaceLines + directLines).map(\.message)
+            + filler.map(\.message))
             .sorted { $0.createdAt < $1.createdAt }
     }
 

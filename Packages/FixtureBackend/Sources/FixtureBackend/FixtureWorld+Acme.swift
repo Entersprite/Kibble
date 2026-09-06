@@ -115,7 +115,7 @@ public enum Acme {
             id: danDM, kind: .directMessage, title: nil,
             isMuted: true, members: [alex, dan]
         )
-    ]
+    ] + filler.map(\.conversation)
 
     static let world: FixtureWorld = {
         let messages = allMessages()

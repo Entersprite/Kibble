@@ -43,6 +43,15 @@ struct DemoWorldTests {
         }
     }
 
+    /// The demo world exists partly to exercise a sidebar that scrolls: the
+    /// footer used to draw over the rows behind it, and a seven-row world was
+    /// short enough to hide that entirely. This is a floor, not an assertion
+    /// about the exact filler - deleting `+AcmeFiller` to tidy up would
+    /// quietly take the regression case with it.
+    @Test func theDemoWorldIsLongEnoughToScroll() {
+        #expect(FixtureWorld.acme.conversations.count >= 25)
+    }
+
     /// A demo script naming a conversation or a person the world does not have
     /// would throw halfway through a demo. Playing it start to finish here is
     /// the cheapest possible proof that it will not.
