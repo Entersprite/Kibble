@@ -23,35 +23,24 @@ public struct ChatWindow: View {
             VStack(spacing: 0) {
                 StatusStrip(state: state, actions: actions)
                 if let conversation = state.selectedConversation {
+                    // `safeAreaInset`, so the transcript scrolls under the
+                    // composer rather than being hidden behind it the way an
+                    // `overlay` would leave it.
+                    //
+                    // **A gradient, not a material.** Messages does not blur
+                    // behind its field - it fades the transcript into the
+                    // window's own background. Two earlier attempts got this
+                    // wrong from opposite directions: `.bar` drew a flat grey
+                    // slab, and `safeAreaBar` brought the system's blurred
+                    // backdrop. `ComposerScrim` is the fade itself.
                     MessageList(state: state)
-                    TypingStrip(state: state)
-                    Divider()
-                    if state.capabilities.canSendMessages {
-                        Composer(
-                            placeholder: Display.title(
-                                of: conversation,
-                                directory: state.directory,
-                                me: state.me
-                            ),
-                            send: actions.send
-                        )
-                        // The draft belongs to the conversation it was typed
-                        // in. Without this the `if let` branch keeps its
-                        // identity across a selection change, `@State draft`
-                        // survives, and a half-typed line addressed to one
-                        // person posts to whoever was opened next. Cheap to
-                        // miss, expensive to send.
-                        .id(conversation.id)
-                    } else {
-                        // Not a disabled field: a greyed-out composer invites
-                        // the user to keep clicking it. Saying why is kinder.
-                        Text("This backend cannot send messages yet.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                    }
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            VStack(spacing: 0) {
+                                TypingStrip(state: state)
+                                composer(for: conversation)
+                            }
+                            .background { ComposerScrim() }
+                        }
                 } else {
                     ContentUnavailableView(
                         "Pick a conversation",
@@ -65,6 +54,35 @@ public struct ChatWindow: View {
         }
     }
 
+    /// The bar's content: the field, or why there isn't one.
+    @ViewBuilder private func composer(for conversation: Conversation) -> some View {
+        if state.capabilities.canSendMessages {
+            Composer(
+                placeholder: Display.title(
+                    of: conversation,
+                    directory: state.directory,
+                    me: state.me
+                ),
+                send: actions.send
+            )
+            // The draft belongs to the conversation it was typed in. Without
+            // this the branch keeps its identity across a selection change,
+            // `@State draft` survives, and a half-typed line addressed to one
+            // person posts to whoever was opened next. Cheap to miss,
+            // expensive to send.
+            .id(conversation.id)
+        } else {
+            // Not a disabled field: a greyed-out composer invites the user to
+            // keep clicking it. Saying why is kinder.
+            Text("This backend cannot send messages yet.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+        }
+    }
+
     private var title: String {
         guard let conversation = state.selectedConversation else { return "GChat" }
         return Display.title(of: conversation, directory: state.directory, me: state.me)
@@ -74,6 +92,36 @@ public struct ChatWindow: View {
         guard let conversation = state.selectedConversation else { return "" }
         let people = conversation.members.count
         return people == 1 ? "1 member" : "\(people) members"
+    }
+}
+
+/// The fade behind the composer - what Messages has instead of a blurred bar.
+///
+/// The window's own background painted through a vertical alpha ramp, so the
+/// transcript dissolves into it rather than colliding with the field. Painted
+/// with the semantic `.background` style rather than a literal colour: this
+/// package builds for iOS too, and it has to follow the appearance.
+///
+/// The negative top padding is what makes it a fade rather than a band - it
+/// pushes the ramp up past the composer's own bounds so the dissolve starts
+/// well above the field.
+struct ComposerScrim: View {
+    var body: some View {
+        Rectangle()
+            .fill(.background)
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.6), location: 0.45),
+                        .init(color: .black, location: 0.75)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .padding(.top, -44)
+            .allowsHitTesting(false)
     }
 }
 

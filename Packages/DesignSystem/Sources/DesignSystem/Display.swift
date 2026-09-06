@@ -27,11 +27,31 @@ public enum Display {
 
     /// A person's name, or their identifier if nobody has told us one.
     public static func name(of member: Member.ID, in directory: [Member.ID: Member]) -> String {
+        resolvedName(of: member, in: directory) ?? member.rawValue
+    }
+
+    /// Whether anybody has actually told us this person's name.
+    ///
+    /// `name(of:in:)` cannot answer this: its fallback is the raw identifier,
+    /// which is a real string and indistinguishable from a name at the call
+    /// site. `Avatar` needs the difference, because Messages draws initials for
+    /// someone it can name and a plain person glyph for someone it cannot -
+    /// initials cut from an opaque id would be two arbitrary characters.
+    public static func hasName(of member: Member.ID, in directory: [Member.ID: Member]) -> Bool {
+        resolvedName(of: member, in: directory) != nil
+    }
+
+    /// The one place the "told us a name" rule lives, so `name(of:in:)` and
+    /// `hasName(of:in:)` cannot answer differently.
+    private static func resolvedName(
+        of member: Member.ID,
+        in directory: [Member.ID: Member]
+    ) -> String? {
         guard let name = directory[member]?.displayName?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !name.isEmpty
         else {
-            return member.rawValue
+            return nil
         }
         return name
     }

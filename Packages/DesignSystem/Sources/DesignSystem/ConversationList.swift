@@ -32,9 +32,18 @@ public struct ConversationList: View {
                 )
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        // `safeAreaBar`, not `safeAreaInset`: this is the macOS 26 API for a
+        // bar pinned to a safe-area edge, and it brings the system's own glass
+        // treatment and its coordination with scroll-edge effects. The inset
+        // version placed the footer correctly but left its backdrop entirely up
+        // to the footer, which is how it ended up 92% transparent with sidebar
+        // rows reading straight through it.
+        .safeAreaBar(edge: .bottom) {
             SidebarFooter(state: state, actions: actions)
         }
+        // Rows soften as they pass under the bar rather than sliding behind it
+        // at full contrast.
+        .scrollEdgeEffectStyle(.soft, for: .bottom)
     }
 
     private var selectionBinding: Binding<Conversation.ID?> {
@@ -78,16 +87,23 @@ struct ConversationRow: View {
     /// A space gets a hash, a person gets their face, and a conversation kind
     /// this build does not recognise gets a neutral marker rather than being
     /// drawn as something it might not be.
+    ///
+    /// A group gets Messages' cluster - approximated with `person.3.fill` on the
+    /// same disc every other avatar uses. Apple's own group composite is
+    /// artwork, not a symbol, so this is the nearest stock thing rather than the
+    /// identical one.
     @ViewBuilder private var icon: some View {
         switch conversation.kind {
         case .directMessage, .appDirectMessage:
             if let other = conversation.members.first(where: { $0 != state.me }) {
                 Avatar(member: other, directory: state.directory, size: 20)
             } else {
-                Image(systemName: "person").frame(width: 20)
+                UnknownPersonGlyph(size: 20)
             }
         case .groupDirectMessage:
-            Image(systemName: "person.2").frame(width: 20).foregroundStyle(.secondary)
+            MonogramCircle(size: 20) {
+                Image(systemName: "person.3.fill").font(.system(size: 9))
+            }
         case .space:
             Text("#").fontWeight(.semibold).frame(width: 20).foregroundStyle(.secondary)
         case .unknown:
@@ -110,20 +126,28 @@ struct SidebarFooter: View {
 
     var body: some View {
         if let signOut = actions.signOut {
-            VStack(spacing: 0) {
-                Divider()
-                HStack(spacing: 8) {
-                    identity
-                    Spacer(minLength: 4)
-                    Button("Sign Out…", action: signOut)
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            // No `Divider()` and no tinted background: both existed to fake a
+            // separation `safeAreaBar` now provides, and keeping them would
+            // draw it twice.
+            HStack(spacing: 10) {
+                identity
+                Spacer(minLength: 8)
+                // Icon-only, but built from a `Label` rather than a bare
+                // `Image`: `.iconOnly` hides the text visually and keeps it as
+                // the accessibility label, so VoiceOver still says "Sign Out"
+                // instead of reading a symbol name. `.help` gives the same
+                // words back as a tooltip on macOS.
+                Button(action: signOut) {
+                    Label("Sign Out…", systemImage: "rectangle.portrait.and.arrow.right")
+                        .labelStyle(.iconOnly)
+                        .font(.body)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Sign Out…")
             }
-            .background(.secondary.opacity(0.08))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
         }
     }
 
@@ -132,16 +156,13 @@ struct SidebarFooter: View {
     /// draw an avatar or a neutral stand-in for the same gap.
     @ViewBuilder private var identity: some View {
         if let me = state.me {
-            Avatar(member: me, directory: state.directory, size: 20)
+            Avatar(member: me, directory: state.directory, size: 28)
         } else {
-            Image(systemName: "person.crop.circle")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
+            UnknownPersonGlyph(size: 28)
         }
         Text(Display.signedInLabel(me: state.me, directory: state.directory))
-            .font(.caption)
+            .font(.callout)
             .lineLimit(1)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
     }
 }

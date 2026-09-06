@@ -90,34 +90,37 @@ struct DisplayTests {
     @Test func anUnresolvedMeShowsAPlaceholderRatherThanBeingBlank() {
         #expect(Display.signedInLabel(me: nil, directory: directory) == "Signed in")
     }
-}
 
-/// Avatar colours are derived from identifiers, so they must be derived the
-/// same way in every process. Swift's `hashValue` is seeded per launch, which
-/// would repaint everyone's avatar every time the app started.
-struct AvatarPaletteTests {
-    @Test func thePaletteIndexIsStableForAKnownIdentifier() {
-        // Pinned values. If these change, the hash changed - and every user's
-        // avatars change colour with it.
-        #expect(AvatarPalette.index(for: "people/maya", count: 8) == 3)
-        #expect(AvatarPalette.index(for: "people/dan", count: 8) == 6)
-        // The empty string hashes to the FNV offset basis, 0xcbf29ce484222325,
-        // whose low three bits are 5 - checkable by hand, which is what makes
-        // this a pin on the algorithm rather than on whatever it printed today.
-        #expect(AvatarPalette.index(for: "", count: 8) == 5)
+    // MARK: - hasName
+
+    /// `Avatar` picks between initials and a plain person glyph on this, so a
+    /// wrong answer is two arbitrary characters cut out of an opaque
+    /// identifier - which is exactly what Messages shows a person glyph
+    /// instead of.
+    @Test func hasNameIsTrueOnlyWhenSomebodyActuallyToldUsOne() {
+        #expect(Display.hasName(of: alice, in: directory))
+        // In the directory, but an app has no profile under user auth.
+        #expect(!Display.hasName(of: Member.ID("app"), in: directory))
+        // Not in the directory at all.
+        #expect(!Display.hasName(of: Member.ID("stranger"), in: directory))
     }
 
-    @Test func theIndexIsAlwaysInsideThePalette() {
-        for raw in ["a", "people/very-long-identifier-here", "🙂", "dm:1"] {
-            let index = AvatarPalette.index(for: raw, count: 8)
-            #expect((0 ..< 8).contains(index))
+    /// The same trimming rule `name(of:in:)` applies. A name of spaces is not a
+    /// name, and the two must never disagree about that.
+    @Test func aWhitespaceOnlyNameDoesNotCountAsAName() {
+        let blank = Member.ID("blank")
+        let directory = [blank: Member(id: blank, kind: .human, displayName: "   ")]
+        #expect(!Display.hasName(of: blank, in: directory))
+        #expect(Display.name(of: blank, in: directory) == "blank")
+    }
+
+    /// The invariant that makes the pair safe: `hasName` is false in exactly
+    /// the cases where `name(of:in:)` gives back the raw identifier.
+    @Test func hasNameAgreesWithWhenNameFallsBackToTheIdentifier() {
+        let cases = [alice, bob, me, Member.ID("app"), Member.ID("stranger")]
+        for member in cases {
+            let fellBack = Display.name(of: member, in: directory) == member.rawValue
+            #expect(Display.hasName(of: member, in: directory) == !fellBack, "\(member)")
         }
-    }
-
-    @Test func theSameIdentifierAlwaysGivesTheSameIndex() {
-        #expect(
-            AvatarPalette.index(for: "people/alice", count: 8)
-                == AvatarPalette.index(for: "people/alice", count: 8)
-        )
     }
 }
