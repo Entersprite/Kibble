@@ -46,17 +46,18 @@ public struct Composer: View {
         }
         .padding(.leading, 14)
         .padding(.trailing, 5)
-        // 7 above and below a ~16pt line box lands the capsule at the measured
-        // 30pt. Padding rather than a fixed height, because the field grows to
-        // six lines.
-        .padding(.vertical, 7)
+        // 7.5 above and below a ~16pt line box lands the capsule at 31pt - the
+        // measured 30, plus the one point asked for. Half-points are fine: this
+        // is 15 device pixels at 2x. Padding rather than a fixed height,
+        // because the field grows to six lines.
+        .padding(.vertical, 7.5)
         // Real Liquid Glass, not a tinted capsule pretending to be one.
         // `.interactive()` is what gives it the press response; without it the
         // field reads as a static translucent pill.
         .glassEffect(.regular.interactive(), in: .capsule)
         .padding(.horizontal, 16)
         .padding(.top, 10)
-        .padding(.bottom, 12)
+        .padding(.bottom, 11)
         .animation(.snappy(duration: 0.15), value: trimmed.isEmpty)
         .onAppear { isFocused = true }
     }

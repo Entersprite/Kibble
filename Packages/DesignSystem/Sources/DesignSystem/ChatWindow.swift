@@ -39,7 +39,7 @@ public struct ChatWindow: View {
                                 TypingStrip(state: state)
                                 composer(for: conversation)
                             }
-                            .background { ComposerScrim() }
+                            .background(alignment: .bottom) { ComposerScrim() }
                         }
                 } else {
                     ContentUnavailableView(
@@ -95,16 +95,29 @@ public struct ChatWindow: View {
     }
 }
 
-/// The fade behind the composer - what Messages has instead of a blurred bar.
+/// The wash behind the composer - what Messages has instead of a blurred bar.
 ///
-/// The window's own background painted through a vertical alpha ramp, so the
-/// transcript dissolves into it rather than colliding with the field. Painted
-/// with the semantic `.background` style rather than a literal colour: this
-/// package builds for iOS too, and it has to follow the appearance.
+/// The window's own background, ramping from nothing to 75%, so the transcript
+/// settles toward the ground it sits on rather than being brightened by a
+/// white overlay.
 ///
-/// The negative top padding is what makes it a fade rather than a band - it
-/// pushes the ramp up past the composer's own bounds so the dissolve starts
-/// well above the field.
+/// **What this can and cannot do.** Painting the background over its own ground
+/// is invisible by construction - the empty part of the transcript will not
+/// change at any opacity. The only thing this affects is *content*: message
+/// bubbles passing behind the composer fade toward the background. That is the
+/// whole effect, and it is why very low values read as nothing happening. A
+/// visible band, as opposed to a fade, needs a colour that differs from the
+/// background - a white lift or a black shadow - not the background itself.
+///
+/// A mask rather than colours in the gradient, because the semantic
+/// `.background` is a `ShapeStyle` and cannot be a `LinearGradient` stop. The
+/// mask's alpha is the fill's opacity, so `.black.opacity(0.75)` paints the
+/// background at 75% - and it follows the appearance, which a literal colour
+/// would not. This package builds for iOS too.
+///
+/// `alignment: .bottom` plus `ignoresSafeArea(edges: .bottom)` at the call site
+/// carries it into the window's bottom safe area, so the wash reaches the edge
+/// rather than stopping at the composer's own bounds.
 struct ComposerScrim: View {
     var body: some View {
         Rectangle()
@@ -113,15 +126,15 @@ struct ComposerScrim: View {
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .black.opacity(0.6), location: 0.45),
-                        .init(color: .black, location: 0.75)
+                        .init(color: .black.opacity(0.30), location: 0.55),
+                        .init(color: .black.opacity(0.75), location: 1)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             )
-            .padding(.top, -44)
             .allowsHitTesting(false)
+            .ignoresSafeArea(edges: .bottom)
     }
 }
 
