@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 /// The reverse-engineered protocol, and the one package that must compile on
@@ -12,7 +12,7 @@ import PackageDescription
 /// scripts/test.sh enforces both halves of that claim.
 let package = Package(
     name: "GChatBridgeCore",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "GChatBridgeCore", targets: ["GChatBridgeCore"]),
         .library(name: "URLSessionTransport", targets: ["URLSessionTransport"])

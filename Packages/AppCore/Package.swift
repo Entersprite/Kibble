@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 /// The app, minus the platform.
@@ -12,7 +12,7 @@ import PackageDescription
 /// launch machine - see the design doc §3.1.
 let package = Package(
     name: "AppCore",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "AppCore", targets: ["AppCore"])
     ],

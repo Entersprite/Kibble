@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 /// THE SEAM'S SECOND IMPLEMENTATION, and the reason it is a package rather than
@@ -16,7 +16,7 @@ let package = Package(
     name: "FixtureBackend",
     // Matched to ChatKit deliberately: the same portability pressure, and a
     // fake that compiled on a newer floor than the seam would be useless.
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "FixtureBackend", targets: ["FixtureBackend"])
     ],

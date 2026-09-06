@@ -3,7 +3,7 @@
 // Machine-specific values (your OAuth client ID) belong in Local.xcconfig,
 // which is gitignored and included at the bottom so it overrides the defaults.
 
-MACOSX_DEPLOYMENT_TARGET = 15.0
+MACOSX_DEPLOYMENT_TARGET = 26.0
 SWIFT_VERSION = 6.0
 SWIFT_STRICT_CONCURRENCY = complete
 

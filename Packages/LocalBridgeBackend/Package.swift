@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 /// The only package that imports `GChatBridgeCore`.
@@ -12,7 +12,7 @@ import PackageDescription
 /// story; iOS gets the same `ChatBackend` from a server.
 let package = Package(
     name: "LocalBridgeBackend",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "LocalBridgeBackend", targets: ["LocalBridgeBackend"])
     ],

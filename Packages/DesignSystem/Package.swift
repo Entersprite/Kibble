@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 /// The views.
@@ -9,7 +9,7 @@ import PackageDescription
 /// network anywhere near it. The app wires it to a store.
 let package = Package(
     name: "DesignSystem",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "DesignSystem", targets: ["DesignSystem"])
     ],

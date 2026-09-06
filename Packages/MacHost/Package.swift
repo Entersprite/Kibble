@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 /// The macOS half of the app shell.
@@ -13,7 +13,7 @@ import PackageDescription
 /// `AppCore` reusable and the iOS binary free of reverse-engineered code.
 let package = Package(
     name: "MacHost",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "MacHost", targets: ["MacHost"])
     ],

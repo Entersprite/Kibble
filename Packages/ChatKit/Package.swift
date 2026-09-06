@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 /// THE SEAM. This package depends on nothing, and that is enforced structurally
@@ -16,7 +16,7 @@ let package = Package(
     name: "ChatKit",
     // Deliberately low, as portability pressure rather than for compatibility:
     // a brand-new Darwin-only API then fails to compile here.
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "ChatKit", targets: ["ChatKit"])
     ],
