@@ -24,6 +24,12 @@ import Testing
 ///
 /// So the values here are made up and the syntax is Google's, which is the only
 /// arrangement session 6's rule allows.
+///
+/// **The `GROUP_VIEWED` section moved to `ChannelEventMappingReadStateTests`**
+/// once Task 4's mapping change and its six covering tests pushed this file
+/// past swiftlint's 400-line ceiling. What remains here covers messages -
+/// posted, updated, and everything routed as unknown; that file covers a
+/// read position changing.
 struct ChannelEventMappingTests {
     // MARK: - Building a body in the shape the wire actually uses
 

@@ -38,13 +38,19 @@ public enum ChannelEventMapping {
     }
 
     private static func chatEvent(from body: ChannelEventBody) -> ChatEvent {
-        guard let message = message(in: body) else {
-            return routed(body)
-        }
+        // Dispatch on the **type tag**, never on what the body happens to
+        // decode as - `findings.md` §12.1.3. `MESSAGE_UPDATED` and
+        // `MESSAGE_POSTED` share body field 6, so the tag is the only thing
+        // that separates an edit from a new message.
         switch body.type {
-        case .messagePosted: return .messageReceived(message)
-        case .messageUpdated: return .messageUpdated(message)
-        default: return routed(body)
+        case .messagePosted:
+            message(in: body).map(ChatEvent.messageReceived) ?? routed(body)
+        case .messageUpdated:
+            message(in: body).map(ChatEvent.messageUpdated) ?? routed(body)
+        case .groupViewed:
+            readState(in: body) ?? routed(body)
+        default:
+            routed(body)
         }
     }
 
@@ -72,6 +78,36 @@ public enum ChannelEventMapping {
         // the body alone would call every edit a new message.
         guard case let .messagePosted(event)? = decoded.message.type else { return nil }
         return domainMessage(event.message)
+    }
+
+    /// Decodes the read state out of a `GROUP_VIEWED` body.
+    ///
+    /// This is the event that clears a badge when the conversation was read
+    /// somewhere else - another device, or the web client. The reference does
+    /// the same at `mautrix_googlechat/portal.py:557`.
+    ///
+    /// **`unread: 0` is an inference, and the only one in this mapping.**
+    /// `GroupViewedEvent` carries `group_id` and `view_time` and no count, so
+    /// there is nothing to read. Viewing a group is what clears it, so 0 is
+    /// right in every case anyone has been able to construct - but it is
+    /// reasoning, not observation, and `findings.md` marks it `[Verify]`. The
+    /// alternative, refetching the world per event, is not worth an HTTP call
+    /// for a number the next `mark_group_readstate` will correct anyway.
+    ///
+    /// `nil` when the group id is neither namespace, for the same reason
+    /// `message(in:)` returns `nil` without an id: the caller routes it, and a
+    /// fabricated conversation is indistinguishable from a real one once it is
+    /// in the store.
+    private static func readState(in body: ChannelEventBody) -> ChatEvent? {
+        guard body.type == .groupViewed else { return nil }
+        let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
+        guard case let .groupViewed(event)? = decoded.message.type else { return nil }
+        guard let conversationID = conversationID(event.groupID) else { return nil }
+        return .readStateChanged(
+            conversationID: conversationID,
+            lastReadAt: Microseconds.date(event.viewTime),
+            unread: 0
+        )
     }
 
     /// Not `private`: `HistoryMapping` reuses this exact translation for
