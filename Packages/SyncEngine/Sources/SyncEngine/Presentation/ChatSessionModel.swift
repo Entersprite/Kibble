@@ -50,6 +50,27 @@ public final class ChatSessionModel {
         engine.capabilities
     }
 
+    /// Whether the app is frontmost. Fed by the app shell; `true` by default
+    /// so every existing construction site and test keeps its behaviour.
+    public private(set) var isActive = true
+
+    /// The newest position this session has successfully published, per
+    /// conversation.
+    ///
+    /// **Send-side dedupe, and nothing else.** It exists so a busy
+    /// conversation does not produce one `mark_group_readstate` per arriving
+    /// message. It never affects what a badge displays - that is always the
+    /// server's own `unreadCount` - and it is deliberately not persisted,
+    /// because a persisted one would be a local read watermark by another
+    /// name, which this design explicitly does not have.
+    ///
+    /// Advances **only on a successful mark** (see `markSelectedReadIfNeeded`).
+    private var published: [Conversation.ID: Date] = [:]
+
+    /// Conversations with a mark in flight. Without this, two triggers a few
+    /// milliseconds apart both see an unadvanced watermark and both call.
+    private var marking: Set<Conversation.ID> = []
+
     private let store: ChatStore
     private let engine: SyncEngine
     private var watchers: [Task<Void, Never>] = []
@@ -127,6 +148,52 @@ public final class ChatSessionModel {
         try store.erase()
     }
 
+    /// Told by the app shell whether the app is frontmost.
+    ///
+    /// Becoming frontmost marks the open conversation, because otherwise
+    /// everything that arrived while the user was away stays unread until a
+    /// *new* message happens to arrive and trigger it.
+    public func setActive(_ active: Bool) {
+        guard active != isActive else { return }
+        isActive = active
+        if active {
+            markSelectedReadIfNeeded()
+        }
+    }
+
+    /// Publishes a read position for the open conversation, if all of these
+    /// hold: the app is frontmost, the backend can mark read, something is
+    /// open, that conversation has a message, its newest position is beyond
+    /// what has already been published, and no mark is in flight for it.
+    ///
+    /// Ghost mode is not checked here. It is enforced in
+    /// `SyncEngine.submit(_:)`, which is the single chokepoint by design - a
+    /// second check here would be a second place to forget.
+    private func markSelectedReadIfNeeded() {
+        guard isActive, capabilities.canMarkRead, let selected else { return }
+        // `max` rather than `messages.last`, so the trigger does not depend on
+        // the observation's ordering.
+        guard let newest = messages.map(\.createdAt).max() else { return }
+        if let already = published[selected], newest <= already {
+            return
+        }
+        guard !marking.contains(selected) else { return }
+        marking.insert(selected)
+        Task { @MainActor [weak self, engine] in
+            let accepted = await engine.submit(.markRead(
+                conversationID: selected, upTo: newest
+            ))
+            guard let self else { return }
+            marking.remove(selected)
+            // Only on success. A failure leaves the watermark where it was so
+            // the next open, the next message or the next return to frontmost
+            // tries again - there is no retry loop of its own.
+            if accepted {
+                published[selected] = newest
+            }
+        }
+    }
+
     /// Opens a conversation: swaps the observations over, then fetches a page
     /// of history, because connecting deliberately does not.
     public func select(_ id: Conversation.ID) {
@@ -140,7 +207,10 @@ public final class ChatSessionModel {
         }
         conversationWatchers = []
         conversationWatchers.append(
-            observe(store.observeMessages(in: id)) { [weak self] in self?.messages = $0 }
+            observe(store.observeMessages(in: id)) { [weak self] in
+                self?.messages = $0
+                self?.markSelectedReadIfNeeded()
+            }
         )
         conversationWatchers.append(
             observe(store.observeTypingMembers(in: id)) { [weak self] in self?.typing = $0 }
