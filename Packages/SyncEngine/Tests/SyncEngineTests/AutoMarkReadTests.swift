@@ -21,17 +21,28 @@ struct AutoMarkReadTests {
         FixtureWorld.minimal.messages[0].conversationID
     }
 
+    /// A named bundle rather than a tuple: swiftlint's `large_tuple` caps
+    /// tuples at 2 members, and this harness needs the store itself for
+    /// `aRedeliveryAtTheSamePositionMarksNothing` and
+    /// `aMessageArrivingDuringAnInFlightMarkIsNotDropped` to drive a
+    /// redelivery directly, not just the model and the backend.
+    private struct Harness {
+        let model: ChatSessionModel
+        let backend: RecordingBackend
+        let store: ChatStore
+    }
+
     @MainActor
     private func harness(
         capabilities: Capabilities = .fixture
-    ) async throws -> (ChatSessionModel, RecordingBackend) {
+    ) async throws -> Harness {
         let backend = RecordingBackend(capabilities: capabilities)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
         let model = ChatSessionModel(store: store, engine: engine, me: nil)
         try await model.start()
         await settle()
-        return (model, backend)
+        return Harness(model: model, backend: backend, store: store)
     }
 
     /// The same polling shape `ChatSessionModelTests` already uses. Session 18
@@ -61,7 +72,9 @@ struct AutoMarkReadTests {
 
     @MainActor
     @Test func openingMarksReadOnce() async throws {
-        let (model, backend) = try await harness()
+        let harnessResult = try await harness()
+        let model = harnessResult.model
+        let backend = harnessResult.backend
         model.select(conversation)
         await settle()
 
@@ -73,7 +86,9 @@ struct AutoMarkReadTests {
     /// the read position moved.
     @MainActor
     @Test func aNewerMessageMarksAgain() async throws {
-        let (model, backend) = try await harness()
+        let harnessResult = try await harness()
+        let model = harnessResult.model
+        let backend = harnessResult.backend
         model.select(conversation)
         await settle()
         #expect(await backend.markReadCount == 1)
@@ -111,6 +126,12 @@ struct AutoMarkReadTests {
         model.select(conversation)
         await settle()
         let afterFirstOpen = await backend.markReadCount
+        // Without this, the test passes in three different broken worlds:
+        // the first open marked nothing, the redelivery below never reached
+        // `observeMessages` so no second trigger happened at all, or the
+        // intended dedupe genuinely worked. Only pinning the baseline first
+        // rules out the first two.
+        #expect(afterFirstOpen == 1)
 
         let redelivered = try #require(
             FixtureWorld.minimal.messages
@@ -121,6 +142,19 @@ struct AutoMarkReadTests {
         await settle()
 
         #expect(await backend.markReadCount == afterFirstOpen)
+
+        // The positive control: prove the observation was live throughout,
+        // not merely quiet. Without this, "no second trigger fired" and
+        // "dedupe worked" are indistinguishable - a strictly later message
+        // must still move the count, right after the redelivery that must
+        // not.
+        var newer = redelivered
+        newer.id = Message.ID("fixture-seed-newer")
+        newer.createdAt = redelivered.createdAt.addingTimeInterval(60)
+        try store.apply([.upsertMessage(newer)])
+        await settle()
+
+        #expect(await backend.markReadCount == afterFirstOpen + 1)
         await model.stop()
     }
 
@@ -128,7 +162,9 @@ struct AutoMarkReadTests {
     /// for the gate: an app open behind another window is not being read.
     @MainActor
     @Test func nothingIsPublishedWhileNotFrontmost() async throws {
-        let (model, backend) = try await harness()
+        let harnessResult = try await harness()
+        let model = harnessResult.model
+        let backend = harnessResult.backend
         model.setActive(false)
         model.select(conversation)
         await settle()
@@ -142,7 +178,9 @@ struct AutoMarkReadTests {
     /// because no new message will arrive to trigger it.
     @MainActor
     @Test func returningToFrontmostMarksTheOpenConversation() async throws {
-        let (model, backend) = try await harness()
+        let harnessResult = try await harness()
+        let model = harnessResult.model
+        let backend = harnessResult.backend
         model.setActive(false)
         model.select(conversation)
         await settle()
@@ -161,7 +199,9 @@ struct AutoMarkReadTests {
     /// the badge would never clear again for this conversation.
     @MainActor
     @Test func aFailedMarkIsRetriedByTheNextTrigger() async throws {
-        let (model, backend) = try await harness()
+        let harnessResult = try await harness()
+        let model = harnessResult.model
+        let backend = harnessResult.backend
         await backend.failSubmissions(true)
         model.select(conversation)
         await settle()
@@ -227,11 +267,68 @@ struct AutoMarkReadTests {
     /// capability is treated as having.
     @MainActor
     @Test func aBackendWithoutTheCapabilityIsNotAsked() async throws {
-        let (model, backend) = try await harness(capabilities: Capabilities())
+        let harnessResult = try await harness(capabilities: Capabilities())
+        let model = harnessResult.model
+        let backend = harnessResult.backend
         model.select(conversation)
         await settle()
 
         #expect(await backend.markReadCount == 0)
+        await model.stop()
+    }
+
+    /// **A third sequence a single-step test cannot see, and the review's own
+    /// finding against this task's first draft.** A message that arrives
+    /// while a mark is already in flight is suppressed by the
+    /// `markTasks[selected] == nil` guard and must not simply be dropped:
+    /// without a re-check once the in-flight mark completes, the newest
+    /// message of a burst is exactly the one that never gets published,
+    /// because nothing later ever arrives to trigger it again.
+    ///
+    /// Driving this needs the first mark to still be in flight when the
+    /// second message lands, which needs `RecordingBackend.holdSubmissions`
+    /// to keep its `send(_:)` call open on demand - a `select(_:)` alone
+    /// cannot hold that window because `FakeBackend.send` returns instantly.
+    @MainActor
+    @Test func aMessageArrivingDuringAnInFlightMarkIsNotDropped() async throws {
+        let harnessResult = try await harness()
+        let model = harnessResult.model
+        let backend = harnessResult.backend
+        let store = harnessResult.store
+        await backend.holdSubmissions(true)
+
+        // Opens the conversation, which starts a mark for the fixture's
+        // newest message and blocks on `send(_:)` inside `RecordingBackend`.
+        model.select(conversation)
+        await settle()
+        #expect(await backend.markReadCount == 1)
+
+        // A newer message lands while that mark is still in flight. The
+        // in-flight guard suppresses a second call here - this assertion is
+        // what proves the suppression, not a bug, is what happened.
+        let newest = try #require(
+            FixtureWorld.minimal.messages
+                .filter { $0.conversationID == conversation }
+                .max { $0.createdAt < $1.createdAt }
+        )
+        var duringFlight = newest
+        duringFlight.id = Message.ID("fixture-seed-during-flight")
+        duringFlight.createdAt = newest.createdAt.addingTimeInterval(60)
+        try store.apply([.upsertMessage(duringFlight)])
+        await settle()
+        #expect(await backend.markReadCount == 1)
+
+        // Releasing the held mark lets it complete, which is what must
+        // re-check and fire once more for the position that arrived during
+        // the flight - not zero times (dropped) and not a retry loop.
+        // `holdSubmissions(false)` first: the re-check's own `submit` is a
+        // second `send(_:)` call, and if the gate were still open it would
+        // block on it too, forever, since nothing would ever release it.
+        await backend.holdSubmissions(false)
+        await backend.releaseHeldSubmission()
+        await settle()
+
+        #expect(await backend.markReadCount == 2)
         await model.stop()
     }
 }

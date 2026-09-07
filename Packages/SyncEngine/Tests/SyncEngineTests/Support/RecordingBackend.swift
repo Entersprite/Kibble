@@ -20,6 +20,8 @@ actor RecordingBackend: ChatBackend {
     private nonisolated let inner: FakeBackend
     private(set) var commands: [ChatCommand] = []
     private var failing = false
+    private var holding = false
+    private var heldSubmission: CheckedContinuation<Void, Never>?
 
     private(set) var loadMessagesCalls = 0
 
@@ -32,6 +34,24 @@ actor RecordingBackend: ChatBackend {
     /// forwarding it.
     func failSubmissions(_ shouldFail: Bool) {
         failing = shouldFail
+    }
+
+    /// Makes every later `send(_:)` record the command, then block until
+    /// `releaseHeldSubmission()` is called - the shape of a mark-read (or any
+    /// other command) that has been issued but has not yet come back, which
+    /// is exactly the window `AutoMarkReadTests`' in-flight-suppression test
+    /// needs to hold open. Same idiom as `HangingHistoryBackend`, but as a
+    /// gate on this backend's `send(_:)` rather than a separate backend, so
+    /// the test can still read `commands`/`markReadCount` while it is held.
+    func holdSubmissions(_ shouldHold: Bool) {
+        holding = shouldHold
+    }
+
+    /// Releases the one `send(_:)` call currently blocked by
+    /// `holdSubmissions(true)`, if any. Safe to call when nothing is held.
+    func releaseHeldSubmission() {
+        heldSubmission?.resume()
+        heldSubmission = nil
     }
 
     var markReadCount: Int {
@@ -60,6 +80,9 @@ actor RecordingBackend: ChatBackend {
 
     func send(_ command: ChatCommand) async throws {
         commands.append(command)
+        if holding {
+            await withCheckedContinuation { heldSubmission = $0 }
+        }
         if failing {
             throw ChatError.notAuthenticated
         }

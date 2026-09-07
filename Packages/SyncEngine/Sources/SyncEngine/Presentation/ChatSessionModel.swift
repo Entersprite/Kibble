@@ -67,9 +67,18 @@ public final class ChatSessionModel {
     /// Advances **only on a successful mark** (see `markSelectedReadIfNeeded`).
     private var published: [Conversation.ID: Date] = [:]
 
-    /// Conversations with a mark in flight. Without this, two triggers a few
-    /// milliseconds apart both see an unadvanced watermark and both call.
-    private var marking: Set<Conversation.ID> = []
+    /// The mark in flight for a conversation, if any, keyed by conversation.
+    ///
+    /// Doubles as the in-flight guard - a key's presence is what stops two
+    /// triggers a few milliseconds apart from both calling - and as
+    /// `historyTask`'s exact shape applied per conversation instead of once
+    /// for the whole session: tracked so `stop()` can cancel them. An
+    /// untracked `Task` here captures `engine` strongly and would otherwise
+    /// outlive the model, sending a `mark_group_readstate` for an account
+    /// `stopAndEraseStore()` just signed out of and feeding a failure back
+    /// into a database already erased - the exact trap `historyTask`'s own
+    /// doc comment names.
+    private var markTasks: [Conversation.ID: Task<Void, Never>] = [:]
 
     private let store: ChatStore
     private let engine: SyncEngine
@@ -126,6 +135,13 @@ public final class ChatSessionModel {
         // return - see `historyTask`'s doc comment.
         historyTask?.cancel()
         historyTask = nil
+        // Same reasoning as `historyTask` just above: a mark in flight for an
+        // account this call is signing out of must not be left to answer
+        // into an erased store.
+        for task in markTasks.values {
+            task.cancel()
+        }
+        markTasks = [:]
         await engine.stop()
     }
 
@@ -177,19 +193,55 @@ public final class ChatSessionModel {
         if let already = published[selected], newest <= already {
             return
         }
-        guard !marking.contains(selected) else { return }
-        marking.insert(selected)
-        Task { @MainActor [weak self, engine] in
+        guard markTasks[selected] == nil else { return }
+        markTasks[selected] = Task { @MainActor [weak self, engine] in
+            // Must be `defer`, not a plain statement after the last use of
+            // `self`: any early return added later here - a
+            // `Task.checkCancellation()` above `submit`, say - would
+            // otherwise leave this conversation's key in `markTasks`
+            // forever, wedging every later trigger for it. The badge would
+            // then never clear again for the life of the session, which is
+            // worse than the bug this task exists to fix.
+            defer { self?.markTasks[selected] = nil }
             let accepted = await engine.submit(.markRead(
                 conversationID: selected, upTo: newest
             ))
-            guard let self else { return }
-            marking.remove(selected)
-            // Only on success. A failure leaves the watermark where it was so
-            // the next open, the next message or the next return to frontmost
-            // tries again - there is no retry loop of its own.
+            guard let self, !Task.isCancelled else { return }
+            // Only on success, and only if this mark was not cancelled out
+            // from under it - `stop()` cancels every entry in `markTasks` on
+            // sign-out, and a cancelled mark must not advance the watermark
+            // for a conversation that may not even exist in this store any
+            // more. A failure leaves the watermark where it was so the next
+            // open, the next message or the next return to frontmost tries
+            // again - there is no retry loop of its own.
             if accepted {
                 published[selected] = newest
+            }
+            // Cleared here, ahead of the `defer` above, rather than left to
+            // it: the recursive re-check just below calls back into
+            // `markSelectedReadIfNeeded()`, whose own in-flight guard reads
+            // this same dictionary. A `defer` only runs once this closure
+            // returns, which is *after* that recursive call already ran - so
+            // leaving the clear to `defer` alone made the guard see this
+            // conversation as still in flight and silently suppress its own
+            // re-check, every time. The `defer` stays, for every early return
+            // above this line.
+            markTasks[selected] = nil
+            // A delivery that arrived while this mark was in flight was
+            // suppressed by the `markTasks[selected] == nil` guard above and
+            // never re-checked on its own - without this, the last message of
+            // a burst is exactly the one that never gets marked, because no
+            // later message ever arrives to trigger it again. Re-running the
+            // whole check, rather than resubmitting directly, re-validates
+            // focus, capability and selection from scratch instead of
+            // assuming nothing changed while this awaited. Comparing against
+            // a freshly computed newest - not resubmitting unconditionally -
+            // is what keeps this from looping forever against a failing
+            // backend: on failure `published` stays unadvanced, but the
+            // freshly computed newest is unchanged too, so this condition is
+            // false and there is no retry loop here.
+            if let freshest = messages.map(\.createdAt).max(), freshest > newest {
+                markSelectedReadIfNeeded()
             }
         }
     }
