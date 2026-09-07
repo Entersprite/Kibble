@@ -313,31 +313,6 @@ public actor LocalBridgeBackend: ChatBackend {
         }
     }
 
-    /// The channel's own recovery, forwarded as connection state.
-    ///
-    /// `ConnectionState.reconnecting(attempt:)` has existed in `ChatKit` since
-    /// the seam was written and has been emitted by nobody. It is what lets a
-    /// window say "attempt 2" instead of spinning silently, and it needs no
-    /// wire-format change to reach a hosted tier later. `failure` is what
-    /// `ChannelSession` classified as the cause of this particular reconnect;
-    /// `ConnectionIssueMapping` is the one place it becomes a
-    /// `ChatKit.ConnectionIssue`, behind the exhaustive switch that keeps this
-    /// package's copy of the taxonomy from silently drifting from the core's.
-    private func channelLifecycleChanged(_ event: ChannelLifecycle) {
-        switch event {
-        case let .reconnecting(attempt, failure):
-            let issue = failure.map(ConnectionIssueMapping.issue(for:))
-            emit(.connectionStateChanged(.reconnecting(
-                attempt: attempt,
-                issue: issue,
-                detail: failure?.description
-            )))
-        case .resumed:
-            lastFailure = nil
-            emit(.connectionStateChanged(.connected))
-        }
-    }
-
     /// The conversation list, via the one request shape `findings.md` §20.1
     /// proved works: `request_header` + `fetch_from_user_spaces` + one
     /// `WorldSectionRequest(page_size: 999)` - `WorldRequestLadder.minimumViable`.
