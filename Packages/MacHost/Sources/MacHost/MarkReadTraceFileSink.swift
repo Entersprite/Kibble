@@ -39,9 +39,27 @@ public final class MarkReadTraceFileSink: MarkReadTraceSink {
     /// ran without one.
     private let lock = NSLock()
 
-    public init(writingTo url: URL) {
+    /// `readPositionOffsetMicroseconds` names
+    /// `LocalBridgeBackend.readPositionOffsetMicroseconds` (session 21's
+    /// mark-read boundary experiment) without this type importing
+    /// `LocalBridgeBackend` to learn what a read-position offset is -
+    /// `SystemLaunchServices`, the one file in the repo that already imports
+    /// both, passes the value in. This is what makes a capture
+    /// self-identifying: this session already lost time to reading a
+    /// two-day-old `channel-trace.csv` as though it were from the current
+    /// run (`findings.md` §12.2's own failure mode), and a `config` row
+    /// written immediately after the header means any future capture states
+    /// which build's offset produced it and can never be silently mistaken
+    /// for another build's.
+    public init(writingTo url: URL, readPositionOffsetMicroseconds: Int64 = 0) {
         self.url = url
         try? (Self.header + "\n").write(to: url, atomically: true, encoding: .utf8)
+        appendRow(
+            at: origin,
+            row: "config",
+            outcome: "readPositionOffsetMicroseconds",
+            loadedMessageCount: String(readPositionOffsetMicroseconds)
+        )
     }
 
     public func triggerEvaluated(_ record: MarkReadTriggerRecord) {

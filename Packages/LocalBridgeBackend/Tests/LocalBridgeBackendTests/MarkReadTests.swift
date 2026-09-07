@@ -98,6 +98,14 @@ struct MarkReadTests {
     /// The bytes on the wire are `ReadStateRequests.markGroupRead`'s own
     /// serialisation, so an edit that changes what production sends cannot
     /// pass silently. Same shape as `SendMessageTests`'s equivalent assertion.
+    ///
+    /// **Pinned one microsecond past the `Date`'s own conversion** -
+    /// `LocalBridgeBackend.readPositionOffsetMicroseconds`, session 21's
+    /// mark-read boundary experiment (see that constant's own doc comment).
+    /// The literal here is written out rather than as
+    /// `1_700_000_000_000_000 + 1`: an arithmetic literal on the right of
+    /// `==` inside `#expect` is typed on its own and would not take its type
+    /// from the left-hand side the way ordinary Swift does.
     @Test func markReadPostsTheReferencesShape() async throws {
         let group = spaceGroup("s-1")
         let transport = try RoutingTransport(
@@ -118,7 +126,7 @@ struct MarkReadTests {
             $0.url.path.contains("/api/mark_group_readstate")
         })
         let expected: Data = try ReadStateRequests.markGroupRead(
-            group: group, lastReadTime: 1_700_000_000_000_000
+            group: group, lastReadTime: 1_700_000_000_000_001
         ).serializedBytes()
         #expect(request.body == expected)
     }
@@ -196,6 +204,42 @@ struct MarkReadTests {
                 upTo: Date(timeIntervalSince1970: 1)
             ))
         }
+    }
+
+    /// `Microseconds.from(_:)` saturates at `Int64.max` for a `Date` outside
+    /// its range, and `Int64.max + 1` traps under Swift's ordinary `+` - so a
+    /// `Date` this far in the future must not crash the app just because the
+    /// mark-read boundary experiment adds its offset on top. Regression
+    /// coverage for `Microseconds.adding(_:to:)`, the guard that keeps this a
+    /// clamp rather than a runtime crash.
+    @Test func markReadNeverTrapsWhenTheDateSaturatesInt64Max() async throws {
+        let group = spaceGroup("s-1")
+        let transport = try RoutingTransport(
+            shell: shellResponse(),
+            markReadResponse: readStateResponse(group: group, lastReadMicros: .max, unread: 0)
+        )
+        let backend = backend(transport)
+        try await backend.connect()
+        // `1e17` seconds since the epoch is finite (nowhere near
+        // `Double.greatestFiniteMagnitude`, which would overflow the `* 1e6`
+        // multiplication itself to `.infinity` and take the *other* branch in
+        // `Microseconds.from(_:)`), but its microsecond value comfortably
+        // exceeds `Int64.max` - exactly the input that already saturates
+        // `from(_:)` and would then trap under plain `+` when the offset is
+        // added on top.
+        try await backend.send(.markRead(
+            conversationID: Conversation.ID("space/s-1"),
+            upTo: Date(timeIntervalSince1970: 1e17)
+        ))
+
+        let sent = await transport.sent
+        let request = try #require(sent.first {
+            $0.url.path.contains("/api/mark_group_readstate")
+        })
+        let expected: Data = try ReadStateRequests.markGroupRead(
+            group: group, lastReadTime: .max
+        ).serializedBytes()
+        #expect(request.body == expected)
     }
 
     @Test func markReadBeforeConnectThrows() async throws {

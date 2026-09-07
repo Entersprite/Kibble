@@ -29,4 +29,18 @@ enum Microseconds {
     static func date(_ value: Int64) -> Date {
         Date(timeIntervalSince1970: Double(value) / 1_000_000)
     }
+
+    /// Adds `offset` to `value`, clamped to `Int64`'s range rather than
+    /// trapping. `Microseconds.from(_:)` already saturates at `Int64.max`
+    /// for a `Date` outside its range, and `Int64.max + 1` is a runtime
+    /// crash in Swift's ordinary `+` - so a caller adding a fixed offset
+    /// to an already-saturated value (`LocalBridgeBackend
+    /// .readPositionOffsetMicroseconds`, session 21's mark-read boundary
+    /// experiment) must go through this rather than `+`, the same "clamped,
+    /// not trapping" reasoning `from(_:)`'s own doc comment gives.
+    static func adding(_ offset: Int64, to value: Int64) -> Int64 {
+        let (sum, overflowed) = value.addingReportingOverflow(offset)
+        guard overflowed else { return sum }
+        return offset > 0 ? .max : .min
+    }
 }

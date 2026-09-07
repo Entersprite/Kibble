@@ -58,7 +58,10 @@ struct MarkReadTraceFileSinkConcurrencyTests {
     private func rows(in file: URL) throws -> [[String]] {
         let contents = try String(contentsOf: file, encoding: .utf8)
         let lines = contents.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-        return lines.dropFirst().map { $0.components(separatedBy: ",") } // drop the header
+        // Drop the header and the `config` row `init` writes immediately
+        // after it (this instrument's own self-identification row - see
+        // `MarkReadTraceFileSink.init`'s doc comment).
+        return lines.dropFirst(2).map { $0.components(separatedBy: ",") }
     }
 
     @Test("many concurrent writers never tear a row - every line keeps its full, aligned field count")
@@ -137,7 +140,30 @@ struct MarkReadTraceFileSinkFormattingTests {
         write(sink)
         let contents = try String(contentsOf: file, encoding: .utf8)
         let lines = contents.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-        return lines[1].components(separatedBy: ",") // row 0 is the header
+        // row 0 is the header, row 1 is `init`'s own `config` row.
+        return lines[2].components(separatedBy: ",")
+    }
+
+    /// The self-identification row: `init` writes this immediately after the
+    /// header, before any caller has evaluated a trigger, so any capture
+    /// states which build's offset produced it and can never be silently
+    /// mistaken for another build's (`findings.md` §12.2's own failure mode -
+    /// this session's own two-day-old `channel-trace.csv` misread).
+    @Test("init writes a self-identifying config row naming the read-position offset, before any other row")
+    func initWritesTheConfigRow() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gchat-markread-trace-config-\(UUID().uuidString).csv")
+        defer { try? FileManager.default.removeItem(at: file) }
+        _ = MarkReadTraceFileSink(writingTo: file, readPositionOffsetMicroseconds: 1)
+
+        let contents = try String(contentsOf: file, encoding: .utf8)
+        let lines = contents.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        #expect(lines.count == 2) // header, then the config row - nothing else yet
+        let fields = lines[1].components(separatedBy: ",")
+        #expect(fields.count == 10) // the same 10-column shape every other row keeps
+        #expect(fields[1] == "config")
+        #expect(fields[3] == "readPositionOffsetMicroseconds")
+        #expect(fields[4] == "1")
     }
 
     @Test("nothingSelected's nil conversation and nil unreadCount write as empty columns, not \"nil\"")

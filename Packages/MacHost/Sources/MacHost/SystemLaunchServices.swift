@@ -110,7 +110,10 @@ public final class SystemLaunchServices: LaunchServices {
         guard let url = try? Self.supportDirectory().appendingPathComponent("markread-trace.csv") else {
             return nil
         }
-        return MarkReadTraceFileSink(writingTo: url)
+        return MarkReadTraceFileSink(
+            writingTo: url,
+            readPositionOffsetMicroseconds: LocalBridgeBackend.readPositionOffsetMicroseconds
+        )
     }
 
     private let appNapProbe = AppNapProbe()
