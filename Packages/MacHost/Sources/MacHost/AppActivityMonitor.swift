@@ -31,11 +31,28 @@ public final class AppActivityMonitor {
     /// rather than waiting for a notification that will never fire because
     /// nothing changed. Mirrors `NWPathReachabilityMonitor`'s own documented
     /// behaviour that the first path report is state, not a recovery.
+    ///
+    /// **Untestable without a real, frontmost-capable `NSApplication`** - it
+    /// reads live OS state directly and there is no fake for "the OS says
+    /// this process is frontmost." That is narrower than it looks: `changes`
+    /// below registers against ordinary notification names a test can post
+    /// directly, and `AppActivityMonitorTests` does exactly that.
     public var isActive: Bool {
         NSApplication.shared.isActive
     }
 
     /// Every subsequent transition, one fresh stream per access.
+    ///
+    /// **This is testable, and tested** (`AppActivityMonitorTests`), unlike
+    /// `isActive` above: `didBecomeActiveNotification` and
+    /// `willResignActiveNotification` are ordinary notification names, and a
+    /// test can `NotificationCenter.default.post(name:object:)` them with no
+    /// app activation, no window server and no account. `findings.md` §25.10
+    /// is a Critical that shipped specifically because nothing tested a
+    /// *second* call against the *same* reachability monitor - the fresh
+    /// stream / broadcast / isolated-cancellation mechanism below is the
+    /// identical shape, so it gets the identical test coverage rather than
+    /// being waved through as "the same kind of untestable" as `isActive`.
     ///
     /// Each stream registers its own pair of `NotificationCenter` observers
     /// and removes them in `onTermination` - never touching `self`, so this
