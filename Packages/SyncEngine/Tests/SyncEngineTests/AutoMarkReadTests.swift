@@ -13,7 +13,7 @@ import Testing
 /// these into a single-step assertion.
 @Suite(.timeLimit(.minutes(1)))
 struct AutoMarkReadTests {
-    /// The three re-arm sequence tests (a delivery during a *re-armed*
+    /// The two re-arm sequence tests (a delivery during a *re-armed*
     /// mark's flight, and `stop()` cancelling a re-armed mark) moved to
     /// `AutoMarkReadReArmTests.swift` once adding them crossed swiftlint's
     /// `file_length` ceiling here - the harness they share with this suite
@@ -288,6 +288,60 @@ struct AutoMarkReadTests {
         // `holdSubmissions(false)` first: the re-check's own `submit` is a
         // second `send(_:)` call, and if the gate were still open it would
         // block on it too, forever, since nothing would ever release it.
+        await backend.holdSubmissions(false)
+        await backend.releaseHeldSubmission()
+        await settle()
+
+        #expect(await backend.markReadCount == 2)
+        await model.stop()
+    }
+
+    /// **Spec §5.2's reasoning, not its letter.** `send(_:)` writes its
+    /// optimistic row with `createdAt: Date()` - a real wall-clock instant,
+    /// necessarily later than any fixture timestamp this world uses - so a
+    /// naive `newest = messages.map(\.createdAt).max()` treats the optimistic
+    /// row itself as a newer read position and issues a `.markRead` call
+    /// before the server has echoed anything at all. Worse: that wall-clock
+    /// value would poison `published[selected]`, so the server's own echo (a
+    /// real, honestly earlier position) never clears `newest <= already` and
+    /// is silently never marked.
+    ///
+    /// `holdSubmissions` freezes every call to `RecordingBackend.send(_:)`
+    /// right after `commands.append`, before the fixture's echo can ever be
+    /// produced - so while held, `markReadCount` (which counts attempts, not
+    /// completions) is exactly the set of calls this session has *tried* to
+    /// make so far. That is what lets this test see the premature attempt
+    /// directly, rather than inferring its absence from a count that could
+    /// equally mean "correctly deferred" or "coincidentally not yet run".
+    @MainActor
+    @Test func sendingAMessageDoesNotMarkReadOnItsOwn() async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        try await model.start()
+        await settle()
+
+        model.select(conversation)
+        await settle()
+        #expect(await backend.markReadCount == 1)
+
+        // Holds `sendMessage` itself, before the fixture ever echoes it -
+        // the exact window in which a wall-clock-stamped optimistic row
+        // would wrongly be seen as a newer read position.
+        await backend.holdSubmissions(true)
+        model.send("a reply of my own")
+        await settle()
+
+        // No second `.markRead` was even attempted from the optimistic row
+        // alone - the bug this guards would have appended one to `commands`
+        // by now, held or not.
+        #expect(await backend.markReadCount == 1)
+
+        // Releasing lets the echo land - a real, later message while open,
+        // which spec §3.2's second trigger says must still mark. This is
+        // the positive control: the fix must not have gone too far and
+        // suppressed marking altogether.
         await backend.holdSubmissions(false)
         await backend.releaseHeldSubmission()
         await settle()

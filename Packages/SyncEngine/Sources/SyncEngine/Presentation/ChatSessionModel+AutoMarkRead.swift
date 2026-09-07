@@ -40,8 +40,17 @@ extension ChatSessionModel {
     func markSelectedReadIfNeeded() {
         guard isActive, capabilities.canMarkRead, let selected else { return }
         // `max` rather than `messages.last`, so the trigger does not depend on
-        // the observation's ordering.
-        guard let newest = messages.map(\.createdAt).max() else { return }
+        // the observation's ordering. Excludes this file's own `local/`-
+        // prefixed optimistic rows (see `send(_:)`): they carry `Date()`, not
+        // a server-known position, so a conversation holding only local rows
+        // has nothing to publish, and a send must not, by itself, publish a
+        // read position. Filtered on the **id** prefix, not `localID` - the
+        // server echoes `localID` back onto the real message, which does have
+        // a genuine server position and must still count.
+        guard let newest = messages
+            .filter({ !$0.id.rawValue.hasPrefix("local/") })
+            .map(\.createdAt).max()
+        else { return }
         if let already = published[selected], newest <= already {
             return
         }

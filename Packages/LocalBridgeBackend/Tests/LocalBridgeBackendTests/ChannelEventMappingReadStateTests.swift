@@ -8,7 +8,7 @@ import Testing
 ///
 /// Split out of `ChannelEventMappingTests` (that file's own former
 /// `// MARK: - GROUP_VIEWED` section) once Task 4's mapping change and its
-/// six covering tests pushed that file past swiftlint's 400-line ceiling.
+/// five covering tests pushed that file past swiftlint's 400-line ceiling.
 /// The helpers below are copies of `ChannelEventMappingTests`'s own private
 /// ones - `private` is `private`, and a little duplication is cheaper than a
 /// shared surface neither file actually needs elsewhere (the same trade

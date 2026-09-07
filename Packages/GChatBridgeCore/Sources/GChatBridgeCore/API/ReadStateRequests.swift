@@ -14,10 +14,12 @@ import Foundation
 ///
 /// ## Where the shape comes from
 ///
-/// `reference/googlechat-master/maugclib/client.py:730-736`
-/// (`proto_mark_group_read_state`): `request_header`, `id` as the `GroupId`,
-/// and `last_read_time` in **microseconds** since the epoch - the same unit
-/// every other timestamp on this protocol uses (`findings.md` §2.3).
+/// `reference/googlechat-master/maugclib/client.py:323-333`
+/// (`update_read_timestamp`, the caller that actually builds the request -
+/// `proto_mark_group_read_state` at `:730-736` is a bare passthrough that
+/// constructs nothing): `request_header`, `id` as the `GroupId`, and
+/// `last_read_time` in **microseconds** since the epoch - the same unit every
+/// other timestamp on this protocol uses (`findings.md` §2.3).
 public enum ReadStateRequests {
     public static func markGroupRead(
         group: GroupId,

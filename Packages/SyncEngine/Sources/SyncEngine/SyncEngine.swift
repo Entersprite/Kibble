@@ -147,6 +147,12 @@ public extension SyncEngine {
             try await backend.send(command)
             return true
         } catch {
+            // Same reasoning as `requestMoreMessages` and `perform` just below:
+            // cancelling this task does not oblige whatever is underneath it to
+            // throw `CancellationError`, and a write from a session that no
+            // longer owns the store is the exact trap `ChatSessionModel.stop()`
+            // cancelling `markTasks` exists to close.
+            guard !Task.isCancelled else { return false }
             record(error, undoing: writes)
             return false
         }
