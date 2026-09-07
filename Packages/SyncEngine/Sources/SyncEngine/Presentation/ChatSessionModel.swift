@@ -146,6 +146,13 @@ public final class ChatSessionModel {
     /// makes that check see `true`.
     private var historyTask: Task<Void, Never>?
 
+    /// The last connection state this model acted on, so that a repeated
+    /// `.connected` delivery does not refetch again. The observation can
+    /// deliver the same value more than once - it reports the row, not the
+    /// transition - and a refetch per delivery would be one `list_topics` per
+    /// database write.
+    private var actedOnConnection: ConnectionState?
+
     public init(store: ChatStore, engine: SyncEngine, me: Member.ID? = nil) {
         self.store = store
         self.engine = engine
@@ -156,7 +163,10 @@ public final class ChatSessionModel {
     public func start() async throws {
         guard watchers.isEmpty else { return }
         watch(store.observeConversations()) { [weak self] in self?.conversations = $0 }
-        watch(store.observeConnectionState()) { [weak self] in self?.connectionState = $0 }
+        watch(store.observeConnectionState()) { [weak self] in
+            self?.connectionState = $0
+            self?.catchUpIfReconnected($0)
+        }
         watch(store.observeMe()) { [weak self] in self?.me = $0 }
         // Everything `SyncEngine.record` writes arrives here. Without this
         // watch the property below was only ever set by an observation
@@ -244,6 +254,30 @@ public final class ChatSessionModel {
         historyTask?.cancel()
         historyTask = Task { [engine] in
             await engine.requestMoreMessages(in: id)
+        }
+    }
+
+    /// Refetches the open conversation's history when the channel comes back.
+    ///
+    /// A reconnect is a fresh registration with `AID` reset, so messages
+    /// delivered during the outage were never seen and no later event will
+    /// replay them. The conversation *list* is handled below the seam by
+    /// `.gap(scope: .everything)`; this is the half that depends on which
+    /// conversation the user has open, which nothing below the seam knows.
+    private func catchUpIfReconnected(_ state: ConnectionState) {
+        defer { actedOnConnection = state }
+        guard case .connected = state else { return }
+        if case .connected = actedOnConnection {
+            return
+        }
+        guard let selected else { return }
+        // The same task the selection path owns, so a selection change
+        // cancels this exactly as it cancels its own fetch - and so that this
+        // refetch cannot outlive a selection change of its own, clobbering a
+        // fresher fetch's result with an older conversation's history.
+        historyTask?.cancel()
+        historyTask = Task { [engine] in
+            await engine.requestMoreMessages(in: selected)
         }
     }
 
