@@ -22,6 +22,21 @@ struct GChatMacApp: App {
             content
                 .frame(minWidth: 760, minHeight: 460)
                 .task { await environment.start() }
+                // `scenePhase` was measured against a real run and printed
+                // nothing at all across two full frontmost-loss/gain cycles -
+                // see `AppActivityMonitor`'s doc comment - so the signal comes
+                // from AppKit notifications via `MacHost` instead. The
+                // initial `environment.setActive(monitor.isActive)` call is
+                // what tells a launch that starts already-frontmost, since
+                // nothing changed to notify it; everything after that is a
+                // real transition.
+                .task {
+                    let monitor = AppActivityMonitor()
+                    environment.setActive(monitor.isActive)
+                    for await active in monitor.changes {
+                        environment.setActive(active)
+                    }
+                }
                 // A confirmation, not a plain button action: an accidental
                 // click here costs a full two-factor login, and
                 // `AppEnvironment.signOut()`'s own doc comment is where the

@@ -73,6 +73,21 @@ public final class AppEnvironment {
             try store.apply([.clearEphemeralState])
             let selection = try await services.makeSession()
             let engine = SyncEngine(backend: selection.backend, store: store)
+            // Ghost mode defaults to **off**: read receipts are published.
+            // The owner's explicit call, so that the first live run
+            // exercises `mark_group_readstate` rather than a suppressed code
+            // path. There is no UI toggle yet; this key is the only control.
+            // `UserDefaults.bool(forKey:)` is `false` for an absent key, so
+            // the intended default needs no registration.
+            //
+            // Read here, right where the engine is constructed, rather than
+            // in `SystemLaunchServices`: `SyncEngine` itself is built in this
+            // function (`makeSession()` only chooses the backend), so this is
+            // the one place that actually holds it. `UserDefaults` is
+            // Foundation, not a backend or a credential store, so reading it
+            // here does not touch the constraint that keeps this file naming
+            // neither.
+            await engine.setGhostMode(UserDefaults.standard.bool(forKey: "ghostMode"))
             let model = ChatSessionModel(store: store, engine: engine, me: selection.me)
             // Held **before** it is started, not after it is parked in
             // `.running`. By the time `start()` can throw, the engine's
@@ -235,6 +250,18 @@ public final class AppEnvironment {
     public func requestSignIn() {
         guard case let .failed(message) = phase else { return }
         Task { await enterNeedsSignIn(reason: message) }
+    }
+
+    /// Forwarded to the session model, which decides what to do with it.
+    /// `AppEnvironment` names no platform API here - see `MacHost`'s
+    /// `AppActivityMonitor` for where the macOS signal actually comes from.
+    /// A no-op before a model exists (`.loading`, `.needsSignIn`, `.failed`,
+    /// `.report`): there is nothing yet to tell, and `signedIn()`/`start()`
+    /// building a model does not re-ask the shell for the current value, the
+    /// same reasoning `isActive`'s doc comment gives for reading it once at
+    /// wiring time rather than waiting for a transition.
+    public func setActive(_ active: Bool) {
+        model?.setActive(active)
     }
 
     /// Whether `signOut()` has a running session to act on. The menu command is
