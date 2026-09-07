@@ -29,10 +29,16 @@ public enum APIProbeReport {
     /// therefore names no core type - which is what the containment lint checks
     /// for. Same shape as `LocalBridgeBackend.using(_:transport:)` in
     /// `SessionHandoff.swift`.
+    /// `conversationIndexOverride` is `--probe-conversation=N` in `MacHost`'s
+    /// `LaunchProbes.swift` - parsed there, not here, so this package keeps
+    /// reading no `CommandLine` state and the containment lint's shape is
+    /// undisturbed. `nil` keeps the default: the most recently active
+    /// conversation, per `APIProbeReport+History.swift`'s own doc comment.
     public static func run(
         store: KeychainCredentialStore = KeychainCredentialStore(),
         transport: any HTTPTransport = URLSessionTransport(),
-        endpoints: ChatEndpoints = ChatEndpoints()
+        endpoints: ChatEndpoints = ChatEndpoints(),
+        conversationIndexOverride: Int? = nil
     ) async -> String {
         // Broken into one append-or-stop step per stage of the connect
         // sequence, each a function of its own, rather than one long body -
@@ -56,10 +62,21 @@ public enum APIProbeReport {
             credentials: bootstrapped.credentials,
             xsrfToken: bootstrapped.wiz.xsrfToken
         )
-        guard await appendVerifiedCall(client: client, lines: &lines) else {
+        // `selfUserID` is this account's own id, string-compared later against
+        // `ReadReceipt.user` to label a receipt `self`/`other` - never
+        // printed itself. `nil` when the verified call fails outright (in
+        // which case the whole report already stops below) or, in principle,
+        // if a future response ever carried an empty id.
+        var selfUserID: String?
+        guard await appendVerifiedCall(client: client, selfUserID: &selfUserID, lines: &lines) else {
             return lines.joined(separator: "\n")
         }
-        await appendLadder(client: client, lines: &lines)
+        await appendLadder(
+            client: client,
+            selfUserID: selfUserID,
+            conversationIndexOverride: conversationIndexOverride,
+            lines: &lines
+        )
         return lines.joined(separator: "\n")
     }
 
@@ -135,8 +152,13 @@ public enum APIProbeReport {
     /// The one call §3.6 verified. `false` once "FAILED" has been appended -
     /// if this fails, nothing below it is evidence about request shapes, it is
     /// evidence about the machinery, so the ladder must not run.
+    ///
+    /// Also the only place this account's own id is ever read, so it can
+    /// resolve a read receipt to `self`/`other` further down the report -
+    /// `selfUserID` is set on success and left `nil` otherwise, never printed.
     private static func appendVerifiedCall(
         client: ProtoAPIClient,
+        selfUserID: inout String?,
         lines: inout [String]
     ) async -> Bool {
         lines.append("")
@@ -146,6 +168,8 @@ public enum APIProbeReport {
             let encoding = await client.lastEncoding?.rawValue ?? "-"
             lines.append("  OK - encoding \(encoding), "
                 + "user id \(response.userStatus.userID.id.count) chars")
+            let id = response.userStatus.userID.id
+            selfUserID = id.isEmpty ? nil : id
             return true
         } catch {
             lines.append("  FAILED: \(safeDescription(of: error))")
@@ -181,7 +205,12 @@ public enum APIProbeReport {
         return String(describing: type(of: error))
     }
 
-    private static func appendLadder(client: ProtoAPIClient, lines: inout [String]) async {
+    private static func appendLadder(
+        client: ProtoAPIClient,
+        selfUserID: String?,
+        conversationIndexOverride: Int?,
+        lines: inout [String]
+    ) async {
         lines.append("")
         lines.append("paginated_world ladder:")
         let results = await WorldRequestLadder.run(WorldRequestLadder.rungs, with: client)
@@ -196,7 +225,13 @@ public enum APIProbeReport {
         // The topics ladder - step 6 of this slice - runs against one of the
         // conversations the world call already produced, rather than a
         // second `paginated_world` round trip just to get one to probe.
-        await appendTopicsLadderSection(client: client, conversations: conversations, lines: &lines)
+        await appendTopicsLadderSection(
+            client: client,
+            conversations: conversations,
+            selfUserID: selfUserID,
+            conversationIndexOverride: conversationIndexOverride,
+            lines: &lines
+        )
     }
 
     /// §20.4's `[Verify]`: the ladder's own scan is top-level only, so which
