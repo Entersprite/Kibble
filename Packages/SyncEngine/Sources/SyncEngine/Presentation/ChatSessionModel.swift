@@ -20,7 +20,7 @@ import Observation
 @MainActor
 @Observable
 public final class ChatSessionModel {
-    public private(set) var conversations: [Conversation] = []
+    public internal(set) var conversations: [Conversation] = [] // set from +AutoMarkRead.swift
     public private(set) var directory: [Member.ID: Member] = [:]
     public private(set) var messages: [Message] = []
     public private(set) var typing: [Member.ID] = []
@@ -142,6 +142,8 @@ public final class ChatSessionModel {
     /// through this directly, the same way `select(_:)` and `send(_:)` in
     /// this file already do.
     let engine: SyncEngine
+    /// `--probe=markread`'s recorder, `nil` otherwise; read from `+AutoMarkRead.swift`.
+    let markReadTrace: MarkReadTraceRecorder?
     private var watchers: [Task<Void, Never>] = []
 
     /// Cancelled and replaced whenever the selection changes, so only the open
@@ -168,17 +170,20 @@ public final class ChatSessionModel {
     /// transition - and a refetch per delivery would be one `list_topics` per
     /// database write.
     private var actedOnConnection: ConnectionState?
-
-    public init(store: ChatStore, engine: SyncEngine, me: Member.ID? = nil) {
+    public init(
+        store: ChatStore, engine: SyncEngine, me: Member.ID? = nil,
+        markReadTrace: (any MarkReadTraceSink)? = nil
+    ) {
         self.store = store
         self.engine = engine
         self.me = me
+        self.markReadTrace = markReadTrace.map(MarkReadTraceRecorder.init(sink:))
     }
 
     /// Starts syncing and watching. Safe to call once; later calls do nothing.
     public func start() async throws {
         guard watchers.isEmpty else { return }
-        watch(store.observeConversations()) { [weak self] in self?.conversations = $0 }
+        watch(store.observeConversations()) { [weak self] in self?.conversationsObserved($0) }
         watch(store.observeConnectionState()) { [weak self] in
             self?.connectionState = $0
             self?.catchUpIfReconnected($0)
@@ -246,6 +251,7 @@ public final class ChatSessionModel {
     public func select(_ id: Conversation.ID) {
         guard selected != id else { return }
         selected = id
+        markReadTrace?.selectionChanged(to: id, in: conversations)
         messages = []
         typing = []
 

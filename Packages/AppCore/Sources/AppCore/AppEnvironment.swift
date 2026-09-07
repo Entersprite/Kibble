@@ -108,7 +108,9 @@ public final class AppEnvironment {
             // here does not touch the constraint that keeps this file naming
             // neither.
             await engine.setGhostMode(UserDefaults.standard.bool(forKey: "ghostMode"))
-            let model = ChatSessionModel(store: store, engine: engine, me: selection.me)
+            let model = ChatSessionModel(
+                store: store, engine: engine, me: selection.me, markReadTrace: services.markReadTraceSink()
+            )
             // Applies whatever `setActive(_:)` was told while no model
             // existed yet, rather than leaving this model's `isActive`
             // sitting at its own `true` default - see `pendingActive`'s doc

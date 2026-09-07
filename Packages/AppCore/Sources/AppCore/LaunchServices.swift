@@ -48,6 +48,13 @@ public protocol LaunchServices: AnyObject {
     /// conformance does nothing. Named neutrally so this package's vocabulary
     /// stays platform-free, not only its imports.
     func startDiagnostics() throws
+
+    /// `--probe=markread`'s sink, or `nil` on every ordinary launch. Owns
+    /// both the flag check and the file, exactly as `startDiagnostics()`
+    /// owns the App Nap probe's - `AppEnvironment` only forwards whatever
+    /// comes back into `ChatSessionModel.init`, unaware of the flag, the file
+    /// or the concrete sink behind it.
+    func markReadTraceSink() -> (any MarkReadTraceSink)?
 }
 
 /// What the launch was asked for, parsed once.

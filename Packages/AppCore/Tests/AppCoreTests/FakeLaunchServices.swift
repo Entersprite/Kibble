@@ -122,6 +122,12 @@ final class FakeLaunchServices: LaunchServices {
             throw startDiagnosticsFailure
         }
     }
+
+    /// Always `nil`: no test here exercises `--probe=markread`, and `AppCore`
+    /// must not know or care what a real sink looks like.
+    func markReadTraceSink() -> (any MarkReadTraceSink)? {
+        nil
+    }
 }
 
 /// A backend that connects, emits nothing, and can be told to fail
