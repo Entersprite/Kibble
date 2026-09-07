@@ -178,11 +178,18 @@ extension APIProbeReport {
             lines.append("  FAILED: \(safeDescription(of: error))")
             return
         }
-        let newestCreateTimeUsec = response.topics.map(\.createTimeUsec).max()
+        let newestTopic = response.topics.max(by: { $0.createTimeUsec < $1.createTimeUsec })
+        let newestTopicReference = newestTopic.map { topic in
+            ReadReceiptReport.NewestTopicReference(
+                createTimeUsec: topic.createTimeUsec,
+                sortTime: topic.hasSortTime ? topic.sortTime : nil,
+                newestReplyCreateTime: topic.replies.map(\.createTime).max()
+            )
+        }
         lines.append(contentsOf: ReadReceiptReport.lines(
             receiptSet: response.readReceiptSet,
             topicCount: response.topics.count,
-            newestCreateTimeUsec: newestCreateTimeUsec,
+            newestTopicReference: newestTopicReference,
             selfUserID: selfUserID
         ))
     }

@@ -274,8 +274,8 @@ struct APIProbeReportHistoryTests {
         #expect(reportText.contains("read receipts (list_topics rung 4"))
         #expect(reportText.contains("read receipts enabled: true"))
         #expect(reportText.contains("receipts: 2"))
-        #expect(reportText.contains("receipt self: -2.500s vs newest topic"))
-        #expect(reportText.contains("receipt other: -10.000s vs newest topic"))
+        #expect(reportText.contains("receipt self: -2500000µs vs reference"))
+        #expect(reportText.contains("receipt other: -10000000µs vs reference"))
         #expect(!reportText.contains("self could not be identified"))
         for candidate in leakCandidates {
             #expect(!reportText.contains(candidate))

@@ -22,6 +22,23 @@ struct ReadReceiptReportTests {
         return receipt
     }
 
+    /// A reference whose `sortTime` and `newestReplyCreateTime` equal
+    /// `createTimeUsec` unless overridden - most tests care only about the
+    /// receipt deltas, so the topic's own timing fields default to "in
+    /// agreement with the reference" rather than forcing every call site to
+    /// spell out three numbers to get one.
+    private func reference(
+        createTimeUsec: Int64,
+        sortTime: Int64? = nil,
+        newestReplyCreateTime: Int64? = nil
+    ) -> ReadReceiptReport.NewestTopicReference {
+        ReadReceiptReport.NewestTopicReference(
+            createTimeUsec: createTimeUsec,
+            sortTime: sortTime ?? createTimeUsec,
+            newestReplyCreateTime: newestReplyCreateTime ?? createTimeUsec
+        )
+    }
+
     // MARK: - `enabled`
 
     @Test("disabled account ends the report on that line")
@@ -33,7 +50,7 @@ struct ReadReceiptReportTests {
         let lines = ReadReceiptReport.lines(
             receiptSet: set,
             topicCount: 3,
-            newestCreateTimeUsec: 10_000_000,
+            newestTopicReference: reference(createTimeUsec: 10_000_000),
             selfUserID: nil
         )
 
@@ -41,7 +58,7 @@ struct ReadReceiptReportTests {
         #expect(lines.contains(where: { $0.contains("DISABLED") }))
         // Nothing past the disabled line describes a receipt - the boolean
         // ends the investigation, per the report's own doc comment.
-        #expect(!lines.contains(where: { $0.contains("receipt") && $0.contains("vs newest topic") }))
+        #expect(!lines.contains(where: { $0.contains("receipt") && $0.contains("vs reference") }))
     }
 
     @Test("enabled, zero receipts")
@@ -53,7 +70,7 @@ struct ReadReceiptReportTests {
         let lines = ReadReceiptReport.lines(
             receiptSet: set,
             topicCount: 4,
-            newestCreateTimeUsec: 10_000_000,
+            newestTopicReference: reference(createTimeUsec: 10_000_000),
             selfUserID: nil
         )
 
@@ -70,7 +87,7 @@ struct ReadReceiptReportTests {
         let lines = ReadReceiptReport.lines(
             receiptSet: set,
             topicCount: 0,
-            newestCreateTimeUsec: nil,
+            newestTopicReference: nil,
             selfUserID: nil
         )
 
@@ -91,7 +108,7 @@ struct ReadReceiptReportTests {
         let lines = ReadReceiptReport.lines(
             receiptSet: set,
             topicCount: 2,
-            newestCreateTimeUsec: 10_000_000,
+            newestTopicReference: reference(createTimeUsec: 10_000_000),
             selfUserID: "self-id"
         )
 
@@ -109,7 +126,7 @@ struct ReadReceiptReportTests {
         let lines = ReadReceiptReport.lines(
             receiptSet: set,
             topicCount: 1,
-            newestCreateTimeUsec: 10_000_000,
+            newestTopicReference: reference(createTimeUsec: 10_000_000),
             selfUserID: nil
         )
 
@@ -117,31 +134,80 @@ struct ReadReceiptReportTests {
         #expect(lines.contains(where: { $0.contains("receipt index 0:") }))
     }
 
-    // MARK: - delta arithmetic
+    // MARK: - delta arithmetic (microseconds, exact integers)
 
-    @Test("delta: a receipt behind the newest topic is negative, in seconds")
-    func deltaBehindNewestTopicIsNegative() {
-        // 1_000_000 usec behind = 1.0 second behind. Written as a literal
-        // Double on the right of `==`, never a computed expression - the
-        // rule `#expect` needs, since a subexpression like `9 * 86400` is
-        // typed alone inside the macro and defaults to `Int`.
-        let seconds = ReadReceiptReport.delta(readTimeMicros: 9_000_000, newestCreateTimeUsec: 10_000_000)
-        let expected: Double = -1.0
-        #expect(seconds == expected)
+    @Test("deltaMicros: a receipt one microsecond short of the reference is -1")
+    func deltaMicrosOneMicrosecondShort() {
+        // The exact scenario three-decimal seconds could not distinguish
+        // from "four hundred microseconds short" - both used to print
+        // `-0.000s`. Written as a computed literal rather than an
+        // expression on the right of `==`, since a subexpression like
+        // `10_000_000 - 1` is type-checked alone inside `#expect` and
+        // defaults to `Int` rather than taking its type from the left side.
+        let micros = ReadReceiptReport.deltaMicros(readTimeMicros: 9_999_999, referenceUsec: 10_000_000)
+        let expected: Int64 = -1
+        #expect(micros == expected)
     }
 
-    @Test("delta: a receipt at or after the newest topic is zero or positive")
-    func deltaAtOrAfterNewestTopicIsNonNegative() {
-        let atNewest = ReadReceiptReport.delta(readTimeMicros: 10_000_000, newestCreateTimeUsec: 10_000_000)
-        let zero: Double = 0
-        #expect(atNewest == zero)
+    @Test("deltaMicros: a receipt exactly at the reference is 0")
+    func deltaMicrosExactlyAtReference() {
+        let micros = ReadReceiptReport.deltaMicros(readTimeMicros: 10_000_000, referenceUsec: 10_000_000)
+        let expected: Int64 = 0
+        #expect(micros == expected)
+    }
 
-        let afterNewest = ReadReceiptReport.delta(
-            readTimeMicros: 10_000_001,
-            newestCreateTimeUsec: 10_000_000
+    @Test("deltaMicros: a receipt past the reference is positive")
+    func deltaMicrosPastReference() {
+        let micros = ReadReceiptReport.deltaMicros(readTimeMicros: 10_000_001, referenceUsec: 10_000_000)
+        let expected: Int64 = 1
+        #expect(micros == expected)
+    }
+
+    // MARK: - the newest topic's own timing fields
+
+    @Test("topic timing lines report sort_time, create_time_usec and newest reply create_time as signed µs")
+    func topicTimingLinesReportAllThreeDeltas() {
+        var set = ReadReceiptSet()
+        set.enabled = true
+        set.readReceipts = [receipt(userID: "someone", readTimeMicros: 10_000_000)]
+
+        let lines = ReadReceiptReport.lines(
+            receiptSet: set,
+            topicCount: 1,
+            newestTopicReference: reference(
+                createTimeUsec: 10_000_000,
+                sortTime: 10_000_050,
+                newestReplyCreateTime: 9_999_880
+            ),
+            selfUserID: nil
         )
-        let oneMicrosecond = 0.000_001
-        #expect(afterNewest == oneMicrosecond)
+
+        #expect(lines.contains(where: { $0.contains("newest topic sort_time: +50µs") }))
+        #expect(lines.contains(where: { $0.contains("newest topic create_time_usec: +0µs") }))
+        #expect(lines.contains(where: { $0.contains("newest reply create_time: -120µs") }))
+    }
+
+    @Test("newest reply create_time earlier than the topic's create_time_usec reports negative")
+    func newestReplyEarlierThanTopicCreateTimeUsec() {
+        // The hypothesis findings.md §36 raised: if the server stamps the
+        // topic marginally later than the message inside it, the reply's
+        // create_time sits *before* the topic's create_time_usec by a fixed
+        // sub-millisecond amount, insensitive to message age. This asserts
+        // the arithmetic that would surface exactly that on a live run.
+        var set = ReadReceiptSet()
+        set.enabled = true
+
+        let lines = ReadReceiptReport.lines(
+            receiptSet: set,
+            topicCount: 1,
+            newestTopicReference: reference(
+                createTimeUsec: 10_000_000,
+                newestReplyCreateTime: 9_999_700
+            ),
+            selfUserID: nil
+        )
+
+        #expect(lines.contains(where: { $0.contains("newest reply create_time: -300µs") }))
     }
 
     @Test("age: newest topic's age in seconds against an injected clock")
