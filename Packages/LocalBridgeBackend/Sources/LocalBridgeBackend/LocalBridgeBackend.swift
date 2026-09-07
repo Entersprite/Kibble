@@ -26,6 +26,13 @@ public actor LocalBridgeBackend: ChatBackend {
     /// must never branch on a gap's reason, because the set of reasons is open.
     static let connectedGapReason = "connected: nothing is known about this session yet"
 
+    /// Why a resumed channel refetches. Separate from `connectedGapReason` so
+    /// the two sites cannot drift apart in wording, and worded for a log line
+    /// a person reads six months from now.
+    static let resumedGapReason =
+        "resumed: a fresh registration reset AID, so anything delivered during "
+            + "the outage was never seen"
+
     /// Almost nothing is advertised until it works.
     ///
     /// Not modesty - the UI reads `capabilities` to decide what to offer, and a

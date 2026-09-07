@@ -96,6 +96,12 @@ extension LocalBridgeBackend {
         case .resumed:
             lastFailure = nil
             emit(.connectionStateChanged(.connected))
+            // `findings.md` §23.1. A reconnect is a fresh registration - a new
+            // SID with `AID` reset - so events delivered during the outage are
+            // gone, and the conversation list has been stale since launch
+            // because nothing but `connect()` ever refetched it. Emitting the
+            // same gap `connect()` does is the whole fix.
+            emit(.gap(scope: .everything, reason: LocalBridgeBackend.resumedGapReason))
         }
     }
 }
