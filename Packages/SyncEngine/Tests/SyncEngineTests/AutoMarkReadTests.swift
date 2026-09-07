@@ -13,61 +13,25 @@ import Testing
 /// these into a single-step assertion.
 @Suite(.timeLimit(.minutes(1)))
 struct AutoMarkReadTests {
-    /// The conversation the fixture actually has messages in - picked from the
-    /// world rather than from `model.conversations.first`, because a
-    /// conversation with no messages has no read position and marks nothing,
-    /// which would make half of these tests pass for the wrong reason.
-    private var conversation: Conversation.ID {
-        FixtureWorld.minimal.messages[0].conversationID
-    }
+    /// The three re-arm sequence tests (a delivery during a *re-armed*
+    /// mark's flight, and `stop()` cancelling a re-armed mark) moved to
+    /// `AutoMarkReadReArmTests.swift` once adding them crossed swiftlint's
+    /// `file_length` ceiling here - the harness they share with this suite
+    /// lives in `Support/AutoMarkReadHarness.swift`.
+    private typealias Harness = AutoMarkReadHarness
 
-    /// A named bundle rather than a tuple: swiftlint's `large_tuple` caps
-    /// tuples at 2 members, and this harness needs the store itself for
-    /// `aRedeliveryAtTheSamePositionMarksNothing` and
-    /// `aMessageArrivingDuringAnInFlightMarkIsNotDropped` to drive a
-    /// redelivery directly, not just the model and the backend.
-    private struct Harness {
-        let model: ChatSessionModel
-        let backend: RecordingBackend
-        let store: ChatStore
+    private var conversation: Conversation.ID {
+        autoMarkReadConversation
     }
 
     @MainActor
-    private func harness(
-        capabilities: Capabilities = .fixture
-    ) async throws -> Harness {
-        let backend = RecordingBackend(capabilities: capabilities)
-        let store = try ChatStore.inMemory()
-        let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: nil)
-        try await model.start()
-        await settle()
-        return Harness(model: model, backend: backend, store: store)
+    private func harness(capabilities: Capabilities = .fixture) async throws -> Harness {
+        try await makeAutoMarkReadHarness(capabilities: capabilities)
     }
 
-    /// The same polling shape `ChatSessionModelTests` already uses. Session 18
-    /// flagged a 200-iteration `Task.yield()` loop as timing-sensitive in
-    /// `OptimisticSendTests`; it is reused here rather than inventing a second
-    /// waiting idiom, and it is worth someone eventually replacing both.
-    ///
-    /// **Must be `@MainActor`.** Factoring this loop out as a plain
-    /// `nonisolated` `async func` - as first drafted - hops the caller off
-    /// the main actor for the duration of the wait. Every observation
-    /// callback this suite is waiting on (`ChatSessionModel`'s `watch`/
-    /// `observe` closures) is itself scheduled on the main actor, and in
-    /// this runtime a nonisolated `Task.yield()` loop never handed the main
-    /// thread back to them within the 200-iteration budget: every test built
-    /// on this helper measured zero messages loaded and zero mark-read calls,
-    /// deterministically, on every run - not flaky, simply wrong. Every
-    /// existing settle-style wait in this package (`ChatSessionModelTests`,
-    /// `ChatSessionModelTeardownTests`) inlines its loop directly inside an
-    /// `@MainActor` test function rather than through a shared nonisolated
-    /// helper, which is what hid this from precedent.
     @MainActor
     private func settle() async {
-        for _ in 0 ..< 200 {
-            await Task.yield()
-        }
+        await settleAutoMarkRead()
     }
 
     @MainActor

@@ -21,7 +21,14 @@ actor RecordingBackend: ChatBackend {
     private(set) var commands: [ChatCommand] = []
     private var failing = false
     private var holding = false
-    private var heldSubmission: CheckedContinuation<Void, Never>?
+    /// A queue, not a single slot: a second `send(_:)` arriving while one is
+    /// already held used to overwrite this without resuming it, orphaning the
+    /// first caller permanently - a hang inside the suite's own time limit
+    /// rather than a clear failure, which is the worst way for a harness bug
+    /// to surface. A re-armed mark that itself needs to hold means two
+    /// `send(_:)` calls can be in flight and held one after another in the
+    /// same test, so this must be able to hold more than one at a time.
+    private var heldSubmissions: [CheckedContinuation<Void, Never>] = []
 
     private(set) var loadMessagesCalls = 0
 
@@ -47,11 +54,21 @@ actor RecordingBackend: ChatBackend {
         holding = shouldHold
     }
 
-    /// Releases the one `send(_:)` call currently blocked by
-    /// `holdSubmissions(true)`, if any. Safe to call when nothing is held.
+    /// Releases the oldest `send(_:)` call currently blocked by
+    /// `holdSubmissions(true)`, if any - first held, first released. Safe to
+    /// call when nothing is held.
     func releaseHeldSubmission() {
-        heldSubmission?.resume()
-        heldSubmission = nil
+        guard !heldSubmissions.isEmpty else { return }
+        heldSubmissions.removeFirst().resume()
+    }
+
+    /// How many `send(_:)` calls are blocked right now. A test asserts on
+    /// this directly to prove "no third concurrent call started", rather
+    /// than inferring it from `markReadCount` alone - a third call would
+    /// still increment this even if it happened to race the fixture's clock
+    /// in a way that left `markReadCount` ambiguous.
+    var heldSubmissionCount: Int {
+        heldSubmissions.count
     }
 
     var markReadCount: Int {
@@ -81,7 +98,7 @@ actor RecordingBackend: ChatBackend {
     func send(_ command: ChatCommand) async throws {
         commands.append(command)
         if holding {
-            await withCheckedContinuation { heldSubmission = $0 }
+            await withCheckedContinuation { heldSubmissions.append($0) }
         }
         if failing {
             throw ChatError.notAuthenticated
