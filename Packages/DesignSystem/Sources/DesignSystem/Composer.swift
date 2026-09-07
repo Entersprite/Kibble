@@ -79,7 +79,21 @@ public struct Composer: View {
         .padding(.bottom, 11)
         .animation(.snappy(duration: 0.15), value: trimmed.isEmpty)
         .onAppear { isFocused = true }
-        .onChange(of: restoring) { _, text in
+        // **`initial: true` is load-bearing, not decoration.** `ChatWindow`
+        // keys this view `.id(conversation.id)`, so returning to a
+        // conversation after a failed send tears down the old `Composer` and
+        // constructs a brand new one whose `restoring` is *already*
+        // `state.failedDraft` on its very first render - an initial value,
+        // not a change. Plain `.onChange(of:)` never fires for a value a view
+        // already holds on first appearance, so without `initial: true` the
+        // adopt-once logic below never runs on exactly the path the feature
+        // exists for: navigate away, come back, and the draft would render
+        // empty. A fresh composer for a conversation with no failed draft
+        // still adopts nothing (`restoring == nil`, `adopt(nil)` returns
+        // `false`), and a later redraw carrying the same non-nil value still
+        // cannot re-adopt (`ComposerDraft.adopted` remembers) - so this is
+        // safe to fire unconditionally on appearance.
+        .onChange(of: restoring, initial: true) { _, text in
             guard draft.adopt(text) else { return }
             isFocused = true
             onRestored?()
