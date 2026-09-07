@@ -8,41 +8,40 @@ import GChatBridgeCore
 /// `+Send.swift` are: swiftlint's `file_length`, and this is a coherent
 /// concern rather than an arbitrary cut.
 public extension LocalBridgeBackend {
-    /// **An experiment with a stated hypothesis, not a settled fix** - session
-    /// 21's diagnosis. A live run showed six `mark_group_readstate` calls all
-    /// accepted at 518-750ms, with the server-acknowledged read position
-    /// ending up exactly equal, to the millisecond, to the newest message the
-    /// client held (`lastReadAt` `2026-09-07 13:22:32.128` against that
-    /// message's own `createdAt`). Despite that, the sender's own phone still
-    /// showed their message as unread.
+    /// **Confirmed behaviour, not an experiment** - `findings.md` §36,
+    /// measured 2026-09-07. **The server's read comparison is
+    /// strictly-greater-than.** A `last_read_time` exactly equal to a
+    /// message's own `create_time` does not cover that message: session 21's
+    /// first live run left the acknowledged read position equal, to the
+    /// millisecond, to the newest message the client held, and the sender
+    /// still saw their own message as unread on their phone.
     ///
-    /// **Hypothesis: the server's read comparison is strictly-greater-than.**
-    /// Publishing `last_read_time` exactly equal to a message's `create_time`
-    /// leaves that message uncovered by the read position, so the sender
-    /// correctly sees it unread. The one reference implementation that
-    /// actually issues this call,
-    /// `reference/purple-googlechat-master/googlechat_conversation.c:2748`,
-    /// never hits this boundary at all - it sends corrected current time
-    /// (`g_get_real_time() - (ha->server_time_offset * 1000000)`), which is
-    /// strictly greater than every message it could ever mark.
+    /// Publishing one microsecond past it fixed that, and the confirming
+    /// capture is in §36.1 - two accepted calls, HTTP 200, 38 bytes out, 368
+    /// back, `protoFields=1:2:345|2:2:18`, and the owner confirming the other
+    /// person's phone then showed the message as read.
     ///
-    /// **Why one microsecond and not "send now".** Switching to corrected-now
-    /// would change the boundary *and* the semantics in the same step, and
-    /// `findings.md` §12.4 is this project's own recorded regret about
-    /// exactly that: a probe that changed two variables at once, so neither
-    /// could be credited. Adding one microsecond tests only the boundary, and
-    /// it keeps spec §5.2's reasoning intact - a wall-clock now would claim to
-    /// have read messages that arrive between computing the value and the
-    /// server processing it, while one microsecond past a *known* message
-    /// claims essentially nothing extra.
+    /// **Neither reference documents this.** maugclib's
+    /// `update_read_timestamp` (`maugclib/client.py:323-333`) has no callers,
+    /// so it never exercised the boundary. purple
+    /// (`googlechat_conversation.c:2748`) sidesteps it by sending corrected
+    /// current time (`g_get_real_time() - (ha->server_time_offset *
+    /// 1000000)`), which is strictly greater than anything it could mark, and
+    /// never says why.
     ///
-    /// **What would confirm this, and what would refute it.** Confirms: the
-    /// next live run's acknowledged `lastReadTime` is one microsecond past the
-    /// newest message's `createdAt` (not equal to it), and the sender sees the
-    /// message as read. Refutes: the sender still sees it unread despite that
-    /// offset, which would mean the boundary hypothesis is wrong and the
-    /// residual-unread bug lives somewhere else entirely - not in the
-    /// equality, and not in this file.
+    /// **Why one microsecond and not corrected-now - do not undo this.**
+    /// purple can send a corrected clock because it *maintains a measured
+    /// server time offset*. This client has none, so its "now" would be an
+    /// uncorrected local clock - precisely the defect session 21's
+    /// whole-branch review removed, where every send published a receipt
+    /// stamped from the local wall clock and a clock running ahead also
+    /// poisoned the watermark. A wall-clock now additionally claims to have
+    /// read messages arriving between computing the value and the server
+    /// processing it; one microsecond past a *known* message claims
+    /// essentially nothing extra, which is spec §5.2's semantics.
+    ///
+    /// `MarkReadTests.markReadPostsTheReferencesShape` pins the serialized
+    /// bytes and is now a regression test for this protocol fact.
     static let readPositionOffsetMicroseconds: Int64 = 1
 
     /// Marks one conversation read up to `date`, and emits what the server

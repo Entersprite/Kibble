@@ -100,8 +100,12 @@ struct MarkReadTests {
     /// pass silently. Same shape as `SendMessageTests`'s equivalent assertion.
     ///
     /// **Pinned one microsecond past the `Date`'s own conversion** -
-    /// `LocalBridgeBackend.readPositionOffsetMicroseconds`, session 21's
-    /// mark-read boundary experiment (see that constant's own doc comment).
+    /// `LocalBridgeBackend.readPositionOffsetMicroseconds`. This is a
+    /// **regression test for a confirmed protocol fact**, not a pin on an
+    /// experiment: the server's read comparison is strictly-greater-than, so
+    /// a position equal to a message's own `create_time` leaves that message
+    /// unread for its own sender. Measured and confirmed against live traffic
+    /// - `findings.md` §36, and that constant's own doc comment.
     /// The literal here is written out rather than as
     /// `1_700_000_000_000_000 + 1`: an arithmetic literal on the right of
     /// `==` inside `#expect` is typed on its own and would not take its type
