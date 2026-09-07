@@ -245,7 +245,10 @@ public actor LocalBridgeBackend: ChatBackend {
         } catch {
             let chatError = Self.chatError(from: error)
             lastFailure = chatError
-            emit(.connectionStateChanged(.disconnected(reason: Self.reason(for: chatError), issue: nil)))
+            emit(.connectionStateChanged(.disconnected(
+                reason: Self.reason(for: chatError),
+                issue: ConnectionIssueMapping.issue(forConnect: error)
+            )))
             emit(.backendError(chatError))
             throw chatError
         }

@@ -60,7 +60,15 @@ struct LocalBridgeBackendTests {
         // never learn why nothing is syncing.
         let seen = await events
         #expect(seen.contains(.backendError(.notAuthenticated)))
-        #expect(seen.contains(.connectionStateChanged(.disconnected(reason: "not signed in", issue: nil))))
+        // Not a `BootstrapFailure` or `ClassifiedTransportFailure` - `connect()`
+        // throws a plain `ChatError.notAuthenticated` here, so
+        // `ConnectionIssueMapping.issue(forConnect:)` has no taxonomy entry for
+        // it and honestly says `.unknown` rather than inventing one.
+        #expect(
+            seen.contains(
+                .connectionStateChanged(.disconnected(reason: "not signed in", issue: .unknown("connect")))
+            )
+        )
     }
 
     @Test func aBounceToTheAccountsHostIsAlsoNotAuthenticated() async throws {
