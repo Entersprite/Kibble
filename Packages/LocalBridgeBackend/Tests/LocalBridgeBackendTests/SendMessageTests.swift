@@ -104,8 +104,17 @@ struct SendMessageTests {
         return message
     }
 
+    /// Builds a well-formed `Topic`: an id (field 1 of the id message) plus
+    /// one reply. Task 11's `requireAccepted` check reads `topic.id.topicID`,
+    /// so a fixture that only ever set `replies` - as this helper did before
+    /// that check existed - was never actually well-formed; it happened to
+    /// pass only because nothing looked at the id before now.
     private func topicWithReply(id: String, groupID: GroupId) -> Topic {
         var topic = Topic()
+        var topicID = TopicId()
+        topicID.groupID = groupID
+        topicID.topicID = id
+        topic.id = topicID
         topic.replies = [reply(id: id, groupID: groupID)]
         return topic
     }
@@ -305,5 +314,81 @@ struct SendMessageTests {
         let sent = await transport.sent
         #expect(sent.contains { $0.url.path.contains("/api/create_topic") })
         #expect(!sent.contains { $0.url.path.contains("/api/create_message") })
+    }
+
+    // MARK: - The response is read, not discarded
+
+    /// **Auth failure returns HTTP 200 on this protocol**, so "did not throw"
+    /// has never been proof of acceptance - and the optimistic row stays on
+    /// screen regardless, which makes a silently rejected message look exactly
+    /// like a sent one.
+    ///
+    /// The shape checked against is the one that was actually observed:
+    /// `1:2:NNN|2:2:18` on all seven sends in `trace-run3-outage.csv`
+    /// (session 19 §8), i.e. a populated `topic` in field 1.
+    @Test func aCreateTopicWithNoTopicThrows() async throws {
+        var empty = CreateTopicResponse()
+        empty.groupRevision = WriteRevision()
+        let transport = try RoutingTransport(
+            shell: shellResponse(),
+            createTopicResponse: HTTPResponse(
+                status: 200, headers: HTTPHeaders([]), body: empty.serializedBytes()
+            )
+        )
+        let backend = backend(transport)
+        try await backend.connect()
+        await #expect(throws: (any Error).self) {
+            try await backend.send(.sendMessage(
+                conversationID: Conversation.ID("space/s-1"),
+                threadID: nil,
+                text: "hello",
+                localID: "local-1"
+            ))
+        }
+    }
+
+    /// A `topic` that is present but carries no id is the same failure: there
+    /// is no message to have been accepted.
+    @Test func aCreateTopicWhoseTopicHasNoIDThrows() async throws {
+        var response = CreateTopicResponse()
+        response.topic = Topic()
+        let transport = try RoutingTransport(
+            shell: shellResponse(),
+            createTopicResponse: HTTPResponse(
+                status: 200, headers: HTTPHeaders([]), body: response.serializedBytes()
+            )
+        )
+        let backend = backend(transport)
+        try await backend.connect()
+        await #expect(throws: (any Error).self) {
+            try await backend.send(.sendMessage(
+                conversationID: Conversation.ID("space/s-1"),
+                threadID: nil,
+                text: "hello",
+                localID: "local-1"
+            ))
+        }
+    }
+
+    @Test func aCreateMessageWithNoMessageThrows() async throws {
+        var empty = CreateMessageResponse()
+        empty.groupRevision = WriteRevision()
+        let transport = try RoutingTransport(
+            shell: shellResponse(),
+            createTopicResponse: HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data()),
+            createMessageResponse: HTTPResponse(
+                status: 200, headers: HTTPHeaders([]), body: empty.serializedBytes()
+            )
+        )
+        let backend = backend(transport)
+        try await backend.connect()
+        await #expect(throws: (any Error).self) {
+            try await backend.send(.sendMessage(
+                conversationID: Conversation.ID("space/s-1"),
+                threadID: MessageThread.ID("t-1"),
+                text: "hello",
+                localID: "local-1"
+            ))
+        }
     }
 }
