@@ -94,9 +94,9 @@ public enum ChannelEventMapping {
             // Microseconds since the epoch, and they arrive as a *string*:
             // pblite sends 64-bit values that way because a 16-digit number does
             // not survive JSON's binary64. `PBLiteDecoder` coerces it back.
-            createdAt: Date(timeIntervalSince1970: Double(message.createTime) / 1_000_000),
+            createdAt: Microseconds.date(message.createTime),
             editedAt: message.hasLastEditTime
-                ? Date(timeIntervalSince1970: Double(message.lastEditTime) / 1_000_000)
+                ? Microseconds.date(message.lastEditTime)
                 : nil,
             isDeleted: message.hasDeleteTime && message.deleteTime > 0,
             // Echoed straight back by the server on a message we sent, and

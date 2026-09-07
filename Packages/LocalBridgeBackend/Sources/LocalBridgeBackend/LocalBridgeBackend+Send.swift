@@ -21,11 +21,31 @@ public extension LocalBridgeBackend {
     /// this and why that is a deliberate departure from every other `/api/`
     /// family in this package.
     func send(_ command: ChatCommand) async throws {
-        guard case let .sendMessage(conversationID, threadID, text, localID) = command else {
-            // Named rather than swallowed. A caller learns precisely what could
-            // not be honoured instead of watching a message vanish.
+        switch command {
+        case let .sendMessage(conversationID, threadID, text, localID):
+            try await sendMessage(
+                conversationID: conversationID,
+                threadID: threadID,
+                text: text,
+                localID: localID
+            )
+        case let .markRead(conversationID, upTo):
+            try await markRead(conversationID, upTo: upTo)
+        // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
+        // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
+        // until someone decides whether this backend can honour it.
+        case .editMessage, .deleteMessage, .setReaction, .setTyping,
+             .setNotificationLevel, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }
+    }
+
+    private func sendMessage(
+        conversationID: Conversation.ID,
+        threadID: MessageThread.ID?,
+        text: String,
+        localID: String?
+    ) async throws {
         guard let apiClient else {
             throw ChatError.unknown(
                 "send(_:) requires connect() to succeed first - "

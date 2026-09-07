@@ -111,7 +111,9 @@ struct LocalBridgeBackendTests {
     /// silently fails.
     @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
-        #expect(backend.capabilities == Capabilities(canSendMessages: true, supportsThreads: true))
+        #expect(backend.capabilities == Capabilities(
+            canSendMessages: true, canMarkRead: true, supportsThreads: true
+        ))
     }
 
     /// `loadMessages(in:before:)` and `send(_:)` are real implementations now -

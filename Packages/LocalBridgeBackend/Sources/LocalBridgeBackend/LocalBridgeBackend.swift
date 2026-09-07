@@ -37,7 +37,15 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `supportsThreads` is the other exception: `loadConversations()` now maps
     /// `isThreaded` for real (`WorldMapping`), so a client can tell a flat
     /// group from a threaded one without guessing.
-    public nonisolated let capabilities = Capabilities(canSendMessages: true, supportsThreads: true)
+    /// `canMarkRead` is now true: `.markRead` posts through
+    /// `mark_group_readstate` (`LocalBridgeBackend+ReadState.swift`) and the
+    /// response's own `GroupReadState` becomes `.readStateChanged`.
+    /// `[Verify]` until one deliberate call against live traffic confirms the
+    /// shape. `receivesReadReceipts` stays false and is a different claim -
+    /// it is about *other people's* read positions, which nothing here maps.
+    public nonisolated let capabilities = Capabilities(
+        canSendMessages: true, canMarkRead: true, supportsThreads: true
+    )
 
     public nonisolated let events: AsyncStream<ChatEvent>
 
