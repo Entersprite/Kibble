@@ -32,6 +32,10 @@ public struct ChatSceneState: Sendable, Equatable {
     /// it.
     public var capabilities: Capabilities
 
+    /// Text from a send that was not accepted, for the composer to adopt.
+    /// `nil` in every ordinary frame.
+    public var failedDraft: String?
+
     public init(
         conversations: [Conversation] = [],
         directory: [Member.ID: Member] = [:],
@@ -42,7 +46,8 @@ public struct ChatSceneState: Sendable, Equatable {
         connection: ConnectionState = .idle,
         lastError: ChatError? = nil,
         notice: String? = nil,
-        capabilities: Capabilities = Capabilities()
+        capabilities: Capabilities = Capabilities(),
+        failedDraft: String? = nil
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -54,6 +59,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.lastError = lastError
         self.notice = notice
         self.capabilities = capabilities
+        self.failedDraft = failedDraft
     }
 
     public var selectedConversation: Conversation? {
@@ -112,17 +118,25 @@ public struct ChatSceneActions {
     /// worth building, because the reducer keeps retrying either way.
     public var reconnect: (() -> Void)?
 
+    /// Told by the composer that it has adopted `state.failedDraft`, so the
+    /// host can stop offering it. **Optional, and its absence is the point** -
+    /// a host that offers no restore hook simply gets the old behaviour, the
+    /// same pattern `signIn`, `signOut` and `reconnect` already use.
+    public var draftRestored: (() -> Void)?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
         signIn: (() -> Void)? = nil,
         signOut: (() -> Void)? = nil,
-        reconnect: (() -> Void)? = nil
+        reconnect: (() -> Void)? = nil,
+        draftRestored: (() -> Void)? = nil
     ) {
         self.select = select
         self.send = send
         self.signIn = signIn
         self.signOut = signOut
         self.reconnect = reconnect
+        self.draftRestored = draftRestored
     }
 }

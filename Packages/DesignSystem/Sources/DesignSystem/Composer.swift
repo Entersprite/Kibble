@@ -14,21 +14,40 @@ public struct Composer: View {
     let placeholder: String
     let send: (String) -> Void
 
-    @State private var draft = ""
+    /// Text from a failed send, offered back for this composer to adopt. `nil`
+    /// in every ordinary frame - see `ComposerDraft`.
+    let restoring: String?
+    /// Told once `restoring` has been adopted, so the host can stop offering
+    /// it. **Optional, and its absence is the point**: a host with no restore
+    /// hook simply gets the old behaviour.
+    let onRestored: (() -> Void)?
+
+    @State private var draft = ComposerDraft()
     @FocusState private var isFocused: Bool
 
-    public init(placeholder: String, send: @escaping (String) -> Void) {
+    public init(
+        placeholder: String,
+        restoring: String? = nil,
+        onRestored: (() -> Void)? = nil,
+        send: @escaping (String) -> Void
+    ) {
         self.placeholder = placeholder
+        self.restoring = restoring
+        self.onRestored = onRestored
         self.send = send
     }
 
     public var body: some View {
         HStack(spacing: 6) {
-            TextField("Message \(placeholder)", text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1 ... 6)
-                .focused($isFocused)
-                .onSubmit(submit)
+            TextField(
+                "Message \(placeholder)",
+                text: Binding(get: { draft.text }, set: { draft.edit($0) }),
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .lineLimit(1 ... 6)
+            .focused($isFocused)
+            .onSubmit(submit)
             // Present only when there is something to send, which is how
             // Messages behaves - and it means the `.return` shortcut exists
             // exactly when it would do something.
@@ -60,10 +79,15 @@ public struct Composer: View {
         .padding(.bottom, 11)
         .animation(.snappy(duration: 0.15), value: trimmed.isEmpty)
         .onAppear { isFocused = true }
+        .onChange(of: restoring) { _, text in
+            guard draft.adopt(text) else { return }
+            isFocused = true
+            onRestored?()
+        }
     }
 
     private var trimmed: String {
-        draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Clears optimistically. The message comes back through the event stream
@@ -72,7 +96,7 @@ public struct Composer: View {
     private func submit() {
         let text = trimmed
         guard !text.isEmpty else { return }
-        draft = ""
+        draft.clear()
         send(text)
     }
 }

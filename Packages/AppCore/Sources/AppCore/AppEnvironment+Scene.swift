@@ -42,7 +42,8 @@ public extension AppEnvironment {
             typing: model.typing,
             connection: model.connectionState,
             lastError: model.lastError,
-            capabilities: model.capabilities
+            capabilities: model.capabilities,
+            failedDraft: model.failedDraft
         )
     }
 
@@ -112,7 +113,11 @@ public extension AppEnvironment {
             // `.running` must not invite someone to re-authenticate a working
             // session over one transient banner, and a probe report is not a
             // session problem at all.
-            signIn: isFailed ? { [weak self] in self?.requestSignIn() } : nil
+            signIn: isFailed ? { [weak self] in self?.requestSignIn() } : nil,
+            draftRestored: { [weak self] in
+                guard case let .running(model) = self?.phase else { return }
+                model.clearFailedDraft()
+            }
         )
     }
 

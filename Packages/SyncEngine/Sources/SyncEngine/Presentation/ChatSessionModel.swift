@@ -121,6 +121,22 @@ public final class ChatSessionModel {
     /// above: read and written from `ChatSessionModel+AutoMarkRead.swift`.
     var markGeneration: [Conversation.ID: Int] = [:]
 
+    /// The text of a send that was not accepted, and the conversation it was
+    /// typed in.
+    ///
+    /// Both halves, because exposing the text alone is how it ends up in
+    /// somebody else's composer: `ChatWindow` keys the composer on the
+    /// conversation id precisely so a half-typed line cannot follow the user
+    /// to a different person, and a restore that ignored the id would undo
+    /// that.
+    private var failed: (conversationID: Conversation.ID, text: String)?
+
+    /// The failed text, but only while its own conversation is open.
+    public var failedDraft: String? {
+        guard let failed, failed.conversationID == selected else { return nil }
+        return failed.text
+    }
+
     private let store: ChatStore
     /// Not `private`: `ChatSessionModel+AutoMarkRead.swift`'s trigger submits
     /// through this directly, the same way `select(_:)` and `send(_:)` in
@@ -281,6 +297,12 @@ public final class ChatSessionModel {
         }
     }
 
+    /// Called by the host once it has put the text back, so it is not offered
+    /// again on the next redraw.
+    public func clearFailedDraft() {
+        failed = nil
+    }
+
     /// Sends, and shows the message immediately.
     ///
     /// The optimistic row carries a `local/`-prefixed id because it has no
@@ -314,9 +336,11 @@ public final class ChatSessionModel {
             // optimistic row and nothing to take back.
             undo = [.removeMessage(id: optimisticID)]
         }
-        Task { [engine] in
-            await engine.submit(
-                .sendMessage(conversationID: selected, threadID: nil, text: text, localID: localID),
+        Task { @MainActor [weak self, engine] in
+            let accepted = await engine.submit(
+                .sendMessage(
+                    conversationID: selected, threadID: nil, text: text, localID: localID
+                ),
                 // By id, not by `localID`. The server echoes `localID` back on
                 // the delivered message, so a `localID` retraction would
                 // delete the real one whenever the echo beat the failure -
@@ -324,6 +348,8 @@ public final class ChatSessionModel {
                 // was written for.
                 undoing: undo
             )
+            guard let self, !accepted else { return }
+            failed = (conversationID: selected, text: text)
         }
     }
 
