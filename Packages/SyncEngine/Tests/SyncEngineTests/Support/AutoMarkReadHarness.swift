@@ -75,6 +75,88 @@ func settleAutoMarkRead() async {
     }
 }
 
+/// How long a predicate settle keeps polling before it gives up and records
+/// an issue.
+///
+/// A **deadline, not a wait**: a healthy run never reaches it, because
+/// `settleAutoMarkRead(until:holds:)` returns on the first poll where its
+/// condition holds. It is set far above every interval these suites use
+/// (`markReadSequenceInterval` is 200ms, the feature suite's is 50ms) so that
+/// reaching it means something is actually wrong rather than that the machine
+/// was briefly busy - which is the whole point of expressing the bound as a
+/// timeout instead of as a yield count.
+let markReadSettleTimeout = Duration.seconds(5)
+
+/// Drains the main actor **until `condition` holds**, and records an issue
+/// naming `subject` if it has not held by `timeout`.
+///
+/// **This exists because `settleAutoMarkRead()`'s 200 yields are an
+/// assumption about wall time, and the assumption was measured false.** The
+/// whole-branch review of this branch ran the three debounce suites under
+/// artificial CPU load and reproduced six distinct failures - four of them in
+/// the 200ms suites, not only the 50ms ones - every one of which was the same
+/// shape: a fixed yield budget consumed part of the debounce interval, so the
+/// interleaved event the test was about landed *after* the wait it was
+/// supposed to land inside, and the sequence under test never happened.
+/// Widening the interval only moves that threshold; polling a predicate
+/// removes it, because a settle that stops the instant its condition holds
+/// consumes the minimum rather than a guessed amount.
+///
+/// **Must be `@MainActor`**, for exactly the reason `settleAutoMarkRead()`'s
+/// own doc comment records: a nonisolated yield loop never hands the main
+/// thread back to the main-actor-isolated observation callbacks these suites
+/// are waiting on, so every test built on it measures zero while the store
+/// genuinely holds rows - deterministically wrong rather than flaky. The
+/// condition is `@MainActor` and `async` for the same reason and one more:
+/// several of these predicates read `RecordingBackend`, which is an actor.
+///
+/// **A timeout is a loud failure, not a quiet return.** A predicate helper
+/// that gives up silently converts a flake into a confusing downstream
+/// assertion failure somewhere else in the test - which is the failure mode
+/// this helper exists to remove, reintroduced by the helper itself. The
+/// recorded issue names `subject`, so the report says what was being waited
+/// for rather than only which later expectation went red.
+///
+/// **The poll backs off from yields to a real sleep, and that is
+/// load-bearing rather than tidiness.** Swift Testing runs this package's
+/// tests in parallel, and every test in these suites is `@MainActor`, so they
+/// all queue on one actor. A yield-only poll therefore does not just wait -
+/// it *hogs* the shared main actor, starving the GRDB observation delivery
+/// that another concurrently-running test is itself waiting on. Measured:
+/// the store-write-to-`messages` round trip is ~1.5ms when a test runs alone
+/// even under 576 busy processes, and the failures only appear when the
+/// suites run together. So the first few polls are yields, for the fast path
+/// where the condition is already nearly true, and after that the loop sleeps
+/// a millisecond at a time, which hands the main actor back rather than
+/// spinning on it.
+@MainActor
+func settleAutoMarkRead(
+    until subject: String,
+    within timeout: Duration = markReadSettleTimeout,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    holds condition: @MainActor () async -> Bool
+) async {
+    let deadline = ContinuousClock.now + timeout
+    var polls = 0
+    while await !condition() {
+        guard ContinuousClock.now < deadline else {
+            Issue.record(
+                """
+                settleAutoMarkRead timed out after \(timeout) and \(polls) \
+                polls waiting until \(subject).
+                """,
+                sourceLocation: sourceLocation
+            )
+            return
+        }
+        polls += 1
+        await Task.yield()
+        if polls > 4 {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+    }
+}
+
 /// The newest fixture position in `autoMarkReadConversation` - the value a
 /// mark scheduled before anything else arrives carries.
 ///
@@ -124,6 +206,61 @@ func landAutoMarkReadMessage(
     ))])
 }
 
+/// Writes a whole burst of server-shaped messages into
+/// `autoMarkReadConversation` in **one** `store.apply`, each strictly newer
+/// than every fixture one by its own offset.
+///
+/// One transaction rather than a call per message, and that is the point
+/// rather than brevity. Each `store.apply` produces its own GRDB observation
+/// delivery, and a coalescing test has to wait for the *newest* row to reach
+/// `messages` before the debounce interval expires. Three separate writes
+/// means waiting for the third of three deliveries; one write means waiting
+/// for one. Measured under whole-package parallelism plus heavy external CPU
+/// load, that delivery is the single largest cost in these tests - stalls of
+/// several hundred milliseconds against ~1.5ms for the same harness run
+/// alone - so the number of deliveries a test has to survive is worth
+/// minimising.
+@MainActor
+func landAutoMarkReadBurst(
+    in store: ChatStore, _ rows: [(id: String, secondsAfterFixture: TimeInterval)]
+) throws {
+    let base = FixtureWorld.minimal.messages[0]
+    let newest = try autoMarkReadFixtureNewest
+    try store.apply(rows.map { row in
+        .upsertMessage(Message(
+            id: Message.ID(row.id),
+            conversationID: autoMarkReadConversation,
+            threadID: base.threadID,
+            sender: base.sender,
+            text: "arrived during the wait",
+            createdAt: newest.addingTimeInterval(row.secondsAfterFixture)
+        ))
+    })
+}
+
+/// Writes one of this session's own **unacknowledged** optimistic rows into
+/// `autoMarkReadConversation` - a `local/`-prefixed id and a wall-clock
+/// `createdAt`, which is what `send(_:)` inserts before the server echoes the
+/// real message back.
+///
+/// The shape matters and is the point: the fixture's positions are dated in
+/// the past, so a `Date()` row is strictly newer than every server position
+/// in the conversation. That is the state in which an *unfiltered* "is there
+/// anything newer than what I published?" test is permanently true, which is
+/// what `aFailedMarkWithAnUnackedLocalRowDoesNotLoop` drives.
+@MainActor
+func landUnackedLocalMessage(in store: ChatStore, id: String) throws {
+    let base = FixtureWorld.minimal.messages[0]
+    try store.apply([.upsertMessage(Message(
+        id: Message.ID(id),
+        conversationID: autoMarkReadConversation,
+        threadID: base.threadID,
+        sender: base.sender,
+        text: "not yet acknowledged",
+        createdAt: Date()
+    ))])
+}
+
 /// Every read position this session published, oldest first.
 func markReadPositions(from backend: RecordingBackend) async -> [Date] {
     await markReads(from: backend).map(\.position)
@@ -146,27 +283,25 @@ func markReads(from backend: RecordingBackend) async -> [(
     }
 }
 
-/// The debounce interval the sequence suites run with, and a sleep
-/// comfortably past it.
+/// The debounce interval the sequence suites run with.
 ///
-/// Four times the `.milliseconds(50)` `MarkReadDebounceTests` uses, and
-/// deliberately. A test that has to place an event *inside* the wait must
-/// first settle to get the mark scheduled, and `settleAutoMarkRead()` is 200
-/// yields of real time rather than an instant. Running the whole package
-/// suite in parallel was observed to consume more than 50ms across two
-/// settles and two selections: the wait had already ended by the time the
-/// interleaved event landed, the sequence under test never happened, and the
-/// test failed for a reason with nothing to do with the code.
+/// Four times the `.milliseconds(50)` `MarkReadDebounceTests` uses. It was
+/// widened for a reason that has since been **measured wrong**: the claim was
+/// that a wider interval buys margin for the fixed 200-yield settle that has
+/// to run before an interleaved event can be placed inside the wait. The
+/// whole-branch review put the three debounce suites under artificial CPU
+/// load and found the widening bought no real margin - it moved the failure
+/// threshold, and four of the six reproduced failures were in *these* 200ms
+/// suites rather than the 50ms ones.
 ///
-/// **This is a measured assumption, not a guarantee** - the same one the
-/// existing coalescing tests already rest on, and widening it does not
-/// remove it. The change that would remove it is a predicate-polling settle
-/// (wait *until* the mark is installed, rather than for a fixed number of
-/// yields), which is filed and out of this slice's scope.
+/// **What removed the assumption is `settleAutoMarkRead(until:holds:)`**, not
+/// this number. Every wait in these suites now stops on the first poll where
+/// the thing it is waiting for is true, so the interval is no longer being
+/// spent on a yield budget before the test gets to act. The interval is left
+/// at 200ms rather than narrowed back: with the fixed budget gone it is
+/// simply the window an interleaved event has to land inside, and a wider
+/// window is free.
 let markReadSequenceInterval = Duration.milliseconds(200)
-/// Long enough that a sleep of this length guarantees `markReadSequenceInterval`
-/// elapsed rather than merely probably elapsed.
-let pastMarkReadSequenceInterval = Duration.milliseconds(500)
 
 /// `AutoMarkReadHarness` plus the trace sink.
 ///

@@ -42,6 +42,21 @@ public extension LocalBridgeBackend {
     ///
     /// `MarkReadTests.markReadPostsTheReferencesShape` pins the serialized
     /// bytes and is now a regression test for this protocol fact.
+    ///
+    /// **This is one half of a two-part workaround, and the other half is not
+    /// in this package - see `findings.md` §36.7.** The same read-receipt
+    /// defect turned out to depend on a second variable, the *age* of the
+    /// message at the moment its position is published: a mark issued within
+    /// roughly a quarter of a second of a message arriving does not register
+    /// for the sender, and the offset above does not help. The fix for that
+    /// is a two-second wait before the position is published, and it lives in
+    /// `ChatSessionModel.markReadDebounce` because recomputing the position
+    /// after the wait needs the loaded message list, which nothing below this
+    /// seam has. **A future out-of-repo `RemoteBackend` or bridge server
+    /// therefore inherits this constant and does not inherit the wait**, and
+    /// would reproduce the 0.25s defect while publishing a value that looks
+    /// correct everywhere it can see. §36.7 is what to read before writing
+    /// one.
     static let readPositionOffsetMicroseconds: Int64 = 1
 
     /// Marks one conversation read up to `date`, and emits what the server

@@ -17,7 +17,14 @@ import Testing
 ///
 /// The harness, the interval and the token counter are shared through
 /// `Support/AutoMarkReadHarness.swift`; `markReadSequenceInterval`'s doc
-/// comment records why the interval here is larger than the feature suite's.
+/// comment records why the interval here is larger than the feature suite's,
+/// and why widening it was the wrong answer.
+///
+/// **Every wait is `settleAutoMarkRead(until:holds:)`.** Four of the six
+/// failures the whole-branch review reproduced under CPU load were in this
+/// suite and its sibling - the 200ms ones - so the fixed 200-yield settle
+/// and the "sleep comfortably past the interval" idiom are both gone. Each
+/// wait now names the consequence it is waiting for and stops on it.
 ///
 /// Three of these six hold the submit open with
 /// `RecordingBackend.holdSubmissions(_:)` rather than relying on the wait
@@ -25,7 +32,7 @@ import Testing
 /// keeps the tracking entry installed for as long as the test wants, which
 /// makes the sequence happen by construction instead of by winning a race
 /// against the interval.
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.timeLimit(.minutes(1)), .serialized)
 struct MarkReadDebounceSequenceTests {
     // MARK: - Sequence 1: a suppressed trigger's message
 
@@ -48,21 +55,34 @@ struct MarkReadDebounceSequenceTests {
     @Test func aSuppressedTriggersMessageIsStillPublishedByTheFirstMark() async throws {
         let harness = try await makeTracedMarkReadHarness()
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
-        #expect(markReadTriggerCount(.scheduled, in: harness) == 1)
-        #expect(await markReadPositions(from: harness.backend).isEmpty)
+        await settleAutoMarkRead(until: "the first mark has been scheduled") {
+            markReadTriggerCount(.scheduled, in: harness) == 1
+        }
 
         try landAutoMarkReadMessage(
             in: harness.store, id: "srv-second-trigger", secondsAfterFixture: 10
         )
-        await settleAutoMarkRead()
         // The second trigger really did reach the in-flight guard and stop
         // there, rather than scheduling a mark of its own.
-        #expect(markReadTriggerCount(.alreadyInFlight, in: harness) == 1)
+        await settleAutoMarkRead(until: "the second trigger has been declined as in-flight") {
+            markReadTriggerCount(.alreadyInFlight, in: harness) == 1
+        }
         #expect(markReadTriggerCount(.scheduled, in: harness) == 1)
+        // The precondition, asserted rather than assumed: the decline above
+        // happened while the mark was still *waiting*, not while its submit
+        // was in flight. Only the first of those is the sequence this test is
+        // about, and only the coalescing can cover it.
+        #expect(markReadTriggerCount(.submitted, in: harness) == 0)
+        // Read here rather than before the message was landed. Nothing has
+        // been published while the wait is still running either way, and
+        // `markReadPositions` is an actor hop: putting one between the settle
+        // and the `store.apply` above would hand the shared main actor away
+        // inside the window this sequence depends on.
+        #expect(await markReadPositions(from: harness.backend).isEmpty)
 
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the coalesced mark has been published") {
+            await markReadPositions(from: harness.backend).count == 1
+        }
 
         let expected = try autoMarkReadFixtureNewest.addingTimeInterval(10)
         #expect(await markReadPositions(from: harness.backend) == [expected])
@@ -95,37 +115,40 @@ struct MarkReadDebounceSequenceTests {
         let harness = try await makeTracedMarkReadHarness()
         await harness.backend.holdSubmissions(true)
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the mark has been scheduled") {
+            markReadTriggerCount(.scheduled, in: harness) == 1
+        }
 
         try landAutoMarkReadMessage(
             in: harness.store, id: "srv-before-wait-end", secondsAfterFixture: 10
         )
-        await settleAutoMarkRead()
         // Declined on its way in, which is what leaves the coalescing as the
         // only thing that can cover it.
-        #expect(markReadTriggerCount(.alreadyInFlight, in: harness) == 1)
-
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the message inside the wait has been declined") {
+            markReadTriggerCount(.alreadyInFlight, in: harness) == 1
+        }
 
         // The wait has ended and the one coalesced mark is blocked in flight.
+        await settleAutoMarkRead(until: "the coalesced mark is in flight and held") {
+            await harness.backend.heldSubmissionCount == 1
+        }
         #expect(await harness.backend.markReadCount == 1)
-        #expect(await harness.backend.heldSubmissionCount == 1)
 
         // This one lands after the wait ended, inside the submit, so the
         // in-flight guard declines it too and only the re-arm can recover it.
         try landAutoMarkReadMessage(
             in: harness.store, id: "srv-after-wait-end", secondsAfterFixture: 20
         )
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the message inside the submit has been declined too") {
+            markReadTriggerCount(.alreadyInFlight, in: harness) == 2
+        }
         #expect(await harness.backend.markReadCount == 1)
-        #expect(markReadTriggerCount(.alreadyInFlight, in: harness) == 2)
 
         await harness.backend.holdSubmissions(false)
         await harness.backend.releaseHeldSubmission()
-        await settleAutoMarkRead()
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the re-armed mark has been published as well") {
+            await markReadPositions(from: harness.backend).count == 2
+        }
 
         let newest = try autoMarkReadFixtureNewest
         #expect(await markReadPositions(from: harness.backend) == [
@@ -161,16 +184,22 @@ struct MarkReadDebounceSequenceTests {
         let harness = try await makeTracedMarkReadHarness()
         await harness.backend.holdSubmissions(true)
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the first conversation's mark has been scheduled") {
+            markReadTriggerCount(.scheduled, in: harness) == 1
+        }
         let generation = try #require(harness.model.markGeneration[autoMarkReadConversation])
         let other = try #require(
             harness.model.conversations.first { $0.id != autoMarkReadConversation }
         )
 
         harness.model.select(other.id)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the other conversation's mark has been scheduled") {
+            markReadTriggerCount(.scheduled, in: harness) == 2
+        }
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "coming back has been declined as in-flight") {
+            markReadTriggerCount(.alreadyInFlight, in: harness) >= 1
+        }
 
         // Coming back was declined rather than starting a third mark: two
         // schedulings in total, one per conversation, and the first
@@ -186,12 +215,15 @@ struct MarkReadDebounceSequenceTests {
         #expect(markReadTriggerCount(.alreadyInFlight, in: harness) >= 1)
         #expect(harness.model.markGeneration[autoMarkReadConversation] == generation)
 
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "both waits have ended and both submits are held") {
+            await harness.backend.heldSubmissionCount == 2
+        }
         await harness.backend.holdSubmissions(false)
         await harness.backend.releaseHeldSubmission()
         await harness.backend.releaseHeldSubmission()
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "both held submits have been released") {
+            await harness.backend.heldSubmissionCount == 0
+        }
 
         let marks = await markReads(from: harness.backend)
         let forOriginal = marks.filter { $0.conversation == autoMarkReadConversation }

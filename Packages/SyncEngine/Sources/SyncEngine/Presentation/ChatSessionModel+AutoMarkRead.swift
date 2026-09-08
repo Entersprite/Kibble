@@ -202,11 +202,27 @@ extension ChatSessionModel {
     /// Recomputing rather than reusing `scheduledAt` is the whole point of
     /// the wait: everything that arrived while it ran is covered by this one
     /// position, so a burst produces one call instead of one per message.
+    ///
+    /// **The cancellation check at the head is not the same one as the check
+    /// before the watermark write, and both are needed.** `Task.sleep`
+    /// returns *normally* when its timer has already fired, so `stop()`
+    /// landing in the sliver between the timer firing and the task resuming
+    /// leaves this function entered by a cancelled task with every guard
+    /// still passing - and it would issue a `mark_group_readstate` for an
+    /// account being signed out of. The store-write half of that is already
+    /// closed one layer down (`SyncEngine.submit(_:)` checks before it
+    /// records), so what this removes is an avoidable HTTP request rather
+    /// than a corrupt write. The check at `:246` stays because it guards a
+    /// different window: cancellation arriving *during* the submit, which
+    /// this one cannot see. Returning here still clears the tracking entry,
+    /// because the caller's `defer` is installed before the wait and this
+    /// call is the last statement of that closure.
     private func publishReadPosition(
         for conversation: Conversation.ID,
         scheduledAt: Date,
         generation: Int
     ) async {
+        guard !Task.isCancelled else { return }
         guard isActive else {
             traceTrigger(.notFrontmost, for: conversation, publishing: scheduledAt)
             return
@@ -269,13 +285,29 @@ extension ChatSessionModel {
         // without this the last message of a burst is exactly the one that
         // never gets marked. Re-running the whole check, rather than
         // resubmitting directly, re-validates focus, capability and selection
-        // from scratch instead of assuming nothing changed. Comparing against
-        // a freshly computed newest - not resubmitting unconditionally - is
-        // what keeps this from looping forever against a failing backend: on
-        // failure `published` stays unadvanced, but the freshly computed
-        // newest is unchanged too, so this condition is false and there is no
-        // retry loop here.
-        if let freshest = messages.map(\.createdAt).max(), freshest > position {
+        // from scratch instead of assuming nothing changed.
+        //
+        // **The `local/` filter is what stops this looping against a failing
+        // backend, and the filter is the load-bearing part rather than the
+        // comparison.** The argument is that on failure `published` stays
+        // unadvanced but the freshly computed newest is unchanged too, so the
+        // condition is false and nothing is re-armed. That argument holds
+        // only if this list is the same list `position` was computed from
+        // two branches up - and until this filter was added it was not. An
+        // optimistic send row (see `send(_:)`) carries `Date()` rather than a
+        // server position and is excluded from the position, so an unfiltered
+        // reading here made `freshest > position` permanently true for as
+        // long as a send was unacknowledged: a failing mark then re-armed
+        // itself forever, measured at 750 `mark_group_readstate` calls in
+        // ~300ms with the interval at zero. This filter cannot suppress a
+        // legitimate re-arm, because the re-arm exists to catch a *server*
+        // message that landed during the submit and server ids carry no
+        // `local/` prefix. Covered by
+        // `MarkReadDebounceGuardSequenceTests.aFailedMarkWithAnUnackedLocalRowDoesNotLoop`.
+        let freshest = messages
+            .filter { !$0.id.rawValue.hasPrefix("local/") }
+            .map(\.createdAt).max()
+        if let freshest, freshest > position {
             markSelectedReadIfNeeded()
         }
     }

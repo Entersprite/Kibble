@@ -11,6 +11,26 @@ import Testing
 /// repo that passed every test because each test called the thing once, and
 /// this slice's own re-arm fix reintroduced its own finding the same way.
 ///
+/// **Every wait here is a predicate, not a yield budget.** The whole-branch
+/// review measured `settleAutoMarkRead()`'s fixed 200 yields consuming part
+/// of the debounce interval under CPU load, so the interleaved event a test
+/// was about landed *after* the wait it was meant to land inside;
+/// `settleAutoMarkRead(until:holds:)`'s own doc comment carries the numbers.
+/// The `.zero` tests below keep the plain settle, because they are waiting
+/// for the main actor to drain rather than for an interval to pass.
+///
+/// **`.serialized`, and it is the other half of that fix.** Swift Testing
+/// runs this package's tests in parallel and every test here is `@MainActor`,
+/// so they queue on one actor. Under load that measured out as GRDB's
+/// store-write-to-`messages` delivery stalling for hundreds of milliseconds -
+/// against ~1.5ms for the same harness run alone under the same external
+/// CPU load - which no waiting strategy can help, because the event a test
+/// has to place inside the wait has not happened yet. Serializing the three
+/// debounce suites drops the concurrent main-actor debounce tests from
+/// seventeen to three and is what took the stressed failure rate to zero.
+/// The trace-token half of this suite lives in `MarkReadDebounceTraceTests`,
+/// split on `file_length`.
+///
 /// **Two intervals are used deliberately.** Most tests pass `.zero`, because
 /// they are about guards and cancellation and a real wait would only slow the
 /// suite. The two coalescing tests pass `.milliseconds(50)` and then wait for
@@ -19,23 +39,48 @@ import Testing
 /// land during the submit instead, hit `already-in-flight`, and are picked up
 /// by the re-arm as a second mark. That would test the re-arm, not the
 /// debounce, and would pass while the coalescing was entirely absent.
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.timeLimit(.minutes(1)), .serialized)
 struct MarkReadDebounceTests {
     /// A burst during the wait produces ONE mark, not one per message.
+    ///
+    /// **The verdict is the whole published list, not a count**, and that is
+    /// what makes stopping on a predicate safe here: `[newest + 30]` says
+    /// both that exactly one mark happened and that it carried the coalesced
+    /// position. A bare `count == 1`, read the instant the first mark lands,
+    /// would also pass in a world where two more were on their way behind it.
     @MainActor
     @Test func aBurstDuringTheWaitProducesOneMark() async throws {
-        let harness = try await makeAutoMarkReadHarness(markReadDebounce: .milliseconds(50))
+        let harness = try await makeTracedMarkReadHarness(markReadDebounce: .milliseconds(50))
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the mark for the open conversation is waiting") {
+            harness.model.markTasks[autoMarkReadConversation] != nil
+        }
 
-        try landAutoMarkReadMessage(in: harness.store, id: "srv-a", secondsAfterFixture: 10)
-        try landAutoMarkReadMessage(in: harness.store, id: "srv-b", secondsAfterFixture: 20)
-        try landAutoMarkReadMessage(in: harness.store, id: "srv-c", secondsAfterFixture: 30)
-        await settleAutoMarkRead()
-        try await Task.sleep(for: .milliseconds(150))
-        await settleAutoMarkRead()
+        // One transaction, three messages - `landAutoMarkReadBurst`'s doc
+        // comment says why the number of observation deliveries this test has
+        // to survive inside the interval is the thing worth minimising.
+        try landAutoMarkReadBurst(in: harness.store, [
+            (id: "srv-a", secondsAfterFixture: 10),
+            (id: "srv-b", secondsAfterFixture: 20),
+            (id: "srv-c", secondsAfterFixture: 30)
+        ])
+        // The precondition, asserted rather than assumed. Both readings are
+        // main-actor-local, so they describe one instant: the newest of the
+        // three is in `messages` **and** no `submitted` row exists yet, which
+        // is what "the burst landed inside the wait" means. Without this, a
+        // machine that lost the race reports the value assertion below going
+        // red and reads as broken coalescing.
+        await settleAutoMarkRead(until: "the newest of the burst has reached the model") {
+            harness.model.messages.contains { $0.id.rawValue == "srv-c" }
+        }
+        #expect(markReadTriggerCount(.submitted, in: harness) == 0)
 
-        #expect(await markReadPositions(from: harness.backend).count == 1)
+        await settleAutoMarkRead(until: "a read position has been published") {
+            await markReadPositions(from: harness.backend).count == 1
+        }
+
+        let expected = try autoMarkReadFixtureNewest.addingTimeInterval(30)
+        #expect(await markReadPositions(from: harness.backend) == [expected])
         await harness.model.stop()
     }
 
@@ -44,14 +89,26 @@ struct MarkReadDebounceTests {
     /// moved rather than merely that one call happened.
     @MainActor
     @Test func thePublishedPositionIsTheNewestAtTheEndOfTheWait() async throws {
-        let harness = try await makeAutoMarkReadHarness(markReadDebounce: .milliseconds(50))
+        let harness = try await makeTracedMarkReadHarness(markReadDebounce: .milliseconds(50))
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the mark for the open conversation is waiting") {
+            harness.model.markTasks[autoMarkReadConversation] != nil
+        }
 
         try landAutoMarkReadMessage(in: harness.store, id: "srv-late", secondsAfterFixture: 42)
-        await settleAutoMarkRead()
-        try await Task.sleep(for: .milliseconds(150))
-        await settleAutoMarkRead()
+        // The same precondition `aBurstDuringTheWaitProducesOneMark` asserts,
+        // and for the same reason: the late message reached the model while
+        // the mark was still waiting. Both readings are main-actor-local, so
+        // they describe one instant, and a machine that lost the race says so
+        // here instead of reporting the value below as wrong.
+        await settleAutoMarkRead(until: "the late message has reached the model") {
+            harness.model.messages.contains { $0.id.rawValue == "srv-late" }
+        }
+        #expect(markReadTriggerCount(.submitted, in: harness) == 0)
+
+        await settleAutoMarkRead(until: "a read position has been published") {
+            await markReadPositions(from: harness.backend).count == 1
+        }
 
         let expected = try autoMarkReadFixtureNewest.addingTimeInterval(42)
         #expect(await markReadPositions(from: harness.backend) == [expected])
@@ -74,16 +131,29 @@ struct MarkReadDebounceTests {
     @Test func losingFocusDuringTheWaitPublishesNothing() async throws {
         let harness = try await makeAutoMarkReadHarness(markReadDebounce: .milliseconds(50))
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the mark for the open conversation is waiting") {
+            harness.model.markTasks[autoMarkReadConversation] != nil
+        }
         // The positive control. Without it, "nothing was published" and
         // "nothing was ever scheduled" are the same observation, and this
         // test cannot tell the guard working from the guard being absent.
+        // Read synchronously, and the `markReadPositions` control below is
+        // read *after* focus is dropped rather than before it: that call is
+        // an actor hop, and a suspension between the settle and
+        // `setActive(false)` puts the shared main actor back in play inside
+        // the one window this sequence depends on. Measured - it is the last
+        // load-induced failure that survived serializing these suites.
         #expect(harness.model.markTasks[autoMarkReadConversation] != nil)
-        #expect(await markReadPositions(from: harness.backend).isEmpty)
 
         harness.model.setActive(false)
-        try await Task.sleep(for: .milliseconds(150))
-        await settleAutoMarkRead()
+        #expect(await markReadPositions(from: harness.backend).isEmpty)
+        // The observable consequence of the wait having ended on the
+        // post-wait focus guard, rather than a sleep guessed to be past it:
+        // that return goes through the task's `defer`, which is the only
+        // thing that clears the entry on this path.
+        await settleAutoMarkRead(until: "the wait has ended and cleared its tracking entry") {
+            harness.model.markTasks[autoMarkReadConversation] == nil
+        }
 
         #expect(await markReadPositions(from: harness.backend).isEmpty)
         await harness.model.stop()
@@ -97,15 +167,17 @@ struct MarkReadDebounceTests {
     @Test func switchingConversationDuringTheWaitPublishesTheCapturedPosition() async throws {
         let harness = try await makeAutoMarkReadHarness(markReadDebounce: .milliseconds(50))
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the first conversation's mark is waiting") {
+            harness.model.markTasks[autoMarkReadConversation] != nil
+        }
 
         let other = try #require(
             harness.model.conversations.first { $0.id != autoMarkReadConversation }
         )
         harness.model.select(other.id)
-        await settleAutoMarkRead()
-        try await Task.sleep(for: .milliseconds(150))
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "both conversations' marks have been published") {
+            await markReads(from: harness.backend).count >= 2
+        }
 
         // The first mark is the one scheduled for the original conversation,
         // and it carries that conversation's own newest position.
@@ -118,15 +190,27 @@ struct MarkReadDebounceTests {
 
     /// `stop()` during the wait publishes nothing, advances no watermark, and
     /// leaves no entry behind to wedge the conversation.
+    ///
+    /// **Driven through the traced harness so the negative has something
+    /// observable behind it.** "Nothing was published" is not a state a test
+    /// can wait *for*, and the previous version slept a guessed 150ms past
+    /// the interval instead - one of the waits the whole-branch review
+    /// measured failing under load. `cancelledDuringWait` is the row the
+    /// cancelled task writes on its way out, so waiting for it means the
+    /// wait genuinely ended before these three assertions are read, rather
+    /// than probably having ended.
     @MainActor
     @Test func stopDuringTheWaitPublishesNothingAndWedgesNothing() async throws {
-        let harness = try await makeAutoMarkReadHarness(markReadDebounce: .milliseconds(50))
+        let harness = try await makeTracedMarkReadHarness(markReadDebounce: .milliseconds(50))
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the mark for the open conversation is waiting") {
+            harness.model.markTasks[autoMarkReadConversation] != nil
+        }
 
         await harness.model.stop()
-        try await Task.sleep(for: .milliseconds(150))
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the cancelled wait has recorded its own row") {
+            markReadTriggerCount(.cancelledDuringWait, in: harness) == 1
+        }
 
         #expect(await markReadPositions(from: harness.backend).isEmpty)
         #expect(harness.model.published[autoMarkReadConversation] == nil)
@@ -160,155 +244,5 @@ struct MarkReadDebounceTests {
 
         #expect(await markReadPositions(from: harness.backend).count == afterFailure + 1)
         await harness.model.stop()
-    }
-
-    // The two tokens the wait introduced, asserted on the *trace* rather
-    // than on published positions.
-    //
-    // Nothing in this repo switches exhaustively over
-    // `MarkReadTriggerOutcome` - `MarkReadTraceFileSink` writes
-    // `record.outcome.rawValue` straight out - so the compiler cannot tell
-    // anyone that a token is never emitted. Every other test in this file
-    // asserts on positions, watermarks and tracking entries, all of which
-    // would pass with both tokens dead. That matters beyond tidiness: the
-    // live-verification protocol for this fix reads a `submitted` row's
-    // `newestAgeSeconds` off a real capture, so a trace path that silently
-    // stopped emitting would hand its reader a verdict from a broken
-    // instrument.
-
-    /// A named bundle rather than a tuple - swiftlint's `large_tuple` caps
-    /// tuples at 2 members. Built here rather than borrowed from
-    /// `AutoMarkReadTraceTests`' own private one, which takes no interval.
-    private struct TracedHarness {
-        let model: ChatSessionModel
-        let sink: FakeMarkReadTraceSink
-    }
-
-    @MainActor
-    private func tracedHarness(markReadDebounce: Duration) throws -> TracedHarness {
-        let backend = RecordingBackend()
-        let store = try ChatStore.inMemory()
-        let engine = SyncEngine(backend: backend, store: store)
-        let sink = FakeMarkReadTraceSink()
-        let model = ChatSessionModel(
-            store: store,
-            engine: engine,
-            me: nil,
-            markReadTrace: sink,
-            markReadDebounce: markReadDebounce
-        )
-        return TracedHarness(model: model, sink: sink)
-    }
-
-    /// One mark now writes two rows, in this order. `select(_:)` observes
-    /// messages before history has loaded, so the leading `noServerMessages`
-    /// is real and is asserted rather than hidden - the same leading row
-    /// `AutoMarkReadTraceTests` already documents.
-    @MainActor
-    @Test func aMarkRecordsScheduledThenSubmitted() async throws {
-        let harness = try tracedHarness(markReadDebounce: .zero)
-        try await harness.model.start()
-        await settleAutoMarkRead()
-
-        harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
-
-        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .scheduled, .submitted])
-        await harness.model.stop()
-    }
-
-    /// A wait cut short by `stop()` records `cancelledDuringWait` and never
-    /// reaches `submitted`. Without this the token is vocabulary no capture
-    /// could ever contain, and the row that explains an abandoned
-    /// `scheduled` would be missing exactly when someone needs it.
-    @MainActor
-    @Test func aCancelledWaitRecordsItsOwnToken() async throws {
-        let harness = try tracedHarness(markReadDebounce: .milliseconds(50))
-        try await harness.model.start()
-        await settleAutoMarkRead()
-
-        harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
-        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .scheduled])
-
-        await harness.model.stop()
-        try await Task.sleep(for: .milliseconds(150))
-        await settleAutoMarkRead()
-
-        #expect(harness.sink.triggers.map(\.outcome) == [
-            .noServerMessages,
-            .scheduled,
-            .cancelledDuringWait
-        ])
-        #expect(harness.sink.outcomes.isEmpty)
-    }
-
-    /// The production interval, pinned.
-    ///
-    /// Every other test in this package injects an interval, and the shared
-    /// harness defaults to `.zero`, so without this nothing in the suite
-    /// would notice the default being changed - or quietly dropped to
-    /// `.zero` by someone tidying away what looks like pointless latency.
-    /// `markReadDebounce`'s doc comment is why two seconds.
-    @MainActor
-    @Test func theDefaultIntervalIsTwoSeconds() throws {
-        let backend = RecordingBackend()
-        let store = try ChatStore.inMemory()
-        let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine)
-        #expect(model.markReadDebounce == Duration.seconds(2))
-    }
-
-    /// A `submitted` row must name the conversation the mark **acted on**,
-    /// not whatever is selected by the time the wait ends.
-    ///
-    /// The debounce put a suspension point between the decision and the row,
-    /// and `traceTrigger(_:)` reads `selected` and `messages` fresh by
-    /// design. So a switch mid-wait used to emit a `submitted` *trigger* row
-    /// carrying the new conversation's token and the new conversation's
-    /// `newestAgeSeconds`, paired with a `markOutcome` row carrying the old
-    /// conversation's token - two rows about one mark, disagreeing about
-    /// which conversation it was. `findings.md` §12.2 is what that costs: the
-    /// live verification of this whole fix decides "debounce live or build
-    /// stale" by reading `newestAgeSeconds` off exactly this row.
-    ///
-    /// Asserted two independent ways, because either alone can pass while
-    /// the field is wrong. The tokens must *pair*: every `submitted` row's
-    /// conversation must be one an outcome row also names, and both
-    /// conversations must appear. And the two ages must be ~180s apart,
-    /// which is the fixture's own gap between `dm:1`'s newest and `space:1`'s
-    /// - with the defect both rows report the same conversation's age and
-    /// the spread collapses to nothing. The second check is what makes this
-    /// about `newestAgeSeconds` rather than only about the id.
-    @MainActor
-    @Test func aSubmittedRowNamesTheConversationItsMarkActedOn() async throws {
-        let harness = try tracedHarness(markReadDebounce: .milliseconds(50))
-        try await harness.model.start()
-        await settleAutoMarkRead()
-
-        harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
-        let other = try #require(
-            harness.model.conversations.first { $0.id != autoMarkReadConversation }
-        )
-        harness.model.select(other.id)
-        await settleAutoMarkRead()
-        try await Task.sleep(for: .milliseconds(150))
-        await settleAutoMarkRead()
-
-        let submitted = harness.sink.triggers.filter { $0.outcome == .submitted }
-        #expect(submitted.count == 2)
-        let submittedTokens = Set(submitted.compactMap(\.conversation))
-        let outcomeTokens = Set(harness.sink.outcomes.map(\.conversation))
-        #expect(submittedTokens.count == 2)
-        #expect(submittedTokens == outcomeTokens)
-
-        let ages = submitted.compactMap(\.newestAgeSeconds).sorted()
-        #expect(ages.count == 2)
-        if ages.count == 2 {
-            let spread = ages[1] - ages[0]
-            let fixtureGap = 180.0
-            #expect(abs(spread - fixtureGap) < 5)
-        }
     }
 }

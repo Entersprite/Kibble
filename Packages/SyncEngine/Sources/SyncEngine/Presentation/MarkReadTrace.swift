@@ -23,9 +23,12 @@ import Foundation
 /// never a title. The same rule `ChannelTraceSink` and `LoginTrace` already
 /// keep.
 public protocol MarkReadTraceSink: Sendable {
-    /// Every call to `markSelectedReadIfNeeded()` - whether it declined or
-    /// submitted. `record.outcome` names which of the six guards rejected it,
-    /// or `.submitted` if none did.
+    /// Every evaluation of the automatic mark-read trigger - whether it
+    /// declined, armed a wait, sent, or had its wait cancelled.
+    /// `record.outcome` names which of the six guards rejected it, or, when
+    /// none did, which stage of the mark the row is reporting: `.scheduled`,
+    /// `.submitted` or `.cancelledDuringWait`. `MarkReadTriggerOutcome` lists
+    /// all nine and says which three are not guards.
     func triggerEvaluated(_ record: MarkReadTriggerRecord)
 
     /// A submitted mark has completed - accepted or not, and how long the
@@ -38,10 +41,22 @@ public protocol MarkReadTraceSink: Sendable {
     func readStateChanged(_ record: MarkReadStateRecord)
 }
 
-/// Why `markSelectedReadIfNeeded()` declined, or that it did not - one token
-/// per guard, so a decline is never ambiguous about which of the six guards
-/// stopped it. Matches the six guards in
-/// `ChatSessionModel+AutoMarkRead.swift`, in the order they run.
+/// Why the automatic mark-read trigger declined, or what it did instead -
+/// nine tokens, so neither a decline nor a stage is ever ambiguous.
+///
+/// **Six of these are guards and three are not, and a reader decoding a CSV
+/// capture needs to know which.** The six guards are `notFrontmost`,
+/// `cannotMarkRead`, `nothingSelected`, `noServerMessages`,
+/// `watermarkNotAdvanced` and `alreadyInFlight`, declared below in the order
+/// they run in `ChatSessionModel+AutoMarkRead.swift`. The other three report
+/// a *stage* of a mark that passed every guard: `scheduled` when the wait was
+/// armed, `submitted` when the position went to the backend, and
+/// `cancelledDuringWait` when the wait was cut short instead. So one mark
+/// normally writes two rows rather than one, and the guard tokens can also
+/// appear **after** `scheduled` - the post-wait half re-checks focus,
+/// capability and the watermark, and a decline there is one of the same six
+/// tokens arriving second. The debounce is what made that true; before it
+/// there was exactly one row per evaluation.
 public enum MarkReadTriggerOutcome: String, Sendable, Equatable {
     case submitted
     /// `isActive` was `false` - the app is not frontmost.

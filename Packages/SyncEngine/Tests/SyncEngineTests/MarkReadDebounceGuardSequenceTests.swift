@@ -19,8 +19,11 @@ import Testing
 ///
 /// Everything in that file's header applies here too - the shared harness in
 /// `Support/AutoMarkReadHarness.swift`, why the interval is larger than the
-/// feature suite's, and why the submit is held rather than raced.
-@Suite(.timeLimit(.minutes(1)))
+/// feature suite's, why widening it was the wrong answer, why the submit is
+/// held rather than raced, and that every wait here is
+/// `settleAutoMarkRead(until:holds:)` rather than a fixed yield budget or a
+/// sleep guessed to be past the interval.
+@Suite(.timeLimit(.minutes(1)), .serialized)
 struct MarkReadDebounceGuardSequenceTests {
     // MARK: - Sequence 4: cancellation racing the submit
 
@@ -53,22 +56,26 @@ struct MarkReadDebounceGuardSequenceTests {
         await harness.backend.holdSubmissions(true)
         await harness.backend.acceptWithoutForwarding(true)
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
-
         // The wait is over and the submit is in flight, with the watermark
         // still where it was.
+        await settleAutoMarkRead(until: "the wait has ended and the submit is held") {
+            await harness.backend.heldSubmissionCount == 1
+        }
         #expect(markReadTriggerCount(.submitted, in: harness) == 1)
-        #expect(await harness.backend.heldSubmissionCount == 1)
         #expect(harness.model.published[autoMarkReadConversation] == nil)
 
         await harness.model.stop()
         await harness.backend.holdSubmissions(false)
         await harness.backend.releaseHeldSubmission()
-        await settleAutoMarkRead()
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
+        // `markOutcome` is written immediately before the `Task.isCancelled`
+        // guard this test is about, with no suspension between the two, so an
+        // outcome row observed from another main-actor job means the resumed
+        // task has already run all the way past that guard. That is what
+        // makes the three assertions below a verdict rather than a snapshot
+        // taken while the task was still on its way.
+        await settleAutoMarkRead(until: "the resumed mark has recorded its outcome") {
+            harness.sink.outcomes.count == 1
+        }
 
         #expect(harness.model.published[autoMarkReadConversation] == nil)
         #expect(harness.model.markTasks[autoMarkReadConversation] == nil)
@@ -95,23 +102,25 @@ struct MarkReadDebounceGuardSequenceTests {
     @Test func focusLostDuringTheWaitLeavesTheConversationMarkable() async throws {
         let harness = try await makeTracedMarkReadHarness()
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the mark for the open conversation is waiting") {
+            harness.model.markTasks[autoMarkReadConversation] != nil
+        }
         #expect(harness.model.markTasks[autoMarkReadConversation] != nil)
 
         harness.model.setActive(false)
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
-
         // The wait ended, the post-wait focus guard declined, and the entry
         // it left behind was cleared.
-        #expect(markReadTriggerCount(.notFrontmost, in: harness) == 1)
+        await settleAutoMarkRead(until: "the post-wait focus guard has declined") {
+            markReadTriggerCount(.notFrontmost, in: harness) == 1
+        }
         #expect(harness.model.markTasks[autoMarkReadConversation] == nil)
         #expect(await harness.backend.markReadCount == 0)
         #expect(harness.model.published[autoMarkReadConversation] == nil)
 
         harness.model.setActive(true)
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the second mark has advanced the watermark") {
+            harness.model.published[autoMarkReadConversation] != nil
+        }
 
         #expect(await harness.backend.markReadCount == 1)
         #expect(try harness.model.published[autoMarkReadConversation] == autoMarkReadFixtureNewest)
@@ -138,19 +147,27 @@ struct MarkReadDebounceGuardSequenceTests {
     @Test func refocusingInsideOneWaitProducesOneMark() async throws {
         let harness = try await makeTracedMarkReadHarness()
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the mark has been scheduled") {
+            markReadTriggerCount(.scheduled, in: harness) == 1
+        }
         let generation = try #require(harness.model.markGeneration[autoMarkReadConversation])
 
         harness.model.setActive(false)
         harness.model.setActive(true)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the refocus trigger has been declined as in-flight") {
+            markReadTriggerCount(.alreadyInFlight, in: harness) == 1
+        }
 
         #expect(harness.model.markGeneration[autoMarkReadConversation] == generation)
         #expect(markReadTriggerCount(.scheduled, in: harness) == 1)
-        #expect(markReadTriggerCount(.alreadyInFlight, in: harness) == 1)
 
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
+        // The watermark write and the tracking clear sit two statements apart
+        // with no suspension between them, so a non-`nil` watermark means the
+        // clear has run too - which is why `markTasks == nil` below is a
+        // stable assertion rather than a race against the mark completing.
+        await settleAutoMarkRead(until: "the one mark has advanced the watermark") {
+            harness.model.published[autoMarkReadConversation] != nil
+        }
 
         #expect(await harness.backend.markReadCount == 1)
         #expect(try harness.model.published[autoMarkReadConversation] == autoMarkReadFixtureNewest)
@@ -193,11 +210,10 @@ struct MarkReadDebounceGuardSequenceTests {
         let harness = try await makeTracedMarkReadHarness()
         await harness.backend.holdSubmissions(true)
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the first mark's submit is held") {
+            await harness.backend.heldSubmissionCount == 1
+        }
         let held = try #require(harness.model.markGeneration[autoMarkReadConversation])
-        try await Task.sleep(for: pastMarkReadSequenceInterval)
-        await settleAutoMarkRead()
-        #expect(await harness.backend.heldSubmissionCount == 1)
 
         await harness.model.stop()
 
@@ -205,18 +221,74 @@ struct MarkReadDebounceGuardSequenceTests {
         // held mark is not holding.
         harness.model.setActive(false)
         harness.model.setActive(true)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the second mark has been installed") {
+            harness.model.markTasks[autoMarkReadConversation] != nil
+        }
         let expected = held + 1
         #expect(harness.model.markGeneration[autoMarkReadConversation] == expected)
-        #expect(harness.model.markTasks[autoMarkReadConversation] != nil)
 
-        // The held mark returns and runs its clear. The second mark is still
-        // inside its own wait, and its entry has to survive.
-        await harness.backend.holdSubmissions(false)
+        // The held mark returns and runs its clear. The second mark's entry
+        // has to survive that.
+        //
+        // **`holdSubmissions` is deliberately left on**, so the second mark's
+        // own submit is held too when its wait ends. The previous version
+        // turned holding off and relied on the second mark still being inside
+        // its 200ms wait when the assertion was read - a race the
+        // whole-branch review measured losing under load. With holding left
+        // on, that entry cannot be cleared at all, because the only clear
+        // that can match its generation is the one after a submit that never
+        // returns.
         await harness.backend.releaseHeldSubmission()
+        await settleAutoMarkRead(until: "the held mark has come back and run its clear") {
+            harness.sink.outcomes.count == 1
+        }
+
+        #expect(harness.model.markTasks[autoMarkReadConversation] != nil)
+        await harness.model.stop()
+    }
+
+    // MARK: - Sequence 8: a failing mark with an unacked optimistic row
+
+    /// A mark that keeps failing, in a conversation holding one of this
+    /// session's own **unacknowledged** optimistic rows: the number of
+    /// `mark_group_readstate` calls must stay bounded.
+    ///
+    /// **The re-arm's no-retry-loop argument rests on a condition the re-arm
+    /// itself did not honour.** The comment above it says that comparing
+    /// against a freshly computed newest is what stops a failing backend
+    /// looping, because on failure the watermark stays unadvanced *and* the
+    /// freshest position is unchanged - so the condition is false. That holds
+    /// only while `messages` carries no `local/` row. The position being
+    /// published comes from the `local/`-filtered list; the re-arm's
+    /// `freshest` did not filter. An optimistic send row carries `Date()`, so
+    /// `freshest > position` was permanently true while a send was unacked,
+    /// and a *failed* mark never advances the watermark to decline the
+    /// re-armed trigger either. The whole-branch review measured 750
+    /// `mark_group_readstate` calls in ~300ms at `.zero` in exactly this
+    /// state - and 742 against the branch point, so the defect is
+    /// pre-existing rather than this branch's, and the two-second interval
+    /// mitigates it roughly 5000x without removing it.
+    ///
+    /// **Asserted two ways, because a bound alone is weak.** The count after
+    /// the first settle must be small, and - the stronger half - it must not
+    /// have moved at all by the second settle. With the filter applied the
+    /// re-arm declines and nothing is running, so the count is frozen; with
+    /// the loop present it keeps climbing for as long as the test lets it.
+    @MainActor
+    @Test func aFailedMarkWithAnUnackedLocalRowDoesNotLoop() async throws {
+        let harness = try await makeAutoMarkReadHarness(markReadDebounce: .zero)
+        await harness.backend.failSubmissions(true)
+        try landUnackedLocalMessage(in: harness.store, id: "local/pending")
+        harness.model.select(autoMarkReadConversation)
         await settleAutoMarkRead()
 
-        #expect(harness.model.markTasks[autoMarkReadConversation] != nil)
+        let bound = 4
+        let first = await harness.backend.markReadCount
+        #expect(first <= bound)
+        #expect(harness.model.published[autoMarkReadConversation] == nil)
+
+        await settleAutoMarkRead()
+        #expect(await harness.backend.markReadCount == first)
         await harness.model.stop()
     }
 }
