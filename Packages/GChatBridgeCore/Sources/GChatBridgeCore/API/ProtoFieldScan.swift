@@ -110,6 +110,60 @@ public enum ProtoFieldScan {
         return results
     }
 
+    /// The value of every top-level occurrence of `number` carried as a
+    /// varint (wire type 0).
+    ///
+    /// ## Why this is not a violation of "never contents"
+    ///
+    /// This file's own doc comment says it reports field numbers, wire types
+    /// and sizes and **never contents**, because a response carries real
+    /// messages. A small varint is the one class of content that rule was
+    /// never protecting: it is an enum ordinal or a flag, not a name, an id
+    /// or a message body. `scripts/redact-capture.py` already draws exactly
+    /// this line - it keeps "structure and small integers" and replaces every
+    /// string, id and timestamp with its shape.
+    ///
+    /// It exists because `findings.md` §37.2 left field 19's *value*
+    /// unobserved while its presence was known, and §12.1.1 is the reason
+    /// that gap matters: the vendored proto's `EventType` stopped at 50 while
+    /// live traffic carried 51, 64, 70 and 83. A **proto2** enum whose value
+    /// is not in the generated set decodes as absent and lands in
+    /// `unknownFields`, so a typed decode reports "not set" for a field that
+    /// is plainly on the wire. Scanning `unknownFields.data` with this is how
+    /// that number gets read without teaching this file what field 19 means.
+    ///
+    /// Callers should still not log a large varint blindly - an id or a
+    /// timestamp is also a varint. Report values you have a reason to believe
+    /// are ordinals, which is what the group-type distribution does.
+    public static func varintValues(ofField number: Int, in data: Data) -> [UInt64] {
+        var results: [UInt64] = []
+        var index = data.startIndex
+
+        while index < data.endIndex {
+            guard let key = varint(data, &index) else { return results }
+            let fieldNumber = Int(key >> 3)
+            let wireType = Int(key & 7)
+            guard fieldNumber > 0 else { return results }
+
+            // Wire type 0 is read rather than skipped, because `skipValue`
+            // consumes the varint and discards the value - which is the whole
+            // point of this function.
+            if wireType == 0 {
+                guard let value = varint(data, &index) else { return results }
+                if fieldNumber == number {
+                    results.append(value)
+                }
+                continue
+            }
+
+            var payload: Range<Data.Index>?
+            guard skipValue(wireType: wireType, in: data, index: &index, payload: &payload) else {
+                return results
+            }
+        }
+        return results
+    }
+
     /// Advances `index` past one field's value, given its `wireType`.
     ///
     /// `false` means the value could not be read - the walk stops there, the

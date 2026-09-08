@@ -41,18 +41,46 @@ struct SidebarSectionsTests {
         #expect(SidebarSections.build([]).isEmpty)
     }
 
-    /// A conversation kind this build does not know goes under "Other" rather
-    /// than being guessed at or dropped.
+    /// A conversation kind this build does not know gets its own section,
+    /// headed by its raw token, rather than being guessed at or dropped.
     ///
     /// The fixture world ships a `.unknown("meetCall")` conversation precisely
     /// so this path is exercised on day one. Calling it "Meet" would be the UI
-    /// asserting something the protocol work has not established.
-    @Test func anUnknownKindIsShownUnderOtherRatherThanGuessedAt() {
+    /// asserting something the protocol work has not established - hence the
+    /// heading is the token itself.
+    ///
+    /// This replaced a shared "Other" bucket on 2026-09-08, when the real
+    /// account turned out to carry **187 of 220** conversations under one
+    /// unrecognised group type (`findings.md` §37.4). One heading for the
+    /// largest group in the sidebar said nothing useful about it.
+    @Test func anUnknownKindGetsItsOwnSectionHeadedByItsToken() {
         let sections = SidebarSections.build([
             conversation("space:meet", .unknown("meetCall"), title: "Pricing standup")
         ])
-        #expect(sections.map(\.title) == ["Other"])
+        #expect(sections.map(\.title) == ["meetCall"])
         #expect(sections.first?.conversations.count == 1)
+    }
+
+    /// Two different unrecognised tokens are two sections, not one bucket -
+    /// the whole point of the change. Sorted by token so the order is stable.
+    @Test func twoUnrecognisedKindsAreTwoSections() {
+        let sections = SidebarSections.build([
+            conversation("space:a", .unknown("attributeCheckerGroupType10"), title: "a"),
+            conversation("dm:b", .unknown("attributeCheckerGroupType11"), title: "b"),
+            conversation("space:c", .space, title: "c")
+        ])
+        #expect(sections.map(\.title) == [
+            "Spaces", "attributeCheckerGroupType10", "attributeCheckerGroupType11"
+        ])
+    }
+
+    /// An empty token still needs a heading, so it keeps the "Other" bucket -
+    /// a section titled with the empty string would render as a blank row.
+    @Test func anEmptyUnknownTokenFallsBackToOther() {
+        let sections = SidebarSections.build([
+            conversation("space:x", .unknown(""), title: "x")
+        ])
+        #expect(sections.map(\.title) == ["Other"])
     }
 
     @Test func withinASectionTheMostRecentComesFirst() {

@@ -106,8 +106,56 @@ public enum WorldMapping {
            let stated = statedKind(for: item.attributeCheckerGroupType) {
             return stated
         }
-        return inferredKind(for: item)
+        let inferred = inferredKind(for: item)
+        if inferred == .space, let raw = unrecognisedGroupType(in: item) {
+            return .unknown("\(Self.groupTypeTokenPrefix)\(raw)")
+        }
+        return inferred
     }
+
+    /// The prefix a `Kind.unknown` payload carries when the *only* thing this
+    /// build knows about a conversation's type is field 19's number.
+    ///
+    /// A number, never an invented case name - the rule
+    /// `ChannelEventMapping` already follows for unmapped events, and the one
+    /// §12.1.1 exists to enforce. Google's own name for group type 10 is
+    /// unknown to all three vendored reference protos, so minting
+    /// `"calendarSpace"` here would be a fixture standing in for a capture.
+    static let groupTypeTokenPrefix = "attributeCheckerGroupType"
+
+    /// Field 19's raw value when the generated enum could not name it.
+    ///
+    /// Measured on 2026-09-08 (`findings.md` §37.4): of 220 conversations,
+    /// **188** reported `hasAttributeCheckerGroupType == false` while a byte
+    /// scan showed field 19 present on every single item. Both are true
+    /// because the proto is `syntax = "proto2"`: a closed enum rejects a value
+    /// outside its generated set, leaves the presence bit clear, and keeps the
+    /// bytes in `unknownFields`. The values are **10** (187 items, every one a
+    /// space) and **11** (1 item, a DM).
+    ///
+    /// Read only for a space, and that is deliberate. Carrying an unnamed type
+    /// into `Kind` costs the conversation its `.space`-ness at every call site
+    /// that switches on it, which is the same objection that ruled out adding
+    /// a `.meetSpace` case. For a space that is an acceptable trade **while
+    /// the meaning of 10 is being established**, because the sidebar is the
+    /// only consumer that matters and the alternative is 187 conversations
+    /// that cannot be told apart from the 18 real ones. For a DM it is not:
+    /// group type 11's single conversation reaches
+    /// `LocalBridgeBackend.asAppDirectMessage` as `.directMessage` and is
+    /// correctly promoted to `.appDirectMessage`, which is where the store's
+    /// sixth app DM comes from. An `.unknown` kind would fail that guard and
+    /// silently drop it out of "Apps".
+    private static func unrecognisedGroupType(in item: WorldItemLite) -> UInt64? {
+        ProtoFieldScan.varintValues(
+            ofField: attributeCheckerGroupTypeField,
+            in: item.unknownFields.data
+        ).first
+    }
+
+    /// `WorldItemLite.attribute_checker_group_type`'s field number. Named
+    /// here because nothing generated can supply it: the whole reason this
+    /// path runs is that the typed decode rejected the value.
+    private static let attributeCheckerGroupTypeField = 19
 
     /// What field 19 says, or `nil` when it says nothing usable.
     ///

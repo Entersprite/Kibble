@@ -72,5 +72,55 @@ extension APIProbeReport {
             "  attribute_checker_group_type: absent \(absent), "
                 + "by value [\(byValue)]"
         )
+        appendUnrecognisedGroupTypes(items, absent: absent, lines: &lines)
+    }
+
+    /// `WorldItemLite.attribute_checker_group_type`'s field number.
+    ///
+    /// Named because the value is being read out of `unknownFields`, where
+    /// nothing generated can supply it - the whole reason this path exists is
+    /// that the typed decode rejected it.
+    private static let attributeCheckerGroupTypeField = 19
+
+    /// The raw field-19 values the generated enum could not name.
+    ///
+    /// The 2026-09-08 run reported `absent 188` of 220 while
+    /// `ProtoFieldScan`'s nested item scan showed field 19 present on **every**
+    /// item at 1 byte. Both can be true at once only if the value is outside
+    /// the generated enum: the proto is `syntax = "proto2"`, so a closed enum
+    /// rejects an unrecognised value, leaves the presence bit clear, and keeps
+    /// the bytes in `unknownFields`. That was an inference from arithmetic
+    /// (205 spaces minus 18 `flatRoom` plus one DM equals the 188), and this
+    /// is what measures it instead.
+    ///
+    /// The count is reported against `absent` deliberately. If every absent
+    /// item yields a value, the inference is confirmed and the numbers are the
+    /// answer. If **none** does, the inference is wrong and the presence bit
+    /// is telling the truth - in which case the nested scan and the mapping
+    /// were reading different responses, which is a different bug and needs
+    /// knowing rather than assuming.
+    private static func appendUnrecognisedGroupTypes(
+        _ items: [WorldItemLite],
+        absent: Int,
+        lines: inout [String]
+    ) {
+        let values = items
+            .filter { !$0.hasAttributeCheckerGroupType }
+            .flatMap {
+                ProtoFieldScan.varintValues(
+                    ofField: attributeCheckerGroupTypeField,
+                    in: $0.unknownFields.data
+                )
+            }
+        let byValue = Dictionary(grouping: values, by: { $0 })
+            .mapValues(\.count)
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: ", ")
+        lines.append(
+            "  attribute_checker_group_type unrecognised: "
+                + "\(values.count) of \(absent) absent items carried a value, "
+                + "raw [\(byValue)]"
+        )
     }
 }
