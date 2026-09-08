@@ -20,7 +20,12 @@ struct ChatSessionModelTeardownTests {
         let backend = FakeBackend(world: .minimal)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
 
         try await model.start()
         // Proof the fixture actually seeded something, so an empty store
@@ -52,7 +57,12 @@ struct ChatSessionModelTeardownTests {
         let backend = HangingHistoryBackend()
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: Member.ID("people/me"))
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: Member.ID("people/me"),
+            markReadDebounce: .zero
+        )
         let conversation = Conversation.ID("space:1")
 
         try await model.start()
@@ -88,7 +98,12 @@ struct ChatSessionModelTeardownTests {
         let backend = RecordingBackend()
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
         try await model.start()
         for _ in 0 ..< 50 {
             await Task.yield()
@@ -143,7 +158,12 @@ struct CancelledHistoryFetchReportingTests {
         let backend = HangingHistoryBackend()
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: Member.ID("people/me"))
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: Member.ID("people/me"),
+            markReadDebounce: .zero
+        )
         let conversation = Conversation.ID("space:1")
 
         try await model.start()
@@ -184,7 +204,12 @@ struct CancelledHistoryFetchReportingTests {
         let backend = HangingHistoryBackend()
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: Member.ID("people/me"))
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: Member.ID("people/me"),
+            markReadDebounce: .zero
+        )
         let conversation = Conversation.ID("space:1")
 
         try await model.start()

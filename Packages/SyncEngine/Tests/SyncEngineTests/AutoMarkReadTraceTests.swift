@@ -42,7 +42,13 @@ struct AutoMarkReadTraceTests {
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
         let sink = FakeMarkReadTraceSink()
-        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadTrace: sink)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: nil,
+            markReadTrace: sink,
+            markReadDebounce: .zero
+        )
         return Harness(model: model, backend: backend, store: store, sink: sink)
     }
 
@@ -67,7 +73,13 @@ struct AutoMarkReadTraceTests {
         harness.model.select(conversation)
         await settle()
 
-        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .submitted])
+        // `scheduled` then `submitted`: the debounce splits what used to be
+        // one row into two, and `scheduled` is the row that says a mark was
+        // decided on. See `MarkReadTriggerOutcome.scheduled`, and
+        // `MarkReadDebounceTests` for the wait itself. Every harness in this
+        // suite passes `markReadDebounce: .zero`, so both rows land inside
+        // one `settle()`.
+        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .scheduled, .submitted])
         let trigger = try #require(harness.sink.triggers.last)
         #expect(trigger.conversation != nil)
         #expect(trigger.unreadCount == 5)
@@ -164,7 +176,7 @@ struct AutoMarkReadTraceTests {
 
         harness.model.select(conversation)
         await settle()
-        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .submitted])
+        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .scheduled, .submitted])
 
         let redelivered = try #require(
             FixtureWorld.minimal.messages
@@ -176,6 +188,7 @@ struct AutoMarkReadTraceTests {
 
         #expect(harness.sink.triggers.map(\.outcome) == [
             .noServerMessages,
+            .scheduled,
             .submitted,
             .watermarkNotAdvanced
         ])
@@ -194,7 +207,7 @@ struct AutoMarkReadTraceTests {
 
         harness.model.select(conversation)
         await settle()
-        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .submitted])
+        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .scheduled, .submitted])
 
         let newest = try #require(
             FixtureWorld.minimal.messages
@@ -207,7 +220,12 @@ struct AutoMarkReadTraceTests {
         try harness.store.apply([.upsertMessage(duringFlight)])
         await settle()
 
-        #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .submitted, .alreadyInFlight])
+        #expect(harness.sink.triggers.map(\.outcome) == [
+            .noServerMessages,
+            .scheduled,
+            .submitted,
+            .alreadyInFlight
+        ])
 
         await harness.backend.holdSubmissions(false)
         await harness.backend.releaseHeldSubmission()
@@ -279,7 +297,7 @@ struct AutoMarkReadTraceTests {
         let backend = RecordingBackend()
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
         try await model.start()
         await settle()
 

@@ -147,6 +147,25 @@ public final class ChatSessionModel {
     let engine: SyncEngine
     /// `--probe=markread`'s recorder, `nil` otherwise; read from `+AutoMarkRead.swift`.
     let markReadTrace: MarkReadTraceRecorder?
+
+    /// How long to wait before publishing a read position.
+    ///
+    /// **A message marked within ~0.25s of arriving does not register a read
+    /// receipt for the sender; the same formula works on one a couple of
+    /// seconds older.** Five live observations, in
+    /// `docs/superpowers/specs/2026-09-08-mark-read-debounce-design.md` §2.
+    /// Two seconds sits comfortably past the 0.25s that fails and well under
+    /// the 2.746s known to work.
+    ///
+    /// **`[Verify]` - a tuned guess, not a known server constant.** The
+    /// reading that fits every observation is that our mark reaches Google
+    /// before the message has finished committing, so the receipt is computed
+    /// without it. Nothing here can see that pipeline. Do not delete this as
+    /// pointless latency: it is load-bearing, and §36 is what it is fixing.
+    ///
+    /// Injected so tests can pass `.zero` - a suite that waits two real
+    /// seconds is a suite people stop running.
+    let markReadDebounce: Duration
     private var watchers: [Task<Void, Never>] = []
 
     /// Cancelled and replaced whenever the selection changes, so only the open
@@ -175,12 +194,14 @@ public final class ChatSessionModel {
     private var actedOnConnection: ConnectionState?
     public init(
         store: ChatStore, engine: SyncEngine, me: Member.ID? = nil,
-        markReadTrace: (any MarkReadTraceSink)? = nil
+        markReadTrace: (any MarkReadTraceSink)? = nil,
+        markReadDebounce: Duration = .seconds(2)
     ) {
         self.store = store
         self.engine = engine
         self.me = me
         self.markReadTrace = markReadTrace.map(MarkReadTraceRecorder.init(sink:))
+        self.markReadDebounce = markReadDebounce
     }
 
     /// Starts syncing and watching. Safe to call once; later calls do nothing.

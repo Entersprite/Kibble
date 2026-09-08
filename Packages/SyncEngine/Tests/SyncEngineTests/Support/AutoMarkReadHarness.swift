@@ -26,14 +26,25 @@ var autoMarkReadConversation: Conversation.ID {
     FixtureWorld.minimal.messages[0].conversationID
 }
 
+/// `markReadDebounce` defaults to `.zero`, **not** to production's
+/// `.seconds(2)`. Every caller of this harness drives the model with
+/// `settleAutoMarkRead()`, which is a `Task.yield()` loop and not a wait: two
+/// real seconds never elapse inside it, so a two-second default here would
+/// leave every one of these suites asserting on a mark that had not happened
+/// yet. `.zero` is what leaves the existing callers behaving as they did
+/// before the debounce existed; the debounce itself is what
+/// `MarkReadDebounceTests` drives, with a real interval.
 @MainActor
 func makeAutoMarkReadHarness(
-    capabilities: Capabilities = .fixture
+    capabilities: Capabilities = .fixture,
+    markReadDebounce: Duration = .zero
 ) async throws -> AutoMarkReadHarness {
     let backend = RecordingBackend(capabilities: capabilities)
     let store = try ChatStore.inMemory()
     let engine = SyncEngine(backend: backend, store: store)
-    let model = ChatSessionModel(store: store, engine: engine, me: nil)
+    let model = ChatSessionModel(
+        store: store, engine: engine, me: nil, markReadDebounce: markReadDebounce
+    )
     try await model.start()
     await settleAutoMarkRead()
     return AutoMarkReadHarness(model: model, backend: backend, store: store)
