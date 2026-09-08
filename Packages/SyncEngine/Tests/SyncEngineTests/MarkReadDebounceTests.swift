@@ -21,47 +21,6 @@ import Testing
 /// debounce, and would pass while the coalescing was entirely absent.
 @Suite(.timeLimit(.minutes(1)))
 struct MarkReadDebounceTests {
-    /// The newest fixture position in the conversation under test - the value
-    /// a mark scheduled before anything else arrives would carry.
-    private var fixtureNewest: Date {
-        get throws {
-            try #require(
-                FixtureWorld.minimal.messages
-                    .filter { $0.conversationID == autoMarkReadConversation }
-                    .map(\.createdAt).max()
-            )
-        }
-    }
-
-    /// Writes a server-shaped message strictly newer than every fixture one.
-    /// A real id, not a `local/` one, so the trigger's filter counts it.
-    @MainActor
-    private func landMessage(
-        _ harness: AutoMarkReadHarness, id: String, secondsAfterFixture: TimeInterval
-    ) throws {
-        let base = FixtureWorld.minimal.messages[0]
-        let newest = try fixtureNewest
-        try harness.store.apply([.upsertMessage(Message(
-            id: Message.ID(id),
-            conversationID: autoMarkReadConversation,
-            threadID: base.threadID,
-            sender: base.sender,
-            text: "arrived during the wait",
-            createdAt: newest.addingTimeInterval(secondsAfterFixture)
-        ))])
-    }
-
-    /// Every position this session published, oldest first.
-    private func published(_ harness: AutoMarkReadHarness) async -> [Date] {
-        await harness.backend.commands.compactMap { command in
-            if case let .markRead(_, upTo) = command {
-                upTo
-            } else {
-                nil
-            }
-        }
-    }
-
     /// A burst during the wait produces ONE mark, not one per message.
     @MainActor
     @Test func aBurstDuringTheWaitProducesOneMark() async throws {
@@ -69,14 +28,14 @@ struct MarkReadDebounceTests {
         harness.model.select(autoMarkReadConversation)
         await settleAutoMarkRead()
 
-        try landMessage(harness, id: "srv-a", secondsAfterFixture: 10)
-        try landMessage(harness, id: "srv-b", secondsAfterFixture: 20)
-        try landMessage(harness, id: "srv-c", secondsAfterFixture: 30)
+        try landAutoMarkReadMessage(in: harness.store, id: "srv-a", secondsAfterFixture: 10)
+        try landAutoMarkReadMessage(in: harness.store, id: "srv-b", secondsAfterFixture: 20)
+        try landAutoMarkReadMessage(in: harness.store, id: "srv-c", secondsAfterFixture: 30)
         await settleAutoMarkRead()
         try await Task.sleep(for: .milliseconds(150))
         await settleAutoMarkRead()
 
-        #expect(await published(harness).count == 1)
+        #expect(await markReadPositions(from: harness.backend).count == 1)
         await harness.model.stop()
     }
 
@@ -89,13 +48,13 @@ struct MarkReadDebounceTests {
         harness.model.select(autoMarkReadConversation)
         await settleAutoMarkRead()
 
-        try landMessage(harness, id: "srv-late", secondsAfterFixture: 42)
+        try landAutoMarkReadMessage(in: harness.store, id: "srv-late", secondsAfterFixture: 42)
         await settleAutoMarkRead()
         try await Task.sleep(for: .milliseconds(150))
         await settleAutoMarkRead()
 
-        let expected = try fixtureNewest.addingTimeInterval(42)
-        #expect(await published(harness) == [expected])
+        let expected = try autoMarkReadFixtureNewest.addingTimeInterval(42)
+        #expect(await markReadPositions(from: harness.backend) == [expected])
         await harness.model.stop()
     }
 
@@ -120,13 +79,13 @@ struct MarkReadDebounceTests {
         // "nothing was ever scheduled" are the same observation, and this
         // test cannot tell the guard working from the guard being absent.
         #expect(harness.model.markTasks[autoMarkReadConversation] != nil)
-        #expect(await published(harness).isEmpty)
+        #expect(await markReadPositions(from: harness.backend).isEmpty)
 
         harness.model.setActive(false)
         try await Task.sleep(for: .milliseconds(150))
         await settleAutoMarkRead()
 
-        #expect(await published(harness).isEmpty)
+        #expect(await markReadPositions(from: harness.backend).isEmpty)
         await harness.model.stop()
     }
 
@@ -150,16 +109,10 @@ struct MarkReadDebounceTests {
 
         // The first mark is the one scheduled for the original conversation,
         // and it carries that conversation's own newest position.
-        let marks = await harness.backend.commands.compactMap { command in
-            if case let .markRead(conversationID, upTo) = command {
-                (conversationID, upTo)
-            } else {
-                nil
-            }
-        }
-        let forOriginal = marks.filter { $0.0 == autoMarkReadConversation }
+        let marks = await markReads(from: harness.backend)
+        let forOriginal = marks.filter { $0.conversation == autoMarkReadConversation }
         #expect(forOriginal.count == 1)
-        #expect(try forOriginal.first?.1 == fixtureNewest)
+        #expect(try forOriginal.first?.position == autoMarkReadFixtureNewest)
         await harness.model.stop()
     }
 
@@ -175,7 +128,7 @@ struct MarkReadDebounceTests {
         try await Task.sleep(for: .milliseconds(150))
         await settleAutoMarkRead()
 
-        #expect(await published(harness).isEmpty)
+        #expect(await markReadPositions(from: harness.backend).isEmpty)
         #expect(harness.model.published[autoMarkReadConversation] == nil)
         #expect(harness.model.markTasks[autoMarkReadConversation] == nil)
     }
@@ -196,7 +149,7 @@ struct MarkReadDebounceTests {
         await harness.backend.failSubmissions(true)
         harness.model.select(autoMarkReadConversation)
         await settleAutoMarkRead()
-        let afterFailure = await published(harness).count
+        let afterFailure = await markReadPositions(from: harness.backend).count
         #expect(afterFailure == 1)
         #expect(harness.model.published[autoMarkReadConversation] == nil)
 
@@ -205,7 +158,7 @@ struct MarkReadDebounceTests {
         harness.model.setActive(true)
         await settleAutoMarkRead()
 
-        #expect(await published(harness).count == afterFailure + 1)
+        #expect(await markReadPositions(from: harness.backend).count == afterFailure + 1)
         await harness.model.stop()
     }
 
