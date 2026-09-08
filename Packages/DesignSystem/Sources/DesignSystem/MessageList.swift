@@ -58,14 +58,18 @@ struct MessageBubble: View {
             }
 
             VStack(alignment: isMine ? .trailing : .leading, spacing: 2) {
-                if !isMine {
+                if isMine {
+                    // An outgoing bubble has no sender name to sit beside, so
+                    // the stamp stands alone. It is shown at all because a
+                    // conversation where only one side is dated makes the
+                    // other side's times unreadable as a sequence.
+                    timestamp
+                } else {
                     HStack(spacing: 6) {
                         Text(Display.name(of: message.sender, in: state.directory))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        Text(message.createdAt, format: .dateTime.hour().minute())
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                        timestamp
                     }
                 }
                 bubble
@@ -78,6 +82,20 @@ struct MessageBubble: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// The date is included only once it is not today's - see
+    /// `Display.timestamp(of:now:calendar:locale:)`.
+    ///
+    /// `now` is left at its default, so it is read afresh on every render.
+    /// That means a "Yesterday" label written just before midnight stays
+    /// wrong until something re-renders the row; a timer invalidating the
+    /// whole list once a minute would cost more than the staleness does, and
+    /// Apple's own apps behave the same way.
+    private var timestamp: some View {
+        Text(Display.timestamp(of: message.createdAt))
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
     }
 
     @ViewBuilder private var bubble: some View {

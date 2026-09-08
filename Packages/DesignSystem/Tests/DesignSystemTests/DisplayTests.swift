@@ -123,4 +123,91 @@ struct DisplayTests {
             #expect(Display.hasName(of: member, in: directory) == !fellBack, "\(member)")
         }
     }
+
+    // MARK: - Timestamps
+
+    /// UTC and `en_US`, so the assertions below are about which **branch** was
+    /// taken and never about how a locale spells a month.
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    private let english = Locale(identifier: "en_US")
+
+    private func at(_ iso: String) -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: iso)!
+    }
+
+    private func stamp(_ date: String, now: String) -> String {
+        Display.timestamp(of: at(date), now: at(now), calendar: utc, locale: english)
+    }
+
+    /// Today carries no date at all - the whole point of the branch.
+    @Test func todayShowsTimeOnly() {
+        let rendered = stamp("2026-09-09T15:25:00Z", now: "2026-09-09T18:00:00Z")
+        #expect(!rendered.contains("Yesterday"))
+        #expect(!rendered.contains("Sep"))
+        #expect(!rendered.contains("2026"))
+    }
+
+    /// Ten minutes elapsed, but across midnight - so "Yesterday", not today.
+    /// Start-of-day comparison is what makes this right, and an elapsed-hours
+    /// comparison is what would get it wrong.
+    @Test func tenMinutesAcrossMidnightIsYesterdayNotToday() {
+        #expect(stamp("2026-09-08T23:50:00Z", now: "2026-09-09T00:10:00Z").hasPrefix("Yesterday"))
+    }
+
+    /// Twenty-three hours elapsed, same calendar day - so today, despite being
+    /// nearly a day. The mirror of the case above, and the reason the two
+    /// cannot both be satisfied by a duration threshold.
+    @Test func twentyThreeHoursWithinOneDayIsStillToday() {
+        let rendered = stamp("2026-09-09T00:10:00Z", now: "2026-09-09T23:10:00Z")
+        #expect(!rendered.contains("Yesterday"))
+        #expect(!rendered.contains("Sep"))
+    }
+
+    /// Yesterday across a month end. `1` has to come from real calendar
+    /// arithmetic rather than a day-of-month subtraction, which would give -30.
+    @Test func yesterdayAcrossAMonthEndIsStillYesterday() {
+        #expect(stamp("2026-08-31T22:00:00Z", now: "2026-09-01T09:00:00Z").hasPrefix("Yesterday"))
+    }
+
+    /// Two days is dated, and within the same year carries no year.
+    @Test func earlierThisYearShowsMonthAndDayWithoutTheYear() {
+        let rendered = stamp("2026-09-04T15:25:00Z", now: "2026-09-09T09:00:00Z")
+        #expect(rendered.contains("Sep"))
+        #expect(!rendered.contains("2026"))
+        #expect(!rendered.contains("Yesterday"))
+    }
+
+    /// A previous year carries the year, because "Sep 4" alone is ambiguous
+    /// once history loads far enough back - and it does.
+    @Test func anEarlierYearShowsTheYear() {
+        let rendered = stamp("2025-09-04T15:25:00Z", now: "2026-09-09T09:00:00Z")
+        #expect(rendered.contains("2025"))
+        #expect(rendered.contains("Sep"))
+    }
+
+    /// Yesterday across a **year** end is still yesterday, and must not fall
+    /// into the year-bearing branch: the day arithmetic is checked before the
+    /// year comparison, and reversing the two would print
+    /// "Dec 31, 2025" for a message from last night.
+    @Test func yesterdayAcrossAYearEndIsYesterdayNotADatedYear() {
+        let rendered = stamp("2025-12-31T23:30:00Z", now: "2026-01-01T00:30:00Z")
+        #expect(rendered.hasPrefix("Yesterday"))
+        #expect(!rendered.contains("2025"))
+    }
+
+    /// A timestamp ahead of `now` - clock skew, or a peer ahead of us - is
+    /// dated rather than crashing or claiming to be today. Not a case worth a
+    /// special label; this pins that it stays in a defined branch.
+    @Test func aFutureTimestampIsDatedRatherThanToday() {
+        let rendered = stamp("2026-09-11T10:00:00Z", now: "2026-09-09T09:00:00Z")
+        #expect(rendered.contains("Sep"))
+        #expect(!rendered.contains("Yesterday"))
+    }
 }

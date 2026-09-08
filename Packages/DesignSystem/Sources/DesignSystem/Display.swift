@@ -85,4 +85,72 @@ public enum Display {
         }
         return String(letters).uppercased()
     }
+
+    /// A message's timestamp, showing the date only once it stops being
+    /// today's.
+    ///
+    /// | when | renders |
+    /// | --- | --- |
+    /// | today | `3:25 PM` |
+    /// | yesterday | `Yesterday 3:25 PM` |
+    /// | earlier this year | `Sep 4, 3:25 PM` |
+    /// | an earlier year | `Sep 4, 2025, 3:25 PM` |
+    ///
+    /// ## Why `now` is a parameter
+    ///
+    /// `Calendar.isDateInYesterday(_:)` and
+    /// `DateFormatter.doesRelativeDateFormatting` both measure against the
+    /// process's real current date, which cannot be steered from a test. The
+    /// branch boundaries here are midnight, a month end and a year end -
+    /// exactly the places off-by-one lives - so the reference date is injected
+    /// and the day arithmetic is done explicitly against it. Same reason the
+    /// fixture package advances a literal `startedAt` instead of reading a
+    /// clock.
+    ///
+    /// Comparison is on **start of day**, not elapsed hours: a message from
+    /// 23:50 read at 00:10 is "Yesterday", not "20 minutes ago wearing
+    /// today's label". A `date` in the future - clock skew, or a peer ahead of
+    /// us - falls to the dated branches rather than being special-cased,
+    /// because there is no honest short label for it.
+    ///
+    /// ## `[Verify]` - "Yesterday" is not localized
+    ///
+    /// It is the only hard-coded date word in the project, and it is hard-coded
+    /// because the locale-aware options cannot take an injected reference date:
+    /// `RelativeDateTimeFormatter` can, but returns a lowercase phrase whose
+    /// capitalisation is not safe to fix by hand across locales. Note this is
+    /// a project-wide gap rather than a local shortcut - every user-facing
+    /// string in `DesignSystem` is a literal today - so this is where to start
+    /// if localization arrives, not an exception to a rule that exists.
+    public static func timestamp(
+        of date: Date,
+        now: Date = .now,
+        calendar: Calendar = .current,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let base = Date.FormatStyle(
+            locale: locale,
+            calendar: calendar,
+            timeZone: calendar.timeZone
+        )
+        let time = base.hour().minute()
+
+        let startOfToday = calendar.startOfDay(for: now)
+        let startOfDate = calendar.startOfDay(for: date)
+        let dayGap = calendar.dateComponents([.day], from: startOfDate, to: startOfToday).day
+
+        switch dayGap {
+        case 0:
+            return date.formatted(time)
+        case 1:
+            return "Yesterday \(date.formatted(time))"
+        default:
+            let sameYear = calendar.component(.year, from: date)
+                == calendar.component(.year, from: now)
+            let dated = sameYear
+                ? base.month(.abbreviated).day().hour().minute()
+                : base.year().month(.abbreviated).day().hour().minute()
+            return date.formatted(dated)
+        }
+    }
 }

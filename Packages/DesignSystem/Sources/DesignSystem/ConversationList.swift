@@ -6,6 +6,23 @@ public struct ConversationList: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
 
+    /// Which sections are **collapsed**, keyed by `SidebarSection.id`.
+    ///
+    /// Collapsed rather than expanded, so the empty default means everything
+    /// is open - and, more usefully, so a section appearing for the first time
+    /// arrives expanded instead of silently hidden. That matters here: a new
+    /// `Kind.unknown` group type mints a section nobody has seen before
+    /// (`findings.md` §37.4), and defaulting it shut would hide the very thing
+    /// those sections exist to surface.
+    ///
+    /// `@State`, so **collapse does not survive relaunch.** Persisting it
+    /// needs a decision this view cannot make: `DesignSystem` takes values and
+    /// hands back callbacks, and reaching for `UserDefaults` here would be the
+    /// first time a view in this package owned durable state. The honest
+    /// options are a `ChatSceneActions`-style callback or host-provided
+    /// storage; neither is worth building before anyone asks.
+    @State private var collapsed: Set<String> = []
+
     public init(state: ChatSceneState, actions: ChatSceneActions) {
         self.state = state
         self.actions = actions
@@ -14,7 +31,7 @@ public struct ConversationList: View {
     public var body: some View {
         List(selection: selectionBinding) {
             ForEach(SidebarSections.build(state.conversations)) { section in
-                Section(section.title) {
+                Section(section.title, isExpanded: expansion(of: section.id)) {
                     ForEach(section.conversations, id: \.id) { conversation in
                         ConversationRow(conversation: conversation, state: state)
                             .tag(conversation.id)
@@ -44,6 +61,24 @@ public struct ConversationList: View {
         // Rows soften as they pass under the bar rather than sliding behind it
         // at full contrast.
         .scrollEdgeEffectStyle(.soft, for: .bottom)
+    }
+
+    /// Whether one section is expanded, as a binding over `collapsed`.
+    ///
+    /// `SidebarSection.id` is stable across rebuilds by construction - that is
+    /// what its own doc comment promises it for - so a section keeps its
+    /// disclosure state while its contents change underneath it.
+    private func expansion(of id: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsed.contains(id) },
+            set: { isExpanded in
+                if isExpanded {
+                    collapsed.remove(id)
+                } else {
+                    collapsed.insert(id)
+                }
+            }
+        )
     }
 
     private var selectionBinding: Binding<Conversation.ID?> {
