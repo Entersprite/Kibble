@@ -129,6 +129,49 @@ struct APIProbeReportHistoryTests {
         return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedBytes())
     }
 
+    /// Rung 4's own response: one topic with a real `createTimeUsec`, and a
+    /// `read_receipt_set` carrying one receipt for `selfID` and one for a
+    /// different user - enough for `ReadReceiptReport` to resolve both
+    /// `self` and `other` and compute a real delta against the topic.
+    private func topicsResponseWithReceipts(
+        groupID: GroupId,
+        selfID: String,
+        selfReadTimeMicros: Int64,
+        otherReadTimeMicros: Int64,
+        topicCreateTimeUsec: Int64
+    ) throws -> HTTPResponse {
+        var topicID = TopicId()
+        topicID.groupID = groupID
+        topicID.topicID = "t-1"
+
+        var topic = Topic()
+        topic.id = topicID
+        topic.createTimeUsec = topicCreateTimeUsec
+
+        func receipt(userID: String, readTimeMicros: Int64) -> ReadReceipt {
+            var user = User()
+            var id = UserId()
+            id.id = userID
+            user.userID = id
+            var receipt = ReadReceipt()
+            receipt.user = user
+            receipt.readTimeMicros = readTimeMicros
+            return receipt
+        }
+
+        var receiptSet = ReadReceiptSet()
+        receiptSet.enabled = true
+        receiptSet.readReceipts = [
+            receipt(userID: selfID, readTimeMicros: selfReadTimeMicros),
+            receipt(userID: "SENTINEL-OTHER-USER-ID-should-not-appear", readTimeMicros: otherReadTimeMicros)
+        ]
+
+        var response = ListTopicsResponse()
+        response.topics = [topic]
+        response.readReceiptSet = receiptSet
+        return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedBytes())
+    }
+
     // MARK: - No conversation to probe
 
     @Test func aRunWithNoConversationsSkipsTheTopicsLadderCleanly() async throws {
@@ -169,13 +212,26 @@ struct APIProbeReportHistoryTests {
         let spaceID = "SENTINEL-SPACE-ID-should-not-appear"
         let messageID = "SENTINEL-MESSAGE-ID-should-not-appear"
         let text = "SENTINEL-MESSAGE-TEXT-should-not-appear"
+        let selfID = "SENTINEL-SELF-USER-ID-should-not-appear"
         let group = spaceGroupID(spaceID)
         let worldItemResponse = try worldResponse(spaceID: spaceID)
         let topicsRungResponse = try topicsResponse(groupID: group, messageID: messageID, text: text)
+        // The newest topic's `createTimeUsec` a full 2.5 seconds ahead of
+        // "self"'s own read receipt and 10 seconds ahead of "other"'s -
+        // deliberately not zero, so a passing test proves the delta is
+        // actually computed rather than two zeros matching by accident.
+        let newestCreateTimeUsec: Int64 = 1_700_000_010_000_000
+        let receiptsResponse = try topicsResponseWithReceipts(
+            groupID: group,
+            selfID: selfID,
+            selfReadTimeMicros: newestCreateTimeUsec - 2_500_000,
+            otherReadTimeMicros: newestCreateTimeUsec - 10_000_000,
+            topicCreateTimeUsec: newestCreateTimeUsec
+        )
 
         let responses: [Result<HTTPResponse, any Error>] = try [
             .success(shell(app: "DynamiteWebUi")),
-            .success(selfStatusResponse()),
+            .success(selfStatusResponse(userID: selfID)),
             .success(controlWorldResponse()), // world ladder rung 1
             .success(worldItemResponse), // world ladder rung 2
             .success(worldItemResponse), // world ladder rung 3
@@ -185,7 +241,8 @@ struct APIProbeReportHistoryTests {
             .success(topicsRungResponse), // topics ladder rung 2
             .success(topicsRungResponse), // topics ladder rung 3
             .success(topicsRungResponse), // topics ladder rung 4
-            .success(topicsRungResponse) // the history mapping summary's own list_topics call
+            .success(topicsRungResponse), // the history mapping summary's own list_topics call
+            .success(receiptsResponse) // the read-receipts section's own rung-4 list_topics call
         ]
         let reportText = await APIProbeReport.run(
             store: credentialStore,
@@ -199,9 +256,30 @@ struct APIProbeReportHistoryTests {
         #expect(reportText.contains("history mapping summary (list_topics, minimum viable rung):"))
         #expect(reportText.contains("messages: 1, skipped: 0"))
         #expect(reportText.contains("with non-empty text: 1"))
-        #expect(!reportText.contains(spaceID))
-        #expect(!reportText.contains(messageID))
-        #expect(!reportText.contains(text))
+        assertReadReceiptsSection(
+            reportText,
+            leakCandidates: [spaceID, messageID, text, selfID, "SENTINEL-OTHER-USER-ID-should-not-appear"]
+        )
+    }
+
+    /// The read-receipts section's own assertions, split out of
+    /// `aRunWithARealConversationRunsTheTopicsLadderAgainstIt` purely to keep
+    /// that test under `swiftlint`'s `function_body_length` ceiling - not a
+    /// second scenario, so it stays beside its one caller rather than
+    /// becoming a `@Test` of its own.
+    private func assertReadReceiptsSection(_ reportText: String, leakCandidates: [String]) {
+        // Enabled, both receipts resolved by id against the self status
+        // response, and a real (non-zero) delta for each - not printed as an
+        // id, a name or an absolute timestamp.
+        #expect(reportText.contains("read receipts (list_topics rung 4"))
+        #expect(reportText.contains("read receipts enabled: true"))
+        #expect(reportText.contains("receipts: 2"))
+        #expect(reportText.contains("receipt self: -2500000µs vs reference"))
+        #expect(reportText.contains("receipt other: -10000000µs vs reference"))
+        #expect(!reportText.contains("self could not be identified"))
+        for candidate in leakCandidates {
+            #expect(!reportText.contains(candidate))
+        }
     }
 
     // MARK: - Leak tests for the two new catch blocks
@@ -262,7 +340,8 @@ struct APIProbeReportHistoryTests {
             .success(emptyTopicsResponse()), // topics ladder rung 2
             .success(emptyTopicsResponse()), // topics ladder rung 3
             .success(emptyTopicsResponse()), // topics ladder rung 4
-            .failure(SentinelError(description: sentinel)) // the history mapping summary's own call
+            .failure(SentinelError(description: sentinel)), // the history mapping summary's own call
+            .failure(SentinelError(description: sentinel)) // the read-receipts section's own call
         ]
         let text = await APIProbeReport.run(
             store: credentialStore,
@@ -270,6 +349,40 @@ struct APIProbeReportHistoryTests {
             endpoints: ChatEndpoints()
         )
         #expect(text.contains("history mapping summary (list_topics, minimum viable rung):"))
+        #expect(text.contains("FAILED"))
+        #expect(!text.contains(sentinel))
+    }
+
+    /// The read-receipts section's own rung-4 `list_topics` call failing -
+    /// the read-receipts analogue of the two leak tests above.
+    @Test func aReadReceiptsSectionFailureNeverLeaksTheUnderlyingErrorDescription() async throws {
+        let storage = FakeSecretStorage()
+        let credentialStore = store(storage)
+        try await credentialStore.store(storedSession())
+        let spaceID = "s-1"
+        let worldItemResponse = try worldResponse(spaceID: spaceID)
+        let sentinel = "SENTINEL-READ-RECEIPTS-vwx234"
+        let responses: [Result<HTTPResponse, any Error>] = try [
+            .success(shell(app: "DynamiteWebUi")),
+            .success(selfStatusResponse()),
+            .success(controlWorldResponse()),
+            .success(worldItemResponse),
+            .success(worldItemResponse),
+            .success(worldItemResponse),
+            .success(worldItemResponse), // the mapping summary's own call
+            .success(emptyTopicsResponse()), // topics ladder rung 1
+            .success(emptyTopicsResponse()), // topics ladder rung 2
+            .success(emptyTopicsResponse()), // topics ladder rung 3
+            .success(emptyTopicsResponse()), // topics ladder rung 4
+            .success(emptyTopicsResponse()), // the history mapping summary's own call
+            .failure(SentinelError(description: sentinel)) // the read-receipts section's own call
+        ]
+        let text = await APIProbeReport.run(
+            store: credentialStore,
+            transport: ScriptedTransport(responses),
+            endpoints: ChatEndpoints()
+        )
+        #expect(text.contains("read receipts (list_topics rung 4"))
         #expect(text.contains("FAILED"))
         #expect(!text.contains(sentinel))
     }

@@ -43,6 +43,26 @@ public final class AppEnvironment {
     /// the model has to be reachable before it is parked, not after.
     private var model: ChatSessionModel?
 
+    /// The last value `setActive(_:)` was told, held even while `model` is
+    /// `nil` so it is not silently dropped.
+    ///
+    /// **Why this exists at all.** `start()` races the app shell: the `.task`
+    /// that reports frontmost/resigned can fire before `start()` has built a
+    /// model - which, for the real backend, means a full HTTP shell fetch
+    /// plus channel registration, so this is not a narrow window. Before this
+    /// property existed, `setActive(_:)` forwarded straight to `model?.` and
+    /// any value that arrived while `model` was `nil` was gone for good,
+    /// while `ChatSessionModel.isActive` defaults to `true` - so a resign
+    /// during bootstrap, or during the entire web-view login before
+    /// `signedIn()` rebuilds the model, left the app backgrounded with the
+    /// gate reading `true`. Spec §3.2 chose "only while the app window is
+    /// actually frontmost" and explicitly rejected always-publishing; that
+    /// drop was the rejected alternative arriving by accident.
+    ///
+    /// Applied at construction, right beside `engine.setGhostMode(...)` in
+    /// `start()`, which is the one place a model is actually built.
+    private var pendingActive: Bool?
+
     public init(services: any LaunchServices) {
         self.services = services
     }
@@ -73,7 +93,31 @@ public final class AppEnvironment {
             try store.apply([.clearEphemeralState])
             let selection = try await services.makeSession()
             let engine = SyncEngine(backend: selection.backend, store: store)
-            let model = ChatSessionModel(store: store, engine: engine, me: selection.me)
+            // Ghost mode defaults to **off**: read receipts are published.
+            // The owner's explicit call, so that the first live run
+            // exercises `mark_group_readstate` rather than a suppressed code
+            // path. There is no UI toggle yet; this key is the only control.
+            // `UserDefaults.bool(forKey:)` is `false` for an absent key, so
+            // the intended default needs no registration.
+            //
+            // Read here, right where the engine is constructed, rather than
+            // in `SystemLaunchServices`: `SyncEngine` itself is built in this
+            // function (`makeSession()` only chooses the backend), so this is
+            // the one place that actually holds it. `UserDefaults` is
+            // Foundation, not a backend or a credential store, so reading it
+            // here does not touch the constraint that keeps this file naming
+            // neither.
+            await engine.setGhostMode(UserDefaults.standard.bool(forKey: "ghostMode"))
+            let model = ChatSessionModel(
+                store: store, engine: engine, me: selection.me, markReadTrace: services.markReadTraceSink()
+            )
+            // Applies whatever `setActive(_:)` was told while no model
+            // existed yet, rather than leaving this model's `isActive`
+            // sitting at its own `true` default - see `pendingActive`'s doc
+            // comment for the drop this closes.
+            if let pendingActive {
+                model.setActive(pendingActive)
+            }
             // Held **before** it is started, not after it is parked in
             // `.running`. By the time `start()` can throw, the engine's
             // consumer is already live - see `model`'s own doc comment for why
@@ -235,6 +279,27 @@ public final class AppEnvironment {
     public func requestSignIn() {
         guard case let .failed(message) = phase else { return }
         Task { await enterNeedsSignIn(reason: message) }
+    }
+
+    /// Forwarded to the session model, which decides what to do with it.
+    /// `AppEnvironment` names no platform API here - see `MacHost`'s
+    /// `AppActivityMonitor` for where the macOS signal actually comes from.
+    ///
+    /// **Stored, not dropped, before a model exists** (`.loading`,
+    /// `.needsSignIn`, `.failed`, `.report`). This used to forward straight to
+    /// `model?.` and silently discard anything told while `model` was `nil` -
+    /// `ChatSessionModel.isActive` defaults to `true`, so a resign during the
+    /// real backend's bootstrap (a full HTTP shell fetch plus channel
+    /// registration) or during the entire web-view login before `signedIn()`
+    /// rebuilds the model left the app backgrounded with the gate reading
+    /// `true`, publishing a read receipt for every conversation opened and
+    /// message arriving. Spec §3.2 explicitly rejected always-publishing;
+    /// that drop was the rejected alternative arriving by accident. Now the
+    /// value is kept in `pendingActive` and applied the moment `start()`
+    /// builds a model - see that property's doc comment.
+    public func setActive(_ active: Bool) {
+        pendingActive = active
+        model?.setActive(active)
     }
 
     /// Whether `signOut()` has a running session to act on. The menu command is

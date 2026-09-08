@@ -58,6 +58,27 @@ struct LiveChannelFailureTests {
         return await collector.value
     }
 
+    /// Whether an event is a gap, of any scope. Pulled out of
+    /// `aResumedChannelAsksForEverythingAgain` to keep that test's body under
+    /// swiftlint's `function_body_length`, not because it is reused widely.
+    private static func isGap(_ event: ChatEvent) -> Bool {
+        if case .gap = event {
+            return true
+        }
+        return false
+    }
+
+    /// Whether `events[index]` is a `.connected` state. Same reason as
+    /// `isGap(_:)` above.
+    private static func isConnected(_ events: [ChatEvent]) -> (Int) -> Bool {
+        { index in
+            if case .connectionStateChanged(.connected) = events[index] {
+                return true
+            }
+            return false
+        }
+    }
+
     /// A bootstrap that says "signed out" must not go on to open a channel with
     /// credentials that have already been refused.
     @Test func aRejectedSessionOpensNoChannel() async {
@@ -272,5 +293,68 @@ struct LiveChannelFailureTests {
             return
         }
         #expect(disconnected == .disconnected(reason: nil, issue: nil))
+    }
+
+    /// `findings.md` §23.1, open since session 14: the conversation list is
+    /// fetched exactly once per launch, because `.gap(scope: .everything)` is
+    /// emitted only by `connect()`. So a conversation created afterwards - by
+    /// sending to somebody new, or by somebody new writing to you - has no
+    /// row until the app is relaunched.
+    ///
+    /// A reconnect is a *fresh registration*: a new SID with `AID` reset, so
+    /// anything delivered during the outage was never seen. `.resumed` now
+    /// emits the same gap `connect()` does.
+    @Test func aResumedChannelAsksForEverythingAgain() async throws {
+        let head = HTTPHeaders([("X-HTTP-Initial-Response", Self.initialResponse)])
+        let transport = ScriptedTransport(
+            // Ten, generously - the identical budget
+            // `aRecoveredChannelIsReportedAsReconnectingThenConnected` uses,
+            // and for the identical reason: `resolveAndEmitSelf()` races the
+            // channel for this queue, and each of the two SIDs needs a
+            // register, an acknowledge and an initial ping.
+            [shell()] + Array(repeating: ScriptedTransport.ok(""), count: 10),
+            streams: [
+                ScriptedTransport.Script(
+                    headers: head,
+                    chunks: [messageChunk(aid: 1, text: "before the drop")],
+                    dropsAfterChunks: true
+                ),
+                ScriptedTransport.Script(headers: head, chunks: []),
+                // A deliberate terminal status ends the run once the resume
+                // this test is about has happened - without it the channel
+                // reopens forever and `waitForChannel()` hangs.
+                ScriptedTransport.Script(status: 403, chunks: [])
+            ]
+        )
+        let backend = LocalBridgeBackend(
+            cookies: Self.cookies,
+            transport: transport,
+            retry: .immediate
+        )
+        try await backend.connect()
+        await backend.waitForChannel()
+
+        let events = await collectEvents(backend)
+
+        // Two gaps, not one: `connect()`'s own, and the resume's. The second
+        // is the whole point - the first has been there since session 8.
+        let gaps = events.filter(Self.isGap)
+        #expect(gaps.count >= 2)
+
+        // Order: connected before the gap it triggers, so a client sees
+        // recovery before it sees work to do.
+        let resumedConnected = try #require(events.indices.last(where: Self.isConnected(events)))
+        let gapAfterResume = events.indices.first {
+            $0 > resumedConnected && Self.isGap(events[$0])
+        }
+        #expect(gapAfterResume != nil)
+
+        // The scope is `.everything`, which is what reaches
+        // `SyncReducer`'s `.reloadConversations` effect.
+        guard case let .gap(scope, _)? = gapAfterResume.map({ events[$0] }) else {
+            Issue.record("expected a gap after the resume")
+            return
+        }
+        #expect(scope == .everything)
     }
 }

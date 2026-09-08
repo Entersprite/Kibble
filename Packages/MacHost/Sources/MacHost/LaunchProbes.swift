@@ -28,11 +28,25 @@ enum LaunchProbes {
         return write(result, to: "keychain-check.txt")
     }
 
-    /// No arguments: the defaults supply the Keychain store and the live
-    /// transport, so this names no core type. Same shape as
+    /// No required arguments: the defaults supply the Keychain store and the
+    /// live transport, so this names no core type. Same shape as
     /// `LocalBridgeBackend.using(_:transport:)` at SessionHandoff.swift:77.
+    ///
+    /// `--probe-conversation=N` picks which conversation the topics/read-
+    /// receipts section probes, the same sub-flag shape `AppNapProbe`'s
+    /// `--probe-activity`/`--probe-close-window` already use. Omitted, the
+    /// report defaults to the most recently active conversation.
     static func apiProbe() async -> String {
-        await write(APIProbeReport.run(), to: "api-probe.txt")
+        await write(
+            APIProbeReport.run(conversationIndexOverride: probeConversationOverride()),
+            to: "api-probe.txt"
+        )
+    }
+
+    private static func probeConversationOverride() -> Int? {
+        CommandLine.arguments
+            .first { $0.hasPrefix("--probe-conversation=") }
+            .flatMap { Int($0.dropFirst("--probe-conversation=".count)) }
     }
 
     /// Writes a probe's full report to `name` beside the app's database, and

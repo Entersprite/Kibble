@@ -63,6 +63,8 @@ public struct ChatWindow: View {
                     directory: state.directory,
                     me: state.me
                 ),
+                restoring: state.failedDraft,
+                onRestored: actions.draftRestored,
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without

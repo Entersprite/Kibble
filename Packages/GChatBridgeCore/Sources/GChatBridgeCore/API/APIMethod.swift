@@ -105,3 +105,19 @@ public extension APIMethod where Request == CreateMessageRequest, Response == Cr
         Self("create_message")
     }
 }
+
+public extension APIMethod where Request == MarkGroupReadstateRequest,
+    Response == MarkGroupReadstateResponse {
+    /// Publishing this client's read position. **The second write this client
+    /// has ever made**, after `createTopic`.
+    ///
+    /// `ReadStateRequests.markGroupRead` builds it and has no ladder, for the
+    /// reason stated there. `[Verify]` until one deliberate call against a
+    /// live account confirms the shape - the response carries a
+    /// `GroupReadState` whose `unread_message_count` is what the client then
+    /// displays, so a wrong shape shows up as a badge that never clears
+    /// rather than as an error.
+    static var markGroupReadstate: Self {
+        Self("mark_group_readstate")
+    }
+}

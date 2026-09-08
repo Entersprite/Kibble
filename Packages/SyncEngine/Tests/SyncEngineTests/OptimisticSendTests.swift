@@ -1,4 +1,5 @@
 import ChatKit
+import FixtureBackend
 import Foundation
 import Testing
 @testable import SyncEngine
@@ -71,5 +72,87 @@ struct OptimisticSendTests {
         let messages = try store.messages(in: Conversation.ID("space/s-1"))
         #expect(messages.count == 1)
         #expect(messages.first?.text == "edited")
+    }
+
+    /// A retracted message must not cost the user what they typed. The
+    /// retraction itself is old behaviour (`record(_:undoing:)` removing the
+    /// optimistic row); handing the text back is not.
+    @MainActor
+    @Test func aFailedSendReturnsTheText() async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        try await model.start()
+        await settleAutoMarkRead()
+        model.select(FixtureWorld.minimal.messages[0].conversationID)
+        await settleAutoMarkRead()
+
+        await backend.failSubmissions(true)
+        model.send("the message that did not make it")
+        await settleAutoMarkRead()
+
+        #expect(model.failedDraft == "the message that did not make it")
+        await model.stop()
+    }
+
+    /// **The mistake this guards.** A failure surfacing after the user has
+    /// moved on would restore their text into somebody else's composer - the
+    /// same class of error `ChatWindow`'s `.id(conversation.id)` already
+    /// exists to prevent. The draft is offered only while its own
+    /// conversation is selected.
+    @MainActor
+    @Test func aFailedSendIsNotOfferedInAnotherConversation() async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        try await model.start()
+        await settleAutoMarkRead()
+        let first = FixtureWorld.minimal.messages[0].conversationID
+        model.select(first)
+        await settleAutoMarkRead()
+
+        await backend.failSubmissions(true)
+        model.send("meant for the first conversation")
+        await settleAutoMarkRead()
+        #expect(model.failedDraft != nil)
+
+        let other = try #require(model.conversations.first { $0.id != first })
+        model.select(other.id)
+        await settleAutoMarkRead()
+
+        #expect(model.failedDraft == nil)
+
+        // And it is still there when the user comes back, because it was
+        // withheld rather than discarded.
+        model.select(first)
+        await settleAutoMarkRead()
+        #expect(model.failedDraft == "meant for the first conversation")
+        await model.stop()
+    }
+
+    /// Consumed once. A draft that came back and was adopted must not come
+    /// back again on the next redraw.
+    @MainActor
+    @Test func aRestoredDraftIsNotOfferedTwice() async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        try await model.start()
+        await settleAutoMarkRead()
+        model.select(FixtureWorld.minimal.messages[0].conversationID)
+        await settleAutoMarkRead()
+
+        await backend.failSubmissions(true)
+        model.send("adopted once")
+        await settleAutoMarkRead()
+        #expect(model.failedDraft != nil)
+
+        model.clearFailedDraft()
+
+        #expect(model.failedDraft == nil)
+        await model.stop()
     }
 }

@@ -66,4 +66,42 @@ extension LocalBridgeBackend {
         }
         emit(.connectionStateChanged(.disconnected(reason: reason, issue: issue)))
     }
+
+    /// The channel's own recovery, forwarded as connection state.
+    ///
+    /// `ConnectionState.reconnecting(attempt:)` has existed in `ChatKit` since
+    /// the seam was written and has been emitted by nobody. It is what lets a
+    /// window say "attempt 2" instead of spinning silently, and it needs no
+    /// wire-format change to reach a hosted tier later. `failure` is what
+    /// `ChannelSession` classified as the cause of this particular reconnect;
+    /// `ConnectionIssueMapping` is the one place it becomes a
+    /// `ChatKit.ConnectionIssue`, behind the exhaustive switch that keeps this
+    /// package's copy of the taxonomy from silently drifting from the core's.
+    ///
+    /// Not `private`: moved out of `LocalBridgeBackend.swift` once this task's
+    /// fix pushed that file past swiftlint's `file_length` ceiling, alongside
+    /// `channelStopped(_:)` above - the same convention that function's own
+    /// doc comment already established for this file, and passed as a
+    /// callback where `LocalBridgeBackend.swift`'s `startChannel()`
+    /// constructs `ChannelSession`, which is why it cannot be `private` here.
+    func channelLifecycleChanged(_ event: ChannelLifecycle) {
+        switch event {
+        case let .reconnecting(attempt, failure):
+            let issue = failure.map(ConnectionIssueMapping.issue(for:))
+            emit(.connectionStateChanged(.reconnecting(
+                attempt: attempt,
+                issue: issue,
+                detail: failure?.description
+            )))
+        case .resumed:
+            lastFailure = nil
+            emit(.connectionStateChanged(.connected))
+            // `findings.md` §23.1. A reconnect is a fresh registration - a new
+            // SID with `AID` reset - so events delivered during the outage are
+            // gone, and the conversation list has been stale since launch
+            // because nothing but `connect()` ever refetched it. Emitting the
+            // same gap `connect()` does is the whole fix.
+            emit(.gap(scope: .everything, reason: LocalBridgeBackend.resumedGapReason))
+        }
+    }
 }

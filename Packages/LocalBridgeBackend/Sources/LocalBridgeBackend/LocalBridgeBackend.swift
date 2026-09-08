@@ -26,6 +26,13 @@ public actor LocalBridgeBackend: ChatBackend {
     /// must never branch on a gap's reason, because the set of reasons is open.
     static let connectedGapReason = "connected: nothing is known about this session yet"
 
+    /// Why a resumed channel refetches. Separate from `connectedGapReason` so
+    /// the two sites cannot drift apart in wording, and worded for a log line
+    /// a person reads six months from now.
+    static let resumedGapReason =
+        "resumed: a fresh registration reset AID, so anything delivered during "
+            + "the outage was never seen"
+
     /// Almost nothing is advertised until it works.
     ///
     /// Not modesty - the UI reads `capabilities` to decide what to offer, and a
@@ -37,7 +44,15 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `supportsThreads` is the other exception: `loadConversations()` now maps
     /// `isThreaded` for real (`WorldMapping`), so a client can tell a flat
     /// group from a threaded one without guessing.
-    public nonisolated let capabilities = Capabilities(canSendMessages: true, supportsThreads: true)
+    /// `canMarkRead` is now true: `.markRead` posts through
+    /// `mark_group_readstate` (`LocalBridgeBackend+ReadState.swift`) and the
+    /// response's own `GroupReadState` becomes `.readStateChanged`.
+    /// `[Verify]` until one deliberate call against live traffic confirms the
+    /// shape. `receivesReadReceipts` stays false and is a different claim -
+    /// it is about *other people's* read positions, which nothing here maps.
+    public nonisolated let capabilities = Capabilities(
+        canSendMessages: true, canMarkRead: true, supportsThreads: true
+    )
 
     public nonisolated let events: AsyncStream<ChatEvent>
 
@@ -230,7 +245,10 @@ public actor LocalBridgeBackend: ChatBackend {
         } catch {
             let chatError = Self.chatError(from: error)
             lastFailure = chatError
-            emit(.connectionStateChanged(.disconnected(reason: Self.reason(for: chatError), issue: nil)))
+            emit(.connectionStateChanged(.disconnected(
+                reason: Self.reason(for: chatError),
+                issue: ConnectionIssueMapping.issue(forConnect: error)
+            )))
             emit(.backendError(chatError))
             throw chatError
         }
@@ -302,31 +320,6 @@ public actor LocalBridgeBackend: ChatBackend {
         guard let event = ChannelEvent(array) else { return }
         for chatEvent in ChannelEventMapping.chatEvents(from: event) {
             emit(chatEvent)
-        }
-    }
-
-    /// The channel's own recovery, forwarded as connection state.
-    ///
-    /// `ConnectionState.reconnecting(attempt:)` has existed in `ChatKit` since
-    /// the seam was written and has been emitted by nobody. It is what lets a
-    /// window say "attempt 2" instead of spinning silently, and it needs no
-    /// wire-format change to reach a hosted tier later. `failure` is what
-    /// `ChannelSession` classified as the cause of this particular reconnect;
-    /// `ConnectionIssueMapping` is the one place it becomes a
-    /// `ChatKit.ConnectionIssue`, behind the exhaustive switch that keeps this
-    /// package's copy of the taxonomy from silently drifting from the core's.
-    private func channelLifecycleChanged(_ event: ChannelLifecycle) {
-        switch event {
-        case let .reconnecting(attempt, failure):
-            let issue = failure.map(ConnectionIssueMapping.issue(for:))
-            emit(.connectionStateChanged(.reconnecting(
-                attempt: attempt,
-                issue: issue,
-                detail: failure?.description
-            )))
-        case .resumed:
-            lastFailure = nil
-            emit(.connectionStateChanged(.connected))
         }
     }
 

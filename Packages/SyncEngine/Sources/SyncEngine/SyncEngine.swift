@@ -17,6 +17,23 @@ public actor SyncEngine {
     private let store: ChatStore
     private var consumer: Task<Void, Never>?
 
+    /// Whether this client is refusing to publish anything about itself.
+    ///
+    /// See `GhostModeTests`' own doc comment for what this does and does not
+    /// cover - in particular the `PingEvent` fields it cannot reach. Defaults
+    /// to `false`, which means read receipts are published: the owner's
+    /// explicit call, so that the first live run exercises
+    /// `mark_group_readstate` rather than a suppressed code path.
+    private var ghostMode = false
+
+    public var isGhosting: Bool {
+        ghostMode
+    }
+
+    public func setGhostMode(_ enabled: Bool) {
+        ghostMode = enabled
+    }
+
     /// What the backend behind this engine can do. Forwarded rather than
     /// copied, so it cannot drift from the thing that enforces it.
     public nonisolated var capabilities: Capabilities {
@@ -119,11 +136,43 @@ public extension SyncEngine {
     /// If the message really did post, the long-poll echo delivers it moments
     /// later and it reappears as a real message - which is strictly better
     /// than a phantom nobody can distinguish from one that arrived.
-    func submit(_ command: ChatCommand, undoing writes: [StoreWrite] = []) async {
+    ///
+    /// `@discardableResult` because most callers cannot act on the answer -
+    /// but the auto-mark trigger can, and must: its watermark may only
+    /// advance on a real success.
+    @discardableResult
+    func submit(_ command: ChatCommand, undoing writes: [StoreWrite] = []) async -> Bool {
+        guard !suppressed(command) else { return false }
         do {
             try await backend.send(command)
+            return true
         } catch {
+            // Same reasoning as `requestMoreMessages` and `perform` just below:
+            // cancelling this task does not oblige whatever is underneath it to
+            // throw `CancellationError`, and a write from a session that no
+            // longer owns the store is the exact trap `ChatSessionModel.stop()`
+            // cancelling `markTasks` exists to close.
+            guard !Task.isCancelled else { return false }
             record(error, undoing: writes)
+            return false
+        }
+    }
+
+    /// The one place ghost mode is enforced.
+    ///
+    /// **Exhaustive with no `default`, on purpose.** A new `ChatCommand` case
+    /// stops this compiling until someone decides whether it says something
+    /// about this user that ghost mode should withhold. That compile error is
+    /// the guarantee; a two-case `if` would let the next one leak by default.
+    /// Same idiom as `SyncReducer.reduce(_:)` and `ConnectionIssueMapping`.
+    private func suppressed(_ command: ChatCommand) -> Bool {
+        guard ghostMode else { return false }
+        switch command {
+        case .markRead, .setTyping:
+            return true
+        case .sendMessage, .editMessage, .deleteMessage, .setReaction,
+             .setNotificationLevel, .unknown:
+            return false
         }
     }
 

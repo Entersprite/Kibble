@@ -14,21 +14,40 @@ public struct Composer: View {
     let placeholder: String
     let send: (String) -> Void
 
-    @State private var draft = ""
+    /// Text from a failed send, offered back for this composer to adopt. `nil`
+    /// in every ordinary frame - see `ComposerDraft`.
+    let restoring: String?
+    /// Told once `restoring` has been adopted, so the host can stop offering
+    /// it. **Optional, and its absence is the point**: a host with no restore
+    /// hook simply gets the old behaviour.
+    let onRestored: (() -> Void)?
+
+    @State private var draft = ComposerDraft()
     @FocusState private var isFocused: Bool
 
-    public init(placeholder: String, send: @escaping (String) -> Void) {
+    public init(
+        placeholder: String,
+        restoring: String? = nil,
+        onRestored: (() -> Void)? = nil,
+        send: @escaping (String) -> Void
+    ) {
         self.placeholder = placeholder
+        self.restoring = restoring
+        self.onRestored = onRestored
         self.send = send
     }
 
     public var body: some View {
         HStack(spacing: 6) {
-            TextField("Message \(placeholder)", text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1 ... 6)
-                .focused($isFocused)
-                .onSubmit(submit)
+            TextField(
+                "Message \(placeholder)",
+                text: Binding(get: { draft.text }, set: { draft.edit($0) }),
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .lineLimit(1 ... 6)
+            .focused($isFocused)
+            .onSubmit(submit)
             // Present only when there is something to send, which is how
             // Messages behaves - and it means the `.return` shortcut exists
             // exactly when it would do something.
@@ -60,10 +79,29 @@ public struct Composer: View {
         .padding(.bottom, 11)
         .animation(.snappy(duration: 0.15), value: trimmed.isEmpty)
         .onAppear { isFocused = true }
+        // **`initial: true` is load-bearing, not decoration.** `ChatWindow`
+        // keys this view `.id(conversation.id)`, so returning to a
+        // conversation after a failed send tears down the old `Composer` and
+        // constructs a brand new one whose `restoring` is *already*
+        // `state.failedDraft` on its very first render - an initial value,
+        // not a change. Plain `.onChange(of:)` never fires for a value a view
+        // already holds on first appearance, so without `initial: true` the
+        // adopt-once logic below never runs on exactly the path the feature
+        // exists for: navigate away, come back, and the draft would render
+        // empty. A fresh composer for a conversation with no failed draft
+        // still adopts nothing (`restoring == nil`, `adopt(nil)` returns
+        // `false`), and a later redraw carrying the same non-nil value still
+        // cannot re-adopt (`ComposerDraft.adopted` remembers) - so this is
+        // safe to fire unconditionally on appearance.
+        .onChange(of: restoring, initial: true) { _, text in
+            guard draft.adopt(text) else { return }
+            isFocused = true
+            onRestored?()
+        }
     }
 
     private var trimmed: String {
-        draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Clears optimistically. The message comes back through the event stream
@@ -72,7 +110,7 @@ public struct Composer: View {
     private func submit() {
         let text = trimmed
         guard !text.isEmpty else { return }
-        draft = ""
+        draft.clear()
         send(text)
     }
 }

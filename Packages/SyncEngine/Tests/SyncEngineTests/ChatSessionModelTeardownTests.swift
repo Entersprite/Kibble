@@ -77,6 +77,42 @@ struct ChatSessionModelTeardownTests {
 
         #expect(try store.messages(in: conversation).isEmpty)
     }
+
+    /// Unreachable in production today - a fresh model is built per session -
+    /// but a model reused across sign-out and sign-in must not carry a stale
+    /// read watermark or a retained failed draft into the next account.
+    /// `markGeneration` is deliberately **not** asserted here: it must
+    /// survive `stop()` unreset, per its own doc comment's ABA warning.
+    @MainActor
+    @Test func stopClearsPublishedWatermarksAndTheFailedDraft() async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        try await model.start()
+        for _ in 0 ..< 50 {
+            await Task.yield()
+        }
+
+        let conversation = FixtureWorld.minimal.messages[0].conversationID
+        model.select(conversation)
+        for _ in 0 ..< 50 {
+            await Task.yield()
+        }
+        #expect(!model.published.isEmpty)
+
+        await backend.failSubmissions(true)
+        model.send("never made it")
+        for _ in 0 ..< 50 {
+            await Task.yield()
+        }
+        #expect(model.failedDraft != nil)
+
+        await model.stop()
+
+        #expect(model.published.isEmpty)
+        #expect(model.failedDraft == nil)
+    }
 }
 
 /// The bug the owner actually saw: switching conversations faster than

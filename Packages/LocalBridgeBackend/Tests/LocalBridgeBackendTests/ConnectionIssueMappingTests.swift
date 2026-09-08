@@ -74,4 +74,56 @@ struct ConnectionIssueMappingTests {
                 == .unknown("malformed chunk: bad length prefix")
         )
     }
+
+    /// `connect()`'s own failure path used to emit `issue: nil` where
+    /// `channelStopped` mapped a real one - session 18's "Next" item 2. The
+    /// error at that call site is whatever `Bootstrap.run` threw, which is a
+    /// `ClassifiedTransportFailure`, a `BootstrapFailure`, or something else
+    /// entirely.
+    @Test func aClassifiedTransportFailureMapsLikeAnyOther() {
+        #expect(
+            ConnectionIssueMapping.issue(
+                forConnect: ClassifiedTransportFailure(.notConnectedToInternet)
+            ) == .noInternet
+        )
+        #expect(
+            ConnectionIssueMapping.issue(
+                forConnect: ClassifiedTransportFailure(.timedOut)
+            ) == .unresponsive
+        )
+    }
+
+    @Test func aBootstrapStatusMapsThroughTheStatusTaxonomy() {
+        #expect(
+            ConnectionIssueMapping.issue(forConnect: BootstrapFailure.unexpectedStatus(429))
+                == .rateLimited
+        )
+        #expect(
+            ConnectionIssueMapping.issue(forConnect: BootstrapFailure.unexpectedStatus(503))
+                == .serverError(status: 503)
+        )
+    }
+
+    /// **Not every bootstrap failure is a connectivity problem.** Being asked
+    /// to sign in, or refused as an unsupported browser, are not states this
+    /// taxonomy has a case for, and inventing one would be a confidently wrong
+    /// diagnosis on screen - which `TransportFailureReason.intercepted`'s own
+    /// doc comment already argues is worse than an honest vague one.
+    @Test func aNonConnectivityBootstrapFailureIsHonestlyUnknown() throws {
+        guard case .unknown = try ConnectionIssueMapping.issue(
+            forConnect: BootstrapFailure
+                .signInRedirect(#require(URL(string: "https://accounts.google.com")))
+        ) else {
+            Issue.record("expected .unknown")
+            return
+        }
+    }
+
+    @Test func anUnrecognisedErrorIsUnknownRatherThanAGuess() {
+        struct Nothing: Error {}
+        guard case .unknown = ConnectionIssueMapping.issue(forConnect: Nothing()) else {
+            Issue.record("expected .unknown")
+            return
+        }
+    }
 }

@@ -6,6 +6,7 @@
 --wrapcollections before-first
 --closingparen balanced
 --commas inline
+--disable wrapMultilineStatementBraces
 --trimwhitespace always
 --stripunusedargs closure-only
 --self remove

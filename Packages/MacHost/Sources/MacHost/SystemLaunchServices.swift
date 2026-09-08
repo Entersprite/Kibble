@@ -100,6 +100,22 @@ public final class SystemLaunchServices: LaunchServices {
         )
     }
 
+    /// `--probe=markread`'s own flag check and file, in exactly the shape
+    /// `LaunchServices.markReadTraceSink()` documents: `AppEnvironment` calls
+    /// this once, while building the model, and forwards whatever comes back
+    /// without ever inspecting `CommandLine.arguments` or naming
+    /// `MarkReadTraceFileSink` itself.
+    public func markReadTraceSink() -> (any MarkReadTraceSink)? {
+        guard CommandLine.arguments.contains("--probe=markread") else { return nil }
+        guard let url = try? Self.supportDirectory().appendingPathComponent("markread-trace.csv") else {
+            return nil
+        }
+        return MarkReadTraceFileSink(
+            writingTo: url,
+            readPositionOffsetMicroseconds: LocalBridgeBackend.readPositionOffsetMicroseconds
+        )
+    }
+
     private let appNapProbe = AppNapProbe()
 
     /// Where to write the channel trace, if `--probe=channeltrace` was asked

@@ -59,6 +59,42 @@ public enum ConnectionIssueMapping {
         }
     }
 
+    /// Maps a `connect()` failure onto the domain's connection issue.
+    ///
+    /// A second entry point rather than a widening of `issue(for:)`, because
+    /// the inputs are genuinely different: `channelStopped` has a
+    /// `ChannelFailure`, and `connect()` has whatever `Bootstrap.run` threw.
+    /// Both funnel into the same two private helpers, so the taxonomy stays in
+    /// one place.
+    ///
+    /// **Not every bootstrap failure is a connectivity problem.** Being asked
+    /// to sign in, refused as an unsupported browser, or handed a shell with
+    /// no `WIZ_global_data` are all real failures with no `ConnectionIssue` of
+    /// their own, and they map to `.unknown` on purpose - the reason is
+    /// carried separately in `.disconnected(reason:)`, which is where a
+    /// person reads what actually happened.
+    public static func issue(forConnect error: any Error) -> ConnectionIssue {
+        if let classified = error as? ClassifiedTransportFailure {
+            return issue(forTransport: classified.reason)
+        }
+        guard let failure = error as? BootstrapFailure else {
+            return .unknown("connect")
+        }
+        switch failure {
+        case let .unexpectedStatus(status):
+            return issue(forStatus: status)
+        // Exhaustive with no `default`, the same as every other switch in this
+        // file: a new `BootstrapFailure` case stops this compiling until
+        // someone decides whether it is a connectivity issue.
+        case .signInRedirect:
+            return .unknown("sign-in required")
+        case .unsupportedClient:
+            return .unknown("client refused")
+        case .noGlobalData:
+            return .unknown("no app shell")
+        }
+    }
+
     /// 429 and every 5xx are `ChannelFailure.isRecoverable`'s own two
     /// non-`.transport` recoverable classes (alongside 400, which is not
     /// distinguished here - it has no `ConnectionIssue` of its own and falls

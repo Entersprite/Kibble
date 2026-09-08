@@ -21,11 +21,31 @@ public extension LocalBridgeBackend {
     /// this and why that is a deliberate departure from every other `/api/`
     /// family in this package.
     func send(_ command: ChatCommand) async throws {
-        guard case let .sendMessage(conversationID, threadID, text, localID) = command else {
-            // Named rather than swallowed. A caller learns precisely what could
-            // not be honoured instead of watching a message vanish.
+        switch command {
+        case let .sendMessage(conversationID, threadID, text, localID):
+            try await sendMessage(
+                conversationID: conversationID,
+                threadID: threadID,
+                text: text,
+                localID: localID
+            )
+        case let .markRead(conversationID, upTo):
+            try await markRead(conversationID, upTo: upTo)
+        // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
+        // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
+        // until someone decides whether this backend can honour it.
+        case .editMessage, .deleteMessage, .setReaction, .setTyping,
+             .setNotificationLevel, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }
+    }
+
+    private func sendMessage(
+        conversationID: Conversation.ID,
+        threadID: MessageThread.ID?,
+        text: String,
+        localID: String?
+    ) async throws {
         guard let apiClient else {
             throw ChatError.unknown(
                 "send(_:) requires connect() to succeed first - "
@@ -50,22 +70,63 @@ public extension LocalBridgeBackend {
         // non-`nil` `threadID` would still route here and post a
         // `create_message` carrying an empty topic id.
         if let threadID, !threadID.rawValue.isEmpty {
+            let response: CreateMessageResponse
             do {
-                _ = try await apiClient.call(.createMessage, SendRequests.createMessage(
+                response = try await apiClient.call(.createMessage, SendRequests.createMessage(
                     group: group, topicID: threadID.rawValue, text: text, localID: identifier
                 ))
             } catch {
                 throw Self.chatError(fromAPI: error, call: "the /api/ create_message call")
             }
+            try Self.requireAccepted(
+                response.hasMessage && !response.message.id.messageID.isEmpty,
+                call: "create_message",
+                field: "message (field 1)"
+            )
         } else {
+            let response: CreateTopicResponse
             do {
-                _ = try await apiClient.call(.createTopic, SendRequests.createTopic(
+                response = try await apiClient.call(.createTopic, SendRequests.createTopic(
                     group: group, text: text, localID: identifier
                 ))
             } catch {
                 throw Self.chatError(fromAPI: error, call: "the /api/ create_topic call")
             }
+            try Self.requireAccepted(
+                response.hasTopic && !response.topic.id.topicID.isEmpty,
+                call: "create_topic",
+                field: "topic (field 1)"
+            )
         }
+    }
+
+    /// **HTTP 200 is not acceptance on this protocol.** Auth failure returns
+    /// 200, so a send that threw nothing has only ever proved the HTTP call
+    /// did not fail outright - and the optimistic row is already on screen by
+    /// then, so a silent rejection is indistinguishable from a success.
+    ///
+    /// Deliberately shallow: the message is present and its id is not empty,
+    /// nothing finer. The evidence is `1:2:NNN|2:2:18` on seven of seven live
+    /// sends (session 19 §8), which supports "field 1 is populated" and
+    /// supports nothing more than that.
+    ///
+    /// **The response is not written to the store.** The channel echoes the
+    /// message back carrying the client's `local_id`, `ChatStore` deletes any
+    /// row sharing it, and §23's "no duplicate messages" is the live evidence
+    /// that the echo arrives. A second write path from here is how that
+    /// becomes two messages.
+    ///
+    /// Reports field *numbers*, never content.
+    private static func requireAccepted(
+        _ accepted: Bool,
+        call: String,
+        field: String
+    ) throws {
+        guard !accepted else { return }
+        throw ChatError.unknown(
+            "the /api/ \(call) call answered 200 with no \(field), so nothing "
+                + "confirms the message was accepted"
+        )
     }
 
     /// What to call a command that this backend cannot honour, for the

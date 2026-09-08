@@ -17,18 +17,68 @@ import GChatBridgeCore
 /// this report already follows, because this report is pasted verbatim into
 /// a committed file and now describes real conversations.
 extension APIProbeReport {
+    /// Which conversation to probe: the one with the greatest `sort_timestamp`
+    /// (`Conversation.lastActivity`, per `WorldMapping.swift:77-78`) - the one
+    /// necessarily just used, since a failing repro needs the conversation the
+    /// repro actually happened in, not conversation zero of whatever order
+    /// `paginated_world` returned. `nil` sorts lowest, matching
+    /// `Conversation.lastActivity`'s own doc comment ("never, or not known
+    /// yet" belongs below anything with a timestamp).
+    ///
+    /// `override` is `--probe-conversation=N`, threaded down from
+    /// `APIProbeReport.run(conversationIndexOverride:)`. An out-of-range
+    /// override is reported and falls back to the same most-recently-active
+    /// choice rather than silently picking something the caller did not ask
+    /// for.
+    static func chooseConversationIndex(
+        _ conversations: [Conversation],
+        override: Int?,
+        lines: inout [String]
+    ) -> Int? {
+        if let override {
+            guard conversations.indices.contains(override) else {
+                lines.append(
+                    "  --probe-conversation=\(override) is out of range "
+                        + "(0..<\(conversations.count)) - falling back to most recently active"
+                )
+                return mostRecentlyActiveIndex(conversations)
+            }
+            lines.append("  probing conversation index \(override) of \(conversations.count) "
+                + "(explicit --probe-conversation)")
+            return override
+        }
+        guard let index = mostRecentlyActiveIndex(conversations) else { return nil }
+        lines.append("  probing conversation index \(index) of \(conversations.count) "
+            + "(most recently active)")
+        return index
+    }
+
+    private static func mostRecentlyActiveIndex(_ conversations: [Conversation]) -> Int? {
+        conversations.indices.max { lhs, rhs in
+            (conversations[lhs].lastActivity ?? .distantPast)
+                < (conversations[rhs].lastActivity ?? .distantPast)
+        }
+    }
+
     static func appendTopicsLadderSection(
         client: ProtoAPIClient,
         conversations: [Conversation],
+        selfUserID: String?,
+        conversationIndexOverride: Int?,
         lines: inout [String]
     ) async {
         lines.append("list_topics ladder:")
-        guard let index = conversations.indices.first else {
+        guard !conversations.isEmpty else {
+            lines.append("  no conversation available to probe (empty or failed world mapping)")
+            return
+        }
+        guard let index = chooseConversationIndex(
+            conversations, override: conversationIndexOverride, lines: &lines
+        ) else {
             lines.append("  no conversation available to probe (empty or failed world mapping)")
             return
         }
         let conversation = conversations[index]
-        lines.append("  probing conversation index \(index) of \(conversations.count)")
         guard let group = ChannelEventMapping.groupID(for: conversation.id) else {
             // Unreachable in practice: every id in `conversations` came from
             // `ChannelEventMapping.conversationID(_:)` succeeding in the first
@@ -50,6 +100,12 @@ extension APIProbeReport {
             rung: TopicsRequestLadder.minimumViable(for: group),
             lines: &lines
         )
+        lines.append("")
+        // Rung 4 is the only rung whose request sets `fetch_options:
+        // READ_RECEIPTS` (`TopicsRequestLadder.withFetchOptions`) - rungs 1-3
+        // never populate `read_receipt_set` at all, so this deliberately does
+        // not reuse `minimumViable`'s rung 2.
+        await appendReadReceiptsSection(client: client, rung: rungs[3], selfUserID: selfUserID, lines: &lines)
     }
 
     /// The topics analogue of `appendNestedItemShapes` - `findings.md` has no
@@ -98,5 +154,43 @@ extension APIProbeReport {
         lines.append(
             "  with non-empty text: \(mapped.messages.count(where: { !$0.text.isEmpty }))"
         )
+    }
+
+    /// Answers the question this slice exists for: what does Google itself
+    /// think our read position is. A third `list_topics` call - `rung` must
+    /// be rung 4 (`fetch_options: READ_RECEIPTS`), the only rung whose
+    /// request populates `read_receipt_set` (field 6) at all; §21.4 measured
+    /// every other rung sending that field back empty. The formatting and
+    /// delta arithmetic themselves live in `ReadReceiptReport`, kept pure so
+    /// they can be tested against an invented `ReadReceiptSet` with no
+    /// network and no account.
+    private static func appendReadReceiptsSection(
+        client: ProtoAPIClient,
+        rung: TopicsRequestLadder.Rung,
+        selfUserID: String?,
+        lines: inout [String]
+    ) async {
+        let response: ListTopicsResponse
+        do {
+            response = try await client.call(.listTopics, rung.request)
+        } catch {
+            lines.append("read receipts (list_topics rung 4):")
+            lines.append("  FAILED: \(safeDescription(of: error))")
+            return
+        }
+        let newestTopic = response.topics.max(by: { $0.createTimeUsec < $1.createTimeUsec })
+        let newestTopicReference = newestTopic.map { topic in
+            ReadReceiptReport.NewestTopicReference(
+                createTimeUsec: topic.createTimeUsec,
+                sortTime: topic.hasSortTime ? topic.sortTime : nil,
+                newestReplyCreateTime: topic.replies.map(\.createTime).max()
+            )
+        }
+        lines.append(contentsOf: ReadReceiptReport.lines(
+            receiptSet: response.readReceiptSet,
+            topicCount: response.topics.count,
+            newestTopicReference: newestTopicReference,
+            selfUserID: selfUserID
+        ))
     }
 }
