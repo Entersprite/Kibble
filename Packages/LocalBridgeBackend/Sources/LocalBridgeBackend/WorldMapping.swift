@@ -83,15 +83,66 @@ public enum WorldMapping {
         )
     }
 
-    /// Space, direct message, or group direct message.
+    /// Space, direct message, group direct message, or app DM - from the
+    /// server's own answer where it gives one.
     ///
-    /// `[Verify]`: **cannot currently distinguish an app DM** from a human
-    /// one - both arrive as `dm_id`, and nothing this project has observed
-    /// tells them apart at this layer. Guessed by member count rather than
-    /// reported as `.unknown`, because an app DM is a real, usable DM, and
-    /// filing it under `.unknown` would hide it from the sidebar entirely -
-    /// the worse of the two wrong answers.
+    /// `attribute_checker_group_type` (field 19) is read first. `findings.md`
+    /// §37.2: it is declared in the vendored proto, has therefore been in the
+    /// generated Swift all along, and §20.4 observed it present on all four
+    /// scanned items - so this function's former doc comment, which said an
+    /// app DM **cannot** be distinguished from a human one at this layer, was
+    /// never true. `oneToOneBotDm` is exactly that distinction.
+    ///
+    /// The `GroupId`-plus-member-count inference stays as the fallback rather
+    /// than being deleted. Field 19 was observed on four items of one
+    /// account, which is not a promise about every account or every future
+    /// response, and a conversation whose type cannot be read should stay as
+    /// well-categorised as it already was rather than become `.unknown`.
+    /// Because the proto is proto2, a value added by Google after this build
+    /// arrives as an unrecognised enum, which leaves the presence bit clear
+    /// and lands here too.
     private static func kind(for item: WorldItemLite) -> Conversation.Kind {
+        if item.hasAttributeCheckerGroupType,
+           let stated = statedKind(for: item.attributeCheckerGroupType) {
+            return stated
+        }
+        return inferredKind(for: item)
+    }
+
+    /// What field 19 says, or `nil` when it says nothing usable.
+    ///
+    /// `[Verify]`: §20.4 recorded field 19's **presence and length, never its
+    /// value** - `ProtoFieldScan` reports field numbers, wire types and sizes
+    /// and deliberately never contents - so which of the seven values each
+    /// conversation actually carries is unobserved. Two readings here claim
+    /// more than has been established, and both pick the least invasive
+    /// answer: `immutableMembershipHumanDm` (6) is treated as a plain DM,
+    /// and `postRoom` (7) as a plain space. An announcement space may deserve
+    /// separating later; nothing has confirmed this account has one.
+    private static func statedKind(
+        for groupType: SharedAttributeCheckerGroupType
+    ) -> Conversation.Kind? {
+        switch groupType {
+        case .oneToOneHumanDm, .immutableMembershipHumanDm:
+            .directMessage
+        case .oneToOneBotDm:
+            .appDirectMessage
+        case .immutableMembershipGroupDm:
+            .groupDirectMessage
+        case .flatRoom, .threadedRoom, .postRoom:
+            .space
+        case .attributeCheckerGroupTypeUnspecified:
+            // The presence bit was set and the value still says nothing.
+            nil
+        }
+    }
+
+    /// The pre-§37.2 reading: the `GroupId` oneof, plus member count for the
+    /// DM-versus-group-DM split. Now the fallback rather than the only answer.
+    ///
+    /// It cannot see an app DM at all, which is why
+    /// `LocalBridgeBackend.asAppDirectMessage` still exists as a second pass.
+    private static func inferredKind(for item: WorldItemLite) -> Conversation.Kind {
         switch item.groupID.id {
         case .spaceID:
             .space
@@ -108,9 +159,16 @@ public enum WorldMapping {
         }
     }
 
-    /// `threaded_group` present beats `flat_group` present beats
-    /// `group_lite.is_flat`, inverted - and when **none** of the three is
-    /// present, `false`.
+    /// `attribute_checker_group_type` beats `threaded_group` present beats
+    /// `flat_group` present beats `group_lite.is_flat`, inverted - and when
+    /// **none** of the four is present, `false`.
+    ///
+    /// Field 19 leads because `flatRoom` and `threadedRoom` are the server
+    /// stating the answer, where the three fields below it are a client
+    /// reading structure out of which empty marker message arrived
+    /// (`findings.md` §37.2). Only those two values decide: the DM cases say
+    /// nothing about threading, and `postRoom` is unobserved, so all of them
+    /// fall through to the ladder rather than claim a default.
     ///
     /// The ladder run (`findings.md` §20.1) is why `group_lite` cannot be
     /// dropped from the request even though `EXCLUDE_GROUP_LITE` costs ~48
@@ -128,6 +186,21 @@ public enum WorldMapping {
     /// space rendered flat is a degraded but still coherent view, whereas a
     /// flat group rendered threaded invents a structure that was never there.
     private static func isThreaded(_ item: WorldItemLite) -> Bool {
+        if item.hasAttributeCheckerGroupType {
+            switch item.attributeCheckerGroupType {
+            case .threadedRoom:
+                return true
+            case .flatRoom:
+                return false
+            case .oneToOneHumanDm, .oneToOneBotDm, .immutableMembershipGroupDm,
+                 .immutableMembershipHumanDm, .postRoom,
+                 .attributeCheckerGroupTypeUnspecified:
+                // Deliberately exhaustive rather than `default`: regenerating
+                // the proto with a new case should fail to compile here and
+                // force a decision, not silently pick the ladder.
+                break
+            }
+        }
         if item.hasThreadedGroup {
             return true
         }
