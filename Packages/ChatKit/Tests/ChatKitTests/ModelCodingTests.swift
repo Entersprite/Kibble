@@ -11,6 +11,7 @@ struct ModelCodingTests {
     func models() throws {
         try expectWireStable(Fixture.conversation, golden: "conversation")
         try expectWireStable(Fixture.dm, golden: "conversation-dm")
+        try expectWireStable(Fixture.meetChat, golden: "conversation-meetChat")
         try expectWireStable(Fixture.human, golden: "member")
         try expectWireStable(Fixture.bot, golden: "member-app")
         try expectWireStable(Fixture.message, golden: "message")

@@ -1,6 +1,7 @@
 import Foundation
 
-/// One thing in the sidebar: a DM, a group DM, a DM with an app, or a space.
+/// One thing in the sidebar: a DM, a group chat, a DM with an app, a space,
+/// or the space a scheduled meeting was created for.
 ///
 /// The identity of a conversation is `id` alone. Everything else is a snapshot
 /// that a later `conversationUpdated` event may replace wholesale, which is why
@@ -116,6 +117,22 @@ public extension Conversation {
         case groupDirectMessage
         case appDirectMessage
         case space
+
+        /// A space created for a scheduled meeting, named after the calendar
+        /// event - 187 of the 220 conversations on the account this was built
+        /// against.
+        ///
+        /// **The name is a product decision, not a documented protocol
+        /// fact.** These arrive as `attribute_checker_group_type` **10**,
+        /// which no vendored reference proto names, so what Google calls the
+        /// type is unknown (`findings.md` §37.4). What is measured is that
+        /// value 10 is a space-namespace type and that all 187 of them are
+        /// titled after calendar events; the owner identified them as their
+        /// Meet conversations and chose the name. If value 10 turns out to be
+        /// broader than meetings, this label is what will be wrong - not the
+        /// mapping, which is keyed on the number.
+        case meetChat
+
         case unknown(String)
 
         init(wire: String) {
@@ -124,6 +141,7 @@ public extension Conversation {
             case "groupDirectMessage": self = .groupDirectMessage
             case "appDirectMessage": self = .appDirectMessage
             case "space": self = .space
+            case "meetChat": self = .meetChat
             default: self = .unknown(wire)
             }
         }
@@ -134,6 +152,7 @@ public extension Conversation {
             case .groupDirectMessage: "groupDirectMessage"
             case .appDirectMessage: "appDirectMessage"
             case .space: "space"
+            case .meetChat: "meetChat"
             case let .unknown(raw): raw
             }
         }

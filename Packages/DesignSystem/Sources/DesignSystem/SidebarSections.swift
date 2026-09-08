@@ -57,12 +57,18 @@ public enum SidebarSections {
     }
 
     /// Mirrors the prototype's order, plus apps, which the prototype had no
-    /// need for.
+    /// need for, and Meet chats.
+    ///
+    /// **Meet chats go last on purpose.** On the real account they are 187 of
+    /// 220 conversations, so any section placed after them is a long scroll
+    /// away; Direct messages, Group chats, Spaces and Apps are the small,
+    /// frequently-wanted ones and stay reachable at the top.
     private static let named: [(id: String, title: String)] = [
         ("directMessage", "Direct messages"),
         ("groupDirectMessage", "Group chats"),
         ("space", "Spaces"),
-        ("appDirectMessage", "Apps")
+        ("appDirectMessage", "Apps"),
+        ("meetChat", "Meet Chats")
     ]
 
     /// One section key per distinct unrecognised token. Prefixed so a token
@@ -85,6 +91,7 @@ public enum SidebarSections {
         case .groupDirectMessage: "groupDirectMessage"
         case .space: "space"
         case .appDirectMessage: "appDirectMessage"
+        case .meetChat: "meetChat"
         case let .unknown(raw): raw.isEmpty ? "other" : unknownKey(raw)
         }
     }

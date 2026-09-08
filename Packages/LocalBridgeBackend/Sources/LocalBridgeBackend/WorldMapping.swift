@@ -57,30 +57,76 @@ public enum WorldMapping {
         return Conversation(
             id: id,
             kind: kind(for: item),
-            // `Conversation.title`'s own doc comment draws a line the proto
-            // can actually express: `nil` means "no server title, derive from
-            // members"; an empty string means "the server really sent one".
-            // `hasRoomName` is the wire's own presence bit, so it - not
-            // `roomName.isEmpty` - is what decides which side of that line an
-            // item falls on.
-            //
-            // `[Verify]`: the field **numbers** here are confirmed against the
-            // vendored proto, but whether Chat ever actually sends `room_name`
-            // absent versus present-and-empty for a DM has not been observed
-            // on the wire - `findings.md` §20.4 flags every field inside a
-            // `WorldItemLite` as unconfirmed, and this is one of them. Trusting
-            // the presence bit is the conservative reading of `Conversation`'s
-            // contract either way; it is the "is it ever sent empty" question
-            // that remains open.
-            title: item.hasRoomName ? item.roomName : nil,
+            title: title(for: item),
             avatarURL: item.avatarURL.isEmpty ? nil : URL(string: item.avatarURL),
             lastActivity: item.hasSortTimestamp
                 ? Date(timeIntervalSince1970: Double(item.sortTimestamp) / 1_000_000)
                 : nil,
             unreadCount: Int(item.readState.unreadMessageCount),
-            members: item.dmMembers.members.map { ChatKit.Member.ID($0.id) },
+            members: memberIDs(for: item),
             isThreaded: isThreaded(item)
         )
+    }
+
+    /// The server's own title, or `nil` for a client to derive one.
+    ///
+    /// `Conversation.title`'s own doc comment draws a line the proto can
+    /// actually express: `nil` means "no server title, derive from members";
+    /// an empty string means "the server really sent one". `hasRoomName` is
+    /// the wire's own presence bit, so it - not `roomName.isEmpty` - is what
+    /// decides which side of that line an item falls on.
+    ///
+    /// `name_users.group_name` is consulted second. `NameUsers` carries one,
+    /// and whether Chat ever populates it is **unobserved**: the six group
+    /// chats on the real account carry field 20 at 77-127 bytes, which is
+    /// about three to five `UserId`s and leaves little room for a name
+    /// (`findings.md` §37.6). Reading it anyway costs one branch and removes
+    /// the need to be right about that arithmetic - if it is never sent, this
+    /// falls through exactly as before.
+    ///
+    /// `[Verify]`: whether `room_name` is ever sent **present-and-empty**.
+    /// §37.3 settled that it is sent at all - 199 of 220 - and the same run
+    /// reported `present-empty 0`, so on this account it is always either
+    /// absent or non-empty. One account, so trusting the presence bit remains
+    /// the conservative reading rather than a confirmed one.
+    private static func title(for item: WorldItemLite) -> String? {
+        if item.hasRoomName {
+            return item.roomName
+        }
+        if item.hasNameUsers, item.nameUsers.hasGroupName {
+            return item.nameUsers.groupName
+        }
+        return nil
+    }
+
+    /// Who is in the conversation - from `dm_members` for a DM, and from
+    /// `name_users` for a group chat.
+    ///
+    /// `dm_members` was the only source until 2026-09-08, and it is **absent
+    /// on a space** (`findings.md` §37.5's cross-tab: the 15 DMs have it and
+    /// the 6 group chats do not). So a group chat arrived with no members at
+    /// all, and `Display.title(of:directory:me:)` fell through both of its
+    /// branches to the last one - `conversation.id.rawValue` - and rendered
+    /// **`space/AAQARch4B7w`** in the sidebar. The name was not missing from
+    /// the protocol; it was in the field this function did not read.
+    ///
+    /// `name_user_ids` is exactly the list a client is meant to build a title
+    /// from, which is what `Display` already does once the ids resolve
+    /// through `get_members` - and they do, because
+    /// `resolveAndEmitMembers(for:using:)` collects
+    /// `conversations.flatMap(\.members)`.
+    ///
+    /// `[Verify]`: `name_users.has_more_name_users` is **not** read. When it
+    /// is set the id list is truncated, so a derived title names only some of
+    /// the people present - Chat's own client renders "A, B and 2 others".
+    /// Whether it is ever set here is unobserved, and honouring it needs a
+    /// count `Conversation` does not currently carry.
+    private static func memberIDs(for item: WorldItemLite) -> [ChatKit.Member.ID] {
+        let direct = item.dmMembers.members
+        if !direct.isEmpty {
+            return direct.map { ChatKit.Member.ID($0.id) }
+        }
+        return item.nameUsers.nameUserIds.map { ChatKit.Member.ID($0.id) }
     }
 
     /// Space, direct message, group direct message, or app DM - from the
@@ -115,7 +161,9 @@ public enum WorldMapping {
         }
         let inferred = inferredKind(for: item)
         if inferred == .space, let raw = unrecognisedGroupType(in: item) {
-            return .unknown("\(Self.groupTypeTokenPrefix)\(raw)")
+            return raw == meetChatGroupType
+                ? .meetChat
+                : .unknown("\(Self.groupTypeTokenPrefix)\(raw)")
         }
         return inferred
     }
@@ -169,6 +217,19 @@ public enum WorldMapping {
     private static func isNamedAfterItsMembers(_ item: WorldItemLite) -> Bool {
         !item.hasRoomName && item.hasNameUsers
     }
+
+    /// The `attribute_checker_group_type` of a space created for a scheduled
+    /// meeting - **187 of the real account's 220 conversations**, every one a
+    /// space and every one titled after a calendar event (`findings.md`
+    /// §37.4).
+    ///
+    /// Still a bare number, because no vendored reference proto names value
+    /// 10; `Conversation.Kind.meetChat`'s doc comment records that the *name*
+    /// is the owner's decision from visual confirmation while the wire
+    /// meaning stays `[Verify]`. Any **other** unrecognised space type still
+    /// becomes `.unknown` keyed on its number, which is the path that found
+    /// this one.
+    private static let meetChatGroupType: UInt64 = 10
 
     /// The prefix a `Kind.unknown` payload carries when the *only* thing this
     /// build knows about a conversation's type is field 19's number.

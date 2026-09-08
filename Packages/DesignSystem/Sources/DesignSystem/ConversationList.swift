@@ -106,6 +106,13 @@ struct ConversationRow: View {
             }
         case .space:
             Text("#").fontWeight(.semibold).frame(width: 20).foregroundStyle(.secondary)
+        case .meetChat:
+            // `video.fill` verified present via
+            // `NSImage(systemSymbolName:accessibilityDescription:)` - a wrong
+            // symbol name compiles and renders as empty space.
+            MonogramCircle(size: 20) {
+                Image(systemName: "video.fill").font(.system(size: 9))
+            }
         case .unknown:
             Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
         }
