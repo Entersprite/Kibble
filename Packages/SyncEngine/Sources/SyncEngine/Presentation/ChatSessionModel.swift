@@ -129,21 +129,62 @@ public final class ChatSessionModel {
     /// conversation id precisely so a half-typed line cannot follow the user
     /// to a different person, and a restore that ignored the id would undo
     /// that.
-    private var failed: (conversationID: Conversation.ID, text: String)?
+    ///
+    /// Not `private`: `failedDraft`, `clearFailedDraft()` and `send(_:)` all
+    /// live in `ChatSessionModel+Send.swift`, in a different source file
+    /// where Swift's same-file `private` visibility does not reach. Same
+    /// reasoning as `published` and `markTasks` above, and still invisible
+    /// outside this module.
+    var failed: (conversationID: Conversation.ID, text: String)?
 
-    /// The failed text, but only while its own conversation is open.
-    public var failedDraft: String? {
-        guard let failed, failed.conversationID == selected else { return nil }
-        return failed.text
-    }
-
-    private let store: ChatStore
+    /// Not `private` for the same reason as `failed` just above:
+    /// `send(_:)`'s optimistic row is written through this from
+    /// `ChatSessionModel+Send.swift`.
+    let store: ChatStore
     /// Not `private`: `ChatSessionModel+AutoMarkRead.swift`'s trigger submits
-    /// through this directly, the same way `select(_:)` and `send(_:)` in
-    /// this file already do.
+    /// through this directly, the same way `select(_:)` in this file and
+    /// `send(_:)` in `ChatSessionModel+Send.swift` already do.
     let engine: SyncEngine
     /// `--probe=markread`'s recorder, `nil` otherwise; read from `+AutoMarkRead.swift`.
     let markReadTrace: MarkReadTraceRecorder?
+
+    /// How long to wait before publishing a read position.
+    ///
+    /// **A message marked within ~0.25s of arriving does not register a read
+    /// receipt for the sender; the same formula works on one a couple of
+    /// seconds older.** Five live observations, in
+    /// `docs/superpowers/specs/2026-09-08-mark-read-debounce-design.md` §2.
+    /// Two seconds sits comfortably past the 0.25s that fails and well under
+    /// the 2.746s known to work.
+    ///
+    /// **`[Verify]` - a tuned guess, not a known server constant.** The
+    /// reading that fits every observation is that our mark reaches Google
+    /// before the message has finished committing, so the receipt is computed
+    /// without it. Nothing here can see that pipeline. Do not delete this as
+    /// pointless latency: it is load-bearing, and §36 is what it is fixing.
+    ///
+    /// **This delays from the first trigger; it does not restart per
+    /// arriving message.** So the residue the wait cannot cover is a
+    /// conversation receiving messages faster than the interval: one landing
+    /// at `interval - 0.1s` becomes the position that gets published, and is
+    /// published 0.1s old - the condition §2 records as failing. The re-arm
+    /// does not rescue that one either, because by then the freshest message
+    /// *is* the published position and its `freshest > position` test is
+    /// false.
+    ///
+    /// That is deliberate, per the design's §5: the wait is applied
+    /// uniformly, and coalescing is a second, independent benefit rather than
+    /// the goal. A per-message quiet period would turn a bounded two-second
+    /// delay into an unbounded one in any busy conversation, and would cost
+    /// the one-variable property §4 defines refutation against - on a
+    /// mechanism still marked `[Verify]` above. **If a live run shows the
+    /// residue mattering, a quiet period (restart the wait on each arrival,
+    /// under a ceiling) is the change to make** - and it should be made
+    /// against measurements rather than ahead of them.
+    ///
+    /// Injected so tests can pass `.zero` - a suite that waits two real
+    /// seconds is a suite people stop running.
+    let markReadDebounce: Duration
     private var watchers: [Task<Void, Never>] = []
 
     /// Cancelled and replaced whenever the selection changes, so only the open
@@ -172,12 +213,14 @@ public final class ChatSessionModel {
     private var actedOnConnection: ConnectionState?
     public init(
         store: ChatStore, engine: SyncEngine, me: Member.ID? = nil,
-        markReadTrace: (any MarkReadTraceSink)? = nil
+        markReadTrace: (any MarkReadTraceSink)? = nil,
+        markReadDebounce: Duration = .seconds(2)
     ) {
         self.store = store
         self.engine = engine
         self.me = me
         self.markReadTrace = markReadTrace.map(MarkReadTraceRecorder.init(sink:))
+        self.markReadDebounce = markReadDebounce
     }
 
     /// Starts syncing and watching. Safe to call once; later calls do nothing.
@@ -307,62 +350,6 @@ public final class ChatSessionModel {
         historyTask?.cancel()
         historyTask = Task { [engine] in
             await engine.requestMoreMessages(in: selected)
-        }
-    }
-
-    /// Called by the host once it has put the text back, so it is not offered
-    /// again on the next redraw.
-    public func clearFailedDraft() {
-        failed = nil
-    }
-
-    /// Sends, and shows the message immediately.
-    ///
-    /// The optimistic row carries a `local/`-prefixed id because it has no
-    /// server id yet and inventing one that later collides with a real message
-    /// id would be worse than an obviously-local one. `ChatStore` replaces it
-    /// when the echo arrives, matched on `localID` - see `Message.localID`,
-    /// which has documented exactly this since the seam was written.
-    ///
-    /// A backend that cannot send is not asked. The composer is already hidden
-    /// in that case, but a model that wrote an optimistic row anyway would show
-    /// a message that never leaves.
-    public func send(_ text: String) {
-        guard let selected, capabilities.canSendMessages else { return }
-        let localID = UUID().uuidString
-        // Invented here, and therefore retracted from here. The `local/`
-        // prefix is this file's convention and stays this file's business:
-        // `ChatStore` deletes a row by id and has never heard of it.
-        let optimisticID = Message.ID("local/\(localID)")
-        var undo: [StoreWrite] = []
-        if let me {
-            try? store.apply([.upsertMessage(Message(
-                id: optimisticID,
-                conversationID: selected,
-                threadID: MessageThread.ID(""),
-                sender: me,
-                text: text,
-                createdAt: Date(),
-                localID: localID
-            ))])
-            // Only what was actually written. With no `me` there is no
-            // optimistic row and nothing to take back.
-            undo = [.removeMessage(id: optimisticID)]
-        }
-        Task { @MainActor [weak self, engine] in
-            let accepted = await engine.submit(
-                .sendMessage(
-                    conversationID: selected, threadID: nil, text: text, localID: localID
-                ),
-                // By id, not by `localID`. The server echoes `localID` back on
-                // the delivered message, so a `localID` retraction would
-                // delete the real one whenever the echo beat the failure -
-                // which is exactly the `/api/` timeout this whole retraction
-                // was written for.
-                undoing: undo
-            )
-            guard let self, !accepted else { return }
-            failed = (conversationID: selected, text: text)
         }
     }
 

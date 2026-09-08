@@ -21,6 +21,7 @@ actor RecordingBackend: ChatBackend {
     private(set) var commands: [ChatCommand] = []
     private var failing = false
     private var holding = false
+    private var accepting = false
     /// A queue, not a single slot: a second `send(_:)` arriving while one is
     /// already held used to overwrite this without resuming it, orphaning the
     /// first caller permanently - a hang inside the suite's own time limit
@@ -52,6 +53,26 @@ actor RecordingBackend: ChatBackend {
     /// the test can still read `commands`/`markReadCount` while it is held.
     func holdSubmissions(_ shouldHold: Bool) {
         holding = shouldHold
+    }
+
+    /// Makes every later `send(_:)` record the command and succeed **without**
+    /// forwarding it to the fixture backend.
+    ///
+    /// Written for one sequence that cannot otherwise exist:
+    /// `FakeBackend.send(_:)` throws once disconnected, and
+    /// `ChatSessionModel.stop()` disconnects. So a mark held open across
+    /// `stop()` and then released always fails for *that* reason, and
+    /// `publishReadPosition`'s own `Task.isCancelled` guard is never the
+    /// thing that declines - deleting that guard leaves such a test green,
+    /// which is the definition of no coverage.
+    ///
+    /// What it models is real, and is what the guard exists for:
+    /// `stop()`'s doc comment says cancelling a task does not oblige the
+    /// request underneath it to abort, so a `mark_group_readstate` already in
+    /// flight can be *accepted* by the server after sign-out. This is that
+    /// case, and the watermark must still not advance.
+    func acceptWithoutForwarding(_ shouldAccept: Bool) {
+        accepting = shouldAccept
     }
 
     /// Releases the oldest `send(_:)` call currently blocked by
@@ -103,6 +124,7 @@ actor RecordingBackend: ChatBackend {
         if failing {
             throw ChatError.notAuthenticated
         }
+        guard !accepting else { return }
         try await inner.send(command)
     }
 

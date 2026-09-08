@@ -22,7 +22,7 @@ struct ChatSessionModelTests {
         let backend = FakeBackend(world: .minimal)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
 
         try await model.start()
 
@@ -42,7 +42,12 @@ struct ChatSessionModelTests {
         let backend = FakeBackend(world: .minimal)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
 
         #expect(model.me == FixtureWorld.minimal.me)
     }
@@ -56,7 +61,12 @@ struct ChatSessionModelTests {
         let backend = FakeBackend(world: .minimal)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
         #expect(model.me == FixtureWorld.minimal.me)
 
         try await model.start()
@@ -92,7 +102,12 @@ extension ChatSessionModelTests {
         let backend = FakeBackend(world: .minimal)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
         let conversation = Conversation.ID("dm:1")
 
         try await model.start()
@@ -141,7 +156,7 @@ extension ChatSessionModelTests {
         let backend = FakeBackend(world: .minimal)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
         let conversation = Conversation.ID("dm:1")
 
         model.select(conversation)
@@ -183,7 +198,12 @@ extension ChatSessionModelTests {
         let backend = FakeBackend(world: .minimal)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
         let conversation = Conversation.ID("dm:1")
 
         model.select(conversation)
@@ -234,7 +254,12 @@ extension ChatSessionModelTests {
         let backend = FakeBackend(world: .minimal)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
         let conversation = Conversation.ID("dm:1")
 
         model.select(conversation)
@@ -288,7 +313,7 @@ extension ChatSessionModelTests {
         let backend = FailingBackend()
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine)
+        let model = ChatSessionModel(store: store, engine: engine, markReadDebounce: .zero)
 
         try await model.start()
         model.select(Conversation.ID("space:1"))
@@ -311,7 +336,12 @@ extension ChatSessionModelTests {
         let backend = FakeBackend(world: .minimal, capabilities: Capabilities(canSendMessages: false))
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
         let conversation = Conversation.ID("dm:1")
 
         try await model.start()

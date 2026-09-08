@@ -83,7 +83,7 @@ struct AutoMarkReadTests {
         let backend = RecordingBackend()
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
         try await model.start()
         await settle()
 
@@ -195,7 +195,7 @@ struct AutoMarkReadTests {
         let backend = RecordingBackend(world: world)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
         try await model.start()
         await settle()
 
@@ -215,7 +215,7 @@ struct AutoMarkReadTests {
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
         await engine.setGhostMode(true)
-        let model = ChatSessionModel(store: store, engine: engine, me: nil)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
         try await model.start()
         await settle()
 
@@ -318,7 +318,12 @@ struct AutoMarkReadTests {
         let backend = RecordingBackend()
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: FixtureWorld.minimal.me)
+        let model = ChatSessionModel(
+            store: store,
+            engine: engine,
+            me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
         try await model.start()
         await settle()
 
