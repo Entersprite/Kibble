@@ -39,6 +39,63 @@ extension ChatSessionModel {
         }
     }
 
+    /// `markSelectedReadIfNeeded()`'s own tracing call, factored out to a
+    /// proper method rather than a nested function so that function stays
+    /// under swiftlint's `function_body_length` ceiling. A `nil`
+    /// `markReadTrace` (every ordinary launch) makes this a single pointer
+    /// check and nothing else, exactly `ChannelTraceSink`'s own contract,
+    /// which is why the filtered message list is recomputed here rather than
+    /// taken as a parameter.
+    ///
+    /// **`conversation` and `position` exist because the debounce put a
+    /// suspension point between the decision and the row.** Every emission
+    /// used to be synchronous inside the trigger, so reading `selected` and
+    /// `messages` fresh always described the thing being decided about.
+    /// After the wait it does not: `selected` may name a different
+    /// conversation by then, and a `submitted` row that reported the *new*
+    /// conversation's id and the *new* conversation's newest age, paired with
+    /// a `markOutcome` row naming the old one, is a verdict computed off a
+    /// broken instrument - `findings.md` §12.2's failure mode with a
+    /// different input, and the live verification of the debounce reads
+    /// `newestAgeSeconds` off exactly that row. So the post-wait half passes
+    /// in what it is actually acting on. Both stay defaulted, so the
+    /// pre-wait call sites are unchanged and still report live state, which
+    /// for them is the same thing.
+    ///
+    /// `position` is a *position*, reported as an age measured now - for a
+    /// `submitted` row that is the age of the position being published,
+    /// which is the number the debounce is verified against.
+    ///
+    /// `loadedMessageCount` and `filteredMessageCount` are deliberately
+    /// still live readings of `messages`, because their own doc comments
+    /// define them as "loaded for the open conversation at the moment of
+    /// this evaluation". After a switch mid-wait they therefore describe the
+    /// newly-open conversation rather than `conversation`. Left as is: they
+    /// are non-optional on the wire, so there is nothing honest to put there
+    /// instead, and unlike `newestAgeSeconds` nothing computes a verdict
+    /// from them.
+    private func traceTrigger(
+        _ outcome: MarkReadTriggerOutcome,
+        for conversation: Conversation.ID? = nil,
+        publishing position: Date? = nil
+    ) {
+        guard let markReadTrace else { return }
+        let subject = conversation ?? selected
+        let filtered = messages.filter { !$0.id.rawValue.hasPrefix("local/") }
+        let newest = position ?? filtered.map(\.createdAt).max()
+        let unreadCount = subject.flatMap { id in conversations.first { $0.id == id }?.unreadCount }
+        markReadTrace.triggerEvaluated(
+            conversation: subject,
+            outcome: outcome,
+            context: MarkReadTriggerContext(
+                loadedMessageCount: messages.count,
+                filteredMessageCount: filtered.count,
+                newestAgeSeconds: newest.map { Date().timeIntervalSince($0) },
+                unreadCount: unreadCount
+            )
+        )
+    }
+
     /// *Schedules* a read position for the open conversation, if all of these
     /// hold: the app is frontmost, the backend can mark read, something is
     /// open, that conversation has a message, its newest position is beyond
@@ -52,31 +109,6 @@ extension ChatSessionModel {
     /// Ghost mode is not checked here. It is enforced in
     /// `SyncEngine.submit(_:)`, which is the single chokepoint by design - a
     /// second check here would be a second place to forget.
-    /// `markSelectedReadIfNeeded()`'s own tracing call, factored out to a
-    /// proper method rather than a nested function so that function stays
-    /// under swiftlint's `function_body_length` ceiling. Reads `self` fresh
-    /// on every call, so it always reflects whichever guard is about to
-    /// fire. Recomputes the filtered message list itself rather than taking
-    /// it as a parameter: a `nil` `markReadTrace` (every ordinary launch)
-    /// makes this a single pointer check and nothing else, exactly
-    /// `ChannelTraceSink`'s own contract.
-    private func traceTrigger(_ outcome: MarkReadTriggerOutcome) {
-        guard let markReadTrace else { return }
-        let filtered = messages.filter { !$0.id.rawValue.hasPrefix("local/") }
-        let newest = filtered.map(\.createdAt).max()
-        let unreadCount = selected.flatMap { id in conversations.first { $0.id == id }?.unreadCount }
-        markReadTrace.triggerEvaluated(
-            conversation: selected,
-            outcome: outcome,
-            context: MarkReadTriggerContext(
-                loadedMessageCount: messages.count,
-                filteredMessageCount: filtered.count,
-                newestAgeSeconds: newest.map { Date().timeIntervalSince($0) },
-                unreadCount: unreadCount
-            )
-        )
-    }
-
     func markSelectedReadIfNeeded() {
         // Split from the original single compound guard
         // (`isActive, capabilities.canMarkRead, let selected`) into three,
@@ -139,7 +171,7 @@ extension ChatSessionModel {
                 // being replaced. Not a decision the trigger made about
                 // state, so it gets its own token rather than borrowing a
                 // guard's.
-                self?.traceTrigger(.cancelledDuringWait)
+                self?.traceTrigger(.cancelledDuringWait, for: selected, publishing: newest)
                 return
             }
             // Deliberately **not** `[weak self, engine]` any more: a model
@@ -175,8 +207,14 @@ extension ChatSessionModel {
         scheduledAt: Date,
         generation: Int
     ) async {
-        guard isActive else { traceTrigger(.notFrontmost); return }
-        guard capabilities.canMarkRead else { traceTrigger(.cannotMarkRead); return }
+        guard isActive else {
+            traceTrigger(.notFrontmost, for: conversation, publishing: scheduledAt)
+            return
+        }
+        guard capabilities.canMarkRead else {
+            traceTrigger(.cannotMarkRead, for: conversation, publishing: scheduledAt)
+            return
+        }
         let position: Date
         if selected == conversation {
             let recomputed = messages
@@ -187,10 +225,10 @@ extension ChatSessionModel {
             position = scheduledAt
         }
         if let already = published[conversation], position <= already {
-            traceTrigger(.watermarkNotAdvanced)
+            traceTrigger(.watermarkNotAdvanced, for: conversation, publishing: position)
             return
         }
-        traceTrigger(.submitted)
+        traceTrigger(.submitted, for: conversation, publishing: position)
         let startedAt = ContinuousClock.now
         let accepted = await engine.submit(.markRead(
             conversationID: conversation, upTo: position

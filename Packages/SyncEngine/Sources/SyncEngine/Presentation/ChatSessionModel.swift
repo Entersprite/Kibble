@@ -163,6 +163,25 @@ public final class ChatSessionModel {
     /// without it. Nothing here can see that pipeline. Do not delete this as
     /// pointless latency: it is load-bearing, and §36 is what it is fixing.
     ///
+    /// **This delays from the first trigger; it does not restart per
+    /// arriving message.** So the residue the wait cannot cover is a
+    /// conversation receiving messages faster than the interval: one landing
+    /// at `interval - 0.1s` becomes the position that gets published, and is
+    /// published 0.1s old - the condition §2 records as failing. The re-arm
+    /// does not rescue that one either, because by then the freshest message
+    /// *is* the published position and its `freshest > position` test is
+    /// false.
+    ///
+    /// That is deliberate, per the design's §5: the wait is applied
+    /// uniformly, and coalescing is a second, independent benefit rather than
+    /// the goal. A per-message quiet period would turn a bounded two-second
+    /// delay into an unbounded one in any busy conversation, and would cost
+    /// the one-variable property §4 defines refutation against - on a
+    /// mechanism still marked `[Verify]` above. **If a live run shows the
+    /// residue mattering, a quiet period (restart the wait on each arrival,
+    /// under a ceiling) is the change to make** - and it should be made
+    /// against measurements rather than ahead of them.
+    ///
     /// Injected so tests can pass `.zero` - a suite that waits two real
     /// seconds is a suite people stop running.
     let markReadDebounce: Duration

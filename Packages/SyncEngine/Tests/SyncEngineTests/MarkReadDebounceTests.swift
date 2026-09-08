@@ -102,12 +102,27 @@ struct MarkReadDebounceTests {
     /// Losing focus during the wait publishes nothing. The gate is re-checked
     /// after the wait as well as before it, because two seconds is long enough
     /// for the user to leave.
+    ///
+    /// **The settle before `setActive(false)` is what makes this test about
+    /// the post-wait guard at all**, and its first version did not have one.
+    /// `isActive` starts `true`, so dropping focus in the same synchronous
+    /// run as `select(_:)` means no mark is ever scheduled and the *pre*-wait
+    /// guard declines - deleting `publishReadPosition`'s own `guard isActive`
+    /// left that version green, which is the definition of no coverage.
+    /// Settling first schedules the mark, and focus then goes away while it
+    /// is waiting, which is the sequence the doc comment claims.
     @MainActor
     @Test func losingFocusDuringTheWaitPublishesNothing() async throws {
         let harness = try await makeAutoMarkReadHarness(markReadDebounce: .milliseconds(50))
         harness.model.select(autoMarkReadConversation)
-        harness.model.setActive(false)
         await settleAutoMarkRead()
+        // The positive control. Without it, "nothing was published" and
+        // "nothing was ever scheduled" are the same observation, and this
+        // test cannot tell the guard working from the guard being absent.
+        #expect(harness.model.markTasks[autoMarkReadConversation] != nil)
+        #expect(await published(harness).isEmpty)
+
+        harness.model.setActive(false)
         try await Task.sleep(for: .milliseconds(150))
         await settleAutoMarkRead()
 
@@ -168,8 +183,15 @@ struct MarkReadDebounceTests {
     /// A failed submit leaves the watermark unadvanced so a later trigger
     /// retries - the rule the whole re-arm rests on, and the one a debounce
     /// could plausibly break by advancing on schedule rather than on success.
+    ///
+    /// **Named for what it actually drives.** It runs with `.zero`, so there
+    /// is no wait in it and it claims nothing about one: it is a regression
+    /// guard that the pre-existing watermark rule survived moving the submit
+    /// behind a suspension point. `AutoMarkReadTests.aFailedMarkIsRetriedByTheNextTrigger`
+    /// is the same invariant from the other side; this one additionally
+    /// asserts `published` itself rather than only the call count.
     @MainActor
-    @Test func aFailedSubmitAfterTheWaitStillRetriesLater() async throws {
+    @Test func aFailedSubmitLeavesTheWatermarkUnadvanced() async throws {
         let harness = try await makeAutoMarkReadHarness(markReadDebounce: .zero)
         await harness.backend.failSubmissions(true)
         harness.model.select(autoMarkReadConversation)
@@ -282,5 +304,58 @@ struct MarkReadDebounceTests {
         let engine = SyncEngine(backend: backend, store: store)
         let model = ChatSessionModel(store: store, engine: engine)
         #expect(model.markReadDebounce == Duration.seconds(2))
+    }
+
+    /// A `submitted` row must name the conversation the mark **acted on**,
+    /// not whatever is selected by the time the wait ends.
+    ///
+    /// The debounce put a suspension point between the decision and the row,
+    /// and `traceTrigger(_:)` reads `selected` and `messages` fresh by
+    /// design. So a switch mid-wait used to emit a `submitted` *trigger* row
+    /// carrying the new conversation's token and the new conversation's
+    /// `newestAgeSeconds`, paired with a `markOutcome` row carrying the old
+    /// conversation's token - two rows about one mark, disagreeing about
+    /// which conversation it was. `findings.md` §12.2 is what that costs: the
+    /// live verification of this whole fix decides "debounce live or build
+    /// stale" by reading `newestAgeSeconds` off exactly this row.
+    ///
+    /// Asserted two independent ways, because either alone can pass while
+    /// the field is wrong. The tokens must *pair*: every `submitted` row's
+    /// conversation must be one an outcome row also names, and both
+    /// conversations must appear. And the two ages must be ~180s apart,
+    /// which is the fixture's own gap between `dm:1`'s newest and `space:1`'s
+    /// - with the defect both rows report the same conversation's age and
+    /// the spread collapses to nothing. The second check is what makes this
+    /// about `newestAgeSeconds` rather than only about the id.
+    @MainActor
+    @Test func aSubmittedRowNamesTheConversationItsMarkActedOn() async throws {
+        let harness = try tracedHarness(markReadDebounce: .milliseconds(50))
+        try await harness.model.start()
+        await settleAutoMarkRead()
+
+        harness.model.select(autoMarkReadConversation)
+        await settleAutoMarkRead()
+        let other = try #require(
+            harness.model.conversations.first { $0.id != autoMarkReadConversation }
+        )
+        harness.model.select(other.id)
+        await settleAutoMarkRead()
+        try await Task.sleep(for: .milliseconds(150))
+        await settleAutoMarkRead()
+
+        let submitted = harness.sink.triggers.filter { $0.outcome == .submitted }
+        #expect(submitted.count == 2)
+        let submittedTokens = Set(submitted.compactMap(\.conversation))
+        let outcomeTokens = Set(harness.sink.outcomes.map(\.conversation))
+        #expect(submittedTokens.count == 2)
+        #expect(submittedTokens == outcomeTokens)
+
+        let ages = submitted.compactMap(\.newestAgeSeconds).sorted()
+        #expect(ages.count == 2)
+        if ages.count == 2 {
+            let spread = ages[1] - ages[0]
+            let fixtureGap = 180.0
+            #expect(abs(spread - fixtureGap) < 5)
+        }
     }
 }
