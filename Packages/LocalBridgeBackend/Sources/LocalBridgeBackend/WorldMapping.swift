@@ -102,6 +102,13 @@ public enum WorldMapping {
     /// arrives as an unrecognised enum, which leaves the presence bit clear
     /// and lands here too.
     private static func kind(for item: WorldItemLite) -> Conversation.Kind {
+        // Checked before the group type, because it is a statement about the
+        // conversation rather than about which enum value this build can name:
+        // a space with no name of its own is a group chat whether its group
+        // type reads 4 or 10.
+        if isSpaceNamespace(item), isNamedAfterItsMembers(item) {
+            return .groupDirectMessage
+        }
         if item.hasAttributeCheckerGroupType,
            let stated = statedKind(for: item.attributeCheckerGroupType) {
             return stated
@@ -111,6 +118,56 @@ public enum WorldMapping {
             return .unknown("\(Self.groupTypeTokenPrefix)\(raw)")
         }
         return inferred
+    }
+
+    /// A space in the `space_id` namespace, as opposed to a DM.
+    ///
+    /// Separate from `inferredKind(for:)` because the group-chat test below
+    /// has to run *before* the group type is consulted, and by then
+    /// `inferredKind` has not been called.
+    private static func isSpaceNamespace(_ item: WorldItemLite) -> Bool {
+        switch item.groupID.id {
+        case .spaceID: true
+        default: false
+        }
+    }
+
+    /// A space with no `room_name` of its own, titled after its members
+    /// instead - which is what Chat calls a group chat.
+    ///
+    /// Measured 2026-09-08 across the real account's 220 conversations
+    /// (`findings.md` §37.5), and the cross-tabulation closes with nothing
+    /// left over:
+    ///
+    /// | | `room_name` | no `room_name` |
+    /// | --- | --- | --- |
+    /// | has `dm_members` | 0 | **15** - the DMs |
+    /// | has `name_users` | 0 | **6** - the group chats |
+    /// | neither | 199 | 0 |
+    ///
+    /// So the two conditions are equivalent on this account and either alone
+    /// would do. Both are required anyway: `name_users` present is the
+    /// positive evidence that a title is *meant* to come from the members,
+    /// and `room_name` absent is what makes deriving one not an override of
+    /// something the server sent - `Conversation.title`'s own doc comment
+    /// draws that line, and an empty-but-present `room_name` is on the other
+    /// side of it.
+    ///
+    /// `[Verify]`: whether a **named** group chat exists. Chat lets you name a
+    /// group conversation, and such a conversation would have a `room_name`
+    /// and be indistinguishable here from a small space - it would stay under
+    /// "Spaces". None of the 220 is in that state, so nothing has exercised
+    /// it. §20.4 recorded `name_users` as absent from all four items it
+    /// scanned, which is the third finding that four-item sample got wrong.
+    ///
+    /// The result is `.groupDirectMessage` even though the identifier is
+    /// `space/`, because that is the case `SidebarSections` already heads
+    /// "Group chats" and the one `ConversationList` already draws a
+    /// three-person glyph for. `Kind` has no `.groupChat`, and adding one is a
+    /// wire-format change; the honest alternative would be that, not a
+    /// different bucket.
+    private static func isNamedAfterItsMembers(_ item: WorldItemLite) -> Bool {
+        !item.hasRoomName && item.hasNameUsers
     }
 
     /// The prefix a `Kind.unknown` payload carries when the *only* thing this
