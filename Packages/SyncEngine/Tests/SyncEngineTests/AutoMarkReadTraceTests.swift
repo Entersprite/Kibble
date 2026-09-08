@@ -289,4 +289,19 @@ struct AutoMarkReadTraceTests {
         #expect(await backend.markReadCount == 1)
         await model.stop()
     }
+
+    /// The two tokens the debounce adds. Raw values are the CSV's own
+    /// vocabulary, so they are pinned here rather than left to a rename:
+    /// a capture is read by a person weeks later against these strings.
+    @Test func theWaitHasItsOwnTokens() {
+        #expect(MarkReadTriggerOutcome.scheduled.rawValue == "scheduled")
+        #expect(MarkReadTriggerOutcome.cancelledDuringWait.rawValue == "cancelled-during-wait")
+    }
+
+    /// `submitted` must keep its token. The debounce splits one evaluation
+    /// into two rows - scheduled, then submitted - and a capture is only
+    /// readable if the second one still says what it always said.
+    @Test func submittedKeepsItsToken() {
+        #expect(MarkReadTriggerOutcome.submitted.rawValue == "submitted")
+    }
 }

@@ -57,6 +57,18 @@ public enum MarkReadTriggerOutcome: String, Sendable, Equatable {
     case watermarkNotAdvanced = "watermark-not-advanced"
     /// A mark for this conversation was already in flight.
     case alreadyInFlight = "already-in-flight"
+    /// A mark passed every guard and is **waiting** before it publishes.
+    ///
+    /// The debounce (see `ChatSessionModel+AutoMarkRead.swift`) splits what
+    /// used to be one row into two: this, then `submitted` once the wait
+    /// ends and the guards still hold. A capture showing `scheduled` with no
+    /// following `submitted` means the wait was abandoned, and the row that
+    /// follows says why.
+    case scheduled
+    /// The wait was cancelled before it could publish - `stop()` on sign-out,
+    /// or the task being replaced. Distinct from every guard token, because a
+    /// cancellation is not a decision the trigger made about state.
+    case cancelledDuringWait = "cancelled-during-wait"
 }
 
 /// `MarkReadTraceSink.triggerEvaluated(_:)`'s payload.
