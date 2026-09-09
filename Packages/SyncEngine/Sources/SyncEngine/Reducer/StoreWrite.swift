@@ -63,6 +63,21 @@ public enum StoreWrite: Sendable, Equatable {
     /// recompute it.
     case setReadState(conversation: Conversation.ID, lastReadAt: Date, unread: Int)
 
+    /// Mark a conversation as having something unread, because a message
+    /// arrived in it.
+    ///
+    /// `sender` travels in the write rather than the decision being made in
+    /// the reducer, because the reducer is `(ChatEvent) -> (writes, effects)`
+    /// and has no state to compare against - it cannot know who the local
+    /// user is. The store already holds `localMemberID`, so that is where the
+    /// comparison belongs.
+    ///
+    /// Excluding the local user is not a nicety: without it, sending a
+    /// message marks your own conversation unread until the debounced
+    /// auto-mark clears it two seconds later (`findings.md` §36.7), which
+    /// reads as the dot flickering on the row you are typing in.
+    case markUnread(conversation: Conversation.ID, sender: Member.ID)
+
     case setTyping(conversation: Conversation.ID, member: Member.ID, isTyping: Bool)
     case setPresence(member: Member.ID, presence: Presence)
 

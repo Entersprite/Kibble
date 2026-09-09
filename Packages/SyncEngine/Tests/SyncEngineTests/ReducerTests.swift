@@ -175,14 +175,24 @@ struct ReducerTests {
 
     // MARK: - Messages
 
-    @Test func aReceivedMessageIsAnUpsert() {
-        #expect(SyncReducer.reduce(.messageReceived(sample())).writes
-            == [.upsertMessage(sample()), .setLastError(nil)])
+    @Test func aReceivedMessageIsAnUpsertAndMarksUnread() {
+        let arrival = sample()
+        #expect(SyncReducer.reduce(.messageReceived(arrival)).writes == [
+            .upsertMessage(arrival),
+            .markUnread(conversation: arrival.conversationID, sender: arrival.sender),
+            .setLastError(nil)
+        ])
     }
 
-    /// Received and updated reduce identically, on purpose: the store's job is
-    /// to end up with the message, and an upsert already says that.
-    @Test func anUpdatedMessageIsTheSameUpsert() {
+    /// Received and updated **no longer** reduce identically, and this pins
+    /// the difference.
+    ///
+    /// They shared one case until `hasUnread` existed, on the reasoning that
+    /// the store's job is to end up holding the message. That is still true of
+    /// the upsert, but only an *arrival* can make a conversation unread: an
+    /// edit to something already read must not raise the dot again. Note the
+    /// store, not this, is what excludes the local user's own message.
+    @Test func anUpdatedMessageIsAnUpsertAndDoesNotMarkUnread() {
         let edited = sample("corrected")
         #expect(SyncReducer.reduce(.messageUpdated(edited)).writes
             == [.upsertMessage(edited), .setLastError(nil)])
