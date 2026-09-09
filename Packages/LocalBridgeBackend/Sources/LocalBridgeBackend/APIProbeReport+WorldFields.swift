@@ -39,6 +39,7 @@ extension APIProbeReport {
         )
 
         appendGroupTypeDistribution(items, lines: &lines)
+        appendReadStateShape(items, lines: &lines)
     }
 
     /// The observed distribution of `attribute_checker_group_type` (field 19),
@@ -122,5 +123,112 @@ extension APIProbeReport {
                 + "\(values.count) of \(absent) absent items carried a value, "
                 + "raw [\(byValue)]"
         )
+    }
+
+    /// `GroupReadState.last_read_time`'s field number.
+    private static let lastReadTimeField = 2
+
+    /// `GroupReadState.unread_message_count`'s field number.
+    private static let unreadMessageCountField = 4
+
+    /// The field purple's newer proto calls
+    /// `last_head_message_create_time_usec`, absent from the vendored proto
+    /// and therefore only reachable through `unknownFields`.
+    private static let lastHeadMessageTimeField = 29
+
+    /// What is actually inside `read_state` - the field nobody has looked in.
+    ///
+    /// Every conversation on the real account reports `unreadCount == 0`
+    /// (`findings.md` §36.5, confirmed across all 220 in §37.4), and
+    /// `WorldMapping` gets that number from
+    /// `item.readState.unreadMessageCount`. That is a **proto2 optional read
+    /// without its presence bit**, so a field the server never sends returns
+    /// 0 and is indistinguishable from "genuinely nothing unread" - the same
+    /// mistake §37.4 found in field 19, in a different field.
+    ///
+    /// So this reports presence separately from value, and adds the
+    /// alternative mechanism: purple's `GroupReadState` carries
+    /// `last_head_message_create_time_usec` (29) alongside `last_read_time`
+    /// (2), and `GroupReadStateUpdatedEvent` carries the same pair. If unread
+    /// is **computed** from those rather than delivered as a count, that is
+    /// the strictly-greater-than timestamp comparison §36 already established
+    /// for *publishing* read state, read in the other direction.
+    ///
+    /// **No timestamps are printed.** Both are large varints, which
+    /// `ProtoFieldScan.varintValues(ofField:in:)`'s own doc comment warns not
+    /// to log blindly. What is reported is the **derived** answer - how many
+    /// conversations have a newest message later than their read position -
+    /// which is the number that decides the question and carries nothing
+    /// about when anybody spoke.
+    private static func appendReadStateShape(_ items: [WorldItemLite], lines: inout [String]) {
+        let present = items.filter(\.hasReadState)
+        lines.append("  read_state: present \(present.count) of \(items.count)")
+        guard !present.isEmpty else { return }
+        let shape = readStateShape(of: present)
+
+        let inventory = shape.innerCounts.sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: ", ")
+        lines.append("  read_state inner fields (items carrying each) [\(inventory)]")
+
+        let unreadDistribution = shape.unreadValues.sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: ", ")
+        lines.append(
+            "  unread_message_count (\(unreadMessageCountField)): "
+                + "present \(shape.unreadPresent) of \(present.count), "
+                + "values [\(unreadDistribution)]"
+        )
+        lines.append(
+            "  last_read_time (\(lastReadTimeField)): present \(shape.lastReadPresent), "
+                + "last_head_message_create_time_usec (\(lastHeadMessageTimeField)): "
+                + "present \(shape.headTimePresent)"
+        )
+        lines.append(
+            "  newest message later than read position: "
+                + "\(shape.newerThanRead) of \(present.count)"
+        )
+    }
+
+    /// What one pass over `read_state` measured. Split from the reporting
+    /// above only because the combined function crossed `swiftlint`'s
+    /// 50-line `function_body_length`.
+    private struct ReadStateShape {
+        var innerCounts: [Int: Int] = [:]
+        var unreadValues: [UInt64: Int] = [:]
+        var unreadPresent = 0
+        var lastReadPresent = 0
+        var headTimePresent = 0
+        var newerThanRead = 0
+    }
+
+    private static func readStateShape(of items: [WorldItemLite]) -> ReadStateShape {
+        var shape = ReadStateShape()
+        for item in items {
+            let state = item.readState
+            let bytes = (try? state.serializedData()) ?? Data()
+            for field in Set(ProtoFieldScan.fields(in: bytes).fields.map(\.number)) {
+                shape.innerCounts[field, default: 0] += 1
+            }
+            if state.hasUnreadMessageCount {
+                shape.unreadPresent += 1
+                shape.unreadValues[UInt64(max(0, state.unreadMessageCount)), default: 0] += 1
+            }
+            if state.hasLastReadTime {
+                shape.lastReadPresent += 1
+            }
+            let headTime = ProtoFieldScan.varintValues(
+                ofField: lastHeadMessageTimeField,
+                in: state.unknownFields.data
+            ).first
+            if headTime != nil {
+                shape.headTimePresent += 1
+            }
+            if let headTime, state.hasLastReadTime,
+               headTime > UInt64(max(0, state.lastReadTime)) {
+                shape.newerThanRead += 1
+            }
+        }
+        return shape
     }
 }

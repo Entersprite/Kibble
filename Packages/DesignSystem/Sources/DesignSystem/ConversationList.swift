@@ -102,21 +102,52 @@ struct ConversationRow: View {
             icon
             Text(Display.title(of: conversation, directory: state.directory, me: state.me))
                 .lineLimit(1)
-                .fontWeight(conversation.unreadCount > 0 ? .semibold : .regular)
+                // `hasUnread`, not `unreadCount`: the count is always zero on
+                // the wire (`findings.md` §37.8), so weighting on it meant no
+                // conversation was ever bold.
+                .fontWeight(conversation.hasUnread ? .semibold : .regular)
             Spacer(minLength: 4)
             if conversation.isMuted {
                 Image(systemName: "bell.slash")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            if conversation.unreadCount > 0 {
-                Text("\(conversation.unreadCount)")
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
+            unreadMarker
         }
         .padding(.vertical, 1)
+    }
+
+    /// A number when the backend can count, a dot when it can only say
+    /// "something", and nothing when there is nothing.
+    ///
+    /// Both cases exist because the two facts arrive separately and Chat
+    /// currently supplies only the second: `unread_message_count` is sent as
+    /// zero on every conversation (`findings.md` §37.8), so in practice this
+    /// draws the dot. The numeric branch is kept rather than deleted because
+    /// `Conversation.unreadCount` is part of the wire format and a different
+    /// backend - a future bridge server, or Chat itself if the field ever
+    /// starts arriving - can populate it without a client change.
+    ///
+    /// The dot is trailing, where the badge already sat, rather than leading
+    /// as first sketched: the row already opens with an avatar or a hash, and
+    /// a second leading mark competes with it.
+    ///
+    /// `.tint` rather than a literal colour, so it follows the system accent.
+    /// That is the selection-and-emphasis role the guidelines reserve the
+    /// accent for, and it is distinct from the advice against fixed-colour
+    /// sidebar *icons* - this is state, not iconography.
+    @ViewBuilder private var unreadMarker: some View {
+        if conversation.unreadCount > 0 {
+            Text("\(conversation.unreadCount)")
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        } else if conversation.hasUnread {
+            Circle()
+                .fill(.tint)
+                .frame(width: 7, height: 7)
+                .accessibilityLabel("Unread")
+        }
     }
 
     /// A space gets a hash, a person gets their face, and a conversation kind

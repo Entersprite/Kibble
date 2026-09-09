@@ -12,6 +12,7 @@ enum Schema {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1", migrate: createV1)
         migrator.registerMigration("v2", migrate: addLocalMemberID)
+        migrator.registerMigration("v3", migrate: addHasUnread)
         return migrator
     }
 
@@ -30,6 +31,25 @@ enum Schema {
     private static func addLocalMemberID(_ db: Database) throws {
         try db.alter(table: "syncState") { table in
             table.add(column: "localMemberID", .text)
+        }
+    }
+
+    /// Whether anything is unread, separate from how many.
+    ///
+    /// `unreadCount` was already here and is useless on its own: Google sends
+    /// `unread_message_count` as **zero on every conversation**
+    /// (`findings.md` §37.8), so the column has only ever held 0. This one
+    /// carries the answer derived from the read position and the newest
+    /// message's time instead.
+    ///
+    /// Defaults to `false` rather than being nullable. A row written before
+    /// this migration has no unread information, and the honest reading of
+    /// "no information" is not-unread - marking an existing conversation
+    /// unread on a schema change would announce activity that never happened.
+    /// The next world load overwrites it with a measured value anyway.
+    private static func addHasUnread(_ db: Database) throws {
+        try db.alter(table: "conversation") { table in
+            table.add(column: "hasUnread", .boolean).notNull().defaults(to: false)
         }
     }
 

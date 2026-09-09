@@ -65,6 +65,9 @@ enum Fixture {
         avatarURL: URL(string: "https://example.com/space.png"),
         lastActivity: createdAt,
         unreadCount: 3,
+        // `true` here so the goldens pin both sides of `hasUnread`; every
+        // other conversation fixture leaves it at its `false` default.
+        hasUnread: true,
         isMuted: true,
         notificationLevel: .lessWithNewThreads,
         members: [humanID, botID],
