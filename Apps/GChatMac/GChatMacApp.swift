@@ -10,33 +10,32 @@ import SwiftUI
 /// app target is a shell so that `sourcekit-lsp` and `swift test` keep working
 /// without Xcode, and so that a second app - iOS, later - assembles the same
 /// pieces rather than reimplementing them.
+///
+/// The session belongs to `MacAppDelegate`, not to this struct or its window:
+/// it starts at launch and keeps running with the window closed, which is what
+/// lets notifications arrive. See that type's doc comment for why.
 @main
 struct GChatMacApp: App {
-    @State private var environment = AppEnvironment(
-        services: SystemLaunchServices(arguments: .fromCommandLine())
-    )
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var isConfirmingSignOut = false
 
+    private var environment: AppEnvironment {
+        appDelegate.environment
+    }
+
     var body: some Scene {
-        WindowGroup {
-            content
+        // `Window`, not `WindowGroup`: one window, so `openWindow(id:)` from
+        // the menu bar or a notification brings it back rather than making a
+        // second one.
+        Window("GChat", id: MainWindow.id) {
+            // A stable container, so a phase change swapping the content
+            // below is not reported as the window closing and reopening.
+            ZStack { content }
                 .frame(minWidth: 760, minHeight: 460)
-                .task { await environment.start() }
-                // `scenePhase` was measured against a real run and printed
-                // nothing at all across two full frontmost-loss/gain cycles -
-                // see `AppActivityMonitor`'s doc comment - so the signal comes
-                // from AppKit notifications via `MacHost` instead. The
-                // initial `environment.setActive(monitor.isActive)` call is
-                // what tells a launch that starts already-frontmost, since
-                // nothing changed to notify it; everything after that is a
-                // real transition.
-                .task {
-                    let monitor = AppActivityMonitor()
-                    environment.setActive(monitor.isActive)
-                    for await active in monitor.changes {
-                        environment.setActive(active)
-                    }
-                }
+                // Half of the viewing gate (`AppEnvironment.isViewing`); the
+                // frontmost half and minimising come from `MacAppDelegate`.
+                .onAppear { environment.setWindowOpen(true) }
+                .onDisappear { environment.setWindowOpen(false) }
                 // A confirmation, not a plain button action: an accidental
                 // click here costs a full two-factor login, and
                 // `AppEnvironment.signOut()`'s own doc comment is where the
@@ -68,6 +67,13 @@ struct GChatMacApp: App {
                 .disabled(!environment.canSignOut)
             }
         }
+
+        MenuBarExtra {
+            MenuBarContent()
+        } label: {
+            MenuBarLabel(environment: environment)
+        }
+        .menuBarExtraStyle(.menu)
     }
 
     @ViewBuilder

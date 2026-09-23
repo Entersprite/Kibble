@@ -63,8 +63,26 @@ public final class AppEnvironment {
     /// `start()`, which is the one place a model is actually built.
     private var pendingActive: Bool?
 
-    public init(services: any LaunchServices) {
+    /// The other two inputs to the viewing gate, beside `pendingActive`'s
+    /// frontmost. Written from `AppEnvironment+Viewing.swift`; see
+    /// `isViewing` there.
+    var windowOpen = true
+    var windowMinimized = false
+
+    /// Bumped to ask the host to bring the main window forward - a
+    /// notification clicked while no window is open. `AppCore` cannot open a
+    /// window itself; the host observes this and does.
+    public internal(set) var windowRequests = 0
+
+    /// `nil` when the host supplies no way to deliver notifications - every
+    /// test that does not care, and any future host without them.
+    let notifications: NotificationCoordinator?
+
+    public init(services: any LaunchServices, notifications delivery: (any NotificationDelivering)? = nil) {
         self.services = services
+        notifications = delivery.map(NotificationCoordinator.init(delivery:))
+        notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
+        notifications?.start()
     }
 
     public func start() async {
@@ -111,21 +129,25 @@ public final class AppEnvironment {
             let model = ChatSessionModel(
                 store: store, engine: engine, me: selection.me, markReadTrace: services.markReadTraceSink()
             )
-            // Applies whatever `setActive(_:)` was told while no model
+            // Applies whatever the viewing inputs were told while no model
             // existed yet, rather than leaving this model's `isActive`
             // sitting at its own `true` default - see `pendingActive`'s doc
-            // comment for the drop this closes.
-            if let pendingActive {
-                model.setActive(pendingActive)
-            }
+            // comment for the drop this closes. Unconditional now: with
+            // nothing told, `isViewing` is `true`, the model's own default.
+            model.setActive(isViewing)
             // Held **before** it is started, not after it is parked in
             // `.running`. By the time `start()` can throw, the engine's
             // consumer is already live - see `model`'s own doc comment for why
             // that one line's placement is the whole finding.
             self.model = model
+            // Before `start()` for the same reason: arrivals during connect
+            // are real arrivals. The stream buffers, so this is ordering
+            // hygiene rather than a race.
+            notifications?.attach(model, announcements: engine.announcements)
 
             try await model.start()
             phase = .running(model)
+            notifications?.requestAuthorizationOnce()
 
             if services.arguments.runsDiagnostics {
                 try services.startDiagnostics()
@@ -247,6 +269,10 @@ public final class AppEnvironment {
                     await driver.stop()
                     self.driver = nil
                 }
+                // Before the erase: the next session may be another account,
+                // and this one's message text must not stay in Notification
+                // Center after the store holding it is gone.
+                await notifications?.detach()
                 try await model.stopAndEraseStore()
             } else {
                 try services.eraseStore()
@@ -297,9 +323,31 @@ public final class AppEnvironment {
     /// that drop was the rejected alternative arriving by accident. Now the
     /// value is kept in `pendingActive` and applied the moment `start()`
     /// builds a model - see that property's doc comment.
+    ///
+    /// **This is now one of three inputs**, not the model's value itself: the
+    /// model is told `isViewing` (`AppEnvironment+Viewing.swift`), so frontmost
+    /// with the window closed or minimised is not viewing.
     public func setActive(_ active: Bool) {
         pendingActive = active
-        model?.setActive(active)
+        applyViewing()
+    }
+
+    /// Whether the user can see the window: frontmost, open and not minimised.
+    ///
+    /// **One value for two consumers, so they cannot drift.** Automatic
+    /// mark-as-read publishes only while this is true, and a notification is
+    /// suppressed as "on screen" only while it is true. Before it existed the
+    /// model was told frontmost alone, from a `.task` on the window's own view
+    /// - so closing the window cancelled the only thing reporting focus, left
+    /// the value frozen at `true`, and read receipts could be published for a
+    /// conversation nobody could see. Unknown frontmost reads as `true`, the
+    /// model's own default, which `pendingActive`'s doc comment explains.
+    var isViewing: Bool {
+        (pendingActive ?? true) && windowOpen && !windowMinimized
+    }
+
+    func applyViewing() {
+        model?.setActive(isViewing)
     }
 
     /// Whether `signOut()` has a running session to act on. The menu command is

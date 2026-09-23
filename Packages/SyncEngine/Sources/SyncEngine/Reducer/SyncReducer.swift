@@ -78,10 +78,13 @@ public enum SyncReducer {
             // store holding the message, but only an *arrival* can make a
             // conversation unread - an edit to something already read must
             // not raise the dot again.
-            Reduction(writes: [
-                .upsertMessage(message),
-                .markUnread(conversation: message.conversationID, sender: message.sender)
-            ])
+            Reduction(
+                writes: [
+                    .upsertMessage(message),
+                    .markUnread(conversation: message.conversationID, sender: message.sender)
+                ],
+                effects: [.announceArrival(message)]
+            )
         case let .messageUpdated(message):
             Reduction(writes: [.upsertMessage(message)])
         case let .messageDeleted(id, conversationID):
@@ -105,9 +108,12 @@ public enum SyncReducer {
                 .setMembership(conversation: conversationID, members: members.map(\.id))
             ])
         case let .readStateChanged(conversationID, lastReadAt, unread):
-            Reduction(writes: [
-                .setReadState(conversation: conversationID, lastReadAt: lastReadAt, unread: unread)
-            ])
+            Reduction(
+                writes: [
+                    .setReadState(conversation: conversationID, lastReadAt: lastReadAt, unread: unread)
+                ],
+                effects: [.withdrawAnnouncements(conversationID, upTo: lastReadAt)]
+            )
         case let .typingChanged(conversationID, member, isTyping):
             Reduction(writes: [
                 .setTyping(conversation: conversationID, member: member, isTyping: isTyping)

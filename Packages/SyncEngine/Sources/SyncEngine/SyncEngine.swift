@@ -40,9 +40,23 @@ public actor SyncEngine {
         backend.capabilities
     }
 
+    /// Arrivals and read-position changes, for whatever turns them into
+    /// notifications.
+    ///
+    /// **One stream, one consumer, for the life of this engine** - a session's
+    /// `NotificationCoordinator` attachment. Cancelling a task suspended in its
+    /// `next()` finishes it for good (`findings.md` §25.10), which is correct
+    /// here only because an engine is built per session and the consumer is
+    /// detached exactly when the session ends. `.bufferingNewest` so an engine
+    /// nobody listens to - every test, a probe - cannot grow without bound, and
+    /// so a consumer attached a moment late still hears what it missed.
+    public nonisolated let announcements: AsyncStream<SyncAnnouncement>
+    private nonisolated let announcer: AsyncStream<SyncAnnouncement>.Continuation
+
     public init(backend: any ChatBackend, store: ChatStore) {
         self.backend = backend
         self.store = store
+        (announcements, announcer) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
     }
 
     /// Clears what was only true last time, starts consuming, then connects.
@@ -238,6 +252,10 @@ extension SyncEngine {
                 try await store.apply([.replaceConversations(backend.loadConversations())])
             case let .reloadMessages(conversation):
                 try await loadMoreMessages(in: conversation)
+            case let .announceArrival(message):
+                announcer.yield(.arrived(message))
+            case let .withdrawAnnouncements(conversation, upTo):
+                announcer.yield(.read(conversation, upTo: upTo))
             }
         } catch {
             // The same hole `requestMoreMessages` closes, one effect over:

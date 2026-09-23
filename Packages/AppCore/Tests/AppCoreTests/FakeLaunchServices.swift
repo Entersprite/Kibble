@@ -174,6 +174,12 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
         continuation.finish()
     }
 
+    /// Delivers an event as if the channel had, for tests that need a session
+    /// to see traffic.
+    func emit(_ event: ChatEvent) {
+        continuation.yield(event)
+    }
+
     func send(_: ChatCommand) async throws {}
     func loadConversations() async throws -> [Conversation] {
         []
