@@ -19,6 +19,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
     var avatarURL: String?
     var lastActivity: Date?
     var unreadCount: Int
+    var hasUnread: Bool
     var isMuted: Bool
     var notificationLevel: String
     var isThreaded: Bool
@@ -31,6 +32,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
         avatarURL = conversation.avatarURL?.absoluteString
         lastActivity = conversation.lastActivity
         unreadCount = conversation.unreadCount
+        hasUnread = conversation.hasUnread
         isMuted = conversation.isMuted
         notificationLevel = try Wire.string(conversation.notificationLevel)
         isThreaded = conversation.isThreaded
@@ -45,6 +47,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
             avatarURL: avatarURL.flatMap(URL.init(string:)),
             lastActivity: lastActivity,
             unreadCount: unreadCount,
+            hasUnread: hasUnread,
             isMuted: isMuted,
             notificationLevel: Wire.fromString(NotificationLevel.self, notificationLevel),
             members: members,

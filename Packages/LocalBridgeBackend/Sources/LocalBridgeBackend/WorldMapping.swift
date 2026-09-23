@@ -57,86 +57,125 @@ public enum WorldMapping {
         return Conversation(
             id: id,
             kind: kind(for: item),
-            // `Conversation.title`'s own doc comment draws a line the proto
-            // can actually express: `nil` means "no server title, derive from
-            // members"; an empty string means "the server really sent one".
-            // `hasRoomName` is the wire's own presence bit, so it - not
-            // `roomName.isEmpty` - is what decides which side of that line an
-            // item falls on.
-            //
-            // `[Verify]`: the field **numbers** here are confirmed against the
-            // vendored proto, but whether Chat ever actually sends `room_name`
-            // absent versus present-and-empty for a DM has not been observed
-            // on the wire - `findings.md` §20.4 flags every field inside a
-            // `WorldItemLite` as unconfirmed, and this is one of them. Trusting
-            // the presence bit is the conservative reading of `Conversation`'s
-            // contract either way; it is the "is it ever sent empty" question
-            // that remains open.
-            title: item.hasRoomName ? item.roomName : nil,
+            title: title(for: item),
             avatarURL: item.avatarURL.isEmpty ? nil : URL(string: item.avatarURL),
             lastActivity: item.hasSortTimestamp
                 ? Date(timeIntervalSince1970: Double(item.sortTimestamp) / 1_000_000)
                 : nil,
             unreadCount: Int(item.readState.unreadMessageCount),
-            members: item.dmMembers.members.map { ChatKit.Member.ID($0.id) },
+            hasUnread: hasUnread(item),
+            members: memberIDs(for: item),
             isThreaded: isThreaded(item)
         )
     }
 
-    /// Space, direct message, or group direct message.
+    /// Whether anything in the conversation is newer than the read position.
     ///
-    /// `[Verify]`: **cannot currently distinguish an app DM** from a human
-    /// one - both arrive as `dm_id`, and nothing this project has observed
-    /// tells them apart at this layer. Guessed by member count rather than
-    /// reported as `.unknown`, because an app DM is a real, usable DM, and
-    /// filing it under `.unknown` would hide it from the sidebar entirely -
-    /// the worse of the two wrong answers.
-    private static func kind(for item: WorldItemLite) -> Conversation.Kind {
-        switch item.groupID.id {
-        case .spaceID:
-            .space
-        case .dmID:
-            item.dmMembers.members.count <= 2 ? .directMessage : .groupDirectMessage
-        default:
-            // Unreachable in practice: `conversation(from:)` only reaches
-            // here once `ChannelEventMapping.conversationID` has already
-            // succeeded, which requires `group.id` to be one of the two
-            // cases above with a non-empty inner id. Kept explicit rather
-            // than force-unwrapped, because "unreachable today" is not a
-            // promise a future proto regeneration has to keep.
-            .unknown("noGroupID")
+    /// `unread_message_count` (field 4) is **not** the answer, and the reason
+    /// is worth stating because reading it looked correct for four sessions:
+    /// it arrives on **every** conversation and is always **zero** - measured
+    /// across all 220 on the real account (`findings.md` §37.8). So the
+    /// sidebar's badge was rendering a number the server genuinely sends as 0,
+    /// not a field this mapping failed to read.
+    ///
+    /// What Chat actually supplies is the pair the *publishing* side of read
+    /// state already uses: a read position, and the newest message's create
+    /// time. §36 established that Google's own read comparison is
+    /// **strictly greater than** - which is why a client must publish one
+    /// microsecond past the newest message it has seen - so the same
+    /// comparison read in the other direction is what "unread" means here.
+    ///
+    /// **Read in the other direction, equality is unread.** "Covered iff
+    /// position > create time" negates to "unread iff newest >= position". This
+    /// compared with `>` until 2026-09-23, which put a conversation sitting
+    /// exactly on the boundary on the read side of it - the opposite of what
+    /// §36 measured - and the probe's count shared the same `>`, so nothing
+    /// could have noticed (`findings.md` §37.9). Only builds from before the
+    /// one-microsecond offset produced such positions; this client's own marks
+    /// can no longer land on the boundary.
+    ///
+    /// Both fields absent means **not unread**, which is the claim that
+    /// asserts least: 3 of the 220 carry no `last_head_message_create_time_usec`
+    /// at all, presumably having no messages, and marking those unread would
+    /// invent activity rather than report it.
+    ///
+    /// `[Verify]` - **why** the count is always zero. It may need a fetch
+    /// option this request does not set (§20.1 established only the *minimum*
+    /// viable `PaginatedWorldRequest`), or it may be dead server-side. Nothing
+    /// here can tell those apart, and the timestamp pair makes the answer
+    /// unnecessary rather than merely deferred.
+    ///
+    /// `[Verify]` - `has_unread_thread` (field 25) also arrives on all 220 and
+    /// is **not** read. Purple names it; its values were never measured, and
+    /// "thread" suggests threaded replies rather than general unread - every
+    /// conversation on this account is flat. It is the first thing to try if
+    /// the comparison below turns out to disagree with Chat's own UI.
+    private static func hasUnread(_ item: WorldItemLite) -> Bool {
+        let state = item.readState
+        guard state.hasLastHeadMessageCreateTimeUsec, state.hasLastReadTime else {
+            return false
         }
+        return state.lastHeadMessageCreateTimeUsec >= state.lastReadTime
     }
 
-    /// `threaded_group` present beats `flat_group` present beats
-    /// `group_lite.is_flat`, inverted - and when **none** of the three is
-    /// present, `false`.
+    /// The server's own title, or `nil` for a client to derive one.
     ///
-    /// The ladder run (`findings.md` §20.1) is why `group_lite` cannot be
-    /// dropped from the request even though `EXCLUDE_GROUP_LITE` costs ~48
-    /// bytes an item: it is the only place `is_flat` lives when neither
-    /// oneof case is set. But §20.1 also found that `EXCLUDE_GROUP_LITE`
-    /// *can* strip `group_lite` entirely, so "none of the three present" is a
-    /// real, reachable shape and not just a hypothetical - proto3's default
-    /// for an absent `is_flat` is `false`, and reading that default as
-    /// "threaded" was inventing structure from silence.
+    /// `Conversation.title`'s own doc comment draws a line the proto can
+    /// actually express: `nil` means "no server title, derive from members";
+    /// an empty string means "the server really sent one". `hasRoomName` is
+    /// the wire's own presence bit, so it - not `roomName.isEmpty` - is what
+    /// decides which side of that line an item falls on.
     ///
-    /// `[Verify]`: whether "no information" should default to flat rather
-    /// than threaded has not been checked against a live response - this
-    /// picks the less invasive wrong answer. `Conversation.isThreaded`'s own
-    /// doc comment calls the difference structural, not cosmetic: a threaded
-    /// space rendered flat is a degraded but still coherent view, whereas a
-    /// flat group rendered threaded invents a structure that was never there.
-    private static func isThreaded(_ item: WorldItemLite) -> Bool {
-        if item.hasThreadedGroup {
-            return true
+    /// `name_users.group_name` is consulted second. `NameUsers` carries one,
+    /// and whether Chat ever populates it is **unobserved**: the six group
+    /// chats on the real account carry field 20 at 77-127 bytes, which is
+    /// about three to five `UserId`s and leaves little room for a name
+    /// (`findings.md` §37.6). Reading it anyway costs one branch and removes
+    /// the need to be right about that arithmetic - if it is never sent, this
+    /// falls through exactly as before.
+    ///
+    /// `[Verify]`: whether `room_name` is ever sent **present-and-empty**.
+    /// §37.3 settled that it is sent at all - 199 of 220 - and the same run
+    /// reported `present-empty 0`, so on this account it is always either
+    /// absent or non-empty. One account, so trusting the presence bit remains
+    /// the conservative reading rather than a confirmed one.
+    private static func title(for item: WorldItemLite) -> String? {
+        if item.hasRoomName {
+            return item.roomName
         }
-        if item.hasFlatGroup {
-            return false
+        if item.hasNameUsers, item.nameUsers.hasGroupName {
+            return item.nameUsers.groupName
         }
-        guard item.hasGroupLite else {
-            return false
+        return nil
+    }
+
+    /// Who is in the conversation - from `dm_members` for a DM, and from
+    /// `name_users` for a group chat.
+    ///
+    /// `dm_members` was the only source until 2026-09-08, and it is **absent
+    /// on a space** (`findings.md` §37.5's cross-tab: the 15 DMs have it and
+    /// the 6 group chats do not). So a group chat arrived with no members at
+    /// all, and `Display.title(of:directory:me:)` fell through both of its
+    /// branches to the last one - `conversation.id.rawValue` - and rendered
+    /// **`space/AAQARch4B7w`** in the sidebar. The name was not missing from
+    /// the protocol; it was in the field this function did not read.
+    ///
+    /// `name_user_ids` is exactly the list a client is meant to build a title
+    /// from, which is what `Display` already does once the ids resolve
+    /// through `get_members` - and they do, because
+    /// `resolveAndEmitMembers(for:using:)` collects
+    /// `conversations.flatMap(\.members)`.
+    ///
+    /// `[Verify]`: `name_users.has_more_name_users` is **not** read. When it
+    /// is set the id list is truncated, so a derived title names only some of
+    /// the people present - Chat's own client renders "A, B and 2 others".
+    /// Whether it is ever set here is unobserved, and honouring it needs a
+    /// count `Conversation` does not currently carry.
+    private static func memberIDs(for item: WorldItemLite) -> [ChatKit.Member.ID] {
+        let direct = item.dmMembers.members
+        if !direct.isEmpty {
+            return direct.map { ChatKit.Member.ID($0.id) }
         }
-        return !item.groupLite.isFlat
+        return item.nameUsers.nameUserIds.map { ChatKit.Member.ID($0.id) }
     }
 }

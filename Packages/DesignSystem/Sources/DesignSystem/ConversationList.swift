@@ -6,6 +6,23 @@ public struct ConversationList: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
 
+    /// Which sections are **collapsed**, keyed by `SidebarSection.id`.
+    ///
+    /// Collapsed rather than expanded, so the empty default means everything
+    /// is open - and, more usefully, so a section appearing for the first time
+    /// arrives expanded instead of silently hidden. That matters here: a new
+    /// `Kind.unknown` group type mints a section nobody has seen before
+    /// (`findings.md` §37.4), and defaulting it shut would hide the very thing
+    /// those sections exist to surface.
+    ///
+    /// `@State`, so **collapse does not survive relaunch.** Persisting it
+    /// needs a decision this view cannot make: `DesignSystem` takes values and
+    /// hands back callbacks, and reaching for `UserDefaults` here would be the
+    /// first time a view in this package owned durable state. The honest
+    /// options are a `ChatSceneActions`-style callback or host-provided
+    /// storage; neither is worth building before anyone asks.
+    @State private var collapsed: Set<String> = []
+
     public init(state: ChatSceneState, actions: ChatSceneActions) {
         self.state = state
         self.actions = actions
@@ -14,7 +31,7 @@ public struct ConversationList: View {
     public var body: some View {
         List(selection: selectionBinding) {
             ForEach(SidebarSections.build(state.conversations)) { section in
-                Section(section.title) {
+                Section(section.title, isExpanded: expansion(of: section.id)) {
                     ForEach(section.conversations, id: \.id) { conversation in
                         ConversationRow(conversation: conversation, state: state)
                             .tag(conversation.id)
@@ -46,6 +63,24 @@ public struct ConversationList: View {
         .scrollEdgeEffectStyle(.soft, for: .bottom)
     }
 
+    /// Whether one section is expanded, as a binding over `collapsed`.
+    ///
+    /// `SidebarSection.id` is stable across rebuilds by construction - that is
+    /// what its own doc comment promises it for - so a section keeps its
+    /// disclosure state while its contents change underneath it.
+    private func expansion(of id: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsed.contains(id) },
+            set: { isExpanded in
+                if isExpanded {
+                    collapsed.remove(id)
+                } else {
+                    collapsed.insert(id)
+                }
+            }
+        )
+    }
+
     private var selectionBinding: Binding<Conversation.ID?> {
         Binding(
             get: { state.selected },
@@ -67,21 +102,52 @@ struct ConversationRow: View {
             icon
             Text(Display.title(of: conversation, directory: state.directory, me: state.me))
                 .lineLimit(1)
-                .fontWeight(conversation.unreadCount > 0 ? .semibold : .regular)
+                // `hasUnread`, not `unreadCount`: the count is always zero on
+                // the wire (`findings.md` §37.8), so weighting on it meant no
+                // conversation was ever bold.
+                .fontWeight(conversation.hasUnread ? .semibold : .regular)
             Spacer(minLength: 4)
             if conversation.isMuted {
                 Image(systemName: "bell.slash")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            if conversation.unreadCount > 0 {
-                Text("\(conversation.unreadCount)")
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
+            unreadMarker
         }
         .padding(.vertical, 1)
+    }
+
+    /// A number when the backend can count, a dot when it can only say
+    /// "something", and nothing when there is nothing.
+    ///
+    /// Both cases exist because the two facts arrive separately and Chat
+    /// currently supplies only the second: `unread_message_count` is sent as
+    /// zero on every conversation (`findings.md` §37.8), so in practice this
+    /// draws the dot. The numeric branch is kept rather than deleted because
+    /// `Conversation.unreadCount` is part of the wire format and a different
+    /// backend - a future bridge server, or Chat itself if the field ever
+    /// starts arriving - can populate it without a client change.
+    ///
+    /// The dot is trailing, where the badge already sat, rather than leading
+    /// as first sketched: the row already opens with an avatar or a hash, and
+    /// a second leading mark competes with it.
+    ///
+    /// `.tint` rather than a literal colour, so it follows the system accent.
+    /// That is the selection-and-emphasis role the guidelines reserve the
+    /// accent for, and it is distinct from the advice against fixed-colour
+    /// sidebar *icons* - this is state, not iconography.
+    @ViewBuilder private var unreadMarker: some View {
+        if conversation.unreadCount > 0 {
+            Text("\(conversation.unreadCount)")
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        } else if conversation.hasUnread {
+            Circle()
+                .fill(.tint)
+                .frame(width: 7, height: 7)
+                .accessibilityLabel("Unread")
+        }
     }
 
     /// A space gets a hash, a person gets their face, and a conversation kind
@@ -106,6 +172,13 @@ struct ConversationRow: View {
             }
         case .space:
             Text("#").fontWeight(.semibold).frame(width: 20).foregroundStyle(.secondary)
+        case .meetChat:
+            // `video.fill` verified present via
+            // `NSImage(systemSymbolName:accessibilityDescription:)` - a wrong
+            // symbol name compiles and renders as empty space.
+            MonogramCircle(size: 20) {
+                Image(systemName: "video.fill").font(.system(size: 9))
+            }
         case .unknown:
             Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
         }

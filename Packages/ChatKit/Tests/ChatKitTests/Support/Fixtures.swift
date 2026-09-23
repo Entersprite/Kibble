@@ -65,6 +65,9 @@ enum Fixture {
         avatarURL: URL(string: "https://example.com/space.png"),
         lastActivity: createdAt,
         unreadCount: 3,
+        // `true` here so the goldens pin both sides of `hasUnread`; every
+        // other conversation fixture leaves it at its `false` default.
+        hasUnread: true,
         isMuted: true,
         notificationLevel: .lessWithNewThreads,
         members: [humanID, botID],
@@ -72,6 +75,17 @@ enum Fixture {
     )
 
     static let dm = Conversation(id: dmID, kind: .directMessage, members: [humanID])
+
+    /// Exists so `Kind.meetChat`'s **wire token** has a golden file. Renaming
+    /// the case without renaming the token, or the reverse, then shows up as a
+    /// diff instead of silently changing the wire format.
+    static let meetChat = Conversation(
+        id: spaceID,
+        kind: .meetChat,
+        title: "Engineering Review - Sep 8",
+        lastActivity: createdAt,
+        members: [humanID]
+    )
 
     static let thread = MessageThread(
         id: threadID,

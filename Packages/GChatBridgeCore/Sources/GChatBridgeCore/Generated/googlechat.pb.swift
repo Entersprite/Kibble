@@ -6231,6 +6231,23 @@ public nonisolated struct GroupReadState: @unchecked Sendable {
     set {_uniqueStorage()._joinedUsers = newValue}
   }
 
+  /// findings.md 37.8: the newest message's create time, against which
+  /// last_read_time (2) decides whether a conversation is unread. Named by
+  /// purple's newer proto; measured present on 217 of 220 items, while
+  /// unread_message_count (4) arrives on all 220 and is always zero.
+  ///
+  /// Only this one field of purple's extra set is added. 24, 25, 28, 30, 31
+  /// and an unnamed 36 also arrive and are left in unknownFields, because
+  /// each one added is a claim about the wire that nothing here has measured.
+  public var lastHeadMessageCreateTimeUsec: Int64 {
+    get {_storage._lastHeadMessageCreateTimeUsec ?? 0}
+    set {_uniqueStorage()._lastHeadMessageCreateTimeUsec = newValue}
+  }
+  /// Returns true if `lastHeadMessageCreateTimeUsec` has been explicitly set.
+  public var hasLastHeadMessageCreateTimeUsec: Bool {_storage._lastHeadMessageCreateTimeUsec != nil}
+  /// Clears the value of `lastHeadMessageCreateTimeUsec`. Subsequent reads from it will return its default value.
+  public mutating func clearLastHeadMessageCreateTimeUsec() {_uniqueStorage()._lastHeadMessageCreateTimeUsec = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -19763,7 +19780,7 @@ nonisolated extension InviteState: SwiftProtobuf.Message, SwiftProtobuf._Message
 
 nonisolated extension GroupReadState: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "GroupReadState"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}last_read_time\0\u{4}\u{2}unread_message_count\0\u{1}starred\0\u{3}update_timestamp\0\u{3}unread_subscribed_topic_count\0\u{3}unread_subscribed_topics\0\u{3}hide_timestamp\0\u{3}invite_state\0\u{3}unread_subscribed_topic_count_consistency_timestamp\0\u{3}notification_settings\0\u{3}retention_settings\0\u{3}clear_history_timestamp\0\u{1}blocked\0\u{3}membership_state\0\u{3}invite_category\0\u{3}mark_as_unread_timestamp_usec\0\u{3}visible_in_world_view\0\u{3}show_notification_card_in_stream\0\u{4}\u{2}membership_role\0\u{3}joined_users\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}last_read_time\0\u{4}\u{2}unread_message_count\0\u{1}starred\0\u{3}update_timestamp\0\u{3}unread_subscribed_topic_count\0\u{3}unread_subscribed_topics\0\u{3}hide_timestamp\0\u{3}invite_state\0\u{3}unread_subscribed_topic_count_consistency_timestamp\0\u{3}notification_settings\0\u{3}retention_settings\0\u{3}clear_history_timestamp\0\u{1}blocked\0\u{3}membership_state\0\u{3}invite_category\0\u{3}mark_as_unread_timestamp_usec\0\u{3}visible_in_world_view\0\u{3}show_notification_card_in_stream\0\u{4}\u{2}membership_role\0\u{3}joined_users\0\u{4}\u{6}last_head_message_create_time_usec\0")
 
   fileprivate class _StorageClass {
     var _id: GroupReadStateId? = nil
@@ -19787,6 +19804,7 @@ nonisolated extension GroupReadState: SwiftProtobuf.Message, SwiftProtobuf._Mess
     var _visibleInWorldView: Bool? = nil
     var _showNotificationCardInStream: Bool? = nil
     var _joinedUsers: [UserId] = []
+    var _lastHeadMessageCreateTimeUsec: Int64? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -19818,6 +19836,7 @@ nonisolated extension GroupReadState: SwiftProtobuf.Message, SwiftProtobuf._Mess
       _visibleInWorldView = source._visibleInWorldView
       _showNotificationCardInStream = source._showNotificationCardInStream
       _joinedUsers = source._joinedUsers
+      _lastHeadMessageCreateTimeUsec = source._lastHeadMessageCreateTimeUsec
     }
   }
 
@@ -19857,6 +19876,7 @@ nonisolated extension GroupReadState: SwiftProtobuf.Message, SwiftProtobuf._Mess
         case 20: try { try decoder.decodeSingularBoolField(value: &_storage._showNotificationCardInStream) }()
         case 22: try { try decoder.decodeSingularEnumField(value: &_storage._membershipRole) }()
         case 23: try { try decoder.decodeRepeatedMessageField(value: &_storage._joinedUsers) }()
+        case 29: try { try decoder.decodeSingularInt64Field(value: &_storage._lastHeadMessageCreateTimeUsec) }()
         default: break
         }
       }
@@ -19932,6 +19952,9 @@ nonisolated extension GroupReadState: SwiftProtobuf.Message, SwiftProtobuf._Mess
       if !_storage._joinedUsers.isEmpty {
         try visitor.visitRepeatedMessageField(value: _storage._joinedUsers, fieldNumber: 23)
       }
+      try { if let v = _storage._lastHeadMessageCreateTimeUsec {
+        try visitor.visitSingularInt64Field(value: v, fieldNumber: 29)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -19962,6 +19985,7 @@ nonisolated extension GroupReadState: SwiftProtobuf.Message, SwiftProtobuf._Mess
         if _storage._visibleInWorldView != rhs_storage._visibleInWorldView {return false}
         if _storage._showNotificationCardInStream != rhs_storage._showNotificationCardInStream {return false}
         if _storage._joinedUsers != rhs_storage._joinedUsers {return false}
+        if _storage._lastHeadMessageCreateTimeUsec != rhs_storage._lastHeadMessageCreateTimeUsec {return false}
         return true
       }
       if !storagesAreEqual {return false}

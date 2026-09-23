@@ -1,6 +1,7 @@
 import Foundation
 
-/// One thing in the sidebar: a DM, a group DM, a DM with an app, or a space.
+/// One thing in the sidebar: a DM, a group chat, a DM with an app, a space,
+/// or the space a scheduled meeting was created for.
 ///
 /// The identity of a conversation is `id` alone. Everything else is a snapshot
 /// that a later `conversationUpdated` event may replace wholesale, which is why
@@ -20,7 +21,31 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// a client should sort below anything with a timestamp rather than
     /// treating as the epoch.
     public var lastActivity: Date?
+
+    /// How many messages are unread, **when the backend can say**.
+    ///
+    /// Google's `unread_message_count` arrives on every conversation and is
+    /// always `0` - measured across all 220 on a real account
+    /// (`findings.md` §37.8). So a client that renders this number alone
+    /// renders nothing, forever, which is exactly what happened. Use
+    /// `hasUnread` for whether to mark a conversation at all, and this only
+    /// when it is greater than zero.
     public var unreadCount: Int
+
+    /// Whether anything is unread, independent of how many.
+    ///
+    /// Separate from `unreadCount` because the two answer different questions
+    /// and the wire can supply one without the other: Chat gives a read
+    /// *position* and the newest message's time, from which "is there
+    /// anything newer than what I have read" follows, while the count itself
+    /// is always zero. Collapsing them - storing `1` to mean "some" - would
+    /// put a fiction in the model rather than in the server's answer, and
+    /// anything later summing counts would be lied to by us.
+    ///
+    /// Absent means `false`, the same rule `Capabilities` follows: an older
+    /// peer that does not send this must not have its conversations marked
+    /// unread on a guess.
+    public var hasUnread: Bool
 
     /// The `{MUTED, UNMUTED}` axis of Chat's notification settings. Kept
     /// separate from `notificationLevel`, which is the other axis; see
@@ -45,6 +70,7 @@ public struct Conversation: Codable, Hashable, Sendable {
         avatarURL: URL? = nil,
         lastActivity: Date? = nil,
         unreadCount: Int = 0,
+        hasUnread: Bool = false,
         isMuted: Bool = false,
         notificationLevel: NotificationLevel = .always,
         members: [Member.ID] = [],
@@ -56,6 +82,7 @@ public struct Conversation: Codable, Hashable, Sendable {
         self.avatarURL = avatarURL
         self.lastActivity = lastActivity
         self.unreadCount = unreadCount
+        self.hasUnread = hasUnread
         self.isMuted = isMuted
         self.notificationLevel = notificationLevel
         self.members = members
@@ -116,6 +143,22 @@ public extension Conversation {
         case groupDirectMessage
         case appDirectMessage
         case space
+
+        /// A space created for a scheduled meeting, named after the calendar
+        /// event - 187 of the 220 conversations on the account this was built
+        /// against.
+        ///
+        /// **The name is a product decision, not a documented protocol
+        /// fact.** These arrive as `attribute_checker_group_type` **10**,
+        /// which no vendored reference proto names, so what Google calls the
+        /// type is unknown (`findings.md` §37.4). What is measured is that
+        /// value 10 is a space-namespace type and that all 187 of them are
+        /// titled after calendar events; the owner identified them as their
+        /// Meet conversations and chose the name. If value 10 turns out to be
+        /// broader than meetings, this label is what will be wrong - not the
+        /// mapping, which is keyed on the number.
+        case meetChat
+
         case unknown(String)
 
         init(wire: String) {
@@ -124,6 +167,7 @@ public extension Conversation {
             case "groupDirectMessage": self = .groupDirectMessage
             case "appDirectMessage": self = .appDirectMessage
             case "space": self = .space
+            case "meetChat": self = .meetChat
             default: self = .unknown(wire)
             }
         }
@@ -134,6 +178,7 @@ public extension Conversation {
             case .groupDirectMessage: "groupDirectMessage"
             case .appDirectMessage: "appDirectMessage"
             case .space: "space"
+            case .meetChat: "meetChat"
             case let .unknown(raw): raw
             }
         }
@@ -158,6 +203,7 @@ public extension Conversation {
         case avatarURL
         case lastActivity
         case unreadCount
+        case hasUnread
         case isMuted
         case notificationLevel
         case members
@@ -180,6 +226,7 @@ public extension Conversation {
             avatarURL: container.decodeIfPresent(URL.self, forKey: .avatarURL),
             lastActivity: container.decodeWireIfPresent(Date.self, forKey: .lastActivity),
             unreadCount: container.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0,
+            hasUnread: container.decodeIfPresent(Bool.self, forKey: .hasUnread) ?? false,
             isMuted: container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false,
             notificationLevel: container.decodeIfPresent(
                 NotificationLevel.self, forKey: .notificationLevel
@@ -197,6 +244,7 @@ public extension Conversation {
         try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
         try container.encodeWireIfPresent(lastActivity, forKey: .lastActivity)
         try container.encode(unreadCount, forKey: .unreadCount)
+        try container.encode(hasUnread, forKey: .hasUnread)
         try container.encode(isMuted, forKey: .isMuted)
         try container.encode(notificationLevel, forKey: .notificationLevel)
         try container.encode(members, forKey: .members)

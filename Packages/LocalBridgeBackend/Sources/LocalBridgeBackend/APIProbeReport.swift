@@ -344,31 +344,6 @@ public enum APIProbeReport {
         )
     }
 
-    /// Settles two `[Verify]`s from `WorldMapping.swift` with one live run:
-    /// whether `room_name` is ever sent present-and-empty rather than simply
-    /// absent, and how often `group_lite` is the only threading information
-    /// present (or none of the three is). **Counts only** - never a room
-    /// name, a member id, or a payload byte; the presence bits themselves are
-    /// the whole report.
-    private static func appendFieldPresenceCounts(_ items: [WorldItemLite], lines: inout [String]) {
-        let roomNameAbsent = items.count(where: { !$0.hasRoomName })
-        let roomNamePresentEmpty = items.count(where: { $0.hasRoomName && $0.roomName.isEmpty })
-        let roomNamePresentNonEmpty = items.count(where: { $0.hasRoomName && !$0.roomName.isEmpty })
-        lines.append(
-            "  room_name: absent \(roomNameAbsent), present-empty \(roomNamePresentEmpty), "
-                + "present-non-empty \(roomNamePresentNonEmpty)"
-        )
-
-        let threadedGroup = items.count(where: \.hasThreadedGroup)
-        let flatGroup = items.count(where: \.hasFlatGroup)
-        let groupLite = items.count(where: \.hasGroupLite)
-        let none = items.count(where: { !$0.hasThreadedGroup && !$0.hasFlatGroup && !$0.hasGroupLite })
-        lines.append(
-            "  threading fields: threaded_group \(threadedGroup), flat_group \(flatGroup), "
-                + "group_lite \(groupLite), none \(none)"
-        )
-    }
-
     /// Rung 1 is expected to answer with field 11 and nothing else. A rung that
     /// returns materially more than the control is the answer §3.6 asked for.
     private static func verdict(for results: [WorldRungResult]) -> String {

@@ -65,14 +65,32 @@ extension LocalBridgeBackend {
         }
     }
 
-    /// A DM with a Chat app, once the members come back and say so.
+    /// A DM with a Chat app, once the members come back and say so - now the
+    /// **fallback** rather than the only way this is detected.
     ///
-    /// `WorldMapping.kind(for:)` has to guess here and documents it: a `dm_id`
-    /// says nothing about whether the other party is a person or an app, so it
-    /// files every two-member DM as `.directMessage`. That guess is only
+    /// `WorldMapping.kind(for:)` reads `attribute_checker_group_type` (field
+    /// 19) first, and `oneToOneBotDm` names an app DM directly, on the world
+    /// response, before `get_members` has been called at all (`findings.md`
+    /// §37.2). When that happens the conversation arrives here already
+    /// `.appDirectMessage`, the `kind == .directMessage` guard below fails,
+    /// and this is a no-op.
+    ///
+    /// It is kept, rather than deleted as dead, because field 19's presence
+    /// bit can be clear - an account or a future response that does not send
+    /// it, or a value added after this build, which proto2 reports as an
+    /// unrecognised enum. On that path `WorldMapping` falls back to
+    /// `GroupId`-plus-member-count, which genuinely **cannot** see an app DM:
+    /// a `dm_id` says nothing about whether the other party is a person or an
+    /// app, so every two-member DM files as `.directMessage`. That is only
     /// resolvable *after* `get_members`, which reports `UserType.BOT` as
-    /// `Member.Kind.app` - so the correction happens here rather than being
+    /// `Member.Kind.app`, so the correction happens here rather than being
     /// wrong forever in a mapping that cannot know.
+    ///
+    /// The two paths can in principle disagree - field 19 saying
+    /// `oneToOneHumanDm` for a DM whose members include an app - in which
+    /// case this inference wins. That combination has never been observed and
+    /// is contradictory data either way; it is called out so the precedence is
+    /// a decision on the record rather than an accident of ordering.
     ///
     /// Why it is worth correcting: `SidebarSections` already has an **"Apps"**
     /// section that nothing has ever populated, so Google Drive - which is a

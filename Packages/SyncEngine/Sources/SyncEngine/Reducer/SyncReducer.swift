@@ -73,9 +73,16 @@ public enum SyncReducer {
 
     private static func reduceMessageEvent(_ event: ChatEvent) -> Reduction {
         switch event {
-        case let .messageReceived(message), let .messageUpdated(message):
-            // Identical on purpose: the store's job is to end up holding the
-            // message, and an upsert already says exactly that.
+        case let .messageReceived(message):
+            // No longer identical to `messageUpdated`. Both still end with the
+            // store holding the message, but only an *arrival* can make a
+            // conversation unread - an edit to something already read must
+            // not raise the dot again.
+            Reduction(writes: [
+                .upsertMessage(message),
+                .markUnread(conversation: message.conversationID, sender: message.sender)
+            ])
+        case let .messageUpdated(message):
             Reduction(writes: [.upsertMessage(message)])
         case let .messageDeleted(id, conversationID):
             Reduction(writes: [.markMessageDeleted(id: id, in: conversationID)])

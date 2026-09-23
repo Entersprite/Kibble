@@ -1074,6 +1074,16 @@ message GroupReadState {
 	optional bool show_notification_card_in_stream = 20;
 	//optional NotificationsCard notifications_card = 21;
 	repeated UserId joined_users = 23;
+
+	// findings.md 37.8: the newest message's create time, against which
+	// last_read_time (2) decides whether a conversation is unread. Named by
+	// purple's newer proto; measured present on 217 of 220 items, while
+	// unread_message_count (4) arrives on all 220 and is always zero.
+	//
+	// Only this one field of purple's extra set is added. 24, 25, 28, 30, 31
+	// and an unnamed 36 also arrive and are left in unknownFields, because
+	// each one added is a claim about the wire that nothing here has measured.
+	optional int64 last_head_message_create_time_usec = 29;
 }
 
 message GroupNotificationSettings {

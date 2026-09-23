@@ -18,38 +18,81 @@ public struct SidebarSection: Identifiable, Sendable, Hashable {
 public enum SidebarSections {
     /// Sections in display order, omitting any that would be empty.
     public static func build(_ conversations: [Conversation]) -> [SidebarSection] {
-        order.compactMap { kind in
+        plan(for: conversations).compactMap { entry in
             let matching = conversations
-                .filter { key(for: $0.kind) == kind.id }
+                .filter { key(for: $0.kind) == entry.id }
                 .sorted(by: isOrderedBefore)
             guard !matching.isEmpty else { return nil }
-            return SidebarSection(id: kind.id, title: kind.title, conversations: matching)
+            return SidebarSection(id: entry.id, title: entry.title, conversations: matching)
         }
     }
 
-    /// Mirrors the prototype's order, with two additions the prototype had no
-    /// need for: apps, and anything this build does not recognise.
-    private static let order: [(id: String, title: String)] = [
+    /// The named sections, then one per unrecognised kind actually present,
+    /// then "Other".
+    ///
+    /// Unknown kinds used to share a single "Other" bucket, which was the
+    /// right call while an unrecognised kind was a rarity. On the real account
+    /// it is **187 of 220 conversations** - one heading saying nothing at all
+    /// about the largest group in the sidebar. So each distinct unrecognised
+    /// kind now gets its own section, **titled by its raw wire token**.
+    ///
+    /// That is the same discipline the old comment insisted on, carried one
+    /// step further: a kind this build cannot name is not guessed at, and now
+    /// it is not lumped in with every other unnameable kind either. The title
+    /// is deliberately the token and not prose - naming it "Meet" would be the
+    /// UI asserting what the protocol work has not established.
+    ///
+    /// "Other" is kept as the last entry for a `.unknown("")` - an empty token
+    /// would otherwise produce a section with no heading at all.
+    private static func plan(for conversations: [Conversation]) -> [(id: String, title: String)] {
+        let unrecognised = Set(
+            conversations.compactMap { conversation -> String? in
+                guard case let .unknown(raw) = conversation.kind, !raw.isEmpty else { return nil }
+                return raw
+            }
+        )
+        .sorted()
+        .map { (id: unknownKey($0), title: $0) }
+        return named + unrecognised + [(id: "other", title: "Other")]
+    }
+
+    /// Mirrors the prototype's order, plus apps, which the prototype had no
+    /// need for, and Meet chats.
+    ///
+    /// **Meet chats go last on purpose.** On the real account they are 187 of
+    /// 220 conversations, so any section placed after them is a long scroll
+    /// away; Direct messages, Group chats, Spaces and Apps are the small,
+    /// frequently-wanted ones and stay reachable at the top.
+    private static let named: [(id: String, title: String)] = [
         ("directMessage", "Direct messages"),
         ("groupDirectMessage", "Group chats"),
         ("space", "Spaces"),
         ("appDirectMessage", "Apps"),
-        ("other", "Other")
+        ("meetChat", "Meet Chats")
     ]
 
-    /// A conversation kind this build has never seen goes under "Other".
+    /// One section key per distinct unrecognised token. Prefixed so a token
+    /// that happens to read `"space"` cannot collide with a named section.
+    private static func unknownKey(_ raw: String) -> String {
+        "unknown:\(raw)"
+    }
+
+    /// A conversation kind this build has never seen gets a section of its
+    /// own, headed by its raw token.
     ///
     /// Not dropped, and not guessed at. The fixture world ships a
     /// `.unknown("meetCall")` conversation exactly so this path is exercised;
     /// labelling it "Meet" would be the UI asserting something the protocol
-    /// work has not established.
+    /// work has not established - which is why the heading is the token
+    /// itself. See `plan(for:)` for why these no longer share one bucket.
     private static func key(for kind: Conversation.Kind) -> String {
         switch kind {
         case .directMessage: "directMessage"
         case .groupDirectMessage: "groupDirectMessage"
         case .space: "space"
         case .appDirectMessage: "appDirectMessage"
-        case .unknown: "other"
+        case .meetChat: "meetChat"
+        case let .unknown(raw): raw.isEmpty ? "other" : unknownKey(raw)
         }
     }
 
