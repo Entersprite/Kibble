@@ -85,6 +85,15 @@ public enum WorldMapping {
     /// microsecond past the newest message it has seen - so the same
     /// comparison read in the other direction is what "unread" means here.
     ///
+    /// **Read in the other direction, equality is unread.** "Covered iff
+    /// position > create time" negates to "unread iff newest >= position". This
+    /// compared with `>` until 2026-09-23, which put a conversation sitting
+    /// exactly on the boundary on the read side of it - the opposite of what
+    /// §36 measured - and the probe's count shared the same `>`, so nothing
+    /// could have noticed (`findings.md` §37.9). Only builds from before the
+    /// one-microsecond offset produced such positions; this client's own marks
+    /// can no longer land on the boundary.
+    ///
     /// Both fields absent means **not unread**, which is the claim that
     /// asserts least: 3 of the 220 carry no `last_head_message_create_time_usec`
     /// at all, presumably having no messages, and marking those unread would
@@ -106,7 +115,7 @@ public enum WorldMapping {
         guard state.hasLastHeadMessageCreateTimeUsec, state.hasLastReadTime else {
             return false
         }
-        return state.lastHeadMessageCreateTimeUsec > state.lastReadTime
+        return state.lastHeadMessageCreateTimeUsec >= state.lastReadTime
     }
 
     /// The server's own title, or `nil` for a client to derive one.

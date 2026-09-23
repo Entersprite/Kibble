@@ -185,8 +185,8 @@ extension APIProbeReport {
                 + "present \(shape.headTimePresent)"
         )
         lines.append(
-            "  newest message later than read position: "
-                + "\(shape.newerThanRead) of \(present.count)"
+            "  newest message not covered by read position (>=, findings 36): "
+                + "\(shape.notCoveredByRead) of \(present.count)"
         )
     }
 
@@ -199,7 +199,7 @@ extension APIProbeReport {
         var unreadPresent = 0
         var lastReadPresent = 0
         var headTimePresent = 0
-        var newerThanRead = 0
+        var notCoveredByRead = 0
     }
 
     private static func readStateShape(of items: [WorldItemLite]) -> ReadStateShape {
@@ -224,9 +224,11 @@ extension APIProbeReport {
             if headTime != nil {
                 shape.headTimePresent += 1
             }
+            // `>=`, matching `WorldMapping.hasUnread`: a position equal to
+            // the newest message does not cover it (`findings.md` §36, §37.9).
             if let headTime, state.hasLastReadTime,
-               headTime > UInt64(max(0, state.lastReadTime)) {
-                shape.newerThanRead += 1
+               headTime >= UInt64(max(0, state.lastReadTime)) {
+                shape.notCoveredByRead += 1
             }
         }
         return shape
