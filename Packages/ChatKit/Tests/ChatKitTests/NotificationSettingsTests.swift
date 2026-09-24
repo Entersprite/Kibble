@@ -50,6 +50,48 @@ struct NotificationSettingsTests {
         try expectWireStable(NotificationRule(), golden: "notification-rule-empty")
     }
 
+    /// Every token a settings file can spell, in one golden: each `Delivery`,
+    /// each `SectionKey`, each `Pause`. A renamed case is then a diff here
+    /// rather than an older build silently decoding `.unknown`.
+    ///
+    /// Three records under the one `.pause` scope is not a state the model
+    /// produces - a scope has one record - but this file pins spellings, not
+    /// a state.
+    @Test func everyTokenMatchesItsGoldenFile() throws {
+        func section(_ key: SectionKey, _ rule: NotificationRule) -> SettingsRecord {
+            SettingsRecord(scope: .section(key), value: .rule(rule), modifiedAt: at, modifiedBy: "mac")
+        }
+        func pause(_ pause: Pause) -> SettingsRecord {
+            SettingsRecord(scope: .pause, value: .pause(pause), modifiedAt: at, modifiedBy: "mac")
+        }
+        let settings = NotificationSettings(records: [
+            section(.directMessages, NotificationRule(delivery: .off)),
+            section(.groupChats, NotificationRule(delivery: .notificationCenter)),
+            section(.spaces, NotificationRule(delivery: .banner)),
+            section(.apps, NotificationRule(delivery: .bannerAndSound)),
+            section(.meetChats, NotificationRule()),
+            section(.other, NotificationRule()),
+            pause(.off),
+            pause(.until(at)),
+            pause(.untilResumed)
+        ])
+        try expectWireStable(settings, golden: "notification-tokens")
+    }
+
+    /// Exhaustive on purpose: a new case stops this compiling until it is
+    /// added to `everyTokenMatchesItsGoldenFile` and its golden.
+    private func everyTokenIsInTheGolden(_ delivery: Delivery, _ section: SectionKey, _ pause: Pause) {
+        switch delivery {
+        case .off, .notificationCenter, .banner, .bannerAndSound, .unknown: break
+        }
+        switch section {
+        case .directMessages, .groupChats, .spaces, .apps, .meetChats, .other, .unknown: break
+        }
+        switch pause {
+        case .off, .until, .untilResumed, .unknown: break
+        }
+    }
+
     @Test func aPauseOfEveryKindRoundTrips() throws {
         for pause in [Pause.off, .untilResumed, .until(at)] {
             let decoded = try Wire.decode(Pause.self, from: Wire.json(pause))
