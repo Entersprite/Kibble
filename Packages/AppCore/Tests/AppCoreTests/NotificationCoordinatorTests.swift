@@ -11,10 +11,21 @@ actor FakeNotificationDelivery: NotificationDelivering {
         let position: Date
     }
 
+    /// Posts and withdraw-alls in the order they landed.
+    enum Landed: Equatable {
+        case posted(String)
+        case withdrewAll
+    }
+
     private(set) var posted: [MessageNotification] = []
     private(set) var withdrawals: [Withdrawal] = []
     private(set) var withdrawAllCount = 0
     private(set) var authorizationRequests = 0
+    private(set) var landed: [Landed] = []
+    /// Posts entered, including any still held by `holdPosts()`.
+    private(set) var postsStarted = 0
+    private var holdsPosts = false
+    private var heldPosts: [CheckedContinuation<Void, Never>] = []
 
     nonisolated let responses: AsyncStream<NotificationResponse>
     nonisolated let respond: AsyncStream<NotificationResponse>.Continuation
@@ -27,8 +38,26 @@ actor FakeNotificationDelivery: NotificationDelivering {
         authorizationRequests += 1
     }
 
-    func post(_ notification: MessageNotification) {
+    /// Makes every `post` wait for `releasePosts()` - a post in flight.
+    func holdPosts() {
+        holdsPosts = true
+    }
+
+    func releasePosts() {
+        holdsPosts = false
+        for post in heldPosts {
+            post.resume()
+        }
+        heldPosts = []
+    }
+
+    func post(_ notification: MessageNotification) async {
+        postsStarted += 1
+        if holdsPosts {
+            await withCheckedContinuation { heldPosts.append($0) }
+        }
         posted.append(notification)
+        landed.append(.posted(notification.id))
     }
 
     func withdraw(in conversation: Conversation.ID, coveredBy position: Date) {
@@ -37,6 +66,7 @@ actor FakeNotificationDelivery: NotificationDelivering {
 
     func withdrawAll() {
         withdrawAllCount += 1
+        landed.append(.withdrewAll)
     }
 }
 

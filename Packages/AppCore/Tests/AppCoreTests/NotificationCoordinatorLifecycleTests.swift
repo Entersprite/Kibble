@@ -9,6 +9,7 @@ import Testing
 @MainActor
 struct NotificationCoordinatorLifecycleTests {
     private let dm = Conversation.ID("dm/1")
+    private let me = Member(id: Member.ID("users/me"), kind: .human, displayName: "Me")
 
     /// The click that launched the app is replayed once the session has
     /// connected, not the moment it is attached: a "Mark as Read" submitted
@@ -63,5 +64,37 @@ struct NotificationCoordinatorLifecycleTests {
         }
         #expect(model.selected == nil)
         #expect(environment.windowRequests == 1)
+    }
+
+    /// A post already in flight when the session ends lands before the
+    /// withdraw, not after it - or the previous account's message text stays
+    /// in Notification Center.
+    @Test func signingOutWaitsForAPostInFlightBeforeWithdrawingEverything() async throws {
+        let services = try FakeLaunchServices()
+        let delivery = FakeNotificationDelivery()
+        let environment = AppEnvironment(services: services, notifications: delivery)
+        await environment.start()
+        guard case let .running(model) = environment.phase else {
+            Issue.record("expected .running to set the test up")
+            return
+        }
+        services.backend.emit(.selfIdentified(me))
+        #expect(await eventually { model.me == me.id })
+
+        await delivery.holdPosts()
+        services.backend.emit(.messageReceived(Message(
+            id: Message.ID("m:1"), conversationID: dm, threadID: MessageThread.ID("t"),
+            sender: Member.ID("users/alice"), text: "hello",
+            createdAt: Date(timeIntervalSince1970: 1_790_000_000)
+        )))
+        #expect(await eventually { await delivery.postsStarted == 1 })
+
+        let signingOut = Task { await environment.signOut() }
+        // Room for a withdraw that does not wait to land first. Expected to
+        // time out: with the wait in place, nothing is withdrawn yet.
+        _ = await eventually(timeout: .milliseconds(200)) { await delivery.withdrawAllCount == 1 }
+        await delivery.releasePosts()
+        await signingOut.value
+        #expect(await delivery.landed == [.posted("m:1"), .withdrewAll])
     }
 }

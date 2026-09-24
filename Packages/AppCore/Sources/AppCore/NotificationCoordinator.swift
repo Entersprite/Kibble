@@ -85,10 +85,19 @@ final class NotificationCoordinator {
     /// The session is ending. Stops listening, drops a click still waiting to
     /// be replayed, and clears Notification Center, because the next session
     /// may be a different account.
+    ///
+    /// **Waits for the announcements task before withdrawing.** Cancelling
+    /// does not stop a `post` already handed to the delivery, and one that
+    /// landed after `withdrawAll()` would leave this account's message text
+    /// in Notification Center for the next one to see. `model` is released
+    /// first, so a click during the wait is held rather than acted on, and
+    /// then dropped with any other.
     func detach() async {
-        announcementsTask?.cancel()
+        let announcements = announcementsTask
+        announcements?.cancel()
         announcementsTask = nil
         model = nil
+        await announcements?.value
         pending = nil
         recent = []
         recentSet = []
