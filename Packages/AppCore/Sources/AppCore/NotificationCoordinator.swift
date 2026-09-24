@@ -29,7 +29,8 @@ final class NotificationCoordinator {
     private var requestedAuthorization = false
 
     /// A click that arrived before any session existed - the click that
-    /// launched the app. Only the latest is kept; replayed on `attach`.
+    /// launched the app. Only the latest is kept; replayed by
+    /// `replayPending()` once the session has started.
     private var pending: NotificationResponse?
 
     /// Message ids announced this session, oldest first, capped at
@@ -54,6 +55,8 @@ final class NotificationCoordinator {
         }
     }
 
+    /// Starts hearing `model`'s announcements. Does **not** replay a pending
+    /// click - see `replayPending()`.
     func attach(_ model: ChatSessionModel, announcements: AsyncStream<SyncAnnouncement>) {
         announcementsTask?.cancel()
         self.model = model
@@ -62,10 +65,21 @@ final class NotificationCoordinator {
                 await self?.handle(announcement)
             }
         }
-        if let pending {
-            self.pending = nil
-            handle(pending)
-        }
+    }
+
+    /// Acts on the click that arrived before any session existed, once the
+    /// attached session has started.
+    ///
+    /// **Separate from `attach`, because the two happen at different times.**
+    /// `AppEnvironment` attaches *before* `model.start()`, so arrivals during
+    /// connect are heard; replaying there submitted a "Mark as Read" that
+    /// launched the app before `connect()` had finished, and it was lost. So
+    /// `AppEnvironment.start()` calls this only once `model.start()` has
+    /// succeeded.
+    func replayPending() {
+        guard model != nil, let pending else { return }
+        self.pending = nil
+        handle(pending)
     }
 
     /// The session is ending. Stops listening and clears Notification Center,
