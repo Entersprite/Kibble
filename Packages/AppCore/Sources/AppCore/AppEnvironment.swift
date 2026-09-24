@@ -97,7 +97,11 @@ public final class AppEnvironment {
         settingsStore: any NotificationSettingsStore = InMemoryNotificationSettingsStore()
     ) {
         self.services = services
-        settings = NotificationSettingsModel(store: settingsStore)
+        // Only a real account may take the legacy ghost-mode key; the fixture
+        // identifies a demo account of its own.
+        settings = NotificationSettingsModel(
+            store: settingsStore, migratesLegacyGhostMode: services.arguments.usesRealBackend
+        )
         notifications = delivery.map(NotificationCoordinator.init(delivery:))
         notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
         notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }

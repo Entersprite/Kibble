@@ -83,6 +83,21 @@ struct NotificationSettingsModelTests {
         #expect(settings.rule(for: .global).isEmpty)
     }
 
+    /// A fixture launch must not consume the key: its demo account would take
+    /// the rule, and the real account would then publish receipts.
+    @Test func withMigrationDisabledTheLegacyKeyStaysAndNoRuleIsWritten() throws {
+        let defaults = try #require(UserDefaults(suiteName: "ghost-\(UUID())"))
+        defaults.set(true, forKey: NotificationSettingsModel.legacyGhostModeKey)
+        let store = InMemoryNotificationSettingsStore()
+        let settings = NotificationSettingsModel(
+            store: store, defaults: defaults, now: { [at] in at }, migratesLegacyGhostMode: false
+        )
+        settings.switchAccount(to: alice)
+        #expect(defaults.bool(forKey: NotificationSettingsModel.legacyGhostModeKey))
+        #expect(settings.settings.rule(for: .global) == nil)
+        #expect(store.saved(for: alice) == nil)
+    }
+
     /// Review Focus 1: an unreadable file starts from defaults, says so, and
     /// edits still work.
     @Test func anUnreadableFileFallsBackToDefaultsAndSaysSo() {

@@ -41,6 +41,19 @@ struct NotificationRulesWiringTests {
         return (environment, services, model)
     }
 
+    /// Only the real bridge's account may take the legacy `ghostMode` key -
+    /// `FakeBackend` identifies a demo account of its own.
+    @Test func onlyARealBackendLaunchMigratesTheLegacyGhostModeKey() throws {
+        let fixture = try AppEnvironment(services: FakeLaunchServices(
+            arguments: LaunchArguments(usesRealBackend: false)
+        ))
+        #expect(!fixture.settings.migratesLegacyGhostMode)
+        let real = try AppEnvironment(services: FakeLaunchServices(
+            arguments: LaunchArguments(usesRealBackend: true)
+        ))
+        #expect(real.settings.migratesLegacyGhostMode)
+    }
+
     @Test func receiptsAreWithheldUntilTheAccountIsIdentified() async throws {
         let (environment, services, _) = try await running()
         #expect(environment.receiptGate?.policy == .withhold)

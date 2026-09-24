@@ -28,15 +28,23 @@ public final class NotificationSettingsModel {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var device: String?
+    /// Whether the legacy `ghostMode` key may be consumed at all. `false` for
+    /// a fixture launch: `FakeBackend` identifies its own demo account, and the
+    /// live check runs `--backend=fixture` first - so the key would be moved
+    /// into the fixture account and deleted, and the real account would then
+    /// publish receipts. Left in place, it waits for the first real account.
+    @ObservationIgnored let migratesLegacyGhostMode: Bool
 
     public init(
         store: any NotificationSettingsStore,
         defaults: UserDefaults = .standard,
-        now: @escaping () -> Date = { Date() }
+        now: @escaping () -> Date = { Date() },
+        migratesLegacyGhostMode: Bool = true
     ) {
         self.store = store
         self.defaults = defaults
         self.now = now
+        self.migratesLegacyGhostMode = migratesLegacyGhostMode
     }
 
     public func switchAccount(to account: Member.ID?) {
@@ -96,7 +104,7 @@ public final class NotificationSettingsModel {
     }
 
     private func migrateLegacyGhostMode() {
-        guard defaults.bool(forKey: Self.legacyGhostModeKey) else { return }
+        guard migratesLegacyGhostMode, defaults.bool(forKey: Self.legacyGhostModeKey) else { return }
         defaults.removeObject(forKey: Self.legacyGhostModeKey)
         guard settings.rule(for: .global) == nil else { return }
         settings.setRule(NotificationRule(readReceipts: false), for: .global, at: now(), by: deviceID())
