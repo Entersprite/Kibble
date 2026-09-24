@@ -98,14 +98,33 @@ struct NotificationRulesWiringTests {
     }
 
     /// Review Focus 3.
+    ///
+    /// **`environment` must be kept alive for the whole test.**
+    /// `NotificationCoordinator.start()`/`attach(_:announcements:)` capture
+    /// `self` weakly - the coordinator is owned by `AppEnvironment` and must
+    /// not outlive it (a stored `Task` with a strong self-capture on a
+    /// never-finishing stream would leak the coordinator, and with it the
+    /// attached model chain, past `AppEnvironment` going out of scope). So
+    /// nothing else keeps this session's coordinator alive; letting
+    /// `environment` be discarded here would deallocate it before the
+    /// message below is announced, and the notification would silently not
+    /// post. `withExtendedLifetime` is the guaranteed way to hold it past
+    /// the optimiser reordering an unused binding's release earlier.
     @Test func aMessageForAnUnlistedConversationStillNotifies() async throws {
         let delivery = FakeNotificationDelivery()
-        let (_, services, model) = try await running(delivery: delivery)
+        let (environment, services, model) = try await running(delivery: delivery)
         services.backend.emit(.selfIdentified(me))
         #expect(await eventually { model.me == me.id })
         let unlisted = Conversation(id: Conversation.ID("space/new"), kind: .space)
         services.backend.emit(.messageReceived(message("m:new", in: unlisted)))
         #expect(await eventually { await delivery.posted.count == 1 })
+        // `withExtendedLifetime`, not just holding `environment` unused: the
+        // stdlib overload of `withExtendedLifetime` taking an async body does
+        // not exist, so this is the guaranteed way to keep `environment` (and
+        // therefore its weakly-self-capturing `NotificationCoordinator`)
+        // retained across every `await` above, rather than trusting the
+        // optimiser not to release an otherwise-unused binding early.
+        withExtendedLifetime(environment) {}
     }
 
     @Test func signingOutKeepsTheAccountsSettings() async throws {

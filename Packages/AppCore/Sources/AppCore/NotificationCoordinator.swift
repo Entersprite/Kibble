@@ -44,26 +44,12 @@ final class NotificationCoordinator {
 
     /// Starts listening for clicks. Once per process; the delivery's response
     /// stream has exactly one consumer, and this is it.
-    ///
-    /// **Captures `self` strongly, not weakly.** This loop is what keeps a
-    /// coordinator alive: in production `AppEnvironment` holds it for the
-    /// process anyway, but a weak capture here made that the *only* thing
-    /// keeping it alive, and a caller that does not retain the environment
-    /// (a test building one to reach its `services`/`model` and discarding it,
-    /// e.g. `NotificationRulesWiringTests.aMessageForAnUnlistedConversationStillNotifies`)
-    /// found the coordinator deallocated before the next announcement even
-    /// arrived - the loop kept pulling from the stream (proven with a `deinit`
-    /// print during debugging) but every `self?.` after that point was a
-    /// silent no-op. A coordinator's job is to run for the life of the
-    /// streams it is attached to, not for the life of whoever constructed it,
-    /// so it owns itself here; `detach()` and this task's own stream ending
-    /// are what release it, the same way `stop()` ends `SyncEngine`'s consumer.
     func start() {
         guard responsesTask == nil else { return }
         let responses = delivery.responses
-        responsesTask = Task {
+        responsesTask = Task { [weak self] in
             for await response in responses {
-                self.handle(response)
+                self?.handle(response)
             }
         }
     }
@@ -71,9 +57,9 @@ final class NotificationCoordinator {
     func attach(_ model: ChatSessionModel, announcements: AsyncStream<SyncAnnouncement>) {
         announcementsTask?.cancel()
         self.model = model
-        announcementsTask = Task {
+        announcementsTask = Task { [weak self] in
             for await announcement in announcements {
-                await self.handle(announcement)
+                await self?.handle(announcement)
             }
         }
         if let pending {
