@@ -109,6 +109,32 @@ struct NotificationSettingsModelTests {
         #expect(settings.rule(for: .global).delivery == .off)
     }
 
+    /// The only notice that the defaults are in use must survive the first
+    /// edit - which, on a corrupt file, saves successfully.
+    @Test func aSuccessfulSaveKeepsTheLoadErrorUntilTheAccountChanges() {
+        let settings = model(ThrowingStore())
+        settings.switchAccount(to: alice)
+        let loadError = settings.lastError
+        #expect(loadError != nil)
+        settings.update(NotificationRule(delivery: .off), for: .global)
+        #expect(settings.lastError == loadError)
+        settings.switchAccount(to: nil)
+        #expect(settings.lastError == nil)
+    }
+
+    /// A save failure is cleared by the next save that works.
+    @Test func aSuccessfulSaveClearsAPreviousSaveError() {
+        let store = FlakyStore()
+        let settings = model(store)
+        settings.switchAccount(to: alice)
+        store.failsSaves = true
+        settings.update(NotificationRule(delivery: .off), for: .global)
+        #expect(settings.lastError != nil)
+        store.failsSaves = false
+        settings.update(NotificationRule(delivery: .banner), for: .global)
+        #expect(settings.lastError == nil)
+    }
+
     @Test func listenersHearNilWithoutAnAccountAndTheSettingsWithOne() {
         let settings = model()
         let heard = Heard()
@@ -127,6 +153,26 @@ struct NotificationSettingsModelTests {
 @MainActor
 private final class Heard {
     var values: [NotificationSettings?] = []
+}
+
+/// Saves fail while `failsSaves` is set; loads find nothing.
+private final class FlakyStore: NotificationSettingsStore, @unchecked Sendable {
+    struct Unwritable: Error {}
+    var failsSaves = false
+
+    func load(for _: Member.ID) -> NotificationSettings? {
+        nil
+    }
+
+    func save(_: NotificationSettings, for _: Member.ID) throws {
+        if failsSaves {
+            throw Unwritable()
+        }
+    }
+
+    func deviceID() -> String {
+        "dev"
+    }
 }
 
 private struct ThrowingStore: NotificationSettingsStore {

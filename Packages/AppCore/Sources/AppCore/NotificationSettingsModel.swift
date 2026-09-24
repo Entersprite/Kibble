@@ -14,8 +14,20 @@ import Observation
 public final class NotificationSettingsModel {
     public private(set) var account: Member.ID?
     public private(set) var settings = NotificationSettings()
-    /// The last load or save failure, for the settings window to mention.
-    public private(set) var lastError: String?
+    /// What went wrong, for the settings window to mention - a load failure,
+    /// a save failure, or both.
+    ///
+    /// **A load failure outlives a save that works.** It stays until the
+    /// account changes: the defaults it put in use are still in use, and the
+    /// first edit on a corrupt file saves successfully, so clearing it there
+    /// erased the only notice. A save failure lasts until the next save works.
+    public var lastError: String? {
+        let errors = [loadError, saveError].compactMap(\.self)
+        return errors.isEmpty ? nil : errors.joined(separator: " ")
+    }
+
+    private var loadError: String?
+    private var saveError: String?
 
     /// Told of every change: the settings, or `nil` when no account is identified.
     @ObservationIgnored var onChange: (@MainActor (NotificationSettings?) -> Void)?
@@ -51,12 +63,13 @@ public final class NotificationSettingsModel {
         guard account != self.account else { return }
         self.account = account
         settings = NotificationSettings()
+        loadError = nil
+        saveError = nil
         if let account {
             do {
                 settings = try store.load(for: account) ?? NotificationSettings()
-                lastError = nil
             } catch {
-                lastError =
+                loadError =
                     "GChat couldn’t read your saved notification settings, so the defaults are in use."
             }
             migrateLegacyGhostMode()
@@ -97,9 +110,9 @@ public final class NotificationSettingsModel {
         guard let account else { return }
         do {
             try store.save(settings, for: account)
-            lastError = nil
+            saveError = nil
         } catch {
-            lastError = "GChat couldn’t save your notification settings."
+            saveError = "GChat couldn’t save your notification settings."
         }
     }
 
