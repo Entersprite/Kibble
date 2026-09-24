@@ -18,6 +18,10 @@ final class NotificationCoordinator {
     /// Asks the host to bring the main window forward. Set by
     /// `AppEnvironment` once it can capture itself.
     var onShowWindow: (@MainActor () -> Void)?
+    /// Resolves a conversation's rule. Set by `AppEnvironment` once its
+    /// settings model exists; `nil` (in a test with no host wiring) falls
+    /// back to `.builtIn`.
+    var resolveRule: (@MainActor (Conversation) -> ResolvedRule)?
 
     private var model: ChatSessionModel?
     private var announcementsTask: Task<Void, Never>?
@@ -40,12 +44,26 @@ final class NotificationCoordinator {
 
     /// Starts listening for clicks. Once per process; the delivery's response
     /// stream has exactly one consumer, and this is it.
+    ///
+    /// **Captures `self` strongly, not weakly.** This loop is what keeps a
+    /// coordinator alive: in production `AppEnvironment` holds it for the
+    /// process anyway, but a weak capture here made that the *only* thing
+    /// keeping it alive, and a caller that does not retain the environment
+    /// (a test building one to reach its `services`/`model` and discarding it,
+    /// e.g. `NotificationRulesWiringTests.aMessageForAnUnlistedConversationStillNotifies`)
+    /// found the coordinator deallocated before the next announcement even
+    /// arrived - the loop kept pulling from the stream (proven with a `deinit`
+    /// print during debugging) but every `self?.` after that point was a
+    /// silent no-op. A coordinator's job is to run for the life of the
+    /// streams it is attached to, not for the life of whoever constructed it,
+    /// so it owns itself here; `detach()` and this task's own stream ending
+    /// are what release it, the same way `stop()` ends `SyncEngine`'s consumer.
     func start() {
         guard responsesTask == nil else { return }
         let responses = delivery.responses
-        responsesTask = Task { [weak self] in
+        responsesTask = Task {
             for await response in responses {
-                self?.handle(response)
+                self.handle(response)
             }
         }
     }
@@ -53,9 +71,9 @@ final class NotificationCoordinator {
     func attach(_ model: ChatSessionModel, announcements: AsyncStream<SyncAnnouncement>) {
         announcementsTask?.cancel()
         self.model = model
-        announcementsTask = Task { [weak self] in
+        announcementsTask = Task {
             for await announcement in announcements {
-                await self?.handle(announcement)
+                await self.handle(announcement)
             }
         }
         if let pending {
@@ -89,21 +107,28 @@ final class NotificationCoordinator {
         switch announcement {
         case let .arrived(message):
             guard let model else { return }
+            let conversation = model.conversations.first { $0.id == message.conversationID }
+            // Review Focus 3: an unlisted conversation resolves through Other.
+            let rule = resolveRule?(conversation ?? Conversation(
+                id: message.conversationID,
+                kind: .unknown("")
+            ))
+                ?? .builtIn
             // `isActive` is the viewing gate - frontmost *and* the window on
             // screen - which `AppEnvironment` computes and pushes into the
             // model. Selected-but-not-visible is not on screen.
             let decision = NotificationPolicy.decide(
                 message,
-                rule: .builtIn,
+                rule: rule,
                 me: model.me,
                 viewing: model.isActive ? model.selected : nil,
                 alreadyAnnounced: recentSet.contains(message.id)
             )
-            guard case .post = decision else { return }
+            guard case let .post(presentation) = decision else { return }
             remember(message.id)
-            let conversation = model.conversations.first { $0.id == message.conversationID }
             await delivery.post(Self.notification(
-                for: message, in: conversation, directory: model.directory, me: model.me
+                for: message, in: conversation, directory: model.directory, me: model.me,
+                presentation: presentation
             ))
         case let .read(conversation, upTo):
             await delivery.withdraw(in: conversation, coveredBy: upTo)
@@ -141,7 +166,12 @@ final class NotificationCoordinator {
         for message: Message,
         in conversation: Conversation?,
         directory: [Member.ID: Member],
-        me: Member.ID?
+        me: Member.ID?,
+        presentation: NotificationPolicy.Presentation = .init(
+            isPassive: false,
+            playsSound: true,
+            showsPreview: true
+        )
     ) -> MessageNotification {
         let senderName = Display.name(of: message.sender, in: directory)
         let title = conversation.map { Display.title(of: $0, directory: directory, me: me) } ?? senderName
@@ -158,8 +188,10 @@ final class NotificationCoordinator {
             conversationID: message.conversationID,
             title: title,
             subtitle: subtitle,
-            body: text.isEmpty ? "New message" : text,
-            createdAt: message.createdAt
+            body: presentation.showsPreview && !text.isEmpty ? text : "New message",
+            createdAt: message.createdAt,
+            isPassive: presentation.isPassive,
+            playsSound: presentation.playsSound
         )
     }
 

@@ -45,10 +45,14 @@ public struct MessageNotification: Sendable, Equatable {
     /// Carried so `withdraw(in:coveredBy:)` can tell which notifications a
     /// read position covers.
     public var createdAt: Date
+    /// Straight to Notification Center, no banner - `interruptionLevel = .passive`.
+    public var isPassive: Bool
+    public var playsSound: Bool
 
     public init(
         id: String, conversationID: Conversation.ID, title: String,
-        subtitle: String?, body: String, createdAt: Date
+        subtitle: String?, body: String, createdAt: Date,
+        isPassive: Bool = false, playsSound: Bool = true
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -56,6 +60,8 @@ public struct MessageNotification: Sendable, Equatable {
         self.subtitle = subtitle
         self.body = body
         self.createdAt = createdAt
+        self.isPassive = isPassive
+        self.playsSound = playsSound
     }
 }
 

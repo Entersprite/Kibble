@@ -59,7 +59,7 @@ public final class AppEnvironment {
     /// actually frontmost" and explicitly rejected always-publishing; that
     /// drop was the rejected alternative arriving by accident.
     ///
-    /// Applied at construction, right beside `engine.setGhostMode(...)` in
+    /// Applied at construction, right beside `beginSettingsSession(engine:)` in
     /// `start()`, which is the one place a model is actually built.
     private var pendingActive: Bool?
 
@@ -78,10 +78,24 @@ public final class AppEnvironment {
     /// test that does not care, and any future host without them.
     let notifications: NotificationCoordinator?
 
-    public init(services: any LaunchServices, notifications delivery: (any NotificationDelivering)? = nil) {
+    /// Notification rules for whichever account is identified - see
+    /// `NotificationSettingsModel` and `AppEnvironment+Settings.swift`.
+    public let settings: NotificationSettingsModel
+    /// Follows the running model's identity into `settings`.
+    var identityTask: Task<Void, Never>?
+    /// The running engine's receipts gate, held for tests to read.
+    var receiptGate: ReadReceiptGate?
+
+    public init(
+        services: any LaunchServices,
+        notifications delivery: (any NotificationDelivering)? = nil,
+        settingsStore: any NotificationSettingsStore = InMemoryNotificationSettingsStore()
+    ) {
         self.services = services
+        settings = NotificationSettingsModel(store: settingsStore)
         notifications = delivery.map(NotificationCoordinator.init(delivery:))
         notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
+        notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }
         notifications?.start()
     }
 
@@ -111,21 +125,10 @@ public final class AppEnvironment {
             try store.apply([.clearEphemeralState])
             let selection = try await services.makeSession()
             let engine = SyncEngine(backend: selection.backend, store: store)
-            // Ghost mode defaults to **off**: read receipts are published.
-            // The owner's explicit call, so that the first live run
-            // exercises `mark_group_readstate` rather than a suppressed code
-            // path. There is no UI toggle yet; this key is the only control.
-            // `UserDefaults.bool(forKey:)` is `false` for an absent key, so
-            // the intended default needs no registration.
-            //
-            // Read here, right where the engine is constructed, rather than
-            // in `SystemLaunchServices`: `SyncEngine` itself is built in this
-            // function (`makeSession()` only chooses the backend), so this is
-            // the one place that actually holds it. `UserDefaults` is
-            // Foundation, not a backend or a credential store, so reading it
-            // here does not touch the constraint that keeps this file naming
-            // neither.
-            await engine.setGhostMode(UserDefaults.standard.bool(forKey: "ghostMode"))
+            // Receipts are withheld until an account is identified; its saved
+            // rules then decide. The old `ghostMode` key migrates into the
+            // first account's global rule (`NotificationSettingsModel`).
+            beginSettingsSession(engine: engine)
             let model = ChatSessionModel(
                 store: store, engine: engine, me: selection.me, markReadTrace: services.markReadTraceSink()
             )
@@ -144,6 +147,7 @@ public final class AppEnvironment {
             // are real arrivals. The stream buffers, so this is ordering
             // hygiene rather than a race.
             notifications?.attach(model, announcements: engine.announcements)
+            followIdentity(of: model)
 
             try await model.start()
             phase = .running(model)
@@ -258,6 +262,10 @@ public final class AppEnvironment {
     /// ask; erasing an already-empty store is a cheap no-op, which is the
     /// point - nothing here has to know whether there is anything to erase.
     private func enterNeedsSignIn(reason: String?) async {
+        identityTask?.cancel()
+        identityTask = nil
+        // Nothing is deleted: the account's settings wait for it to sign in again.
+        settings.switchAccount(to: nil)
         do {
             if let model {
                 // The fixture's demo world, ticking on its own actor. Its
