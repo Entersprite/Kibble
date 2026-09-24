@@ -160,6 +160,22 @@ struct NotificationCoordinatorTests {
         #expect(!model.isActive)
     }
 
+    /// A window closed while minimised reports no deminiaturise, so the one
+    /// that next appears must clear the flag - or the gate stays off for good.
+    @Test func aWindowThatAppearsAfterOneWasClosedMinimisedIsViewed() async throws {
+        let environment = try AppEnvironment(services: FakeLaunchServices())
+        await environment.start()
+        guard case let .running(model) = environment.phase else {
+            Issue.record("expected .running to set the test up")
+            return
+        }
+        environment.setActive(true)
+        environment.setWindowMinimized(true)
+        environment.setWindowOpen(false)
+        environment.setWindowOpen(true)
+        #expect(model.isActive)
+    }
+
     /// The banner half of the gate: the conversation on screen is not
     /// announced, and the same conversation behind a closed window is.
     ///

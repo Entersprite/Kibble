@@ -8,8 +8,14 @@ import Foundation
 /// disappear. Like `setActive(_:)`, both are held while no model exists and
 /// applied the moment one is built.
 public extension AppEnvironment {
+    /// A window that appears is not minimised. Closing a minimised window
+    /// reports no deminiaturise, so without this the flag - and the gate with
+    /// it - would stay off for every window after.
     func setWindowOpen(_ open: Bool) {
         windowOpen = open
+        if open {
+            windowMinimized = false
+        }
         applyViewing()
     }
 
