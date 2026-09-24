@@ -18,6 +18,11 @@ public struct FileNotificationSettingsStore: NotificationSettingsStore {
 
     /// Percent-encoded down to alphanumerics, so `/` cannot make a path and two
     /// ids that differ only by an escape cannot collide (Review Focus 2).
+    ///
+    /// **Not collision-proof on a case-insensitive volume**, which default APFS
+    /// is: ids differing only in the case of their letters - including the hex
+    /// digits of a percent-escape - would share one file. Google user ids are
+    /// numeric (`users/<digits>`), so this is unreachable today `[Verify]`.
     static func fileName(for account: Member.ID) -> String {
         let safe = account.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? account
             .rawValue
