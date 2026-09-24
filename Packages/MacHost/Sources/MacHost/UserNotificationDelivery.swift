@@ -16,6 +16,10 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     private let continuation: AsyncStream<NotificationResponse>.Continuation
 
     static let categoryID = "message"
+    /// The same notification with no "Mark as Read" button - for a
+    /// conversation whose rule withholds read receipts, where
+    /// `SyncEngine.submit(_:)` would refuse the mark (`offersMarkRead`).
+    static let noActionsCategoryID = "messageNoActions"
     static let markReadActionID = "markRead"
     static let conversationKey = "conversationID"
     /// Microseconds since 1970, as an integer. Not the `Date`'s `Double`
@@ -37,9 +41,10 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     }
 
     /// Makes this the center's delegate and registers the "Mark as Read"
-    /// button. **Must run before the app finishes launching** - Apple's rule
-    /// for receiving the response that launched the app - which is why
-    /// `MacAppDelegate` calls it from `applicationWillFinishLaunching`.
+    /// button, beside a category without it. **Must run before the app
+    /// finishes launching** - Apple's rule for receiving the response that
+    /// launched the app - which is why `MacAppDelegate` calls it from
+    /// `applicationWillFinishLaunching`.
     @MainActor
     public func install() {
         center.delegate = self
@@ -50,6 +55,9 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
         center.setNotificationCategories([
             UNNotificationCategory(
                 identifier: Self.categoryID, actions: [markRead], intentIdentifiers: [], options: []
+            ),
+            UNNotificationCategory(
+                identifier: Self.noActionsCategoryID, actions: [], intentIdentifiers: [], options: []
             )
         ])
     }
@@ -74,7 +82,7 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
         // Groups a conversation's notifications together, and is what
         // `withdraw` filters on.
         content.threadIdentifier = notification.conversationID.rawValue
-        content.categoryIdentifier = Self.categoryID
+        content.categoryIdentifier = Self.category(for: notification)
         content.userInfo = [
             Self.conversationKey: notification.conversationID.rawValue,
             Self.createdAtKey: Self.micros(notification.createdAt)
@@ -103,6 +111,12 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
 
     public func withdrawAll() async {
         center.removeAllDeliveredNotifications()
+    }
+
+    /// Which registered category a notification is posted under - the one
+    /// with "Mark as Read" only where that button can act.
+    static func category(for notification: MessageNotification) -> String {
+        notification.offersMarkRead ? categoryID : noActionsCategoryID
     }
 
     static func micros(_ date: Date) -> Int64 {

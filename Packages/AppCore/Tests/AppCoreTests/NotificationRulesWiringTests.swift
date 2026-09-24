@@ -97,6 +97,30 @@ struct NotificationRulesWiringTests {
         #expect(posted?.body == "New message")
     }
 
+    /// "Mark as Read" is offered only where a mark can be published: with
+    /// receipts off, `SyncEngine.submit` refuses it and the button would do
+    /// nothing.
+    @Test func markAsReadIsOfferedOnlyWhereReceiptsArePublished() async throws {
+        var saved = NotificationSettings()
+        saved.setRule(NotificationRule(readReceipts: false), for: .section(.spaces), at: at, by: "mac")
+        let delivery = FakeNotificationDelivery()
+        let (environment, services, model) = try await running(
+            store: InMemoryNotificationSettingsStore([me.id: saved]), delivery: delivery
+        )
+        services.backend.emit(.selfIdentified(me))
+        services.backend.emit(.conversationsChanged([dm, space]))
+        #expect(await eventually { model.me == me.id && model.conversations.count == 2 })
+        #expect(await eventually { environment.settings.account == me.id })
+
+        services.backend.emit(.messageReceived(message("m:space", in: space)))
+        services.backend.emit(.messageReceived(message("m:dm", in: dm)))
+        #expect(await eventually { await delivery.posted.count == 2 })
+        let posted = await delivery.posted
+        #expect(posted.first { $0.id == "m:space" }?.offersMarkRead == false)
+        #expect(posted.first { $0.id == "m:dm" }?.offersMarkRead == true)
+        withExtendedLifetime(environment) {}
+    }
+
     /// Review Focus 3.
     ///
     /// **`environment` must be kept alive for the whole test.**

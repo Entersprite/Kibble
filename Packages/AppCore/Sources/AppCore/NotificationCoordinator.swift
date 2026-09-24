@@ -114,7 +114,9 @@ final class NotificationCoordinator {
             remember(message.id)
             await delivery.post(Self.notification(
                 for: message, in: conversation, directory: model.directory, me: model.me,
-                presentation: presentation
+                presentation: presentation,
+                // "Mark as Read" would be refused at `SyncEngine.submit` here.
+                offersMarkRead: rule.readReceipts
             ))
         case let .read(conversation, upTo):
             await delivery.withdraw(in: conversation, coveredBy: upTo)
@@ -157,7 +159,8 @@ final class NotificationCoordinator {
             isPassive: false,
             playsSound: true,
             showsPreview: true
-        )
+        ),
+        offersMarkRead: Bool = true
     ) -> MessageNotification {
         let senderName = Display.name(of: message.sender, in: directory)
         let title = conversation.map { Display.title(of: $0, directory: directory, me: me) } ?? senderName
@@ -177,7 +180,8 @@ final class NotificationCoordinator {
             body: presentation.showsPreview && !text.isEmpty ? text : "New message",
             createdAt: message.createdAt,
             isPassive: presentation.isPassive,
-            playsSound: presentation.playsSound
+            playsSound: presentation.playsSound,
+            offersMarkRead: offersMarkRead
         )
     }
 

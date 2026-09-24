@@ -48,11 +48,16 @@ public struct MessageNotification: Sendable, Equatable {
     /// Straight to Notification Center, no banner - `interruptionLevel = .passive`.
     public var isPassive: Bool
     public var playsSound: Bool
+    /// Whether the notification carries a "Mark as Read" button. `false` for a
+    /// conversation whose rule withholds read receipts, where
+    /// `SyncEngine.submit(_:)` would refuse the mark and the button would do
+    /// nothing - `CLAUDE.md`: never draw a control the seam cannot honour.
+    public var offersMarkRead: Bool
 
     public init(
         id: String, conversationID: Conversation.ID, title: String,
         subtitle: String?, body: String, createdAt: Date,
-        isPassive: Bool = false, playsSound: Bool = true
+        isPassive: Bool = false, playsSound: Bool = true, offersMarkRead: Bool = true
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -62,6 +67,7 @@ public struct MessageNotification: Sendable, Equatable {
         self.createdAt = createdAt
         self.isPassive = isPassive
         self.playsSound = playsSound
+        self.offersMarkRead = offersMarkRead
     }
 }
 
