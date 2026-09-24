@@ -95,18 +95,43 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     /// banner posted before a relaunch is withdrawn too. A notification with no
     /// recorded time is left alone: nothing proves the position covers it.
     public func withdraw(in conversation: Conversation.ID, coveredBy position: Date) async {
-        let limit = Self.micros(position)
-        let covered = await center.deliveredNotifications()
-            .filter { delivered in
-                let content = delivered.request.content
-                guard content.threadIdentifier == conversation.rawValue,
-                      let created = content.userInfo[Self.createdAtKey] as? Int64
-                else { return false }
-                return created < limit
-            }
-            .map(\.request.identifier)
+        let delivered = await center.deliveredNotifications().map { notification in
+            Delivered(
+                identifier: notification.request.identifier,
+                thread: notification.request.content.threadIdentifier,
+                userInfo: notification.request.content.userInfo
+            )
+        }
+        let covered = Self.covered(delivered, in: conversation.rawValue, before: Self.micros(position))
         guard !covered.isEmpty else { return }
         center.removeDeliveredNotifications(withIdentifiers: covered)
+    }
+
+    /// What `withdraw` needs from a delivered notification, copied out of it
+    /// so the filter runs without a notification center.
+    struct Delivered: Sendable, Equatable {
+        let identifier: String
+        let thread: String
+        /// `createdAtKey`'s value, or `nil` when it is missing or not an
+        /// integer - it comes back from the center as an `NSNumber`.
+        let createdAt: Int64?
+
+        init(identifier: String, thread: String, userInfo: [AnyHashable: Any]) {
+            self.identifier = identifier
+            self.thread = thread
+            createdAt = userInfo[UserNotificationDelivery.createdAtKey] as? Int64
+        }
+    }
+
+    /// The identifiers a read position covers: same thread, and created
+    /// strictly before `limit` - `findings.md` §36's boundary. One with no
+    /// recorded time is left alone: nothing proves the position covers it.
+    static func covered(_ delivered: [Delivered], in thread: String, before limit: Int64) -> [String] {
+        delivered.filter { item in
+            guard item.thread == thread, let created = item.createdAt else { return false }
+            return created < limit
+        }
+        .map(\.identifier)
     }
 
     public func withdrawAll() async {
