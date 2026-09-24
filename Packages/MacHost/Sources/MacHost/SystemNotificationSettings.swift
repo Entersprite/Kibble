@@ -15,7 +15,15 @@ public enum SystemNotificationSettings {
     }
 }
 
-/// The Dock tile's number. Needs no notification permission.
+/// The Dock tile's number.
+///
+/// **Shown only if badges are allowed for GChat** in System Settings ›
+/// Notifications. Once an app registers with Notification Center, macOS gates
+/// `badgeLabel` on that per-app setting, which is why
+/// `UserNotificationDelivery.requestAuthorization()` asks for `.badge`.
+/// `[Verify]` on macOS 26 - including whether an install that already
+/// answered the permission prompt (asked without `.badge`) gets the badge
+/// option without being prompted again.
 enum DockBadge {
     @MainActor
     static func show(_ count: Int) {

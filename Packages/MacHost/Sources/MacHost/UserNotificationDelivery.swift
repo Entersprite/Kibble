@@ -54,8 +54,12 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
         ])
     }
 
+    /// `.badge` as well as alerts and sounds: once an app registers with
+    /// Notification Center, macOS gates `NSDockTile.badgeLabel` on its "Badge
+    /// application icon" setting, and that setting only exists for an app
+    /// that asked for `.badge` - see `DockBadge`.
     public func requestAuthorization() async {
-        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
     }
 
     public func post(_ notification: MessageNotification) async {
