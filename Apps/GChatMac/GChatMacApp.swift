@@ -18,6 +18,9 @@ import SwiftUI
 struct GChatMacApp: App {
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var isConfirmingSignOut = false
+    @State private var isConfirmingSignOutFromSettings = false
+    // HIG: reopen on the last pane.
+    @AppStorage("settingsPane") private var settingsPane = "notifications"
 
     private var environment: AppEnvironment {
         appDelegate.environment
@@ -40,20 +43,8 @@ struct GChatMacApp: App {
                 // click here costs a full two-factor login, and
                 // `AppEnvironment.signOut()`'s own doc comment is where the
                 // honesty requirement lives - this dialog only restates it.
-                .confirmationDialog(
-                    "Sign out of GChat?",
-                    isPresented: $isConfirmingSignOut,
-                    titleVisibility: .visible
-                ) {
-                    Button("Sign Out", role: .destructive) {
-                        Task { await environment.signOut() }
-                    }
-                } message: {
-                    Text(
-                        "This Mac will forget your account and its local history. " +
-                            "This does not sign you out of Google - your session " +
-                            "stays valid there until it expires on its own."
-                    )
+                .signOutConfirmation(isPresented: $isConfirmingSignOut) {
+                    Task { await environment.signOut() }
                 }
         }
         .defaultSize(width: 1100, height: 720)
@@ -74,6 +65,32 @@ struct GChatMacApp: App {
             MenuBarLabel(environment: environment)
         }
         .menuBarExtraStyle(.menu)
+
+        // HIG for app settings: a toolbar of panes, title following the pane,
+        // opened from GChat › Settings… (⌘,) - all provided by `Settings` and
+        // `TabView`. Changes apply as they are made.
+        Settings {
+            TabView(selection: $settingsPane) {
+                Tab("Notifications", systemImage: "bell.badge", value: "notifications") {
+                    NotificationSettingsPane(
+                        state: environment.notificationSettingsState,
+                        actions: environment.notificationSettingsActions(
+                            openSystemSettings: { SystemNotificationSettings.open() }
+                        )
+                    )
+                }
+                Tab("Account", systemImage: "person.crop.circle", value: "account") {
+                    AccountSettingsPane(
+                        state: environment.accountSettingsState,
+                        signOut: environment.canSignOut ? { isConfirmingSignOutFromSettings = true } : nil
+                    )
+                }
+            }
+            .frame(width: 560, height: 540)
+            .signOutConfirmation(isPresented: $isConfirmingSignOutFromSettings) {
+                Task { await environment.signOut() }
+            }
+        }
     }
 
     @ViewBuilder

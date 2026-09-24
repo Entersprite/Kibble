@@ -1,4 +1,5 @@
 import ChatKit
+import DesignSystem
 import Foundation
 import Observation
 import SyncEngine
@@ -34,5 +35,46 @@ public extension AppEnvironment {
     var badgeCount: Int {
         guard case let .running(model) = phase else { return 0 }
         return settings.settings.badgeCount(of: model.conversations)
+    }
+}
+
+public extension AppEnvironment {
+    var notificationSettingsState: NotificationSettingsState {
+        let current = settings.settings
+        var sections: [SectionKey: NotificationRule] = [:]
+        var inherited: [SectionKey: ResolvedRule] = [:]
+        var resolved: [SectionKey: ResolvedRule] = [:]
+        for section in SectionKey.ruleSections {
+            sections[section] = current.rule(for: .section(section)) ?? NotificationRule()
+            inherited[section] = current.inherited(bySection: section)
+            resolved[section] = current.resolvedSection(section)
+        }
+        return NotificationSettingsState(
+            isAvailable: settings.account != nil,
+            globalRule: current.rule(for: .global) ?? NotificationRule(),
+            global: current.resolvedGlobal,
+            sections: sections,
+            sectionInherited: inherited,
+            sectionResolved: resolved,
+            lastError: settings.lastError
+        )
+    }
+
+    func notificationSettingsActions(openSystemSettings: (() -> Void)?) -> NotificationSettingsActions {
+        NotificationSettingsActions(
+            updateGlobal: { [weak self] in self?.settings.update($0, for: .global) },
+            updateSection: { [weak self] section, rule in
+                self?.settings.update(rule, for: .section(section))
+            },
+            openSystemSettings: openSystemSettings
+        )
+    }
+
+    var accountSettingsState: AccountSettingsState {
+        guard case let .running(model) = phase else { return AccountSettingsState(signedInAs: nil) }
+        return AccountSettingsState(signedInAs: Display.signedInLabel(
+            me: model.me,
+            directory: model.directory
+        ))
     }
 }

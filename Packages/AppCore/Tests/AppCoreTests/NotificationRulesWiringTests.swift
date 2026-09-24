@@ -127,6 +127,24 @@ struct NotificationRulesWiringTests {
         withExtendedLifetime(environment) {}
     }
 
+    @Test func thePaneIsUnavailableUntilIdentifiedAndShowsTheMeetPreset() async throws {
+        let (environment, services, _) = try await running()
+        #expect(!environment.notificationSettingsState.isAvailable)
+        services.backend.emit(.selfIdentified(me))
+        #expect(await eventually { environment.notificationSettingsState.isAvailable })
+        #expect(environment.notificationSettingsState.sectionResolved[.meetChats]?.delivery == .off)
+    }
+
+    @Test func aSectionEditFromThePaneIsSaved() async throws {
+        let store = InMemoryNotificationSettingsStore()
+        let (environment, services, _) = try await running(store: store)
+        services.backend.emit(.selfIdentified(me))
+        #expect(await eventually { environment.settings.account == me.id })
+        environment.notificationSettingsActions(openSystemSettings: nil)
+            .updateSection(.spaces, NotificationRule(delivery: .banner))
+        #expect(store.saved(for: me.id)?.rule(for: .section(.spaces))?.delivery == .banner)
+    }
+
     @Test func signingOutKeepsTheAccountsSettings() async throws {
         let store = InMemoryNotificationSettingsStore()
         let (environment, services, _) = try await running(store: store)
