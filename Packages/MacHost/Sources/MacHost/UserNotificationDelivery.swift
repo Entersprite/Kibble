@@ -65,7 +65,8 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
             content.subtitle = subtitle
         }
         content.body = notification.body
-        content.sound = .default
+        content.sound = notification.playsSound ? .default : nil
+        content.interruptionLevel = notification.isPassive ? .passive : .active
         // Groups a conversation's notifications together, and is what
         // `withdraw` filters on.
         content.threadIdentifier = notification.conversationID.rawValue
@@ -112,9 +113,10 @@ extension UserNotificationDelivery: UNUserNotificationCenterDelegate {
     /// a frontmost app would silently drop it.
     public func userNotificationCenter(
         _: UNUserNotificationCenter,
-        willPresent _: UNNotification
+        willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        // Passive means no banner, frontmost or not.
+        notification.request.content.interruptionLevel == .passive ? [.list] : [.banner, .list, .sound]
     }
 
     public func userNotificationCenter(

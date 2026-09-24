@@ -22,9 +22,15 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     override public init() {
         let notifications = UserNotificationDelivery()
         self.notifications = notifications
+        // Beside the database. If the container cannot be reached, settings
+        // still work for the session and are simply not kept.
+        let settingsStore: any NotificationSettingsStore =
+            (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
+                ?? InMemoryNotificationSettingsStore()
         environment = AppEnvironment(
             services: SystemLaunchServices(arguments: .fromCommandLine()),
-            notifications: notifications
+            notifications: notifications,
+            settingsStore: settingsStore
         )
         super.init()
     }
