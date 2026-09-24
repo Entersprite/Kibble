@@ -21,9 +21,11 @@ extension ChatSessionModel {
     /// - **The same watermark and the same per-conversation in-flight guard**
     ///   (`published`, `markTasks`, `markGeneration`), so a banner click and
     ///   an automatic mark for the same conversation cannot both submit.
-    /// - **`SyncEngine.submit(_:)`**, so ghost mode still refuses at its one
-    ///   chokepoint. In ghost mode this publishes nothing and the banner stays,
-    ///   which is what ghost mode means.
+    /// - **`SyncEngine.submit(_:)`**, so the conversation's `readReceipts`
+    ///   rule still refuses at its one chokepoint (`ReadReceiptGate`). With
+    ///   receipts off this publishes nothing and the banner stays - which is
+    ///   why such a notification offers no "Mark as Read" at all
+    ///   (`MessageNotification.offersMarkRead`, in `AppCore`).
     ///
     /// Not traced by `--probe=markread`: its vocabulary describes the automatic
     /// trigger's gates, and no exhaustive switch would force a new token to be

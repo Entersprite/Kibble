@@ -19,11 +19,16 @@ public actor SyncEngine {
 
     /// Whether this client is refusing to publish anything about itself.
     ///
-    /// See `GhostModeTests`' own doc comment for what this does and does not
-    /// cover - in particular the `PingEvent` fields it cannot reach. Defaults
-    /// to `false`, which means read receipts are published: the owner's
-    /// explicit call, so that the first live run exercises
-    /// `mark_group_readstate` rather than a suppressed code path.
+    /// **No longer how read receipts are decided, and no host sets it.**
+    /// Receipts are decided per conversation by the resolved rule's
+    /// `readReceipts` field, read at submit time through the gate below
+    /// (`ReadReceiptGate`); the old hidden `ghostMode` preference migrates
+    /// into the first real account's global rule (`NotificationSettingsModel`,
+    /// in `AppCore`). The switch is kept, unused, as the hook a future
+    /// typing-indicator slice needs: it still suppresses `.setTyping`, which no
+    /// rule field covers yet. See `GhostModeTests`' own doc comment for what it
+    /// does and does not cover - in particular the `PingEvent` fields it
+    /// cannot reach.
     private var ghostMode = false
 
     public var isGhosting: Bool {
@@ -175,13 +180,19 @@ public extension SyncEngine {
         }
     }
 
-    /// The one place ghost mode - and now the read-receipt gate - is enforced.
+    /// The one place the read-receipt gate is enforced, and the dormant
+    /// ghost-mode switch with it.
     ///
-    /// **Exhaustive with no `default`, on purpose.** A new `ChatCommand` case
-    /// stops this compiling until someone decides whether it says something
-    /// about this user that ghost mode should withhold. That compile error is
-    /// the guarantee; a two-case `if` would let the next one leak by default.
-    /// Same idiom as `SyncReducer.reduce(_:)` and `ConnectionIssueMapping`.
+    /// A `.markRead` is refused when its conversation's resolved rule has
+    /// `readReceipts` off (`receiptsAllowed(in:)`). `ghostMode` is checked too,
+    /// though no host sets it any more - see its doc comment.
+    ///
+    /// **`ghostSuppresses` is exhaustive with no `default`, on purpose.** A new
+    /// `ChatCommand` case stops it compiling until someone decides whether it
+    /// says something about this user that ghost mode should withhold. That
+    /// compile error is the guarantee; a two-case `if` would let the next one
+    /// leak by default. Same idiom as `SyncReducer.reduce(_:)` and
+    /// `ConnectionIssueMapping`.
     private func suppressed(_ command: ChatCommand) -> Bool {
         if ghostMode, ghostSuppresses(command) {
             return true
