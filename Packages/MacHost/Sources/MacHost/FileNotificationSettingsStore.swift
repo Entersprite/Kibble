@@ -32,9 +32,19 @@ public struct FileNotificationSettingsStore: NotificationSettingsStore {
             return try JSONDecoder().decode(NotificationSettings.self, from: data)
         } catch {
             // Moved aside, not left for the next save to overwrite: whatever
-            // is in it may still be worth recovering by hand.
+            // is in it may still be worth recovering by hand. The timestamp
+            // stays for a person reading the directory; the UUID suffix is
+            // what makes the name collision-proof, because two unreadable
+            // loads can land in the same second. With the UUID, the only way
+            // this `try?` still fails is a filesystem error in this same
+            // directory - and that would fail the next `save` too, so there
+            // is nothing more useful to do here than leave the corrupt file
+            // where it is and report the read failure, which the `throw`
+            // below already does.
+            let stamp = Int(Date().timeIntervalSince1970)
+            let unique = UUID().uuidString.prefix(8)
             let aside = url.deletingPathExtension()
-                .appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970)).json")
+                .appendingPathExtension("corrupt-\(stamp)-\(unique).json")
             try? FileManager.default.moveItem(at: url, to: aside)
             throw error
         }

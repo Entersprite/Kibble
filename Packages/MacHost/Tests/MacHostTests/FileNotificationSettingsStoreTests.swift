@@ -63,4 +63,29 @@ struct FileNotificationSettingsStoreTests {
             .contentsOfDirectory(atPath: file.deletingLastPathComponent().path)
         #expect(leftovers.contains { $0.contains("corrupt") })
     }
+
+    /// Review Focus 1, round 2: two unreadable loads back to back, in the same
+    /// second, must not collide on the aside name - the second move must not
+    /// silently no-op and leave its corrupt file to be overwritten by the next
+    /// save.
+    @Test func twoUnreadableLoadsInTheSameSecondEachGetTheirOwnAsideFile() throws {
+        let place = directory()
+        let store = FileNotificationSettingsStore(directory: place)
+        try store.save(sample(), for: alice)
+        let file = place
+            .appendingPathComponent("notification-settings", isDirectory: true)
+            .appendingPathComponent(FileNotificationSettingsStore.fileName(for: alice))
+
+        try Data("{ not json".utf8).write(to: file)
+        #expect(throws: (any Error).self) { try store.load(for: alice) }
+
+        try Data("{ still not json".utf8).write(to: file)
+        #expect(throws: (any Error).self) { try store.load(for: alice) }
+
+        let leftovers = try FileManager.default
+            .contentsOfDirectory(atPath: file.deletingLastPathComponent().path)
+        let asides = leftovers.filter { $0.contains("corrupt") }
+        #expect(asides.count == 2)
+        #expect(try store.load(for: alice) == nil)
+    }
 }
