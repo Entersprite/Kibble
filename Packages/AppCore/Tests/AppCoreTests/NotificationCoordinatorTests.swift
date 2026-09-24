@@ -130,6 +130,43 @@ struct NotificationCoordinatorTests {
         #expect(!model.isActive)
     }
 
+    /// The banner half of the gate: the conversation on screen is not
+    /// announced, and the same conversation behind a closed window is.
+    ///
+    /// The Design arrival is a sentinel. Announcements are handled one at a
+    /// time, in order, so once it is posted the DM arrival before it has
+    /// certainly been decided - which is what makes "not posted" observable
+    /// without waiting out a timeout.
+    @Test func theConversationOnScreenIsNotAnnouncedUntilTheWindowCloses() async throws {
+        let services = try FakeLaunchServices()
+        let delivery = FakeNotificationDelivery()
+        let environment = AppEnvironment(services: services, notifications: delivery)
+        await environment.start()
+        guard case let .running(model) = environment.phase else {
+            Issue.record("expected .running to set the test up")
+            return
+        }
+        services.backend.emit(.selfIdentified(me))
+        services.backend.emit(.conversationsChanged([
+            Conversation(id: dm, kind: .directMessage, members: [me.id, alice.id]),
+            Conversation(id: space, kind: .space, title: "Design")
+        ]))
+        #expect(await eventually { model.me == me.id && model.conversations.count == 2 })
+        model.select(dm)
+        environment.setActive(true)
+        #expect(model.isActive)
+
+        services.backend.emit(.messageReceived(message("m:on-screen", from: alice.id, in: dm)))
+        services.backend.emit(.messageReceived(message("m:sentinel", from: alice.id, in: space)))
+        #expect(await eventually { await delivery.posted.count == 1 })
+        #expect(await delivery.posted.map(\.id) == ["m:sentinel"])
+
+        environment.setWindowOpen(false)
+        services.backend.emit(.messageReceived(message("m:window-closed", from: alice.id, in: dm)))
+        #expect(await eventually { await delivery.posted.count == 2 })
+        #expect(await delivery.posted.map(\.id) == ["m:sentinel", "m:window-closed"])
+    }
+
     @Test func aWindowClosedBeforeTheSessionExistsIsAppliedOnceItDoes() async throws {
         let environment = try AppEnvironment(services: FakeLaunchServices())
         environment.setWindowOpen(false)
