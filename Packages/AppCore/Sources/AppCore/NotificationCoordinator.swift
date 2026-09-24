@@ -94,11 +94,12 @@ final class NotificationCoordinator {
             // model. Selected-but-not-visible is not on screen.
             let decision = NotificationPolicy.decide(
                 message,
+                rule: .builtIn,
                 me: model.me,
                 viewing: model.isActive ? model.selected : nil,
                 alreadyAnnounced: recentSet.contains(message.id)
             )
-            guard decision == .post else { return }
+            guard case .post = decision else { return }
             remember(message.id)
             let conversation = model.conversations.first { $0.id == message.conversationID }
             await delivery.post(Self.notification(

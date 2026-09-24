@@ -11,9 +11,28 @@ import Foundation
 /// conversation notifies"; per-conversation mute and custom rules come later
 /// and land here as more reasons. What is here are the exclusions without
 /// which notifications are wrong rather than merely noisy.
+///
+/// How the notification looks now comes from the resolved rule the caller
+/// passes in, not from a fixed shape.
 public enum NotificationPolicy {
+    /// How a posted notification looks - the three things macOS lets an app
+    /// choose per notification (spec §1).
+    public struct Presentation: Sendable, Equatable {
+        /// Straight to Notification Center, no banner, no sound -
+        /// `UNNotificationInterruptionLevel.passive`.
+        public var isPassive: Bool
+        public var playsSound: Bool
+        public var showsPreview: Bool
+
+        public init(isPassive: Bool, playsSound: Bool, showsPreview: Bool) {
+            self.isPassive = isPassive
+            self.playsSound = playsSound
+            self.showsPreview = showsPreview
+        }
+    }
+
     public enum Decision: Sendable, Equatable {
-        case post
+        case post(Presentation)
         case suppress(Reason)
     }
 
@@ -33,6 +52,8 @@ public enum NotificationPolicy {
         /// Already announced this session. `[Verify]` whether the real channel
         /// ever redelivers; `FixtureBackend`'s `duplicate-delivery` script does.
         case alreadyAnnounced
+        /// The resolved rule says Off.
+        case off
     }
 
     /// - Parameters:
@@ -40,6 +61,7 @@ public enum NotificationPolicy {
     ///     window, a minimised one, or the app not frontmost.
     public static func decide(
         _ message: Message,
+        rule: ResolvedRule,
         me: Member.ID?,
         viewing: Conversation.ID?,
         alreadyAnnounced: Bool
@@ -54,6 +76,17 @@ public enum NotificationPolicy {
         if alreadyAnnounced {
             return .suppress(.alreadyAnnounced)
         }
-        return .post
+        switch rule.delivery {
+        case .off:
+            return .suppress(.off)
+        case .notificationCenter:
+            return .post(Presentation(isPassive: true, playsSound: false, showsPreview: rule.showsPreview))
+        case .banner:
+            return .post(Presentation(isPassive: false, playsSound: false, showsPreview: rule.showsPreview))
+        case .bannerAndSound, .unknown:
+            // Resolution never yields `.unknown`; were it ever to, the
+            // built-in default is the answer rather than a guess.
+            return .post(Presentation(isPassive: false, playsSound: true, showsPreview: rule.showsPreview))
+        }
     }
 }

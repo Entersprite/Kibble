@@ -23,17 +23,32 @@ struct NotificationPolicyTests {
 
     // MARK: - The policy
 
+    private let loud = NotificationPolicy.Presentation(isPassive: false, playsSound: true, showsPreview: true)
+
+    private func decide(_ delivery: Delivery, preview: Bool = true) -> NotificationPolicy.Decision {
+        var rule = ResolvedRule.builtIn
+        rule.delivery = delivery
+        rule.showsPreview = preview
+        return NotificationPolicy.decide(
+            message(from: alice, in: dm),
+            rule: rule,
+            me: me,
+            viewing: nil,
+            alreadyAnnounced: false
+        )
+    }
+
     @Test func someoneElsesMessageElsewhereIsPosted() {
         let decision = NotificationPolicy.decide(
-            message(from: alice, in: dm), me: me, viewing: space, alreadyAnnounced: false
+            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: space, alreadyAnnounced: false
         )
-        #expect(decision == .post)
+        #expect(decision == .post(loud))
     }
 
     /// The channel echoes this client's own sends back as arrivals.
     @Test func myOwnMessageIsNeverAnnounced() {
         let decision = NotificationPolicy.decide(
-            message(from: me, in: dm), me: me, viewing: nil, alreadyAnnounced: false
+            message(from: me, in: dm), rule: .builtIn, me: me, viewing: nil, alreadyAnnounced: false
         )
         #expect(decision == .suppress(.ownMessage))
     }
@@ -41,23 +56,57 @@ struct NotificationPolicyTests {
     /// Guessing here would announce the local user's own message.
     @Test func withNoIdentityYetNothingIsAnnounced() {
         let decision = NotificationPolicy.decide(
-            message(from: alice, in: dm), me: nil, viewing: nil, alreadyAnnounced: false
+            message(from: alice, in: dm), rule: .builtIn, me: nil, viewing: nil, alreadyAnnounced: false
         )
         #expect(decision == .suppress(.identityUnknown))
     }
 
     @Test func theConversationOnScreenIsNotAnnounced() {
         let decision = NotificationPolicy.decide(
-            message(from: alice, in: dm), me: me, viewing: dm, alreadyAnnounced: false
+            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: dm, alreadyAnnounced: false
         )
         #expect(decision == .suppress(.onScreen))
     }
 
     @Test func aRedeliveredMessageIsNotAnnouncedTwice() {
         let decision = NotificationPolicy.decide(
-            message(from: alice, in: dm), me: me, viewing: nil, alreadyAnnounced: true
+            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: nil, alreadyAnnounced: true
         )
         #expect(decision == .suppress(.alreadyAnnounced))
+    }
+
+    @Test func eachDeliveryBecomesItsPresentation() {
+        #expect(decide(.off) == .suppress(.off))
+        #expect(decide(.notificationCenter) == .post(.init(
+            isPassive: true,
+            playsSound: false,
+            showsPreview: true
+        )))
+        #expect(decide(.banner) == .post(.init(isPassive: false, playsSound: false, showsPreview: true)))
+        #expect(decide(.bannerAndSound) == .post(loud))
+    }
+
+    @Test func previewIsCarriedThrough() {
+        #expect(decide(.banner, preview: false) == .post(.init(
+            isPassive: false,
+            playsSound: false,
+            showsPreview: false
+        )))
+    }
+
+    /// Own messages and the screen are decided before the rule: a muted
+    /// conversation's echo is still "own message", not "off".
+    @Test func ownMessageIsDecidedBeforeDelivery() {
+        var rule = ResolvedRule.builtIn
+        rule.delivery = .off
+        let decision = NotificationPolicy.decide(
+            message(from: me, in: dm),
+            rule: rule,
+            me: me,
+            viewing: nil,
+            alreadyAnnounced: false
+        )
+        #expect(decision == .suppress(.ownMessage))
     }
 
     // MARK: - The reducer's side

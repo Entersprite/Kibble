@@ -53,6 +53,9 @@ public actor SyncEngine {
     public nonisolated let announcements: AsyncStream<SyncAnnouncement>
     private nonisolated let announcer: AsyncStream<SyncAnnouncement>.Continuation
 
+    /// Read receipts per conversation. See `ReadReceiptGate`.
+    public nonisolated let readReceipts = ReadReceiptGate()
+
     public init(backend: any ChatBackend, store: ChatStore) {
         self.backend = backend
         self.store = store
@@ -172,7 +175,7 @@ public extension SyncEngine {
         }
     }
 
-    /// The one place ghost mode is enforced.
+    /// The one place ghost mode - and now the read-receipt gate - is enforced.
     ///
     /// **Exhaustive with no `default`, on purpose.** A new `ChatCommand` case
     /// stops this compiling until someone decides whether it says something
@@ -180,13 +183,39 @@ public extension SyncEngine {
     /// the guarantee; a two-case `if` would let the next one leak by default.
     /// Same idiom as `SyncReducer.reduce(_:)` and `ConnectionIssueMapping`.
     private func suppressed(_ command: ChatCommand) -> Bool {
-        guard ghostMode else { return false }
+        if ghostMode, ghostSuppresses(command) {
+            return true
+        }
+        if case let .markRead(conversationID, _) = command {
+            return !receiptsAllowed(in: conversationID)
+        }
+        return false
+    }
+
+    /// Exhaustive on purpose - a new command must be decided here, not
+    /// silently let through.
+    private func ghostSuppresses(_ command: ChatCommand) -> Bool {
         switch command {
         case .markRead, .setTyping:
-            return true
+            true
         case .sendMessage, .editMessage, .deleteMessage, .setReaction,
              .setNotificationLevel, .unknown:
+            false
+        }
+    }
+
+    private func receiptsAllowed(in id: Conversation.ID) -> Bool {
+        switch readReceipts.policy {
+        case .publish:
+            return true
+        case .withhold:
             return false
+        case let .resolve(settings):
+            // A conversation the store has not listed yet resolves through
+            // Other - the same fallback the notification path uses.
+            let conversation = (try? store.conversations())?.first { $0.id == id }
+                ?? Conversation(id: id, kind: .unknown(""))
+            return settings.resolve(for: conversation).readReceipts
         }
     }
 
