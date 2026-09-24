@@ -82,12 +82,14 @@ final class NotificationCoordinator {
         handle(pending)
     }
 
-    /// The session is ending. Stops listening and clears Notification Center,
-    /// because the next session may be a different account.
+    /// The session is ending. Stops listening, drops a click still waiting to
+    /// be replayed, and clears Notification Center, because the next session
+    /// may be a different account.
     func detach() async {
         announcementsTask?.cancel()
         announcementsTask = nil
         model = nil
+        pending = nil
         recent = []
         recentSet = []
         await delivery.withdrawAll()

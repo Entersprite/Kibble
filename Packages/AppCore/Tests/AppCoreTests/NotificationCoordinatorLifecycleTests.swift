@@ -37,4 +37,31 @@ struct NotificationCoordinatorLifecycleTests {
         #expect(model.selected == dm)
         #expect(environment.windowRequests == 2)
     }
+
+    /// A launching click whose session never started is dropped when that
+    /// session ends: the next sign-in may be a different account.
+    @Test func aClickPendingWhenTheSessionEndsIsNotReplayedIntoTheNext() async throws {
+        let services = try FakeLaunchServices()
+        services.backend.connectFailure = ChatError.notAuthenticated
+        let delivery = FakeNotificationDelivery()
+        let environment = AppEnvironment(services: services, notifications: delivery)
+        delivery.respond.yield(.open(dm))
+        #expect(await eventually { environment.windowRequests == 1 })
+
+        // Attached, then detached when the refused session is torn down.
+        await environment.start()
+        guard case .needsSignIn = environment.phase else {
+            Issue.record("expected .needsSignIn to set the test up")
+            return
+        }
+
+        services.backend.connectFailure = nil
+        await environment.signedIn()
+        guard case let .running(model) = environment.phase else {
+            Issue.record("expected .running once the session connects")
+            return
+        }
+        #expect(model.selected == nil)
+        #expect(environment.windowRequests == 1)
+    }
 }
