@@ -93,7 +93,9 @@ public struct NotificationSettingsPane: View {
                     }
                 }
                 defaults
+                    .disabled(!state.isAvailable)
                 sections
+                    .disabled(!state.isAvailable)
                 Section {} footer: {
                     HStack {
                         Text("Banner or alert style is set in System Settings.")
@@ -104,7 +106,6 @@ public struct NotificationSettingsPane: View {
                 }
             }
             .formStyle(.grouped)
-            .disabled(!state.isAvailable)
             .navigationDestination(for: SectionKey.self) { section in
                 NotificationRuleEditor(
                     title: Display.title(of: section),
