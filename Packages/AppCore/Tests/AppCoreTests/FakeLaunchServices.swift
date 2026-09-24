@@ -80,6 +80,10 @@ final class FakeLaunchServices: LaunchServices {
     }
 
     func forgetStoredSession() async throws {
+        // Suspends once before recording, so a concurrent `signOut()` call
+        // has a window to interleave with this one - the scenario
+        // `AppEnvironment.isSigningOut` exists to make impossible.
+        await Task.yield()
         calls.append(.forgetStoredSession)
         if let forgetFailure {
             throw forgetFailure

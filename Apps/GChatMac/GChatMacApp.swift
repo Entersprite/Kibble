@@ -78,15 +78,16 @@ struct GChatMacApp: App {
                             openSystemSettings: { SystemNotificationSettings.open() }
                         )
                     )
+                    .frame(width: 560, height: 540)
                 }
                 Tab("Account", systemImage: "person.crop.circle", value: "account") {
                     AccountSettingsPane(
                         state: environment.accountSettingsState,
                         signOut: environment.canSignOut ? { isConfirmingSignOutFromSettings = true } : nil
                     )
+                    .frame(width: 560, height: 220)
                 }
             }
-            .frame(width: 560, height: 540)
             .signOutConfirmation(isPresented: $isConfirmingSignOutFromSettings) {
                 Task { await environment.signOut() }
             }

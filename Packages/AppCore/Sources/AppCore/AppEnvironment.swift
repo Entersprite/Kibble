@@ -86,6 +86,11 @@ public final class AppEnvironment {
     /// The running engine's receipts gate, held for tests to read.
     var receiptGate: ReadReceiptGate?
 
+    /// Guards `signOut()` against a second concurrent call: two scenes (the
+    /// main window and the Settings window) each carry their own confirmation
+    /// dialog, so both can be confirmed before either finishes.
+    private var isSigningOut = false
+
     public init(
         services: any LaunchServices,
         notifications delivery: (any NotificationDelivering)? = nil,
@@ -223,6 +228,9 @@ public final class AppEnvironment {
     /// nothing changes to `.needsSignIn` - the session is still there to retry
     /// signing out of.
     public func signOut() async {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+        defer { isSigningOut = false }
         do {
             try await services.forgetStoredSession()
         } catch {
