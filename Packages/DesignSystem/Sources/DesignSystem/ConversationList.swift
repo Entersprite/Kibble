@@ -35,6 +35,7 @@ public struct ConversationList: View {
                     ForEach(section.conversations, id: \.id) { conversation in
                         ConversationRow(conversation: conversation, state: state)
                             .tag(conversation.id)
+                            .contextMenu { menu(for: conversation) }
                     }
                 }
             }
@@ -91,6 +92,31 @@ public struct ConversationList: View {
             }
         )
     }
+
+    /// Draws `ConversationMenu.items`, which decides what is offered - an
+    /// item appears only where its action was supplied, so each closure below
+    /// is present whenever its button is.
+    private func menu(for conversation: Conversation) -> some View {
+        let id = conversation.id
+        let items = ConversationMenu.items(
+            for: conversation,
+            state: state,
+            offers: ConversationMenu.Offers(actions)
+        )
+        return ForEach(items, id: \.self) { item in
+            switch item {
+            case .markAsRead:
+                Button("Mark as Read") { actions.markRead?(id) }
+                Divider()
+            case .mute:
+                Button("Mute") { actions.mute?(id) }
+            case .unmute:
+                Button("Unmute") { actions.unmute?(id) }
+            case .notificationSettings:
+                Button("Notification Settings…") { actions.showNotificationSettings?(id) }
+            }
+        }
+    }
 }
 
 struct ConversationRow: View {
@@ -111,7 +137,9 @@ struct ConversationRow: View {
                 // conversation was ever bold.
                 .fontWeight(showsUnread ? .semibold : .regular)
             Spacer(minLength: 4)
-            if conversation.isMuted {
+            // Google's own mute (`Conversation.isMuted`, only the fixture
+            // sets it) or this account's local record (decision 1).
+            if conversation.isMuted || state.muted.contains(conversation.id) {
                 Image(systemName: "bell.slash")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -119,6 +147,10 @@ struct ConversationRow: View {
             unreadMarker
         }
         .padding(.vertical, 1)
+        // Dimmed whenever the resolved delivery is Off (spec §2.5).
+        // `[Verify]` the value against the selection highlight in the
+        // running app.
+        .opacity(state.dimmed.contains(conversation.id) ? 0.55 : 1)
     }
 
     /// A number when the backend can count, a dot when it can only say

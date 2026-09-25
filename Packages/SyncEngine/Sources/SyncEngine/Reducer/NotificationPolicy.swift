@@ -54,17 +54,24 @@ public enum NotificationPolicy {
         case alreadyAnnounced
         /// The resolved rule says Off.
         case off
+        /// Notifications are paused (spec §2.5): nothing notifies, keywords
+        /// included.
+        case paused
     }
 
     /// - Parameters:
     ///   - viewing: the conversation on screen, or `nil` when none is - no
     ///     window, a minimised one, or the app not frontmost.
-    public static func decide(
+    ///   - paused: whether a pause is active now - evaluated by the caller at
+    ///     arrival time.
+    public static func decide( // swiftlint:disable:this function_parameter_count
+        // Six until slice 3 replaces them with a context struct, adding `keywordMatched`.
         _ message: Message,
         rule: ResolvedRule,
         me: Member.ID?,
         viewing: Conversation.ID?,
-        alreadyAnnounced: Bool
+        alreadyAnnounced: Bool,
+        paused: Bool
     ) -> Decision {
         guard let me else { return .suppress(.identityUnknown) }
         if message.sender == me {
@@ -75,6 +82,9 @@ public enum NotificationPolicy {
         }
         if alreadyAnnounced {
             return .suppress(.alreadyAnnounced)
+        }
+        if paused {
+            return .suppress(.paused)
         }
         switch rule.delivery {
         case .off:

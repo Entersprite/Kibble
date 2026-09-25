@@ -7,17 +7,26 @@ import Foundation
 /// everything else succeed instantly, so a test using this is exercising
 /// exactly one thing: a history fetch that outlives whoever asked for it.
 actor HangingHistoryBackend: ChatBackend {
-    nonisolated let capabilities = Capabilities()
+    /// No capabilities by default, as before. `canMarkRead: true` is for a
+    /// test that drives `ChatSessionModel.markRead(_:)`, whose first guard is
+    /// the capability - without it the explicit mark returns before it ever
+    /// reaches the fetch this backend hangs.
+    nonisolated let capabilities: Capabilities
     nonisolated let events: AsyncStream<ChatEvent>
     private let continuation: AsyncStream<ChatEvent>.Continuation
     private var release: CheckedContinuation<Void, Never>?
+
+    /// Every command `send(_:)` was handed, in order. Actor-isolated, so a
+    /// test reads it with `await` from any isolation.
+    private(set) var commands: [ChatCommand] = []
 
     /// Set by `releaseHungRequest(throwing:)`, consumed the next time
     /// `loadMessages` wakes up. Modelling a *failure* the hung call answers
     /// with, rather than only ever a message - see that method's doc comment.
     private var pendingFailure: (any Error)?
 
-    init() {
+    init(canMarkRead: Bool = false) {
+        capabilities = Capabilities(canMarkRead: canMarkRead)
         (events, continuation) = AsyncStream.makeStream(
             of: ChatEvent.self,
             bufferingPolicy: .unbounded
@@ -26,7 +35,10 @@ actor HangingHistoryBackend: ChatBackend {
 
     func connect() async throws {}
     func disconnect() async {}
-    func send(_: ChatCommand) async throws {}
+    func send(_ command: ChatCommand) async throws {
+        commands.append(command)
+    }
+
     func loadConversations() async throws -> [Conversation] {
         []
     }
@@ -53,6 +65,13 @@ actor HangingHistoryBackend: ChatBackend {
     }
 
     func setNotificationSetting(_: NotificationLevel, for _: Conversation.ID) async throws {}
+
+    /// Whether a `loadMessages` call is blocked right now - what a test waits
+    /// for before acting, so it acts on a fetch that is genuinely in flight
+    /// and a later release cannot miss it.
+    var isHoldingARequest: Bool {
+        release != nil
+    }
 
     /// Lets the blocked `loadMessages` call return with a message. Safe to
     /// call at most once per fetch; a test drives this by hand rather than a

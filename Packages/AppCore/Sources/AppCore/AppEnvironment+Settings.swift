@@ -62,7 +62,9 @@ public extension AppEnvironment {
             sections: sections,
             sectionInherited: inherited,
             sectionResolved: resolved,
-            lastError: settings.lastError
+            lastError: settings.lastError,
+            pauseStatus: pauseStatus,
+            conversations: current.customizedConversations.map(conversationRuleState(for:))
         )
     }
 
@@ -72,7 +74,12 @@ public extension AppEnvironment {
             updateSection: { [weak self] section, rule in
                 self?.settings.update(rule, for: .section(section))
             },
-            openSystemSettings: openSystemSettings
+            openSystemSettings: openSystemSettings,
+            pause: { [weak self] in self?.pauseNotifications($0) },
+            resume: { [weak self] in self?.resumeNotifications() },
+            updateConversation: { [weak self] id, rule in
+                self?.settings.update(rule, for: .conversation(id))
+            }
         )
     }
 

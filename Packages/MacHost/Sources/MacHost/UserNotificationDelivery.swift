@@ -18,9 +18,12 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     static let categoryID = "message"
     /// The same notification with no "Mark as Read" button - for a
     /// conversation whose rule withholds read receipts, where
-    /// `SyncEngine.submit(_:)` would refuse the mark (`offersMarkRead`).
-    static let noActionsCategoryID = "messageNoActions"
+    /// `SyncEngine.submit(_:)` would refuse the mark (`offersMarkRead`). Raw
+    /// value kept as the pre-rename `"messageNoActions"` so a banner
+    /// delivered before this build still resolves to a registered category.
+    static let withoutMarkReadCategoryID = "messageNoActions"
     static let markReadActionID = "markRead"
+    static let muteActionID = "mute"
     static let conversationKey = "conversationID"
     /// Microseconds since 1970, as an integer. Not the `Date`'s `Double`
     /// seconds: at today's epoch a `Double` has barely a microsecond of
@@ -40,26 +43,42 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
         .current()
     }
 
-    /// Makes this the center's delegate and registers the "Mark as Read"
-    /// button, beside a category without it. **Must run before the app
-    /// finishes launching** - Apple's rule for receiving the response that
-    /// launched the app - which is why `MacAppDelegate` calls it from
-    /// `applicationWillFinishLaunching`.
+    /// Makes this the center's delegate and registers the notification
+    /// categories. **Must run before the app finishes launching** - Apple's
+    /// rule for receiving the response that launched the app - which is why
+    /// `MacAppDelegate` calls it from `applicationWillFinishLaunching`.
     @MainActor
     public func install() {
         center.delegate = self
-        // No `.foreground` option: marking read must not pull the app forward.
-        let markRead = UNNotificationAction(
-            identifier: Self.markReadActionID, title: "Mark as Read", options: []
-        )
-        center.setNotificationCategories([
+        center.setNotificationCategories(Self.categories())
+    }
+
+    /// Both categories, registered together: each `setNotificationCategories`
+    /// call replaces the whole set. Neither action has `.foreground`: marking
+    /// read or muting must not pull the app forward.
+    static func categories() -> Set<UNNotificationCategory> {
+        let markRead = UNNotificationAction(identifier: markReadActionID, title: "Mark as Read", options: [])
+        let mute = UNNotificationAction(identifier: muteActionID, title: "Mute", options: [])
+        return [
             UNNotificationCategory(
-                identifier: Self.categoryID, actions: [markRead], intentIdentifiers: [], options: []
+                identifier: categoryID, actions: [markRead, mute], intentIdentifiers: [], options: []
             ),
             UNNotificationCategory(
-                identifier: Self.noActionsCategoryID, actions: [], intentIdentifiers: [], options: []
+                identifier: withoutMarkReadCategoryID, actions: [mute], intentIdentifiers: [], options: []
             )
-        ])
+        ]
+    }
+
+    static func response(
+        to actionIdentifier: String,
+        in conversation: Conversation.ID
+    ) -> NotificationResponse? {
+        switch actionIdentifier {
+        case markReadActionID: .markRead(conversation)
+        case muteActionID: .mute(conversation)
+        case UNNotificationDefaultActionIdentifier: .open(conversation)
+        default: nil
+        }
     }
 
     /// `.badge` as well as alerts and sounds: once an app registers with
@@ -140,8 +159,12 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
 
     /// Which registered category a notification is posted under - the one
     /// with "Mark as Read" only where that button can act.
+    ///
+    /// **Fixed when posted** - a rule changed afterwards leaves the old
+    /// buttons, accepted by the owner (2026-09-25): every click is checked
+    /// again when it happens.
     static func category(for notification: MessageNotification) -> String {
-        notification.offersMarkRead ? categoryID : noActionsCategoryID
+        notification.offersMarkRead ? categoryID : withoutMarkReadCategoryID
     }
 
     static func micros(_ date: Date) -> Int64 {
@@ -169,13 +192,8 @@ extension UserNotificationDelivery: UNUserNotificationCenterDelegate {
         let userInfo = response.notification.request.content.userInfo
         guard let raw = userInfo[Self.conversationKey] as? String else { return }
         let conversation = Conversation.ID(raw)
-        switch response.actionIdentifier {
-        case Self.markReadActionID:
-            continuation.yield(.markRead(conversation))
-        case UNNotificationDefaultActionIdentifier:
-            continuation.yield(.open(conversation))
-        default:
-            break
+        if let response = Self.response(to: response.actionIdentifier, in: conversation) {
+            continuation.yield(response)
         }
     }
 }

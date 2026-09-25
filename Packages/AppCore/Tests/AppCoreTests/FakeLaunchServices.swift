@@ -64,12 +64,13 @@ final class FakeLaunchServices: LaunchServices {
 
     init(
         arguments: LaunchArguments = LaunchArguments(),
-        driver: RecordingDemoDriver? = nil
+        driver: RecordingDemoDriver? = nil,
+        backendCapabilities: Capabilities? = nil
     ) throws {
         self.arguments = arguments
         self.driver = driver
         store = try ChatStore.inMemory()
-        backend = FakeLaunchBackend()
+        backend = FakeLaunchBackend(capabilities: backendCapabilities ?? Capabilities(canSendMessages: true))
     }
 
     func hasStoredSession() async throws -> Bool {
@@ -142,7 +143,7 @@ final class FakeLaunchServices: LaunchServices {
 /// the launch tests need a backend whose `connect()` failure mode they choose
 /// rather than a world to look at.
 final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
-    nonisolated let capabilities = Capabilities(canSendMessages: true)
+    nonisolated let capabilities: Capabilities
 
     var connectFailure: (any Error)?
 
@@ -171,7 +172,17 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
 
     private let hold = Mutex(ConnectHold())
 
-    init() {
+    /// `sent`'s storage. Behind a lock for the same reason as `hold`: `send(_:)`
+    /// runs on the engine's executor, and a test reads `sent` from the main actor.
+    private let commands = Mutex<[ChatCommand]>([])
+
+    /// Every command handed to `send(_:)`, for a test to read.
+    var sent: [ChatCommand] {
+        commands.withLock { $0 }
+    }
+
+    init(capabilities: Capabilities = Capabilities(canSendMessages: true)) {
+        self.capabilities = capabilities
         (stream, continuation) = AsyncStream<ChatEvent>.makeStream()
     }
 
@@ -229,7 +240,10 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
         continuation.yield(event)
     }
 
-    func send(_: ChatCommand) async throws {}
+    func send(_ command: ChatCommand) async throws {
+        commands.withLock { $0.append(command) }
+    }
+
     func loadConversations() async throws -> [Conversation] {
         []
     }

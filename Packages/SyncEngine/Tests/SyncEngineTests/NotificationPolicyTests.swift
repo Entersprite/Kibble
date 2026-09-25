@@ -34,13 +34,14 @@ struct NotificationPolicyTests {
             rule: rule,
             me: me,
             viewing: nil,
-            alreadyAnnounced: false
+            alreadyAnnounced: false, paused: false
         )
     }
 
     @Test func someoneElsesMessageElsewhereIsPosted() {
         let decision = NotificationPolicy.decide(
-            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: space, alreadyAnnounced: false
+            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: space, alreadyAnnounced: false,
+            paused: false
         )
         #expect(decision == .post(loud))
     }
@@ -48,7 +49,8 @@ struct NotificationPolicyTests {
     /// The channel echoes this client's own sends back as arrivals.
     @Test func myOwnMessageIsNeverAnnounced() {
         let decision = NotificationPolicy.decide(
-            message(from: me, in: dm), rule: .builtIn, me: me, viewing: nil, alreadyAnnounced: false
+            message(from: me, in: dm), rule: .builtIn, me: me, viewing: nil, alreadyAnnounced: false,
+            paused: false
         )
         #expect(decision == .suppress(.ownMessage))
     }
@@ -56,21 +58,24 @@ struct NotificationPolicyTests {
     /// Guessing here would announce the local user's own message.
     @Test func withNoIdentityYetNothingIsAnnounced() {
         let decision = NotificationPolicy.decide(
-            message(from: alice, in: dm), rule: .builtIn, me: nil, viewing: nil, alreadyAnnounced: false
+            message(from: alice, in: dm), rule: .builtIn, me: nil, viewing: nil, alreadyAnnounced: false,
+            paused: false
         )
         #expect(decision == .suppress(.identityUnknown))
     }
 
     @Test func theConversationOnScreenIsNotAnnounced() {
         let decision = NotificationPolicy.decide(
-            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: dm, alreadyAnnounced: false
+            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: dm, alreadyAnnounced: false,
+            paused: false
         )
         #expect(decision == .suppress(.onScreen))
     }
 
     @Test func aRedeliveredMessageIsNotAnnouncedTwice() {
         let decision = NotificationPolicy.decide(
-            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: nil, alreadyAnnounced: true
+            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: nil, alreadyAnnounced: true,
+            paused: false
         )
         #expect(decision == .suppress(.alreadyAnnounced))
     }
@@ -104,9 +109,24 @@ struct NotificationPolicyTests {
             rule: rule,
             me: me,
             viewing: nil,
-            alreadyAnnounced: false
+            alreadyAnnounced: false, paused: false
         )
         #expect(decision == .suppress(.ownMessage))
+    }
+
+    /// While paused nothing notifies - but a more specific reason still
+    /// answers "why was I not notified?" first.
+    @Test func whilePausedNothingIsPostedAndOwnMessagesStillSaySo() {
+        let paused = NotificationPolicy.decide(
+            message(from: alice, in: dm), rule: .builtIn, me: me, viewing: nil,
+            alreadyAnnounced: false, paused: true
+        )
+        #expect(paused == .suppress(.paused))
+        let own = NotificationPolicy.decide(
+            message(from: me, in: dm), rule: .builtIn, me: me, viewing: nil,
+            alreadyAnnounced: false, paused: true
+        )
+        #expect(own == .suppress(.ownMessage))
     }
 
     // MARK: - The reducer's side

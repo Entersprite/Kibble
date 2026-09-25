@@ -98,6 +98,49 @@ public final class NotificationSettingsModel {
         settings.resolve(for: conversation)
     }
 
+    /// The model's clock, for whoever formats a pause (`AppEnvironment`).
+    public var currentDate: Date {
+        now()
+    }
+
+    public func isMuted(_ id: Conversation.ID) -> Bool {
+        settings.isMuted(id)
+    }
+
+    /// Delivery Off, unread hidden, not counted (spec §2.5).
+    public func mute(_ id: Conversation.ID) {
+        update(rule(for: .conversation(id)).muted(), for: .conversation(id))
+    }
+
+    /// Clears exactly what `mute(_:)` writes.
+    public func unmute(_ id: Conversation.ID) {
+        update(rule(for: .conversation(id)).unmuted(), for: .conversation(id))
+    }
+
+    public var currentPause: Pause {
+        settings.pause
+    }
+
+    /// Read at arrival time; there is no timer (spec §2.5).
+    public var isPaused: Bool {
+        settings.pause.isActive(at: now())
+    }
+
+    public func pause(for duration: PauseDuration, calendar: Calendar = .current) {
+        setPause(duration.pause(from: now(), calendar: calendar))
+    }
+
+    public func resume() {
+        setPause(.off)
+    }
+
+    private func setPause(_ pause: Pause) {
+        guard account != nil else { return }
+        settings.setPause(pause, at: now(), by: deviceID())
+        persist()
+        onChange?(settings)
+    }
+
     private func deviceID() -> String {
         if let device {
             return device

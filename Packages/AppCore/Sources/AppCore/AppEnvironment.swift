@@ -41,7 +41,7 @@ public final class AppEnvironment {
     /// is still writing into it. That is precisely the interleaving
     /// `ChatSessionModel.stopAndEraseStore()` exists to make impossible, so
     /// the model has to be reachable before it is parked, not after.
-    private var model: ChatSessionModel?
+    private(set) var model: ChatSessionModel?
 
     /// The last value `setActive(_:)` was told, held even while `model` is
     /// `nil` so it is not silently dropped.
@@ -105,6 +105,8 @@ public final class AppEnvironment {
         notifications = delivery.map(NotificationCoordinator.init(delivery:))
         notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
         notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }
+        notifications?.isPaused = { [settings] in settings.isPaused }
+        notifications?.onMute = { [settings] in settings.mute($0) }
         notifications?.start()
     }
 

@@ -95,4 +95,26 @@ struct ReadReceiptGateTests {
         await engine.setGhostMode(true)
         #expect(await !(engine.submit(mark(open))))
     }
+
+    /// Review Focus 4. A refused mark still means the messages it covers
+    /// are read here, so the banners for them are withdrawn locally -
+    /// otherwise a receipts-off conversation fills Notification Center. A
+    /// published mark announces nothing here: the server's read state does,
+    /// later, through the reducer.
+    ///
+    /// The announced position is one microsecond past the mark's, because a
+    /// `.read` covers `createdAt < upTo` and a mark's position is its newest
+    /// message's own time (`findings.md` §36). `MarkReadNowTests` checks that
+    /// against a stored message; this pins the exact value.
+    @Test func aRefusedMarkAnnouncesALocalReadAndAPublishedOneDoesNot() async throws {
+        let (engine, _) = try await harness()
+        var settings = NotificationSettings()
+        settings.setRule(NotificationRule(readReceipts: false), for: .conversation(quiet.id), at: at, by: "t")
+        engine.readReceipts.set(.resolve(settings))
+        let pastTheMark = Date(timeIntervalSince1970: 1_790_000_000.000_001)
+
+        #expect(await engine.submit(mark(open)))
+        #expect(await !(engine.submit(mark(quiet))))
+        #expect(await firstAnnouncement(of: engine) == .read(quiet.id, upTo: pastTheMark))
+    }
 }

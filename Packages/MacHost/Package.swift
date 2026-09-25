@@ -21,13 +21,21 @@ let package = Package(
         .package(path: "../AppCore"),
         .package(path: "../ChatKit"),
         .package(path: "../SyncEngine"),
+        .package(path: "../DesignSystem"),
         .package(path: "../FixtureBackend"),
         .package(path: "../LocalBridgeBackend")
     ],
     targets: [
         .target(
             name: "MacHost",
-            dependencies: ["AppCore", "ChatKit", "SyncEngine", "FixtureBackend", "LocalBridgeBackend"],
+            dependencies: [
+                "AppCore",
+                "ChatKit",
+                "SyncEngine",
+                "DesignSystem",
+                "FixtureBackend",
+                "LocalBridgeBackend"
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

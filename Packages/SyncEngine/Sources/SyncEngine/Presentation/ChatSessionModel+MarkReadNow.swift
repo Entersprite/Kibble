@@ -3,7 +3,7 @@ import Foundation
 
 extension ChatSessionModel {
     /// Marks one conversation read from outside the window - a notification's
-    /// "Mark as Read" button.
+    /// "Mark as Read" button, **or the sidebar's**.
     ///
     /// `markSelectedReadIfNeeded()` cannot serve this: its first two gates are
     /// "the app is frontmost" and "this conversation is selected", and a
@@ -23,9 +23,14 @@ extension ChatSessionModel {
     ///   an automatic mark for the same conversation cannot both submit.
     /// - **`SyncEngine.submit(_:)`**, so the conversation's `readReceipts`
     ///   rule still refuses at its one chokepoint (`ReadReceiptGate`). With
-    ///   receipts off this publishes nothing and the banner stays - which is
-    ///   why such a notification offers no "Mark as Read" at all
-    ///   (`MessageNotification.offersMarkRead`, in `AppCore`).
+    ///   receipts off this publishes nothing, and the refusal still withdraws
+    ///   the conversation's banners locally (`SyncEngine.submit`'s local
+    ///   `.read`). Such a notification offers no "Mark as Read" at all
+    ///   (`MessageNotification.offersMarkRead`, in `AppCore`), and the
+    ///   sidebar hides it for such a row, because the button would tell
+    ///   Google nothing.
+    /// - **The newest page when nothing is stored** - a sidebar mark can
+    ///   reach a conversation never opened this session.
     ///
     /// Not traced by `--probe=markread`: its vocabulary describes the automatic
     /// trigger's gates, and no exhaustive switch would force a new token to be
@@ -51,9 +56,16 @@ extension ChatSessionModel {
     }
 
     private func publishNewestPosition(in conversation: Conversation.ID) async {
-        let newest = ((try? store.messages(in: conversation)) ?? [])
-            .filter { !$0.id.rawValue.hasPrefix("local/") }
-            .map(\.createdAt).max()
+        var newest = newestServerMessage(in: conversation)
+        if newest == nil {
+            // From the sidebar, a conversation unread since before launch may
+            // never have been opened, so none of its messages are stored.
+            // Its newest page first, or this would publish nothing, silently.
+            // A failed fetch is recorded where the window shows it.
+            await engine.requestMoreMessages(in: conversation)
+            guard !Task.isCancelled else { return }
+            newest = newestServerMessage(in: conversation)
+        }
         guard let newest else { return }
         if let already = published[conversation], newest <= already {
             return
@@ -65,5 +77,11 @@ extension ChatSessionModel {
         if accepted {
             published[conversation] = newest
         }
+    }
+
+    private func newestServerMessage(in conversation: Conversation.ID) -> Date? {
+        ((try? store.messages(in: conversation)) ?? [])
+            .filter { !$0.id.rawValue.hasPrefix("local/") }
+            .map(\.createdAt).max()
     }
 }

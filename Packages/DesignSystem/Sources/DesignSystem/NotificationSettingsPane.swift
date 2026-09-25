@@ -13,6 +13,9 @@ public struct NotificationSettingsState: Equatable, Sendable {
     public var sectionInherited: [SectionKey: ResolvedRule]
     public var sectionResolved: [SectionKey: ResolvedRule]
     public var lastError: String?
+    /// The status line under "Pause notifications". `nil` when not paused.
+    public var pauseStatus: String?
+    public var conversations: [ConversationRuleState]
 
     public init(
         isAvailable: Bool = false,
@@ -21,7 +24,9 @@ public struct NotificationSettingsState: Equatable, Sendable {
         sections: [SectionKey: NotificationRule] = [:],
         sectionInherited: [SectionKey: ResolvedRule] = [:],
         sectionResolved: [SectionKey: ResolvedRule] = [:],
-        lastError: String? = nil
+        lastError: String? = nil,
+        pauseStatus: String? = nil,
+        conversations: [ConversationRuleState] = []
     ) {
         self.isAvailable = isAvailable
         self.globalRule = globalRule
@@ -30,6 +35,8 @@ public struct NotificationSettingsState: Equatable, Sendable {
         self.sectionInherited = sectionInherited
         self.sectionResolved = sectionResolved
         self.lastError = lastError
+        self.pauseStatus = pauseStatus
+        self.conversations = conversations
     }
 }
 
@@ -39,15 +46,24 @@ public struct NotificationSettingsActions {
     public var updateSection: (SectionKey, NotificationRule) -> Void
     /// `nil` hides the button - `CLAUDE.md`: never draw a control the host cannot honour.
     public var openSystemSettings: (() -> Void)?
+    public var pause: (PauseDuration) -> Void
+    public var resume: () -> Void
+    public var updateConversation: (Conversation.ID, NotificationRule) -> Void
 
     public init(
         updateGlobal: @escaping (NotificationRule) -> Void = { _ in },
         updateSection: @escaping (SectionKey, NotificationRule) -> Void = { _, _ in },
-        openSystemSettings: (() -> Void)? = nil
+        openSystemSettings: (() -> Void)? = nil,
+        pause: @escaping (PauseDuration) -> Void = { _ in },
+        resume: @escaping () -> Void = {},
+        updateConversation: @escaping (Conversation.ID, NotificationRule) -> Void = { _, _ in }
     ) {
         self.updateGlobal = updateGlobal
         self.updateSection = updateSection
         self.openSystemSettings = openSystemSettings
+        self.pause = pause
+        self.resume = resume
+        self.updateConversation = updateConversation
     }
 }
 
@@ -92,6 +108,8 @@ public struct NotificationSettingsPane: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                pause
+                    .disabled(!state.isAvailable)
                 defaults
                     .disabled(!state.isAvailable)
                 sections
@@ -113,6 +131,31 @@ public struct NotificationSettingsPane: View {
                     inherited: state.sectionInherited[section] ?? state.global,
                     update: { actions.updateSection(section, $0) }
                 )
+            }
+        }
+    }
+
+    /// Spec §4.1: a pop-up while not paused; the status and Resume while paused.
+    private var pause: some View {
+        Section {
+            if let status = state.pauseStatus {
+                LabeledContent(status) {
+                    Button("Resume", action: actions.resume)
+                }
+            } else {
+                Picker("Pause notifications", selection: Binding<PauseDuration?>(
+                    get: { nil },
+                    set: {
+                        if let duration = $0 {
+                            actions.pause(duration)
+                        }
+                    }
+                )) {
+                    Text("Off").tag(PauseDuration?.none)
+                    ForEach(PauseDuration.allCases, id: \.self) {
+                        Text(Display.title(of: $0)).tag(PauseDuration?.some($0))
+                    }
+                }
             }
         }
     }
@@ -171,7 +214,8 @@ public struct NotificationSettingsPane: View {
 }
 
 /// One level's five settings, each defaulting to what it inherits. Used for a
-/// section here and for a conversation in slice 2.
+/// section here, and for a conversation by `ConversationNotificationSheet`
+/// and `ConversationSettingsPane`.
 public struct NotificationRuleEditor: View {
     private let title: String
     private let rule: NotificationRule
