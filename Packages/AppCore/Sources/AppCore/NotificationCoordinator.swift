@@ -33,6 +33,12 @@ final class NotificationCoordinator {
     /// `replayPending()` once the session has started.
     private var pending: NotificationResponse?
 
+    /// Whether a click with no session is the one that launched the app, and
+    /// so worth holding. `true` until the first `detach()`, and never again:
+    /// after a session has ended, a click with no session is a banner that
+    /// raced the withdraw, and the next sign-in may be another account.
+    private var holdsLaunchingClick = true
+
     /// Message ids announced this session, oldest first, capped at
     /// `recentLimit`. Backs `NotificationPolicy.Reason.alreadyAnnounced`.
     private var recent: [Message.ID] = []
@@ -86,6 +92,13 @@ final class NotificationCoordinator {
     /// be replayed, and clears Notification Center, because the next session
     /// may be a different account.
     ///
+    /// **Also stops holding clicks for good** (`holdsLaunchingClick`), and
+    /// that is cleared before the first suspension: a click during the waits
+    /// below, or anywhere in sign-in afterwards, used to be held and replayed
+    /// into the next sign-in. `AppEnvironment` calls this on every way into
+    /// sign-in, including a launch that never built a session, so a previous
+    /// process's banners are withdrawn too.
+    ///
     /// **Waits for the announcements task before withdrawing.** Cancelling
     /// does not stop a `post` already handed to the delivery, and one that
     /// landed after `withdrawAll()` would leave this account's message text
@@ -93,6 +106,9 @@ final class NotificationCoordinator {
     /// first, so a click during the wait is held rather than acted on, and
     /// then dropped with any other.
     func detach() async {
+        // First, before any suspension: a click during the waits below must
+        // not be held for the next session.
+        holdsLaunchingClick = false
         let announcements = announcementsTask
         announcements?.cancel()
         announcementsTask = nil
@@ -150,7 +166,9 @@ final class NotificationCoordinator {
 
     func handle(_ response: NotificationResponse) {
         guard let model else {
-            pending = response
+            if holdsLaunchingClick {
+                pending = response
+            }
             if case .open = response {
                 onShowWindow?()
             }

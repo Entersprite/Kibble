@@ -66,6 +66,94 @@ struct NotificationCoordinatorLifecycleTests {
         #expect(environment.windowRequests == 1)
     }
 
+    /// A click that arrives once the session has ended - a banner that raced
+    /// the withdraw - still brings the window forward, and is not held for
+    /// the next sign-in, which may be another account.
+    @Test func aClickAfterTheSessionEndedIsNotReplayedIntoTheNext() async throws {
+        let services = try FakeLaunchServices()
+        services.backend.connectFailure = ChatError.notAuthenticated
+        let delivery = FakeNotificationDelivery()
+        let environment = AppEnvironment(services: services, notifications: delivery)
+        await environment.start()
+        guard case .needsSignIn = environment.phase else {
+            Issue.record("expected .needsSignIn to set the test up")
+            return
+        }
+
+        delivery.respond.yield(.open(dm))
+        #expect(await eventually { environment.windowRequests == 1 })
+
+        services.backend.connectFailure = nil
+        await environment.signedIn()
+        guard case let .running(model) = environment.phase else {
+            Issue.record("expected .running once the session connects")
+            return
+        }
+        #expect(model.selected == nil)
+        #expect(environment.windowRequests == 1)
+    }
+
+    /// The same, inside `detach()` itself: a click while Notification Center
+    /// is being cleared lands after `pending` was dropped, so only the latch
+    /// being cleared before the first suspension keeps it out of the next
+    /// session.
+    @Test func aClickWhileSigningOutWithdrawsIsNotReplayedIntoTheNext() async throws {
+        let services = try FakeLaunchServices()
+        let delivery = FakeNotificationDelivery()
+        let environment = AppEnvironment(services: services, notifications: delivery)
+        await environment.start()
+        guard case .running = environment.phase else {
+            Issue.record("expected .running to set the test up")
+            return
+        }
+
+        await delivery.holdWithdrawAll()
+        let signingOut = Task { await environment.signOut() }
+        #expect(await eventually { await delivery.withdrawAllsStarted == 1 })
+        delivery.respond.yield(.open(dm))
+        #expect(await eventually { environment.windowRequests == 1 })
+        await delivery.releaseWithdrawAll()
+        await signingOut.value
+        guard case .needsSignIn = environment.phase else {
+            Issue.record("expected .needsSignIn once signed out")
+            return
+        }
+
+        await environment.signedIn()
+        guard case let .running(model) = environment.phase else {
+            Issue.record("expected .running once signed back in")
+            return
+        }
+        #expect(model.selected == nil)
+    }
+
+    /// No stored session at launch builds no model, and that path ends the
+    /// previous process's session too: its banners are withdrawn, and the
+    /// click that launched the app is not replayed into whoever signs in.
+    @Test func aLaunchWithNoStoredSessionWithdrawsAndDropsTheLaunchingClick() async throws {
+        let services = try FakeLaunchServices()
+        services.storedSessionExists = false
+        let delivery = FakeNotificationDelivery()
+        let environment = AppEnvironment(services: services, notifications: delivery)
+        delivery.respond.yield(.open(dm))
+        #expect(await eventually { environment.windowRequests == 1 })
+
+        await environment.start()
+        guard case .needsSignIn = environment.phase else {
+            Issue.record("expected .needsSignIn to set the test up")
+            return
+        }
+        #expect(await delivery.withdrawAllCount == 1)
+
+        services.storedSessionExists = true
+        await environment.signedIn()
+        guard case let .running(model) = environment.phase else {
+            Issue.record("expected .running once a credential exists")
+            return
+        }
+        #expect(model.selected == nil)
+    }
+
     /// A post already in flight when the session ends lands before the
     /// withdraw, not after it - or the previous account's message text stays
     /// in Notification Center.
