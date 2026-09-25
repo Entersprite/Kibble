@@ -99,14 +99,31 @@ struct NotificationSettingsModelTests {
     }
 
     /// Review Focus 1: an unreadable file starts from defaults, says so, and
-    /// edits still work.
-    @Test func anUnreadableFileFallsBackToDefaultsAndSaysSo() {
+    /// edits still work. Defaults except read receipts, which are off - the
+    /// owner's decision (session 26): an unreadable file must not turn on
+    /// receipts a saved rule may have turned off.
+    @Test func anUnreadableFileFallsBackToDefaultsWithReceiptsOffAndSaysSo() {
         let settings = model(ThrowingStore())
+        let heard = Heard()
+        settings.onChange = { heard.values.append($0) }
         settings.switchAccount(to: alice)
-        #expect(settings.settings.records.isEmpty)
+        #expect(settings.rule(for: .global) == NotificationRule(readReceipts: false))
+        #expect(!settings.resolved(for: Conversation(id: Conversation.ID("dm/1"), kind: .directMessage))
+            .readReceipts)
+        #expect(heard.values.last??.rule(for: .global)?.readReceipts == false)
         #expect(settings.lastError != nil)
         settings.update(NotificationRule(delivery: .off), for: .global)
         #expect(settings.rule(for: .global).delivery == .off)
+    }
+
+    /// Saved, not only held: the unreadable file has been moved aside, so the
+    /// next launch loads cleanly and would publish receipts again if the
+    /// record lived in memory only.
+    @Test func theReceiptsOffRecordIsSavedSoTheNextLaunchKeepsIt() {
+        let store = ThrowingStore()
+        let settings = model(store)
+        settings.switchAccount(to: alice)
+        #expect(store.saved[alice]?.rule(for: .global)?.readReceipts == false)
     }
 
     /// The only notice that the defaults are in use must survive the first
@@ -175,13 +192,19 @@ private final class FlakyStore: NotificationSettingsStore, @unchecked Sendable {
     }
 }
 
-private struct ThrowingStore: NotificationSettingsStore {
+/// Every load fails; saves are kept for a test to read.
+private final class ThrowingStore: NotificationSettingsStore, @unchecked Sendable {
     struct Unreadable: Error {}
+    private(set) var saved: [Member.ID: NotificationSettings] = [:]
+
     func load(for _: Member.ID) throws -> NotificationSettings? {
         throw Unreadable()
     }
 
-    func save(_: NotificationSettings, for _: Member.ID) {}
+    func save(_ settings: NotificationSettings, for account: Member.ID) {
+        saved[account] = settings
+    }
+
     func deviceID() -> String {
         "dev"
     }

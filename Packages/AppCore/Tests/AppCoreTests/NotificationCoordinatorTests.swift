@@ -26,6 +26,10 @@ actor FakeNotificationDelivery: NotificationDelivering {
     private(set) var postsStarted = 0
     private var holdsPosts = false
     private var heldPosts: [CheckedContinuation<Void, Never>] = []
+    /// Withdraw-alls entered, including one still held by `holdWithdrawAll()`.
+    private(set) var withdrawAllsStarted = 0
+    private var holdsWithdrawAll = false
+    private var heldWithdrawAll: CheckedContinuation<Void, Never>?
 
     nonisolated let responses: AsyncStream<NotificationResponse>
     nonisolated let respond: AsyncStream<NotificationResponse>.Continuation
@@ -64,7 +68,23 @@ actor FakeNotificationDelivery: NotificationDelivering {
         withdrawals.append(Withdrawal(conversation: conversation, position: position))
     }
 
-    func withdrawAll() {
+    /// Makes the next `withdrawAll` wait for `releaseWithdrawAll()` - the
+    /// last suspension in `NotificationCoordinator.detach()`.
+    func holdWithdrawAll() {
+        holdsWithdrawAll = true
+    }
+
+    func releaseWithdrawAll() {
+        holdsWithdrawAll = false
+        heldWithdrawAll?.resume()
+        heldWithdrawAll = nil
+    }
+
+    func withdrawAll() async {
+        withdrawAllsStarted += 1
+        if holdsWithdrawAll {
+            await withCheckedContinuation { heldWithdrawAll = $0 }
+        }
         withdrawAllCount += 1
         landed.append(.withdrewAll)
     }

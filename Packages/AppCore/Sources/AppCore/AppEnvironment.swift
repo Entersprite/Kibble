@@ -160,7 +160,7 @@ public final class AppEnvironment {
 
             try await model.start()
             // Only now: a launching "Mark as Read" submitted mid-connect is lost.
-            notifications?.replayPending()
+            notifications?.replayPending(for: model)
             phase = .running(model)
             notifications?.requestAuthorizationOnce()
 
@@ -297,6 +297,10 @@ public final class AppEnvironment {
                 await notifications?.detach()
                 try await model.stopAndEraseStore()
             } else {
+                // No session in this process, but this still ends one: the
+                // previous process's banners, and the click that launched
+                // this one, belong to whoever was signed in then.
+                await notifications?.detach()
                 try services.eraseStore()
             }
         } catch {

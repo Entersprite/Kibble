@@ -32,20 +32,29 @@ public struct FileNotificationSettingsStore: NotificationSettingsStore {
     public func load(for account: Member.ID) throws -> NotificationSettings? {
         let url = settingsDirectory.appendingPathComponent(Self.fileName(for: account))
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let data = try Data(contentsOf: url)
         do {
+            let data = try Data(contentsOf: url)
             return try JSONDecoder().decode(NotificationSettings.self, from: data)
         } catch {
             // Moved aside, not left for the next save to overwrite: whatever
-            // is in it may still be worth recovering by hand. The timestamp
-            // stays for a person reading the directory; the UUID suffix is
-            // what makes the name collision-proof, because two unreadable
-            // loads can land in the same second. With the UUID, the only way
-            // this `try?` still fails is a filesystem error in this same
-            // directory - and that would fail the next `save` too, so there
-            // is nothing more useful to do here than leave the corrupt file
-            // where it is and report the read failure, which the `throw`
-            // below already does.
+            // is in it may still be worth recovering by hand. That covers a
+            // file that cannot be read at all as well as one that does not
+            // decode, because the next save is immediate - after a failed
+            // load, `NotificationSettingsModel` saves a receipts-off record
+            // straight away. The cost, accepted: a read error that would have
+            // cleared by the next launch no longer recovers there on its own,
+            // and the rules wait in the aside file for a person. Leaving the
+            // file in place instead leaves it for the first edit to
+            // overwrite, which loses them outright.
+            //
+            // The timestamp stays for a person reading the directory; the
+            // UUID suffix is what makes the name collision-proof, because two
+            // unreadable loads can land in the same second. With the UUID,
+            // the only way this `try?` still fails is a filesystem error in
+            // this same directory - and that would fail the next `save` too,
+            // so there is nothing more useful to do here than leave the
+            // corrupt file where it is and report the read failure, which the
+            // `throw` below already does.
             let stamp = Int(Date().timeIntervalSince1970)
             let unique = UUID().uuidString.prefix(8)
             let aside = url.deletingPathExtension()
