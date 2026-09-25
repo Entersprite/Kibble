@@ -23,9 +23,12 @@ extension ChatSessionModel {
     ///   an automatic mark for the same conversation cannot both submit.
     /// - **`SyncEngine.submit(_:)`**, so the conversation's `readReceipts`
     ///   rule still refuses at its one chokepoint (`ReadReceiptGate`). With
-    ///   receipts off this publishes nothing and the banner stays - which is
-    ///   why such a notification offers no "Mark as Read" at all
-    ///   (`MessageNotification.offersMarkRead`, in `AppCore`).
+    ///   receipts off this publishes nothing, and the refusal still withdraws
+    ///   the conversation's banners locally (`SyncEngine.submit`'s local
+    ///   `.read`). Such a notification offers no "Mark as Read" at all
+    ///   (`MessageNotification.offersMarkRead`, in `AppCore`), and the
+    ///   sidebar hides it for such a row, because the button would tell
+    ///   Google nothing.
     /// - **The newest page when nothing is stored** - a sidebar mark can
     ///   reach a conversation never opened this session.
     ///

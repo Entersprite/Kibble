@@ -97,40 +97,24 @@ struct ReadReceiptGateTests {
     }
 
     /// Review Focus 4. A refused mark still means the messages it covers
-    /// were on screen here, so the banners for them are withdrawn locally -
+    /// are read here, so the banners for them are withdrawn locally -
     /// otherwise a receipts-off conversation fills Notification Center. A
     /// published mark announces nothing here: the server's read state does,
     /// later, through the reducer.
+    ///
+    /// The announced position is one microsecond past the mark's, because a
+    /// `.read` covers `createdAt < upTo` and a mark's position is its newest
+    /// message's own time (`findings.md` §36). `MarkReadNowTests` checks that
+    /// against a stored message; this pins the exact value.
     @Test func aRefusedMarkAnnouncesALocalReadAndAPublishedOneDoesNot() async throws {
         let (engine, _) = try await harness()
         var settings = NotificationSettings()
         settings.setRule(NotificationRule(readReceipts: false), for: .conversation(quiet.id), at: at, by: "t")
         engine.readReceipts.set(.resolve(settings))
+        let pastTheMark = Date(timeIntervalSince1970: 1_790_000_000.000_001)
 
         #expect(await engine.submit(mark(open)))
         #expect(await !(engine.submit(mark(quiet))))
-        #expect(await firstAnnouncement(of: engine) == .read(quiet.id, upTo: at))
-    }
-
-    /// The first announcement, or `nil` after a second - so a missing one
-    /// fails rather than hangs. Cancelling the loser finishes the engine's
-    /// stream for good (`CLAUDE.md`, §25.10's rule), which is harmless for an
-    /// engine this test throws away.
-    private func firstAnnouncement(of engine: SyncEngine) async -> SyncAnnouncement? {
-        await withTaskGroup(of: SyncAnnouncement?.self) { group in
-            group.addTask { await engine.announcements.first { _ in true } }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(1))
-                return nil
-            }
-            // Not actually redundant: `group.next()` is `SyncAnnouncement??`
-            // (the group's own optional wrapping the task's own optional
-            // result), and `?? nil` is what flattens the two - the rule's
-            // syntax match cannot tell that apart from a literal no-op.
-            // swiftlint:disable:next redundant_nil_coalescing
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
+        #expect(await firstAnnouncement(of: engine) == .read(quiet.id, upTo: pastTheMark))
     }
 }

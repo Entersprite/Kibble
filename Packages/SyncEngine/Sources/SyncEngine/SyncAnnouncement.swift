@@ -14,8 +14,13 @@ public enum SyncAnnouncement: Sendable, Equatable {
     case arrived(Message)
 
     /// A read position moved - or a mark was withheld, which still means the
-    /// messages it covers were seen here. Announcements for messages it
+    /// messages it covers are read here. Announcements for messages it
     /// covers (`createdAt < upTo`) are stale. See
     /// `SyncEffect.withdrawAnnouncements` and `SyncEngine.submit(_:undoing:)`.
+    ///
+    /// **For a withheld mark, `upTo` is one microsecond past the mark's own
+    /// position**, which is the newest seen message's `createdAt`: announced
+    /// unchanged, the strict comparison above would leave that message's
+    /// banner up (`findings.md` §36).
     case read(Conversation.ID, upTo: Date)
 }

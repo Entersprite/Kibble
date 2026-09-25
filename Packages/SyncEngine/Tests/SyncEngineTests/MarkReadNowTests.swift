@@ -64,4 +64,32 @@ struct MarkReadNowTests {
         #expect(await backend.commands.last == .markRead(conversationID: dm, upTo: stored))
         #expect(await backend.loadMessagesCount == 0)
     }
+
+    /// The final review's C1, across the seam. A mark's position is the
+    /// newest seen message's *own* time, and a `.read` covers only
+    /// `createdAt < upTo` (`findings.md` §36). So a refused mark announcing
+    /// that position unchanged withdrew every banner but the newest - usually
+    /// the only one - with every test green, because the gate's own test
+    /// holds no message to compare against.
+    @Test func aRefusedMarkAnnouncesAPositionPastTheNewestStoredMessage() async throws {
+        let (model, store, backend) = try await harness()
+        let stored = Date(timeIntervalSince1970: 1_788_170_000)
+        try store.apply([.upsertMessage(Message(
+            id: Message.ID("m:live"), conversationID: dm, threadID: MessageThread.ID("t"),
+            sender: Member.ID("fixture-other"), text: "hi", createdAt: stored
+        ))])
+        var settings = NotificationSettings()
+        settings.setRule(NotificationRule(readReceipts: false), for: .conversation(dm), at: stored, by: "t")
+        model.engine.readReceipts.set(.resolve(settings))
+
+        model.markRead(dm)
+
+        guard case let .read(conversation, upTo)? = await firstAnnouncement(of: model.engine) else {
+            Issue.record("the refused mark announced no local read")
+            return
+        }
+        #expect(conversation == dm)
+        #expect(upTo > stored)
+        #expect(await backend.markReadCount == 0)
+    }
 }

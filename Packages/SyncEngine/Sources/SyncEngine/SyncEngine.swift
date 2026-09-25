@@ -165,12 +165,22 @@ public extension SyncEngine {
     @discardableResult
     func submit(_ command: ChatCommand, undoing writes: [StoreWrite] = []) async -> Bool {
         if suppressed(command) {
-            // A refused mark still says the messages it covers were on screen
+            // A refused mark still means the messages it covers are read
             // here - receipts off, no account yet, or ghost mode - so their
-            // banners go, locally. A published mark announces nothing here:
-            // the server's read state does, through the reducer.
+            // banners go, locally. The automatic trigger marks what was on
+            // screen; an explicit mark (a banner's button or the sidebar's)
+            // marks what the user asked to. A published mark announces nothing
+            // here: the server's read state does, through the reducer.
+            //
+            // **One microsecond past `upTo`, never `upTo` itself.** A mark's
+            // `upTo` is the newest seen message's own `createdAt`, and a
+            // `.read` covers only `createdAt < upTo` - `findings.md` §36's
+            // strict boundary - so announcing it unchanged left the newest
+            // banner, usually the only one, up for good. The wire needs the
+            // same step and gets it from the backend
+            // (`readPositionOffsetMicroseconds`), which this path never reaches.
             if case let .markRead(conversation, upTo) = command {
-                announcer.yield(.read(conversation, upTo: upTo))
+                announcer.yield(.read(conversation, upTo: upTo.addingTimeInterval(0.000_001)))
             }
             return false
         }
