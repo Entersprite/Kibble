@@ -50,10 +50,7 @@ struct GChatMacApp: App {
                     Task { await environment.signOut() }
                 }
                 .sheet(item: $editingConversation) { item in
-                    ConversationNotificationSheet(
-                        state: environment.conversationRuleState(for: item.id),
-                        update: { environment.settings.update($0, for: .conversation(item.id)) }
-                    )
+                    ConversationSheetHost(environment: environment, id: item.id)
                 }
         }
         .defaultSize(width: 1100, height: 720)
