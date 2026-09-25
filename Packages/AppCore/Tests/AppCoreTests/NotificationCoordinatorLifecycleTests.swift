@@ -39,6 +39,70 @@ struct NotificationCoordinatorLifecycleTests {
         #expect(environment.windowRequests == 2)
     }
 
+    /// A session attached but not yet started, as `AppEnvironment` has it
+    /// while `connect()` runs.
+    private func attachedSession(
+        to coordinator: NotificationCoordinator
+    ) throws -> ChatSessionModel {
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: FakeLaunchBackend(), store: store)
+        let model = ChatSessionModel(store: store, engine: engine)
+        coordinator.attach(model, announcements: engine.announcements)
+        return model
+    }
+
+    /// A click while the attached session is still connecting is held and
+    /// replayed once it has started, exactly like the launching click: acting
+    /// at once could lose a "Mark as Read" whose two-second wait ended before
+    /// `connect()` did. `.open` takes the same path and is observable without
+    /// that wait. The window still comes forward at the click.
+    @Test func aClickWhileTheSessionIsConnectingWaitsForItToStart() throws {
+        let coordinator = NotificationCoordinator(delivery: FakeNotificationDelivery())
+        var windowRequests = 0
+        coordinator.onShowWindow = { windowRequests += 1 }
+        let model = try attachedSession(to: coordinator)
+
+        coordinator.handle(.open(dm))
+        #expect(model.selected == nil)
+        #expect(windowRequests == 1)
+
+        coordinator.replayPending()
+        #expect(model.selected == dm)
+    }
+
+    /// The next session's connect holds clicks too: having started once is
+    /// not having started this one.
+    @Test func aClickWhileTheNextSessionIsConnectingWaitsForItToStart() async throws {
+        let coordinator = NotificationCoordinator(delivery: FakeNotificationDelivery())
+        _ = try attachedSession(to: coordinator)
+        coordinator.replayPending()
+        await coordinator.detach()
+
+        let next = try attachedSession(to: coordinator)
+        coordinator.handle(.open(dm))
+        #expect(next.selected == nil)
+        coordinator.replayPending()
+        #expect(next.selected == dm)
+    }
+
+    /// With no session attached there is nothing to replay into: the held
+    /// click stays held, rather than going round again and asking for the
+    /// window a second time.
+    @Test func replayingWithNoSessionKeepsTheClickForTheSession() throws {
+        let coordinator = NotificationCoordinator(delivery: FakeNotificationDelivery())
+        var windowRequests = 0
+        coordinator.onShowWindow = { windowRequests += 1 }
+        coordinator.handle(.open(dm))
+        #expect(windowRequests == 1)
+
+        coordinator.replayPending()
+        #expect(windowRequests == 1)
+
+        let model = try attachedSession(to: coordinator)
+        coordinator.replayPending()
+        #expect(model.selected == dm)
+    }
+
     /// A launching click whose session never started is dropped when that
     /// session ends: the next sign-in may be a different account.
     @Test func aClickPendingWhenTheSessionEndsIsNotReplayedIntoTheNext() async throws {
