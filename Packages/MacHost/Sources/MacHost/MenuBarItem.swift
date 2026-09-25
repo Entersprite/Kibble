@@ -1,5 +1,7 @@
 import AppCore
 import AppKit
+import ChatKit
+import DesignSystem
 import SwiftUI
 
 /// The main window's scene id, shared by the shell's `Window` and everything
@@ -53,14 +55,30 @@ public struct MenuBarLabel: View {
     }
 }
 
-/// The menu-bar item's menu: a way back to the window, and a way to quit now
-/// that closing the window no longer does.
+/// The menu-bar item's menu: Pause, a way back to the window, and a way to
+/// quit now that closing the window no longer does.
 public struct MenuBarContent: View {
+    private let environment: AppEnvironment
     @Environment(\.openWindow) private var openWindow
 
-    public init() {}
+    public init(environment: AppEnvironment) {
+        self.environment = environment
+    }
 
     public var body: some View {
+        if environment.canEditNotificationRules {
+            if let status = environment.pauseStatus {
+                Text(status)
+                Button("Resume Notifications") { environment.resumeNotifications() }
+            } else {
+                Menu("Pause Notifications") {
+                    ForEach(PauseDuration.allCases, id: \.self) { duration in
+                        Button(Display.title(of: duration)) { environment.pauseNotifications(duration) }
+                    }
+                }
+            }
+            Divider()
+        }
         Button("Open GChat") {
             MainWindow.show(using: openWindow)
         }

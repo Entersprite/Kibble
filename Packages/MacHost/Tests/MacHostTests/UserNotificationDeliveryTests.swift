@@ -2,6 +2,7 @@ import AppCore
 import ChatKit
 import Foundation
 import Testing
+import UserNotifications
 @testable import MacHost
 
 /// The pure half of the one file that reaches the real notification center.
@@ -21,8 +22,8 @@ struct UserNotificationDeliveryTests {
         #expect(UserNotificationDelivery.category(for: notification(offersMarkRead: true))
             == UserNotificationDelivery.categoryID)
         #expect(UserNotificationDelivery.category(for: notification(offersMarkRead: false))
-            == UserNotificationDelivery.noActionsCategoryID)
-        #expect(UserNotificationDelivery.categoryID != UserNotificationDelivery.noActionsCategoryID)
+            == UserNotificationDelivery.withoutMarkReadCategoryID)
+        #expect(UserNotificationDelivery.categoryID != UserNotificationDelivery.withoutMarkReadCategoryID)
     }
 
     // MARK: - Which notifications a read position withdraws
@@ -96,5 +97,33 @@ struct UserNotificationDeliveryTests {
             #expect(UserNotificationDelivery.micros(date) == micros)
             #expect(UserNotificationDelivery.micros(date.addingTimeInterval(0.000_001)) == micros + 1)
         }
+    }
+
+    // MARK: - Categories and responses
+
+    /// Every banner carries Mute; only one whose conversation publishes
+    /// receipts carries Mark as Read. One set, registered in one call,
+    /// because each `setNotificationCategories` replaces the last.
+    @Test func everyCategoryOffersMuteAndOnlyOneOffersMarkAsRead() {
+        let categories = UserNotificationDelivery.categories()
+        #expect(Set(categories.map(\.identifier))
+            == [UserNotificationDelivery.categoryID, UserNotificationDelivery.withoutMarkReadCategoryID])
+        for category in categories {
+            let actions = category.actions.map(\.identifier)
+            #expect(actions.contains(UserNotificationDelivery.muteActionID))
+            #expect(actions.contains(UserNotificationDelivery.markReadActionID)
+                == (category.identifier == UserNotificationDelivery.categoryID))
+        }
+    }
+
+    @Test func eachButtonAndTheBannerItselfBecomeTheirResponse() {
+        let dm = Conversation.ID("dm/1")
+        #expect(UserNotificationDelivery
+            .response(to: UserNotificationDelivery.muteActionID, in: dm) == .mute(dm))
+        #expect(UserNotificationDelivery.response(to: UserNotificationDelivery.markReadActionID, in: dm)
+            == .markRead(dm))
+        #expect(UserNotificationDelivery
+            .response(to: UNNotificationDefaultActionIdentifier, in: dm) == .open(dm))
+        #expect(UserNotificationDelivery.response(to: UNNotificationDismissActionIdentifier, in: dm) == nil)
     }
 }

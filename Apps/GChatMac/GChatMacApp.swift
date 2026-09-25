@@ -62,7 +62,7 @@ struct GChatMacApp: App {
         }
 
         MenuBarExtra {
-            MenuBarContent()
+            MenuBarContent(environment: environment)
         } label: {
             MenuBarLabel(environment: environment)
         }
