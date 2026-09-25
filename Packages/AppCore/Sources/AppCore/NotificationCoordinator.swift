@@ -26,8 +26,9 @@ final class NotificationCoordinator {
     /// (a test with no host wiring) is not paused.
     var isPaused: (@MainActor () -> Bool)?
     /// Mutes a conversation from a banner's button. A settings write, not a
-    /// session action - but held until the session has started like every
-    /// click, so a Mute that launched the app waits for the account.
+    /// session action - but held until the session has started, like every
+    /// click. A Mute replayed before the account is identified is dropped by
+    /// `update`'s account guard `[Verify]`.
     var onMute: (@MainActor (Conversation.ID) -> Void)?
 
     private var model: ChatSessionModel?

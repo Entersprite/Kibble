@@ -41,7 +41,7 @@ public final class AppEnvironment {
     /// is still writing into it. That is precisely the interleaving
     /// `ChatSessionModel.stopAndEraseStore()` exists to make impossible, so
     /// the model has to be reachable before it is parked, not after.
-    private var model: ChatSessionModel?
+    private(set) var model: ChatSessionModel?
 
     /// The last value `setActive(_:)` was told, held even while `model` is
     /// `nil` so it is not silently dropped.

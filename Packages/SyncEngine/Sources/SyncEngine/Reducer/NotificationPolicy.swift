@@ -65,6 +65,7 @@ public enum NotificationPolicy {
     ///   - paused: whether a pause is active now - evaluated by the caller at
     ///     arrival time.
     public static func decide( // swiftlint:disable:this function_parameter_count
+        // Six until slice 3 replaces them with a context struct, adding `keywordMatched`.
         _ message: Message,
         rule: ResolvedRule,
         me: Member.ID?,

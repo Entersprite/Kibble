@@ -210,4 +210,34 @@ struct ConversationRulesWiringTests {
         await starting.value
         #expect(await eventually { environment.settings.isMuted(dm.id) })
     }
+
+    /// The final review's m5. An account identified during connect - every
+    /// returning launch - and a conversation already listed: the pane must
+    /// name it and show what its section gives it, not "Unavailable
+    /// conversation" and Other's values, because the conversation is looked
+    /// up in the session the environment already holds rather than only a
+    /// running one.
+    @Test func thePaneNamesAListedConversationWhileTheSessionIsStillConnecting() async throws {
+        let services = try FakeLaunchServices()
+        services.backend.holdConnect()
+        let environment = AppEnvironment(services: services)
+        let starting = Task { await environment.start() }
+        #expect(await eventually { services.backend.connectEntered })
+        services.backend.emit(.selfIdentified(me))
+        services.backend.emit(.conversationsChanged([space]))
+        #expect(await eventually {
+            environment.settings.account == me.id && environment.model?.conversations.count == 1
+        })
+        environment.settings.update(NotificationRule(delivery: .banner), for: .section(.spaces))
+        environment.settings.update(NotificationRule(showsPreview: false), for: .conversation(space.id))
+        #expect(environment.runningModel == nil)
+
+        let rows = environment.notificationSettingsState.conversations
+        #expect(rows.map(\.id) == [space.id])
+        #expect(rows.first?.title == "Design")
+        #expect(rows.first?.inherited.delivery == .banner)
+
+        services.backend.releaseConnect()
+        await starting.value
+    }
 }
