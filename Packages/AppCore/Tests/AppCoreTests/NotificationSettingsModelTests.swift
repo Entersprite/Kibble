@@ -11,9 +11,11 @@ struct NotificationSettingsModelTests {
 
     private func model(
         _ store: any NotificationSettingsStore = InMemoryNotificationSettingsStore(deviceID: "dev-1"),
-        defaults: UserDefaults = UserDefaults(suiteName: "NotificationSettingsModelTests-\(UUID())")!
+        defaults: UserDefaults = UserDefaults(suiteName: "NotificationSettingsModelTests-\(UUID())")!,
+        clock: TestClock? = nil
     ) -> NotificationSettingsModel {
-        NotificationSettingsModel(store: store, defaults: defaults, now: { [at] in at })
+        let clock = clock ?? TestClock(at)
+        return NotificationSettingsModel(store: store, defaults: defaults, now: { clock.now })
     }
 
     @Test func switchingToAnAccountLoadsItsSavedSettings() {
@@ -163,6 +165,49 @@ struct NotificationSettingsModelTests {
         #expect(heard.values.last == .some(nil))
         #expect(heard.values[1]?.rule(for: .global)?.delivery == .off)
     }
+
+    @Test func muteAndUnmuteAreSavedAndReportedAsMuted() {
+        let store = InMemoryNotificationSettingsStore(deviceID: "dev-1")
+        let settings = model(store)
+        let dm = Conversation.ID("dm/1")
+        settings.switchAccount(to: alice)
+        settings.mute(dm)
+        #expect(settings.isMuted(dm))
+        #expect(store.saved(for: alice)?.isMuted(dm) == true)
+        settings.unmute(dm)
+        #expect(!settings.isMuted(dm))
+        #expect(store.saved(for: alice)?.rule(for: .conversation(dm))?.isEmpty == true)
+    }
+
+    /// Review Focus 3: no timer - the pause is over the moment the clock
+    /// passes it.
+    @Test func aPauseForAnHourIsOverAnHourLater() {
+        let clock = TestClock(at)
+        let settings = model(clock: clock)
+        settings.switchAccount(to: alice)
+        settings.pause(for: .oneHour)
+        #expect(settings.isPaused)
+        clock.now = Date(timeIntervalSince1970: 1_790_003_600)
+        #expect(!settings.isPaused)
+    }
+
+    @Test func resumingEndsAPauseAndIsSaved() {
+        let store = InMemoryNotificationSettingsStore(deviceID: "dev-1")
+        let settings = model(store)
+        settings.switchAccount(to: alice)
+        settings.pause(for: .untilResumed)
+        #expect(store.saved(for: alice)?.pause == .untilResumed)
+        settings.resume()
+        #expect(!settings.isPaused)
+        #expect(store.saved(for: alice)?.pause == .off)
+    }
+
+    @Test func muteAndPauseWithNoAccountAreIgnored() {
+        let settings = model()
+        settings.mute(Conversation.ID("dm/1"))
+        settings.pause(for: .untilResumed)
+        #expect(settings.settings.records.isEmpty)
+    }
 }
 
 /// A reference box: an escaping main-actor closure may not mutate a captured
@@ -170,6 +215,16 @@ struct NotificationSettingsModelTests {
 @MainActor
 private final class Heard {
     var values: [NotificationSettings?] = []
+}
+
+/// A settable clock: an escaping main-actor closure may not mutate a
+/// captured local `var` under Swift 6.
+@MainActor
+private final class TestClock {
+    var now: Date
+    init(_ now: Date) {
+        self.now = now
+    }
 }
 
 /// Saves fail while `failsSaves` is set; loads find nothing.
