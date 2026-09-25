@@ -20,10 +20,16 @@ extension AppEnvironment {
     /// Switches the settings to whoever the model says is signed in, the moment
     /// it says so - from the store on a returning launch, from
     /// `ChatEvent.selfIdentified` otherwise.
+    ///
+    /// The cancellation check is for one value already queued when sign-out
+    /// cancels this task: without it, that `me` could land after
+    /// `switchAccount(to: nil)` and sign the settings back in to the account
+    /// that just left.
     func followIdentity(of model: ChatSessionModel) {
         identityTask?.cancel()
         identityTask = Task { [weak self] in
             for await me in Observations({ model.me }) {
+                guard !Task.isCancelled else { return }
                 self?.settings.switchAccount(to: me)
             }
         }
