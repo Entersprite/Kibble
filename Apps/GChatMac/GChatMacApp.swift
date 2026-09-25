@@ -19,6 +19,7 @@ struct GChatMacApp: App {
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingSignOutFromSettings = false
+    @State private var editingConversation: ConversationSelection?
     // HIG: reopen on the last pane.
     @AppStorage("settingsPane") private var settingsPane = "notifications"
 
@@ -47,6 +48,12 @@ struct GChatMacApp: App {
                 // honesty requirement lives - this dialog only restates it.
                 .signOutConfirmation(isPresented: $isConfirmingSignOut) {
                     Task { await environment.signOut() }
+                }
+                .sheet(item: $editingConversation) { item in
+                    ConversationNotificationSheet(
+                        state: environment.conversationRuleState(for: item.id),
+                        update: { environment.settings.update($0, for: .conversation(item.id)) }
+                    )
                 }
         }
         .defaultSize(width: 1100, height: 720)
@@ -81,6 +88,15 @@ struct GChatMacApp: App {
                         )
                     )
                     .frame(width: 560, height: 540)
+                }
+                Tab("Conversations", systemImage: "bubble.left.and.bubble.right", value: "conversations") {
+                    ConversationSettingsPane(
+                        state: environment.notificationSettingsState,
+                        actions: environment.notificationSettingsActions(
+                            openSystemSettings: { SystemNotificationSettings.open() }
+                        )
+                    )
+                    .frame(width: 560, height: 420)
                 }
                 Tab("Account", systemImage: "person.crop.circle", value: "account") {
                     AccountSettingsPane(
@@ -128,6 +144,9 @@ struct GChatMacApp: App {
     private var sceneActions: ChatSceneActions {
         var actions = environment.actions
         actions.signOut = environment.canSignOut ? { isConfirmingSignOut = true } : nil
+        actions.showNotificationSettings = environment.canEditNotificationRules
+            ? { editingConversation = ConversationSelection(id: $0) }
+            : nil
         return actions
     }
 }
