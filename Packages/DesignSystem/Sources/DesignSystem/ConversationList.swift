@@ -93,25 +93,28 @@ public struct ConversationList: View {
         )
     }
 
-    /// Mark as Read where it can publish, Mute or Unmute by the
-    /// conversation's own record, then its editor. Each item only where the
-    /// host supplied its action. `hasUnread`, not the drawn indicator: a
-    /// muted conversation looks read and still is not, for its sender.
-    @ViewBuilder private func menu(for conversation: Conversation) -> some View {
+    /// Draws `ConversationMenu.items`, which decides what is offered - an
+    /// item appears only where its action was supplied, so each closure below
+    /// is present whenever its button is.
+    private func menu(for conversation: Conversation) -> some View {
         let id = conversation.id
-        if conversation.hasUnread, !state.receiptsWithheld.contains(id), let markRead = actions.markRead {
-            Button("Mark as Read") { markRead(id) }
-            Divider()
-        }
-        if state.muted.contains(id) {
-            if let unmute = actions.unmute {
-                Button("Unmute") { unmute(id) }
+        let items = ConversationMenu.items(
+            for: conversation,
+            state: state,
+            offers: ConversationMenu.Offers(actions)
+        )
+        return ForEach(items, id: \.self) { item in
+            switch item {
+            case .markAsRead:
+                Button("Mark as Read") { actions.markRead?(id) }
+                Divider()
+            case .mute:
+                Button("Mute") { actions.mute?(id) }
+            case .unmute:
+                Button("Unmute") { actions.unmute?(id) }
+            case .notificationSettings:
+                Button("Notification Settings…") { actions.showNotificationSettings?(id) }
             }
-        } else if let mute = actions.mute {
-            Button("Mute") { mute(id) }
-        }
-        if let show = actions.showNotificationSettings {
-            Button("Notification Settings…") { show(id) }
         }
     }
 }
