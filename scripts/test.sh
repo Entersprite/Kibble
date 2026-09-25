@@ -101,9 +101,11 @@ APPCORE=Packages/AppCore/Sources/AppCore
 # notification center is reached only through `NotificationDelivering`, whose
 # one real conformance lives in MacHost - `UNUserNotificationCenter.current()`
 # crashes under a test runner, and a future iOS host supplies its own - and
-# AppKit does not exist on the iOS this package is linked by.
+# AppKit does not exist on the iOS this package is linked by. Cocoa is the
+# umbrella that re-exports AppKit, so banning AppKit alone let `import Cocoa`
+# through.
 scan "$APPCORE" \
-  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security|UserNotifications|AppKit)\b' \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security|UserNotifications|AppKit|Cocoa)\b' \
   "AppCore imports no backend, no credential store, no web view, no notification center and no AppKit"
 
 # The app target is a shell. This was the one structure rule in CLAUDE.md with
