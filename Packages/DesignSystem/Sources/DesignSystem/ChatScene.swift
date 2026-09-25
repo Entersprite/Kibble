@@ -41,6 +41,18 @@ public struct ChatSceneState: Sendable, Equatable {
     /// the badge and the rules still read it.
     public var unreadHidden: Set<Conversation.ID>
 
+    /// Conversations whose resolved delivery is Off - drawn dimmed, so a
+    /// silent section or the Meet preset dims too (spec §2.5).
+    public var dimmed: Set<Conversation.ID>
+
+    /// Conversations whose **own** record says Off - the ones the context
+    /// menu offers to Unmute, and that show the bell.
+    public var muted: Set<Conversation.ID>
+
+    /// Conversations whose rule withholds read receipts - where Mark as Read
+    /// would be refused at `SyncEngine.submit`, so the menu does not offer it.
+    public var receiptsWithheld: Set<Conversation.ID>
+
     public init(
         conversations: [Conversation] = [],
         directory: [Member.ID: Member] = [:],
@@ -53,7 +65,10 @@ public struct ChatSceneState: Sendable, Equatable {
         notice: String? = nil,
         capabilities: Capabilities = Capabilities(),
         failedDraft: String? = nil,
-        unreadHidden: Set<Conversation.ID> = []
+        unreadHidden: Set<Conversation.ID> = [],
+        dimmed: Set<Conversation.ID> = [],
+        muted: Set<Conversation.ID> = [],
+        receiptsWithheld: Set<Conversation.ID> = []
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -67,6 +82,9 @@ public struct ChatSceneState: Sendable, Equatable {
         self.capabilities = capabilities
         self.failedDraft = failedDraft
         self.unreadHidden = unreadHidden
+        self.dimmed = dimmed
+        self.muted = muted
+        self.receiptsWithheld = receiptsWithheld
     }
 
     public var selectedConversation: Conversation? {
@@ -131,13 +149,32 @@ public struct ChatSceneActions {
     /// same pattern `signIn`, `signOut` and `reconnect` already use.
     public var draftRestored: (() -> Void)?
 
+    /// Mute and Unmute a conversation (spec §2.5). **Optional, and `nil`
+    /// hides the menu items**: rules belong to an account, so a host with no
+    /// identified account offers neither - the `StatusStrip` pattern.
+    public var mute: ((Conversation.ID) -> Void)?
+    public var unmute: ((Conversation.ID) -> Void)?
+
+    /// Publishes the conversation's read position - the sidebar's Mark as
+    /// Read. `nil` hides it: no identified account, or a backend that cannot
+    /// mark read.
+    public var markRead: ((Conversation.ID) -> Void)?
+
+    /// Opens "Notifications for <name>". The host presents it; `nil` hides
+    /// the menu item.
+    public var showNotificationSettings: ((Conversation.ID) -> Void)?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
         signIn: (() -> Void)? = nil,
         signOut: (() -> Void)? = nil,
         reconnect: (() -> Void)? = nil,
-        draftRestored: (() -> Void)? = nil
+        draftRestored: (() -> Void)? = nil,
+        mute: ((Conversation.ID) -> Void)? = nil,
+        unmute: ((Conversation.ID) -> Void)? = nil,
+        markRead: ((Conversation.ID) -> Void)? = nil,
+        showNotificationSettings: ((Conversation.ID) -> Void)? = nil
     ) {
         self.select = select
         self.send = send
@@ -145,5 +182,9 @@ public struct ChatSceneActions {
         self.signOut = signOut
         self.reconnect = reconnect
         self.draftRestored = draftRestored
+        self.mute = mute
+        self.unmute = unmute
+        self.markRead = markRead
+        self.showNotificationSettings = showNotificationSettings
     }
 }
