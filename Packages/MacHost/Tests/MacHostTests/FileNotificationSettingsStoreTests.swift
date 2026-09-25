@@ -64,6 +64,26 @@ struct FileNotificationSettingsStoreTests {
         #expect(leftovers.contains { $0.contains("corrupt") })
     }
 
+    /// A file that cannot be read at all, not only one that does not decode,
+    /// is moved aside too. After a load failure the model saves a
+    /// receipts-off record straight away, and that save must not replace a
+    /// file whose contents may still be recoverable.
+    @Test func aFileThatCannotBeReadIsMovedAsideToo() throws {
+        let place = directory()
+        let store = FileNotificationSettingsStore(directory: place)
+        try store.save(sample(), for: alice)
+        let file = place
+            .appendingPathComponent("notification-settings", isDirectory: true)
+            .appendingPathComponent(FileNotificationSettingsStore.fileName(for: alice))
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+
+        #expect(throws: (any Error).self) { try store.load(for: alice) }
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        let leftovers = try FileManager.default
+            .contentsOfDirectory(atPath: file.deletingLastPathComponent().path)
+        #expect(leftovers.contains { $0.contains("corrupt") })
+    }
+
     /// Review Focus 1, round 2: two unreadable loads back to back, in the same
     /// second, must not collide on the aside name - the second move must not
     /// silently no-op and leave its corrupt file to be overwritten by the next

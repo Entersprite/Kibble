@@ -32,12 +32,16 @@ public struct FileNotificationSettingsStore: NotificationSettingsStore {
     public func load(for account: Member.ID) throws -> NotificationSettings? {
         let url = settingsDirectory.appendingPathComponent(Self.fileName(for: account))
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let data = try Data(contentsOf: url)
         do {
+            let data = try Data(contentsOf: url)
             return try JSONDecoder().decode(NotificationSettings.self, from: data)
         } catch {
             // Moved aside, not left for the next save to overwrite: whatever
-            // is in it may still be worth recovering by hand. The timestamp
+            // is in it may still be worth recovering by hand. That covers a
+            // file that cannot be read at all as well as one that does not
+            // decode, because the next save is immediate - after a failed
+            // load, `NotificationSettingsModel` saves a receipts-off record
+            // straight away. The timestamp
             // stays for a person reading the directory; the UUID suffix is
             // what makes the name collision-proof, because two unreadable
             // loads can land in the same second. With the UUID, the only way
