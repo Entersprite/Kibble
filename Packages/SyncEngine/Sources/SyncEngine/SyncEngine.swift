@@ -164,7 +164,16 @@ public extension SyncEngine {
     /// advance on a real success.
     @discardableResult
     func submit(_ command: ChatCommand, undoing writes: [StoreWrite] = []) async -> Bool {
-        guard !suppressed(command) else { return false }
+        if suppressed(command) {
+            // A refused mark still says the messages it covers were on screen
+            // here - receipts off, no account yet, or ghost mode - so their
+            // banners go, locally. A published mark announces nothing here:
+            // the server's read state does, through the reducer.
+            if case let .markRead(conversation, upTo) = command {
+                announcer.yield(.read(conversation, upTo: upTo))
+            }
+            return false
+        }
         do {
             try await backend.send(command)
             return true

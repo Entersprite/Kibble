@@ -13,7 +13,9 @@ public enum SyncAnnouncement: Sendable, Equatable {
     /// catch-up write. See `SyncEffect.announceArrival`.
     case arrived(Message)
 
-    /// A read position moved; announcements for messages it covers
-    /// (`createdAt < upTo`) are stale. See `SyncEffect.withdrawAnnouncements`.
+    /// A read position moved - or a mark was withheld, which still means the
+    /// messages it covers were seen here. Announcements for messages it
+    /// covers (`createdAt < upTo`) are stale. See
+    /// `SyncEffect.withdrawAnnouncements` and `SyncEngine.submit(_:undoing:)`.
     case read(Conversation.ID, upTo: Date)
 }

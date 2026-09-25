@@ -181,7 +181,8 @@ final class NotificationCoordinator {
                 rule: rule,
                 me: model.me,
                 viewing: model.isActive ? model.selected : nil,
-                alreadyAnnounced: recentSet.contains(message.id)
+                alreadyAnnounced: recentSet.contains(message.id),
+                paused: false
             )
             guard case let .post(presentation) = decision else { return }
             remember(message.id)
