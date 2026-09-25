@@ -18,6 +18,9 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
     private var windowObservers: [NSObjectProtocol] = []
+    /// Filters the minimise observers to the main window, which the shell's
+    /// `reportsMainWindow(to:)` names.
+    let mainWindowMinimising: MainWindowMinimising
 
     override public init() {
         let notifications = UserNotificationDelivery()
@@ -27,11 +30,13 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         let settingsStore: any NotificationSettingsStore =
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
-        environment = AppEnvironment(
+        let environment = AppEnvironment(
             services: SystemLaunchServices(arguments: .fromCommandLine()),
             notifications: notifications,
             settingsStore: settingsStore
         )
+        self.environment = environment
+        mainWindowMinimising = MainWindowMinimising { environment.setWindowMinimized($0) }
         super.init()
     }
 
@@ -57,15 +62,16 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
         // A minimised window's views do not disappear, so `.onDisappear`
         // cannot report it. `[Verify]` on macOS 26 - the shell's live check.
+        // Every window posts these; `MainWindowMinimising` keeps the main one's.
         let center = NotificationCenter.default
-        windowObservers = [
-            center.addObserver(
-                forName: NSWindow.didMiniaturizeNotification, object: nil, queue: .main
-            ) { _ in MainActor.assumeIsolated { environment.setWindowMinimized(true) } },
-            center.addObserver(
-                forName: NSWindow.didDeminiaturizeNotification, object: nil, queue: .main
-            ) { _ in MainActor.assumeIsolated { environment.setWindowMinimized(false) } }
-        ]
+        let minimising = mainWindowMinimising
+        windowObservers = [NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification]
+            .map { name in
+                center.addObserver(forName: name, object: nil, queue: .main) { note in
+                    let window = note.object as? NSWindow
+                    MainActor.assumeIsolated { minimising.handle(name, object: window) }
+                }
+            }
     }
 
     /// Closing the window must not quit: notifications only arrive while the

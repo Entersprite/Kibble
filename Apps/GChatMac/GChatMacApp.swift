@@ -39,6 +39,8 @@ struct GChatMacApp: App {
                 // frontmost half and minimising come from `MacAppDelegate`.
                 .onAppear { environment.setWindowOpen(true) }
                 .onDisappear { environment.setWindowOpen(false) }
+                // So minimising another window is not read as this one.
+                .reportsMainWindow(to: appDelegate)
                 // A confirmation, not a plain button action: an accidental
                 // click here costs a full two-factor login, and
                 // `AppEnvironment.signOut()`'s own doc comment is where the
