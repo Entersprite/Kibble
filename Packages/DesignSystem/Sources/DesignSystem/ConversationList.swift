@@ -97,6 +97,10 @@ struct ConversationRow: View {
     let conversation: Conversation
     let state: ChatSceneState
 
+    private var showsUnread: Bool {
+        conversation.hasUnread && !state.unreadHidden.contains(conversation.id)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             icon
@@ -105,7 +109,7 @@ struct ConversationRow: View {
                 // `hasUnread`, not `unreadCount`: the count is always zero on
                 // the wire (`findings.md` §37.8), so weighting on it meant no
                 // conversation was ever bold.
-                .fontWeight(conversation.hasUnread ? .semibold : .regular)
+                .fontWeight(showsUnread ? .semibold : .regular)
             Spacer(minLength: 4)
             if conversation.isMuted {
                 Image(systemName: "bell.slash")
@@ -137,12 +141,12 @@ struct ConversationRow: View {
     /// accent for, and it is distinct from the advice against fixed-colour
     /// sidebar *icons* - this is state, not iconography.
     @ViewBuilder private var unreadMarker: some View {
-        if conversation.unreadCount > 0 {
+        if !state.unreadHidden.contains(conversation.id), conversation.unreadCount > 0 {
             Text("\(conversation.unreadCount)")
                 .font(.caption.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-        } else if conversation.hasUnread {
+        } else if showsUnread {
             Circle()
                 .fill(.tint)
                 .frame(width: 7, height: 7)

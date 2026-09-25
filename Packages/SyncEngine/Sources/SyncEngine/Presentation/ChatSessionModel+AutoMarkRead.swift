@@ -106,9 +106,11 @@ extension ChatSessionModel {
     /// re-checks the guards that a two-second wait is long enough to
     /// invalidate before anything reaches the backend.
     ///
-    /// Ghost mode is not checked here. It is enforced in
-    /// `SyncEngine.submit(_:)`, which is the single chokepoint by design - a
-    /// second check here would be a second place to forget.
+    /// Read receipts are not checked here. The conversation's `readReceipts`
+    /// rule is enforced in `SyncEngine.submit(_:)` (`ReadReceiptGate`), which
+    /// is the single chokepoint by design - a second check here would be a
+    /// second place to forget. The engine's dormant `ghostMode` switch is
+    /// enforced there too.
     func markSelectedReadIfNeeded() {
         // Split from the original single compound guard
         // (`isActive, capabilities.canMarkRead, let selected`) into three,

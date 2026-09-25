@@ -36,6 +36,11 @@ public struct ChatSceneState: Sendable, Equatable {
     /// `nil` in every ordinary frame.
     public var failedDraft: String?
 
+    /// Conversations whose rule hides the unread indicator - drawn read in the
+    /// sidebar whatever `hasUnread` says (spec §3). The flag itself is untouched:
+    /// the badge and the rules still read it.
+    public var unreadHidden: Set<Conversation.ID>
+
     public init(
         conversations: [Conversation] = [],
         directory: [Member.ID: Member] = [:],
@@ -47,7 +52,8 @@ public struct ChatSceneState: Sendable, Equatable {
         lastError: ChatError? = nil,
         notice: String? = nil,
         capabilities: Capabilities = Capabilities(),
-        failedDraft: String? = nil
+        failedDraft: String? = nil,
+        unreadHidden: Set<Conversation.ID> = []
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -60,6 +66,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.notice = notice
         self.capabilities = capabilities
         self.failedDraft = failedDraft
+        self.unreadHidden = unreadHidden
     }
 
     public var selectedConversation: Conversation? {

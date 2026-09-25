@@ -113,4 +113,21 @@ struct SidebarSectionsTests {
         let sections = SidebarSections.build([conversation("dm:1", .directMessage)])
         #expect(sections.first?.id == "directMessage")
     }
+
+    /// The heading a conversation sits under and the section rule it obeys
+    /// come from one mapping (`SectionKey(kind:)`), so they cannot disagree.
+    @Test func everyHeadingIsTheTitleOfItsRuleSection() {
+        let kinds: [Conversation.Kind] = [
+            .directMessage,
+            .groupDirectMessage,
+            .space,
+            .appDirectMessage,
+            .meetChat
+        ]
+        for kind in kinds {
+            let conversation = Conversation(id: Conversation.ID("x/\(kind)"), kind: kind, title: "t")
+            let section = SidebarSections.build([conversation]).first
+            #expect(section?.title == Display.title(of: SectionKey(kind: kind)), "\(kind)")
+        }
+    }
 }

@@ -59,12 +59,53 @@ public final class AppEnvironment {
     /// actually frontmost" and explicitly rejected always-publishing; that
     /// drop was the rejected alternative arriving by accident.
     ///
-    /// Applied at construction, right beside `engine.setGhostMode(...)` in
+    /// Applied at construction, right beside `beginSettingsSession(engine:)` in
     /// `start()`, which is the one place a model is actually built.
     private var pendingActive: Bool?
 
-    public init(services: any LaunchServices) {
+    /// The other two inputs to the viewing gate, beside `pendingActive`'s
+    /// frontmost. Written from `AppEnvironment+Viewing.swift`; see
+    /// `isViewing` there.
+    var windowOpen = true
+    var windowMinimized = false
+
+    /// Bumped to ask the host to bring the main window forward - a
+    /// notification clicked while no window is open. `AppCore` cannot open a
+    /// window itself; the host observes this and does.
+    public internal(set) var windowRequests = 0
+
+    /// `nil` when the host supplies no way to deliver notifications - every
+    /// test that does not care, and any future host without them.
+    let notifications: NotificationCoordinator?
+
+    /// Notification rules for whichever account is identified - see
+    /// `NotificationSettingsModel` and `AppEnvironment+Settings.swift`.
+    public let settings: NotificationSettingsModel
+    /// Follows the running model's identity into `settings`.
+    var identityTask: Task<Void, Never>?
+    /// The running engine's receipts gate, held for tests to read.
+    var receiptGate: ReadReceiptGate?
+
+    /// Guards `signOut()` against a second concurrent call: two scenes (the
+    /// main window and the Settings window) each carry their own confirmation
+    /// dialog, so both can be confirmed before either finishes.
+    private var isSigningOut = false
+
+    public init(
+        services: any LaunchServices,
+        notifications delivery: (any NotificationDelivering)? = nil,
+        settingsStore: any NotificationSettingsStore = InMemoryNotificationSettingsStore()
+    ) {
         self.services = services
+        // Only a real account may take the legacy ghost-mode key; the fixture
+        // identifies a demo account of its own.
+        settings = NotificationSettingsModel(
+            store: settingsStore, migratesLegacyGhostMode: services.arguments.usesRealBackend
+        )
+        notifications = delivery.map(NotificationCoordinator.init(delivery:))
+        notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
+        notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }
+        notifications?.start()
     }
 
     public func start() async {
@@ -93,39 +134,35 @@ public final class AppEnvironment {
             try store.apply([.clearEphemeralState])
             let selection = try await services.makeSession()
             let engine = SyncEngine(backend: selection.backend, store: store)
-            // Ghost mode defaults to **off**: read receipts are published.
-            // The owner's explicit call, so that the first live run
-            // exercises `mark_group_readstate` rather than a suppressed code
-            // path. There is no UI toggle yet; this key is the only control.
-            // `UserDefaults.bool(forKey:)` is `false` for an absent key, so
-            // the intended default needs no registration.
-            //
-            // Read here, right where the engine is constructed, rather than
-            // in `SystemLaunchServices`: `SyncEngine` itself is built in this
-            // function (`makeSession()` only chooses the backend), so this is
-            // the one place that actually holds it. `UserDefaults` is
-            // Foundation, not a backend or a credential store, so reading it
-            // here does not touch the constraint that keeps this file naming
-            // neither.
-            await engine.setGhostMode(UserDefaults.standard.bool(forKey: "ghostMode"))
+            // Receipts are withheld until an account is identified; its saved
+            // rules then decide. The old `ghostMode` key migrates into the
+            // first account's global rule (`NotificationSettingsModel`).
+            beginSettingsSession(engine: engine)
             let model = ChatSessionModel(
                 store: store, engine: engine, me: selection.me, markReadTrace: services.markReadTraceSink()
             )
-            // Applies whatever `setActive(_:)` was told while no model
+            // Applies whatever the viewing inputs were told while no model
             // existed yet, rather than leaving this model's `isActive`
             // sitting at its own `true` default - see `pendingActive`'s doc
-            // comment for the drop this closes.
-            if let pendingActive {
-                model.setActive(pendingActive)
-            }
+            // comment for the drop this closes. Unconditional now: with
+            // nothing told, `isViewing` is `true`, the model's own default.
+            model.setActive(isViewing)
             // Held **before** it is started, not after it is parked in
             // `.running`. By the time `start()` can throw, the engine's
             // consumer is already live - see `model`'s own doc comment for why
             // that one line's placement is the whole finding.
             self.model = model
+            // Before `start()` for the same reason: arrivals during connect
+            // are real arrivals. The stream buffers, so this is ordering
+            // hygiene rather than a race.
+            notifications?.attach(model, announcements: engine.announcements)
+            followIdentity(of: model)
 
             try await model.start()
+            // Only now: a launching "Mark as Read" submitted mid-connect is lost.
+            notifications?.replayPending()
             phase = .running(model)
+            notifications?.requestAuthorizationOnce()
 
             if services.arguments.runsDiagnostics {
                 try services.startDiagnostics()
@@ -197,6 +234,9 @@ public final class AppEnvironment {
     /// nothing changes to `.needsSignIn` - the session is still there to retry
     /// signing out of.
     public func signOut() async {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+        defer { isSigningOut = false }
         do {
             try await services.forgetStoredSession()
         } catch {
@@ -236,6 +276,10 @@ public final class AppEnvironment {
     /// ask; erasing an already-empty store is a cheap no-op, which is the
     /// point - nothing here has to know whether there is anything to erase.
     private func enterNeedsSignIn(reason: String?) async {
+        identityTask?.cancel()
+        identityTask = nil
+        // Nothing is deleted: the account's settings wait for it to sign in again.
+        settings.switchAccount(to: nil)
         do {
             if let model {
                 // The fixture's demo world, ticking on its own actor. Its
@@ -247,6 +291,10 @@ public final class AppEnvironment {
                     await driver.stop()
                     self.driver = nil
                 }
+                // Before the erase: the next session may be another account,
+                // and this one's message text must not stay in Notification
+                // Center after the store holding it is gone.
+                await notifications?.detach()
                 try await model.stopAndEraseStore()
             } else {
                 try services.eraseStore()
@@ -297,9 +345,31 @@ public final class AppEnvironment {
     /// that drop was the rejected alternative arriving by accident. Now the
     /// value is kept in `pendingActive` and applied the moment `start()`
     /// builds a model - see that property's doc comment.
+    ///
+    /// **This is now one of three inputs**, not the model's value itself: the
+    /// model is told `isViewing` (`AppEnvironment+Viewing.swift`), so frontmost
+    /// with the window closed or minimised is not viewing.
     public func setActive(_ active: Bool) {
         pendingActive = active
-        model?.setActive(active)
+        applyViewing()
+    }
+
+    /// Whether the user can see the window: frontmost, open and not minimised.
+    ///
+    /// **One value for two consumers, so they cannot drift.** Automatic
+    /// mark-as-read publishes only while this is true, and a notification is
+    /// suppressed as "on screen" only while it is true. Before it existed the
+    /// model was told frontmost alone, from a `.task` on the window's own view
+    /// - so closing the window cancelled the only thing reporting focus, left
+    /// the value frozen at `true`, and read receipts could be published for a
+    /// conversation nobody could see. Unknown frontmost reads as `true`, the
+    /// model's own default, which `pendingActive`'s doc comment explains.
+    var isViewing: Bool {
+        (pendingActive ?? true) && windowOpen && !windowMinimized
+    }
+
+    func applyViewing() {
+        model?.setActive(isViewing)
     }
 
     /// Whether `signOut()` has a running session to act on. The menu command is

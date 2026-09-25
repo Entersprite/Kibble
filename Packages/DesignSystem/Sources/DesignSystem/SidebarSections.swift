@@ -57,19 +57,16 @@ public enum SidebarSections {
     }
 
     /// Mirrors the prototype's order, plus apps, which the prototype had no
-    /// need for, and Meet chats.
+    /// need for, and Meet chats. The mapping from kind to section now lives in
+    /// `ChatKit.SectionKey`.
     ///
     /// **Meet chats go last on purpose.** On the real account they are 187 of
     /// 220 conversations, so any section placed after them is a long scroll
     /// away; Direct messages, Group chats, Spaces and Apps are the small,
     /// frequently-wanted ones and stay reachable at the top.
-    private static let named: [(id: String, title: String)] = [
-        ("directMessage", "Direct messages"),
-        ("groupDirectMessage", "Group chats"),
-        ("space", "Spaces"),
-        ("appDirectMessage", "Apps"),
-        ("meetChat", "Meet Chats")
-    ]
+    private static let named: [(id: String, title: String)] =
+        [SectionKey.directMessages, .groupChats, .spaces, .apps, .meetChats]
+            .map { (id: sidebarID(for: $0), title: Display.title(of: $0)) }
 
     /// One section key per distinct unrecognised token. Prefixed so a token
     /// that happens to read `"space"` cannot collide with a named section.
@@ -78,7 +75,8 @@ public enum SidebarSections {
     }
 
     /// A conversation kind this build has never seen gets a section of its
-    /// own, headed by its raw token.
+    /// own, headed by its raw token. The mapping from kind to rule now lives in
+    /// `ChatKit.SectionKey`.
     ///
     /// Not dropped, and not guessed at. The fixture world ships a
     /// `.unknown("meetCall")` conversation exactly so this path is exercised;
@@ -86,13 +84,20 @@ public enum SidebarSections {
     /// work has not established - which is why the heading is the token
     /// itself. See `plan(for:)` for why these no longer share one bucket.
     private static func key(for kind: Conversation.Kind) -> String {
-        switch kind {
-        case .directMessage: "directMessage"
-        case .groupDirectMessage: "groupDirectMessage"
-        case .space: "space"
-        case .appDirectMessage: "appDirectMessage"
-        case .meetChat: "meetChat"
-        case let .unknown(raw): raw.isEmpty ? "other" : unknownKey(raw)
+        sidebarID(for: SectionKey(kind: kind))
+    }
+
+    /// The section's stable sidebar id - unchanged from before `SectionKey`
+    /// existed, because the collapse state and the tests key on it.
+    private static func sidebarID(for section: SectionKey) -> String {
+        switch section {
+        case .directMessages: "directMessage"
+        case .groupChats: "groupDirectMessage"
+        case .spaces: "space"
+        case .apps: "appDirectMessage"
+        case .meetChats: "meetChat"
+        case .other: "other"
+        case let .unknown(raw): unknownKey(raw)
         }
     }
 

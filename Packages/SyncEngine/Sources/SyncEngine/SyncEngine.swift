@@ -19,11 +19,16 @@ public actor SyncEngine {
 
     /// Whether this client is refusing to publish anything about itself.
     ///
-    /// See `GhostModeTests`' own doc comment for what this does and does not
-    /// cover - in particular the `PingEvent` fields it cannot reach. Defaults
-    /// to `false`, which means read receipts are published: the owner's
-    /// explicit call, so that the first live run exercises
-    /// `mark_group_readstate` rather than a suppressed code path.
+    /// **No longer how read receipts are decided, and no host sets it.**
+    /// Receipts are decided per conversation by the resolved rule's
+    /// `readReceipts` field, read at submit time through the gate below
+    /// (`ReadReceiptGate`); the old hidden `ghostMode` preference migrates
+    /// into the first real account's global rule (`NotificationSettingsModel`,
+    /// in `AppCore`). The switch is kept, unused, as the hook a future
+    /// typing-indicator slice needs: it still suppresses `.setTyping`, which no
+    /// rule field covers yet. See `GhostModeTests`' own doc comment for what it
+    /// does and does not cover - in particular the `PingEvent` fields it
+    /// cannot reach.
     private var ghostMode = false
 
     public var isGhosting: Bool {
@@ -40,9 +45,26 @@ public actor SyncEngine {
         backend.capabilities
     }
 
+    /// Arrivals and read-position changes, for whatever turns them into
+    /// notifications.
+    ///
+    /// **One stream, one consumer, for the life of this engine** - a session's
+    /// `NotificationCoordinator` attachment. Cancelling a task suspended in its
+    /// `next()` finishes it for good (`findings.md` §25.10), which is correct
+    /// here only because an engine is built per session and the consumer is
+    /// detached exactly when the session ends. `.bufferingNewest` so an engine
+    /// nobody listens to - every test, a probe - cannot grow without bound, and
+    /// so a consumer attached a moment late still hears what it missed.
+    public nonisolated let announcements: AsyncStream<SyncAnnouncement>
+    private nonisolated let announcer: AsyncStream<SyncAnnouncement>.Continuation
+
+    /// Read receipts per conversation. See `ReadReceiptGate`.
+    public nonisolated let readReceipts = ReadReceiptGate()
+
     public init(backend: any ChatBackend, store: ChatStore) {
         self.backend = backend
         self.store = store
+        (announcements, announcer) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
     }
 
     /// Clears what was only true last time, starts consuming, then connects.
@@ -158,21 +180,53 @@ public extension SyncEngine {
         }
     }
 
-    /// The one place ghost mode is enforced.
+    /// The one place the read-receipt gate is enforced, and the dormant
+    /// ghost-mode switch with it.
     ///
-    /// **Exhaustive with no `default`, on purpose.** A new `ChatCommand` case
-    /// stops this compiling until someone decides whether it says something
-    /// about this user that ghost mode should withhold. That compile error is
-    /// the guarantee; a two-case `if` would let the next one leak by default.
-    /// Same idiom as `SyncReducer.reduce(_:)` and `ConnectionIssueMapping`.
+    /// A `.markRead` is refused when its conversation's resolved rule has
+    /// `readReceipts` off (`receiptsAllowed(in:)`). `ghostMode` is checked too,
+    /// though no host sets it any more - see its doc comment.
+    ///
+    /// **`ghostSuppresses` is exhaustive with no `default`, on purpose.** A new
+    /// `ChatCommand` case stops it compiling until someone decides whether it
+    /// says something about this user that ghost mode should withhold. That
+    /// compile error is the guarantee; a two-case `if` would let the next one
+    /// leak by default. Same idiom as `SyncReducer.reduce(_:)` and
+    /// `ConnectionIssueMapping`.
     private func suppressed(_ command: ChatCommand) -> Bool {
-        guard ghostMode else { return false }
+        if ghostMode, ghostSuppresses(command) {
+            return true
+        }
+        if case let .markRead(conversationID, _) = command {
+            return !receiptsAllowed(in: conversationID)
+        }
+        return false
+    }
+
+    /// Exhaustive on purpose - a new command must be decided here, not
+    /// silently let through.
+    private func ghostSuppresses(_ command: ChatCommand) -> Bool {
         switch command {
         case .markRead, .setTyping:
-            return true
+            true
         case .sendMessage, .editMessage, .deleteMessage, .setReaction,
              .setNotificationLevel, .unknown:
+            false
+        }
+    }
+
+    private func receiptsAllowed(in id: Conversation.ID) -> Bool {
+        switch readReceipts.policy {
+        case .publish:
+            return true
+        case .withhold:
             return false
+        case let .resolve(settings):
+            // A conversation the store has not listed yet resolves through
+            // Other - the same fallback the notification path uses.
+            let conversation = (try? store.conversations())?.first { $0.id == id }
+                ?? Conversation(id: id, kind: .unknown(""))
+            return settings.resolve(for: conversation).readReceipts
         }
     }
 
@@ -238,6 +292,10 @@ extension SyncEngine {
                 try await store.apply([.replaceConversations(backend.loadConversations())])
             case let .reloadMessages(conversation):
                 try await loadMoreMessages(in: conversation)
+            case let .announceArrival(message):
+                announcer.yield(.arrived(message))
+            case let .withdrawAnnouncements(conversation, upTo):
+                announcer.yield(.read(conversation, upTo: upTo))
             }
         } catch {
             // The same hole `requestMoreMessages` closes, one effect over:

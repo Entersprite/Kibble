@@ -1,6 +1,7 @@
 import ChatKit
 import Foundation
 import SyncEngine
+import Synchronization
 @testable import AppCore
 
 /// A `LaunchServices` whose every outcome is settable, and which records the
@@ -80,6 +81,10 @@ final class FakeLaunchServices: LaunchServices {
     }
 
     func forgetStoredSession() async throws {
+        // Suspends once before recording, so a concurrent `signOut()` call
+        // has a window to interleave with this one - the scenario
+        // `AppEnvironment.isSigningOut` exists to make impossible.
+        await Task.yield()
         calls.append(.forgetStoredSession)
         if let forgetFailure {
             throw forgetFailure
@@ -155,6 +160,17 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
     private let stream: AsyncStream<ChatEvent>
     private let continuation: AsyncStream<ChatEvent>.Continuation
 
+    /// `holdConnect()`'s state: while `holding`, `connect()` parks its
+    /// continuation here until `releaseConnect()`. Behind a lock because
+    /// `connect()` runs on the engine's executor, not the test's.
+    private struct ConnectHold {
+        var holding = false
+        var entered = false
+        var waiter: CheckedContinuation<Void, Never>?
+    }
+
+    private let hold = Mutex(ConnectHold())
+
     init() {
         (stream, continuation) = AsyncStream<ChatEvent>.makeStream()
     }
@@ -163,7 +179,40 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
         stream
     }
 
+    /// Makes `connect()` wait until `releaseConnect()`, so a test can
+    /// look at what a session does while it is still connecting.
+    func holdConnect() {
+        hold.withLock { $0.holding = true }
+    }
+
+    func releaseConnect() {
+        let waiter = hold.withLock { state in
+            state.holding = false
+            defer { state.waiter = nil }
+            return state.waiter
+        }
+        waiter?.resume()
+    }
+
+    /// Whether `connect()` has been called at all.
+    var connectEntered: Bool {
+        hold.withLock { $0.entered }
+    }
+
     func connect() async throws {
+        // One lock for "entered", "holding?" and parking, so a release can
+        // never land between the check and the wait.
+        await withCheckedContinuation { continuation in
+            let parked = hold.withLock { state in
+                state.entered = true
+                guard state.holding else { return false }
+                state.waiter = continuation
+                return true
+            }
+            if !parked {
+                continuation.resume()
+            }
+        }
         if let connectFailure {
             throw connectFailure
         }
@@ -172,6 +221,12 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
     func disconnect() async {
         disconnectCount += 1
         continuation.finish()
+    }
+
+    /// Delivers an event as if the channel had, for tests that need a session
+    /// to see traffic.
+    func emit(_ event: ChatEvent) {
+        continuation.yield(event)
     }
 
     func send(_: ChatCommand) async throws {}

@@ -218,6 +218,23 @@ struct SignOutAndEraseTests {
         }
     }
 
+    /// Two scenes (the main window and the Settings window) each carry their
+    /// own sign-out confirmation, so both can be confirmed before either
+    /// finishes. `FakeLaunchServices.forgetStoredSession()` yields once before
+    /// recording precisely so this race is reachable rather than theoretical.
+    @Test func signOutCannotRunTwiceAtOnce() async throws {
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services)
+        await environment.start()
+        try seed(services)
+
+        async let first: Void = environment.signOut()
+        async let second: Void = environment.signOut()
+        _ = await (first, second)
+
+        #expect(services.calls.filter { $0 == .forgetStoredSession }.count == 1)
+    }
+
     @Test func anEraseThatFailsShowsTheFailureRatherThanALoginWindow() async throws {
         let services = try FakeLaunchServices()
         services.storedSessionExists = false

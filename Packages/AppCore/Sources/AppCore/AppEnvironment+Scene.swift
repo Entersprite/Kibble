@@ -43,7 +43,10 @@ public extension AppEnvironment {
             connection: model.connectionState,
             lastError: model.lastError,
             capabilities: model.capabilities,
-            failedDraft: model.failedDraft
+            failedDraft: model.failedDraft,
+            unreadHidden: Set(
+                model.conversations.filter { !settings.resolved(for: $0).showsUnread }.map(\.id)
+            )
         )
     }
 

@@ -10,51 +10,41 @@ import SwiftUI
 /// app target is a shell so that `sourcekit-lsp` and `swift test` keep working
 /// without Xcode, and so that a second app - iOS, later - assembles the same
 /// pieces rather than reimplementing them.
+///
+/// The session belongs to `MacAppDelegate`, not to this struct or its window:
+/// it starts at launch and keeps running with the window closed, which is what
+/// lets notifications arrive. See that type's doc comment for why.
 @main
 struct GChatMacApp: App {
-    @State private var environment = AppEnvironment(
-        services: SystemLaunchServices(arguments: .fromCommandLine())
-    )
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var isConfirmingSignOut = false
+    @State private var isConfirmingSignOutFromSettings = false
+    // HIG: reopen on the last pane.
+    @AppStorage("settingsPane") private var settingsPane = "notifications"
+
+    private var environment: AppEnvironment {
+        appDelegate.environment
+    }
 
     var body: some Scene {
-        WindowGroup {
-            content
+        // `Window`, not `WindowGroup`: one window, so `openWindow(id:)` from
+        // the menu bar or a notification brings it back rather than making a
+        // second one.
+        Window("GChat", id: MainWindow.id) {
+            // A stable container, so a phase change swapping the content
+            // below is not reported as the window closing and reopening.
+            ZStack { content }
                 .frame(minWidth: 760, minHeight: 460)
-                .task { await environment.start() }
-                // `scenePhase` was measured against a real run and printed
-                // nothing at all across two full frontmost-loss/gain cycles -
-                // see `AppActivityMonitor`'s doc comment - so the signal comes
-                // from AppKit notifications via `MacHost` instead. The
-                // initial `environment.setActive(monitor.isActive)` call is
-                // what tells a launch that starts already-frontmost, since
-                // nothing changed to notify it; everything after that is a
-                // real transition.
-                .task {
-                    let monitor = AppActivityMonitor()
-                    environment.setActive(monitor.isActive)
-                    for await active in monitor.changes {
-                        environment.setActive(active)
-                    }
-                }
+                // Half of the viewing gate (`AppEnvironment.isViewing`); the
+                // frontmost half and minimising come from `MacAppDelegate`.
+                .onAppear { environment.setWindowOpen(true) }
+                .onDisappear { environment.setWindowOpen(false) }
                 // A confirmation, not a plain button action: an accidental
                 // click here costs a full two-factor login, and
                 // `AppEnvironment.signOut()`'s own doc comment is where the
                 // honesty requirement lives - this dialog only restates it.
-                .confirmationDialog(
-                    "Sign out of GChat?",
-                    isPresented: $isConfirmingSignOut,
-                    titleVisibility: .visible
-                ) {
-                    Button("Sign Out", role: .destructive) {
-                        Task { await environment.signOut() }
-                    }
-                } message: {
-                    Text(
-                        "This Mac will forget your account and its local history. " +
-                            "This does not sign you out of Google - your session " +
-                            "stays valid there until it expires on its own."
-                    )
+                .signOutConfirmation(isPresented: $isConfirmingSignOut) {
+                    Task { await environment.signOut() }
                 }
         }
         .defaultSize(width: 1100, height: 720)
@@ -66,6 +56,40 @@ struct GChatMacApp: App {
                     isConfirmingSignOut = true
                 }
                 .disabled(!environment.canSignOut)
+            }
+        }
+
+        MenuBarExtra {
+            MenuBarContent()
+        } label: {
+            MenuBarLabel(environment: environment)
+        }
+        .menuBarExtraStyle(.menu)
+
+        // HIG for app settings: a toolbar of panes, title following the pane,
+        // opened from GChat › Settings… (⌘,) - all provided by `Settings` and
+        // `TabView`. Changes apply as they are made.
+        Settings {
+            TabView(selection: $settingsPane) {
+                Tab("Notifications", systemImage: "bell.badge", value: "notifications") {
+                    NotificationSettingsPane(
+                        state: environment.notificationSettingsState,
+                        actions: environment.notificationSettingsActions(
+                            openSystemSettings: { SystemNotificationSettings.open() }
+                        )
+                    )
+                    .frame(width: 560, height: 540)
+                }
+                Tab("Account", systemImage: "person.crop.circle", value: "account") {
+                    AccountSettingsPane(
+                        state: environment.accountSettingsState,
+                        signOut: environment.canSignOut ? { isConfirmingSignOutFromSettings = true } : nil
+                    )
+                    .frame(width: 560, height: 220)
+                }
+            }
+            .signOutConfirmation(isPresented: $isConfirmingSignOutFromSettings) {
+                Task { await environment.signOut() }
             }
         }
     }
