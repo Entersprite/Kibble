@@ -14,7 +14,7 @@ struct MainWindowMinimisingTests {
     @Test func anotherWindowMinimisingIsNotReported() {
         var reports: [Bool] = []
         let minimising = MainWindowMinimising { reports.append($0) }
-        minimising.window = main
+        minimising.windowMoved(to: main)
 
         minimising.handle(NSWindow.didMiniaturizeNotification, object: settings)
         minimising.handle(NSWindow.didDeminiaturizeNotification, object: settings)
@@ -24,11 +24,25 @@ struct MainWindowMinimisingTests {
     @Test func theMainWindowMinimisingIsReportedBothWays() {
         var reports: [Bool] = []
         let minimising = MainWindowMinimising { reports.append($0) }
-        minimising.window = main
+        minimising.windowMoved(to: main)
 
         minimising.handle(NSWindow.didMiniaturizeNotification, object: main)
         minimising.handle(NSWindow.didDeminiaturizeNotification, object: main)
         #expect(reports == [true, false])
+    }
+
+    /// Closing and reopening can give the scene a new window, and the old
+    /// view's move out (to no window) can arrive after the new view's move
+    /// in. A move out must not undo the move in - so it changes nothing, and
+    /// a window that goes away clears itself, being held weakly.
+    @Test func aViewLeavingItsWindowDoesNotForgetTheMainWindow() {
+        var reports: [Bool] = []
+        let minimising = MainWindowMinimising { reports.append($0) }
+        minimising.windowMoved(to: main)
+        minimising.windowMoved(to: nil)
+
+        minimising.handle(NSWindow.didMiniaturizeNotification, object: settings)
+        #expect(reports.isEmpty)
     }
 
     /// Before the main window's view has said which window it is, every

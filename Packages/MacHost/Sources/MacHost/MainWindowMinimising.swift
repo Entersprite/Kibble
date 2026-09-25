@@ -17,11 +17,21 @@ import SwiftUI
 final class MainWindowMinimising {
     /// Weak: SwiftUI may give the scene a new `NSWindow` when it is closed and
     /// reopened, and the view reports that one when it moves into it.
-    weak var window: AnyObject?
+    private(set) weak var window: AnyObject?
     private let report: @MainActor (Bool) -> Void
 
     init(report: @escaping @MainActor (Bool) -> Void) {
         self.report = report
+    }
+
+    /// A move into a window names it; a move out (`nil`) changes nothing.
+    /// On a close and reopen the old view's move out can arrive after the
+    /// new view's move in, and clearing there would forget the window just
+    /// named. A window that goes away clears itself, being held weakly.
+    func windowMoved(to window: AnyObject?) {
+        if let window {
+            self.window = window
+        }
     }
 
     func handle(_ name: Notification.Name, object: Any?) {
@@ -43,7 +53,7 @@ public extension View {
     /// Marks the window this view is in as the main window, for
     /// `MacAppDelegate`'s minimise observers.
     func reportsMainWindow(to delegate: MacAppDelegate) -> some View {
-        background(MainWindowReader { delegate.mainWindowMinimising.window = $0 })
+        background(MainWindowReader { delegate.mainWindowMinimising.windowMoved(to: $0) })
     }
 }
 
