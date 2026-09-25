@@ -97,9 +97,14 @@ APPCORE=Packages/AppCore/Sources/AppCore
 # developer plausibly types to silence a Sendable warning, not a contrivance)
 # and the scoped-import form (`import class Module.Symbol`) - see Core
 # containment above, which has the identical shape for the identical reason.
+# UserNotifications and AppKit joined the list with notification rules: the
+# notification center is reached only through `NotificationDelivering`, whose
+# one real conformance lives in MacHost - `UNUserNotificationCenter.current()`
+# crashes under a test runner, and a future iOS host supplies its own - and
+# AppKit does not exist on the iOS this package is linked by.
 scan "$APPCORE" \
-  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security)\b' \
-  "AppCore imports no backend, no credential store and no web view"
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security|UserNotifications|AppKit)\b' \
+  "AppCore imports no backend, no credential store, no web view, no notification center and no AppKit"
 
 # The app target is a shell. This was the one structure rule in CLAUDE.md with
 # no scan behind it, and it is the one that drifted: AppEnvironment.swift grew
