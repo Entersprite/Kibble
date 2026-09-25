@@ -22,6 +22,13 @@ final class NotificationCoordinator {
     /// settings model exists; `nil` (in a test with no host wiring) falls
     /// back to `.builtIn`.
     var resolveRule: (@MainActor (Conversation) -> ResolvedRule)?
+    /// Whether a pause is active now - read per arrival (spec §2.5). `nil`
+    /// (a test with no host wiring) is not paused.
+    var isPaused: (@MainActor () -> Bool)?
+    /// Mutes a conversation from a banner's button. A settings write, not a
+    /// session action - but held until the session has started like every
+    /// click, so a Mute that launched the app waits for the account.
+    var onMute: (@MainActor (Conversation.ID) -> Void)?
 
     private var model: ChatSessionModel?
     private var announcementsTask: Task<Void, Never>?
@@ -182,7 +189,7 @@ final class NotificationCoordinator {
                 me: model.me,
                 viewing: model.isActive ? model.selected : nil,
                 alreadyAnnounced: recentSet.contains(message.id),
-                paused: false
+                paused: isPaused?() ?? false
             )
             guard case let .post(presentation) = decision else { return }
             remember(message.id)
@@ -215,6 +222,8 @@ final class NotificationCoordinator {
             onShowWindow?()
         case let .markRead(conversation):
             model.markRead(conversation)
+        case let .mute(conversation):
+            onMute?(conversation)
         }
     }
 

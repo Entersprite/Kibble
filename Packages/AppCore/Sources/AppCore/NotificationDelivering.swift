@@ -76,4 +76,6 @@ public enum NotificationResponse: Sendable, Equatable {
     case open(Conversation.ID)
     /// Its "Mark as Read" button was pressed.
     case markRead(Conversation.ID)
+    /// Its "Mute" button was pressed (spec §4).
+    case mute(Conversation.ID)
 }

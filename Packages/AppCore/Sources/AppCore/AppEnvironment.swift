@@ -105,6 +105,8 @@ public final class AppEnvironment {
         notifications = delivery.map(NotificationCoordinator.init(delivery:))
         notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
         notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }
+        notifications?.isPaused = { [settings] in settings.isPaused }
+        notifications?.onMute = { [settings] in settings.mute($0) }
         notifications?.start()
     }
 

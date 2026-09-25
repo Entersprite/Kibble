@@ -33,6 +33,7 @@ public extension AppEnvironment {
                 return ChatSceneState()
             }
         }
+        let rules = model.conversations.map { ($0.id, settings.resolved(for: $0)) }
         return ChatSceneState(
             conversations: model.conversations,
             directory: model.directory,
@@ -44,9 +45,10 @@ public extension AppEnvironment {
             lastError: model.lastError,
             capabilities: model.capabilities,
             failedDraft: model.failedDraft,
-            unreadHidden: Set(
-                model.conversations.filter { !settings.resolved(for: $0).showsUnread }.map(\.id)
-            )
+            unreadHidden: Set(rules.filter { !$0.1.showsUnread }.map(\.0)),
+            dimmed: Set(rules.filter { $0.1.delivery == .off }.map(\.0)),
+            muted: Set(model.conversations.map(\.id).filter(settings.isMuted)),
+            receiptsWithheld: Set(rules.filter { !$0.1.readReceipts }.map(\.0))
         )
     }
 
@@ -120,7 +122,14 @@ public extension AppEnvironment {
             draftRestored: { [weak self] in
                 guard case let .running(model) = self?.phase else { return }
                 model.clearFailedDraft()
-            }
+            },
+            mute: canEditNotificationRules ? { [weak self] in self?.settings.mute($0) } : nil,
+            unmute: canEditNotificationRules ? { [weak self] in self?.settings.unmute($0) } : nil,
+            // Needs the account too: until it is identified the receipts gate
+            // withholds every mark, and the item would do nothing.
+            markRead: canEditNotificationRules && runningModel?.capabilities.canMarkRead == true
+                ? { [weak self] in self?.runningModel?.markRead($0) }
+                : nil
         )
     }
 
