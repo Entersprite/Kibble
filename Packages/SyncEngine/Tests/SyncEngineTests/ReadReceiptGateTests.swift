@@ -62,6 +62,23 @@ struct ReadReceiptGateTests {
         #expect(await engine.submit(mark(space)))
     }
 
+    /// A conversation the store has not listed yet resolves through Other -
+    /// the fallback the notification path uses too. Only Other's rule
+    /// changes, so the listed space beside it is the control.
+    @Test func anUnlistedConversationResolvesThroughOther() async throws {
+        let (engine, _) = try await harness()
+        let unlisted = ChatCommand.markRead(conversationID: Conversation.ID("space/unlisted"), upTo: at)
+        var settings = NotificationSettings()
+        settings.setRule(NotificationRule(readReceipts: false), for: .section(.other), at: at, by: "t")
+        engine.readReceipts.set(.resolve(settings))
+        #expect(await !(engine.submit(unlisted)))
+        #expect(await engine.submit(mark(space)))
+
+        settings.setRule(NotificationRule(readReceipts: true), for: .section(.other), at: at, by: "t")
+        engine.readReceipts.set(.resolve(settings))
+        #expect(await engine.submit(unlisted))
+    }
+
     /// Review Focus 4: receipts switched off after a mark was scheduled.
     @Test func thePolicyInForceAtSubmitTimeDecides() async throws {
         let (engine, _) = try await harness()
