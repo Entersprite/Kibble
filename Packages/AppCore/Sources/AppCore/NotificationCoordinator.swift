@@ -28,10 +28,13 @@ final class NotificationCoordinator {
     private var responsesTask: Task<Void, Never>?
     private var requestedAuthorization = false
 
-    /// A click held until a session has started: the one that launched the
-    /// app, or one while the attached session is still connecting. Only the
-    /// latest is kept; replayed by `replayPending()`.
-    private var pending: NotificationResponse?
+    /// Clicks held until a session has started: the one that launched the
+    /// app, and any while the attached session is still connecting. Every
+    /// one, in order, replayed by `replayPending(for:)`. Keeping only the
+    /// latest lost the first of two - a "Mark as Read" that launched the app,
+    /// then another during connect, marked only the second, and pressing an
+    /// action had already removed the first banner.
+    private var pending: [NotificationResponse] = []
 
     /// Whether a click with no session is the one that launched the app, and
     /// so worth holding. `true` until the first `detach()`, and never again:
@@ -40,7 +43,7 @@ final class NotificationCoordinator {
     private var holdsLaunchingClick = true
 
     /// Whether the attached session has started, and so can act on a click.
-    /// Cleared by `attach`, set by `replayPending()`: `AppEnvironment`
+    /// Cleared by `attach`, set by `replayPending(for:)`: `AppEnvironment`
     /// attaches before `model.start()`, and a "Mark as Read" acted on while
     /// `connect()` was still running could be submitted before it finished,
     /// and be lost.
@@ -69,7 +72,7 @@ final class NotificationCoordinator {
     }
 
     /// Starts hearing `model`'s announcements. Does **not** replay a pending
-    /// click - see `replayPending()`.
+    /// click - see `replayPending(for:)`.
     func attach(_ model: ChatSessionModel, announcements: AsyncStream<SyncAnnouncement>) {
         announcementsTask?.cancel()
         self.model = model
@@ -81,8 +84,14 @@ final class NotificationCoordinator {
         }
     }
 
-    /// Marks the attached session started, and acts on the click held until
-    /// then - the one that launched the app, or one during connect.
+    /// Marks `model` started, and acts on the clicks held until then - the
+    /// one that launched the app, and any during connect.
+    ///
+    /// **Names the session it is for**, and does nothing unless that is the
+    /// one attached: a replay arriving for a session since replaced would
+    /// otherwise start the newer one while its own connect is still running.
+    /// That also covers a call with nothing attached, where a held `.open`
+    /// would go round `handle(_:)` again and ask for the window twice.
     ///
     /// **Separate from `attach`, because the two happen at different times.**
     /// `AppEnvironment` attaches *before* `model.start()`, so arrivals during
@@ -90,12 +99,14 @@ final class NotificationCoordinator {
     /// launched the app before `connect()` had finished, and it was lost. So
     /// `AppEnvironment.start()` calls this only once `model.start()` has
     /// succeeded.
-    func replayPending() {
-        guard model != nil else { return }
+    func replayPending(for model: ChatSessionModel) {
+        guard self.model === model else { return }
         sessionStarted = true
-        guard let pending else { return }
-        self.pending = nil
-        handle(pending)
+        let held = pending
+        pending = []
+        for response in held {
+            handle(response)
+        }
     }
 
     /// The session is ending. Stops listening, drops a click still waiting to
@@ -121,9 +132,10 @@ final class NotificationCoordinator {
     /// rather than joining them so that a hung request cannot hang sign-out.
     /// Here the wait joins a `post` already handed to the delivery - for
     /// `UserNotificationDelivery`, an `add` to `UNUserNotificationCenter` -
-    /// and `withdrawAll()` after it. A `usernotificationsd` that never
-    /// answered would hang sign-out until relaunch `[Verify]`: nothing has
-    /// seen it happen. The trade is deliberate: not waiting is what left the
+    /// (`UserNotificationDelivery.withdrawAll()` is synchronous and cannot).
+    /// A `usernotificationsd` that never answered an `add` would hang
+    /// sign-out until relaunch `[Verify]`: nothing has seen it happen. The trade is deliberate: not waiting
+    /// is what left the
     /// previous account's message text in Notification Center.
     func detach() async {
         // First, before any suspension: a click during the waits below must
@@ -134,7 +146,7 @@ final class NotificationCoordinator {
         announcementsTask = nil
         model = nil
         await announcements?.value
-        pending = nil
+        pending = []
         recent = []
         recentSet = []
         await delivery.withdrawAll()
@@ -189,7 +201,7 @@ final class NotificationCoordinator {
         // while the attached session is still connecting.
         guard let model, sessionStarted else {
             if model != nil || holdsLaunchingClick {
-                pending = response
+                pending.append(response)
             }
             if case .open = response {
                 onShowWindow?()

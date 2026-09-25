@@ -160,7 +160,7 @@ public final class AppEnvironment {
 
             try await model.start()
             // Only now: a launching "Mark as Read" submitted mid-connect is lost.
-            notifications?.replayPending()
+            notifications?.replayPending(for: model)
             phase = .running(model)
             notifications?.requestAuthorizationOnce()
 

@@ -51,6 +51,12 @@ struct NotificationCoordinatorLifecycleTests {
         return model
     }
 
+    /// A session nobody has attached.
+    private func unattachedSession() throws -> ChatSessionModel {
+        let store = try ChatStore.inMemory()
+        return ChatSessionModel(store: store, engine: SyncEngine(backend: FakeLaunchBackend(), store: store))
+    }
+
     /// A click while the attached session is still connecting is held and
     /// replayed once it has started, exactly like the launching click: acting
     /// at once could lose a "Mark as Read" whose two-second wait ended before
@@ -66,22 +72,51 @@ struct NotificationCoordinatorLifecycleTests {
         #expect(model.selected == nil)
         #expect(windowRequests == 1)
 
-        coordinator.replayPending()
+        coordinator.replayPending(for: model)
         #expect(model.selected == dm)
+    }
+
+    /// Every click held during connect is replayed, in order - not only the
+    /// latest. Holding only one lost the first of two: a "Mark as Read" on
+    /// one banner that launched the app, then another pressed while
+    /// connecting, marked only the second, and the first banner was gone.
+    @Test func aSecondClickWhileConnectingDoesNotDropTheFirst() throws {
+        let coordinator = NotificationCoordinator(delivery: FakeNotificationDelivery())
+        let model = try attachedSession(to: coordinator)
+
+        coordinator.handle(.open(dm))
+        coordinator.handle(.markRead(Conversation.ID("dm/2")))
+        coordinator.replayPending(for: model)
+        #expect(model.selected == dm)
+    }
+
+    /// A replay names the session it is for, and a session attached since
+    /// is not started by it - or a click held for the newer one's connect is
+    /// acted on while that connect is still running.
+    @Test func aReplayForAnEarlierSessionDoesNotStartTheCurrentOne() throws {
+        let coordinator = NotificationCoordinator(delivery: FakeNotificationDelivery())
+        let earlier = try attachedSession(to: coordinator)
+        let current = try attachedSession(to: coordinator)
+
+        coordinator.handle(.open(dm))
+        coordinator.replayPending(for: earlier)
+        #expect(current.selected == nil)
+        coordinator.replayPending(for: current)
+        #expect(current.selected == dm)
     }
 
     /// The next session's connect holds clicks too: having started once is
     /// not having started this one.
     @Test func aClickWhileTheNextSessionIsConnectingWaitsForItToStart() async throws {
         let coordinator = NotificationCoordinator(delivery: FakeNotificationDelivery())
-        _ = try attachedSession(to: coordinator)
-        coordinator.replayPending()
+        let first = try attachedSession(to: coordinator)
+        coordinator.replayPending(for: first)
         await coordinator.detach()
 
         let next = try attachedSession(to: coordinator)
         coordinator.handle(.open(dm))
         #expect(next.selected == nil)
-        coordinator.replayPending()
+        coordinator.replayPending(for: next)
         #expect(next.selected == dm)
     }
 
@@ -95,11 +130,12 @@ struct NotificationCoordinatorLifecycleTests {
         coordinator.handle(.open(dm))
         #expect(windowRequests == 1)
 
-        coordinator.replayPending()
+        let model = try unattachedSession()
+        coordinator.replayPending(for: model)
         #expect(windowRequests == 1)
 
-        let model = try attachedSession(to: coordinator)
-        coordinator.replayPending()
+        coordinator.attach(model, announcements: AsyncStream { $0.finish() })
+        coordinator.replayPending(for: model)
         #expect(model.selected == dm)
     }
 
