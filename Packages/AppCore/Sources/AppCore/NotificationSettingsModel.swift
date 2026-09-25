@@ -122,6 +122,13 @@ public final class NotificationSettingsModel {
     /// "assume less, never more" (the owner's decision, session 26). **Saved,
     /// not only held:** the file store has moved the unreadable file aside,
     /// so the next launch loads cleanly and would publish receipts again.
+    ///
+    /// Two limits, accepted. A move aside that works followed by a save that
+    /// does not - a full disk, where a rename needs no space and an atomic
+    /// write does - leaves no file, so the next launch publishes; nothing can
+    /// be persisted on a full disk to prevent it. And `loadError` lasts one
+    /// session while the record lasts for good, so afterwards "receipts off"
+    /// reads as the user's own choice - the outcome the owner accepted.
     private func withholdReceiptsAfterLoadFailure() {
         settings.setRule(NotificationRule(readReceipts: false), for: .global, at: now(), by: deviceID())
         persist()
