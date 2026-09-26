@@ -57,46 +57,100 @@ public enum NotificationPolicy {
         /// Notifications are paused (spec §2.5): nothing notifies, keywords
         /// included.
         case paused
+        /// The rule says mentions only, and this message does not mention you
+        /// (mentions spec §3).
+        case notMentioned
     }
 
-    /// - Parameters:
-    ///   - viewing: the conversation on screen, or `nil` when none is - no
-    ///     window, a minimised one, or the app not frontmost.
-    ///   - paused: whether a pause is active now - evaluated by the caller at
-    ///     arrival time.
-    public static func decide( // swiftlint:disable:this function_parameter_count
-        // Six until slice 3 replaces them with a context struct, adding `keywordMatched`.
-        _ message: Message,
-        rule: ResolvedRule,
-        me: Member.ID?,
-        viewing: Conversation.ID?,
-        alreadyAnnounced: Bool,
-        paused: Bool
-    ) -> Decision {
-        guard let me else { return .suppress(.identityUnknown) }
-        if message.sender == me {
+    /// Everything the policy needs to decide one arrival.
+    ///
+    /// Replaces what was six positional parameters behind a
+    /// `function_parameter_count` disable - a context struct, as the disable
+    /// it replaced said would happen.
+    public struct Arrival: Sendable {
+        /// The message that arrived.
+        public var message: Message
+        /// The rule resolved for this message's conversation.
+        public var rule: ResolvedRule
+        /// Who the local user is, or `nil` in the seconds at launch before
+        /// anything has said so.
+        public var me: Member.ID?
+        /// The conversation on screen, or `nil` when none is - no window, a
+        /// minimised one, or the app not frontmost.
+        public var viewing: Conversation.ID?
+        /// Already announced this session - `[Verify]` whether the real
+        /// channel ever redelivers; `FixtureBackend`'s `duplicate-delivery`
+        /// script does.
+        public var alreadyAnnounced: Bool
+        /// Whether a pause is active now - evaluated by the caller at arrival
+        /// time.
+        public var paused: Bool
+        /// `Message.mentionsMe`, evaluated by the caller.
+        public var mentionsMe: Bool
+
+        public init(
+            message: Message,
+            rule: ResolvedRule,
+            me: Member.ID?,
+            viewing: Conversation.ID?,
+            alreadyAnnounced: Bool,
+            paused: Bool,
+            mentionsMe: Bool
+        ) {
+            self.message = message
+            self.rule = rule
+            self.me = me
+            self.viewing = viewing
+            self.alreadyAnnounced = alreadyAnnounced
+            self.paused = paused
+            self.mentionsMe = mentionsMe
+        }
+    }
+
+    public static func decide(_ arrival: Arrival) -> Decision {
+        guard let me = arrival.me else { return .suppress(.identityUnknown) }
+        if arrival.message.sender == me {
             return .suppress(.ownMessage)
         }
-        if message.conversationID == viewing {
+        if arrival.message.conversationID == arrival.viewing {
             return .suppress(.onScreen)
         }
-        if alreadyAnnounced {
+        if arrival.alreadyAnnounced {
             return .suppress(.alreadyAnnounced)
         }
-        if paused {
+        if arrival.paused {
             return .suppress(.paused)
         }
+        if arrival.rule.delivery == .off {
+            return .suppress(.off)
+        }
+        if arrival.rule.notifyAbout == .mentions, !arrival.mentionsMe {
+            return .suppress(.notMentioned)
+        }
+        return .post(presentation(for: arrival.rule))
+    }
+
+    /// The three things macOS lets an app choose per notification (spec §1),
+    /// for a delivery already known not to be `.off`.
+    ///
+    /// Split out of `decide(_:)` to keep that function's cyclomatic
+    /// complexity under the lint's limit; `.off` is unreachable here because
+    /// `decide(_:)` returns before ever calling this.
+    private static func presentation(for rule: ResolvedRule) -> Presentation {
         switch rule.delivery {
         case .off:
-            return .suppress(.off)
+            // Unreachable: `decide(_:)` returns `.suppress(.off)` before
+            // reaching this call. Kept so this switch stays exhaustive over
+            // `Delivery`.
+            Presentation(isPassive: true, playsSound: false, showsPreview: rule.showsPreview)
         case .notificationCenter:
-            return .post(Presentation(isPassive: true, playsSound: false, showsPreview: rule.showsPreview))
+            Presentation(isPassive: true, playsSound: false, showsPreview: rule.showsPreview)
         case .banner:
-            return .post(Presentation(isPassive: false, playsSound: false, showsPreview: rule.showsPreview))
+            Presentation(isPassive: false, playsSound: false, showsPreview: rule.showsPreview)
         case .bannerAndSound, .unknown:
             // Resolution never yields `.unknown`; were it ever to, the
             // built-in default is the answer rather than a guess.
-            return .post(Presentation(isPassive: false, playsSound: true, showsPreview: rule.showsPreview))
+            Presentation(isPassive: false, playsSound: true, showsPreview: rule.showsPreview)
         }
     }
 }
