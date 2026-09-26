@@ -1,4 +1,5 @@
 import ChatKit
+import SwiftUI
 import Testing
 @testable import DesignSystem
 
@@ -34,6 +35,61 @@ struct MentionHighlightTests {
         #expect(texts("hi @A", [Mention(target: .all, start: -1, length: 2)]).isEmpty)
         #expect(texts("hi @A", [Mention(target: .all, start: 0, length: 2)]).isEmpty)
         #expect(texts("hi @A", [Mention(target: .all, start: 3, length: 0)]).isEmpty)
+    }
+
+    private struct Styled: Equatable {
+        var text: String
+        var font: Font?
+        var foreground: Color?
+        var background: Color?
+    }
+
+    private func styled(_ attributed: AttributedString) -> [Styled] {
+        attributed.runs.map { run in
+            Styled(
+                text: String(attributed[run.range].characters), font: run.font,
+                foreground: run.foregroundColor, background: run.backgroundColor
+            )
+        }
+    }
+
+    /// Fix round 1, Minor 2: semibold and the accent foreground land on the
+    /// mention's own run - after an emoji, so not at offset 0 - and on
+    /// nothing around it.
+    @Test func someoneElsesMentionIsSemiboldAccentOnItsOwnRunOnly() {
+        let attributed = MentionHighlight.attributed(
+            "👋 @Alice hi", mentions: [Mention(target: .user(Member.ID("u-a")), start: 3, length: 6)],
+            me: me, inOwnBubble: false
+        )
+        #expect(styled(attributed) == [
+            Styled(text: "👋 "),
+            Styled(text: "@Alice", font: .body.weight(.semibold), foreground: .accentColor),
+            Styled(text: " hi")
+        ])
+    }
+
+    @Test func inMyOwnBubbleAMentionOfMeIsSemiboldAndNothingElse() {
+        let attributed = MentionHighlight.attributed(
+            "👋 @Me hi", mentions: [Mention(target: .user(me), start: 3, length: 3)],
+            me: me, inOwnBubble: true
+        )
+        #expect(styled(attributed) == [
+            Styled(text: "👋 "),
+            Styled(text: "@Me", font: .body.weight(.semibold)),
+            Styled(text: " hi")
+        ])
+    }
+
+    @Test func aMentionOfMeIsSemiboldOnATintedBackgroundOnly() {
+        let attributed = MentionHighlight.attributed(
+            "👋 @Me hi", mentions: [Mention(target: .user(me), start: 3, length: 3)],
+            me: me, inOwnBubble: false
+        )
+        #expect(styled(attributed) == [
+            Styled(text: "👋 "),
+            Styled(text: "@Me", font: .body.weight(.semibold), background: Color.accentColor.opacity(0.25)),
+            Styled(text: " hi")
+        ])
     }
 
     @Test func aMentionOfMeGetsABackgroundAndInMyOwnBubbleOnlyBold() {

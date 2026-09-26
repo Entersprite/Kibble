@@ -275,7 +275,7 @@ public struct NotificationRuleEditor: View {
                         Text(Display.title(of: $0)).tag(NotifyChoice?.some($0))
                     }
                 }
-                if NotifyControl.shown(NotificationRule.resolve([rule], below: inherited)) != .nothing {
+                if NotifyControl.showsDelivery(rule: rule, inherited: inherited) {
                     Picker("Deliver as", selection: Binding(
                         get: { rule.delivery },
                         set: { value in
@@ -284,7 +284,9 @@ public struct NotificationRuleEditor: View {
                             update(changed)
                         }
                     )) {
-                        Text("Default (\(Display.title(of: inherited.delivery)))").tag(Delivery?.none)
+                        if NotifyControl.offersDefaultDelivery(inherited: inherited) {
+                            Text("Default (\(Display.title(of: inherited.delivery)))").tag(Delivery?.none)
+                        }
                         ForEach(Delivery.audibleChoices, id: \.self) {
                             Text(Display.title(of: $0)).tag(Delivery?.some($0))
                         }

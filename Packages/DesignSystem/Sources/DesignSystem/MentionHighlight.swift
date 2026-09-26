@@ -34,6 +34,12 @@ public enum MentionHighlight {
     /// else's, a mention of you or `@all` gets an accent background at 25%,
     /// and a mention of someone else an accent foreground. `[Verify]` in the
     /// running app - a test can read the attributes, not see them.
+    ///
+    /// The ranges are `String.Index` values from `text`, converted with
+    /// `Range(_:in:)` into an `AttributedString` built from that same `text`.
+    /// That relies on the two sharing one character content, which they do
+    /// here by construction. A conversion that fails anyway is dropped - no
+    /// highlight, never a wrong one.
     public static func attributed(
         _ text: String, mentions: [Mention], me: Member.ID?, inOwnBubble: Bool
     ) -> AttributedString {

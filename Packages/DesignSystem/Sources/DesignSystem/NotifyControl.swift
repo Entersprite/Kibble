@@ -36,19 +36,32 @@ public enum NotifyControl {
         return resolved.notifyAbout == .mentions ? .mentions : .allMessages
     }
 
-    /// What a level's editor selects: `own(_:)`, except that a choice which
-    /// cannot take effect - the level still resolves to Off, say after
-    /// "Deliver as" went back to "Default (Off)" on Meet Chats - selects
-    /// Default, whose label then reads Nothing. Spec §4 shows Nothing exactly
-    /// when the level resolves to Off; showing "Mentions only" there would
-    /// name a choice that is not happening. Choosing it again then writes
-    /// `apply`'s fallback delivery, as on any level that inherits Off.
+    /// What a level's editor selects. Where the level inherits Nothing,
+    /// Default *means* Nothing, so Default is selected exactly when the level
+    /// is silent, and otherwise what it actually does - Meet Chats with only
+    /// `{delivery: banner}` of its own shows All messages, not "Default
+    /// (Nothing)" beside a visible "Deliver as: Banner", and a `notifyAbout`
+    /// left with no audible delivery shows Default rather than a choice that
+    /// is not happening (spec §4: Nothing exactly when the level resolves to
+    /// Off). Elsewhere it is `own(_:)`.
     public static func selected(_ rule: NotificationRule, inherited: ResolvedRule) -> NotifyChoice? {
         let choice = own(rule)
-        if choice != .nothing, shown(NotificationRule.resolve([rule], below: inherited)) == .nothing {
-            return nil
-        }
-        return choice
+        guard choice != .nothing, inherited.delivery == .off else { return choice }
+        let resolved = shown(NotificationRule.resolve([rule], below: inherited))
+        return resolved == .nothing ? nil : resolved
+    }
+
+    /// Whether a level's editor shows "Deliver as": hidden while the level
+    /// resolves to Nothing (spec §4).
+    public static func showsDelivery(rule: NotificationRule, inherited: ResolvedRule) -> Bool {
+        shown(NotificationRule.resolve([rule], below: inherited)) != .nothing
+    }
+
+    /// Whether "Deliver as" offers a "Default (…)" item. Not where the level
+    /// inherits Off: that Default would be Off, and Off is reached only
+    /// through Nothing (plan ruling 7, spec §4).
+    public static func offersDefaultDelivery(inherited: ResolvedRule) -> Bool {
+        inherited.delivery != .off
     }
 
     /// `fallback` is ruling 5's delivery: written when a choice would
@@ -56,7 +69,9 @@ public enum NotifyControl {
     /// `notifyAbout` and an own Off - and, where the level inherits Nothing,
     /// any delivery of its own, which on such a level only this control can
     /// have written. Elsewhere an explicit delivery stays: "Deliver as" has
-    /// its own Default.
+    /// its own Default. A delivery a newer build wrote counts as none, since
+    /// resolution skips it: a choice over one on a level that inherits Off
+    /// writes the fallback too, or it would resolve straight back to Off.
     public static func apply(
         _ choice: NotifyChoice?, to rule: NotificationRule, inherited: ResolvedRule, fallback: Delivery
     ) -> NotificationRule {
@@ -74,10 +89,19 @@ public enum NotifyControl {
             if changed.delivery == .off {
                 changed.delivery = nil
             }
-            if changed.delivery == nil, inherited.delivery == .off {
+            if !isKnown(changed.delivery), inherited.delivery == .off {
                 changed.delivery = fallback
             }
         }
         return changed
+    }
+
+    /// `Delivery.isKnown` is internal to ChatKit, and this is the only reader
+    /// outside it that needs the distinction.
+    private static func isKnown(_ delivery: Delivery?) -> Bool {
+        switch delivery {
+        case nil, .unknown?: false
+        case .off?, .notificationCenter?, .banner?, .bannerAndSound?: true
+        }
     }
 }

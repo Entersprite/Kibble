@@ -77,6 +77,47 @@ struct NotifyControlTests {
             .selected(NotificationRule(delivery: .off), inherited: meetInherited) == .nothing)
     }
 
+    /// Fix round 1, Important 1: on a level that inherits Nothing, an own
+    /// audible delivery with no `notifyAbout` notifies, so the control says
+    /// what it does rather than "Default (Nothing)" - and Default from there
+    /// returns the level to Nothing.
+    @Test func anOwnDeliveryUnderAnInheritedNothingShowsWhatItNotifies() {
+        let banner = NotificationRule(delivery: .banner)
+        #expect(NotifyControl.selected(banner, inherited: meetInherited) == .allMessages)
+        // Elsewhere, Default stays Default: nothing of its own selects nil.
+        #expect(NotifyControl.selected(NotificationRule(), inherited: .builtIn) == nil)
+        #expect(NotifyControl.apply(nil, to: banner, inherited: meetInherited, fallback: .banner)
+            == NotificationRule())
+    }
+
+    /// Fix round 1, Minor 1: a delivery a newer build wrote resolves as
+    /// inherit, so a choice over it where the level inherits Off must write
+    /// the fallback, or the pick would resolve straight back to Nothing.
+    @Test func aChoiceOverAnUnknownDeliveryWhereTheLevelInheritsOffWritesTheFallback() {
+        let unknown = NotificationRule(delivery: .unknown("x"))
+        let chosen = NotifyControl.apply(.mentions, to: unknown, inherited: meetInherited, fallback: .banner)
+        #expect(chosen == NotificationRule(delivery: .banner, notifyAbout: .mentions))
+        #expect(NotifyControl.selected(chosen, inherited: meetInherited) == .mentions)
+    }
+
+    /// Fix round 1, Minor 4: when "Deliver as" is reachable, and whether it
+    /// offers a Default (never Off - plan ruling 7).
+    @Test func deliverAsAppearsOnlyWhereTheLevelNotifiesAndNeverOffersOff() {
+        let globalNothing = NotificationRule.resolve([NotificationRule(delivery: .off)])
+        #expect(NotifyControl.showsDelivery(rule: NotificationRule(), inherited: .builtIn))
+        #expect(NotifyControl.offersDefaultDelivery(inherited: .builtIn))
+        #expect(!NotifyControl.showsDelivery(rule: NotificationRule(), inherited: meetInherited))
+        let meetMentions = NotificationRule(delivery: .banner, notifyAbout: .mentions)
+        #expect(NotifyControl.showsDelivery(rule: meetMentions, inherited: meetInherited))
+        #expect(!NotifyControl.offersDefaultDelivery(inherited: meetInherited))
+        #expect(!NotifyControl.showsDelivery(rule: NotificationRule(), inherited: globalNothing))
+        #expect(!NotifyControl.offersDefaultDelivery(inherited: globalNothing))
+        #expect(NotifyControl.showsDelivery(
+            rule: NotificationRule(delivery: .banner),
+            inherited: globalNothing
+        ))
+    }
+
     @Test func theThreeChoicesHaveTheirTitles() {
         #expect(Display.title(of: NotifyChoice.allMessages) == "All messages")
         #expect(Display.title(of: NotifyChoice.mentions) == "Mentions only")
