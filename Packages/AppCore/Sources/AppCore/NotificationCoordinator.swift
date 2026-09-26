@@ -191,8 +191,7 @@ final class NotificationCoordinator {
                 viewing: model.isActive ? model.selected : nil,
                 alreadyAnnounced: recentSet.contains(message.id),
                 paused: isPaused?() ?? false,
-                // Wired to `Message.mentionsMe` by a later task.
-                mentionsMe: false
+                mentionsMe: message.mentionsMe(model.me)
             ))
             guard case let .post(presentation) = decision else { return }
             remember(message.id)
