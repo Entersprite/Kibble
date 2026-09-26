@@ -237,6 +237,27 @@ struct APIProbeReportWorldMappingTests {
         #expect(!text.contains(memberName))
     }
 
+    // MARK: - read_state's field 29, through the typed accessor
+
+    /// `findings.md` §39.1: once `67f798c` named field 29, it decodes into
+    /// `lastHeadMessageCreateTimeUsec` and never reaches `unknownFields`, so a
+    /// probe scanning there reports "present 0" forever. Both items set it
+    /// typed; the first is not covered (`>=`, equality included), the second
+    /// is.
+    @Test func readStateCountsFieldTwentyNineThroughTheTypedAccessor() {
+        let group = WorldItemFixture.spaceGroupID("s-1")
+        let items = [
+            WorldItemFixture.item(groupID: group, lastReadMicros: 100, newestMessageMicros: 100),
+            WorldItemFixture.item(groupID: group, lastReadMicros: 200, newestMessageMicros: 100)
+        ]
+        var lines: [String] = []
+        APIProbeReport.appendFieldPresenceCounts(items, lines: &lines)
+        #expect(lines.contains(
+            "  last_read_time (2): present 2, last_head_message_create_time_usec (29): present 2"
+        ))
+        #expect(lines.contains("  newest message not covered by read position (>=, findings 36): 1 of 2"))
+    }
+
     // MARK: - Leak test for the member resolution section's own catch block
 
     /// A third `/api/` call, separate from both the ladder and the mapping

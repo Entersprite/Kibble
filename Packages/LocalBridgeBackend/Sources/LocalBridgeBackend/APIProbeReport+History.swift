@@ -53,6 +53,19 @@ extension APIProbeReport {
         return index
     }
 
+    /// The probed conversation's kind - `findings.md` §39.2: a
+    /// `read_receipt_set` belongs to one conversation, and two runs that
+    /// disagreed about receipts may simply have probed a DM and a space.
+    ///
+    /// The kind's own `Codable` wire token (`space`, `directMessage`, or an
+    /// `.unknown` raw value), which identifies nobody - the same string
+    /// ChatKit's wire format carries, rather than a spelling invented here.
+    static func conversationKindLine(_ kind: Conversation.Kind) -> String {
+        let token = (try? JSONEncoder().encode(kind))
+            .flatMap { try? JSONDecoder().decode(String.self, from: $0) }
+        return "  probed conversation kind: \(token ?? "not encodable")"
+    }
+
     private static func mostRecentlyActiveIndex(_ conversations: [Conversation]) -> Int? {
         conversations.indices.max { lhs, rhs in
             (conversations[lhs].lastActivity ?? .distantPast)
@@ -79,6 +92,7 @@ extension APIProbeReport {
             return
         }
         let conversation = conversations[index]
+        lines.append(conversationKindLine(conversation.kind))
         guard let group = ChannelEventMapping.groupID(for: conversation.id) else {
             // Unreachable in practice: every id in `conversations` came from
             // `ChannelEventMapping.conversationID(_:)` succeeding in the first
@@ -96,6 +110,12 @@ extension APIProbeReport {
         appendNestedTopicShapes(results, lines: &lines)
         lines.append("")
         await appendHistoryMappingSummary(
+            client: client,
+            rung: TopicsRequestLadder.minimumViable(for: group),
+            lines: &lines
+        )
+        lines.append("")
+        await appendMentionShapesSection(
             client: client,
             rung: TopicsRequestLadder.minimumViable(for: group),
             lines: &lines
@@ -154,6 +174,32 @@ extension APIProbeReport {
         lines.append(
             "  with non-empty text: \(mapped.messages.count(where: { !$0.text.isEmpty }))"
         )
+    }
+
+    /// What the same page carries in the way of annotations - the counts the
+    /// mentions spec's two `[Verify]`s wait on (`findings.md` §39.4). One more
+    /// `list_topics` call on the minimum-viable rung, for the reason
+    /// `appendHistoryMappingSummary`'s doc comment gives: `TopicsRungResult`
+    /// keeps no typed message around. The counting and rendering are
+    /// `mentionShapes(_:)`/`mentionShapesLines(_:)`, pure and tested.
+    ///
+    /// **A failure names the error's type and nothing else**, never its
+    /// message.
+    private static func appendMentionShapesSection(
+        client: ProtoAPIClient,
+        rung: TopicsRequestLadder.Rung,
+        lines: inout [String]
+    ) async {
+        lines.append("mention shapes (counts only):")
+        let response: ListTopicsResponse
+        do {
+            response = try await client.call(.listTopics, rung.request)
+        } catch {
+            lines.append("  FAILED: \(String(describing: type(of: error)))")
+            return
+        }
+        let messages = response.topics.flatMap(\.replies)
+        lines.append(contentsOf: mentionShapesLines(mentionShapes(messages)))
     }
 
     /// Answers the question this slice exists for: what does Google itself

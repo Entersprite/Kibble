@@ -140,8 +140,48 @@ public enum ChannelEventMapping {
             // `Message.localID` documents. `nil` rather than `""` for absent,
             // because an empty string would match an optimistic copy that also
             // had none.
-            localID: message.hasLocalID ? message.localID : nil
+            localID: message.hasLocalID ? message.localID : nil,
+            mentions: mentions(message.annotations)
         )
+    }
+
+    /// A message's mentions (mentions spec §2): `USER_MENTION` annotations of
+    /// kind `MENTION` or `MENTION_ALL`. The invite kinds are not mentions.
+    /// **An absent presence bit is skipped, never guessed:** the proto is
+    /// proto2, so a metadata type outside the vendored enum clears `hasType`
+    /// and would otherwise read as `.unspecified` (`CLAUDE.md`, the typed
+    /// decode rule).
+    ///
+    /// The `metadata.hasType` guard changes no output today: an unset `type`
+    /// reads `.unspecified`, which the switch already rejects, so deleting it
+    /// leaves every test green. It is kept so that a later case for
+    /// `.unspecified` cannot start mapping values it never saw.
+    ///
+    /// `[Verify]`: annotations have never been observed on the wire, so this
+    /// is a reading of the vendored proto, and which unit `start_index`
+    /// counts in is unknown - `APIProbeReport.mentionShapes(_:)` measures both.
+    static func mentions(_ annotations: [GChatBridgeCore.Annotation]) -> [ChatKit.Mention] {
+        annotations.compactMap { annotation in
+            guard annotation.hasType, annotation.type == .userMention,
+                  case let .userMentionMetadata(metadata)? = annotation.metadata,
+                  metadata.hasType, annotation.hasStartIndex, annotation.hasLength
+            else { return nil }
+            let target: ChatKit.Mention.Target
+            switch metadata.type {
+            case .mention:
+                guard metadata.hasID, !metadata.id.id.isEmpty else { return nil }
+                target = .user(Member.ID(metadata.id.id))
+            case .mentionAll:
+                target = .all
+            case .unspecified, .invite, .uninvite, .failedToAdd:
+                return nil
+            }
+            return ChatKit.Mention(
+                target: target,
+                start: Int(annotation.startIndex),
+                length: Int(annotation.length)
+            )
+        }
     }
 
     /// A space id and a DM id are different namespaces on the wire.

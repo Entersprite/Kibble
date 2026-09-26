@@ -85,10 +85,17 @@ public enum ReadReceiptReport {
     ) -> [String] {
         var lines = ["read receipts (list_topics rung 4, fetch_options incl. READ_RECEIPTS):"]
         lines.append("  topics returned: \(topicCount)")
-        lines.append("  read receipts enabled: \(receiptSet.enabled)")
-        guard receiptSet.enabled else {
+        // `hasEnabled` first: in proto2 an absent optional bool reads as
+        // `false`, which printed "the response did not say" as "disabled"
+        // (`findings.md` §39.2). Absent ends nothing - the receipts, if any,
+        // are still reported.
+        lines.append(
+            "  read receipts enabled: \(receiptSet.hasEnabled ? String(receiptSet.enabled) : "absent")"
+        )
+        // One `list_topics` response is one conversation, never the account.
+        if receiptSet.hasEnabled, !receiptSet.enabled {
             lines.append(
-                "  DISABLED for this account - nothing this client does could ever "
+                "  DISABLED for this conversation - nothing this client does could ever "
                     + "produce a receipt here; this line ends the investigation."
             )
             return lines
