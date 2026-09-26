@@ -234,7 +234,11 @@ struct MentionShapesTests {
             "  mention kinds: 3×1; presence absent 1 (raw: 7×1); no metadata 0",
             "  USER_MENTION annotations: 2, mapped to mentions: 1",
             "  mention spans: 2, in range (UTF-16) 2; on \"@\": UTF-16 1/2, scalar 0/2, "
-                + "Character 0/2; discriminating 1"
+                + "Character 0/2; discriminating 1",
+            "  span 1: start 5, length 2; text UTF-16 7, scalar 5, Character 4; "
+                + "\"@\" at UTF-16 [5], scalar [3], Character [2]",
+            "  span 2: start 0, length 1; text UTF-16 7, scalar 5, Character 4; "
+                + "\"@\" at UTF-16 [5], scalar [3], Character [2]"
         ])
         let joined = lines.joined(separator: "\n")
         for leak in ["SENTINEL", wave, "@A"] {
@@ -246,5 +250,84 @@ struct MentionShapesTests {
         let lines = APIProbeReport.mentionShapesLines(MentionShapes())
         #expect(lines.contains("  annotation types: none"))
         #expect(lines.contains("  mention kinds: none; presence absent 0 (raw: none); no metadata 0"))
+    }
+
+    // MARK: - Per-span offsets
+
+    /// The brief's own worked example, on `waveAlex`. Its own doc comment
+    /// gives "@" at UTF-16 5, scalar 3, Character 2; the counts below are
+    /// this test's own arithmetic, not copied from the brief: the emoji plus
+    /// modifier is one Character (4 UTF-16 units, 2 scalars), and the eleven
+    /// remaining Characters (" @Alex test") are each one UTF-16 unit and one
+    /// scalar - 4 + 11 = 15 UTF-16, 2 + 11 = 13 scalar, 1 + 11 = 12 Character.
+    /// That matches the brief's 15/13/12 exactly.
+    @Test func theSpanLineRendersStartLengthTextCountsAndAtOffsets() {
+        let counted = shapes(text: waveAlex, spanAt: 5, length: 5)
+        let lines = APIProbeReport.mentionShapesLines(counted)
+        #expect(lines.contains(
+            "  span 1: start 5, length 5; text UTF-16 15, scalar 13, Character 12; "
+                + "\"@\" at UTF-16 [5], scalar [3], Character [2]"
+        ))
+    }
+
+    @Test func aTextWithNoAtRendersEmptyBracketsUnderEveryReading() {
+        let counted = APIProbeReport.mentionShapes([
+            Fixture.reply(
+                text: "no at signs here",
+                annotations: [Fixture.mention(.mention, user: "u-2", start: 0, length: 2)]
+            )
+        ])
+        let lines = APIProbeReport.mentionShapesLines(counted)
+        #expect(lines.contains(
+            "  span 1: start 0, length 2; text UTF-16 16, scalar 16, Character 16; "
+                + "\"@\" at UTF-16 [], scalar [], Character []"
+        ))
+    }
+
+    @Test func sevenAtsRenderFiveOffsetsThenAnEllipsis() {
+        let counted = APIProbeReport.mentionShapes([
+            Fixture.reply(
+                text: "@@@@@@@",
+                annotations: [Fixture.mention(.mention, user: "u-2", start: 0, length: 1)]
+            )
+        ])
+        let lines = APIProbeReport.mentionShapesLines(counted)
+        #expect(lines.contains(
+            "  span 1: start 0, length 1; text UTF-16 7, scalar 7, Character 7; "
+                + "\"@\" at UTF-16 [0, 1, 2, 3, 4, …], scalar [0, 1, 2, 3, 4, …], "
+                + "Character [0, 1, 2, 3, 4, …]"
+        ))
+    }
+
+    @Test func elevenSpansRenderTenLinesPlusAnOverflowLine() {
+        let annotations = (0 ..< 11).map { _ in
+            Fixture.mention(.mention, user: "u-2", start: 0, length: 1)
+        }
+        let counted = APIProbeReport.mentionShapes([Fixture.reply(text: "@x", annotations: annotations)])
+        let lines = APIProbeReport.mentionShapesLines(counted)
+        #expect(lines.filter { $0.hasPrefix("  span ") }.count == 10)
+        #expect(lines.contains("  span 10: start 0, length 1; text UTF-16 2, scalar 2, Character 2; "
+                + "\"@\" at UTF-16 [0], scalar [0], Character [0]"))
+        #expect(!lines.contains { $0.hasPrefix("  span 11:") })
+        #expect(lines.last == "  … 1 more spans not listed")
+    }
+
+    /// A leak sentinel for the span lines specifically: a distinctive word in
+    /// the message text must never appear in a rendered span line, only the
+    /// counts and offsets it produced. Follows the leak check already in
+    /// `theLinesRenderEveryCountAndNothingElse` below, aimed at this section.
+    @Test func aSpanLineNeverLeaksTheMessageText() {
+        let sentinelText = "SPAN-LEAK-SENTINEL @word"
+        let counted = APIProbeReport.mentionShapes([
+            Fixture.reply(
+                text: sentinelText,
+                annotations: [Fixture.mention(.mention, user: "u-2", start: 0, length: 2)]
+            )
+        ])
+        let lines = APIProbeReport.mentionShapesLines(counted)
+        let spanLine = lines.first { $0.hasPrefix("  span 1:") }
+        #expect(spanLine != nil)
+        #expect(!(spanLine ?? "").contains("SPAN-LEAK-SENTINEL"))
+        #expect(!(spanLine ?? "").contains(sentinelText))
     }
 }

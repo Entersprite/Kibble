@@ -258,6 +258,31 @@ struct APIProbeReportWorldMappingTests {
         #expect(lines.contains("  newest message not covered by read position (>=, findings 36): 1 of 2"))
     }
 
+    // MARK: - The "with unread" line names its own two counts
+
+    /// `hasUnread` is the flag the app renders; `unreadCount > 0` is always
+    /// zero on a real account (§37.8). One conversation carries each signal
+    /// and the line must credit them to the right label rather than folding
+    /// them into a single ambiguous "with unread".
+    @Test func theUnreadLineCreditsHasUnreadSeparatelyFromUnreadCount() {
+        let flagged = Conversation(
+            id: Conversation.ID(rawValue: "dm:\(UUID().uuidString)"),
+            kind: .directMessage,
+            unreadCount: 0,
+            hasUnread: true
+        )
+        let neither = Conversation(
+            id: Conversation.ID(rawValue: "dm:\(UUID().uuidString)"),
+            kind: .directMessage,
+            unreadCount: 0,
+            hasUnread: false
+        )
+        #expect(
+            APIProbeReport.threadingAndUnreadLine([flagged, neither])
+                == "  threaded: 0, with unread (hasUnread): 1, unreadCount > 0: 0"
+        )
+    }
+
     // MARK: - Leak test for the member resolution section's own catch block
 
     /// A third `/api/` call, separate from both the ladder and the mapping

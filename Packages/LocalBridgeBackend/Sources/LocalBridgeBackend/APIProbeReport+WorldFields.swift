@@ -14,6 +14,21 @@ import GChatBridgeCore
 /// a title, or a payload byte. A `paginated_world` response carries real
 /// conversations.
 extension APIProbeReport {
+    /// `threaded` beside **two** unread counts, so the report says which one
+    /// it means. `Conversation.hasUnread` is the flag the app actually renders;
+    /// `unreadCount > 0` is the one that reads `unread_message_count`, which is
+    /// always zero on a real account (`Conversation.unreadCount`'s own doc
+    /// comment, `findings.md` §37.8) - so a report that only ever prints the
+    /// second number would say "with unread: 0" on an account that plainly has
+    /// unread conversations. A small pure `static func` so
+    /// `APIProbeReportWorldMappingTests` can pin the wording without a
+    /// `paginated_world` round trip.
+    static func threadingAndUnreadLine(_ conversations: [Conversation]) -> String {
+        "  threaded: \(conversations.count(where: \.isThreaded)), "
+            + "with unread (hasUnread): \(conversations.count(where: \.hasUnread)), "
+            + "unreadCount > 0: \(conversations.count(where: { $0.unreadCount > 0 }))"
+    }
+
     /// Settles two `[Verify]`s from `WorldMapping.swift` with one live run:
     /// whether `room_name` is ever sent present-and-empty rather than simply
     /// absent, and how often `group_lite` is the only threading information

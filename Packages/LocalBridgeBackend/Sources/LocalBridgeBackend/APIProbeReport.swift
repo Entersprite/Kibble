@@ -289,10 +289,7 @@ public enum APIProbeReport {
             "  with title: \(conversations.count(where: { $0.title != nil })), "
                 + "with avatar: \(conversations.count(where: { $0.avatarURL != nil }))"
         )
-        lines.append(
-            "  threaded: \(conversations.count(where: \.isThreaded)), "
-                + "with unread: \(conversations.count(where: { $0.unreadCount > 0 }))"
-        )
+        lines.append(threadingAndUnreadLine(conversations))
         lines.append(
             "  total members across all conversations: \(conversations.reduce(0) { $0 + $1.members.count })"
         )

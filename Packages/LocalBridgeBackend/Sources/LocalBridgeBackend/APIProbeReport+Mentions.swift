@@ -44,6 +44,29 @@ struct MentionShapes: Equatable {
     /// range, negative, or simply elsewhere) says nothing about the unit, so
     /// it is not counted here even though its readings disagree.
     var discriminating = 0
+
+    /// One record per `USER_MENTION` span that had both a start and a length,
+    /// in encounter order, uncapped - `mentionShapesLines` is the only place
+    /// that caps how many print in full, so a run with more than the render
+    /// cap still knows, internally, exactly how many there were.
+    var spanDetails: [SpanDetail] = []
+
+    /// A single span's numbers for the offset-unit report. Every field is a
+    /// length or an offset into the text - `CLAUDE.md`'s "counts only" rule
+    /// for this probe applies here too, so nothing here can carry the text
+    /// itself, a user id, or a name.
+    struct SpanDetail: Equatable {
+        var start: Int
+        var length: Int
+        var utf16Count: Int
+        var scalarCount: Int
+        var characterCount: Int
+        /// Ascending offsets of every `"@"` Character in the message's text
+        /// (not the span's own offset) under each reading.
+        var atUTF16: [Int]
+        var atScalar: [Int]
+        var atCharacter: [Int]
+    }
 }
 
 /// The probe's mentions section. Split into its own file for the same
@@ -91,7 +114,7 @@ extension APIProbeReport {
 
     static func mentionShapesLines(_ shapes: MentionShapes) -> [String] {
         let spans = shapes.spans
-        return [
+        var lines = [
             "  messages with annotations: \(shapes.withAnnotations)/\(shapes.messages)",
             "  annotation types: \(tally(shapes.annotationTypes))",
             "  mention kinds: \(tally(shapes.mentionKinds)); "
@@ -104,6 +127,40 @@ extension APIProbeReport {
                 + "Character \(shapes.spansAtCharacter)/\(spans); "
                 + "discriminating \(shapes.discriminating)"
         ]
+        lines.append(contentsOf: spanDetailLines(shapes.spanDetails))
+        return lines
+    }
+
+    /// The brief's "up to the first 10" cap on how many spans print in full.
+    private static let maxRenderedSpans = 10
+
+    /// The "at most 5 per reading" cap on each `"@"` offset list.
+    private static let maxRenderedAtOffsets = 5
+
+    private static func spanDetailLines(_ details: [MentionShapes.SpanDetail]) -> [String] {
+        var lines: [String] = []
+        for (index, detail) in details.prefix(maxRenderedSpans).enumerated() {
+            lines.append(
+                "  span \(index + 1): start \(detail.start), length \(detail.length); "
+                    + "text UTF-16 \(detail.utf16Count), scalar \(detail.scalarCount), "
+                    + "Character \(detail.characterCount); "
+                    + "\"@\" at UTF-16 \(renderOffsets(detail.atUTF16)), "
+                    + "scalar \(renderOffsets(detail.atScalar)), "
+                    + "Character \(renderOffsets(detail.atCharacter))"
+            )
+        }
+        if details.count > maxRenderedSpans {
+            lines.append("  … \(details.count - maxRenderedSpans) more spans not listed")
+        }
+        return lines
+    }
+
+    /// Ascending offsets, capped to the first `maxRenderedAtOffsets` with a
+    /// trailing `…` when more exist; `[]` when there are none.
+    private static func renderOffsets(_ offsets: [Int]) -> String {
+        guard !offsets.isEmpty else { return "[]" }
+        let shown = offsets.prefix(maxRenderedAtOffsets).map(String.init).joined(separator: ", ")
+        return offsets.count > maxRenderedAtOffsets ? "[\(shown), …]" : "[\(shown)]"
     }
 
     private static func countType(
@@ -171,6 +228,44 @@ extension APIProbeReport {
         if !allAgree, atUTF16 || atScalar || atCharacter {
             shapes.discriminating += 1
         }
+        appendSpanDetail(start: start, length: length, text: text, into: &shapes)
+    }
+
+    /// Every `"@"` Character's offset in `text` is found once, from its
+    /// Character index, and then re-measured under the other two views from
+    /// that same index - never the reverse. Mutating the Character offset to
+    /// come from the UTF-16 distance instead is exactly the bug this guards
+    /// against for an astral-plane prefix, where the two units disagree.
+    private static func appendSpanDetail(
+        start: Int,
+        length: Int,
+        text: String,
+        into shapes: inout MentionShapes
+    ) {
+        var atUTF16: [Int] = []
+        var atScalar: [Int] = []
+        var atCharacter: [Int] = []
+        var index = text.startIndex
+        while index < text.endIndex {
+            if text[index] == "@" {
+                atUTF16.append(text.utf16.distance(from: text.utf16.startIndex, to: index))
+                atScalar.append(text.unicodeScalars.distance(from: text.unicodeScalars.startIndex, to: index))
+                atCharacter.append(text.distance(from: text.startIndex, to: index))
+            }
+            index = text.index(after: index)
+        }
+        shapes.spanDetails.append(
+            MentionShapes.SpanDetail(
+                start: start,
+                length: length,
+                utf16Count: text.utf16.count,
+                scalarCount: text.unicodeScalars.count,
+                characterCount: text.count,
+                atUTF16: atUTF16,
+                atScalar: atScalar,
+                atCharacter: atCharacter
+            )
+        )
     }
 
     /// `nil` when out of range, or when the offset falls inside a Character
