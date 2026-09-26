@@ -352,8 +352,8 @@ struct APIProbeReportHistoryTests {
         )
         #expect(text.contains("history mapping summary (list_topics, minimum viable rung):"))
         #expect(text.contains("FAILED"))
-        // The error's type only - `ProtoAPIClient` wraps a transport failure.
-        #expect(text.contains("mention shapes (counts only):\n  FAILED: APIFailure"))
+        // `safeDescription(of:)`, like its siblings - never the sentinel.
+        #expect(text.contains("mention shapes (counts only):\n  FAILED: transport error"))
         #expect(!text.contains(sentinel))
     }
 

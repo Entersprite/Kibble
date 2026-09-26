@@ -183,8 +183,9 @@ extension APIProbeReport {
     /// keeps no typed message around. The counting and rendering are
     /// `mentionShapes(_:)`/`mentionShapesLines(_:)`, pure and tested.
     ///
-    /// **A failure names the error's type and nothing else**, never its
-    /// message.
+    /// A failure is reported through `safeDescription(of:)`, like the sibling
+    /// sections: scrubbed to a case, a status or a type name, never an
+    /// arbitrary error message.
     private static func appendMentionShapesSection(
         client: ProtoAPIClient,
         rung: TopicsRequestLadder.Rung,
@@ -195,7 +196,7 @@ extension APIProbeReport {
         do {
             response = try await client.call(.listTopics, rung.request)
         } catch {
-            lines.append("  FAILED: \(String(describing: type(of: error)))")
+            lines.append("  FAILED: \(safeDescription(of: error))")
             return
         }
         let messages = response.topics.flatMap(\.replies)

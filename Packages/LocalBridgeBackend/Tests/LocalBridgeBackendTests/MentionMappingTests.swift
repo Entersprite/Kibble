@@ -53,8 +53,15 @@ struct MentionMappingTests {
 
     /// Review Focus 5. No `type` set means the presence bit is clear, which is
     /// exactly what a kind outside the proto2 enum looks like after a typed
-    /// decode - and reading `metadata.type` anyway would see `.unspecified`
-    /// and, worse, would let a future default branch guess.
+    /// decode.
+    ///
+    /// **This pins the outcome (skipped); it is not coverage for the
+    /// `metadata.hasType` guard.** The generated getter is
+    /// `_type ?? .unspecified`, which the switch already rejects, so deleting
+    /// the guard leaves this test green. The count that does discriminate is
+    /// `APIProbeReport.countKind`'s `hasType` gate, whose deletion
+    /// `MentionShapesTests.aKindTheProtoCannotNameIsCountedAsAbsentWithItsRawValue`
+    /// catches (mutation M5).
     @Test func aMentionWhoseKindIsAbsentIsSkippedRatherThanGuessed() {
         let mapped = ChannelEventMapping.mentions([
             Fixture.mention(nil, user: "u-2", start: 0, length: 5)

@@ -23,6 +23,14 @@ struct MentionShapesTests {
 
     private let wave = "\u{1F44B}\u{1F3FD} @A"
 
+    /// Ruling 8's real shape, where most offsets resolve under all three
+    /// readings, just to different characters. "@" is UTF-16 5, scalar 3 and
+    /// Character 2. UTF-16 5 reads scalar 5 as "l" and Character 5 as "e";
+    /// UTF-16 6 is "A", scalar 6 "e", Character 6 "x". UTF-16 3 and 2 fall
+    /// inside the emoji and resolve to no Character, so the scalar-3 and
+    /// Character-2 cases each have one nil reading.
+    private let waveAlex = "\u{1F44B}\u{1F3FD} @Alex test"
+
     private func shapes(text: String, spanAt start: Int32, length: Int32 = 2) -> MentionShapes {
         APIProbeReport.mentionShapes([
             Fixture.reply(
@@ -75,16 +83,53 @@ struct MentionShapesTests {
         #expect(counted.spans == 1)
         #expect(counted.spansInRange == 0)
         #expect(counted.spansAtUTF16 == 0)
+        #expect(counted.discriminating == 0)
     }
 
     /// A negative offset must be reported, never crash the probe on
-    /// `index(_:offsetBy:)`.
+    /// `index(_:offsetBy:)`. It lands on "@" under no reading, so it says
+    /// nothing about the unit and is not discriminating.
     @Test func aNegativeSpanResolvesUnderNoReading() {
         let counted = shapes(text: wave, spanAt: -1)
         #expect(counted.spans == 1)
         #expect(counted.spansInRange == 0)
         #expect(counted.spansAtUTF16 + counted.spansAtScalar + counted.spansAtCharacter == 0)
+        #expect(counted.discriminating == 0)
+    }
+
+    // MARK: - The unit, on a text where the readings name different characters
+
+    @Test func onRealShapeTextTheUTF16OffsetLandsOnlyUnderUTF16() {
+        let counted = shapes(text: waveAlex, spanAt: 5, length: 5)
+        #expect(counted.spansAtUTF16 == 1)
+        #expect(counted.spansAtScalar == 0)
+        #expect(counted.spansAtCharacter == 0)
         #expect(counted.discriminating == 1)
+    }
+
+    @Test func onRealShapeTextTheScalarOffsetLandsOnlyUnderScalars() {
+        let counted = shapes(text: waveAlex, spanAt: 3, length: 5)
+        #expect(counted.spansAtScalar == 1)
+        #expect(counted.spansAtUTF16 == 0)
+        #expect(counted.spansAtCharacter == 0)
+        #expect(counted.discriminating == 1)
+    }
+
+    @Test func onRealShapeTextTheCharacterOffsetLandsOnlyUnderCharacters() {
+        let counted = shapes(text: waveAlex, spanAt: 2, length: 5)
+        #expect(counted.spansAtCharacter == 1)
+        #expect(counted.spansAtUTF16 == 0)
+        #expect(counted.spansAtScalar == 0)
+        #expect(counted.discriminating == 1)
+    }
+
+    /// Three readings that all resolve, to three different characters, none
+    /// of them "@": the readings disagree, but nothing says which is right.
+    @Test func readingsThatDisagreeWithoutLandingOnAtDiscriminateNothing() {
+        let counted = shapes(text: waveAlex, spanAt: 6, length: 4)
+        #expect(counted.spansInRange == 1)
+        #expect(counted.spansAtUTF16 + counted.spansAtScalar + counted.spansAtCharacter == 0)
+        #expect(counted.discriminating == 0)
     }
 
     // MARK: - Whether annotations arrive at all
@@ -143,6 +188,30 @@ struct MentionShapesTests {
         #expect(counted.userMentions == 0)
     }
 
+    // MARK: - A USER_MENTION with no metadata at all
+
+    /// `annotation.userMentionMetadata` hands back a default
+    /// `UserMentionMetadata()` when the oneof is unset or holds another case,
+    /// which would read as "kind absent". Counted apart instead, so "the kind
+    /// was outside the enum" and "there was no metadata" stay two numbers.
+    @Test func aUserMentionWithoutMentionMetadataIsCountedApartFromAnAbsentKind() {
+        var unset = GChatBridgeCore.Annotation()
+        unset.type = .userMention
+        unset.startIndex = 0
+        unset.length = 1
+        var otherCase = unset
+        otherCase.urlMetadata = UrlMetadata()
+        let counted = APIProbeReport.mentionShapes([Fixture.reply(annotations: [unset, otherCase])])
+        #expect(counted.userMentions == 2)
+        #expect(counted.metadataAbsent == 2)
+        #expect(counted.mentionKindsAbsent == 0)
+        #expect(counted.mentionKinds.isEmpty)
+        #expect(counted.spans == 2)
+        #expect(APIProbeReport.mentionShapesLines(counted).contains(
+            "  mention kinds: none; presence absent 0 (raw: none); no metadata 2"
+        ))
+    }
+
     // MARK: - The rendered lines
 
     @Test func theLinesRenderEveryCountAndNothingElse() throws {
@@ -162,7 +231,7 @@ struct MentionShapesTests {
         #expect(lines == [
             "  messages with annotations: 1/2",
             "  annotation types: 6×2",
-            "  mention kinds: 3×1; presence absent 1 (raw: 7×1)",
+            "  mention kinds: 3×1; presence absent 1 (raw: 7×1); no metadata 0",
             "  USER_MENTION annotations: 2, mapped to mentions: 1",
             "  mention spans: 2, in range (UTF-16) 2; on \"@\": UTF-16 1/2, scalar 0/2, "
                 + "Character 0/2; discriminating 1"
@@ -176,6 +245,6 @@ struct MentionShapesTests {
     @Test func emptyTalliesRenderAsNone() {
         let lines = APIProbeReport.mentionShapesLines(MentionShapes())
         #expect(lines.contains("  annotation types: none"))
-        #expect(lines.contains("  mention kinds: none; presence absent 0 (raw: none)"))
+        #expect(lines.contains("  mention kinds: none; presence absent 0 (raw: none); no metadata 0"))
     }
 }

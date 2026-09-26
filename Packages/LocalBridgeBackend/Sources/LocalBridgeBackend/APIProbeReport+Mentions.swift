@@ -22,6 +22,11 @@ struct MentionShapes: Equatable {
     var mentionKindsAbsent = 0
     /// … and the raw field-2 varints found in its `unknownFields`.
     var mentionKindsRaw: [Int: Int] = [:]
+    /// `USER_MENTION` whose `metadata` oneof is not `user_mention_metadata` -
+    /// unset, or another case. Kept out of `mentionKindsAbsent`, because
+    /// `annotation.userMentionMetadata` would hand back a default value whose
+    /// `hasType` is false and make "no metadata" read as "kind absent".
+    var metadataAbsent = 0
     /// `ChannelEventMapping.mentions(_:)` output, summed.
     var mapped = 0
     /// `USER_MENTION` annotations with a start and a length …
@@ -34,7 +39,10 @@ struct MentionShapes: Equatable {
     var spansAtScalar = 0
     /// … whose Character offset lands on "@".
     var spansAtCharacter = 0
-    /// … where the three readings do not all name the same index.
+    /// … where the three readings do not all name the same index **and** at
+    /// least one lands on "@". A span that is "@" under no reading (out of
+    /// range, negative, or simply elsewhere) says nothing about the unit, so
+    /// it is not counted here even though its readings disagree.
     var discriminating = 0
 }
 
@@ -63,7 +71,11 @@ extension APIProbeReport {
                 countType(of: annotation, into: &shapes)
                 guard annotation.hasType, annotation.type == .userMention else { continue }
                 shapes.userMentions += 1
-                countKind(of: annotation.userMentionMetadata, into: &shapes)
+                if case let .userMentionMetadata(metadata)? = annotation.metadata {
+                    countKind(of: metadata, into: &shapes)
+                } else {
+                    shapes.metadataAbsent += 1
+                }
                 if annotation.hasStartIndex, annotation.hasLength {
                     countSpan(
                         start: Int(annotation.startIndex),
@@ -83,7 +95,8 @@ extension APIProbeReport {
             "  messages with annotations: \(shapes.withAnnotations)/\(shapes.messages)",
             "  annotation types: \(tally(shapes.annotationTypes))",
             "  mention kinds: \(tally(shapes.mentionKinds)); "
-                + "presence absent \(shapes.mentionKindsAbsent) (raw: \(tally(shapes.mentionKindsRaw)))",
+                + "presence absent \(shapes.mentionKindsAbsent) (raw: \(tally(shapes.mentionKindsRaw))); "
+                + "no metadata \(shapes.metadataAbsent)",
             "  USER_MENTION annotations: \(shapes.userMentions), mapped to mentions: \(shapes.mapped)",
             "  mention spans: \(spans), in range (UTF-16) \(shapes.spansInRange); "
                 + "on \"@\": UTF-16 \(shapes.spansAtUTF16)/\(spans), "
@@ -139,18 +152,23 @@ extension APIProbeReport {
         let byUTF16 = utf16Index(start, in: text)
         let byScalar = scalarIndex(start, in: text)
         let byCharacter = characterIndex(start, in: text)
-        if let byUTF16, text[byUTF16] == "@" {
+        let atUTF16 = byUTF16.map { text[$0] == "@" } ?? false
+        let atScalar = byScalar.map { text.unicodeScalars[$0] == "@" } ?? false
+        let atCharacter = byCharacter.map { text[$0] == "@" } ?? false
+        if atUTF16 {
             shapes.spansAtUTF16 += 1
         }
-        if let byScalar, text.unicodeScalars[byScalar] == "@" {
+        if atScalar {
             shapes.spansAtScalar += 1
         }
-        if let byCharacter, text[byCharacter] == "@" {
+        if atCharacter {
             shapes.spansAtCharacter += 1
         }
-        // An offset that resolves to no index under a reading counts as
-        // different from the others.
-        if byUTF16 == nil || byUTF16 != byScalar || byScalar != byCharacter {
+        // A reading that resolves to no index differs from one that does.
+        // Three nils "agree", but then nothing lands on "@" either - and
+        // disagreement alone names no unit, so one reading must land there.
+        let allAgree = byUTF16 == byScalar && byScalar == byCharacter
+        if !allAgree, atUTF16 || atScalar || atCharacter {
             shapes.discriminating += 1
         }
     }
