@@ -5,8 +5,9 @@ import Foundation
 public struct Mention: Codable, Hashable, Sendable {
     public var target: Target
 
-    /// The span as the wire gives it - UTF-16 code units `[Verify]` (spec §1);
-    /// a client must check a span before drawing it (`MentionHighlight` does).
+    /// The span as the wire gives it - UTF-16 code units, measured
+    /// (`findings.md` §41.1); a client must still check a span before drawing
+    /// it (`MentionHighlight` does).
     public var start: Int
 
     /// See `start`.

@@ -113,8 +113,10 @@ struct MessageBubble: View {
                 )
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                Text(message.text)
-                    .textSelection(.enabled)
+                Text(MentionHighlight.attributed(
+                    message.text, mentions: message.mentions, me: state.me, inOwnBubble: isMine
+                ))
+                .textSelection(.enabled)
                 if message.editedAt != nil {
                     Text("edited")
                         .font(.caption2)

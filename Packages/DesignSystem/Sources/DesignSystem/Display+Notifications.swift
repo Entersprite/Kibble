@@ -25,6 +25,15 @@ public extension Display {
         }
     }
 
+    /// The "Notify about" control's items (mentions spec §4).
+    static func title(of choice: NotifyChoice) -> String {
+        switch choice {
+        case .allMessages: "All messages"
+        case .mentions: "Mentions only"
+        case .nothing: "Nothing"
+        }
+    }
+
     static func title(of duration: PauseDuration) -> String {
         switch duration {
         case .oneHour: "For 1 Hour"

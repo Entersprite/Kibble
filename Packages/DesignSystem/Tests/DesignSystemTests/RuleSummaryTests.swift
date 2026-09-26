@@ -17,4 +17,10 @@ struct RuleSummaryTests {
         #expect(RuleSummary
             .describe(rule: rule, resolved: NotificationRule.resolve([rule])) == "Banner · Custom")
     }
+
+    @Test func mentionsOnlyFollowsTheDelivery() {
+        let rule = NotificationRule(delivery: .banner, notifyAbout: .mentions)
+        #expect(RuleSummary.describe(rule: rule, resolved: NotificationRule.resolve([rule]))
+            == "Banner · Mentions only · Custom")
+    }
 }

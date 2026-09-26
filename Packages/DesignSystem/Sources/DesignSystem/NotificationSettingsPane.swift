@@ -67,11 +67,15 @@ public struct NotificationSettingsActions {
     }
 }
 
-/// A section row's one-line summary: what it resolves to, whether its unread
-/// indicator is hidden, and whether it has its own record.
+/// A section row's one-line summary: what it resolves to, whether only
+/// mentions notify, whether its unread indicator is hidden, and whether it
+/// has its own record.
 public enum RuleSummary {
     public static func describe(rule: NotificationRule, resolved: ResolvedRule) -> String {
         var parts = [Display.title(of: resolved.delivery)]
+        if resolved.delivery != .off, resolved.notifyAbout == .mentions {
+            parts.append(Display.title(of: NotifyChoice.mentions))
+        }
         if !resolved.showsUnread {
             parts.append("Unread hidden")
         }
@@ -129,6 +133,7 @@ public struct NotificationSettingsPane: View {
                     title: Display.title(of: section),
                     rule: state.sections[section] ?? NotificationRule(),
                     inherited: state.sectionInherited[section] ?? state.global,
+                    audibleFallback: state.global.delivery == .off ? .bannerAndSound : state.global.delivery,
                     update: { actions.updateSection(section, $0) }
                 )
             }
@@ -162,15 +167,28 @@ public struct NotificationSettingsPane: View {
 
     private var defaults: some View {
         Section("Defaults") {
-            Picker("Deliver as", selection: Binding(
-                get: { state.global.delivery },
-                set: { value in
-                    var rule = state.globalRule
-                    rule.delivery = value
-                    actions.updateGlobal(rule)
+            // No Default item: the global record sits on the built-in values.
+            Picker("Notify about", selection: Binding(
+                get: { NotifyControl.shown(state.global) },
+                set: {
+                    actions.updateGlobal(NotifyControl.apply(
+                        $0, to: state.globalRule, inherited: .builtIn, fallback: .bannerAndSound
+                    ))
                 }
             )) {
-                ForEach(Delivery.choices, id: \.self) { Text(Display.title(of: $0)).tag($0) }
+                ForEach(NotifyChoice.choices, id: \.self) { Text(Display.title(of: $0)).tag($0) }
+            }
+            if NotifyControl.shown(state.global) != .nothing {
+                Picker("Deliver as", selection: Binding(
+                    get: { state.global.delivery },
+                    set: { value in
+                        var rule = state.globalRule
+                        rule.delivery = value
+                        actions.updateGlobal(rule)
+                    }
+                )) {
+                    ForEach(Delivery.audibleChoices, id: \.self) { Text(Display.title(of: $0)).tag($0) }
+                }
             }
             Toggle("Show message previews", isOn: global(\.showsPreview, \.showsPreview))
             Toggle("Show unread indicator", isOn: global(\.showsUnread, \.showsUnread))
@@ -213,39 +231,63 @@ public struct NotificationSettingsPane: View {
     }
 }
 
-/// One level's five settings, each defaulting to what it inherits. Used for a
+/// One level's settings, each defaulting to what it inherits. Used for a
 /// section here, and for a conversation by `ConversationNotificationSheet`
 /// and `ConversationSettingsPane`.
 public struct NotificationRuleEditor: View {
     private let title: String
     private let rule: NotificationRule
     private let inherited: ResolvedRule
+    /// What choosing All messages or Mentions only writes as delivery on a
+    /// level that would otherwise stay Off (plan ruling 5).
+    private let audibleFallback: Delivery
     private let update: (NotificationRule) -> Void
 
     public init(
         title: String, rule: NotificationRule, inherited: ResolvedRule,
+        audibleFallback: Delivery = .bannerAndSound,
         update: @escaping (NotificationRule) -> Void
     ) {
         self.title = title
         self.rule = rule
         self.inherited = inherited
+        self.audibleFallback = audibleFallback
         self.update = update
     }
 
     public var body: some View {
         Form {
             Section {
-                Picker("Deliver as", selection: Binding(
-                    get: { rule.delivery },
-                    set: { value in
-                        var changed = rule
-                        changed.delivery = value
-                        update(changed)
+                Picker("Notify about", selection: Binding(
+                    get: { NotifyControl.selected(rule, inherited: inherited) },
+                    set: {
+                        update(NotifyControl.apply(
+                            $0,
+                            to: rule,
+                            inherited: inherited,
+                            fallback: audibleFallback
+                        ))
                     }
                 )) {
-                    Text("Default (\(Display.title(of: inherited.delivery)))").tag(Delivery?.none)
-                    ForEach(Delivery.choices, id: \.self) {
-                        Text(Display.title(of: $0)).tag(Delivery?.some($0))
+                    Text("Default (\(Display.title(of: NotifyControl.shown(inherited))))")
+                        .tag(NotifyChoice?.none)
+                    ForEach(NotifyChoice.choices, id: \.self) {
+                        Text(Display.title(of: $0)).tag(NotifyChoice?.some($0))
+                    }
+                }
+                if NotifyControl.shown(NotificationRule.resolve([rule], below: inherited)) != .nothing {
+                    Picker("Deliver as", selection: Binding(
+                        get: { rule.delivery },
+                        set: { value in
+                            var changed = rule
+                            changed.delivery = value
+                            update(changed)
+                        }
+                    )) {
+                        Text("Default (\(Display.title(of: inherited.delivery)))").tag(Delivery?.none)
+                        ForEach(Delivery.audibleChoices, id: \.self) {
+                            Text(Display.title(of: $0)).tag(Delivery?.some($0))
+                        }
                     }
                 }
                 choice("Show message previews", \.showsPreview, inherited.showsPreview)
