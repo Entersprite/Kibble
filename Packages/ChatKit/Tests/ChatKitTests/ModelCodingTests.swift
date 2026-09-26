@@ -15,6 +15,7 @@ struct ModelCodingTests {
         try expectWireStable(Fixture.human, golden: "member")
         try expectWireStable(Fixture.bot, golden: "member-app")
         try expectWireStable(Fixture.message, golden: "message")
+        try expectWireStable(Fixture.messageWithMentions, golden: "message-mentions")
         try expectWireStable(Fixture.thread, golden: "thread")
         try expectWireStable(Fixture.reaction, golden: "reaction")
         try expectWireStable(Fixture.attachment, golden: "attachment")
