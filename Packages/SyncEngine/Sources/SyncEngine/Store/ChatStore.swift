@@ -161,8 +161,9 @@ public extension ChatStore {
             // ordering because the protocol keeps sending it and a hole would
             // break paging. A message the store never held is simply not here -
             // it holds pages, not all of history - so this is a no-op then.
+            // Its mentions go with its text: a tombstone mentions nobody.
             try db.execute(
-                sql: "UPDATE message SET isDeleted = 1, text = '' WHERE id = ?",
+                sql: "UPDATE message SET isDeleted = 1, text = '', mentions = '[]' WHERE id = ?",
                 arguments: [id.rawValue]
             )
         case let .removeMessage(id):

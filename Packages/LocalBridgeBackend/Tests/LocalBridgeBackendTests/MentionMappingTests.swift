@@ -7,12 +7,13 @@ import Testing
 /// `USER_MENTION` annotations becoming `ChatKit.Mention`s
 /// (`ChannelEventMapping.mentions(_:)`, mentions spec §2).
 ///
-/// **These fixtures are built from the vendored proto's field numbers, not
-/// from a capture.** Annotations have never been observed on the wire (mentions
-/// spec §1, `findings.md` §39.4), so every expectation below is a claim about
-/// `googlechat.proto`, and `MentionFixture`'s doc comment names the fields.
-/// What real traffic carries is for the probe's `mention shapes` section to
-/// measure; `MentionShapesTests` covers its counting.
+/// **These fixtures are still built from the vendored proto's field numbers,
+/// not from a capture**, and `MentionFixture`'s doc comment names the fields.
+/// Their shape now matches what live traffic was measured to carry
+/// (`findings.md` §40.1, §41.2): `USER_MENTION` (type 6), metadata kind
+/// `MENTION` (3), presence bits set, spans in UTF-16 code units (§41.1). The
+/// probe's `mention shapes` section keeps measuring; `MentionShapesTests`
+/// covers its counting.
 struct MentionMappingTests {
     private typealias Fixture = MentionFixture
 

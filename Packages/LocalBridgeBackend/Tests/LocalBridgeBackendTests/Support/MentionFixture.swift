@@ -3,14 +3,14 @@ import GChatBridgeCore
 
 /// Typed `Message` and `Annotation` values for the mentions tests.
 ///
-/// **Built from the vendored proto's field numbers, not from a capture.**
-/// Annotations have never been observed on the wire by this project
-/// (mentions spec §1; `findings.md` §39.4), so every shape here is a claim
-/// about `googlechat.proto` - `Message.annotations` (11), `Annotation.type`
-/// (1), `start_index` (2), `length` (3), `user_mention_metadata` (5),
-/// `UserMentionMetadata.id` (1) and `type` (2) - and nothing more. `CLAUDE.md`:
-/// "a fixture is not a capture". The probe's `mention shapes` section is what
-/// will measure the real thing.
+/// **Still built from the vendored proto's field numbers, not from a
+/// capture** - `Message.annotations` (11), `Annotation.type` (1),
+/// `start_index` (2), `length` (3), `user_mention_metadata` (5),
+/// `UserMentionMetadata.id` (1) and `type` (2). `CLAUDE.md`: "a fixture is not
+/// a capture". Their shape now matches what live `list_topics` pages were
+/// measured to carry (`findings.md` §40.1, §41.2): `USER_MENTION` (type 6),
+/// metadata kind `MENTION` (3), presence bits set, and spans in UTF-16 code
+/// units (§41.1). The probe's `mention shapes` section keeps measuring.
 ///
 /// Shared by `MentionMappingTests` and `MentionShapesTests`, which is the
 /// same reason `WorldItemFixture` is a support file rather than two private

@@ -157,9 +157,12 @@ public enum ChannelEventMapping {
     /// leaves every test green. It is kept so that a later case for
     /// `.unspecified` cannot start mapping values it never saw.
     ///
-    /// `[Verify]`: annotations have never been observed on the wire, so this
-    /// is a reading of the vendored proto, and which unit `start_index`
-    /// counts in is unknown - `APIProbeReport.mentionShapes(_:)` measures both.
+    /// Measured on live `list_topics` pages (`findings.md` §40.1, §41.2): a
+    /// mention arrives as `USER_MENTION` (type 6) with metadata kind
+    /// `MENTION` (3), presence bits set, and a span counted in UTF-16 code
+    /// units (§41.1). Live channel events carrying them are `[Verify]` beyond
+    /// the owner's reported check; `APIProbeReport.mentionShapes(_:)` keeps
+    /// measuring.
     static func mentions(_ annotations: [GChatBridgeCore.Annotation]) -> [ChatKit.Mention] {
         annotations.compactMap { annotation in
             guard annotation.hasType, annotation.type == .userMention,

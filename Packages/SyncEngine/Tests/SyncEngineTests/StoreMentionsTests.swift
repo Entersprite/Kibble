@@ -33,4 +33,21 @@ struct StoreMentionsTests {
         }
         #expect(try store.messages(in: conversation.id).first?.mentions == [])
     }
+
+    /// Final review, Minor 6: a tombstone mentions nobody, or a deleted
+    /// message would still count as mentioning me.
+    @Test func aDeletedMessageKeepsNoMentions() throws {
+        let store = try ChatStore.inMemory()
+        let message = Message(
+            id: Message.ID("m:1"), conversationID: conversation.id, threadID: MessageThread.ID("t"),
+            sender: Member.ID("users/alice"), text: "@Me hi",
+            createdAt: Date(timeIntervalSince1970: 1_790_000_000),
+            mentions: [Mention(target: .user(Member.ID("users/me")), start: 0, length: 3)]
+        )
+        try store.apply([.replaceConversations([conversation]), .upsertMessage(message)])
+        try store.apply([.markMessageDeleted(id: message.id, in: conversation.id)])
+        let stored = try store.messages(in: conversation.id).first
+        #expect(stored?.isDeleted == true)
+        #expect(stored?.mentions == [])
+    }
 }
