@@ -56,11 +56,21 @@ struct MentionWiringTests {
         withExtendedLifetime(environment) {}
     }
 
-    @Test func theEditorsFallbackIsTheGlobalDeliveryUnlessOff() async throws {
-        let (environment, _) = try await identified(FakeNotificationDelivery())
-        environment.settings.update(NotificationRule(delivery: .banner), for: .global)
-        #expect(environment.conversationRuleState(for: space.id).audibleFallback == .banner)
+    /// Final review, Important 1, Scenario A, end to end: Spaces set to
+    /// Mentions only, then the global set to Nothing. A lower level overrides
+    /// a higher one (the owner's rule, 2026-09-27), so a mention of me in a
+    /// space still posts and a plain message still does not.
+    @Test func aSectionsMentionsOnlyOverridesALaterGlobalNothing() async throws {
+        let delivery = FakeNotificationDelivery()
+        let (environment, services) = try await identified(delivery)
+        environment.settings.update(NotificationRule(notifyAbout: .mentions), for: .section(.spaces))
         environment.settings.update(NotificationRule(delivery: .off), for: .global)
-        #expect(environment.conversationRuleState(for: space.id).audibleFallback == .bannerAndSound)
+        services.backend.emit(.messageReceived(message("m:1", mentions: [])))
+        services.backend.emit(.messageReceived(message(
+            "m:2", mentions: [Mention(target: .user(me.id), start: 0, length: 3)]
+        )))
+        #expect(await eventually { await delivery.posted.count == 1 })
+        #expect(await delivery.posted.map(\.id) == ["m:2"])
+        withExtendedLifetime(environment) {}
     }
 }

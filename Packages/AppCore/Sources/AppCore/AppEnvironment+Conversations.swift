@@ -25,13 +25,11 @@ public extension AppEnvironment {
         let title = listed.map {
             Display.title(of: $0, directory: model?.directory ?? [:], me: model?.me)
         } ?? "Unavailable conversation"
-        let global = current.resolvedGlobal.delivery
         return ConversationRuleState(
             id: id, title: title,
             rule: current.rule(for: .conversation(id)) ?? NotificationRule(),
             inherited: current.inherited(byConversation: conversation),
-            resolved: current.resolve(for: conversation),
-            audibleFallback: global == .off ? .bannerAndSound : global
+            resolved: current.resolve(for: conversation)
         )
     }
 

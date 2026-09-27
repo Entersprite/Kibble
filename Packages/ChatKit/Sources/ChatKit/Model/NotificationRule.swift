@@ -270,10 +270,19 @@ public struct ResolvedRule: Hashable, Sendable {
     public var countsInBadge: Bool
     public var readReceipts: Bool
     public var notifyAbout: NotifyAbout
+    /// The first known delivery that is not Off in the chain this was
+    /// resolved from, else the fallback's: what a level delivers as when its
+    /// own All messages or Mentions only overrides an Off from above (see
+    /// `NotificationRule.resolve`). Kept here because a flattened `delivery`
+    /// of Off has lost which audible delivery sat beneath it, and the editors
+    /// resolve one level below a flattened `inherited`. Never Off and never
+    /// `.unknown`; `.bannerAndSound` on the built-in.
+    public var audibleDelivery: Delivery
 
     public init(
         delivery: Delivery, showsPreview: Bool, showsUnread: Bool,
-        countsInBadge: Bool, readReceipts: Bool, notifyAbout: NotifyAbout = .allMessages
+        countsInBadge: Bool, readReceipts: Bool, notifyAbout: NotifyAbout = .allMessages,
+        audibleDelivery: Delivery = .bannerAndSound
     ) {
         self.delivery = delivery
         self.showsPreview = showsPreview
@@ -281,6 +290,7 @@ public struct ResolvedRule: Hashable, Sendable {
         self.countsInBadge = countsInBadge
         self.readReceipts = readReceipts
         self.notifyAbout = notifyAbout
+        self.audibleDelivery = audibleDelivery
     }
 
     /// What applies when nobody has said otherwise (spec §2.4).
@@ -298,17 +308,69 @@ public extension NotificationRule {
 
     /// The first value per field, most specific first. The chain is data, so a
     /// later "this device only" layer is one more entry (spec §2.4).
+    ///
+    /// **Delivery has one exception: a lower level overrides a higher one.**
+    /// The owner's rule (2026-09-27): "Lower level overrides higher level
+    /// always ... global acts like a 'default' so if no rules are applied
+    /// below, then global rules lives." So a level whose own record carries a
+    /// known `notifyAbout` - All messages or Mentions only - overrides an Off
+    /// inherited from any level above it (more general, later in the chain),
+    /// and delivers as `audibleDelivery`: the first audible delivery below it,
+    /// else the built-in Banner and sound (mentions spec §4, as amended).
+    ///
+    /// - An Off at the same or a more specific level still wins: a
+    ///   conversation's own Nothing, or a mute, beats its section's Mentions
+    ///   only, and a record that says `delivery: .off` is Nothing whatever its
+    ///   `notifyAbout` says.
+    /// - An unknown `notifyAbout` never overrides: it resolves as inherit.
+    /// - A record with no `notifyAbout`, as every record written before this
+    ///   rule is, resolves exactly as it did.
+    ///
+    /// Decided here, at resolve time, rather than by writing a delivery when
+    /// the choice is made, because a written delivery made the outcome depend
+    /// on the order of the user's edits (final review, Important 1).
+    /// `resolve(prefix, below: resolve(suffix))` equals `resolve(prefix +
+    /// suffix)`, which is what lets an editor resolve one level below a
+    /// flattened `inherited` and agree with `NotificationSettings`;
+    /// `NotifyOverrideTests.resolutionComposes` pins it.
     static func resolve(
         _ chain: [NotificationRule],
         below fallback: ResolvedRule = .builtIn
     ) -> ResolvedRule {
-        ResolvedRule(
-            delivery: chain.lazy.compactMap(\.delivery).first(where: \.isKnown) ?? fallback.delivery,
+        let audible = chain.lazy.compactMap(\.delivery).first { $0.isKnown && $0 != .off }
+            ?? fallback.audibleDelivery
+        return ResolvedRule(
+            delivery: delivery(of: chain, below: fallback, audible: audible),
             showsPreview: chain.lazy.compactMap(\.showsPreview).first ?? fallback.showsPreview,
             showsUnread: chain.lazy.compactMap(\.showsUnread).first ?? fallback.showsUnread,
             countsInBadge: chain.lazy.compactMap(\.countsInBadge).first ?? fallback.countsInBadge,
             readReceipts: chain.lazy.compactMap(\.readReceipts).first ?? fallback.readReceipts,
-            notifyAbout: chain.lazy.compactMap(\.notifyAbout).first(where: \.isKnown) ?? fallback.notifyAbout
+            notifyAbout: chain.lazy.compactMap(\.notifyAbout).first(where: \.isKnown) ?? fallback.notifyAbout,
+            audibleDelivery: audible
         )
+    }
+
+    /// `resolve`'s delivery. `deciding` is the first level with a known
+    /// delivery; an own known `notifyAbout` strictly before it overrides its
+    /// Off. No level before `deciding` has a delivery, so the first audible
+    /// delivery in the chain is also the first below the overriding level.
+    private static func delivery(
+        of chain: [NotificationRule],
+        below fallback: ResolvedRule,
+        audible: Delivery
+    ) -> Delivery {
+        let overriding = chain.firstIndex { $0.notifyAbout?.isKnown == true }
+        guard let deciding = chain.firstIndex(where: { $0.delivery?.isKnown == true }),
+              let delivery = chain[deciding].delivery
+        else {
+            if fallback.delivery == .off, overriding != nil {
+                return fallback.audibleDelivery
+            }
+            return fallback.delivery
+        }
+        if delivery == .off, let overriding, overriding < deciding {
+            return audible
+        }
+        return delivery
     }
 }

@@ -133,7 +133,6 @@ public struct NotificationSettingsPane: View {
                     title: Display.title(of: section),
                     rule: state.sections[section] ?? NotificationRule(),
                     inherited: state.sectionInherited[section] ?? state.global,
-                    audibleFallback: state.global.delivery == .off ? .bannerAndSound : state.global.delivery,
                     update: { actions.updateSection(section, $0) }
                 )
             }
@@ -171,9 +170,7 @@ public struct NotificationSettingsPane: View {
             Picker("Notify about", selection: Binding(
                 get: { NotifyControl.shown(state.global) },
                 set: {
-                    actions.updateGlobal(NotifyControl.apply(
-                        $0, to: state.globalRule, inherited: .builtIn, fallback: .bannerAndSound
-                    ))
+                    actions.updateGlobal(NotifyControl.apply($0, to: state.globalRule, inherited: .builtIn))
                 }
             )) {
                 ForEach(NotifyChoice.choices, id: \.self) { Text(Display.title(of: $0)).tag($0) }
@@ -238,20 +235,15 @@ public struct NotificationRuleEditor: View {
     private let title: String
     private let rule: NotificationRule
     private let inherited: ResolvedRule
-    /// What choosing All messages or Mentions only writes as delivery on a
-    /// level that would otherwise stay Off (plan ruling 5).
-    private let audibleFallback: Delivery
     private let update: (NotificationRule) -> Void
 
     public init(
         title: String, rule: NotificationRule, inherited: ResolvedRule,
-        audibleFallback: Delivery = .bannerAndSound,
         update: @escaping (NotificationRule) -> Void
     ) {
         self.title = title
         self.rule = rule
         self.inherited = inherited
-        self.audibleFallback = audibleFallback
         self.update = update
     }
 
@@ -260,14 +252,7 @@ public struct NotificationRuleEditor: View {
             Section {
                 Picker("Notify about", selection: Binding(
                     get: { NotifyControl.selected(rule, inherited: inherited) },
-                    set: {
-                        update(NotifyControl.apply(
-                            $0,
-                            to: rule,
-                            inherited: inherited,
-                            fallback: audibleFallback
-                        ))
-                    }
+                    set: { update(NotifyControl.apply($0, to: rule, inherited: inherited)) }
                 )) {
                     Text("Default (\(Display.title(of: NotifyControl.shown(inherited))))")
                         .tag(NotifyChoice?.none)
@@ -284,8 +269,8 @@ public struct NotificationRuleEditor: View {
                             update(changed)
                         }
                     )) {
-                        if NotifyControl.offersDefaultDelivery(inherited: inherited) {
-                            Text("Default (\(Display.title(of: inherited.delivery)))").tag(Delivery?.none)
+                        if NotifyControl.offersDefaultDelivery(rule: rule, inherited: inherited) {
+                            Text("Default (\(Display.title(of: defaultDelivery)))").tag(Delivery?.none)
                         }
                         ForEach(Delivery.audibleChoices, id: \.self) {
                             Text(Display.title(of: $0)).tag(Delivery?.some($0))
@@ -304,6 +289,12 @@ public struct NotificationRuleEditor: View {
         }
         .formStyle(.grouped)
         .navigationTitle(title)
+    }
+
+    /// "Deliver as"'s Default: what this level delivers as with no delivery
+    /// of its own, not `inherited.delivery` (`NotifyControl.defaultDelivery`).
+    private var defaultDelivery: Delivery {
+        NotifyControl.defaultDelivery(rule: rule, inherited: inherited)
     }
 
     private func choice(

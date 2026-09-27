@@ -41,9 +41,10 @@ public enum NotifyControl {
     /// is silent, and otherwise what it actually does - Meet Chats with only
     /// `{delivery: banner}` of its own shows All messages, not "Default
     /// (Nothing)" beside a visible "Deliver as: Banner", and a `notifyAbout`
-    /// left with no audible delivery shows Default rather than a choice that
-    /// is not happening (spec §4: Nothing exactly when the level resolves to
-    /// Off). Elsewhere it is `own(_:)`.
+    /// a newer build wrote, which never overrides, shows Default (spec §4:
+    /// Nothing exactly when the level resolves to Off). An own All messages
+    /// or Mentions only always takes effect now, so it selects itself.
+    /// Elsewhere it is `own(_:)`.
     public static func selected(_ rule: NotificationRule, inherited: ResolvedRule) -> NotifyChoice? {
         let choice = own(rule)
         guard choice != .nothing, inherited.delivery == .off else { return choice }
@@ -57,23 +58,37 @@ public enum NotifyControl {
         shown(NotificationRule.resolve([rule], below: inherited)) != .nothing
     }
 
-    /// Whether "Deliver as" offers a "Default (…)" item. Not where the level
-    /// inherits Off: that Default would be Off, and Off is reached only
-    /// through Nothing (plan ruling 7, spec §4).
-    public static func offersDefaultDelivery(inherited: ResolvedRule) -> Bool {
-        inherited.delivery != .off
+    /// The "Default (…)" delivery: what the level resolves to without a
+    /// delivery of its own. Not `inherited.delivery` - on a level whose own
+    /// All messages or Mentions only overrides an inherited Off, that is Off
+    /// while the level delivers as the first audible delivery below it
+    /// (`NotificationRule.resolve`).
+    public static func defaultDelivery(rule: NotificationRule, inherited: ResolvedRule) -> Delivery {
+        var own = rule
+        own.delivery = nil
+        return NotificationRule.resolve([own], below: inherited).delivery
     }
 
-    /// `fallback` is ruling 5's delivery: written when a choice would
-    /// otherwise stay silent because the level inherits Off. Default clears
-    /// `notifyAbout` and an own Off - and, where the level inherits Nothing,
-    /// any delivery of its own, which on such a level only this control can
-    /// have written. Elsewhere an explicit delivery stays: "Deliver as" has
-    /// its own Default. A delivery a newer build wrote counts as none, since
-    /// resolution skips it: a choice over one on a level that inherits Off
-    /// writes the fallback too, or it would resolve straight back to Off.
+    /// Whether "Deliver as" offers a "Default (…)" item: exactly when that
+    /// Default is not Off, since Off is reached only through Nothing (plan
+    /// ruling 7, spec §4).
+    public static func offersDefaultDelivery(rule: NotificationRule, inherited: ResolvedRule) -> Bool {
+        defaultDelivery(rule: rule, inherited: inherited) != .off
+    }
+
+    /// A choice writes `notifyAbout` and **never a delivery**: on a level that
+    /// inherits Off it takes effect at resolve time, where a lower level's
+    /// choice overrides a higher level's Nothing (the owner's rule,
+    /// 2026-09-27; `NotificationRule.resolve`). Writing a delivery here made
+    /// the outcome depend on the order of edits (final review, Important 1).
+    /// A choice clears an own Off, and - where the level inherits Off - an
+    /// own delivery a newer build wrote, which round 1's fallback replaced.
+    /// Default clears `notifyAbout` and an own Off - and, where the level
+    /// inherits Nothing, any delivery of its own, so that Default means
+    /// inherit, which is Nothing. Elsewhere an explicit delivery stays:
+    /// "Deliver as" has its own Default.
     public static func apply(
-        _ choice: NotifyChoice?, to rule: NotificationRule, inherited: ResolvedRule, fallback: Delivery
+        _ choice: NotifyChoice?, to rule: NotificationRule, inherited: ResolvedRule
     ) -> NotificationRule {
         var changed = rule
         switch choice {
@@ -86,11 +101,8 @@ public enum NotifyControl {
             changed.delivery = .off
         case .allMessages?, .mentions?:
             changed.notifyAbout = choice == .mentions ? .mentions : .allMessages
-            if changed.delivery == .off {
+            if changed.delivery == .off || (isUnknown(changed.delivery) && inherited.delivery == .off) {
                 changed.delivery = nil
-            }
-            if !isKnown(changed.delivery), inherited.delivery == .off {
-                changed.delivery = fallback
             }
         }
         return changed
@@ -98,10 +110,10 @@ public enum NotifyControl {
 
     /// `Delivery.isKnown` is internal to ChatKit, and this is the only reader
     /// outside it that needs the distinction.
-    private static func isKnown(_ delivery: Delivery?) -> Bool {
-        switch delivery {
-        case nil, .unknown?: false
-        case .off?, .notificationCenter?, .banner?, .bannerAndSound?: true
+    private static func isUnknown(_ delivery: Delivery?) -> Bool {
+        if case .unknown? = delivery {
+            return true
         }
+        return false
     }
 }

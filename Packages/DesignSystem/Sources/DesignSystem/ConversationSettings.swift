@@ -11,22 +11,16 @@ public struct ConversationRuleState: Equatable, Sendable, Identifiable {
     /// Its "Default (…)" values: the chain without its own record.
     public var inherited: ResolvedRule
     public var resolved: ResolvedRule
-    /// What the editor's "Notify about" writes as delivery when a choice would
-    /// otherwise stay Off: the global delivery unless that is Off, else
-    /// Banner and sound (plan ruling 5). The host computes it.
-    public var audibleFallback: Delivery
 
     public init(
         id: Conversation.ID, title: String, rule: NotificationRule,
-        inherited: ResolvedRule, resolved: ResolvedRule,
-        audibleFallback: Delivery = .bannerAndSound
+        inherited: ResolvedRule, resolved: ResolvedRule
     ) {
         self.id = id
         self.title = title
         self.rule = rule
         self.inherited = inherited
         self.resolved = resolved
-        self.audibleFallback = audibleFallback
     }
 }
 
@@ -54,8 +48,7 @@ public struct ConversationNotificationSheet: View {
         NavigationStack {
             NotificationRuleEditor(
                 title: "Notifications for \(state.title)",
-                rule: state.rule, inherited: state.inherited,
-                audibleFallback: state.audibleFallback, update: update
+                rule: state.rule, inherited: state.inherited, update: update
             )
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -118,7 +111,6 @@ public struct ConversationSettingsPane: View {
                     NotificationRuleEditor(
                         title: conversation.title, rule: conversation.rule,
                         inherited: conversation.inherited,
-                        audibleFallback: conversation.audibleFallback,
                         update: { actions.updateConversation(id, $0) }
                     )
                 } else {
