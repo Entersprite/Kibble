@@ -36,9 +36,16 @@ enum RFC3339 {
     /// back. A fixed width keeps the encoder's output canonical — one `Date`
     /// has one representation — which is what makes golden-file comparison and
     /// byte-identical round-tripping possible at all. The cost is that
-    /// sub-millisecond precision does not survive a round trip; Chat's own
-    /// microsecond timestamps are wall-clock metadata, not orderings we need to
-    /// preserve exactly.
+    /// sub-millisecond precision does not survive a round trip, **and that
+    /// cost is real**: a read position must name its message to the
+    /// microsecond, or a mark can land before the message it names and
+    /// Google keeps the conversation unread (`findings.md` §42.1, where the
+    /// store's millisecond dates did exactly that). No read position passes
+    /// through here in-process today - the store keeps message dates as REAL
+    /// seconds (`StoredDate`) - but a `ChatEvent` or `ChatCommand.markRead`
+    /// frame sent to a server would, so this format has to carry microseconds
+    /// before any server work: a wire and golden-file change, deliberately not
+    /// made yet.
     static func string(from date: Date) -> String {
         withFraction.format(date)
     }

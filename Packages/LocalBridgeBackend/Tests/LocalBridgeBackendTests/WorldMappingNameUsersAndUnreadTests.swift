@@ -72,19 +72,21 @@ struct WorldMappingNameUsersAndUnreadTests {
         #expect(Fixture.mapped(item)?.hasUnread == true)
     }
 
-    /// The boundary `findings.md` §36 measured: a read position *equal* to a
-    /// message's create time does **not** cover it, so at equality the newest
-    /// message is unread. This answered `false` until 2026-09-23 (§37.9);
-    /// a `>` in `hasUnread` turns it red.
-    ///
-    /// `[Verify]` whether the world's `last_read_time` pair follows the receipt
-    /// boundary at all - §36 measured the sender's view of a receipt - but it is
-    /// the only boundary anything here has measured.
-    @Test func aNewestMessageExactlyAtTheReadPositionIsUnread() {
+    /// The tripwire: a read position *equal* to the newest message's create
+    /// time is **read**. The 2026-09-28 probe found 59 conversations sitting
+    /// exactly on the boundary, 45 of them Meet chats the owner never reads
+    /// in GChat - positions Google's own clients wrote for their own reads
+    /// (`findings.md` §42). §36.1's "equal does not cover" was measured
+    /// through a store that kept milliseconds only, so the position it
+    /// published was the message's time rounded to the nearest millisecond,
+    /// below the message whenever it rounded down - about half the time
+    /// (§42.1). This answered `true` from
+    /// 2026-09-23 (§37.9); a `>=` in `hasUnread` turns it red.
+    @Test func aNewestMessageExactlyAtTheReadPositionIsRead() {
         let item = Fixture.item(
             groupID: Fixture.dmGroupID("d-1"), lastReadMicros: 1000, newestMessageMicros: 1000
         )
-        #expect(Fixture.mapped(item)?.hasUnread == true)
+        #expect(Fixture.mapped(item)?.hasUnread == false)
     }
 
     @Test func aNewestMessageBeforeTheReadPositionIsRead() {
@@ -105,12 +107,13 @@ struct WorldMappingNameUsersAndUnreadTests {
     /// Measured on 3 of 220 real items, presumably conversations with no
     /// messages.
     ///
-    /// The zero read position is what reaches the
-    /// `hasLastHeadMessageCreateTimeUsec` guard. An absent newest time reads
-    /// as 0, and since the flip to `>=`, `0 >= 0` would call an empty,
-    /// never-read conversation unread. Under the old `>` this guard was
-    /// behaviourally redundant and no realistic test could reach it (session 24
-    /// §3.3); the flip made it load-bearing. Whether Chat ever sends a present
+    /// An absent newest time reads as 0, and under `>` a zero head is later
+    /// than no read position a real account holds, so the
+    /// `hasLastHeadMessageCreateTimeUsec` guard is behaviourally redundant
+    /// again, as it was before 2026-09-23 (session 24 §3.3): only a
+    /// *negative* `last_read_time` could reach it. It stays because it says
+    /// what an absent head means - no messages - rather than leaning on the
+    /// comparison to happen to agree. Whether Chat ever sends a present
     /// `last_read_time` of 0 is unobserved.
     @Test func noNewestMessageIsNotUnread() {
         for lastRead: Int64 in [1000, 0] {

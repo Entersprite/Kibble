@@ -1,9 +1,27 @@
 import ChatKit
 import Foundation
 
+/// Which "Mark as Read" was pressed, because the two trust the store
+/// differently.
+public enum MarkReadOrigin: Sendable, Equatable {
+    /// A banner's button. The banner's message arrived live and was stored
+    /// before the banner was posted, so the newest stored message is the one
+    /// the banner shows, and nothing is fetched unless nothing is stored.
+    case notification
+
+    /// The sidebar's or a menu's item. The newest stored message can be stale
+    /// here: launch reloads conversations only, so messages that arrived while
+    /// GChat was quit are not stored until the conversation is opened, and a
+    /// row migrated from the millisecond store can sit up to half a
+    /// millisecond below its message (`findings.md` §42.1). A mark short of
+    /// Google's head is accepted, clears the dot, and comes back unread on the
+    /// next relaunch, so this origin always fetches the newest page first.
+    case conversationList
+}
+
 extension ChatSessionModel {
     /// Marks one conversation read from outside the window - a notification's
-    /// "Mark as Read" button, **or the sidebar's**.
+    /// "Mark as Read" button, **or the sidebar's** (`origin` says which).
     ///
     /// `markSelectedReadIfNeeded()` cannot serve this: its first two gates are
     /// "the app is frontmost" and "this conversation is selected", and a
@@ -29,13 +47,17 @@ extension ChatSessionModel {
     ///   (`MessageNotification.offersMarkRead`, in `AppCore`), and the
     ///   sidebar hides it for such a row, because the button would tell
     ///   Google nothing.
-    /// - **The newest page when nothing is stored** - a sidebar mark can
-    ///   reach a conversation never opened this session.
+    /// - **The newest page first**, always for `.conversationList` and, for
+    ///   `.notification`, only when nothing is stored - a sidebar mark can
+    ///   reach a conversation never opened this session, or one whose stored
+    ///   newest is behind Google's (`MarkReadOrigin`). A failed fetch falls
+    ///   back to the newest stored message, and is recorded where the window
+    ///   shows it; with nothing stored either, nothing is published.
     ///
     /// Not traced by `--probe=markread`: its vocabulary describes the automatic
     /// trigger's gates, and no exhaustive switch would force a new token to be
     /// emitted (`CLAUDE.md`, "a guard is not covered until...").
-    public func markRead(_ conversation: Conversation.ID) {
+    public func markRead(_ conversation: Conversation.ID, from origin: MarkReadOrigin) {
         guard capabilities.canMarkRead else { return }
         guard markTasks[conversation] == nil else { return }
         let generation = (markGeneration[conversation] ?? 0) + 1
@@ -51,17 +73,20 @@ extension ChatSessionModel {
                 return
             }
             guard let self, !Task.isCancelled else { return }
-            await publishNewestPosition(in: conversation)
+            await publishNewestPosition(in: conversation, from: origin)
         }
     }
 
-    private func publishNewestPosition(in conversation: Conversation.ID) async {
+    private func publishNewestPosition(in conversation: Conversation.ID, from origin: MarkReadOrigin) async {
         var newest = newestServerMessage(in: conversation)
-        if newest == nil {
+        if newest == nil || origin == .conversationList {
             // From the sidebar, a conversation unread since before launch may
-            // never have been opened, so none of its messages are stored.
-            // Its newest page first, or this would publish nothing, silently.
-            // A failed fetch is recorded where the window shows it.
+            // never have been opened: none of its messages are stored, or
+            // only those from before GChat last quit. Its newest page first,
+            // or this would publish nothing, or a position short of Google's
+            // head. A failed fetch leaves the store as it was, so what is
+            // stored is marked, and the failure is recorded where the window
+            // shows it.
             await engine.requestMoreMessages(in: conversation)
             guard !Task.isCancelled else { return }
             newest = newestServerMessage(in: conversation)

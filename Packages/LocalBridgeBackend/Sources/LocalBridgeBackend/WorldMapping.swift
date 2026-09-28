@@ -80,19 +80,23 @@ public enum WorldMapping {
     ///
     /// What Chat actually supplies is the pair the *publishing* side of read
     /// state already uses: a read position, and the newest message's create
-    /// time. §36 established that Google's own read comparison is
-    /// **strictly greater than** - which is why a client must publish one
-    /// microsecond past the newest message it has seen - so the same
-    /// comparison read in the other direction is what "unread" means here.
+    /// time. Unread means the newest message is **strictly later** than the
+    /// read position.
     ///
-    /// **Read in the other direction, equality is unread.** "Covered iff
-    /// position > create time" negates to "unread iff newest >= position". This
-    /// compared with `>` until 2026-09-23, which put a conversation sitting
-    /// exactly on the boundary on the read side of it - the opposite of what
-    /// §36 measured - and the probe's count shared the same `>`, so nothing
-    /// could have noticed (`findings.md` §37.9). Only builds from before the
-    /// one-microsecond offset produced such positions; this client's own marks
-    /// can no longer land on the boundary.
+    /// **Equality is read.** This compared with `>=` from 2026-09-23 to
+    /// 2026-09-28, on §36.1's reading that a position equal to a message does
+    /// not cover it (§37.9). That was measured through a store that kept
+    /// milliseconds only, so the position published was the message's time
+    /// *rounded* to the nearest millisecond, which fell below the message
+    /// only when it rounded down - about half the time (§42.1): §36
+    /// established that "less than" does not cover, never that "equal" does
+    /// not. The 2026-09-28 probe then found 59
+    /// conversations whose position equals the newest message exactly, 45 of
+    /// them Meet chats the owner never reads in GChat - written by Google's
+    /// own clients, which treat their own read as read (`findings.md` §42).
+    /// This client's marks still publish one microsecond past
+    /// (`readPositionOffsetMicroseconds`), which covers the message under
+    /// either reading.
     ///
     /// Both fields absent means **not unread**, which is the claim that
     /// asserts least: 3 of the 220 carry no `last_head_message_create_time_usec`
@@ -115,7 +119,7 @@ public enum WorldMapping {
         guard state.hasLastHeadMessageCreateTimeUsec, state.hasLastReadTime else {
             return false
         }
-        return state.lastHeadMessageCreateTimeUsec >= state.lastReadTime
+        return state.lastHeadMessageCreateTimeUsec > state.lastReadTime
     }
 
     /// The server's own title, or `nil` for a client to derive one.

@@ -203,9 +203,13 @@ extension APIProbeReport {
                 + "present \(shape.headTimePresent)"
         )
         lines.append(
-            "  newest message not covered by read position (>=, findings 36): "
+            "  newest message not covered by read position (>, findings 42): "
                 + "\(shape.notCoveredByRead) of \(present.count)"
         )
+        // Session 29's read-position diagnosis: the same pair, as a signed
+        // microsecond histogram rather than a single threshold count - see
+        // `APIProbeReport+ReadPositions.swift`.
+        lines.append(contentsOf: readPositionDeltaLines(readPositionDeltas(items)))
     }
 
     /// What one pass over `read_state` measured. Split from the reporting
@@ -242,9 +246,10 @@ extension APIProbeReport {
             if headTime != nil {
                 shape.headTimePresent += 1
             }
-            // `>=`, matching `WorldMapping.hasUnread`: a position equal to
-            // the newest message does not cover it (`findings.md` §36, §37.9).
-            if let headTime, state.hasLastReadTime, headTime >= state.lastReadTime {
+            // `>`, matching `WorldMapping.hasUnread`: a position equal to the
+            // newest message covers it (`findings.md` §42). The histogram's
+            // `equal` bucket still counts those separately.
+            if let headTime, state.hasLastReadTime, headTime > state.lastReadTime {
                 shape.notCoveredByRead += 1
             }
         }

@@ -241,21 +241,23 @@ struct APIProbeReportWorldMappingTests {
 
     /// `findings.md` §39.1: once `67f798c` named field 29, it decodes into
     /// `lastHeadMessageCreateTimeUsec` and never reaches `unknownFields`, so a
-    /// probe scanning there reports "present 0" forever. Both items set it
-    /// typed; the first is not covered (`>=`, equality included), the second
-    /// is.
+    /// probe scanning there reports "present 0" forever. Every item sets it
+    /// typed. Only the strictly later head is not covered (`>`, findings
+    /// §42): the one exactly at its read position is covered, and so is the
+    /// one before it - so `>=` would count 2.
     @Test func readStateCountsFieldTwentyNineThroughTheTypedAccessor() {
         let group = WorldItemFixture.spaceGroupID("s-1")
         let items = [
             WorldItemFixture.item(groupID: group, lastReadMicros: 100, newestMessageMicros: 100),
-            WorldItemFixture.item(groupID: group, lastReadMicros: 200, newestMessageMicros: 100)
+            WorldItemFixture.item(groupID: group, lastReadMicros: 200, newestMessageMicros: 100),
+            WorldItemFixture.item(groupID: group, lastReadMicros: 100, newestMessageMicros: 101)
         ]
         var lines: [String] = []
         APIProbeReport.appendFieldPresenceCounts(items, lines: &lines)
         #expect(lines.contains(
-            "  last_read_time (2): present 2, last_head_message_create_time_usec (29): present 2"
+            "  last_read_time (2): present 3, last_head_message_create_time_usec (29): present 3"
         ))
-        #expect(lines.contains("  newest message not covered by read position (>=, findings 36): 1 of 2"))
+        #expect(lines.contains("  newest message not covered by read position (>, findings 42): 1 of 3"))
     }
 
     // MARK: - The "with unread" line names its own two counts

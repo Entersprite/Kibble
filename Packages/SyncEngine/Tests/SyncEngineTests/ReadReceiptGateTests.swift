@@ -102,10 +102,11 @@ struct ReadReceiptGateTests {
     /// published mark announces nothing here: the server's read state does,
     /// later, through the reducer.
     ///
-    /// The announced position is one microsecond past the mark's, because a
-    /// `.read` covers `createdAt < upTo` and a mark's position is its newest
-    /// message's own time (`findings.md` §36). `MarkReadNowTests` checks that
-    /// against a stored message; this pins the exact value.
+    /// The announced position is one microsecond past the mark's, which is
+    /// its newest message's own time - the wire's step, and what a strict
+    /// `createdAt < upTo` withdraw needed (`findings.md` §36; the withdraw
+    /// covers equality since §42.2). `MarkReadNowTests` checks that against a
+    /// stored message; this pins the exact value.
     @Test func aRefusedMarkAnnouncesALocalReadAndAPublishedOneDoesNot() async throws {
         let (engine, _) = try await harness()
         var settings = NotificationSettings()

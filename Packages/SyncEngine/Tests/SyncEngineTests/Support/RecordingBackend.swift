@@ -22,6 +22,7 @@ actor RecordingBackend: ChatBackend {
     private var failing = false
     private var holding = false
     private var accepting = false
+    private var failingHistory = false
     /// A queue, not a single slot: a second `send(_:)` arriving while one is
     /// already held used to overwrite this without resuming it, orphaning the
     /// first caller permanently - a hang inside the suite's own time limit
@@ -73,6 +74,14 @@ actor RecordingBackend: ChatBackend {
     /// case, and the watermark must still not advance.
     func acceptWithoutForwarding(_ shouldAccept: Bool) {
         accepting = shouldAccept
+    }
+
+    /// Makes every later `loadMessages` count the call and then throw, the
+    /// shape of a newest-page fetch that fails while the channel still takes
+    /// commands - so an explicit mark's fallback to the stored newest message
+    /// can be told from a mark that never fetched.
+    func failHistory(_ shouldFail: Bool) {
+        failingHistory = shouldFail
     }
 
     /// Releases the oldest `send(_:)` call currently blocked by
@@ -137,6 +146,9 @@ actor RecordingBackend: ChatBackend {
         before: Message.ID?
     ) async throws -> [Message] {
         loadMessagesCalls += 1
+        if failingHistory {
+            throw ChatError.notAuthenticated
+        }
         return try await inner.loadMessages(in: conversation, before: before)
     }
 

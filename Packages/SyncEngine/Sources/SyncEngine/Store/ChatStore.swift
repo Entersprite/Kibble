@@ -109,13 +109,18 @@ public extension ChatStore {
             // be unread about. A `GROUP_VIEWED` event from another device
             // (§34) arrives on this same path and clears it for the same
             // reason.
+            //
+            // The position is bound through `StoredDate`, never as the `Date`
+            // itself: a bound `Date` is GRDB's millisecond text whatever the
+            // records' strategy says, which would truncate the watermark and
+            // leave a text value in a column of numbers.
             try db.execute(
                 sql: """
                 UPDATE conversation
                 SET unreadCount = ?, lastReadAt = ?, hasUnread = 0
                 WHERE id = ?
                 """,
-                arguments: [unread, lastReadAt, conversation.rawValue]
+                arguments: [unread, StoredDate.value(lastReadAt), conversation.rawValue]
             )
         case let .markUnread(conversation, sender):
             // The local user's own message never marks their conversation
@@ -239,11 +244,11 @@ public extension ChatStore {
         // Carrying the existing value forward is cheaper to read than an
         // upsert with a hand-written assignment list, and harder to get wrong
         // when a column is added.
-        row.lastReadAt = try Date.fetchOne(
+        row.lastReadAt = try Double.fetchOne(
             db,
             sql: "SELECT lastReadAt FROM conversation WHERE id = ?",
             arguments: [row.id]
-        )
+        ).map(StoredDate.date)
         try row.upsert(db)
         try setMembership(conversation.id, conversation.members, in: db)
     }

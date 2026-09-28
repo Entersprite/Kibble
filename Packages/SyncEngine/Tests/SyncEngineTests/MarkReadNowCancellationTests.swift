@@ -27,7 +27,7 @@ struct MarkReadNowCancellationTests {
         _ store: ChatStore,
         _ backend: HangingHistoryBackend
     ) async throws {
-        model.markRead(conversation)
+        model.markRead(conversation, from: .conversationList)
         await settleAutoMarkRead(until: "the mark's fetch is in flight") {
             await backend.isHoldingARequest
         }

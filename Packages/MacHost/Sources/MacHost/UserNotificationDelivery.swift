@@ -27,9 +27,10 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     static let conversationKey = "conversationID"
     /// Microseconds since 1970, as an integer. Not the `Date`'s `Double`
     /// seconds: at today's epoch a `Double` has barely a microsecond of
-    /// precision left, and `withdraw` compares against a position that is one
-    /// microsecond past the newest message (`findings.md` §36) - a rounding
-    /// error there is the difference between a banner withdrawn and one left up.
+    /// precision left, and `withdraw` compares against a position that can sit
+    /// exactly on a message or one microsecond past it (`findings.md` §36,
+    /// §42.2) - a rounding error there is the difference between a banner
+    /// withdrawn and one left up.
     static let createdAtKey = "createdAtMicros"
 
     override public init() {
@@ -121,7 +122,7 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
                 userInfo: notification.request.content.userInfo
             )
         }
-        let covered = Self.covered(delivered, in: conversation.rawValue, before: Self.micros(position))
+        let covered = Self.covered(delivered, in: conversation.rawValue, upTo: Self.micros(position))
         guard !covered.isEmpty else { return }
         center.removeDeliveredNotifications(withIdentifiers: covered)
     }
@@ -142,13 +143,17 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
         }
     }
 
-    /// The identifiers a read position covers: same thread, and created
-    /// strictly before `limit` - `findings.md` §36's boundary. One with no
+    /// The identifiers a read position covers: same thread, and created at or
+    /// before `limit`. **Equality covers**: a read position equal to a
+    /// message is read, which is what Google's own clients write, and a
+    /// `GROUP_VIEWED` from another device passes it through unchanged
+    /// (`findings.md` §42.2). This client's own marks announce one microsecond
+    /// past the newest message, which this covers either way. One with no
     /// recorded time is left alone: nothing proves the position covers it.
-    static func covered(_ delivered: [Delivered], in thread: String, before limit: Int64) -> [String] {
+    static func covered(_ delivered: [Delivered], in thread: String, upTo limit: Int64) -> [String] {
         delivered.filter { item in
             guard item.thread == thread, let created = item.createdAt else { return false }
-            return created < limit
+            return created <= limit
         }
         .map(\.identifier)
     }

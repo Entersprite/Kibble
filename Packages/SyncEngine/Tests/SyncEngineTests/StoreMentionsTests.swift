@@ -29,7 +29,7 @@ struct StoreMentionsTests {
             INSERT INTO message (id, conversationID, threadID, sender, text, createdAt, isDeleted,
                                  reactions, attachments)
             VALUES ('m:old', 'space/s', 't', 'users/alice', 'hi', ?, 0, '[]', '[]')
-            """, arguments: [Date(timeIntervalSince1970: 1_790_000_000)])
+            """, arguments: [StoredDate.value(Date(timeIntervalSince1970: 1_790_000_000))])
         }
         #expect(try store.messages(in: conversation.id).first?.mentions == [])
     }

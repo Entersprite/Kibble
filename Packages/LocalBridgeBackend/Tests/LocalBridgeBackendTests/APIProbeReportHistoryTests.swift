@@ -243,7 +243,8 @@ struct APIProbeReportHistoryTests {
             .success(topicsRungResponse), // topics ladder rung 4
             .success(topicsRungResponse), // the history mapping summary's own list_topics call
             .success(topicsRungResponse), // the mention shapes section's own list_topics call
-            .success(receiptsResponse) // the read-receipts section's own rung-4 list_topics call
+            .success(receiptsResponse), // the read-receipts section's own rung-4 list_topics call
+            .success(topicsRungResponse) // the probed read-position line's own list_topics call
         ]
         let reportText = await APIProbeReport.run(
             store: credentialStore,
@@ -257,10 +258,9 @@ struct APIProbeReportHistoryTests {
         #expect(reportText.contains("history mapping summary (list_topics, minimum viable rung):"))
         #expect(reportText.contains("messages: 1, skipped: 0\n  with non-empty text: 1"))
         #expect(reportText.contains("(counts only):\n  messages with annotations: 0/1"))
-        assertReadReceiptsSection(
-            reportText,
-            leakCandidates: [spaceID, messageID, text, selfID, "SENTINEL-OTHER-USER-ID-should-not-appear"]
-        )
+        assertReadReceiptsSection(reportText, leakCandidates: [
+            spaceID, messageID, text, selfID, "SENTINEL-OTHER-USER-ID-should-not-appear"
+        ])
     }
 
     /// The read-receipts section's own assertions, split out of
