@@ -149,6 +149,18 @@ struct ReducerTests {
         ])
     }
 
+    /// The directory half of `membersChanged` and nothing else. A sender
+    /// resolved on demand is not a member of the conversation they wrote in
+    /// (they may have left), so a membership write here would put a stranger
+    /// in a group chat's derived title.
+    @Test func membersResolvedFillsTheDirectoryAndTouchesNoMembership() {
+        let people = [Member(id: member, kind: .human, displayName: "One")]
+        #expect(SyncReducer.reduce(.membersResolved(people)).writes == [
+            .upsertMembers(people),
+            .setLastError(nil)
+        ])
+    }
+
     @Test func readStateCarriesTheCountRatherThanAskingTheStoreToCount() {
         let reduction = SyncReducer.reduce(
             .readStateChanged(conversationID: conversation, lastReadAt: at, unread: 3)
@@ -260,7 +272,7 @@ struct ReducerTests {
     /// derived list would start passing the moment a case was added, which is
     /// the one moment it must fail.
     @Test func everyEventCaseIsCovered() {
-        #expect(EventSamples.all.count == 15)
+        #expect(EventSamples.all.count == 16)
         for sample in EventSamples.all {
             let reduction = SyncReducer.reduce(sample.event)
             #expect(

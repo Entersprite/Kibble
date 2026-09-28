@@ -45,6 +45,7 @@ extension ChatEvent {
         case typingChanged
         case readStateChanged
         case membersChanged
+        case membersResolved
         case presenceChanged
         case gap
         case backendError
@@ -99,6 +100,8 @@ extension ChatEvent {
                 ),
                 members: container.decode([Member].self, forKey: .members)
             )
+        case Tag.membersResolved.rawValue:
+            try .membersResolved(container.decode([Member].self, forKey: .members))
         default:
             nil
         }
@@ -210,6 +213,9 @@ extension ChatEvent {
         case let .membersChanged(conversationID, members):
             try container.encode(Tag.membersChanged.rawValue, forKey: .type)
             try container.encode(conversationID, forKey: .conversationID)
+            try container.encode(members, forKey: .members)
+        case let .membersResolved(members):
+            try container.encode(Tag.membersResolved.rawValue, forKey: .type)
             try container.encode(members, forKey: .members)
         default:
             return false

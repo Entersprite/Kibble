@@ -69,6 +69,10 @@ enum EventSamples {
                 members: [Member(id: member, kind: .human, displayName: "One")]
             )
         ),
+        Sample(
+            name: "membersResolved",
+            event: .membersResolved([Member(id: member, kind: .human, displayName: "One")])
+        ),
         Sample(name: "presenceChanged", event: .presenceChanged(member: member, presence: .active)),
         Sample(name: "gap", event: .gap(scope: .everything, reason: "buffer overflowed")),
         Sample(name: "backendError", event: .backendError(.sessionExpired)),

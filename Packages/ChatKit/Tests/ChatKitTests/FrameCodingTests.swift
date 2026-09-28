@@ -118,6 +118,7 @@ struct FrameCodingTests {
             "typingChanged",
             "readStateChanged",
             "membersChanged",
+            "membersResolved",
             "presenceChanged",
             "gap",
             "backendError",

@@ -172,6 +172,7 @@ extension Fixture {
             .readStateChanged(conversationID: spaceID, lastReadAt: readAt, unread: 0)
         ),
         Sample("event-membersChanged", .membersChanged(conversationID: spaceID, members: [human, bot])),
+        Sample("event-membersResolved", .membersResolved([human, bot])),
         Sample("event-presenceChanged", .presenceChanged(member: botID, presence: .doNotDisturb)),
         Sample("event-gap", .gap(scope: .conversation(spaceID), reason: "event buffer overflow")),
         Sample("event-backendError", .backendError(.rateLimited(retryAfter: .milliseconds(1500)))),

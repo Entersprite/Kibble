@@ -118,6 +118,17 @@ public actor LocalBridgeBackend: ChatBackend {
     /// racing it to emit `membersChanged` for a world that has moved on.
     private var memberResolution: Task<Void, Never>?
 
+    /// Every member id this session has asked `get_members` about, or is
+    /// asking about now, so a sender who appears on every page is looked up
+    /// once. Not `private`: `LocalBridgeBackend+Directory.swift` owns the
+    /// lookups. Cleared by `disconnect()`.
+    var requestedMemberIDs: Set<ChatKit.Member.ID> = []
+
+    /// Bumped by `disconnect()`, so an on-demand lookup that answers
+    /// afterwards can tell its session has gone. A counter, not a held task:
+    /// those lookups are many and short.
+    var directoryGeneration = 0
+
     /// The in-flight `get_self_user_status` call, if any. Same shape as
     /// `memberResolution` and cancelled in `disconnect()` for the same reason:
     /// a session that has moved on must not have a stale identity land after
@@ -260,6 +271,8 @@ public actor LocalBridgeBackend: ChatBackend {
         apiClient = nil
         memberResolution?.cancel()
         memberResolution = nil
+        requestedMemberIDs = []
+        directoryGeneration += 1
         selfIdentification?.cancel()
         selfIdentification = nil
         await stopChannel()
@@ -318,9 +331,11 @@ public actor LocalBridgeBackend: ChatBackend {
     /// the other handled it.
     private func deliver(_ array: ChannelArray) {
         guard let event = ChannelEvent(array) else { return }
-        for chatEvent in ChannelEventMapping.chatEvents(from: event) {
+        let chatEvents = ChannelEventMapping.chatEvents(from: event)
+        for chatEvent in chatEvents {
             emit(chatEvent)
         }
+        resolveUnknownMembers(chatEvents.flatMap(Self.memberIDs(in:)))
     }
 
     /// The conversation list, via the one request shape `findings.md` §20.1
