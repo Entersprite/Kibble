@@ -65,6 +65,10 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// named space that is nobody (`findings.md` §37.5); a group chat's list
     /// can be truncated. `nil` is "unknown", never zero - a client shows
     /// nothing rather than a number it cannot stand behind.
+    ///
+    /// **A snapshot.** The world load writes it and no event maintains it -
+    /// nothing on the channel is mapped for a join or a leave - so it is stale
+    /// in both directions until the next world load (`findings.md` §43.2).
     public var memberCount: Int?
 
     /// Whether replies form threads. Chat calls the other case a "flat" group,

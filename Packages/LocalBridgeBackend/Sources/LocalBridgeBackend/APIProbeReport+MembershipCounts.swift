@@ -45,16 +45,19 @@ extension APIProbeReport {
             "  memberCount derived: \(conversations.count(where: { $0.memberCount != nil })) "
                 + "of \(conversations.count)"
         )
-        lines.append("  derived - listed members, by kind (no count = -):")
+        lines.append("  derived - listed members, by kind:")
         let byKind = Dictionary(grouping: conversations) { "\($0.kind)" }
         for kind in byKind.keys.sorted() {
-            let deltas = Dictionary(grouping: byKind[kind] ?? []) { conversation -> String in
-                guard let count = conversation.memberCount else { return "-" }
-                let delta = count - conversation.members.count
-                return delta > 0 ? "+\(delta)" : "\(delta)"
-            }
-            .mapValues(\.count)
-            lines.append("    \(kind): [\(histogram(deltas))]")
+            let ofKind = byKind[kind] ?? []
+            let deltas = Dictionary(grouping: ofKind.compactMap { conversation in
+                conversation.memberCount.map { $0 - conversation.members.count }
+            }) { $0 }.mapValues(\.count)
+            // Numeric order, signed, so `+10` sorts after `+2`.
+            let buckets = deltas.sorted { $0.key < $1.key }
+                .map { "\($0.key > 0 ? "+" : "")\($0.key): \($0.value)" }
+                .joined(separator: ", ")
+            let unknown = ofKind.count(where: { $0.memberCount == nil })
+            lines.append("    \(kind): [\(buckets)], no count: \(unknown)")
         }
         return lines
     }

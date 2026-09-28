@@ -48,7 +48,7 @@ struct APIProbeReportMembershipCountTests {
         let report = lines([dm])
         #expect(report.contains("  present: 1 of 1"))
         #expect(report.contains("  segment shapes, raw bytes (type/state: segments) [1/2: 1]"))
-        #expect(report.contains("    directMessage: [0: 1]"))
+        #expect(report.contains("    directMessage: [0: 1], no count: 0"))
     }
 
     /// The typed accessor cannot see a state outside the vendored enum; the
@@ -70,7 +70,7 @@ struct APIProbeReportMembershipCountTests {
         let report = lines([space])
         #expect(report.contains("  segment shapes, raw bytes (type/state: segments) [1/9: 1]"))
         #expect(report.contains("  memberCount derived: 0 of 1"))
-        #expect(report.contains("    space: [-: 1]"))
+        #expect(report.contains("    space: [], no count: 1"))
     }
 
     @Test func noFieldStopsAfterThePresenceLine() {

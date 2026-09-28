@@ -121,7 +121,17 @@ extension LocalBridgeBackend {
         emit(.membersResolved(mapped.members))
     }
 
+    /// Ends this session's lookups: whatever is in flight answers into a
+    /// generation that has gone, and the next session asks afresh. Called
+    /// wherever a session ends - `disconnect()` and a channel that stopped.
+    func forgetDirectory() {
+        requestedMemberIDs = []
+        directoryGeneration += 1
+    }
+
     /// The member ids one channel event names, for `resolveUnknownMembers`.
+    /// Typing is included for when `ChannelEventMapping` maps it; today it
+    /// produces no `typingChanged`, so only senders reach this.
     static func memberIDs(in event: ChatEvent) -> [ChatKit.Member.ID] {
         switch event {
         case let .messageReceived(message), let .messageUpdated(message):

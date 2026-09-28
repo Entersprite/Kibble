@@ -271,8 +271,7 @@ public actor LocalBridgeBackend: ChatBackend {
         apiClient = nil
         memberResolution?.cancel()
         memberResolution = nil
-        requestedMemberIDs = []
-        directoryGeneration += 1
+        forgetDirectory()
         selfIdentification?.cancel()
         selfIdentification = nil
         await stopChannel()

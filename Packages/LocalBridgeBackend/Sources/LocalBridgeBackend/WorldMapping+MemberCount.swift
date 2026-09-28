@@ -15,8 +15,9 @@ extension WorldMapping {
     /// The JOINED segments, summed, or `nil`.
     ///
     /// **Summed across member types**, because purple names two - a human
-    /// user and a roster member (a Google Group added whole) - and Chat's own
-    /// header counts both as people in the space. **JOINED only**, because an
+    /// user and a roster member (a Google Group added whole). Whether Chat's
+    /// own header counts both, and whether a roster segment counts groups or
+    /// the people in them, is `[Verify]`. **JOINED only**, because an
     /// invitation is not membership. **A segment with no state is skipped**,
     /// not assumed joined: an absent state reads as `MEMBER_UNKNOWN`, and
     /// proto2 clears the presence bit for a state outside the vendored enum,
