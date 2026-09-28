@@ -76,6 +76,24 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// message is its own topic.
     public var isThreaded: Bool
 
+    /// Google's read position for this conversation, `GroupReadState
+    /// .last_read_time`, or `nil` when nobody has said.
+    ///
+    /// **Two sources, per `CLAUDE.md`'s rule for a derived field.** A world
+    /// load sets it, and `ChatEvent.readStateChanged` moves it. That event
+    /// carries this client's own accepted mark and a `GROUP_VIEWED` from
+    /// another device alike. An arriving message never changes it. A store
+    /// keeps one value for both (the mentions-list spec §1).
+    ///
+    /// **Equality is read** (`findings.md` §42.2). A message at exactly this
+    /// time is covered, and one a microsecond later is not.
+    ///
+    /// **Microseconds in-process, milliseconds in a frame.** `RFC3339` writes
+    /// three fractional digits (see its own note), so a frame loses the
+    /// sub-millisecond part. No read position crosses a frame in-process
+    /// today. A server that sends one must widen that format first.
+    public var readPosition: Date?
+
     public init(
         id: ID,
         kind: Kind,
@@ -88,7 +106,8 @@ public struct Conversation: Codable, Hashable, Sendable {
         notificationLevel: NotificationLevel = .always,
         members: [Member.ID] = [],
         memberCount: Int? = nil,
-        isThreaded: Bool = false
+        isThreaded: Bool = false,
+        readPosition: Date? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -102,6 +121,7 @@ public struct Conversation: Codable, Hashable, Sendable {
         self.members = members
         self.memberCount = memberCount
         self.isThreaded = isThreaded
+        self.readPosition = readPosition
     }
 }
 
@@ -224,6 +244,7 @@ public extension Conversation {
         case members
         case memberCount
         case isThreaded
+        case readPosition
     }
 
     /// `id` and `kind` are required; everything else falls back to the same
@@ -232,7 +253,7 @@ public extension Conversation {
     /// The encoder always writes those fields, so absence means the frame came
     /// from a peer that did not have them — and in every case the default is
     /// the assumption that claims least: no title, no activity, nothing unread,
-    /// not muted, no members, no count, not threaded.
+    /// not muted, no members, no count, not threaded, no read position.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
@@ -249,7 +270,8 @@ public extension Conversation {
             ) ?? .always,
             members: container.decodeIfPresent([Member.ID].self, forKey: .members) ?? [],
             memberCount: container.decodeIfPresent(Int.self, forKey: .memberCount),
-            isThreaded: container.decodeIfPresent(Bool.self, forKey: .isThreaded) ?? false
+            isThreaded: container.decodeIfPresent(Bool.self, forKey: .isThreaded) ?? false,
+            readPosition: container.decodeWireIfPresent(Date.self, forKey: .readPosition)
         )
     }
 
@@ -267,5 +289,6 @@ public extension Conversation {
         try container.encode(members, forKey: .members)
         try container.encodeIfPresent(memberCount, forKey: .memberCount)
         try container.encode(isThreaded, forKey: .isThreaded)
+        try container.encodeWireIfPresent(readPosition, forKey: .readPosition)
     }
 }

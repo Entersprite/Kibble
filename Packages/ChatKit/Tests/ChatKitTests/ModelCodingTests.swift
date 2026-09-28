@@ -12,6 +12,7 @@ struct ModelCodingTests {
         try expectWireStable(Fixture.conversation, golden: "conversation")
         try expectWireStable(Fixture.dm, golden: "conversation-dm")
         try expectWireStable(Fixture.meetChat, golden: "conversation-meetChat")
+        try expectWireStable(Fixture.conversationWithReadPosition, golden: "conversation-readPosition")
         try expectWireStable(Fixture.human, golden: "member")
         try expectWireStable(Fixture.bot, golden: "member-app")
         try expectWireStable(Fixture.message, golden: "message")
@@ -59,6 +60,7 @@ struct ModelCodingTests {
         #expect(conversation.members.isEmpty)
         #expect(conversation.memberCount == nil)
         #expect(conversation.isThreaded == false)
+        #expect(conversation.readPosition == nil)
     }
 
     @Test("a nil optional is omitted rather than written as null")
@@ -68,6 +70,7 @@ struct ModelCodingTests {
         #expect(!json.contains("null"))
         #expect(!json.contains("lastActivity"))
         #expect(!json.contains("memberCount"))
+        #expect(!json.contains("readPosition"))
     }
 
     @Test("an explicit null decodes as absent")
@@ -98,5 +101,17 @@ struct ModelCodingTests {
         #expect(json.contains(#""attachments":[]"#))
         #expect(!json.contains("editedAt"))
         #expect(!json.contains("localID"))
+    }
+
+    /// Written only when present, so every conversation golden recorded
+    /// before it stays byte-identical. A missing key reads as `nil`, which
+    /// means "nobody has said", never the epoch.
+    @Test("a read position is omitted when absent and round-trips when present")
+    func readPositionCoding() throws {
+        #expect(try !Wire.json(Fixture.conversation).contains("readPosition"))
+        let bare = try Wire.decode(Conversation.self, from: #"{"id":"dm:1","kind":"directMessage"}"#)
+        #expect(bare.readPosition == nil)
+        let json = try Wire.json(Fixture.conversationWithReadPosition)
+        #expect(try Wire.decode(Conversation.self, from: json).readPosition == Fixture.readAt)
     }
 }
