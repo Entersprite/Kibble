@@ -33,6 +33,8 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
     var notificationLevel: String
     var isThreaded: Bool
     var memberCount: Int?
+    /// `Conversation.readPosition`. One column for both of its sources (the
+    /// mentions-list spec §1).
     var lastReadAt: Date?
 
     init(_ conversation: Conversation) throws {
@@ -47,7 +49,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
         notificationLevel = try Wire.string(conversation.notificationLevel)
         isThreaded = conversation.isThreaded
         memberCount = conversation.memberCount
-        lastReadAt = nil
+        lastReadAt = conversation.readPosition
     }
 
     func conversation(members: [Member.ID]) throws -> Conversation {
@@ -63,7 +65,8 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
             notificationLevel: Wire.fromString(NotificationLevel.self, notificationLevel),
             members: members,
             memberCount: memberCount,
-            isThreaded: isThreaded
+            isThreaded: isThreaded,
+            readPosition: lastReadAt
         )
     }
 }

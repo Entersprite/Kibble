@@ -239,16 +239,19 @@ public extension ChatStore {
 
     private static func upsert(_ conversation: Conversation, in db: Database) throws {
         var row = try ConversationRow(conversation)
-        // lastReadAt is the store's own column, not part of the domain model,
-        // so a plain upsert would write NULL over a watermark the user set.
-        // Carrying the existing value forward is cheaper to read than an
-        // upsert with a hand-written assignment list, and harder to get wrong
-        // when a column is added.
-        row.lastReadAt = try Double.fetchOne(
-            db,
-            sql: "SELECT lastReadAt FROM conversation WHERE id = ?",
-            arguments: [row.id]
-        ).map(StoredDate.date)
+        // `lastReadAt` is `Conversation.readPosition` (the mentions-list spec
+        // §1). A snapshot that carries one is authoritative: a world load's is
+        // Google's current read state. One that carries none - a world item
+        // with no `last_read_time`, a fixture's `conversationUpdated` - says
+        // nothing about the position, so the value `.setReadState` recorded is
+        // carried forward rather than overwritten with NULL.
+        if row.lastReadAt == nil {
+            row.lastReadAt = try Double.fetchOne(
+                db,
+                sql: "SELECT lastReadAt FROM conversation WHERE id = ?",
+                arguments: [row.id]
+            ).map(StoredDate.date)
+        }
         try row.upsert(db)
         try setMembership(conversation.id, conversation.members, in: db)
     }

@@ -66,7 +66,8 @@ public enum WorldMapping {
             hasUnread: hasUnread(item),
             members: memberIDs(for: item),
             memberCount: memberCount(for: item),
-            isThreaded: isThreaded(item)
+            isThreaded: isThreaded(item),
+            readPosition: readPosition(item)
         )
     }
 
@@ -121,6 +122,16 @@ public enum WorldMapping {
             return false
         }
         return state.lastHeadMessageCreateTimeUsec > state.lastReadTime
+    }
+
+    /// `Conversation.readPosition`: the typed `last_read_time`, microseconds
+    /// since the epoch, the same conversion a `GROUP_VIEWED` takes
+    /// (`ChannelEventMapping`). **Presence decides, never the value.** An
+    /// absent field reads as 0, which is 1970, and would make every mention
+    /// read.
+    private static func readPosition(_ item: WorldItemLite) -> Date? {
+        guard item.readState.hasLastReadTime else { return nil }
+        return Microseconds.date(item.readState.lastReadTime)
     }
 
     /// The server's own title, or `nil` for a client to derive one.

@@ -41,8 +41,8 @@ public extension ChatStore {
         try database.read(Self.fetchMe)
     }
 
-    /// The read watermark, which is not part of `Conversation` because it is a
-    /// client-side bookmark rather than something the server describes.
+    /// The read position of one conversation: `Conversation.readPosition`,
+    /// the same column, read without building the whole list.
     func lastReadAt(_ conversation: Conversation.ID) throws -> Date? {
         try database.read { db in
             try Double.fetchOne(
