@@ -69,6 +69,11 @@ public extension LocalBridgeBackend {
                     "\(mapped.skipped) message(s) could not be mapped and were skipped"
                 )))
             }
+            // Names for the senders, started rather than awaited - the same
+            // rule `loadConversations()` follows for its own lookup. A space
+            // lists no members on the world response (`findings.md` §37.5),
+            // so without this anyone met only in a space renders as an id.
+            resolveUnknownMembers(mapped.messages.map(\.sender))
             return mapped.messages
         } catch {
             throw Self.chatError(fromAPI: error, call: "the /api/ list_topics call")

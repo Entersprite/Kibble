@@ -28,21 +28,20 @@ extension LocalBridgeBackend {
     ) async {
         let ids = Array(Set(conversations.flatMap(\.members)))
         guard !ids.isEmpty else { return }
-
-        var request = GetMembersRequest()
-        request.requestHeader = APIRequestHeader.make()
-        request.memberIds = ids.map { id in
-            var userID = UserId()
-            userID.id = id.rawValue
-            var memberID = MemberId()
-            memberID.userID = userID
-            return memberID
-        }
+        // Recorded before the call, so a history page loading meanwhile does
+        // not ask about the same people a second time.
+        requestedMemberIDs.formUnion(ids)
+        let generation = directoryGeneration
 
         let response: GetMembersResponse
         do {
-            response = try await apiClient.call(.getMembers, request)
+            response = try await apiClient.call(.getMembers, Self.getMembersRequest(ids))
         } catch {
+            // Forgotten, so the senders' own lookup can ask again - unless the
+            // session has gone, whose set `disconnect()` already cleared.
+            if generation == directoryGeneration {
+                requestedMemberIDs.subtract(ids)
+            }
             emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_members call")))
             return
         }
@@ -63,6 +62,99 @@ extension LocalBridgeBackend {
                 emit(.conversationUpdated(reclassified))
             }
         }
+    }
+
+    /// Names for ids nobody has asked about yet - message senders and typers,
+    /// who the world response never lists when they are met in a space.
+    ///
+    /// Both references do this: mautrix's `User.get_users` and purple's
+    /// `unknown_user_ids` look up a sender the first time one appears. The
+    /// world response names the members of DMs and group chats only; a named
+    /// space and a Meet chat carry no member ids at all (`findings.md` §37.5),
+    /// so before this anyone met only there rendered as a raw id.
+    ///
+    /// **Started, not awaited**, and never throws, for `resolveAndEmitMembers`'
+    /// reasons. Each id is asked about once per session: marked before the
+    /// call, forgotten again only if the call fails, so the next page or
+    /// message retries. An id `get_members` simply does not return stays
+    /// marked, so a sender the account cannot see is not re-asked on every
+    /// message.
+    ///
+    /// The result is `.membersResolved`, never `.membersChanged`: a sender is
+    /// not necessarily a member (they may have left), and `membersChanged`
+    /// replaces a conversation's membership.
+    func resolveUnknownMembers(_ candidates: [ChatKit.Member.ID]) {
+        guard let apiClient else { return }
+        let unknown = Set(candidates.filter { !$0.rawValue.isEmpty }).subtracting(requestedMemberIDs)
+        guard !unknown.isEmpty else { return }
+        requestedMemberIDs.formUnion(unknown)
+        let generation = directoryGeneration
+        Task { [weak self] in
+            await self?.lookUpMembers(Array(unknown), using: apiClient, generation: generation)
+        }
+    }
+
+    private func lookUpMembers(
+        _ ids: [ChatKit.Member.ID],
+        using apiClient: ProtoAPIClient,
+        generation: Int
+    ) async {
+        let response: GetMembersResponse
+        do {
+            response = try await apiClient.call(.getMembers, Self.getMembersRequest(ids))
+        } catch {
+            guard generation == directoryGeneration else { return }
+            requestedMemberIDs.subtract(ids)
+            emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_members call")))
+            return
+        }
+        // After the await: `disconnect()` may have run while the call was out,
+        // and a stale session's names must not land in the next one.
+        guard generation == directoryGeneration else { return }
+        let mapped = MemberMapping.map(response)
+        if mapped.skipped > 0 {
+            emit(.backendError(.unknown(
+                "\(mapped.skipped) member(s) could not be mapped and were skipped"
+            )))
+        }
+        guard !mapped.members.isEmpty else { return }
+        emit(.membersResolved(mapped.members))
+    }
+
+    /// Ends this session's lookups: whatever is in flight answers into a
+    /// generation that has gone, and the next session asks afresh. Called
+    /// wherever a session ends - `disconnect()` and a channel that stopped.
+    func forgetDirectory() {
+        requestedMemberIDs = []
+        directoryGeneration += 1
+    }
+
+    /// The member ids one channel event names, for `resolveUnknownMembers`.
+    /// Typing is included for when `ChannelEventMapping` maps it; today it
+    /// produces no `typingChanged`, so only senders reach this.
+    static func memberIDs(in event: ChatEvent) -> [ChatKit.Member.ID] {
+        switch event {
+        case let .messageReceived(message), let .messageUpdated(message):
+            [message.sender]
+        case let .typingChanged(_, member, _):
+            [member]
+        default:
+            []
+        }
+    }
+
+    /// One `get_members` request over `ids` - the shape §22 observed working.
+    static func getMembersRequest(_ ids: [ChatKit.Member.ID]) -> GetMembersRequest {
+        var request = GetMembersRequest()
+        request.requestHeader = APIRequestHeader.make()
+        request.memberIds = ids.map { id in
+            var userID = UserId()
+            userID.id = id.rawValue
+            var memberID = MemberId()
+            memberID.userID = userID
+            return memberID
+        }
+        return request
     }
 
     /// A DM with a Chat app, once the members come back and say so - now the

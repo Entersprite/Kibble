@@ -32,6 +32,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
     var isMuted: Bool
     var notificationLevel: String
     var isThreaded: Bool
+    var memberCount: Int?
     var lastReadAt: Date?
 
     init(_ conversation: Conversation) throws {
@@ -45,6 +46,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
         isMuted = conversation.isMuted
         notificationLevel = try Wire.string(conversation.notificationLevel)
         isThreaded = conversation.isThreaded
+        memberCount = conversation.memberCount
         lastReadAt = nil
     }
 
@@ -60,6 +62,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
             isMuted: isMuted,
             notificationLevel: Wire.fromString(NotificationLevel.self, notificationLevel),
             members: members,
+            memberCount: memberCount,
             isThreaded: isThreaded
         )
     }

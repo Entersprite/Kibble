@@ -15,7 +15,18 @@ enum Schema {
         migrator.registerMigration("v3", migrate: addHasUnread)
         migrator.registerMigration("v4", migrate: addMentions)
         migrator.registerMigration("v5", migrate: storeDatesToTheMicrosecond)
+        migrator.registerMigration("v6", migrate: addMemberCount)
         return migrator
+    }
+
+    /// `Conversation.memberCount`. Nullable, with no default: a row written
+    /// before v6 has no count, and "unknown" is what the header draws nothing
+    /// for. A default of 0 would draw "0 members", the bug this removes. The
+    /// next world load fills it in.
+    private static func addMemberCount(_ db: Database) throws {
+        try db.alter(table: "conversation") { table in
+            table.add(column: "memberCount", .integer)
+        }
     }
 
     private static func createV1(_ db: Database) throws {

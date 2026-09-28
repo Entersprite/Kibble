@@ -36,5 +36,9 @@ extension LocalBridgeBackend {
             return
         }
         emit(.selfIdentified(ChatKit.Member(id: ChatKit.Member.ID(id), kind: .human)))
+        // The account's own name. The world lists it only as a member of a
+        // DM or group chat, so an account with neither showed its raw id in
+        // the sidebar footer.
+        resolveUnknownMembers([ChatKit.Member.ID(id)])
     }
 }

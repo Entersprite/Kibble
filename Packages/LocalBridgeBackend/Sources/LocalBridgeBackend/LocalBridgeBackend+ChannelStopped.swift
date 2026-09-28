@@ -56,6 +56,10 @@ extension LocalBridgeBackend {
         self.channel = nil
         isConnected = false
         apiClient = nil
+        // Before the error below, not after: a lookup still in flight would
+        // otherwise land a `membersResolved`, which supersedes this very
+        // error in the store (`SyncReducer.supersedingStaleError`).
+        forgetDirectory()
         let failure = await channel.failure
         let reason = failure.map(String.init(describing:)) ?? "the channel closed"
         let issue = failure.map(ConnectionIssueMapping.issue(for:))

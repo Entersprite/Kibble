@@ -58,6 +58,19 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// records into each one would make every membership change a fan-out.
     public var members: [Member.ID]
 
+    /// How many people are in it, as the server counts them, or `nil` when
+    /// nobody has said.
+    ///
+    /// Not `members.count`. `members` is who the server *listed*, and for a
+    /// named space that is nobody (`findings.md` §37.5); a group chat's list
+    /// can be truncated. `nil` is "unknown", never zero - a client shows
+    /// nothing rather than a number it cannot stand behind.
+    ///
+    /// **A snapshot.** The world load writes it and no event maintains it -
+    /// nothing on the channel is mapped for a join or a leave - so it is stale
+    /// in both directions until the next world load (`findings.md` §43.2).
+    public var memberCount: Int?
+
     /// Whether replies form threads. Chat calls the other case a "flat" group,
     /// and the difference is structural, not cosmetic: in a flat group every
     /// message is its own topic.
@@ -74,6 +87,7 @@ public struct Conversation: Codable, Hashable, Sendable {
         isMuted: Bool = false,
         notificationLevel: NotificationLevel = .always,
         members: [Member.ID] = [],
+        memberCount: Int? = nil,
         isThreaded: Bool = false
     ) {
         self.id = id
@@ -86,6 +100,7 @@ public struct Conversation: Codable, Hashable, Sendable {
         self.isMuted = isMuted
         self.notificationLevel = notificationLevel
         self.members = members
+        self.memberCount = memberCount
         self.isThreaded = isThreaded
     }
 }
@@ -207,6 +222,7 @@ public extension Conversation {
         case isMuted
         case notificationLevel
         case members
+        case memberCount
         case isThreaded
     }
 
@@ -216,7 +232,7 @@ public extension Conversation {
     /// The encoder always writes those fields, so absence means the frame came
     /// from a peer that did not have them — and in every case the default is
     /// the assumption that claims least: no title, no activity, nothing unread,
-    /// not muted, no members, not threaded.
+    /// not muted, no members, no count, not threaded.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
@@ -232,6 +248,7 @@ public extension Conversation {
                 NotificationLevel.self, forKey: .notificationLevel
             ) ?? .always,
             members: container.decodeIfPresent([Member.ID].self, forKey: .members) ?? [],
+            memberCount: container.decodeIfPresent(Int.self, forKey: .memberCount),
             isThreaded: container.decodeIfPresent(Bool.self, forKey: .isThreaded) ?? false
         )
     }
@@ -248,6 +265,7 @@ public extension Conversation {
         try container.encode(isMuted, forKey: .isMuted)
         try container.encode(notificationLevel, forKey: .notificationLevel)
         try container.encode(members, forKey: .members)
+        try container.encodeIfPresent(memberCount, forKey: .memberCount)
         try container.encode(isThreaded, forKey: .isThreaded)
     }
 }

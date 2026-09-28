@@ -301,6 +301,7 @@ public enum APIProbeReport {
             "  total members across all conversations: \(conversations.reduce(0) { $0 + $1.members.count })"
         )
         appendFieldPresenceCounts(response.worldItems, lines: &lines)
+        lines.append(contentsOf: membershipCountLines(response.worldItems, conversations: conversations))
         await appendMemberResolutionSummary(conversations: conversations, client: client, lines: &lines)
         return (conversations, response.worldItems)
     }

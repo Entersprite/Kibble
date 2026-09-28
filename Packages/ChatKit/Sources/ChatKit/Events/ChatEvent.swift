@@ -87,6 +87,18 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// into.
     case membersChanged(conversationID: Conversation.ID, members: [Member])
 
+    /// Member records learned outside any conversation's membership - who
+    /// someone is, and nothing about where they belong.
+    ///
+    /// `membersChanged` cannot carry these: it *replaces* a conversation's
+    /// membership, and the usual case is a message sender in a space, where
+    /// the world response lists no members at all (`findings.md` §37.5). A
+    /// sender is not necessarily a member either - someone who has since left
+    /// still has a name. So this fills the directory and touches no
+    /// membership. An older client decodes it as `.unknown` and loses only
+    /// names.
+    case membersResolved([Member])
+
     case presenceChanged(member: Member.ID, presence: Presence)
 
     /// **Continuity was lost.** Whatever the client believes about `scope` may

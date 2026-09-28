@@ -91,9 +91,10 @@ public struct ChatWindow: View {
     }
 
     private var subtitle: String {
+        // An empty subtitle draws nothing, which is the answer when there is
+        // no count worth showing.
         guard let conversation = state.selectedConversation else { return "" }
-        let people = conversation.members.count
-        return people == 1 ? "1 member" : "\(people) members"
+        return Display.memberCountLabel(of: conversation) ?? ""
     }
 }
 

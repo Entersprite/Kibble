@@ -323,6 +323,20 @@ public nonisolated enum MembershipState: Int, SwiftProtobuf.Enum, Swift.CaseIter
 
 }
 
+/// From reference/purple-googlechat-master/googlechat.proto, which is newer
+/// than this file (findings.md §37.1). Field 30 of WorldItemLite was seen on
+/// every item in §20.4 and left unnamed here until findings.md §43.
+public nonisolated enum MemberType: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
+  case unspecified = 0
+  case humanUser = 1
+  case rosterMember = 2
+
+  public init() {
+    self = .unspecified
+  }
+
+}
+
 public nonisolated enum SharedAttributeCheckerGroupType: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
   case attributeCheckerGroupTypeUnspecified = 0
   case oneToOneHumanDm = 1
@@ -10765,6 +10779,59 @@ public nonisolated struct GroupVisibility: Sendable {
   public init() {}
 }
 
+public nonisolated struct SegmentedMembershipCount: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var membershipCount: Int32 {
+    get {_membershipCount ?? 0}
+    set {_membershipCount = newValue}
+  }
+  /// Returns true if `membershipCount` has been explicitly set.
+  public var hasMembershipCount: Bool {self._membershipCount != nil}
+  /// Clears the value of `membershipCount`. Subsequent reads from it will return its default value.
+  public mutating func clearMembershipCount() {self._membershipCount = nil}
+
+  public var memberType: MemberType {
+    get {_memberType ?? .unspecified}
+    set {_memberType = newValue}
+  }
+  /// Returns true if `memberType` has been explicitly set.
+  public var hasMemberType: Bool {self._memberType != nil}
+  /// Clears the value of `memberType`. Subsequent reads from it will return its default value.
+  public mutating func clearMemberType() {self._memberType = nil}
+
+  public var membershipState: MembershipState {
+    get {_membershipState ?? .memberUnknown}
+    set {_membershipState = newValue}
+  }
+  /// Returns true if `membershipState` has been explicitly set.
+  public var hasMembershipState: Bool {self._membershipState != nil}
+  /// Clears the value of `membershipState`. Subsequent reads from it will return its default value.
+  public mutating func clearMembershipState() {self._membershipState = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _membershipCount: Int32? = nil
+  fileprivate var _memberType: MemberType? = nil
+  fileprivate var _membershipState: MembershipState? = nil
+}
+
+public nonisolated struct SegmentedMembershipCounts: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var value: [SegmentedMembershipCount] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct ComGoogleProtobufTimestamp: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -11625,6 +11692,15 @@ public nonisolated struct WorldItemLite: @unchecked Sendable {
   public var hasFlatThreadsEnabled: Bool {_storage._flatThreadsEnabled != nil}
   /// Clears the value of `flatThreadsEnabled`. Subsequent reads from it will return its default value.
   public mutating func clearFlatThreadsEnabled() {_uniqueStorage()._flatThreadsEnabled = nil}
+
+  public var segmentedMembershipCounts: SegmentedMembershipCounts {
+    get {_storage._segmentedMembershipCounts ?? SegmentedMembershipCounts()}
+    set {_uniqueStorage()._segmentedMembershipCounts = newValue}
+  }
+  /// Returns true if `segmentedMembershipCounts` has been explicitly set.
+  public var hasSegmentedMembershipCounts: Bool {_storage._segmentedMembershipCounts != nil}
+  /// Clears the value of `segmentedMembershipCounts`. Subsequent reads from it will return its default value.
+  public mutating func clearSegmentedMembershipCounts() {_uniqueStorage()._segmentedMembershipCounts = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -13009,6 +13085,10 @@ nonisolated extension AppType: SwiftProtobuf._ProtoNameProviding {
 
 nonisolated extension MembershipState: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0MEMBER_UNKNOWN\0\u{1}MEMBER_INVITED\0\u{1}MEMBER_JOINED\0\u{1}MEMBER_NOT_A_MEMBER\0\u{1}MEMBER_FAILED\0")
+}
+
+nonisolated extension MemberType: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0MEMBER_TYPE_UNSPECIFIED\0\u{1}HUMAN_USER\0\u{1}ROSTER_MEMBER\0")
 }
 
 nonisolated extension SharedAttributeCheckerGroupType: SwiftProtobuf._ProtoNameProviding {
@@ -25095,6 +25175,80 @@ nonisolated extension GroupVisibility.VisibilityState: SwiftProtobuf._ProtoNameP
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0UNKNOWN\0\u{1}PRIVATE\0\u{1}PUBLIC\0")
 }
 
+nonisolated extension SegmentedMembershipCount: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "SegmentedMembershipCount"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}membership_count\0\u{3}member_type\0\u{3}membership_state\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self._membershipCount) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self._memberType) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self._membershipState) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._membershipCount {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._memberType {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._membershipState {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: SegmentedMembershipCount, rhs: SegmentedMembershipCount) -> Bool {
+    if lhs._membershipCount != rhs._membershipCount {return false}
+    if lhs._memberType != rhs._memberType {return false}
+    if lhs._membershipState != rhs._membershipState {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension SegmentedMembershipCounts: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "SegmentedMembershipCounts"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}value\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.value) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.value.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.value, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: SegmentedMembershipCounts, rhs: SegmentedMembershipCounts) -> Bool {
+    if lhs.value != rhs.value {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension ComGoogleProtobufTimestamp: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ComGoogleProtobufTimestamp"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}seconds\0\u{1}nanos\0")
@@ -25715,7 +25869,7 @@ nonisolated extension NameUsers: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "WorldItemLite"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}group_revision\0\u{3}sort_timestamp\0\u{3}read_state\0\u{3}room_name\0\u{3}dm_members\0\u{3}group_lite\0\u{3}retention_horizon_time_micros\0\u{3}retention_duration_seconds\0\u{2}\u{4}message\0\u{3}flat_group\0\u{3}threaded_group\0\u{3}avatar_url\0\u{4}\u{3}attribute_checker_group_type\0\u{3}name_users\0\u{4}\u{3}group_support_level\0\u{3}group_unsupported_reason\0\u{3}is_message_blocked\0\u{4}\u{2}flat_threads_enabled\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}group_revision\0\u{3}sort_timestamp\0\u{3}read_state\0\u{3}room_name\0\u{3}dm_members\0\u{3}group_lite\0\u{3}retention_horizon_time_micros\0\u{3}retention_duration_seconds\0\u{2}\u{4}message\0\u{3}flat_group\0\u{3}threaded_group\0\u{3}avatar_url\0\u{4}\u{3}attribute_checker_group_type\0\u{3}name_users\0\u{4}\u{3}group_support_level\0\u{3}group_unsupported_reason\0\u{3}is_message_blocked\0\u{4}\u{2}flat_threads_enabled\0\u{4}\u{3}segmented_membership_counts\0")
 
   fileprivate class _StorageClass {
     var _groupID: GroupId? = nil
@@ -25737,6 +25891,7 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
     var _groupSupportLevel: GroupSupportLevel? = nil
     var _groupUnsupportedReason: GroupUnsupportedReason? = nil
     var _flatThreadsEnabled: Bool? = nil
+    var _segmentedMembershipCounts: SegmentedMembershipCounts? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -25766,6 +25921,7 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
       _groupSupportLevel = source._groupSupportLevel
       _groupUnsupportedReason = source._groupUnsupportedReason
       _flatThreadsEnabled = source._flatThreadsEnabled
+      _segmentedMembershipCounts = source._segmentedMembershipCounts
     }
   }
 
@@ -25803,6 +25959,7 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
         case 24: try { try decoder.decodeSingularEnumField(value: &_storage._groupUnsupportedReason) }()
         case 25: try { try decoder.decodeSingularBoolField(value: &_storage._isMessageBlocked) }()
         case 27: try { try decoder.decodeSingularBoolField(value: &_storage._flatThreadsEnabled) }()
+        case 30: try { try decoder.decodeSingularMessageField(value: &_storage._segmentedMembershipCounts) }()
         default: break
         }
       }
@@ -25872,6 +26029,9 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
       try { if let v = _storage._flatThreadsEnabled {
         try visitor.visitSingularBoolField(value: v, fieldNumber: 27)
       } }()
+      try { if let v = _storage._segmentedMembershipCounts {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 30)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -25900,6 +26060,7 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
         if _storage._groupSupportLevel != rhs_storage._groupSupportLevel {return false}
         if _storage._groupUnsupportedReason != rhs_storage._groupUnsupportedReason {return false}
         if _storage._flatThreadsEnabled != rhs_storage._flatThreadsEnabled {return false}
+        if _storage._segmentedMembershipCounts != rhs_storage._segmentedMembershipCounts {return false}
         return true
       }
       if !storagesAreEqual {return false}
