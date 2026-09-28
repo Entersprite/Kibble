@@ -14,6 +14,7 @@ enum Schema {
         migrator.registerMigration("v2", migrate: addLocalMemberID)
         migrator.registerMigration("v3", migrate: addHasUnread)
         migrator.registerMigration("v4", migrate: addMentions)
+        migrator.registerMigration("v5", migrate: storeDatesToTheMicrosecond)
         return migrator
     }
 
@@ -59,6 +60,42 @@ enum Schema {
     private static func addMentions(_ db: Database) throws {
         try db.alter(table: "message") { table in
             table.add(column: "mentions", .text).notNull().defaults(to: "[]")
+        }
+    }
+
+    /// Every date column, from GRDB's millisecond text to the REAL seconds
+    /// `StoredDate` writes, in place.
+    ///
+    /// Up to v4 each of these held `yyyy-MM-dd HH:mm:ss.SSS`, which is what
+    /// cost a mark-read its last microseconds (see `StoredDate`). A column left
+    /// as text beside new REAL rows would be worse than truncated: SQLite
+    /// orders every number before every text, so a migrated message would
+    /// sort after every message written since, silently.
+    ///
+    /// `strftime('%s')` gives the whole seconds and characters 21-23 are the
+    /// milliseconds - the format is fixed-width, and the `.` is character 20.
+    /// **Not `julianday()`**: that is a double in days at about 2.46 million,
+    /// good to roughly 40 µs, so it would move every converted value. A NULL
+    /// stays NULL rather than becoming the epoch, because every step of the
+    /// expression propagates it; v4 wrote nothing but this text or NULL.
+    ///
+    /// Old rows stay millisecond-rounded, which is all they ever held; the
+    /// next page of history or live event that carries them rewrites them at
+    /// full precision. The `(conversationID, createdAt)` index needs nothing:
+    /// an `UPDATE` maintains it.
+    private static func storeDatesToTheMicrosecond(_ db: Database) throws {
+        let columns = [
+            ("message", "createdAt"),
+            ("message", "editedAt"),
+            ("conversation", "lastActivity"),
+            ("conversation", "lastReadAt")
+        ]
+        for (table, column) in columns {
+            try db.execute(sql: """
+            UPDATE \(table)
+            SET \(column) = CAST(strftime('%s', \(column)) AS REAL)
+                + CAST(substr(\(column), 21, 3) AS REAL) / 1000.0
+            """)
         }
     }
 

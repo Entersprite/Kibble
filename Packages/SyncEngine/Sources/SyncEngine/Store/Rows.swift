@@ -13,6 +13,15 @@ import GRDB
 struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "conversation"
 
+    /// `lastActivity` and `lastReadAt` to the microsecond - see `StoredDate`.
+    static func databaseDateEncodingStrategy(for _: String) -> DatabaseDateEncodingStrategy {
+        StoredDate.encoding
+    }
+
+    static func databaseDateDecodingStrategy(for _: String) -> DatabaseDateDecodingStrategy {
+        StoredDate.decoding
+    }
+
     var id: String
     var kind: String
     var title: String?
@@ -105,6 +114,16 @@ struct MembershipRow: Codable, FetchableRecord, PersistableRecord {
 
 struct MessageRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "message"
+
+    /// `createdAt` and `editedAt` to the microsecond - see `StoredDate`. A
+    /// mark-read position is taken from `createdAt` as read back from here.
+    static func databaseDateEncodingStrategy(for _: String) -> DatabaseDateEncodingStrategy {
+        StoredDate.encoding
+    }
+
+    static func databaseDateDecodingStrategy(for _: String) -> DatabaseDateDecodingStrategy {
+        StoredDate.decoding
+    }
 
     var id: String
     var conversationID: String

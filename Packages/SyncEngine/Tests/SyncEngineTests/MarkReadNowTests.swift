@@ -65,6 +65,26 @@ struct MarkReadNowTests {
         #expect(await backend.loadMessagesCount == 0)
     }
 
+    /// The layer that was wrong: the position comes from a message read back
+    /// out of the store, and a millisecond store handed back `.128` for a
+    /// message at `.128263`. The backend's `+1 µs` then published `.128001`,
+    /// before the message itself, and Google kept the conversation unread.
+    @Test func aMarkNamesTheStoredMessagesExactMicrosecond() async throws {
+        let (model, store, backend) = try await harness()
+        try store.apply([.upsertMessage(Message(
+            id: Message.ID("m:live"), conversationID: dm, threadID: MessageThread.ID("t"),
+            sender: Member.ID("fixture-other"), text: "hi",
+            createdAt: Date(timeIntervalSince1970: 1_790_000_000.128263)
+        ))])
+        model.markRead(dm)
+        #expect(await eventually { await backend.markReadCount == 1 })
+        guard case let .markRead(_, upTo)? = await backend.commands.last else {
+            Issue.record("no mark was sent")
+            return
+        }
+        #expect(microseconds(upTo) == 1_790_000_000_128_263)
+    }
+
     /// The final review's C1, across the seam. A mark's position is the
     /// newest seen message's *own* time, and a `.read` covers only
     /// `createdAt < upTo` (`findings.md` §36). So a refused mark announcing

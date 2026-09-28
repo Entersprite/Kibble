@@ -45,11 +45,11 @@ public extension ChatStore {
     /// client-side bookmark rather than something the server describes.
     func lastReadAt(_ conversation: Conversation.ID) throws -> Date? {
         try database.read { db in
-            try Date.fetchOne(
+            try Double.fetchOne(
                 db,
                 sql: "SELECT lastReadAt FROM conversation WHERE id = ?",
                 arguments: [conversation.rawValue]
-            )
+            ).map(StoredDate.date)
         }
     }
 }
