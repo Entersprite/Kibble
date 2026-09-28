@@ -75,9 +75,14 @@ enum Schema {
     /// `strftime('%s')` gives the whole seconds and characters 21-23 are the
     /// milliseconds - the format is fixed-width, and the `.` is character 20.
     /// **Not `julianday()`**: that is a double in days at about 2.46 million,
-    /// good to roughly 40 µs, so it would move every converted value. A NULL
-    /// stays NULL rather than becoming the epoch, because every step of the
-    /// expression propagates it; v4 wrote nothing but this text or NULL.
+    /// good to roughly 40 µs, so it would move every converted value.
+    ///
+    /// **Text only** (`typeof(...) = 'text'`), so the step is idempotent. v4
+    /// wrote nothing but this text or NULL, but a value that is already a
+    /// number would reach `strftime('%s', <number>)`, which reads it as a
+    /// Julian day and answers NULL: `message.createdAt NOT NULL` fails and the
+    /// store does not open. A NULL is skipped by the same clause, and stays
+    /// NULL rather than becoming the epoch.
     ///
     /// Old rows stay millisecond-rounded, which is all they ever held; the
     /// next page of history or live event that carries them rewrites them at
@@ -95,6 +100,7 @@ enum Schema {
             UPDATE \(table)
             SET \(column) = CAST(strftime('%s', \(column)) AS REAL)
                 + CAST(substr(\(column), 21, 3) AS REAL) / 1000.0
+            WHERE typeof(\(column)) = 'text'
             """)
         }
     }

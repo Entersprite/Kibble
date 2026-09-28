@@ -40,8 +40,9 @@ public enum SyncEffect: Sendable, Equatable {
     ///
     /// Carries the position rather than "everything in this conversation":
     /// a read on another device that predates a newer message must leave that
-    /// message's banner up. Covered means `createdAt < upTo` - `findings.md`
-    /// §36's strict boundary.
+    /// message's banner up. Covered means `createdAt <= upTo`: a position
+    /// equal to a message is read, which is what Google's own clients write
+    /// (`findings.md` §42.2).
     case withdrawAnnouncements(Conversation.ID, upTo: Date)
 }
 

@@ -78,7 +78,9 @@ struct WorldMappingNameUsersAndUnreadTests {
     /// in GChat - positions Google's own clients wrote for their own reads
     /// (`findings.md` §42). §36.1's "equal does not cover" was measured
     /// through a store that kept milliseconds only, so the position it
-    /// published was *below* the message. This answered `true` from
+    /// published was the message's time rounded to the nearest millisecond,
+    /// below the message whenever it rounded down - about half the time
+    /// (§42.1). This answered `true` from
     /// 2026-09-23 (§37.9); a `>=` in `hasUnread` turns it red.
     @Test func aNewestMessageExactlyAtTheReadPositionIsRead() {
         let item = Fixture.item(

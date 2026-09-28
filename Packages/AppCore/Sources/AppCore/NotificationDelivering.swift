@@ -18,8 +18,8 @@ public protocol NotificationDelivering: Sendable {
     func post(_ notification: MessageNotification) async
 
     /// Removes delivered notifications for messages in `conversation` that
-    /// `position` covers - `createdAt < position`, `findings.md` §36's strict
-    /// boundary - and leaves newer ones alone.
+    /// `position` covers - `createdAt <= position`, since a position equal to
+    /// a message is read (`findings.md` §42.2) - and leaves newer ones alone.
     func withdraw(in conversation: Conversation.ID, coveredBy position: Date) async
 
     /// Removes everything this app has delivered. Called on sign-out, so a

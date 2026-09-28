@@ -173,12 +173,12 @@ public extension SyncEngine {
             // here: the server's read state does, through the reducer.
             //
             // **One microsecond past `upTo`, never `upTo` itself.** A mark's
-            // `upTo` is the newest seen message's own `createdAt`, and a
-            // `.read` covers only `createdAt < upTo` - `findings.md` §36's
-            // strict boundary - so announcing it unchanged left the newest
-            // banner, usually the only one, up for good. The wire needs the
-            // same step and gets it from the backend
-            // (`readPositionOffsetMicroseconds`), which this path never reaches.
+            // `upTo` is the newest seen message's own `createdAt`. While a
+            // `.read` covered only `createdAt < upTo`, announcing it unchanged
+            // left the newest banner, usually the only one, up for good. The
+            // withdraw now covers equality too (`findings.md` §42.2), and the
+            // step is kept: it matches the wire's, which the backend adds
+            // (`readPositionOffsetMicroseconds`) on a path this never reaches.
             if case let .markRead(conversation, upTo) = command {
                 announcer.yield(.read(conversation, upTo: upTo.addingTimeInterval(0.000_001)))
             }

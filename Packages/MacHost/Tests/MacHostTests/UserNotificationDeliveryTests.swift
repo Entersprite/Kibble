@@ -45,24 +45,27 @@ struct UserNotificationDeliveryTests {
 
     @Test func aPositionPastANotificationInItsThreadCoversIt() {
         let covered = UserNotificationDelivery.covered(
-            [delivered("m:1", createdAt: createdAt)], in: thread, before: createdAt + 1
+            [delivered("m:1", createdAt: createdAt)], in: thread, upTo: createdAt + 1
         )
         #expect(covered == ["m:1"])
     }
 
-    /// Strictly before: a position equal to the message's own time does not
-    /// cover it (`findings.md` §36), and a newer notification is left up.
-    @Test func aNotificationAtOrAfterThePositionIsLeftAlone() {
+    /// A position equal to the message's own time covers it: that is what
+    /// Google's own clients write for a read, and a `GROUP_VIEWED` from the
+    /// phone passes it through unchanged (`findings.md` §42.2). Compared
+    /// strictly, a read on the phone at exactly the head left the newest
+    /// banner up on the Mac. A newer notification is still left up.
+    @Test func aNotificationAtThePositionIsCoveredAndOneAfterItIsLeftAlone() {
         let covered = UserNotificationDelivery.covered(
             [delivered("m:at", createdAt: createdAt), delivered("m:after", createdAt: createdAt + 1)],
-            in: thread, before: createdAt
+            in: thread, upTo: createdAt
         )
-        #expect(covered.isEmpty)
+        #expect(covered == ["m:at"])
     }
 
     @Test func anotherConversationsNotificationIsLeftAlone() {
         let covered = UserNotificationDelivery.covered(
-            [delivered("m:1", thread: "space/2", createdAt: createdAt)], in: thread, before: createdAt + 1
+            [delivered("m:1", thread: "space/2", createdAt: createdAt)], in: thread, upTo: createdAt + 1
         )
         #expect(covered.isEmpty)
     }
@@ -71,7 +74,7 @@ struct UserNotificationDeliveryTests {
     @Test func aNotificationWithNoUsableTimeIsLeftAlone() {
         let covered = UserNotificationDelivery.covered(
             [delivered("m:none", createdAt: nil), delivered("m:text", createdAt: "1790000000000000")],
-            in: thread, before: createdAt + 1
+            in: thread, upTo: createdAt + 1
         )
         #expect(covered.isEmpty)
     }
@@ -80,17 +83,18 @@ struct UserNotificationDeliveryTests {
     /// arrives as an `NSNumber`, not the `Int64` that was posted.
     @Test func aTimeThatCameBackAsANumberIsRead() {
         let covered = UserNotificationDelivery.covered(
-            [delivered("m:1", createdAt: NSNumber(value: createdAt))], in: thread, before: createdAt + 1
+            [delivered("m:1", createdAt: NSNumber(value: createdAt))], in: thread, upTo: createdAt + 1
         )
         #expect(covered == ["m:1"])
     }
 
     /// At today's epoch a `Double` of seconds has well under a microsecond of
     /// precision to spare, so the conversion must round, not truncate: a
-    /// position one microsecond past a message has to stay one microsecond
-    /// past it. These three are values where adding the microsecond in `Date`
-    /// space lands a hair short of the next integer, so truncating reads the
-    /// position as the message's own time and withdraws nothing.
+    /// position has to land on the microsecond it names, whether that is a
+    /// message's own time or one past it. These three are values where the
+    /// `Date` lands a hair short of the integer, so truncating reads the
+    /// position one microsecond early - and a position equal to a message
+    /// then leaves that message's banner up.
     @Test func microsecondsSurviveTheRoundTripThroughADate() {
         for micros: Int64 in [1_790_000_000_000_002, 1_790_000_000_000_007, 1_790_000_000_000_012] {
             let date = Date(timeIntervalSince1970: Double(micros) / 1_000_000)

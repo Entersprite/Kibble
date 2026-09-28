@@ -86,9 +86,11 @@ public enum WorldMapping {
     /// **Equality is read.** This compared with `>=` from 2026-09-23 to
     /// 2026-09-28, on §36.1's reading that a position equal to a message does
     /// not cover it (§37.9). That was measured through a store that kept
-    /// milliseconds only, so the position published was the *truncated* time,
-    /// which is below the message: §36 established that "less than" does not
-    /// cover, never that "equal" does not. The 2026-09-28 probe then found 59
+    /// milliseconds only, so the position published was the message's time
+    /// *rounded* to the nearest millisecond, which fell below the message
+    /// only when it rounded down - about half the time (§42.1): §36
+    /// established that "less than" does not cover, never that "equal" does
+    /// not. The 2026-09-28 probe then found 59
     /// conversations whose position equals the newest message exactly, 45 of
     /// them Meet chats the owner never reads in GChat - written by Google's
     /// own clients, which treat their own read as read (`findings.md` §42).
