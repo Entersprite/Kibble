@@ -8,7 +8,7 @@ import Foundation
 /// exactly one thing: a history fetch that outlives whoever asked for it.
 actor HangingHistoryBackend: ChatBackend {
     /// No capabilities by default, as before. `canMarkRead: true` is for a
-    /// test that drives `ChatSessionModel.markRead(_:)`, whose first guard is
+    /// test that drives `ChatSessionModel.markRead(_:from:)`, whose first guard is
     /// the capability - without it the explicit mark returns before it ever
     /// reaches the fetch this backend hangs.
     nonisolated let capabilities: Capabilities

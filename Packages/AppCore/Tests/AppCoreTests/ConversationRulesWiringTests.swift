@@ -179,6 +179,11 @@ struct ConversationRulesWiringTests {
 
     /// Two seconds, because the environment builds its model with the real
     /// `markReadDebounce` - the only way to see the item reach the backend.
+    ///
+    /// The newest page holds a message newer than the stored one, and the
+    /// sidebar's mark names it: the item is wired as `.conversationList`,
+    /// which fetches first (`MarkReadOrigin`). Wired as `.notification`, it
+    /// named the stored message, short of Google's head.
     @Test func markAsReadFromTheSidebarPublishes() async throws {
         let (environment, services, _) = try await identified(capabilities: marking)
         // Not viewing, so selecting cannot publish: with the window in view,
@@ -186,11 +191,42 @@ struct ConversationRulesWiringTests {
         // this test could not tell the two apart. The explicit mark ignores focus.
         environment.setActive(false)
         services.backend.emit(.messageReceived(message("m:1", in: dm)))
+        services.backend.answerHistory(with: [newerThanStored])
         // Stored well inside the mark's two-second wait.
         environment.actions.markRead?(dm.id)
         #expect(await eventually(timeout: .seconds(4)) {
-            services.backend.sent.contains(.markRead(conversationID: dm.id, upTo: at))
+            services.backend.sent.contains(.markRead(conversationID: dm.id, upTo: newerThanStored.createdAt))
         })
+    }
+
+    /// The banner's button keeps trusting the store: its message arrived live
+    /// and is the newest stored, so it is marked as it is, with the same newer
+    /// page on offer that the sidebar's mark above fetches.
+    @Test func markAsReadFromABannerMarksTheStoredNewestWithoutFetching() async throws {
+        let delivery = FakeNotificationDelivery()
+        let (environment, services, _) = try await identified(delivery: delivery, capabilities: marking)
+        environment.setActive(false)
+        services.backend.emit(.messageReceived(message("m:1", in: dm)))
+        services.backend.answerHistory(with: [newerThanStored])
+        delivery.respond.yield(.markRead(dm.id))
+        #expect(await eventually(timeout: .seconds(4)) {
+            services.backend.sent.contains {
+                if case .markRead = $0 {
+                    true
+                } else {
+                    false
+                }
+            }
+        })
+        #expect(services.backend.sent.contains(.markRead(conversationID: dm.id, upTo: at)))
+    }
+
+    /// A minute after `message(_:in:)`'s, on the newest page only.
+    private var newerThanStored: Message {
+        Message(
+            id: Message.ID("m:2"), conversationID: dm.id, threadID: MessageThread.ID("t"),
+            sender: alice.id, text: "hello", createdAt: Date(timeIntervalSince1970: 1_790_000_060)
+        )
     }
 
     /// Decision 4: a Mute that launched the app waits for the session, and so

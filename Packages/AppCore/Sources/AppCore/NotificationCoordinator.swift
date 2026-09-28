@@ -223,7 +223,7 @@ final class NotificationCoordinator {
             model.select(conversation)
             onShowWindow?()
         case let .markRead(conversation):
-            model.markRead(conversation)
+            model.markRead(conversation, from: .notification)
         case let .mute(conversation):
             onMute?(conversation)
         }

@@ -128,7 +128,7 @@ public extension AppEnvironment {
             // Needs the account too: until it is identified the receipts gate
             // withholds every mark, and the item would do nothing.
             markRead: canEditNotificationRules && runningModel?.capabilities.canMarkRead == true
-                ? { [weak self] in self?.runningModel?.markRead($0) }
+                ? { [weak self] in self?.runningModel?.markRead($0, from: .conversationList) }
                 : nil
         )
     }

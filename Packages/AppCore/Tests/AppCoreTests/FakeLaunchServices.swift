@@ -176,6 +176,17 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
     /// runs on the engine's executor, and a test reads `sent` from the main actor.
     private let commands = Mutex<[ChatCommand]>([])
 
+    /// What `loadMessages` answers, for any conversation. Behind a lock for
+    /// `commands`' reason.
+    private let history = Mutex<[Message]>([])
+
+    /// Makes every later `loadMessages` answer `messages` - a newest page
+    /// holding more than the store does, which is what tells a mark that
+    /// fetched from one that did not.
+    func answerHistory(with messages: [Message]) {
+        history.withLock { $0 = messages }
+    }
+
     /// Every command handed to `send(_:)`, for a test to read.
     var sent: [ChatCommand] {
         commands.withLock { $0 }
@@ -249,7 +260,7 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
     }
 
     func loadMessages(in _: Conversation.ID, before _: Message.ID?) async throws -> [Message] {
-        []
+        history.withLock { $0 }
     }
 
     func setNotificationSetting(_: NotificationLevel, for _: Conversation.ID) async throws {}
