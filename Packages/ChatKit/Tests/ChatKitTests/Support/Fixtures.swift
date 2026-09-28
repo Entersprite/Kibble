@@ -108,6 +108,19 @@ enum Fixture {
         localID: "draft-42"
     )
 
+    /// `Fixture.message` with two mentions. Both spans are checked against
+    /// the exact string they claim to span: "@Dana" is `start: 0, length: 5`
+    /// and "@all" is `start: 30, length: 4`.
+    static let messageWithMentions: Message = {
+        var copy = message
+        copy.text = "@Dana ordered the 225/45R17s. @all"
+        copy.mentions = [
+            Mention(target: .user(humanID), start: 0, length: 5),
+            Mention(target: .all, start: 30, length: 4)
+        ]
+        return copy
+    }()
+
     static let capabilities = Capabilities(
         canSendMessages: true,
         canEditMessages: true,

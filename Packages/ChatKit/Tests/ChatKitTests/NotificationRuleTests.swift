@@ -45,6 +45,18 @@ struct NotificationRuleTests {
         #expect(!NotificationRule(readReceipts: false).isEmpty)
     }
 
+    @Test func notifyAboutInheritsFieldByFieldAndAnUnknownValueIsSkipped() {
+        let section = NotificationRule(notifyAbout: .mentions)
+        let conversation = NotificationRule(delivery: .banner, notifyAbout: .unknown("threads"))
+        #expect(NotificationRule.resolve([conversation, section]).notifyAbout == .mentions)
+        #expect(NotificationRule.resolve([conversation]).notifyAbout == .allMessages)
+        #expect(ResolvedRule.builtIn.notifyAbout == .allMessages)
+    }
+
+    @Test func aRuleWithOnlyNotifyAboutIsNotEmpty() {
+        #expect(!NotificationRule(notifyAbout: .mentions).isEmpty)
+    }
+
     // MARK: - Sections
 
     @Test func everyKindHasTheSectionItIsListedUnder() {

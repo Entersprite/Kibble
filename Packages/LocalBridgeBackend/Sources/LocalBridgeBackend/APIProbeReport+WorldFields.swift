@@ -14,6 +14,21 @@ import GChatBridgeCore
 /// a title, or a payload byte. A `paginated_world` response carries real
 /// conversations.
 extension APIProbeReport {
+    /// `threaded` beside **two** unread counts, so the report says which one
+    /// it means. `Conversation.hasUnread` is the flag the app actually renders;
+    /// `unreadCount > 0` is the one that reads `unread_message_count`, which is
+    /// always zero on a real account (`Conversation.unreadCount`'s own doc
+    /// comment, `findings.md` §37.8) - so a report that only ever prints the
+    /// second number would say "with unread: 0" on an account that plainly has
+    /// unread conversations. A small pure `static func` so
+    /// `APIProbeReportWorldMappingTests` can pin the wording without a
+    /// `paginated_world` round trip.
+    static func threadingAndUnreadLine(_ conversations: [Conversation]) -> String {
+        "  threaded: \(conversations.count(where: \.isThreaded)), "
+            + "with unread (hasUnread): \(conversations.count(where: \.hasUnread)), "
+            + "unreadCount > 0: \(conversations.count(where: { $0.unreadCount > 0 }))"
+    }
+
     /// Settles two `[Verify]`s from `WorldMapping.swift` with one live run:
     /// whether `room_name` is ever sent present-and-empty rather than simply
     /// absent, and how often `group_lite` is the only threading information
@@ -131,9 +146,12 @@ extension APIProbeReport {
     /// `GroupReadState.unread_message_count`'s field number.
     private static let unreadMessageCountField = 4
 
-    /// The field purple's newer proto calls
-    /// `last_head_message_create_time_usec`, absent from the vendored proto
-    /// and therefore only reachable through `unknownFields`.
+    /// `GroupReadState.last_head_message_create_time_usec`'s field number -
+    /// printed only. **Read through the typed accessor, never
+    /// `unknownFields`:** `67f798c` named the field, so it decodes into
+    /// `lastHeadMessageCreateTimeUsec` and never lands in `unknownFields`,
+    /// and a scan there reported "present 0" beside a byte scan showing 241
+    /// of 244 (`findings.md` §39.1).
     private static let lastHeadMessageTimeField = 29
 
     /// What is actually inside `read_state` - the field nobody has looked in.
@@ -217,17 +235,16 @@ extension APIProbeReport {
             if state.hasLastReadTime {
                 shape.lastReadPresent += 1
             }
-            let headTime = ProtoFieldScan.varintValues(
-                ofField: lastHeadMessageTimeField,
-                in: state.unknownFields.data
-            ).first
+            // The same typed reads `WorldMapping.hasUnread` makes (§39.1).
+            let headTime = state.hasLastHeadMessageCreateTimeUsec
+                ? state.lastHeadMessageCreateTimeUsec
+                : nil
             if headTime != nil {
                 shape.headTimePresent += 1
             }
             // `>=`, matching `WorldMapping.hasUnread`: a position equal to
             // the newest message does not cover it (`findings.md` §36, §37.9).
-            if let headTime, state.hasLastReadTime,
-               headTime >= UInt64(max(0, state.lastReadTime)) {
+            if let headTime, state.hasLastReadTime, headTime >= state.lastReadTime {
                 shape.notCoveredByRead += 1
             }
         }

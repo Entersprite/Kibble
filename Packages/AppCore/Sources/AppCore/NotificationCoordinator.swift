@@ -184,14 +184,15 @@ final class NotificationCoordinator {
             // `isActive` is the viewing gate - frontmost *and* the window on
             // screen - which `AppEnvironment` computes and pushes into the
             // model. Selected-but-not-visible is not on screen.
-            let decision = NotificationPolicy.decide(
-                message,
+            let decision = NotificationPolicy.decide(NotificationPolicy.Arrival(
+                message: message,
                 rule: rule,
                 me: model.me,
                 viewing: model.isActive ? model.selected : nil,
                 alreadyAnnounced: recentSet.contains(message.id),
-                paused: isPaused?() ?? false
-            )
+                paused: isPaused?() ?? false,
+                mentionsMe: message.mentionsMe(model.me)
+            ))
             guard case let .post(presentation) = decision else { return }
             remember(message.id)
             await delivery.post(Self.notification(

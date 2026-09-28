@@ -13,6 +13,7 @@ enum Schema {
         migrator.registerMigration("v1", migrate: createV1)
         migrator.registerMigration("v2", migrate: addLocalMemberID)
         migrator.registerMigration("v3", migrate: addHasUnread)
+        migrator.registerMigration("v4", migrate: addMentions)
         return migrator
     }
 
@@ -50,6 +51,14 @@ enum Schema {
     private static func addHasUnread(_ db: Database) throws {
         try db.alter(table: "conversation") { table in
             table.add(column: "hasUnread", .boolean).notNull().defaults(to: false)
+        }
+    }
+
+    /// Mentions (the mentions spec, §2). A default of `[]` is what makes every
+    /// row written before v4 read as "no mentions" rather than fail to decode.
+    private static func addMentions(_ db: Database) throws {
+        try db.alter(table: "message") { table in
+            table.add(column: "mentions", .text).notNull().defaults(to: "[]")
         }
     }
 

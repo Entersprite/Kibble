@@ -41,8 +41,8 @@ struct ReadReceiptReportTests {
 
     // MARK: - `enabled`
 
-    @Test("disabled account ends the report on that line")
-    func disabledAccountEndsTheReport() {
+    @Test("disabled for this conversation ends the report on that line")
+    func disabledConversationEndsTheReport() {
         var set = ReadReceiptSet()
         set.enabled = false
         set.readReceipts = [receipt(userID: "u1", readTimeMicros: 5_000_000)]
@@ -55,10 +55,29 @@ struct ReadReceiptReportTests {
         )
 
         #expect(lines.contains("  read receipts enabled: false"))
-        #expect(lines.contains(where: { $0.contains("DISABLED") }))
+        // One response is one conversation, never the account (§39.2).
+        #expect(lines.contains(where: { $0.contains("DISABLED for this conversation") }))
+        #expect(!lines.contains(where: { $0.contains("account") }))
         // Nothing past the disabled line describes a receipt - the boolean
         // ends the investigation, per the report's own doc comment.
         #expect(!lines.contains(where: { $0.contains("receipt") && $0.contains("vs reference") }))
+    }
+
+    /// §39.2: in proto2 an absent optional bool reads as `false`, so printing
+    /// `enabled` without `hasEnabled` turned "the response did not say" into
+    /// "disabled". Absent is reported as absent, and ends nothing.
+    @Test("an absent enabled is reported as absent, not false")
+    func absentEnabledIsReportedAsAbsent() {
+        let lines = ReadReceiptReport.lines(
+            receiptSet: ReadReceiptSet(),
+            topicCount: 1,
+            newestTopicReference: reference(createTimeUsec: 10_000_000),
+            selfUserID: nil
+        )
+
+        #expect(lines.contains("  read receipts enabled: absent"))
+        #expect(!lines.contains(where: { $0.contains("DISABLED") }))
+        #expect(lines.contains("  receipts: 0"))
     }
 
     @Test("enabled, zero receipts")
@@ -282,5 +301,20 @@ struct ReadReceiptReportTests {
 
         #expect(index == 1)
         #expect(lines.contains(where: { $0.contains("out of range") }))
+    }
+
+    // MARK: - the probed conversation's kind
+
+    /// §39.2: one run's receipts may be a DM's and another's a space's, so the
+    /// report names the probed conversation's kind - ChatKit's own wire token,
+    /// which identifies nobody.
+    @Test("the kind line prints ChatKit's wire token", arguments: [
+        (Conversation.Kind.space, "space"),
+        (.directMessage, "directMessage"),
+        (.meetChat, "meetChat"),
+        (.unknown("10"), "10")
+    ])
+    func kindLinePrintsTheWireToken(kind: Conversation.Kind, token: String) {
+        #expect(APIProbeReport.conversationKindLine(kind) == "  probed conversation kind: \(token)")
     }
 }

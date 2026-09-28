@@ -242,6 +242,7 @@ struct APIProbeReportHistoryTests {
             .success(topicsRungResponse), // topics ladder rung 3
             .success(topicsRungResponse), // topics ladder rung 4
             .success(topicsRungResponse), // the history mapping summary's own list_topics call
+            .success(topicsRungResponse), // the mention shapes section's own list_topics call
             .success(receiptsResponse) // the read-receipts section's own rung-4 list_topics call
         ]
         let reportText = await APIProbeReport.run(
@@ -250,12 +251,12 @@ struct APIProbeReportHistoryTests {
             endpoints: ChatEndpoints()
         )
         #expect(reportText.contains("list_topics ladder:"))
-        #expect(reportText.contains("probing conversation index 0 of 1"))
+        #expect(reportText.contains("index 0 of 1 (most recently active)\n  probed conversation kind: space"))
         #expect(reportText.contains("topic nested shape"))
         #expect(reportText.contains("topic 1:"))
         #expect(reportText.contains("history mapping summary (list_topics, minimum viable rung):"))
-        #expect(reportText.contains("messages: 1, skipped: 0"))
-        #expect(reportText.contains("with non-empty text: 1"))
+        #expect(reportText.contains("messages: 1, skipped: 0\n  with non-empty text: 1"))
+        #expect(reportText.contains("(counts only):\n  messages with annotations: 0/1"))
         assertReadReceiptsSection(
             reportText,
             leakCandidates: [spaceID, messageID, text, selfID, "SENTINEL-OTHER-USER-ID-should-not-appear"]
@@ -341,6 +342,7 @@ struct APIProbeReportHistoryTests {
             .success(emptyTopicsResponse()), // topics ladder rung 3
             .success(emptyTopicsResponse()), // topics ladder rung 4
             .failure(SentinelError(description: sentinel)), // the history mapping summary's own call
+            .failure(SentinelError(description: sentinel)), // the mention shapes section's own call
             .failure(SentinelError(description: sentinel)) // the read-receipts section's own call
         ]
         let text = await APIProbeReport.run(
@@ -350,6 +352,8 @@ struct APIProbeReportHistoryTests {
         )
         #expect(text.contains("history mapping summary (list_topics, minimum viable rung):"))
         #expect(text.contains("FAILED"))
+        // `safeDescription(of:)`, like its siblings - never the sentinel.
+        #expect(text.contains("mention shapes (counts only):\n  FAILED: transport error"))
         #expect(!text.contains(sentinel))
     }
 
@@ -375,6 +379,7 @@ struct APIProbeReportHistoryTests {
             .success(emptyTopicsResponse()), // topics ladder rung 3
             .success(emptyTopicsResponse()), // topics ladder rung 4
             .success(emptyTopicsResponse()), // the history mapping summary's own call
+            .success(emptyTopicsResponse()), // the mention shapes section's own call
             .failure(SentinelError(description: sentinel)) // the read-receipts section's own call
         ]
         let text = await APIProbeReport.run(

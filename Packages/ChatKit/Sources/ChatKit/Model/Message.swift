@@ -38,6 +38,10 @@ public struct Message: Codable, Hashable, Sendable {
     /// anyone else and for our own sends made from another device.
     public var localID: String?
 
+    /// Who or what this message's `text` mentions, and where (spec §1).
+    /// Empty for the overwhelming majority of messages.
+    public var mentions: [Mention]
+
     public init(
         id: ID,
         conversationID: Conversation.ID,
@@ -49,7 +53,8 @@ public struct Message: Codable, Hashable, Sendable {
         isDeleted: Bool = false,
         reactions: [Reaction] = [],
         attachments: [Attachment] = [],
-        localID: String? = nil
+        localID: String? = nil,
+        mentions: [Mention] = []
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -62,6 +67,7 @@ public struct Message: Codable, Hashable, Sendable {
         self.reactions = reactions
         self.attachments = attachments
         self.localID = localID
+        self.mentions = mentions
     }
 }
 
@@ -125,6 +131,7 @@ public extension Message {
         case reactions
         case attachments
         case localID
+        case mentions
     }
 
     init(from decoder: any Decoder) throws {
@@ -142,7 +149,8 @@ public extension Message {
             attachments: container.decodeIfPresent(
                 [Attachment].self, forKey: .attachments
             ) ?? [],
-            localID: container.decodeIfPresent(String.self, forKey: .localID)
+            localID: container.decodeIfPresent(String.self, forKey: .localID),
+            mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? []
         )
     }
 
@@ -159,5 +167,8 @@ public extension Message {
         try container.encode(reactions, forKey: .reactions)
         try container.encode(attachments, forKey: .attachments)
         try container.encodeIfPresent(localID, forKey: .localID)
+        if !mentions.isEmpty {
+            try container.encode(mentions, forKey: .mentions)
+        }
     }
 }

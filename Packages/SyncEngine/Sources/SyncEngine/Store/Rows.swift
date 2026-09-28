@@ -117,6 +117,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord {
     var reactions: String
     var attachments: String
     var localID: String?
+    var mentions: String
 
     init(_ message: Message) throws {
         id = message.id.rawValue
@@ -130,6 +131,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord {
         reactions = try Wire.json(message.reactions)
         attachments = try Wire.json(message.attachments)
         localID = message.localID
+        mentions = try Wire.json(message.mentions)
     }
 
     var message: Message {
@@ -145,7 +147,8 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord {
                 isDeleted: isDeleted,
                 reactions: Wire.value([Reaction].self, from: reactions),
                 attachments: Wire.value([Attachment].self, from: attachments),
-                localID: localID
+                localID: localID,
+                mentions: Wire.value([Mention].self, from: mentions)
             )
         }
     }

@@ -43,7 +43,7 @@ struct NotificationSettingsTests {
         try expectWireStable(
             NotificationRule(
                 delivery: .notificationCenter, showsPreview: false, showsUnread: true,
-                countsInBadge: false, readReceipts: true
+                countsInBadge: false, readReceipts: true, notifyAbout: .mentions
             ),
             golden: "notification-rule"
         )
@@ -69,8 +69,8 @@ struct NotificationSettingsTests {
             section(.groupChats, NotificationRule(delivery: .notificationCenter)),
             section(.spaces, NotificationRule(delivery: .banner)),
             section(.apps, NotificationRule(delivery: .bannerAndSound)),
-            section(.meetChats, NotificationRule()),
-            section(.other, NotificationRule()),
+            section(.meetChats, NotificationRule(notifyAbout: .allMessages)),
+            section(.other, NotificationRule(notifyAbout: .mentions)),
             pause(.off),
             pause(.until(at)),
             pause(.untilResumed)
@@ -80,7 +80,9 @@ struct NotificationSettingsTests {
 
     /// Exhaustive on purpose: a new case stops this compiling until it is
     /// added to `everyTokenMatchesItsGoldenFile` and its golden.
-    private func everyTokenIsInTheGolden(_ delivery: Delivery, _ section: SectionKey, _ pause: Pause) {
+    private func everyTokenIsInTheGolden(
+        _ delivery: Delivery, _ section: SectionKey, _ pause: Pause, _ notifyAbout: NotifyAbout
+    ) {
         switch delivery {
         case .off, .notificationCenter, .banner, .bannerAndSound, .unknown: break
         }
@@ -89,6 +91,9 @@ struct NotificationSettingsTests {
         }
         switch pause {
         case .off, .until, .untilResumed, .unknown: break
+        }
+        switch notifyAbout {
+        case .allMessages, .mentions, .unknown: break
         }
     }
 
@@ -141,6 +146,15 @@ struct NotificationSettingsTests {
         let rule = try Wire.decode(NotificationRule.self, from: #"{"delivery":"timeSensitive"}"#)
         #expect(rule.delivery == .unknown("timeSensitive"))
         #expect(NotificationRule.resolve([rule]).delivery == .bannerAndSound)
+    }
+
+    /// A build that predates `notifyAbout` keeps it; this one now names it,
+    /// so it is no longer an unrecognised field.
+    @Test func notifyAboutIsANamedFieldNotAnUnrecognisedOne() throws {
+        let json = #"{"notifyAbout":"mentions"}"#
+        let rule = try Wire.decode(NotificationRule.self, from: json)
+        #expect(rule.notifyAbout == .mentions)
+        #expect(rule.unrecognisedFields.isEmpty)
     }
 
     // MARK: - Records
