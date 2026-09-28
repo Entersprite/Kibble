@@ -206,6 +206,10 @@ extension APIProbeReport {
             "  newest message not covered by read position (>=, findings 36): "
                 + "\(shape.notCoveredByRead) of \(present.count)"
         )
+        // Session 29's read-position diagnosis: the same pair, as a signed
+        // microsecond histogram rather than a single threshold count - see
+        // `APIProbeReport+ReadPositions.swift`.
+        lines.append(contentsOf: readPositionDeltaLines(readPositionDeltas(items)))
     }
 
     /// What one pass over `read_state` measured. Split from the reporting

@@ -61,9 +61,20 @@ extension APIProbeReport {
     /// `.unknown` raw value), which identifies nobody - the same string
     /// ChatKit's wire format carries, rather than a spelling invented here.
     static func conversationKindLine(_ kind: Conversation.Kind) -> String {
+        "  probed conversation kind: \(kindWireToken(kind))"
+    }
+
+    /// The wire-token spelling on its own, without the report line around it.
+    ///
+    /// Not `private`: `APIProbeReport+ReadPositions.swift` needs the same
+    /// spelling for the read-position histogram's per-kind rows, and this is
+    /// the one place that round trip is written - the same "not private, and
+    /// the same reason" convention `safeDescription(of:)` already follows in
+    /// `APIProbeReport.swift`.
+    static func kindWireToken(_ kind: Conversation.Kind) -> String {
         let token = (try? JSONEncoder().encode(kind))
             .flatMap { try? JSONDecoder().decode(String.self, from: $0) }
-        return "  probed conversation kind: \(token ?? "not encodable")"
+        return token ?? "not encodable"
     }
 
     private static func mostRecentlyActiveIndex(_ conversations: [Conversation]) -> Int? {
@@ -73,14 +84,21 @@ extension APIProbeReport {
         }
     }
 
+    /// `mapping` is `appendMappingSummary`'s own return value, threaded
+    /// through whole rather than split into two parameters - a sixth
+    /// parameter here would trip `swiftlint`'s `function_parameter_count`,
+    /// and the two only ever travel together anyway: `worldItems` exists
+    /// solely to find the one item matching whichever `conversations` entry
+    /// `chooseConversationIndex` picks.
     static func appendTopicsLadderSection(
         client: ProtoAPIClient,
-        conversations: [Conversation],
+        mapping: (conversations: [Conversation], worldItems: [WorldItemLite]),
         selfUserID: String?,
         conversationIndexOverride: Int?,
         lines: inout [String]
     ) async {
         lines.append("list_topics ladder:")
+        let conversations = mapping.conversations
         guard !conversations.isEmpty else {
             lines.append("  no conversation available to probe (empty or failed world mapping)")
             return
@@ -126,6 +144,21 @@ extension APIProbeReport {
         // never populate `read_receipt_set` at all, so this deliberately does
         // not reuse `minimumViable`'s rung 2.
         await appendReadReceiptsSection(client: client, rung: rungs[3], selfUserID: selfUserID, lines: &lines)
+        lines.append("")
+        // Session 29's read-position diagnosis: how far this conversation's
+        // own read position falls short of its head time, and how far that
+        // head time itself falls short of (or past) the newest message this
+        // probe can actually load - Cause 1's mechanism, measured rather than
+        // inferred. A fifth `list_topics` call on the minimum-viable rung,
+        // the same convention `appendHistoryMappingSummary`/
+        // `appendMentionShapesSection` already follow.
+        await appendProbedReadPositionLine(
+            client: client,
+            rung: TopicsRequestLadder.minimumViable(for: group),
+            conversationID: conversation.id,
+            worldItems: mapping.worldItems,
+            lines: &lines
+        )
     }
 
     /// The topics analogue of `appendNestedItemShapes` - `findings.md` has no
