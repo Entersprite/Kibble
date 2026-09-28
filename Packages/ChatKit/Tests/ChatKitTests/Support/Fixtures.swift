@@ -71,6 +71,9 @@ enum Fixture {
         isMuted: true,
         notificationLevel: .lessWithNewThreads,
         members: [humanID, botID],
+        // Deliberately not `members.count`: the count is the server's total,
+        // and the listed members are often none of it (a space lists nobody).
+        memberCount: 14,
         isThreaded: true
     )
 

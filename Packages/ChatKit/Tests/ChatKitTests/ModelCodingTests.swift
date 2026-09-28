@@ -57,6 +57,7 @@ struct ModelCodingTests {
         #expect(conversation.isMuted == false)
         #expect(conversation.notificationLevel == .always)
         #expect(conversation.members.isEmpty)
+        #expect(conversation.memberCount == nil)
         #expect(conversation.isThreaded == false)
     }
 
@@ -66,6 +67,7 @@ struct ModelCodingTests {
         #expect(!json.contains("title"))
         #expect(!json.contains("null"))
         #expect(!json.contains("lastActivity"))
+        #expect(!json.contains("memberCount"))
     }
 
     @Test("an explicit null decodes as absent")

@@ -2123,6 +2123,25 @@ enum MembershipState {
 	MEMBER_FAILED = 4;
 }
 
+// From reference/purple-googlechat-master/googlechat.proto, which is newer
+// than this file (findings.md §37.1). Field 30 of WorldItemLite was seen on
+// every item in §20.4 and left unnamed here until findings.md §43.
+enum MemberType {
+	MEMBER_TYPE_UNSPECIFIED = 0;
+	HUMAN_USER = 1;
+	ROSTER_MEMBER = 2;
+}
+
+message SegmentedMembershipCount {
+	optional int32 membership_count = 1;
+	optional MemberType member_type = 2;
+	optional MembershipState membership_state = 3;
+}
+
+message SegmentedMembershipCounts {
+	repeated SegmentedMembershipCount value = 1;
+}
+
 message ComGoogleProtobufTimestamp {
 	optional int64 seconds = 1;
 	optional int32 nanos = 2;
@@ -2339,6 +2358,7 @@ message WorldItemLite {
 	optional GroupUnsupportedReason group_unsupported_reason = 24;
 	// optional ?? group_policies = 26;
 	optional bool flat_threads_enabled = 27;
+	optional SegmentedMembershipCounts segmented_membership_counts = 30;
 }
 
 message WorldSectionRequest {

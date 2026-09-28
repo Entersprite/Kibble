@@ -25,6 +25,25 @@ public enum Display {
         return others.map { name(of: $0, in: directory) }.joined(separator: ", ")
     }
 
+    /// The header's "N members", or `nil` for nothing at all.
+    ///
+    /// **The server's count, never `members.count`.** `members` is who the
+    /// world response listed, and a named space lists nobody (`findings.md`
+    /// §37.5), which is how every space came to read "0 members". No count
+    /// shows nothing rather than a number nobody stands behind.
+    ///
+    /// **Nothing for a one-to-one conversation**, a person's or an app's: it
+    /// has two people by definition.
+    public static func memberCountLabel(of conversation: Conversation) -> String? {
+        switch conversation.kind {
+        case .directMessage, .appDirectMessage:
+            return nil
+        default:
+            guard let count = conversation.memberCount else { return nil }
+            return count == 1 ? "1 member" : "\(count) members"
+        }
+    }
+
     /// A person's name, or their identifier if nobody has told us one.
     public static func name(of member: Member.ID, in directory: [Member.ID: Member]) -> String {
         resolvedName(of: member, in: directory) ?? member.rawValue

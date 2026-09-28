@@ -65,6 +65,7 @@ public enum WorldMapping {
             unreadCount: Int(item.readState.unreadMessageCount),
             hasUnread: hasUnread(item),
             members: memberIDs(for: item),
+            memberCount: memberCount(for: item),
             isThreaded: isThreaded(item)
         )
     }
