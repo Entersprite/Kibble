@@ -11,6 +11,17 @@ import GChatBridgeCore
 /// function can reach them - the same reason `apiClient` and `emit(_:)`
 /// already were not private.
 extension LocalBridgeBackend {
+    /// Why a freshly connected session reports a gap. For logs only - a client
+    /// must never branch on a gap's reason, because the set of reasons is open.
+    static let connectedGapReason = "connected: nothing is known about this session yet"
+
+    /// Why a resumed channel refetches. Separate from `connectedGapReason` so
+    /// the two sites cannot drift apart in wording, and worded for a log line
+    /// a person reads six months from now.
+    static let resumedGapReason =
+        "resumed: a fresh registration reset AID, so anything delivered during "
+            + "the outage was never seen"
+
     /// Whether the long poll is running. For tests and for a host that wants to
     /// show more than the last event said.
     public var isRunningChannel: Bool {

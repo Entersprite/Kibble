@@ -97,6 +97,15 @@ public extension APIMethod where Request == GetUserPresenceRequest, Response == 
     }
 }
 
+public extension APIMethod where Request == GetUserStatusRequest, Response == GetUserStatusResponse {
+    /// Other people's `UserStatus`. **Probe only, never yet sent.** purple
+    /// declares it (`googlechat_connection.h:88`) and never calls it; the
+    /// in-a-meeting spike asks it as a second place a status may travel.
+    static var getUserStatus: Self {
+        Self("get_user_status")
+    }
+}
+
 public extension APIMethod where Request == CreateTopicRequest, Response == CreateTopicResponse {
     /// Posting a new message. **The first write this client has ever made.**
     ///

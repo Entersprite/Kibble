@@ -73,6 +73,10 @@ public final class SystemLaunchServices: LaunchServices {
                 KeychainCredentialStore(),
                 tracingChannelTo: Self.channelTraceFile()
             )
+            // Before `connect()`, so the tally sees the channel's first event.
+            if let eventFile = Self.eventTallyFile() {
+                await backend?.tallyEvents(to: eventFile)
+            }
         } catch {
             // A Keychain that refuses is not an absent credential, and
             // reporting it as one would send someone through a two-factor
@@ -147,6 +151,14 @@ public final class SystemLaunchServices: LaunchServices {
     private static func channelTraceFile() -> URL? {
         guard CommandLine.arguments.contains("--probe=channeltrace") else { return nil }
         return try? supportDirectory().appendingPathComponent("channel-trace.csv")
+    }
+
+    /// `--probe=events`: the channel event tally for the in-a-meeting spike
+    /// (`LocalBridgeBackend.tallyEvents(to:)`), read the way
+    /// `channelTraceFile()` is and for its reasons.
+    private static func eventTallyFile() -> URL? {
+        guard CommandLine.arguments.contains("--probe=events") else { return nil }
+        return try? supportDirectory().appendingPathComponent("channel-events.txt")
     }
 
     /// One database per backend, and that separation is load-bearing.

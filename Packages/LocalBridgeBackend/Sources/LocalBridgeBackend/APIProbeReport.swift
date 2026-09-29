@@ -77,6 +77,8 @@ public enum APIProbeReport {
             conversationIndexOverride: conversationIndexOverride,
             lines: &lines
         )
+        lines.append("")
+        await appendSelfStatusSummary(client: client, lines: &lines)
         return lines.joined(separator: "\n")
     }
 
@@ -220,7 +222,7 @@ public enum APIProbeReport {
         lines.append("")
         appendNestedItemShapes(results, lines: &lines)
         lines.append("")
-        let mapping = await appendMappingSummary(client: client, lines: &lines)
+        let mapping = await appendMappingSummary(client: client, selfUserID: selfUserID, lines: &lines)
         lines.append("")
         // The topics ladder - step 6 of this slice - runs against one of the
         // conversations the world call already produced, rather than a
@@ -276,6 +278,7 @@ public enum APIProbeReport {
     /// this file.
     static func appendMappingSummary(
         client: ProtoAPIClient,
+        selfUserID: String? = nil,
         lines: inout [String]
     ) async -> (conversations: [Conversation], worldItems: [WorldItemLite]) {
         lines.append("world mapping summary (rung 2):")
@@ -307,7 +310,7 @@ public enum APIProbeReport {
             client: client,
             lines: &lines
         )
-        await appendPresenceSummary(members: named, client: client, lines: &lines)
+        await appendPresenceSummary(members: named, selfUserID: selfUserID, client: client, lines: &lines)
         return (conversations, response.worldItems)
     }
 
