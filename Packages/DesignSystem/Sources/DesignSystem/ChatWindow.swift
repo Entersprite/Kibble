@@ -101,6 +101,13 @@ public struct ChatWindow: View {
         // An empty subtitle draws nothing, which is the answer when there is
         // no count worth showing.
         guard !state.showingMentions, let conversation = state.selectedConversation else { return "" }
+        // A DM has no count to show, so its subtitle is the other person's
+        // presence - `Display.presence` decides whether there is one.
+        if let presence = Display.presence(
+            of: conversation, directory: state.directory, me: state.me, connection: state.connection
+        ) {
+            return Display.presenceLabel(presence) ?? ""
+        }
         return Display.memberCountLabel(of: conversation) ?? ""
     }
 }

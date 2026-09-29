@@ -11,6 +11,18 @@ import GChatBridgeCore
 /// function can reach them - the same reason `apiClient` and `emit(_:)`
 /// already were not private.
 extension LocalBridgeBackend {
+    /// Whether the long poll is running. For tests and for a host that wants to
+    /// show more than the last event said.
+    public var isRunningChannel: Bool {
+        channelTask != nil
+    }
+
+    /// Waits for the channel to stop. Tests use it; nothing in the app should,
+    /// because it returns when the session ends.
+    public func waitForChannel() async {
+        await channelTask?.value
+    }
+
     /// Reached for a **terminal** failure - a dead credential
     /// (`.unexpectedStatus(401)`/`(403)`), an unrecognised status, or a
     /// framing desync (`.noSessionIdentifier`, `.malformedChunk`) - or for a

@@ -303,6 +303,7 @@ public enum APIProbeReport {
         appendFieldPresenceCounts(response.worldItems, lines: &lines)
         lines.append(contentsOf: membershipCountLines(response.worldItems, conversations: conversations))
         await appendMemberResolutionSummary(conversations: conversations, client: client, lines: &lines)
+        await appendPresenceSummary(conversations: conversations, client: client, lines: &lines)
         return (conversations, response.worldItems)
     }
 
