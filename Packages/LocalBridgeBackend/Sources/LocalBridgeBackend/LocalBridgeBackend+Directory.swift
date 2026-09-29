@@ -195,6 +195,13 @@ extension LocalBridgeBackend {
     /// an app" separates the two cases without needing to know which one is
     /// you. Only `.directMessage` is reclassified: a group chat that happens to
     /// contain an app is still a group chat.
+    ///
+    /// **The copy carries no read position.** It is built from the world-load
+    /// snapshot and emitted when `get_members` answers, up to 30 s later. A
+    /// `readStateChanged` for this DM in between would be overwritten by the
+    /// snapshot's older position, and its mentions would show unread again.
+    /// `nil` says nothing about the position, so `ChatStore.upsert` carries
+    /// the stored one forward.
     static func asAppDirectMessage(
         _ conversation: Conversation,
         members: [ChatKit.Member]
@@ -206,6 +213,7 @@ extension LocalBridgeBackend {
         }
         var updated = conversation
         updated.kind = .appDirectMessage
+        updated.readPosition = nil
         return updated
     }
 

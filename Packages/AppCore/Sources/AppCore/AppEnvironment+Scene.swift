@@ -48,8 +48,27 @@ public extension AppEnvironment {
             unreadHidden: Set(rules.filter { !$0.1.showsUnread }.map(\.0)),
             dimmed: Set(rules.filter { $0.1.delivery == .off }.map(\.0)),
             muted: Set(model.conversations.map(\.id).filter(settings.isMuted)),
-            receiptsWithheld: Set(rules.filter { !$0.1.readReceipts }.map(\.0))
+            receiptsWithheld: Set(rules.filter { !$0.1.readReceipts }.map(\.0)),
+            showingMentions: model.showingMentions,
+            mentions: mentionItems(of: model),
+            mentionsStatus: MentionsStatus(
+                running: model.mentionBackfill.running,
+                failedConversations: model.mentionBackfill.failedConversations
+            ),
+            unreadMentionCount: model.unreadMentionCount,
+            scrollTarget: model.scrollTarget
         )
+    }
+
+    /// The pure mapping beside the pane (`MentionItem.init`), fed from the
+    /// session model. Rules do not hide a mention (spec §3).
+    private func mentionItems(of model: ChatSessionModel) -> [MentionItem] {
+        model.mentions.map { found in
+            MentionItem(
+                message: found.message, conversation: found.conversation, isUnread: found.isUnread,
+                directory: model.directory, me: model.me
+            )
+        }
     }
 
     /// `reconnect` is left at its default `nil` - a deliberate choice, not a
@@ -129,7 +148,12 @@ public extension AppEnvironment {
             // withholds every mark, and the item would do nothing.
             markRead: canEditNotificationRules && runningModel?.capabilities.canMarkRead == true
                 ? { [weak self] in self?.runningModel?.markRead($0, from: .conversationList) }
-                : nil
+                : nil,
+            // Offered only while a session runs: before that there is nothing to list.
+            showMentions: runningModel == nil ? nil : { [weak self] in self?.runningModel?.showMentions() },
+            openMention: runningModel == nil ? nil : { [weak self] conversation, message in
+                self?.runningModel?.open(conversation: conversation, message: message)
+            }
         )
     }
 

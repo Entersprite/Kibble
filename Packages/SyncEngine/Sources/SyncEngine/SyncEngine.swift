@@ -14,7 +14,8 @@ import Foundation
 /// message was missing would be worse than one showing a stale banner.
 public actor SyncEngine {
     private let backend: any ChatBackend
-    private let store: ChatStore
+    /// Not `private`: `SyncEngine+MentionBackfill.swift` reads and writes it.
+    let store: ChatStore
     private var consumer: Task<Void, Never>?
 
     /// Whether this client is refusing to publish anything about itself.
@@ -61,9 +62,22 @@ public actor SyncEngine {
     /// Read receipts per conversation. See `ReadReceiptGate`.
     public nonisolated let readReceipts = ReadReceiptGate()
 
-    public init(backend: any ChatBackend, store: ChatStore) {
+    /// Turns on the Mentions list's backfill, and is the "now" its 30-day
+    /// window reads (`SyncEngine+MentionBackfill.swift`). `nil`, the default,
+    /// means no backfill (ruling 6): a host opts in, so an engine built without
+    /// one fetches nothing it did not fetch before. Not `private`, for that file.
+    let mentionClock: (@Sendable () -> Date)?
+
+    /// The backfill run in flight, if any. Tracked so that a new world load
+    /// and `stop()` can cancel it.
+    var mentionBackfillTask: Task<Void, Never>?
+
+    public init(
+        backend: any ChatBackend, store: ChatStore, mentionClock: (@Sendable () -> Date)? = nil
+    ) {
         self.backend = backend
         self.store = store
+        self.mentionClock = mentionClock
         (announcements, announcer) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
     }
 
@@ -96,6 +110,12 @@ public actor SyncEngine {
         consumer?.cancel()
         await consumer?.value
         consumer = nil
+        // After the drain, so a run started by the consumer's last event is
+        // cancelled too. Not awaited, for `ChatSessionModel.historyTask`'s
+        // reason: a fetch that ignores cancellation would hang sign-out with
+        // it. `loadMoreMessages`' own check is what keeps a late page out.
+        mentionBackfillTask?.cancel()
+        mentionBackfillTask = nil
         await backend.disconnect()
     }
 
@@ -295,6 +315,11 @@ extension SyncEngine {
         let reduction = SyncReducer.reduce(event)
         do {
             try store.apply(reduction.writes)
+            // A pushed world is a world load too: `FakeBackend`'s first
+            // connect sends one with no gap (ruling 7).
+            if case .conversationsChanged = event {
+                startMentionBackfill()
+            }
         } catch {
             record(error)
         }
@@ -309,6 +334,7 @@ extension SyncEngine {
             switch effect {
             case .reloadConversations:
                 try await store.apply([.replaceConversations(backend.loadConversations())])
+                startMentionBackfill()
             case let .reloadMessages(conversation):
                 try await loadMoreMessages(in: conversation)
             case let .announceArrival(message):

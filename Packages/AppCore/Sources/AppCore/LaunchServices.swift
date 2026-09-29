@@ -101,10 +101,19 @@ public struct SessionSelection {
     /// Non-nil only for the fixture, which is the one that needs driving.
     public let driver: (any DemoDriver)?
 
-    public init(backend: any ChatBackend, me: Member.ID?, driver: (any DemoDriver)? = nil) {
+    /// The "now" the Mentions list's 30-day backfill window reads. This is the
+    /// wall clock, except for the fixture: its world is dated 2026-08-31, and
+    /// against the wall clock its window would empty (ruling 8).
+    public let now: @Sendable () -> Date
+
+    public init(
+        backend: any ChatBackend, me: Member.ID?, driver: (any DemoDriver)? = nil,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.backend = backend
         self.me = me
         self.driver = driver
+        self.now = now
     }
 }
 

@@ -30,11 +30,17 @@ public struct ConversationList: View {
 
     public var body: some View {
         List(selection: selectionBinding) {
+            // Pinned above the first section, and drawn only where the host
+            // offers it (`ChatSceneActions.showMentions`).
+            if actions.showMentions != nil {
+                MentionsSidebarRow(unread: state.unreadMentionCount)
+                    .tag(SidebarSelection.mentions)
+            }
             ForEach(SidebarSections.build(state.conversations)) { section in
                 Section(section.title, isExpanded: expansion(of: section.id)) {
                     ForEach(section.conversations, id: \.id) { conversation in
                         ConversationRow(conversation: conversation, state: state)
-                            .tag(conversation.id)
+                            .tag(SidebarSelection.conversation(conversation.id))
                             .contextMenu { menu(for: conversation) }
                     }
                 }
@@ -82,12 +88,17 @@ public struct ConversationList: View {
         )
     }
 
-    private var selectionBinding: Binding<Conversation.ID?> {
+    private var selectionBinding: Binding<SidebarSelection?> {
         Binding(
-            get: { state.selected },
-            set: {
-                if let id = $0 {
+            get: { state.sidebarSelection },
+            set: { selection in
+                switch selection {
+                case let .conversation(id)?:
                     actions.select(id)
+                case .mentions?:
+                    actions.showMentions?()
+                case nil:
+                    break
                 }
             }
         )
@@ -218,6 +229,32 @@ struct ConversationRow: View {
         case .unknown:
             Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
         }
+    }
+}
+
+/// The Mentions row (the mentions-list spec §4): an `at` symbol, verified
+/// present with `NSImage(systemSymbolName:accessibilityDescription:)`, and a
+/// badge of unread mentions. It has no context menu and no rules.
+struct MentionsSidebarRow: View {
+    let unread: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "at")
+                .frame(width: 20)
+                .foregroundStyle(.secondary)
+            Text("Mentions")
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if let badge = MentionsPresentation.badge(unread: unread) {
+                Text(badge)
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("\(badge) unread")
+            }
+        }
+        .padding(.vertical, 1)
     }
 }
 

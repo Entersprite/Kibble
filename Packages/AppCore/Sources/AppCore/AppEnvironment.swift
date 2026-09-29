@@ -135,7 +135,7 @@ public final class AppEnvironment {
             // disk last said.
             try store.apply([.clearEphemeralState])
             let selection = try await services.makeSession()
-            let engine = SyncEngine(backend: selection.backend, store: store)
+            let engine = SyncEngine(backend: selection.backend, store: store, mentionClock: selection.now)
             // Receipts are withheld until an account is identified; its saved
             // rules then decide. The old `ghostMode` key migrates into the
             // first account's global rule (`NotificationSettingsModel`).

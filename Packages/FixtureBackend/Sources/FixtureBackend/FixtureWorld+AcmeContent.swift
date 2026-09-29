@@ -21,6 +21,7 @@ extension Acme {
         let minute: Int
 
         var reactions: [Reaction] = []
+        var mentions: [Mention] = []
 
         var message: Message {
             Message(
@@ -30,7 +31,8 @@ extension Acme {
                 sender: sender,
                 text: text,
                 createdAt: at(minute),
-                reactions: reactions
+                reactions: reactions,
+                mentions: mentions
             )
         }
     }
@@ -79,6 +81,12 @@ extension Acme {
             minute: 40
         ),
         Line(
+            id: "msg:pe-mention", conversation: priceEngine, thread: "topic:variance", sender: maya,
+            text: "@Alex Carter can you sign off on the approval rule before standup?",
+            minute: 44,
+            mentions: [Mention(target: .user(alex), start: 0, length: 12)]
+        ),
+        Line(
             id: "msg:pe-7", conversation: priceEngine, thread: "topic:standup", sender: alex,
             text: "Sounds right. Let us review the remaining 32 in standup and ship the "
                 + "approval rule after.",
@@ -98,6 +106,12 @@ extension Acme {
             text: "That tracks with the session recordings - people were abandoning at "
                 + "the shipping step.",
             minute: -5
+        ),
+        Line(
+            id: "msg:sw-all", conversation: storefront, thread: "topic:rollout", sender: priya,
+            text: "@all the single-page checkout ships Thursday - shout now if anything blocks it.",
+            minute: 0,
+            mentions: [Mention(target: .all, start: 0, length: 4)]
         ),
         Line(
             id: "msg:sw-3", conversation: storefront, thread: "topic:rollout", sender: priya,

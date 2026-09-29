@@ -1,9 +1,47 @@
 import ChatKit
 import SwiftUI
 
+/// Where the transcript scrolls (ruling 14). A scroll target, once loaded,
+/// is scrolled to once, and after that the newest message is again what
+/// arrivals scroll to. Pure, so each case is a test.
+enum TranscriptScroll {
+    /// What `onChange` watches: the newest message, the target, and whether
+    /// the target has loaded. So a target that arrives after the newest
+    /// still fires.
+    struct Trigger: Equatable {
+        let newest: Message.ID?
+        let target: Message.ID?
+        let targetLoaded: Bool
+
+        init(_ state: ChatSceneState) {
+            newest = state.messages.last?.id
+            target = state.scrollTarget
+            targetLoaded = state.scrollTarget.map { id in state.messages.contains { $0.id == id } } ?? false
+        }
+    }
+
+    enum Destination: Equatable {
+        case message(Message.ID)
+        case newest(Message.ID)
+    }
+
+    static func destination(messages: [Message], target: Message.ID?, honoured: Message.ID?) -> Destination? {
+        if let target, target != honoured, messages.contains(where: { $0.id == target }) {
+            return .message(target)
+        }
+        return messages.last.map { .newest($0.id) }
+    }
+}
+
 /// The transcript.
 public struct MessageList: View {
     let state: ChatSceneState
+
+    /// The last target this list scrolled to, so that it is honoured once.
+    /// `@State` is enough: opening a mention always passes through the
+    /// Mentions pane, which removes this view, so a fresh list has honoured
+    /// nothing.
+    @State private var honoured: Message.ID?
 
     public init(state: ChatSceneState) {
         self.state = state
@@ -21,10 +59,19 @@ public struct MessageList: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .onChange(of: state.messages.last?.id) { _, last in
-                guard let last else { return }
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(last, anchor: .bottom)
+            .onChange(of: TranscriptScroll.Trigger(state), initial: true) {
+                switch TranscriptScroll.destination(
+                    messages: state.messages, target: state.scrollTarget, honoured: honoured
+                ) {
+                case let .message(id)?:
+                    honoured = id
+                    proxy.scrollTo(id, anchor: .center)
+                case let .newest(id)?:
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(id, anchor: .bottom)
+                    }
+                case nil:
+                    break
                 }
             }
         }

@@ -94,15 +94,21 @@ public enum ChannelEventMapping {
     /// alternative, refetching the world per event, is not worth an HTTP call
     /// for a number the next `mark_group_readstate` will correct anyway.
     ///
-    /// `nil` when the group id is neither namespace, for the same reason
-    /// `message(in:)` returns `nil` without an id: the caller routes it, and a
-    /// fabricated conversation is indistinguishable from a real one once it is
-    /// in the store.
+    /// `nil` when the group id is neither namespace, or `view_time` is
+    /// absent, for the same reason `message(in:)` returns `nil` without an
+    /// id: the caller routes it, and a fabricated conversation, or a 1970
+    /// read position, is indistinguishable from a real one once it is in the
+    /// store.
     private static func readState(in body: ChannelEventBody) -> ChatEvent? {
         guard body.type == .groupViewed else { return nil }
         let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
         guard case let .groupViewed(event)? = decoded.message.type else { return nil }
         guard let conversationID = conversationID(event.groupID) else { return nil }
+        // **Presence decides, never the value**, as in
+        // `WorldMapping.readPosition`: an absent `view_time` reads as 0,
+        // which is 1970, and would turn every mention in the conversation
+        // unread. Routed instead, like a body with no group id.
+        guard event.hasViewTime else { return nil }
         return .readStateChanged(
             conversationID: conversationID,
             lastReadAt: Microseconds.date(event.viewTime),

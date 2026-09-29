@@ -52,7 +52,8 @@ public extension ChatStore {
             try performReadWrite(write, in: db)
         case .upsertMessage, .markMessageDeleted, .removeMessage, .setReactions:
             try performMessageWrite(write, in: db)
-        case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .clearEphemeralState:
+        case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
+             .clearEphemeralState:
             try performSessionWrite(write, in: db)
         }
     }
@@ -219,17 +220,30 @@ public extension ChatStore {
                 sql: "UPDATE syncState SET localMemberID = ? WHERE id = 1",
                 arguments: [id.rawValue]
             )
+        case let .setMentionBackfill(status):
+            try db.execute(
+                sql: """
+                UPDATE syncState SET mentionBackfillRunning = ?, mentionBackfillFailed = ?
+                WHERE id = 1
+                """,
+                arguments: [status.running, status.failedConversations]
+            )
         case .clearEphemeralState:
             try db.execute(sql: "DELETE FROM typing")
             try db.execute(sql: "UPDATE member SET presence = NULL")
-            // The connection state and the last error are claims about now
-            // too. A fresh process that has not connected must not inherit
-            // "connected" from whatever the last one wrote.
+            // The connection state, the last error and the Mentions backfill's
+            // status are claims about now too. A fresh process that has not
+            // connected must not inherit "connected" from whatever the last
+            // one wrote, and has not started a backfill run.
             //
-            // localMemberID is deliberately untouched: unlike the two columns
+            // localMemberID is deliberately untouched: unlike the columns
             // above, who the local user is stays true across a relaunch.
             try db.execute(
-                sql: "UPDATE syncState SET connectionState = ?, lastError = NULL WHERE id = 1",
+                sql: """
+                UPDATE syncState SET connectionState = ?, lastError = NULL,
+                    mentionBackfillRunning = 0, mentionBackfillFailed = 0
+                WHERE id = 1
+                """,
                 arguments: [Wire.json(ConnectionState.idle)]
             )
         default:
@@ -239,16 +253,19 @@ public extension ChatStore {
 
     private static func upsert(_ conversation: Conversation, in db: Database) throws {
         var row = try ConversationRow(conversation)
-        // lastReadAt is the store's own column, not part of the domain model,
-        // so a plain upsert would write NULL over a watermark the user set.
-        // Carrying the existing value forward is cheaper to read than an
-        // upsert with a hand-written assignment list, and harder to get wrong
-        // when a column is added.
-        row.lastReadAt = try Double.fetchOne(
-            db,
-            sql: "SELECT lastReadAt FROM conversation WHERE id = ?",
-            arguments: [row.id]
-        ).map(StoredDate.date)
+        // `lastReadAt` is `Conversation.readPosition` (the mentions-list spec
+        // §1). A snapshot that carries one is authoritative: a world load's is
+        // Google's current read state. One that carries none - a world item
+        // with no `last_read_time`, a fixture's `conversationUpdated` - says
+        // nothing about the position, so the value `.setReadState` recorded is
+        // carried forward rather than overwritten with NULL.
+        if row.lastReadAt == nil {
+            row.lastReadAt = try Double.fetchOne(
+                db,
+                sql: "SELECT lastReadAt FROM conversation WHERE id = ?",
+                arguments: [row.id]
+            ).map(StoredDate.date)
+        }
         try row.upsert(db)
         try setMembership(conversation.id, conversation.members, in: db)
     }

@@ -91,8 +91,12 @@ public enum StoreWrite: Sendable, Equatable {
     /// and a string cannot be switched on. `nil` clears it.
     case setLastError(ChatError?)
 
+    /// The Mentions list's backfill status (the mentions-list spec §2): a
+    /// claim about *now*, which `clearEphemeralState` drops.
+    case setMentionBackfill(MentionBackfillStatus)
+
     /// Drops everything that is a claim about *now*: typing, presence, the
-    /// connection state and the last error.
+    /// connection state, the last error, and the Mentions backfill's status.
     ///
     /// Issued at startup, not by the reducer. Restoring "Maya is typing" from
     /// three days ago is a bug rather than a cache hit - and so is a fresh

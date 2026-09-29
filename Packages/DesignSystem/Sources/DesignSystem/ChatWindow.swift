@@ -22,7 +22,11 @@ public struct ChatWindow: View {
         } detail: {
             VStack(spacing: 0) {
                 StatusStrip(state: state, actions: actions)
-                if let conversation = state.selectedConversation {
+                if state.showingMentions {
+                    MentionsPane(items: state.mentions, status: state.mentionsStatus, me: state.me) {
+                        actions.openMention?($0, $1)
+                    }
+                } else if let conversation = state.selectedConversation {
                     // `safeAreaInset`, so the transcript scrolls under the
                     // composer rather than being hidden behind it the way an
                     // `overlay` would leave it.
@@ -86,6 +90,9 @@ public struct ChatWindow: View {
     }
 
     private var title: String {
+        if state.showingMentions {
+            return "Mentions"
+        }
         guard let conversation = state.selectedConversation else { return "GChat" }
         return Display.title(of: conversation, directory: state.directory, me: state.me)
     }
@@ -93,7 +100,7 @@ public struct ChatWindow: View {
     private var subtitle: String {
         // An empty subtitle draws nothing, which is the answer when there is
         // no count worth showing.
-        guard let conversation = state.selectedConversation else { return "" }
+        guard !state.showingMentions, let conversation = state.selectedConversation else { return "" }
         return Display.memberCountLabel(of: conversation) ?? ""
     }
 }

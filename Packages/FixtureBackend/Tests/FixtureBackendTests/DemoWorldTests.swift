@@ -71,6 +71,25 @@ struct DemoWorldTests {
             }
         })
     }
+
+    /// The Mentions row has something to show under `--backend=fixture`: one
+    /// line naming the local user and one `@all`, both from someone else,
+    /// both with a span that lands on "@" in UTF-16 (`findings.md` §41.1).
+    @Test func theDemoWorldMentionsTheLocalUserByNameAndThroughAll() {
+        let world = FixtureWorld.acme
+        let mentioning = world.messages.filter { $0.mentionsMe(world.me) }
+        #expect(mentioning.count == 2)
+        let targets = mentioning.flatMap(\.mentions).map(\.target)
+        #expect(targets.contains(.user(world.me)))
+        #expect(targets.contains(.all))
+        for message in mentioning {
+            let units = Array(message.text.utf16)
+            for mention in message.mentions {
+                #expect(mention.start + mention.length <= units.count)
+                #expect(units[mention.start] == UInt16(UInt8(ascii: "@")))
+            }
+        }
+    }
 }
 
 /// The driver is the only thing in the package that waits, so these are the

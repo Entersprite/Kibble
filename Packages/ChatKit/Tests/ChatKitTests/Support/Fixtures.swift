@@ -90,6 +90,12 @@ enum Fixture {
         members: [humanID]
     )
 
+    /// Exists so `readPosition`'s key has a golden. Every other conversation
+    /// fixture leaves it `nil`, which is what keeps their goldens unchanged.
+    static let conversationWithReadPosition = Conversation(
+        id: dmID, kind: .directMessage, members: [humanID], readPosition: readAt
+    )
+
     static let thread = MessageThread(
         id: threadID,
         conversationID: spaceID,

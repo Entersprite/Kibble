@@ -81,6 +81,7 @@ struct StoreWriteTests {
         original.isThreaded = true
         original.avatarURL = URL(string: "https://example.invalid/a.png")
         original.members = [alice, bob]
+        original.readPosition = Date(timeIntervalSince1970: 1_790_000_000.128263)
 
         try store.apply([.upsertConversation(original)])
 
