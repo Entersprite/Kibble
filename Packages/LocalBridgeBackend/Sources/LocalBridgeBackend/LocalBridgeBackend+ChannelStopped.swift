@@ -72,6 +72,10 @@ extension LocalBridgeBackend {
         // otherwise land a `membersResolved`, which supersedes this very
         // error in the store (`SyncReducer.supersedingStaleError`).
         forgetDirectory()
+        // The same reason, and one more: `disconnect()` returns early once
+        // `isConnected` is false, so nothing else would ever stop the poll,
+        // and it would call Google every interval until relaunch.
+        stopPresencePoll()
         let failure = await channel.failure
         let reason = failure.map(String.init(describing:)) ?? "the channel closed"
         let issue = failure.map(ConnectionIssueMapping.issue(for:))

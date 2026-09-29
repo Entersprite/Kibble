@@ -49,14 +49,27 @@ extension LocalBridgeBackend {
 
     /// Starts polling for `conversations`' DM partners, replacing any poll
     /// already running - a world reload is the one place the set of people
-    /// changes. The first run is immediate.
-    func startPresencePoll(for conversations: [Conversation], using apiClient: ProtoAPIClient) {
+    /// changes.
+    ///
+    /// **The first run waits for `names`, the world load's `get_members`.**
+    /// `.setPresence` is an UPDATE and drops presence for anyone the store has
+    /// no member row for, and member rows come only from that lookup. An
+    /// answer that landed first would be dropped, and because `emitted`
+    /// already recorded it, never sent again: on a fresh store, every dot
+    /// would stay missing until that person's state changed. Awaiting a task
+    /// is not cancelling it, so this cannot finish the lookup early.
+    func startPresencePoll(
+        for conversations: [Conversation],
+        using apiClient: ProtoAPIClient,
+        after names: Task<Void, Never>?
+    ) {
         presencePoll.task?.cancel()
         presencePoll.task = nil
         let ids = Self.presenceTargets(in: conversations)
         guard !ids.isEmpty else { return }
         let interval = presencePollInterval
         presencePoll.task = Task { [weak self] in
+            await names?.value
             while !Task.isCancelled {
                 // `nil` once the backend has gone, which ends the loop rather
                 // than sleeping forever on behalf of nobody.
@@ -87,9 +100,12 @@ extension LocalBridgeBackend {
         } catch {
             // Cancelled means a world reload or `disconnect()` replaced this
             // poll while the call was out; its failure is not news.
-            guard !Task.isCancelled, !presencePoll.failureReported else { return }
-            presencePoll.failureReported = true
-            emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_user_presence call")))
+            guard !Task.isCancelled else { return }
+            if !presencePoll.failureReported {
+                presencePoll.failureReported = true
+                emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_user_presence call")))
+            }
+            withdrawPresence()
             return
         }
         // After the await, for the same reason: a stale session's presence
@@ -105,6 +121,23 @@ extension LocalBridgeBackend {
             presencePoll.emitted[id] = next
             emit(.presenceChanged(member: id, presence: next))
         }
+    }
+
+    /// Everything the poll has shown becomes `absentPresence`, and is
+    /// forgotten so the next success shows it all again.
+    ///
+    /// A failed poll cannot confirm anything, and a dot is a claim about now.
+    /// Without this, one success followed by any run of failures (an expired
+    /// token, a server change) would leave every dot on that answer for the
+    /// life of the process - with a setter and no clearer (`CLAUDE.md`, a
+    /// field written by a snapshot is stale in both directions). The cost is a
+    /// dot that vanishes for one interval after a transient failure.
+    private func withdrawPresence() {
+        for (id, presence) in presencePoll.emitted.sorted(by: { $0.key.rawValue < $1.key.rawValue })
+            where presence != Self.absentPresence {
+            emit(.presenceChanged(member: id, presence: Self.absentPresence))
+        }
+        presencePoll.emitted = [:]
     }
 
     /// The reference's request shape: `purple`'s `googlechat_get_users_presence`

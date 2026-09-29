@@ -10,6 +10,9 @@ public extension Display {
     ///   show, and an app has no presence.
     /// - **Only while connected.** Presence is a claim about now. Offline,
     ///   the last poll's answer is a stale claim, so nothing is drawn.
+    /// - **Only once the local user is known.** Before that, "the member who
+    ///   is not me" may be me, and the local user's own presence is polled
+    ///   too, so every DM row would show your own dot.
     /// - **Only a state this build can name.** `nil` ("nobody told us") and
     ///   `.unknown` both draw nothing, rather than a dot that means nothing.
     static func presence(
@@ -18,7 +21,7 @@ public extension Display {
         me: Member.ID?,
         connection: ConnectionState
     ) -> Presence? {
-        guard conversation.kind == .directMessage, connection == .connected,
+        guard conversation.kind == .directMessage, connection == .connected, let me,
               let other = conversation.members.first(where: { $0 != me }),
               let presence = directory[other]?.presence,
               presenceLabel(presence) != nil

@@ -12,39 +12,53 @@ import SwiftUI
 /// replaced - `AvatarPalette`, deleted with this change - was the single
 /// biggest reason the sidebar did not read as native.
 ///
-/// `presence` is opt-in and passed in rather than read from `directory`: the
-/// caller decides whether this avatar is one that shows it
+/// Presence is opt-in, by initialiser, and passed in rather than read from
+/// `directory`: the caller decides whether this avatar is one that shows it
 /// (`Display.presence(of:directory:me:connection:)`), so a transcript full of
-/// senders does not grow a dot each.
+/// senders does not grow a dot each - nor pay for the badge's mask.
 public struct Avatar: View {
     let member: Member.ID
     let directory: [Member.ID: Member]
     var size: CGFloat = 26
-    var presence: Presence?
+    /// Set by the initialiser, never by the value: whether this call site
+    /// shows presence at all. Constant per call site, so a presence arriving
+    /// or leaving never changes the view's structure.
+    private let badged: Bool
+    private var presence: Presence?
 
-    public init(
-        member: Member.ID,
-        directory: [Member.ID: Member],
-        size: CGFloat = 26,
-        presence: Presence? = nil
-    ) {
+    public init(member: Member.ID, directory: [Member.ID: Member], size: CGFloat = 26) {
         self.member = member
         self.directory = directory
         self.size = size
+        badged = false
+    }
+
+    /// An avatar that shows `presence` as a badge, and nothing while it is `nil`.
+    public init(member: Member.ID, directory: [Member.ID: Member], size: CGFloat = 26, presence: Presence?) {
+        self.member = member
+        self.directory = directory
+        self.size = size
+        badged = true
         self.presence = presence
     }
 
-    /// The mask and the overlay are always there, empty without a badge, so
-    /// a presence change never alters the view's structure - which would
-    /// rebuild the `AsyncImage` and refetch the photo.
+    /// Where `badged`, the mask and the overlay are always there, empty
+    /// without a badge, so a presence change never alters the view's
+    /// structure - which would rebuild the `AsyncImage` and refetch the photo.
+    /// Elsewhere there is no mask at all: it costs an offscreen pass per
+    /// avatar, and a transcript has many.
     public var body: some View {
-        face
-            .mask { PresenceBadge.cutout(for: presence, avatarSize: size) }
-            .overlay(alignment: .bottomTrailing) {
-                if let presence {
-                    PresenceBadge(presence: presence, avatarSize: size)
+        if badged {
+            face
+                .mask { PresenceBadge.cutout(for: presence, avatarSize: size) }
+                .overlay(alignment: .bottomTrailing) {
+                    if let presence {
+                        PresenceBadge(presence: presence, avatarSize: size)
+                    }
                 }
-            }
+        } else {
+            face
+        }
     }
 
     @ViewBuilder private var face: some View {

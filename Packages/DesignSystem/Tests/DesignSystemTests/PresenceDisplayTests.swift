@@ -36,6 +36,17 @@ struct PresenceDisplayTests {
         #expect(shown(.doNotDisturb) == .doNotDisturb)
     }
 
+    /// Until the local user is known, "the other member" may be the local
+    /// user, whose own presence is polled too - so nothing, rather than every
+    /// DM row showing your own dot. Ada is inactive and `me` is active, with
+    /// `me` listed first.
+    @Test func nothingUntilTheLocalUserIsKnown() {
+        let shown = Display.presence(
+            of: conversation(.directMessage), directory: directory(.inactive), me: nil, connection: .connected
+        )
+        #expect(shown == nil)
+    }
+
     @Test func nothingForAnythingButAOneToOneDirectMessage() {
         for kind: Conversation.Kind in [.groupDirectMessage, .appDirectMessage, .space, .meetChat] {
             #expect(shown(.active, in: kind) == nil)

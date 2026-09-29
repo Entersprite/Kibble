@@ -116,7 +116,8 @@ public actor LocalBridgeBackend: ChatBackend {
     /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
     /// and so a second `loadConversations()` supersedes the first rather than
     /// racing it to emit `membersChanged` for a world that has moved on.
-    private var memberResolution: Task<Void, Never>?
+    /// Not `private`: the presence poll waits for it (`startPresencePoll`).
+    var memberResolution: Task<Void, Never>?
 
     /// Every member id this session has asked `get_members` about, or is
     /// asking about now, so a sender who appears on every page is looked up
@@ -384,8 +385,9 @@ public actor LocalBridgeBackend: ChatBackend {
             memberResolution = Task { [weak self] in
                 await self?.resolveAndEmitMembers(for: mapped.conversations, using: apiClient)
             }
-            // Started, not awaited, for the same reasons.
-            startPresencePoll(for: mapped.conversations, using: apiClient)
+            // Started, not awaited, for the same reasons. Its first request
+            // waits for the name lookup above - `startPresencePoll` says why.
+            startPresencePoll(for: mapped.conversations, using: apiClient, after: memberResolution)
             return mapped.conversations
         } catch {
             throw Self.chatError(fromAPI: error)
