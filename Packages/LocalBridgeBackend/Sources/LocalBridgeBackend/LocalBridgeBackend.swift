@@ -116,7 +116,8 @@ public actor LocalBridgeBackend: ChatBackend {
     /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
     /// and so a second `loadConversations()` supersedes the first rather than
     /// racing it to emit `membersChanged` for a world that has moved on.
-    private var memberResolution: Task<Void, Never>?
+    /// Not `private`: the presence poll waits for it (`startPresencePoll`).
+    var memberResolution: Task<Void, Never>?
 
     /// Every member id this session has asked `get_members` about, or is
     /// asking about now, so a sender who appears on every page is looked up
@@ -134,6 +135,11 @@ public actor LocalBridgeBackend: ChatBackend {
     /// a session that has moved on must not have a stale identity land after
     /// it.
     private var selfIdentification: Task<Void, Never>?
+
+    /// The presence poll's state (`LocalBridgeBackend+Presence.swift`), and
+    /// how often it asks: `defaultPresencePollInterval` outside tests.
+    var presencePoll = PresencePoll()
+    let presencePollInterval: Duration
 
     public init(
         cookies: SessionCookies,
@@ -171,37 +177,28 @@ public actor LocalBridgeBackend: ChatBackend {
     /// the caller has one. Forwarded verbatim to every `ChannelSession` this
     /// backend opens; see `ChannelSession`'s own doc comment on why `nil`
     /// degrades rather than fails.
+    /// - Parameter presencePollInterval: Shortened by tests only.
     init(
         cookies: SessionCookies,
         transport: any HTTPTransport,
         endpoints: ChatEndpoints = ChatEndpoints(),
         retry: RetryPolicy,
         onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
-        reachability: (any ReachabilityMonitor)? = nil
+        reachability: (any ReachabilityMonitor)? = nil,
+        presencePollInterval: Duration = defaultPresencePollInterval
     ) {
         self.cookies = cookies
         self.endpoints = endpoints
         self.transport = transport
         channelRetry = retry
         channelReachability = reachability
+        self.presencePollInterval = presencePollInterval
         credentials = SessionCredentials(cookies, onRotation: onRotation)
         bootstrap = Bootstrap(transport: transport)
         (events, continuation) = AsyncStream.makeStream(
             of: ChatEvent.self,
             bufferingPolicy: .unbounded
         )
-    }
-
-    /// Whether the long poll is running. For tests and for a host that wants to
-    /// show more than the last event said.
-    public var isRunningChannel: Bool {
-        channelTask != nil
-    }
-
-    /// Waits for the channel to stop. Tests use it; nothing in the app should,
-    /// because it returns when the session ends.
-    public func waitForChannel() async {
-        await channelTask?.value
     }
 
     /// Verifies the session, and stops there.
@@ -274,6 +271,7 @@ public actor LocalBridgeBackend: ChatBackend {
         forgetDirectory()
         selfIdentification?.cancel()
         selfIdentification = nil
+        stopPresencePoll()
         await stopChannel()
         emit(.connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
@@ -387,6 +385,9 @@ public actor LocalBridgeBackend: ChatBackend {
             memberResolution = Task { [weak self] in
                 await self?.resolveAndEmitMembers(for: mapped.conversations, using: apiClient)
             }
+            // Started, not awaited, for the same reasons. Its first request
+            // waits for the name lookup above - `startPresencePoll` says why.
+            startPresencePoll(using: apiClient, after: memberResolution)
             return mapped.conversations
         } catch {
             throw Self.chatError(fromAPI: error)

@@ -11,18 +11,57 @@ import SwiftUI
 /// monogram in one muted grey, and the eight-colour hashed palette this
 /// replaced - `AvatarPalette`, deleted with this change - was the single
 /// biggest reason the sidebar did not read as native.
+///
+/// Presence is opt-in, by initialiser, and passed in rather than read from
+/// `directory`: the caller decides whether this avatar is one that shows it
+/// (`Display.presence(of:directory:me:connection:)`), so a transcript full of
+/// senders does not grow a dot each - nor pay for the badge's mask.
 public struct Avatar: View {
     let member: Member.ID
     let directory: [Member.ID: Member]
     var size: CGFloat = 26
+    /// Set by the initialiser, never by the value: whether this call site
+    /// shows presence at all. Constant per call site, so a presence arriving
+    /// or leaving never changes the view's structure.
+    private let badged: Bool
+    private var presence: Presence?
 
     public init(member: Member.ID, directory: [Member.ID: Member], size: CGFloat = 26) {
         self.member = member
         self.directory = directory
         self.size = size
+        badged = false
     }
 
+    /// An avatar that shows `presence` as a badge, and nothing while it is `nil`.
+    public init(member: Member.ID, directory: [Member.ID: Member], size: CGFloat = 26, presence: Presence?) {
+        self.member = member
+        self.directory = directory
+        self.size = size
+        badged = true
+        self.presence = presence
+    }
+
+    /// Where `badged`, the mask and the overlay are always there, empty
+    /// without a badge, so a presence change never alters the view's
+    /// structure - which would rebuild the `AsyncImage` and refetch the photo.
+    /// Elsewhere there is no mask at all: it costs an offscreen pass per
+    /// avatar, and a transcript has many.
     public var body: some View {
+        if badged {
+            face
+                .mask { PresenceBadge.cutout(for: presence, avatarSize: size) }
+                .overlay(alignment: .bottomTrailing) {
+                    if let presence {
+                        PresenceBadge(presence: presence, avatarSize: size)
+                    }
+                }
+        } else {
+            face
+        }
+    }
+
+    @ViewBuilder private var face: some View {
         if let url = directory[member]?.avatarURL {
             AsyncImage(url: url) { image in
                 image.resizable().scaledToFill()
@@ -48,6 +87,85 @@ public struct Avatar: View {
             }
         } else {
             UnknownPersonGlyph(size: size)
+        }
+    }
+}
+
+/// A presence dot on an avatar's bottom-trailing edge, in a gap cut out of
+/// the face.
+///
+/// **Cut out, not ringed in a colour.** A ring filled with `.background`
+/// matches nothing the avatar sits on: the sidebar is a material, and in
+/// dark mode the fill drew as a grey halo. Rendering showed it; no test
+/// could have. The gap shows whatever is really behind the avatar.
+///
+/// Shapes rather than SF Symbols, so there is no symbol name to get wrong
+/// (`CLAUDE.md`: a wrong one compiles and renders as empty space). Green for
+/// active, a hollow ring for away, red with a bar for do not disturb - the
+/// usual vocabulary; how Google's own client draws them is `[Verify]`.
+/// Nothing for `.unknown`, which `Display.presence` already filters.
+struct PresenceBadge: View {
+    let presence: Presence
+    let avatarSize: CGFloat
+
+    static func diameter(_ avatarSize: CGFloat) -> CGFloat {
+        max(7, (avatarSize * 0.36).rounded())
+    }
+
+    static func gap(_ avatarSize: CGFloat) -> CGFloat {
+        max(1.5, diameter(avatarSize) * 0.2)
+    }
+
+    /// Puts the badge's centre on the face's circle at 45 degrees, rather
+    /// than inside the corner of its square, so it covers less of the
+    /// initials. `0.146` is `(1 - 1/sqrt(2)) / 2`: how far that point sits
+    /// in from the square's corner, per unit of size.
+    static func offset(_ avatarSize: CGFloat) -> CGFloat {
+        max(0, diameter(avatarSize) / 2 - avatarSize * 0.146)
+    }
+
+    /// The face's mask: all of it, less a circle around where a badge goes.
+    /// Empty of any hole when there is no badge to draw.
+    @ViewBuilder static func cutout(for presence: Presence?, avatarSize: CGFloat) -> some View {
+        let hole = diameter(avatarSize) + gap(avatarSize) * 2
+        Rectangle()
+            .overlay(alignment: .bottomTrailing) {
+                if let presence, Display.presenceLabel(presence) != nil {
+                    Circle()
+                        .frame(width: hole, height: hole)
+                        .offset(
+                            x: offset(avatarSize) + gap(avatarSize),
+                            y: offset(avatarSize) + gap(avatarSize)
+                        )
+                        .blendMode(.destinationOut)
+                }
+            }
+            .compositingGroup()
+    }
+
+    var body: some View {
+        if let label = Display.presenceLabel(presence) {
+            let diameter = Self.diameter(avatarSize)
+            mark(diameter)
+                .frame(width: diameter, height: diameter)
+                .offset(x: Self.offset(avatarSize), y: Self.offset(avatarSize))
+                .accessibilityElement()
+                .accessibilityLabel(label)
+        }
+    }
+
+    @ViewBuilder private func mark(_ diameter: CGFloat) -> some View {
+        switch presence {
+        case .active:
+            Circle().fill(.green)
+        case .inactive:
+            Circle().strokeBorder(.secondary, lineWidth: max(1.5, diameter * 0.22))
+        case .doNotDisturb:
+            Circle().fill(.red).overlay {
+                Capsule().fill(.white).frame(width: diameter * 0.55, height: max(1.5, diameter * 0.2))
+            }
+        case .unknown:
+            EmptyView()
         }
     }
 }

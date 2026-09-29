@@ -19,6 +19,10 @@ actor RecordingBackend: ChatBackend {
 
     private nonisolated let inner: FakeBackend
     private(set) var commands: [ChatCommand] = []
+    /// Every `.watchPresence`, kept out of `commands`: it is sent on every
+    /// selection, and would otherwise race a mark for `commands.last` in
+    /// tests that are about marks.
+    private(set) var watches: [[Member.ID]] = []
     private var failing = false
     private var holding = false
     private var accepting = false
@@ -126,6 +130,11 @@ actor RecordingBackend: ChatBackend {
     }
 
     func send(_ command: ChatCommand) async throws {
+        if case let .watchPresence(members) = command {
+            watches.append(members)
+            try await inner.send(command)
+            return
+        }
         commands.append(command)
         if holding {
             await withCheckedContinuation { heldSubmissions.append($0) }

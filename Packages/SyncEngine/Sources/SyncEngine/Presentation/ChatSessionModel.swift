@@ -353,6 +353,9 @@ public final class ChatSessionModel {
         historyTask = Task { [engine] in
             await engine.requestMoreMessages(in: id)
         }
+        // Untracked: a late one reaches a backend that drops it once
+        // disconnected (`LocalBridgeBackend.watchPresence`).
+        Task { [engine] in await engine.watchPresence(in: id) }
     }
 
     /// Refetches the open conversation's history when the channel comes back.
@@ -377,5 +380,8 @@ public final class ChatSessionModel {
         historyTask = Task { [engine] in
             await engine.requestMoreMessages(in: selected)
         }
+        // A watch sent while disconnected was dropped, and a conversation
+        // selected during launch sent one before the session existed.
+        Task { [engine] in await engine.watchPresence(in: selected) }
     }
 }

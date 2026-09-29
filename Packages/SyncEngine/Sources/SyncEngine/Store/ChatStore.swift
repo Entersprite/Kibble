@@ -74,7 +74,20 @@ public extension ChatStore {
             try upsert(conversation, in: db)
         case let .upsertMembers(members):
             for member in members {
-                try MemberRow(member).upsert(db)
+                var row = try MemberRow(member)
+                // The `lastReadAt` rule, for presence: a snapshot that carries
+                // none - every `get_members` answer - says nothing about it,
+                // so what `.setPresence` recorded is carried forward rather
+                // than overwritten with NULL. Only `clearEphemeralState`
+                // clears it.
+                if row.presence == nil {
+                    row.presence = try String.fetchOne(
+                        db,
+                        sql: "SELECT presence FROM member WHERE id = ?",
+                        arguments: [row.id]
+                    )
+                }
+                try row.upsert(db)
             }
         case let .setMembership(conversation, members):
             try setMembership(conversation, members, in: db)

@@ -31,6 +31,8 @@ public extension LocalBridgeBackend {
             )
         case let .markRead(conversationID, upTo):
             try await markRead(conversationID, upTo: upTo)
+        case let .watchPresence(members):
+            watchPresence(members)
         // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
         // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
         // until someone decides whether this backend can honour it.
@@ -140,6 +142,7 @@ public extension LocalBridgeBackend {
         case .setTyping: "canSendTypingState"
         case .markRead: "canMarkRead"
         case .setNotificationLevel: "canSetNotificationLevel"
+        case .watchPresence: "watchPresence"
         case let .unknown(type, _): type
         }
     }

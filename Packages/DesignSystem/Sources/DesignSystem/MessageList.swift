@@ -101,7 +101,15 @@ struct MessageBubble: View {
                 Spacer(minLength: 60)
             }
             if !isMine {
-                Avatar(member: message.sender, directory: state.directory, size: 26)
+                Avatar(
+                    member: message.sender,
+                    directory: state.directory,
+                    size: 26,
+                    presence: Display.presence(
+                        of: message.sender, directory: state.directory, me: state.me,
+                        connection: state.connection
+                    )
+                )
             }
 
             VStack(alignment: isMine ? .trailing : .leading, spacing: 2) {

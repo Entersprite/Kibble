@@ -13,7 +13,8 @@ import Foundation
 /// error and the loop carries on: a client that stopped syncing because one old
 /// message was missing would be worse than one showing a stale banner.
 public actor SyncEngine {
-    private let backend: any ChatBackend
+    /// Not `private`: `SyncEngine+Presence.swift` sends through it too.
+    let backend: any ChatBackend
     /// Not `private`: `SyncEngine+MentionBackfill.swift` reads and writes it.
     let store: ChatStore
     private var consumer: Task<Void, Never>?
@@ -249,7 +250,9 @@ public extension SyncEngine {
         case .markRead, .setTyping:
             true
         case .sendMessage, .editMessage, .deleteMessage, .setReaction,
-             .setNotificationLevel, .unknown:
+             .setNotificationLevel, .watchPresence, .unknown:
+            // `.watchPresence` asks about other people and says nothing
+            // about this one.
             false
         }
     }

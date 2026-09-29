@@ -83,6 +83,20 @@ public extension APIMethod where Request == GetMembersRequest, Response == GetMe
     }
 }
 
+public extension APIMethod where Request == GetUserPresenceRequest, Response == GetUserPresenceResponse {
+    /// Whether people are active, away or on do not disturb. **Never yet sent
+    /// by this implementation.** The reference polls it rather than waiting to
+    /// be told: purple asks every 120 seconds, and its handler for the
+    /// channel's `USER_STATUS_UPDATED_EVENT` notes that event carries DND but
+    /// not active/inactive (`googlechat_events.c`, "fetch presence separately
+    /// from status"). Request and response field numbers agree across all
+    /// three vendored protos; the response shape is `[Verify]` until a probe
+    /// run.
+    static var getUserPresence: Self {
+        Self("get_user_presence")
+    }
+}
+
 public extension APIMethod where Request == CreateTopicRequest, Response == CreateTopicResponse {
     /// Posting a new message. **The first write this client has ever made.**
     ///

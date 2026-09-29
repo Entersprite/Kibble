@@ -209,7 +209,15 @@ struct ConversationRow: View {
         switch conversation.kind {
         case .directMessage, .appDirectMessage:
             if let other = conversation.members.first(where: { $0 != state.me }) {
-                Avatar(member: other, directory: state.directory, size: 20)
+                Avatar(
+                    member: other,
+                    directory: state.directory,
+                    size: 20,
+                    presence: Display.presence(
+                        of: conversation, directory: state.directory, me: state.me,
+                        connection: state.connection
+                    )
+                )
             } else {
                 UnknownPersonGlyph(size: 20)
             }

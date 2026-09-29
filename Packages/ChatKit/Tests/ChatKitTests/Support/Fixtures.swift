@@ -215,6 +215,7 @@ extension Fixture {
             "command-setNotificationLevel",
             .setNotificationLevel(conversationID: spaceID, level: .never)
         ),
+        Sample("command-watchPresence", .watchPresence(members: [humanID, botID])),
         Sample("command-unknown", .unknown(type: "somethingNewer", payload: unknownPayload))
     ]
 

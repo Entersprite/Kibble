@@ -50,6 +50,16 @@ public enum ChatCommand: Codable, Hashable, Sendable {
 
     case setNotificationLevel(conversationID: Conversation.ID, level: NotificationLevel)
 
+    /// "These people are on screen; tell me their presence." A hint, not a
+    /// request: the answer, if any, arrives as `.presenceChanged`, and a
+    /// backend that cannot honour it may ignore it. It says nothing about the
+    /// local user, so it reveals nothing ghost mode would withhold.
+    ///
+    /// It exists because a backend cannot see what a client has stored. A
+    /// transcript shows every message kept from earlier launches, while a
+    /// backend only learns of the senders on pages it fetched this session.
+    case watchPresence(members: [Member.ID])
+
     /// A command from a newer client, kept whole so that a backend can report
     /// precisely what it was asked and could not do.
     case unknown(type: String, payload: JSONValue)
@@ -71,6 +81,7 @@ extension ChatCommand {
         case isTyping
         case upTo
         case level
+        case members
     }
 
     enum Tag: String {
@@ -81,6 +92,7 @@ extension ChatCommand {
         case setTyping
         case markRead
         case setNotificationLevel
+        case watchPresence
         case unknown
     }
 
@@ -156,6 +168,8 @@ extension ChatCommand {
                 ),
                 level: container.decode(NotificationLevel.self, forKey: .level)
             )
+        case Tag.watchPresence.rawValue:
+            try .watchPresence(members: container.decode([Member.ID].self, forKey: .members))
         default:
             nil
         }
@@ -219,6 +233,9 @@ extension ChatCommand {
             try container.encode(Tag.setNotificationLevel.rawValue, forKey: .type)
             try container.encode(conversationID, forKey: .conversationID)
             try container.encode(level, forKey: .level)
+        case let .watchPresence(members):
+            try container.encode(Tag.watchPresence.rawValue, forKey: .type)
+            try container.encode(members, forKey: .members)
         default:
             return false
         }
