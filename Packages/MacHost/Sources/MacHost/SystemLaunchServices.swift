@@ -52,10 +52,15 @@ public final class SystemLaunchServices: LaunchServices {
     public func makeSession() async throws -> SessionSelection {
         guard arguments.usesRealBackend else {
             let fixture = FakeBackend(world: .acme)
+            // The demo world's dates are literals (2026-08-31), so the mention
+            // backfill's window is anchored at the world's own start rather
+            // than the wall clock, which would leave it empty.
+            let demoNow = FixtureWorld.acme.startedAt
             return SessionSelection(
                 backend: fixture,
                 me: Acme.alex,
-                driver: FixtureDemoDriver(backend: fixture)
+                driver: FixtureDemoDriver(backend: fixture),
+                now: { demoNow }
             )
         }
         // The session comes from the Keychain, put there by the login window.

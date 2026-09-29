@@ -30,6 +30,10 @@ final class FakeLaunchServices: LaunchServices {
     var storedSessionExists = true
     var probeReport = "Written to probe.txt."
 
+    /// The clock `makeSession()` hands the engine for the mention backfill.
+    /// `nil` is the wall clock, `SessionSelection`'s own default.
+    var sessionNow: (@Sendable () -> Date)?
+
     var hasStoredSessionFailure: (any Error)?
     var forgetFailure: (any Error)?
     var openStoreFailure: (any Error)?
@@ -114,7 +118,7 @@ final class FakeLaunchServices: LaunchServices {
         if let makeSessionFailure {
             throw makeSessionFailure
         }
-        return SessionSelection(backend: backend, me: nil, driver: driver)
+        return SessionSelection(backend: backend, me: nil, driver: driver, now: sessionNow ?? { Date() })
     }
 
     func runProbe(_ probe: LaunchProbe) async -> String {
