@@ -67,7 +67,40 @@ extension LocalBridgeBackend {
         using apiClient: ProtoAPIClient,
         generation: Int
     ) {
-        let new = Self.presenceTargets(from: members).filter { !presencePoll.people.contains($0) }
+        addPresenceTargets(
+            ids: Self.presenceTargets(from: members), immediately: immediately, using: apiClient,
+            generation: generation
+        )
+    }
+
+    /// `ChatCommand.watchPresence`: people a client has on screen, asked
+    /// about at once.
+    ///
+    /// The client names people this backend may never have fetched a page
+    /// for this session - a transcript shows every stored message, from every
+    /// earlier launch - and whose names are already known, so no lookup here
+    /// will ever add them. The client sends only people with a member row, so
+    /// `.setPresence` cannot drop the answer, and only people, so no kind
+    /// check is needed here.
+    ///
+    /// **Ignored unless connected** - `apiClient` exists exactly then;
+    /// `disconnect()` and a channel stop clear it with `isConnected`. A hint
+    /// that outlived its session - a selection racing a sign-out - must not
+    /// seed the next session's poll with another account's contacts. The
+    /// client re-sends when the connection comes back.
+    func watchPresence(_ ids: [ChatKit.Member.ID]) {
+        guard let apiClient else { return }
+        let people = Set(ids.filter { !$0.rawValue.isEmpty }).sorted { $0.rawValue < $1.rawValue }
+        addPresenceTargets(ids: people, immediately: true, using: apiClient, generation: directoryGeneration)
+    }
+
+    private func addPresenceTargets(
+        ids: [ChatKit.Member.ID],
+        immediately: Bool,
+        using apiClient: ProtoAPIClient,
+        generation: Int
+    ) {
+        let new = ids.filter { !presencePoll.people.contains($0) }
         guard !new.isEmpty else { return }
         presencePoll.people.formUnion(new)
         guard immediately, presencePoll.task != nil else { return }

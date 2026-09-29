@@ -92,4 +92,53 @@ struct PresenceSenderTests: PresencePollFixtures {
 
         #expect(presences(in: events)[grace] == nil)
     }
+
+    // MARK: - People the client has on screen
+
+    /// Someone in a stored transcript whose name is already known is never
+    /// looked up this session, so only the client can name them. A watch
+    /// asks about them at once. Making the watch wait for the next interval
+    /// turns this red.
+    @Test func aWatchedPersonIsAskedAboutAtOnce() async throws {
+        let transport = try transport(
+            [.people(["u-1": .active]), .people(["u-3": .inactive])], dmMembers: ["u-1"]
+        )
+        let backend = backend(transport)
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+        try await awaitPolls(1, on: transport)
+
+        try await backend.send(.watchPresence(members: [ChatKit.Member.ID("u-3")]))
+        try await awaitPolls(2, on: transport)
+        let events = await log.settle()
+
+        #expect(await transport.polls.last?.userIds.map(\.id) == ["u-3"])
+        #expect(presences(in: events)[ChatKit.Member.ID("u-3")] == [.inactive])
+        await backend.disconnect()
+    }
+
+    /// A watch that arrives between sessions is dropped, rather than seeding
+    /// the next session's poll - which, after a sign-out, is another
+    /// account's. Deleting the `apiClient` guard turns this red.
+    @Test func aWatchBetweenSessionsIsDropped() async throws {
+        let transport = try transport([.people(["u-1": .active])], dmMembers: ["u-1"])
+        let backend = backend(transport)
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+        try await awaitPolls(1, on: transport)
+        await backend.disconnect()
+
+        try await backend.send(.watchPresence(members: [ChatKit.Member.ID("u-3")]))
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+        try await awaitPolls(2, on: transport)
+        _ = await log.settle()
+
+        let polls = await transport.polls
+        #expect(polls.count == 2)
+        #expect(!polls.flatMap(\.userIds).map(\.id).contains("u-3"))
+        await backend.disconnect()
+    }
 }

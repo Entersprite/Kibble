@@ -22,6 +22,24 @@ public extension ChatStore {
         try database.read(Self.fetchMembers)
     }
 
+    /// Who `ChatCommand.watchPresence` names when `conversation` is opened:
+    /// people who posted in it, have a member row - so `.setPresence` cannot
+    /// drop the answer - and are not the local user.
+    func presenceCandidates(in conversation: Conversation.ID) throws -> [Member.ID] {
+        try database.read { db in
+            let senders = try String.fetchAll(
+                db,
+                sql: "SELECT DISTINCT sender FROM message WHERE conversationID = ?",
+                arguments: [conversation.rawValue]
+            )
+            let me = try Self.fetchMe(db)
+            return try MemberRow.filter(keys: senders).order(Column("id").asc).fetchAll(db)
+                .map { try $0.member }
+                .filter { $0.kind == .human && $0.id != me }
+                .map(\.id)
+        }
+    }
+
     func typingMembers(in conversation: Conversation.ID) throws -> [Member.ID] {
         try database.read { db in try Self.fetchTyping(conversation, db) }
     }
