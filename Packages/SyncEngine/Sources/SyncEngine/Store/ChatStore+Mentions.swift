@@ -49,6 +49,15 @@ public extension ChatStore {
     func observeUnreadMentionCount() -> AsyncValueObservation<Int> {
         ValueObservation.tracking(Self.fetchUnreadMentionCount).values(in: database)
     }
+
+    func mentionBackfill() throws -> MentionBackfillStatus {
+        try database.read(Self.fetchMentionBackfill)
+    }
+
+    /// For the Mentions pane's "Looking for mentions…" and its footer.
+    func observeMentionBackfill() -> AsyncValueObservation<MentionBackfillStatus> {
+        ValueObservation.tracking(Self.fetchMentionBackfill).values(in: database)
+    }
 }
 
 extension ChatStore {
@@ -88,5 +97,14 @@ extension ChatStore {
 
     static func fetchUnreadMentionCount(_ db: Database) throws -> Int {
         try fetchMentionsOfMe(limit: .max, db).count(where: \.isUnread)
+    }
+
+    static func fetchMentionBackfill(_ db: Database) throws -> MentionBackfillStatus {
+        guard let row = try Row.fetchOne(
+            db, sql: "SELECT mentionBackfillRunning, mentionBackfillFailed FROM syncState WHERE id = 1"
+        ) else { return MentionBackfillStatus() }
+        return MentionBackfillStatus(
+            running: row["mentionBackfillRunning"], failedConversations: row["mentionBackfillFailed"]
+        )
     }
 }

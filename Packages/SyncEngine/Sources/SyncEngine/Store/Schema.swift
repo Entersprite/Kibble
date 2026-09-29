@@ -16,6 +16,7 @@ enum Schema {
         migrator.registerMigration("v4", migrate: addMentions)
         migrator.registerMigration("v5", migrate: storeDatesToTheMicrosecond)
         migrator.registerMigration("v6", migrate: addMemberCount)
+        migrator.registerMigration("v7", migrate: addMentionBackfillStatus)
         return migrator
     }
 
@@ -26,6 +27,17 @@ enum Schema {
     private static func addMemberCount(_ db: Database) throws {
         try db.alter(table: "conversation") { table in
             table.add(column: "memberCount", .integer)
+        }
+    }
+
+    /// The Mentions pane's search status (the mentions-list spec §2, ruling 5).
+    /// It sits beside `connectionState` because it is the same kind of claim,
+    /// about now, and `clearEphemeralState` resets it. The defaults are what a
+    /// store that has never searched says: not searching, nothing failed.
+    private static func addMentionBackfillStatus(_ db: Database) throws {
+        try db.alter(table: "syncState") { table in
+            table.add(column: "mentionBackfillRunning", .boolean).notNull().defaults(to: false)
+            table.add(column: "mentionBackfillFailed", .integer).notNull().defaults(to: 0)
         }
     }
 

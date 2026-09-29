@@ -52,7 +52,8 @@ public extension ChatStore {
             try performReadWrite(write, in: db)
         case .upsertMessage, .markMessageDeleted, .removeMessage, .setReactions:
             try performMessageWrite(write, in: db)
-        case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .clearEphemeralState:
+        case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
+             .clearEphemeralState:
             try performSessionWrite(write, in: db)
         }
     }
@@ -219,17 +220,30 @@ public extension ChatStore {
                 sql: "UPDATE syncState SET localMemberID = ? WHERE id = 1",
                 arguments: [id.rawValue]
             )
+        case let .setMentionBackfill(status):
+            try db.execute(
+                sql: """
+                UPDATE syncState SET mentionBackfillRunning = ?, mentionBackfillFailed = ?
+                WHERE id = 1
+                """,
+                arguments: [status.running, status.failedConversations]
+            )
         case .clearEphemeralState:
             try db.execute(sql: "DELETE FROM typing")
             try db.execute(sql: "UPDATE member SET presence = NULL")
-            // The connection state and the last error are claims about now
-            // too. A fresh process that has not connected must not inherit
-            // "connected" from whatever the last one wrote.
+            // The connection state, the last error and the Mentions backfill's
+            // status are claims about now too. A fresh process that has not
+            // connected must not inherit "connected" from whatever the last
+            // one wrote, and has not started a backfill run.
             //
-            // localMemberID is deliberately untouched: unlike the two columns
+            // localMemberID is deliberately untouched: unlike the columns
             // above, who the local user is stays true across a relaunch.
             try db.execute(
-                sql: "UPDATE syncState SET connectionState = ?, lastError = NULL WHERE id = 1",
+                sql: """
+                UPDATE syncState SET connectionState = ?, lastError = NULL,
+                    mentionBackfillRunning = 0, mentionBackfillFailed = 0
+                WHERE id = 1
+                """,
                 arguments: [Wire.json(ConnectionState.idle)]
             )
         default:
