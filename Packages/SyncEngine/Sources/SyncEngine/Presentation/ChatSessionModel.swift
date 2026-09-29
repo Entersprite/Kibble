@@ -21,9 +21,9 @@ import Observation
 @Observable
 public final class ChatSessionModel {
     public internal(set) var conversations: [Conversation] = [] // set from +AutoMarkRead.swift
-    public private(set) var directory: [Member.ID: Member] = [:]
-    public private(set) var messages: [Message] = []
-    public private(set) var typing: [Member.ID] = []
+    public internal(set) var directory: [Member.ID: Member] = [:] // set from +Observing.swift
+    public internal(set) var messages: [Message] = [] // set from +Mentions.swift
+    public internal(set) var typing: [Member.ID] = [] // set from +Mentions.swift
     public private(set) var connectionState: ConnectionState = .idle
     /// The last thing that went wrong, from the store.
     ///
@@ -31,8 +31,10 @@ public final class ChatSessionModel {
     /// store-backed property. The direct assignment in `observe(_:_:)`'s catch
     /// is the exception and has to be: an observation that has thrown cannot
     /// report itself through the database it just failed to read.
-    public private(set) var lastError: ChatError?
-    public private(set) var selected: Conversation.ID?
+    ///
+    /// Not `private(set)`: that catch lives in `ChatSessionModel+Observing.swift`.
+    public internal(set) var lastError: ChatError?
+    public internal(set) var selected: Conversation.ID? // set from +Mentions.swift
 
     /// Who the local user is.
     ///
@@ -44,6 +46,20 @@ public final class ChatSessionModel {
     /// before `start()` ever reaches the store, and a value the store later
     /// confirms should replace it, not race it to draw first.
     public private(set) var me: Member.ID?
+
+    /// The Mentions list, newest first, fed by `store.observeMentionsOfMe()`
+    /// (the mentions-list spec §3).
+    public private(set) var mentions: [MentionOfMe] = []
+    /// The Mentions row's badge: every unread mention, not only those listed.
+    public private(set) var unreadMentionCount = 0
+    /// Whether a backfill is running, and how many conversations it could not check.
+    public private(set) var mentionBackfill = MentionBackfillStatus()
+    /// Whether the sidebar's Mentions row is chosen; `selected` is `nil` then.
+    /// `internal(set)` for `+Mentions.swift`.
+    public internal(set) var showingMentions = false
+    /// The message `open(conversation:message:)` asked the transcript to
+    /// scroll to, until the next selection. `internal(set)` for `+Mentions.swift`.
+    public internal(set) var scrollTarget: Message.ID?
 
     /// Forwarded from the backend so a view can degrade without meeting one.
     public var capabilities: Capabilities {
@@ -185,11 +201,14 @@ public final class ChatSessionModel {
     /// Injected so tests can pass `.zero` - a suite that waits two real
     /// seconds is a suite people stop running.
     let markReadDebounce: Duration
-    private var watchers: [Task<Void, Never>] = []
+    /// Not `private`: appended to by `watch(_:_:)` in `ChatSessionModel+Observing.swift`.
+    var watchers: [Task<Void, Never>] = []
 
     /// Cancelled and replaced whenever the selection changes, so only the open
     /// conversation is observed rather than every conversation ever opened.
-    private var conversationWatchers: [Task<Void, Never>] = []
+    ///
+    /// Not `private`: `showMentions()` in `ChatSessionModel+Mentions.swift` cancels them.
+    var conversationWatchers: [Task<Void, Never>] = []
 
     /// The one history fetch `select(_:)` has in flight, if any.
     ///
@@ -203,7 +222,9 @@ public final class ChatSessionModel {
     /// that at this layer - so `loadMoreMessages` itself checks cancellation
     /// again right before it writes; this task is only the signal that
     /// makes that check see `true`.
-    private var historyTask: Task<Void, Never>?
+    ///
+    /// Not `private`: `showMentions()` in `ChatSessionModel+Mentions.swift` cancels it.
+    var historyTask: Task<Void, Never>?
 
     /// The last connection state this model acted on, so that a repeated
     /// `.connected` delivery does not refetch again. The observation can
@@ -232,6 +253,9 @@ public final class ChatSessionModel {
             self?.catchUpIfReconnected($0)
         }
         watch(store.observeMe()) { [weak self] in self?.me = $0 }
+        watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
+        watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
+        watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
         // Everything `SyncEngine.record` writes arrives here. Without this
         // watch the property below was only ever set by an observation
         // throwing, so a refused send or a failed history page was recorded
@@ -294,6 +318,8 @@ public final class ChatSessionModel {
     public func select(_ id: Conversation.ID) {
         guard selected != id else { return }
         selected = id
+        showingMentions = false
+        scrollTarget = nil
         markReadTrace?.selectionChanged(to: id, in: conversations)
         messages = []
         typing = []
@@ -350,38 +376,6 @@ public final class ChatSessionModel {
         historyTask?.cancel()
         historyTask = Task { [engine] in
             await engine.requestMoreMessages(in: selected)
-        }
-    }
-
-    /// Members are read once per conversation change rather than observed:
-    /// there is one directory for the whole app, it changes rarely, and an
-    /// observation per member would be a lot of machinery for a lookup table.
-    public func refreshDirectory() {
-        directory = Dictionary(
-            uniqueKeysWithValues: ((try? store.members()) ?? []).map { ($0.id, $0) }
-        )
-    }
-
-    private func watch<Value>(
-        _ observation: AsyncValueObservation<Value>,
-        _ apply: @escaping @MainActor (Value) -> Void
-    ) {
-        watchers.append(observe(observation, apply))
-    }
-
-    private func observe<Value>(
-        _ observation: AsyncValueObservation<Value>,
-        _ apply: @escaping @MainActor (Value) -> Void
-    ) -> Task<Void, Never> {
-        Task { @MainActor [weak self] in
-            do {
-                for try await value in observation {
-                    apply(value)
-                    self?.refreshDirectory()
-                }
-            } catch {
-                self?.lastError = error as? ChatError ?? .unknown(String(describing: error))
-            }
         }
     }
 }
