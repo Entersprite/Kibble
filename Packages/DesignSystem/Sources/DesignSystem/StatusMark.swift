@@ -16,6 +16,9 @@ struct StatusMark: View {
     var body: some View {
         mark
             .font(.caption)
+            // Beside a one-line name, the name gives way, never the mark: a
+            // long name truncates, and the emoji is not cut to "…".
+            .fixedSize()
             .help(Display.statusSummary(status))
             .accessibilityElement()
             .accessibilityLabel("Status: \(Display.statusSummary(status))")

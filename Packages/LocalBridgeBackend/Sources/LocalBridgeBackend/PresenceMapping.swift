@@ -32,13 +32,19 @@ public enum PresenceMapping {
     /// The key is present only when the entry carries a `user_status`: one
     /// without it says nothing ("nobody told us"), which must not clear a
     /// status. A `user_status` with nothing to show - no custom status, or
-    /// only empty strings - maps to `nil`, which is "cleared".
-    public static func statuses(_ response: GetUserPresenceResponse) -> [ChatKit.Member.ID: MemberStatus?] {
+    /// only empty strings - maps to `nil`, which is "cleared". So does one
+    /// already past its expiry at `now`, whatever the server still sends: the
+    /// poll then clears it within one interval, where a render-time check
+    /// alone would leave it until the row happened to redraw.
+    public static func statuses(
+        _ response: GetUserPresenceResponse,
+        now: Date
+    ) -> [ChatKit.Member.ID: MemberStatus?] {
         var result: [ChatKit.Member.ID: MemberStatus?] = [:]
         for entry in response.userPresences where entry.hasUserStatus {
             let id = entry.userID.id
             guard !id.isEmpty else { continue }
-            result[ChatKit.Member.ID(id)] = status(of: entry.userStatus)
+            result[ChatKit.Member.ID(id)] = status(of: entry.userStatus, now: now)
         }
         return result
     }
@@ -48,7 +54,7 @@ public enum PresenceMapping {
     private static let customEmojiField = 2
     private static let shortcodeField = 3
 
-    static func status(of userStatus: UserStatus) -> MemberStatus? {
+    static func status(of userStatus: UserStatus, now: Date) -> MemberStatus? {
         guard userStatus.hasCustomStatus else { return nil }
         let custom = userStatus.customStatus
         let unicode = custom.hasEmoji ? custom.emoji.unicode : ""
@@ -63,7 +69,13 @@ public enum PresenceMapping {
             text: custom.hasStatusText && !custom.statusText.isEmpty ? custom.statusText : nil,
             expiresAt: expiry
         )
-        return status.isEmpty ? nil : status
+        if status.isEmpty {
+            return nil
+        }
+        if let expiry, expiry <= now {
+            return nil
+        }
+        return status
     }
 
     private static func customEmojiShortcode(in emoji: Emoji) -> String? {

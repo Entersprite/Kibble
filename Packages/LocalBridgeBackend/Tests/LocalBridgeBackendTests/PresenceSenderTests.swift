@@ -118,6 +118,26 @@ struct PresenceSenderTests: PresencePollFixtures {
         await backend.disconnect()
     }
 
+    /// A one-off that fails withdraws only the people it asked about. The
+    /// loop's answer for everyone else still stands. Withdrawing everyone
+    /// turns this red.
+    @Test func aFailedOneOffWithdrawsOnlyWhoItAsked() async throws {
+        let transport = try transport([.people(["u-1": .active]), .failure], dmMembers: ["u-1"])
+        let backend = backend(transport)
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+        try await awaitPolls(1, on: transport)
+
+        try await backend.send(.watchPresence(members: [ChatKit.Member.ID("u-3")]))
+        try await awaitPolls(2, on: transport)
+        try await awaitAnswered(2, on: transport)
+        let events = await log.settle()
+
+        #expect(presences(in: events)[ada] == [.active])
+        await backend.disconnect()
+    }
+
     /// A watch that arrives between sessions is dropped, rather than seeding
     /// the next session's poll - which, after a sign-out, is another
     /// account's. Deleting the `apiClient` guard turns this red.

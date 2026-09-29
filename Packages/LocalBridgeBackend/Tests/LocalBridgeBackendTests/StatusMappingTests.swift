@@ -21,8 +21,10 @@ struct StatusMappingTests {
     private func map(_ entries: [UserPresence]) -> [ChatKit.Member.ID: MemberStatus?] {
         var response = GetUserPresenceResponse()
         response.userPresences = entries
-        return PresenceMapping.statuses(response)
+        return PresenceMapping.statuses(response, now: now)
     }
+
+    private let now = Date(timeIntervalSince1970: 1_780_000_000)
 
     private let ada = ChatKit.Member.ID("u-1")
 
@@ -35,6 +37,17 @@ struct StatusMappingTests {
         #expect(mapped[ada] == MemberStatus(
             emoji: "🌴", text: "On vacation", expiresAt: Date(timeIntervalSince1970: 1_790_000_000)
         ))
+    }
+
+    /// A status already past its expiry is none, whatever the server still
+    /// sends, so the poll clears it within one interval rather than leaving
+    /// it until the row happens to redraw. Mapping it through turns this red.
+    @Test func anExpiredStatusIsNone() {
+        let mapped = map([entry("u-1") {
+            $0.customStatus.emoji.unicode = "🌴"
+            $0.customStatus.stateExpiryTimestampUsec = 1_780_000_000_000_000
+        }])
+        #expect(mapped[ada] == .some(nil))
     }
 
     /// The older `status_emoji` string, when there is no `Emoji` message.

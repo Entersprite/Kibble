@@ -169,11 +169,16 @@ extension LocalBridgeBackend {
             // A poll from a session that has gone, or one replaced while the
             // call was out: its failure is not news.
             guard !Task.isCancelled, generation == directoryGeneration else { return }
+            // Withdraw first, then report: every withdrawal event passes
+            // through `SyncReducer.supersedingStaleError`, which clears the
+            // last error, so an error emitted first was erased at once -
+            // and, reported once per run, never shown. `channelStopped`
+            // orders its own the same way.
+            withdrawPresence(ids)
             if !presencePoll.failureReported {
                 presencePoll.failureReported = true
                 emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_user_presence call")))
             }
-            withdrawPresence()
             return
         }
         // The same checks: a stale session's presence must not land in the
@@ -198,7 +203,7 @@ extension LocalBridgeBackend {
     /// as their dot does; someone who never had one emits nothing for none.
     private func emitStatusChanges(for ids: [ChatKit.Member.ID], in response: GetUserPresenceResponse) {
         let answered = Set(response.userPresences.map { ChatKit.Member.ID($0.userID.id) })
-        let statuses = PresenceMapping.statuses(response)
+        let statuses = PresenceMapping.statuses(response, now: Date())
         for id in ids {
             let next: MemberStatus?
             if let reported = statuses[id] {
@@ -214,8 +219,9 @@ extension LocalBridgeBackend {
         }
     }
 
-    /// Everything the poll has shown becomes `absentPresence`, and is
-    /// forgotten so the next success shows it all again.
+    /// Every dot the poll has shown for `ids` becomes `absentPresence`, every
+    /// status is cleared, and both are forgotten so the next success shows
+    /// them again.
     ///
     /// A failed poll cannot confirm anything, and a dot is a claim about now.
     /// Without this, one success followed by any run of failures (an expired
@@ -223,16 +229,19 @@ extension LocalBridgeBackend {
     /// life of the process - with a setter and no clearer (`CLAUDE.md`, a
     /// field written by a snapshot is stale in both directions). The cost is a
     /// dot that vanishes for one interval after a transient failure.
-    private func withdrawPresence() {
-        for (id, presence) in presencePoll.emitted.sorted(by: { $0.key.rawValue < $1.key.rawValue })
-            where presence != Self.absentPresence {
-            emit(.presenceChanged(member: id, presence: Self.absentPresence))
+    ///
+    /// Only for `ids`, the people the failed call asked about: a one-off for
+    /// one sender that fails says nothing about everyone the loop answered
+    /// for, whose dots would otherwise vanish for up to an interval.
+    private func withdrawPresence(_ ids: [ChatKit.Member.ID]) {
+        for id in ids {
+            if let presence = presencePoll.emitted.removeValue(forKey: id), presence != Self.absentPresence {
+                emit(.presenceChanged(member: id, presence: Self.absentPresence))
+            }
+            if presencePoll.statuses.removeValue(forKey: id) != nil {
+                emit(.statusChanged(member: id, status: nil))
+            }
         }
-        presencePoll.emitted = [:]
-        for id in presencePoll.statuses.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
-            emit(.statusChanged(member: id, status: nil))
-        }
-        presencePoll.statuses = [:]
     }
 
     /// The reference's request shape: `purple`'s `googlechat_get_users_presence`

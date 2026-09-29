@@ -18,7 +18,10 @@ public struct MemberStatus: Codable, Hashable, Sendable {
     /// expires, so a client draws a stock glyph and shows the shortcode.
     public var customEmojiShortcode: String?
     public var text: String?
-    /// `nil` means it does not expire.
+    /// `nil` means it does not expire. On the wire and in the store it is RFC
+    /// 3339 to the **millisecond** (`RFC3339`), so a microsecond expiry from
+    /// Google does not round-trip exactly. Nothing compares one against
+    /// another, and nothing should be built that does.
     public var expiresAt: Date?
 
     public init(
