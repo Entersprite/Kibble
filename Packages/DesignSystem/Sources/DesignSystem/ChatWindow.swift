@@ -102,11 +102,16 @@ public struct ChatWindow: View {
         // no count worth showing.
         guard !state.showingMentions, let conversation = state.selectedConversation else { return "" }
         // A DM has no count to show, so its subtitle is the other person's
-        // presence - `Display.presence` decides whether there is one.
-        if let presence = Display.presence(
-            of: conversation, directory: state.directory, me: state.me, connection: state.connection
-        ) {
-            return Display.presenceLabel(presence) ?? ""
+        // presence and status - `Display` decides whether there is either.
+        if conversation.kind == .directMessage {
+            let presence = Display.presence(
+                of: conversation, directory: state.directory, me: state.me, connection: state.connection
+            )
+            let status = Display.status(
+                of: conversation, directory: state.directory, me: state.me, connection: state.connection,
+                now: .now
+            )
+            return Display.headerSubtitle(presence: presence, status: status) ?? ""
         }
         return Display.memberCountLabel(of: conversation) ?? ""
     }

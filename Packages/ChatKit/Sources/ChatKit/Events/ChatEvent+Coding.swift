@@ -26,6 +26,7 @@ extension ChatEvent {
         case unread
         case members
         case presence
+        case status
         case scope
         case reason
         case error
@@ -47,6 +48,7 @@ extension ChatEvent {
         case membersChanged
         case membersResolved
         case presenceChanged
+        case statusChanged
         case gap
         case backendError
         case unknown
@@ -157,6 +159,11 @@ extension ChatEvent {
                 member: container.decode(Member.ID.self, forKey: .member),
                 presence: container.decode(Presence.self, forKey: .presence)
             )
+        case Tag.statusChanged.rawValue:
+            try .statusChanged(
+                member: container.decode(Member.ID.self, forKey: .member),
+                status: container.decodeIfPresent(MemberStatus.self, forKey: .status)
+            )
         default:
             nil
         }
@@ -265,6 +272,10 @@ extension ChatEvent {
             try container.encode(Tag.presenceChanged.rawValue, forKey: .type)
             try container.encode(member, forKey: .member)
             try container.encode(presence, forKey: .presence)
+        case let .statusChanged(member, status):
+            try container.encode(Tag.statusChanged.rawValue, forKey: .type)
+            try container.encode(member, forKey: .member)
+            try container.encodeIfPresent(status, forKey: .status)
         default:
             return false
         }

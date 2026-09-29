@@ -61,11 +61,15 @@ public enum Acme {
         ),
         Member(
             id: maya, kind: .human, displayName: "Maya Okafor",
-            email: "maya@example.invalid", presence: .active
+            email: "maya@example.invalid", presence: .active,
+            // A status with an emoji, and one with text alone (Dan's), so
+            // both of the sidebar's marks show in the Debug app.
+            status: MemberStatus(emoji: "🎧", text: "Heads down until 3")
         ),
         Member(
             id: dan, kind: .human, displayName: "Dan Reyes",
-            email: "dan@example.invalid", presence: .active
+            email: "dan@example.invalid", presence: .active,
+            status: MemberStatus(text: "Release day")
         ),
         Member(
             id: priya, kind: .human, displayName: "Priya Shah",

@@ -101,6 +101,11 @@ public enum ChatEvent: Codable, Hashable, Sendable {
 
     case presenceChanged(member: Member.ID, presence: Presence)
 
+    /// Someone's status changed, or was cleared (`nil`). A claim about now,
+    /// like `presenceChanged`. An older client decodes it as `.unknown` and
+    /// loses only the status.
+    case statusChanged(member: Member.ID, status: MemberStatus?)
+
     /// **Continuity was lost.** Whatever the client believes about `scope` may
     /// be wrong, and the only correct response is to reconcile from scratch for
     /// that scope — not to patch, not to assume the next event will fix it.

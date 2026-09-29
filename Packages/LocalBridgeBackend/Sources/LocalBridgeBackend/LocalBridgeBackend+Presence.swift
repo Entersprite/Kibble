@@ -32,6 +32,9 @@ extension LocalBridgeBackend {
         /// The last value emitted per person, so a poll that learns nothing
         /// new emits nothing. Cleared by `disconnect()`.
         var emitted: [ChatKit.Member.ID: ChatKit.Presence] = [:]
+        /// The last status emitted per person, the same way. Only people who
+        /// have had one are here: a status that is cleared is removed.
+        var statuses: [ChatKit.Member.ID: MemberStatus] = [:]
         /// Whether the current run of failures has been reported, so a poll
         /// failing every two minutes raises one error rather than one per
         /// attempt. Reset by the next success.
@@ -186,6 +189,29 @@ extension LocalBridgeBackend {
             presencePoll.emitted[id] = next
             emit(.presenceChanged(member: id, presence: next))
         }
+        emitStatusChanges(for: ids, in: response)
+    }
+
+    /// A `.statusChanged` for each person whose status differs from the last
+    /// one emitted. Someone answered without a `user_status` says nothing and
+    /// keeps theirs; someone missing from the answer altogether loses theirs,
+    /// as their dot does; someone who never had one emits nothing for none.
+    private func emitStatusChanges(for ids: [ChatKit.Member.ID], in response: GetUserPresenceResponse) {
+        let answered = Set(response.userPresences.map { ChatKit.Member.ID($0.userID.id) })
+        let statuses = PresenceMapping.statuses(response)
+        for id in ids {
+            let next: MemberStatus?
+            if let reported = statuses[id] {
+                next = reported
+            } else if answered.contains(id) {
+                continue
+            } else {
+                next = nil
+            }
+            guard next != presencePoll.statuses[id] else { continue }
+            presencePoll.statuses[id] = next
+            emit(.statusChanged(member: id, status: next))
+        }
     }
 
     /// Everything the poll has shown becomes `absentPresence`, and is
@@ -203,6 +229,10 @@ extension LocalBridgeBackend {
             emit(.presenceChanged(member: id, presence: Self.absentPresence))
         }
         presencePoll.emitted = [:]
+        for id in presencePoll.statuses.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            emit(.statusChanged(member: id, status: nil))
+        }
+        presencePoll.statuses = [:]
     }
 
     /// The reference's request shape: `purple`'s `googlechat_get_users_presence`

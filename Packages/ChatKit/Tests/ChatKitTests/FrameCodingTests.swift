@@ -53,6 +53,16 @@ struct FrameCodingTests {
     /// so they get their own goldens here rather than crowding
     /// `Fixture.connectionStates` - which is a one-sample-per-*case* coverage
     /// list, not a home for every payload combination a case can carry.
+    /// A cleared status is the same case with its payload absent - omitted,
+    /// never `null` - so it gets its own golden beside the one-per-case list.
+    @Test("a cleared status matches its golden file")
+    func clearedStatus() throws {
+        try expectWireStable(
+            ChatEvent.statusChanged(member: Fixture.humanID, status: nil),
+            golden: "event-statusChanged-cleared"
+        )
+    }
+
     @Test("a reconnecting state carrying an issue and a detail matches its golden file")
     func reconnectingWithIssueAndDetail() throws {
         try expectWireStable(
@@ -120,6 +130,7 @@ struct FrameCodingTests {
             "membersChanged",
             "membersResolved",
             "presenceChanged",
+            "statusChanged",
             "gap",
             "backendError",
             "somethingNewer" // the `.unknown` sample keeps its own discriminator

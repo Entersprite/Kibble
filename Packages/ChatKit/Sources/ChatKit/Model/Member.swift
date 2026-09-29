@@ -20,13 +20,18 @@ public struct Member: Codable, Hashable, Sendable {
     /// state we have never seen.
     public var presence: Presence?
 
+    /// A claim about now, like `presence`: `nil` is "nobody told us", and a
+    /// status that has been cleared arrives as `.statusChanged` with `nil`.
+    public var status: MemberStatus?
+
     public init(
         id: ID,
         kind: Kind,
         displayName: String? = nil,
         email: String? = nil,
         avatarURL: URL? = nil,
-        presence: Presence? = nil
+        presence: Presence? = nil,
+        status: MemberStatus? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -34,6 +39,7 @@ public struct Member: Codable, Hashable, Sendable {
         self.email = email
         self.avatarURL = avatarURL
         self.presence = presence
+        self.status = status
     }
 }
 
@@ -113,6 +119,7 @@ public extension Member {
         case email
         case avatarURL
         case presence
+        case status
     }
 
     /// Hand-written for the same reason as `Conversation`: `id` and `kind` are
@@ -125,7 +132,8 @@ public extension Member {
             displayName: container.decodeIfPresent(String.self, forKey: .displayName),
             email: container.decodeIfPresent(String.self, forKey: .email),
             avatarURL: container.decodeIfPresent(URL.self, forKey: .avatarURL),
-            presence: container.decodeIfPresent(Presence.self, forKey: .presence)
+            presence: container.decodeIfPresent(Presence.self, forKey: .presence),
+            status: container.decodeIfPresent(MemberStatus.self, forKey: .status)
         )
     }
 
@@ -137,5 +145,6 @@ public extension Member {
         try container.encodeIfPresent(email, forKey: .email)
         try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
         try container.encodeIfPresent(presence, forKey: .presence)
+        try container.encodeIfPresent(status, forKey: .status)
     }
 }

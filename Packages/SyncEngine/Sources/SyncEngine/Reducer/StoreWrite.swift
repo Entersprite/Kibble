@@ -80,6 +80,8 @@ public enum StoreWrite: Sendable, Equatable {
 
     case setTyping(conversation: Conversation.ID, member: Member.ID, isTyping: Bool)
     case setPresence(member: Member.ID, presence: Presence)
+    /// `nil` clears it. A claim about now, dropped by `clearEphemeralState`.
+    case setStatus(member: Member.ID, status: MemberStatus?)
 
     /// Who the local user is. Durable, unlike the rest of this file's session
     /// writes: an account signing in stays who it is on the next launch, so
@@ -95,7 +97,7 @@ public enum StoreWrite: Sendable, Equatable {
     /// claim about *now*, which `clearEphemeralState` drops.
     case setMentionBackfill(MentionBackfillStatus)
 
-    /// Drops everything that is a claim about *now*: typing, presence, the
+    /// Drops everything that is a claim about *now*: typing, presence, status, the
     /// connection state, the last error, and the Mentions backfill's status.
     ///
     /// Issued at startup, not by the reducer. Restoring "Maya is typing" from

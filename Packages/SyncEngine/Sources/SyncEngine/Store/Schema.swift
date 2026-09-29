@@ -17,6 +17,7 @@ enum Schema {
         migrator.registerMigration("v5", migrate: storeDatesToTheMicrosecond)
         migrator.registerMigration("v6", migrate: addMemberCount)
         migrator.registerMigration("v7", migrate: addMentionBackfillStatus)
+        migrator.registerMigration("v8", migrate: addMemberStatus)
         return migrator
     }
 
@@ -38,6 +39,15 @@ enum Schema {
         try db.alter(table: "syncState") { table in
             table.add(column: "mentionBackfillRunning", .boolean).notNull().defaults(to: false)
             table.add(column: "mentionBackfillFailed", .integer).notNull().defaults(to: 0)
+        }
+    }
+
+    /// `Member.status`, as JSON. Nullable with no default: a row from before
+    /// v8 has no status, which is "nobody told us", and the next poll fills
+    /// it in. `clearEphemeralState` drops it at every launch anyway.
+    private static func addMemberStatus(_ db: Database) throws {
+        try db.alter(table: "member") { table in
+            table.add(column: "status", .text)
         }
     }
 

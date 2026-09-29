@@ -82,6 +82,8 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
     var email: String?
     var avatarURL: String?
     var presence: String?
+    /// JSON (`MemberStatus`), or `NULL` for none.
+    var status: String?
 
     init(_ member: Member) throws {
         id = member.id.rawValue
@@ -90,6 +92,7 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
         email = member.email
         avatarURL = member.avatarURL?.absoluteString
         presence = try member.presence.map(Wire.string)
+        status = try member.status.map(Wire.json)
     }
 
     var member: Member {
@@ -102,7 +105,8 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
                 avatarURL: avatarURL.flatMap(URL.init(string:)),
                 // nil and .unknown mean different things: nobody has told us,
                 // versus we were told something this build does not know.
-                presence: presence.map { try Wire.fromString(Presence.self, $0) }
+                presence: presence.map { try Wire.fromString(Presence.self, $0) },
+                status: status.map { try Wire.value(MemberStatus.self, from: $0) }
             )
         }
     }
