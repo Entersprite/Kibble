@@ -8,8 +8,11 @@ import GChatBridgeCore
 /// partner, which of the two DND fields a poll fills, and whether any
 /// presence value falls outside the vendored enum.
 ///
-/// The same request `LocalBridgeBackend.pollPresence` sends, over the same
-/// people (`presenceTargets`). **Counts only**, per this report's contract:
+/// The same request `LocalBridgeBackend.pollPresence` sends, over the people
+/// the world load's `get_members` named (`presenceTargets`) - the app's first
+/// run. The app's later runs also carry every sender met since, so they are
+/// larger than this; a limit that only bites there shows up as poll failures,
+/// not here. **Counts only**, per this report's contract:
 /// never an id, a name, or a custom status's text - only whether one is
 /// present.
 extension APIProbeReport {
@@ -20,13 +23,13 @@ extension APIProbeReport {
     private static let topLevelDndField = 3
 
     static func appendPresenceSummary(
-        conversations: [Conversation],
+        members: [ChatKit.Member],
         client: ProtoAPIClient,
         lines: inout [String]
     ) async {
         lines.append("presence summary (get_user_presence):")
-        let ids = LocalBridgeBackend.presenceTargets(in: conversations)
-        lines.append("  DM partners asked about: \(ids.count)")
+        let ids = LocalBridgeBackend.presenceTargets(from: members)
+        lines.append("  people asked about: \(ids.count)")
         guard !ids.isEmpty else { return }
         let response: GetUserPresenceResponse
         do {

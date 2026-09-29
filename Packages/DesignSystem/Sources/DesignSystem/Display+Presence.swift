@@ -1,8 +1,9 @@
 import ChatKit
 import Foundation
 
-/// Presence on screen: the other person in a one-to-one DM, and only while
-/// the session is live.
+/// Presence on screen: the other person in a one-to-one DM, and the sender
+/// beside a message - never the local user, and only while the session is
+/// live.
 public extension Display {
     /// The presence worth drawing for `conversation`, or `nil` for nothing.
     ///
@@ -21,9 +22,25 @@ public extension Display {
         me: Member.ID?,
         connection: ConnectionState
     ) -> Presence? {
-        guard conversation.kind == .directMessage, connection == .connected, let me,
-              let other = conversation.members.first(where: { $0 != me }),
-              let presence = directory[other]?.presence,
+        guard conversation.kind == .directMessage, let me,
+              let other = conversation.members.first(where: { $0 != me })
+        else { return nil }
+        return presence(of: other, directory: directory, me: me, connection: connection)
+    }
+
+    /// The presence worth drawing beside `member`'s face - a message's
+    /// sender - by the same rules: connected, a state this build can name,
+    /// and never the local user, whose own presence is polled and stored but
+    /// is not news to them. `nil` while `me` is unknown, for the same reason
+    /// as above.
+    static func presence(
+        of member: Member.ID,
+        directory: [Member.ID: Member],
+        me: Member.ID?,
+        connection: ConnectionState
+    ) -> Presence? {
+        guard connection == .connected, let me, member != me,
+              let presence = directory[member]?.presence,
               presenceLabel(presence) != nil
         else { return nil }
         return presence

@@ -17,6 +17,8 @@ actor PresenceTransport: HTTPTransport {
     }
 
     private let shell, world: HTTPResponse
+    private let topics: HTTPResponse?
+    private let holdPollAt: Int?
     private var answers: [Answer]
     private var held: [CheckedContinuation<Void, Never>] = []
     private var pollsToHold: Int
@@ -40,10 +42,14 @@ actor PresenceTransport: HTTPTransport {
         answers: [Answer],
         heldPolls: Int = 0,
         heldLookups: Int = 0,
-        terminalStream: Bool = false
+        terminalStream: Bool = false,
+        topics: HTTPResponse? = nil,
+        holdPollAt: Int? = nil
     ) {
         self.shell = shell
         self.world = world
+        self.topics = topics
+        self.holdPollAt = holdPollAt
         self.answers = answers
         pollsToHold = heldPolls
         lookupsToHold = heldLookups
@@ -78,13 +84,16 @@ actor PresenceTransport: HTTPTransport {
         if path.contains("/api/get_members") {
             return try await answerLookup(request)
         }
+        if path.contains("/api/list_topics"), let topics {
+            return topics
+        }
         return HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data())
     }
 
     private func answerPoll(_ request: HTTPRequest) async throws -> HTTPResponse {
         try polls.append(GetUserPresenceRequest(serializedBytes: request.body ?? Data()))
-        if pollsToHold > 0 {
-            pollsToHold -= 1
+        if pollsToHold > 0 || polls.count - 1 == holdPollAt {
+            pollsToHold = max(0, pollsToHold - 1)
             await withCheckedContinuation { held.append($0) }
         }
         let answer = answers.count > 1 ? answers.removeFirst() : answers.first

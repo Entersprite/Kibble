@@ -7,75 +7,7 @@ import Testing
 /// The `get_user_presence` poll: who is asked, when, and what reaches the
 /// event stream.
 @Suite(.timeLimit(.minutes(1)))
-struct PresencePollTests: SenderResolutionFixtures {
-    private let ada = ChatKit.Member.ID("u-1")
-    private let grace = ChatKit.Member.ID("u-2")
-
-    private func backend(
-        _ transport: PresenceTransport,
-        interval: Duration = .seconds(3600)
-    ) -> LocalBridgeBackend {
-        LocalBridgeBackend(
-            cookies: Self.cookies,
-            transport: transport,
-            retry: .default,
-            presencePollInterval: interval
-        )
-    }
-
-    private func transport(
-        _ answers: [PresenceTransport.Answer],
-        dmMembers: [String] = ["u-1", "u-2"],
-        heldPolls: Int = 0,
-        heldLookups: Int = 0,
-        terminalStream: Bool = false
-    ) throws -> PresenceTransport {
-        try PresenceTransport(
-            shell: shell(),
-            world: world(dmMembers: dmMembers),
-            answers: answers,
-            heldPolls: heldPolls,
-            heldLookups: heldLookups,
-            terminalStream: terminalStream
-        )
-    }
-
-    /// Until `transport` has answered `count` polls, so a released answer is
-    /// known to be back before "nothing emitted" is asserted - a fixed wait
-    /// alone would pass with the guard deleted on a slow enough machine.
-    private func awaitAnswered(_ count: Int, on transport: PresenceTransport) async throws {
-        for _ in 0 ..< 400 where await transport.pollsAnswered < count {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(await transport.pollsAnswered >= count)
-    }
-
-    /// Until `transport` has seen `count` polls. Bounded, for the reason
-    /// `awaitLookups` is.
-    private func awaitPolls(_ count: Int, on transport: PresenceTransport) async throws {
-        for _ in 0 ..< 400 where await transport.polls.count < count {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(await transport.polls.count >= count)
-    }
-
-    private func presences(in events: [ChatEvent]) -> [ChatKit.Member.ID: [ChatKit.Presence]] {
-        var result: [ChatKit.Member.ID: [ChatKit.Presence]] = [:]
-        for case let .presenceChanged(member, presence) in events {
-            result[member, default: []].append(presence)
-        }
-        return result
-    }
-
-    private func pollErrors(in events: [ChatEvent]) -> Int {
-        events.count {
-            if case let .backendError(error) = $0 {
-                return "\(error)".contains("get_user_presence")
-            }
-            return false
-        }
-    }
-
+struct PresencePollTests: PresencePollFixtures {
     // MARK: - Who, and when
 
     @Test func theWorldLoadAsksAboutEveryDMPartnerAtOnce() async throws {
@@ -95,19 +27,15 @@ struct PresencePollTests: SenderResolutionFixtures {
         await backend.disconnect()
     }
 
-    /// Only a one-to-one DM's members are asked about.
-    @Test func onlyDirectMessagePartnersAreTargets() {
-        let conversations = [
-            Conversation(id: Conversation.ID("dm/1"), kind: .directMessage, members: [ada]),
-            Conversation(id: Conversation.ID("dm/2"), kind: .groupDirectMessage, members: [grace]),
-            Conversation(
-                id: Conversation.ID("dm/3"),
-                kind: .appDirectMessage,
-                members: [ChatKit.Member.ID("bot")]
-            ),
-            Conversation(id: Conversation.ID("space/1"), kind: .space, members: [ChatKit.Member.ID("u-3")])
+    /// People are asked about; apps, and kinds this build cannot name, are not.
+    @Test func onlyPeopleAreTargets() {
+        let members = [
+            ChatKit.Member(id: grace, kind: .human),
+            ChatKit.Member(id: ChatKit.Member.ID("bot"), kind: .app),
+            ChatKit.Member(id: ChatKit.Member.ID("x"), kind: .unknown("ROBOT")),
+            ChatKit.Member(id: ada, kind: .human)
         ]
-        #expect(LocalBridgeBackend.presenceTargets(in: conversations) == [ada])
+        #expect(LocalBridgeBackend.presenceTargets(from: members) == [ada, grace])
     }
 
     @Test func aWorldWithNoDMsSendsNoPoll() async throws {

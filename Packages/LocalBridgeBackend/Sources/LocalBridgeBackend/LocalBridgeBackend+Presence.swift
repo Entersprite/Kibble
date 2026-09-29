@@ -2,7 +2,7 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
-/// Presence for the people you DM, polled.
+/// Presence for every person this session has put a face to, polled.
 ///
 /// **Polled, because nothing pushes it.** purple asks `get_user_presence`
 /// every 120 seconds, and its handler for the channel's
@@ -11,17 +11,24 @@ import GChatBridgeCore
 /// `googlechat_events.c`). This follows the reference; whether this account's
 /// channel carries anything presence-shaped is `[Verify]`.
 ///
-/// **Only DM partners.** They are the only people whose presence is drawn
-/// (the sidebar's DM rows and the open DM's header), so polling anyone else
-/// would be requests nobody reads. A space's members are never listed by the
-/// world anyway (`findings.md` §37.5).
+/// **Who: every person `get_members` has named this session.** That is DM and
+/// group-chat members from the world load, plus every sender and typer looked
+/// up on demand (`resolveUnknownMembers`) - everyone whose face the app can
+/// show, in the sidebar or beside a message. Apps are left out: they have no
+/// presence. It is also exactly the set with member rows, which `.setPresence`
+/// needs (an UPDATE; see `startPresencePoll`). The set only grows within a
+/// session, and one request carries all of it; how many ids one request can
+/// hold is `[Verify]` (`findings.md` §45.3).
 extension LocalBridgeBackend {
     /// What the poll holds between runs. One stored property on the actor,
     /// because `LocalBridgeBackend.swift` sits at `file_length`.
     struct PresencePoll {
         /// The running poll, if any. Replaced by every world load, cancelled
-        /// by `disconnect()`.
+        /// by `disconnect()` and a terminal channel stop.
         var task: Task<Void, Never>?
+        /// Who is asked about. Grown by `addPresenceTargets`, cleared with
+        /// the session.
+        var people: Set<ChatKit.Member.ID> = []
         /// The last value emitted per person, so a poll that learns nothing
         /// new emits nothing. Cleared by `disconnect()`.
         var emitted: [ChatKit.Member.ID: ChatKit.Presence] = [:]
@@ -39,17 +46,38 @@ extension LocalBridgeBackend {
     /// the old value would keep a dot green for as long as the process runs.
     static let absentPresence = ChatKit.Presence.unknown("absent")
 
-    /// Everyone in a one-to-one DM. App DMs are left out: an app has no
-    /// presence to show. The local user is included when they are listed,
-    /// which costs one id in the request and draws nothing.
-    static func presenceTargets(in conversations: [Conversation]) -> [ChatKit.Member.ID] {
-        let ids = conversations.filter { $0.kind == .directMessage }.flatMap(\.members)
-        return Set(ids).sorted { $0.rawValue < $1.rawValue }
+    /// The people among `members`: presence is asked about humans only. The
+    /// local user is included when named, which costs one id and draws
+    /// nothing.
+    static func presenceTargets(from members: [ChatKit.Member]) -> [ChatKit.Member.ID] {
+        Set(members.filter { $0.kind == .human }.map(\.id)).sorted { $0.rawValue < $1.rawValue }
     }
 
-    /// Starts polling for `conversations`' DM partners, replacing any poll
-    /// already running - a world reload is the one place the set of people
-    /// changes.
+    /// Adds the people among `members` to the poll, once their names - and
+    /// so their member rows - have been emitted.
+    ///
+    /// With `immediately`, anyone new is asked about at once rather than at
+    /// the next interval, so opening a space shows its senders' dots within a
+    /// moment instead of up to two minutes later. Only while a poll is
+    /// running: before the first world load, the loop's first run picks them
+    /// up.
+    func addPresenceTargets(
+        _ members: [ChatKit.Member],
+        immediately: Bool,
+        using apiClient: ProtoAPIClient,
+        generation: Int
+    ) {
+        let new = Self.presenceTargets(from: members).filter { !presencePoll.people.contains($0) }
+        guard !new.isEmpty else { return }
+        presencePoll.people.formUnion(new)
+        guard immediately, presencePoll.task != nil else { return }
+        Task { [weak self] in
+            await self?.pollPresence(new, using: apiClient, generation: generation)
+        }
+    }
+
+    /// Starts the poll, replacing any already running - a world reload
+    /// restarts it with an immediate run.
     ///
     /// **The first run waits for `names`, the world load's `get_members`.**
     /// `.setPresence` is an UPDATE and drops presence for anyone the store has
@@ -58,22 +86,21 @@ extension LocalBridgeBackend {
     /// already recorded it, never sent again: on a fresh store, every dot
     /// would stay missing until that person's state changed. Awaiting a task
     /// is not cancelling it, so this cannot finish the lookup early.
-    func startPresencePoll(
-        for conversations: [Conversation],
-        using apiClient: ProtoAPIClient,
-        after names: Task<Void, Never>?
-    ) {
+    func startPresencePoll(using apiClient: ProtoAPIClient, after names: Task<Void, Never>?) {
         presencePoll.task?.cancel()
-        presencePoll.task = nil
-        let ids = Self.presenceTargets(in: conversations)
-        guard !ids.isEmpty else { return }
         let interval = presencePollInterval
+        let generation = directoryGeneration
         presencePoll.task = Task { [weak self] in
             await names?.value
             while !Task.isCancelled {
                 // `nil` once the backend has gone, which ends the loop rather
-                // than sleeping forever on behalf of nobody.
-                guard await self?.pollPresence(ids, using: apiClient) != nil else { return }
+                // than sleeping forever on behalf of nobody. Read fresh each
+                // run, because the set grows between runs.
+                guard let people = await self?.presencePoll.people else { return }
+                if !people.isEmpty {
+                    let ids = people.sorted { $0.rawValue < $1.rawValue }
+                    await self?.pollPresence(ids, using: apiClient, generation: generation)
+                }
                 do {
                     try await Task.sleep(for: interval)
                 } catch {
@@ -93,14 +120,19 @@ extension LocalBridgeBackend {
     ///
     /// **Never throws**, `resolveAndEmitMembers`' posture: a failed poll is a
     /// stale dot, not a broken session.
-    func pollPresence(_ ids: [ChatKit.Member.ID], using apiClient: ProtoAPIClient) async {
+    ///
+    /// Two stale checks after the await, because there are two kinds of
+    /// caller. The loop is cancelled when replaced or stopped. A one-off from
+    /// `addPresenceTargets` is never cancelled, so it carries the directory
+    /// generation, which every end of a session bumps (`forgetDirectory`).
+    func pollPresence(_ ids: [ChatKit.Member.ID], using apiClient: ProtoAPIClient, generation: Int) async {
         let response: GetUserPresenceResponse
         do {
             response = try await apiClient.call(.getUserPresence, Self.getUserPresenceRequest(ids))
         } catch {
-            // Cancelled means a world reload or `disconnect()` replaced this
-            // poll while the call was out; its failure is not news.
-            guard !Task.isCancelled else { return }
+            // A poll from a session that has gone, or one replaced while the
+            // call was out: its failure is not news.
+            guard !Task.isCancelled, generation == directoryGeneration else { return }
             if !presencePoll.failureReported {
                 presencePoll.failureReported = true
                 emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_user_presence call")))
@@ -108,9 +140,9 @@ extension LocalBridgeBackend {
             withdrawPresence()
             return
         }
-        // After the await, for the same reason: a stale session's presence
-        // must not land in the next one.
-        guard !Task.isCancelled else { return }
+        // The same checks: a stale session's presence must not land in the
+        // next one.
+        guard !Task.isCancelled, generation == directoryGeneration else { return }
         presencePoll.failureReported = false
         let answered = PresenceMapping.map(response)
         for id in ids {

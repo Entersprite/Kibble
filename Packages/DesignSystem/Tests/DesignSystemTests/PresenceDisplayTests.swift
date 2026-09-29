@@ -70,6 +70,32 @@ struct PresenceDisplayTests {
         #expect(shown(.unknown("SHARING_DISABLED")) == nil)
     }
 
+    // MARK: - A message's sender
+
+    private func sender(
+        _ member: Member.ID,
+        connection: ConnectionState = .connected,
+        me: Member.ID?
+    ) -> Presence? {
+        Display.presence(of: member, directory: directory(.inactive), me: me, connection: connection)
+    }
+
+    /// A sender's avatar shows their presence, wherever the message is.
+    @Test func aSenderShowsTheirPresence() {
+        #expect(sender(ada, me: me) == .inactive)
+    }
+
+    /// Never the local user's own, even though it is polled and stored
+    /// (`me` is `.active` in the directory).
+    @Test func notTheLocalUsersOwn() {
+        #expect(sender(me, me: me) == nil)
+        #expect(sender(ada, me: nil) == nil)
+    }
+
+    @Test func aSenderShowsNothingUnlessConnected() {
+        #expect(sender(ada, connection: .connecting, me: me) == nil)
+    }
+
     @Test func theHeaderWords() {
         #expect(Display.presenceLabel(.active) == "Active")
         #expect(Display.presenceLabel(.inactive) == "Away")

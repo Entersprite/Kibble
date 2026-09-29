@@ -302,8 +302,12 @@ public enum APIProbeReport {
         )
         appendFieldPresenceCounts(response.worldItems, lines: &lines)
         lines.append(contentsOf: membershipCountLines(response.worldItems, conversations: conversations))
-        await appendMemberResolutionSummary(conversations: conversations, client: client, lines: &lines)
-        await appendPresenceSummary(conversations: conversations, client: client, lines: &lines)
+        let named = await appendMemberResolutionSummary(
+            conversations: conversations,
+            client: client,
+            lines: &lines
+        )
+        await appendPresenceSummary(members: named, client: client, lines: &lines)
         return (conversations, response.worldItems)
     }
 
@@ -314,15 +318,16 @@ public enum APIProbeReport {
     /// `WorldMapping`'s does toward `WorldItemLite`, and `get_members` has
     /// never been sent by this implementation before this call, so this is
     /// this call's first live evidence, not a confirmed shape.
+    /// Returns the members it named, for the presence section.
     private static func appendMemberResolutionSummary(
         conversations: [Conversation],
         client: ProtoAPIClient,
         lines: inout [String]
-    ) async {
+    ) async -> [ChatKit.Member] {
         lines.append("member resolution summary (get_members):")
         let ids = Array(Set(conversations.flatMap(\.members)))
         lines.append("  member ids collected: \(ids.count)")
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty else { return [] }
 
         var request = GetMembersRequest()
         request.requestHeader = APIRequestHeader.make()
@@ -339,7 +344,7 @@ public enum APIProbeReport {
             response = try await client.call(.getMembers, request)
         } catch {
             lines.append("  FAILED: \(safeDescription(of: error))")
-            return
+            return []
         }
         lines.append("  members returned: \(response.members.count)")
         let mapped = MemberMapping.map(response)
@@ -348,6 +353,7 @@ public enum APIProbeReport {
                 + "app: \(mapped.members.count(where: { $0.kind == .app })), "
                 + "skipped (empty id): \(mapped.skipped)"
         )
+        return mapped.members
     }
 
     /// Rung 1 is expected to answer with field 11 and nothing else. A rung that

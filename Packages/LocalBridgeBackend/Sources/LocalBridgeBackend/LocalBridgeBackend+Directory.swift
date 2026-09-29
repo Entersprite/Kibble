@@ -62,6 +62,11 @@ extension LocalBridgeBackend {
                 emit(.conversationUpdated(reclassified))
             }
         }
+        // Not immediately: the presence poll's first run waits for this very
+        // lookup, and asks about everyone added here.
+        if generation == directoryGeneration {
+            addPresenceTargets(mapped.members, immediately: false, using: apiClient, generation: generation)
+        }
     }
 
     /// Names for ids nobody has asked about yet - message senders and typers,
@@ -119,6 +124,8 @@ extension LocalBridgeBackend {
         }
         guard !mapped.members.isEmpty else { return }
         emit(.membersResolved(mapped.members))
+        // After the names, so their member rows exist when presence lands.
+        addPresenceTargets(mapped.members, immediately: true, using: apiClient, generation: generation)
     }
 
     /// Ends this session's lookups: whatever is in flight answers into a

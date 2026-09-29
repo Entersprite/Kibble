@@ -387,7 +387,7 @@ public actor LocalBridgeBackend: ChatBackend {
             }
             // Started, not awaited, for the same reasons. Its first request
             // waits for the name lookup above - `startPresencePoll` says why.
-            startPresencePoll(for: mapped.conversations, using: apiClient, after: memberResolution)
+            startPresencePoll(using: apiClient, after: memberResolution)
             return mapped.conversations
         } catch {
             throw Self.chatError(fromAPI: error)
