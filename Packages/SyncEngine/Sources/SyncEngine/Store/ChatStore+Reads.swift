@@ -154,8 +154,15 @@ extension ChatStore {
         return try Wire.value(ChatError.self, from: raw)
     }
 
+    /// **One column, so an observation that reads `me` tracks only it.**
+    /// `SyncStateRow.fetchOne` tracked every `syncState` column, so each
+    /// connection-state, last-error and Mentions-backfill write re-ran the
+    /// Mentions list and badge along with this. `.setLocalMember` writes this
+    /// column, which is what still re-runs them when the account is
+    /// identified (ruling 3).
     static func fetchMe(_ db: Database) throws -> Member.ID? {
-        guard let raw = try SyncStateRow.fetchOne(db)?.localMemberID else { return nil }
-        return Member.ID(raw)
+        try String
+            .fetchOne(db, sql: "SELECT localMemberID FROM syncState WHERE id = 1")
+            .map { Member.ID($0) }
     }
 }

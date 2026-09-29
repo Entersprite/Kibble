@@ -64,14 +64,16 @@ struct MarkReadTests {
     /// `unreadCount` has exactly one source of truth and it is not this client.
     private func readStateResponse(
         group: GroupId,
-        lastReadMicros: Int64,
+        lastReadMicros: Int64?,
         unread: Int64
     ) throws -> HTTPResponse {
         var state = GroupReadState()
         var identifier = GroupReadStateId()
         identifier.groupID = group
         state.id = identifier
-        state.lastReadTime = lastReadMicros
+        if let lastReadMicros {
+            state.lastReadTime = lastReadMicros
+        }
         state.unreadMessageCount = unread
 
         var response = MarkGroupReadstateResponse()
@@ -191,6 +193,39 @@ struct MarkReadTests {
                 upTo: Date(timeIntervalSince1970: 1)
             ))
         }
+    }
+
+    /// **Presence decides, never the value.** A read state with no
+    /// `last_read_time` would read as 0, which is 1970, and turn every
+    /// mention in the conversation unread. No event, and the mark does not
+    /// fail: it was accepted. `disconnect()`'s own event is the sentinel that
+    /// ends the drain, so nothing here waits on a clock.
+    @Test func aReadStateWithNoLastReadTimeEmitsNoPosition() async throws {
+        let transport = try RoutingTransport(
+            shell: shellResponse(),
+            markReadResponse: readStateResponse(group: spaceGroup("s-1"), lastReadMicros: nil, unread: 0)
+        )
+        let backend = backend(transport)
+        var iterator = backend.events.makeAsyncIterator()
+        try await backend.connect()
+        try await backend.send(.markRead(
+            conversationID: Conversation.ID("space/s-1"),
+            upTo: Date(timeIntervalSince1970: 1)
+        ))
+        // Positive control: the mark really was sent.
+        #expect(await transport.sent.contains { $0.url.path.contains("/api/mark_group_readstate") })
+        await backend.disconnect()
+
+        var readStates = 0
+        while let event = await iterator.next() {
+            if case .readStateChanged = event {
+                readStates += 1
+            }
+            if case .connectionStateChanged(.disconnected(reason: nil, issue: nil)) = event {
+                break
+            }
+        }
+        #expect(readStates == 0)
     }
 
     @Test func markReadFailsForAConversationIDWithNeitherPrefix() async throws {

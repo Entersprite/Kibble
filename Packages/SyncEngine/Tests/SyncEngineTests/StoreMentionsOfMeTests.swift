@@ -127,6 +127,24 @@ struct StoreMentionsOfMeTests {
         #expect(try await iterator.next()?.map(\.message.id.rawValue) == ["m:1"])
     }
 
+    /// `me` is read as one column, so the list and the badge track
+    /// `syncState.localMemberID` and no other column of it. GRDB fetches on
+    /// the writer at each commit that touches a region and delivers in commit
+    /// order, so had either write below re-run a query, the next value would
+    /// be the unchanged one rather than the mention.
+    @Test func aWriteToAnotherSyncStateColumnReRunsNeitherObservation() async throws {
+        let store = try store()
+        var list = store.observeMentionsOfMe().makeAsyncIterator()
+        var count = store.observeUnreadMentionCount().makeAsyncIterator()
+        #expect(try await list.next()?.isEmpty == true)
+        #expect(try await count.next() == 0)
+        try store.apply([.setConnectionState(.connected)])
+        try store.apply([.setMentionBackfill(MentionBackfillStatus(running: true))])
+        try store.apply([.upsertMessage(message("m:1", at: position, mentions: [.user(me)]))])
+        #expect(try await list.next()?.map(\.message.id.rawValue) == ["m:1"])
+        #expect(try await count.next() == 1)
+    }
+
     /// Review Focus 4. `messageUpdated` re-upserts `mentions` (spec §5), so an
     /// edit that removes the mention takes it off the list *and* the badge.
     @Test func anEditThatRemovesTheMentionTakesItOffTheListAndTheBadge() throws {

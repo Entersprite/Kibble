@@ -164,6 +164,31 @@ struct MentionBackfillRunTests {
         await engine.stop()
     }
 
+    /// A pin, not a guard (final review M8): a backfilled page announces
+    /// nothing. Today that is structure - `loadMoreMessages` writes pages
+    /// directly and never through `.messageReceived` - and a refactor that
+    /// routed pages through it would notify for every old message on every
+    /// world load. A live message after the page is the sentinel, so the one
+    /// iterator `firstAnnouncement` takes has something to end on: the engine
+    /// is an actor, so an announcement for the page would come first.
+    @Test func aBackfilledPageAnnouncesNothing() async throws {
+        let space = Conversation.ID("space/a")
+        let backend = GatedHistoryBackend(world: [conversation(space.rawValue)])
+        await backend.answer(space, with: page(in: space))
+        await backend.openGate()
+        let (engine, store) = try await makeEngine(over: backend)
+        await backend.emit(.gap(scope: .everything, reason: "test"))
+        // Positive control: the page was filed.
+        #expect(try await eventually { try store.messages(in: space).count == 1 })
+        let live = Message(
+            id: Message.ID("space/a|live"), conversationID: space, threadID: MessageThread.ID("t"),
+            sender: Member.ID("users/alice"), text: "hi", createdAt: now
+        )
+        await backend.emit(.messageReceived(live))
+        #expect(await firstAnnouncement(of: engine) == .arrived(live))
+        await engine.stop()
+    }
+
     /// Ruling 6: an engine built without a clock fetches nothing it did not before.
     @Test func anEngineWithNoClockDoesNotBackfill() async throws {
         let backend = GatedHistoryBackend(world: [conversation("space/a")])

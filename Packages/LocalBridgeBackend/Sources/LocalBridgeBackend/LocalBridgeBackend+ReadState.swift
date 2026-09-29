@@ -111,6 +111,12 @@ public extension LocalBridgeBackend {
                     + "confirms the mark - field 1 absent"
             )
         }
+        // **Presence decides, never the value.** An absent `last_read_time`
+        // reads as 0, which is 1970, and would turn every mention in the
+        // conversation unread until the next world load. A read state with no
+        // position says nothing about where it is, so nothing is emitted:
+        // the mark itself was accepted, which is what the guard above checks.
+        guard response.readState.hasLastReadTime else { return }
         emit(.readStateChanged(
             conversationID: conversationID,
             lastReadAt: Microseconds.date(response.readState.lastReadTime),

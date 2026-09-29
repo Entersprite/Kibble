@@ -56,7 +56,7 @@ struct ChannelEventMappingReadStateTests {
         type: Int = 3,
         space: String? = nil,
         dm: String? = "dm-1",
-        viewTimeMicros: String = "1700000000000000"
+        viewTimeMicros: String? = "1700000000000000"
     ) -> String {
         var groupFields: [Int: String] = [:]
         if let space {
@@ -66,7 +66,7 @@ struct ChannelEventMappingReadStateTests {
             groupFields[3] = padded([1: quoted(dm)], upTo: 1)
         }
         let viewed = padded(
-            [1: padded(groupFields, upTo: 3), 2: quoted(viewTimeMicros)],
+            [1: padded(groupFields, upTo: 3), 2: viewTimeMicros.map(quoted)].compactMapValues { $0 },
             upTo: 2
         )
         return padded([3: viewed, 12: String(type)], upTo: 12)
@@ -114,6 +114,17 @@ struct ChannelEventMappingReadStateTests {
     /// `.unknown` - the same call `message(in:)` already makes.
     @Test func aViewedGroupWithNoIdentityIsRouted() throws {
         let events = try mapped([groupViewedBody(space: nil, dm: nil)])
+        guard case .unknown = events.first else {
+            Issue.record("expected .unknown, got \(String(describing: events.first))")
+            return
+        }
+    }
+
+    /// **Presence decides, never the value** (`WorldMapping.readPosition`'s
+    /// rule). An absent `view_time` reads as 0, which is 1970: mapped, it
+    /// would turn every mention in the conversation unread.
+    @Test func aViewedGroupWithNoViewTimeIsRouted() throws {
+        let events = try mapped([groupViewedBody(viewTimeMicros: nil)])
         guard case .unknown = events.first else {
             Issue.record("expected .unknown, got \(String(describing: events.first))")
             return

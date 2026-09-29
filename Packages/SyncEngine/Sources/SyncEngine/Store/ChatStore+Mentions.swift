@@ -70,6 +70,10 @@ extension ChatStore {
     /// That puts it in the tracked region, so an observation started before
     /// the account was identified re-runs when it is.
     ///
+    /// **A cursor, so fetching and decoding stop at `limit`.** The store
+    /// never deletes a message, so the candidates only grow; the list needs
+    /// the newest `limit` of them and nothing older.
+    ///
     /// A message whose conversation the store no longer lists is skipped
     /// (ruling 4). No `Date` is bound here (`StoredDate`'s rule).
     static func fetchMentionsOfMe(limit: Int, _ db: Database) throws -> [MentionOfMe] {
@@ -80,9 +84,9 @@ extension ChatStore {
         let candidates = try MessageRow
             .filter(Column("mentions") != "[]" && Column("isDeleted") == false)
             .order(Column("createdAt").desc, Column("id").desc)
-            .fetchAll(db)
+            .fetchCursor(db)
         var found: [MentionOfMe] = []
-        for row in candidates where found.count < limit {
+        while found.count < limit, let row = try candidates.next() {
             let message = try row.message
             guard message.mentionsMe(me), let conversation = conversations[message.conversationID] else {
                 continue
@@ -95,8 +99,39 @@ extension ChatStore {
         return found
     }
 
+    /// The badge: every unread mention, so it has no `limit` to stop at.
+    ///
+    /// **SQL narrows to the *unread* candidates before anything is decoded**,
+    /// then `Message.mentionsMe` decides, so it stays the one definition.
+    /// The narrowing is the list's own rules, restated:
+    /// - the join drops a message whose conversation is gone (ruling 4);
+    /// - `sender != me` is `mentionsMe`'s own first test, done early;
+    /// - `lastReadAt IS NULL OR createdAt > lastReadAt` is
+    ///   `MentionOfMe.isUnread`: strictly after, because equality is read
+    ///   (`findings.md` §42.2), and no position is unread.
+    ///
+    /// **Both sides of that `>` are `StoredDate` REAL seconds**, the same
+    /// values the list decodes into the `Date`s its `>` compares, so the two
+    /// agree to the microsecond. Nothing is bound but `me`, which is text.
     static func fetchUnreadMentionCount(_ db: Database) throws -> Int {
-        try fetchMentionsOfMe(limit: .max, db).count(where: \.isUnread)
+        guard let me = try fetchMe(db) else { return 0 }
+        let candidates = try MessageRow.fetchCursor(
+            db,
+            sql: """
+            SELECT message.* FROM message
+            JOIN conversation ON conversation.id = message.conversationID
+            WHERE message.mentions != '[]' AND message.isDeleted = 0 AND message.sender != ?
+                AND (conversation.lastReadAt IS NULL OR message.createdAt > conversation.lastReadAt)
+            """,
+            arguments: [me.rawValue]
+        )
+        var count = 0
+        while let row = try candidates.next() {
+            if try row.message.mentionsMe(me) {
+                count += 1
+            }
+        }
+        return count
     }
 
     static func fetchMentionBackfill(_ db: Database) throws -> MentionBackfillStatus {

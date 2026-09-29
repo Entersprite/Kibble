@@ -213,4 +213,18 @@ struct AppDirectMessageTests {
         #expect(updated?.isThreaded == true)
         #expect(updated?.members == original.members)
     }
+
+    /// Except the read position: the copy is the world-load snapshot, emitted
+    /// once `get_members` answers, and a position that moved meanwhile must
+    /// not be put back. `nil` lets the store keep the one it holds.
+    @Test func theCopyCarriesNoReadPosition() throws {
+        var original = conversation(kind: .directMessage, members: ["me", "bot"])
+        original.readPosition = Date(timeIntervalSince1970: 1_790_000_000.128263)
+        let updated = try #require(LocalBridgeBackend.asAppDirectMessage(
+            original,
+            members: [member("bot", kind: .app)]
+        ))
+        #expect(updated.kind == .appDirectMessage)
+        #expect(updated.readPosition == nil)
+    }
 }
