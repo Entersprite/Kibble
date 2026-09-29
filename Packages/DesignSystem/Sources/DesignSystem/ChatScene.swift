@@ -1,6 +1,15 @@
 import ChatKit
 import Foundation
 
+/// What the sidebar has chosen: a conversation, or the Mentions row (the
+/// mentions-list spec §4). A view type, so it lives here (ruling 1). The
+/// session model says `showingMentions` and `selected`, and
+/// `ChatSceneState.sidebarSelection` is the one place the two become this.
+public enum SidebarSelection: Hashable, Sendable {
+    case conversation(Conversation.ID)
+    case mentions
+}
+
 /// Everything the chat window draws, as one value.
 ///
 /// A struct of plain data rather than a reference to a store: a view built this
@@ -53,6 +62,20 @@ public struct ChatSceneState: Sendable, Equatable {
     /// would be refused at `SyncEngine.submit`, so the menu does not offer it.
     public var receiptsWithheld: Set<Conversation.ID>
 
+    /// Whether the Mentions row is chosen. `selected` is then `nil`, and it
+    /// keeps meaning "the selected conversation, if any" for every reader.
+    public var showingMentions: Bool
+
+    /// The Mentions list, newest first (the mentions-list spec §4).
+    public var mentions: [MentionItem]
+    public var mentionsStatus: MentionsStatus
+
+    /// The Mentions row's badge: every unread mention, not only those listed.
+    public var unreadMentionCount: Int
+
+    /// The message the transcript scrolls to once, after a mention is opened.
+    public var scrollTarget: Message.ID?
+
     public init(
         conversations: [Conversation] = [],
         directory: [Member.ID: Member] = [:],
@@ -68,7 +91,12 @@ public struct ChatSceneState: Sendable, Equatable {
         unreadHidden: Set<Conversation.ID> = [],
         dimmed: Set<Conversation.ID> = [],
         muted: Set<Conversation.ID> = [],
-        receiptsWithheld: Set<Conversation.ID> = []
+        receiptsWithheld: Set<Conversation.ID> = [],
+        showingMentions: Bool = false,
+        mentions: [MentionItem] = [],
+        mentionsStatus: MentionsStatus = MentionsStatus(),
+        unreadMentionCount: Int = 0,
+        scrollTarget: Message.ID? = nil
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -85,10 +113,19 @@ public struct ChatSceneState: Sendable, Equatable {
         self.dimmed = dimmed
         self.muted = muted
         self.receiptsWithheld = receiptsWithheld
+        self.showingMentions = showingMentions
+        self.mentions = mentions
+        self.mentionsStatus = mentionsStatus
+        self.unreadMentionCount = unreadMentionCount
+        self.scrollTarget = scrollTarget
     }
 
     public var selectedConversation: Conversation? {
         conversations.first { $0.id == selected }
+    }
+
+    public var sidebarSelection: SidebarSelection? {
+        showingMentions ? .mentions : selected.map(SidebarSelection.conversation)
     }
 }
 
@@ -164,6 +201,13 @@ public struct ChatSceneActions {
     /// the menu item.
     public var showNotificationSettings: ((Conversation.ID) -> Void)?
 
+    /// Shows the Mentions list. `nil` hides the row: a host with no running
+    /// session has no mentions to show (the `StatusStrip` pattern).
+    public var showMentions: (() -> Void)?
+
+    /// Opens a mention: its conversation, scrolled to its message.
+    public var openMention: ((Conversation.ID, Message.ID) -> Void)?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
@@ -174,7 +218,9 @@ public struct ChatSceneActions {
         mute: ((Conversation.ID) -> Void)? = nil,
         unmute: ((Conversation.ID) -> Void)? = nil,
         markRead: ((Conversation.ID) -> Void)? = nil,
-        showNotificationSettings: ((Conversation.ID) -> Void)? = nil
+        showNotificationSettings: ((Conversation.ID) -> Void)? = nil,
+        showMentions: (() -> Void)? = nil,
+        openMention: ((Conversation.ID, Message.ID) -> Void)? = nil
     ) {
         self.select = select
         self.send = send
@@ -186,5 +232,7 @@ public struct ChatSceneActions {
         self.unmute = unmute
         self.markRead = markRead
         self.showNotificationSettings = showNotificationSettings
+        self.showMentions = showMentions
+        self.openMention = openMention
     }
 }
