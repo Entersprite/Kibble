@@ -54,7 +54,8 @@ enum LaunchProbes {
             return "Could not resolve where to write \(name)."
         }
         let url = directory.appendingPathComponent(name)
-        let minutes = argument("--probe-minutes=").flatMap(Int.init)
+        // Clamped: zero ends the run at once, and an absurd value traps.
+        let minutes = argument("--probe-minutes=").flatMap(Int.init).map { min(max($0, 1), 120) }
         let text = await PunctualProbeReport.run(
             serverPath: argument("--punctual-server="),
             duration: minutes.map { .seconds($0 * 60) } ?? PunctualProbeReport.defaultDuration,

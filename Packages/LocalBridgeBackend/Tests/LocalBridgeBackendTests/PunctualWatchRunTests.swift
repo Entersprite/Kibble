@@ -31,7 +31,8 @@ struct PunctualWatchRunTests {
     private func run(
         _ transport: any HTTPTransport,
         people: [PunctualWatchRun.Person]? = nil,
-        duration: Duration = .seconds(60)
+        duration: Duration = .seconds(60),
+        sleeps: SleepLog = SleepLog()
     ) async -> [String] {
         let log = PunctualProbeLog()
         let credentials = SessionCredentials(
@@ -45,7 +46,10 @@ struct PunctualWatchRunTests {
                 duration: duration,
                 firstRID: 5000,
                 zx: { "zx" },
-                now: { Date(timeIntervalSince1970: 1_790_000_000) }
+                now: { Date(timeIntervalSince1970: 1_790_000_000) },
+                reopenGap: .seconds(1),
+                maximumEmptyPolls: 3,
+                sleep: { await sleeps.record($0) }
             ),
             log: log
         )
@@ -147,10 +151,99 @@ struct PunctualWatchRunTests {
     /// and still writes its summary. The stream here never ends by itself,
     /// the way a real long poll does not.
     @Test(.timeLimit(.minutes(1))) func aPollOpenAtTheDeadlineIsStoppedAndSummarised() async {
-        let transport = HangingPollTransport(responses: [chosen, opened, added])
+        let transport = PollScriptTransport(responses: [chosen, opened, added], polls: [.hangs])
         let lines = await run(transport, duration: .milliseconds(100))
         #expect(lines.contains("poll 1: stopped at the deadline"))
         #expect(lines.contains("polls: 1, arrays: 0, keepalives: 0"))
+    }
+
+    // MARK: - Review findings
+
+    /// Finding 1: the channel's own secrets are masked by name wherever they
+    /// appear, whatever their case.
+    @Test func theChannelsOwnSecretsAreMaskedByName() async {
+        let push = #"[[1,["SIDSECRET","KEYSECRET","GSESSIONSECRET"]]]"#
+        let transport = ScriptedTransport(
+            [chosen, opened, added], streams: [.init(chunks: ["\(push.utf8.count)\n\(push)"])]
+        )
+        let lines = await run(transport)
+        #expect(lines.contains("  +00:00 aid=1 [<sid>,<key>,<gsessionid>]"))
+    }
+
+    /// Finding 2: an empty poll is followed by a doubling wait, and a run of
+    /// them stops the probe rather than hammering the server.
+    @Test func emptyPollsBackOffAndARunOfThemStops() async {
+        let transport = PollScriptTransport(
+            responses: [chosen, opened, added], polls: [.chunks([]), .chunks([]), .chunks([])]
+        )
+        let sleeps = SleepLog()
+        let lines = await run(transport, sleeps: sleeps)
+        #expect(await sleeps.durations == [.seconds(1), .seconds(2)])
+        #expect(lines.contains("Stopping: 3 polls in a row carried nothing."))
+    }
+
+    /// A poll that carried arrays is followed by the plain gap.
+    @Test func aPollThatCarriedArraysWaitsThePlainGap() async {
+        let transport = ScriptedTransport(
+            [chosen, opened, added],
+            streams: [.init(chunks: Self.pushChunks())]
+        )
+        let sleeps = SleepLog()
+        _ = await run(transport, sleeps: sleeps)
+        #expect(await sleeps.durations == [.seconds(1)])
+    }
+
+    /// Finding 3: a timeout or a lost connection reopens rather than ending
+    /// the run, and says why in words.
+    @Test func aTimedOutPollReopensAndSaysWhy() async {
+        let transport = PollScriptTransport(
+            responses: [chosen, opened, added],
+            polls: [.fails(ClassifiedTransportFailure(.timedOut)), .chunks(Self.pushChunks())]
+        )
+        let lines = await run(transport)
+        #expect(lines.contains("poll 1: timed out, reopening"))
+        #expect(lines.contains { $0.contains("aid=1") })
+    }
+
+    /// Finding 7: an error's own text never reaches the report.
+    @Test func anErrorsOwnTextNeverReachesTheReport() async {
+        let transport = PollScriptTransport(
+            responses: [chosen, opened, added],
+            polls: [.fails(SentinelError(description: "ERROR-SECRET-TEXT"))]
+        )
+        let lines = await run(transport)
+        #expect(!lines.joined().contains("ERROR-SECRET-TEXT"))
+        #expect(lines.contains("poll 1 failed: SentinelError"))
+    }
+
+    /// Finding 6: a refused poll ends the run with its status.
+    @Test func aRefusedPollEndsTheRunWithItsStatus() async {
+        let transport = PollScriptTransport(responses: [chosen, opened, added], polls: [.status(403)])
+        let lines = await run(transport)
+        #expect(lines.contains("poll 1: status 403"))
+    }
+
+    /// Finding 5: the capture never added more than ten at once, so neither
+    /// does the probe. Each batch takes the next RID, and `ofs` follows.
+    @Test func watchesAreAddedTenAtATime() async throws {
+        let many = (1 ... 12).map { PunctualWatchRun.Person(
+            id: String(repeating: "\($0 % 10)", count: 21),
+            label: "person \($0)"
+        ) }
+        let transport = ScriptedTransport([chosen, opened, added, added], streams: [.init(chunks: [])])
+        _ = await run(transport, people: many)
+        let adds = await transport.sent.filter { $0.traceLabel == "punctual-add" }
+        #expect(adds.map { query($0)["RID"] } == ["5001", "5002"])
+        try #require(adds.count == 2)
+        let bodies = adds.map { String(decoding: $0.body ?? Data(), as: UTF8.self) }
+        #expect(bodies[0].hasPrefix("count=10&ofs=1&"))
+        #expect(bodies[1].hasPrefix("count=1&ofs=11&"))
+    }
+
+    /// `self` and `person N` collapse only as labels, never inside a word.
+    @Test func collapsingTouchesLabelsOnly() {
+        #expect(PunctualWatchRun.collapsed(#"["self-status",self,person 3,@now-3m]"#)
+            == #"["self-status",person,person,@t]"#)
     }
 
     /// The report is pasted by hand, so no id, token or key may reach it.
@@ -166,13 +259,37 @@ struct PunctualWatchRunTests {
     }
 }
 
-/// Answers the handshake from a script, then holds every poll open until it
-/// is cancelled.
-private actor HangingPollTransport: HTTPTransport {
-    private var responses: [Result<HTTPResponse, any Error>]
+/// An error whose own text would be a leak if a report printed it.
+private struct SentinelError: Error, CustomStringConvertible {
+    let description: String
+}
 
-    init(responses: [Result<HTTPResponse, any Error>]) {
+/// Records the waits a run asked for instead of waiting.
+actor SleepLog {
+    private(set) var durations: [Duration] = []
+
+    func record(_ duration: Duration) {
+        durations.append(duration)
+    }
+}
+
+/// Answers the handshake from a script, then each poll from its own: framed
+/// chunks, a status, a failure to open, or a poll held open until cancelled.
+/// Refuses to improvise once a script runs out, like `ScriptedTransport`.
+private actor PollScriptTransport: HTTPTransport {
+    enum Poll: Sendable {
+        case chunks([String])
+        case status(Int)
+        case fails(any Error & Sendable)
+        case hangs
+    }
+
+    private var responses: [Result<HTTPResponse, any Error>]
+    private var polls: [Poll]
+
+    init(responses: [Result<HTTPResponse, any Error>], polls: [Poll]) {
         self.responses = responses
+        self.polls = polls
     }
 
     func send(_: HTTPRequest) async throws -> HTTPResponse {
@@ -181,6 +298,29 @@ private actor HangingPollTransport: HTTPTransport {
     }
 
     func stream(_: HTTPRequest) async throws -> HTTPStream {
-        HTTPStream(status: 200, headers: HTTPHeaders([]), body: AsyncThrowingStream { _ in })
+        guard !polls.isEmpty else { throw ScriptedTransport.Exhausted() }
+        switch polls.removeFirst() {
+        case let .chunks(chunks):
+            return HTTPStream(
+                status: 200,
+                headers: HTTPHeaders([]),
+                body: AsyncThrowingStream { continuation in
+                    for chunk in chunks {
+                        continuation.yield(Data(chunk.utf8))
+                    }
+                    continuation.finish()
+                }
+            )
+        case let .status(status):
+            return HTTPStream(
+                status: status,
+                headers: HTTPHeaders([]),
+                body: AsyncThrowingStream { $0.finish() }
+            )
+        case let .fails(error):
+            throw error
+        case .hangs:
+            return HTTPStream(status: 200, headers: HTTPHeaders([]), body: AsyncThrowingStream { _ in })
+        }
     }
 }

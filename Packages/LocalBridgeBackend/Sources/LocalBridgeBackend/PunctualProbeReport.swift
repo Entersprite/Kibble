@@ -29,17 +29,17 @@ public enum PunctualProbeReport {
     ) async -> String {
         let log = PunctualProbeLog(flush: flush)
         let server = serverPath ?? PunctualRequests.observedServerPath
-        var lines = header(server: server, duration: duration)
-        guard let prepared = await prepare(
-            store: store, transport: transport, endpoints: endpoints, lines: &lines
-        ) else {
-            for line in lines {
-                await log.append(line)
-            }
-            return await log.lines.joined(separator: "\n")
+        // On disk before the first request (review finding 8).
+        for line in header(server: server, duration: duration) {
+            await log.append(line)
         }
+        var lines: [String] = []
+        let prepared = await prepare(store: store, transport: transport, endpoints: endpoints, lines: &lines)
         for line in lines {
             await log.append(line)
+        }
+        guard let prepared else {
+            return await log.lines.joined(separator: "\n")
         }
         await PunctualWatchRun.run(
             people: prepared.people,
@@ -49,7 +49,10 @@ public enum PunctualProbeReport {
                 duration: duration,
                 firstRID: Int.random(in: 10000 ... 99999),
                 zx: { randomZX() },
-                now: { Date() }
+                now: { Date() },
+                reopenGap: .seconds(1),
+                maximumEmptyPolls: 20,
+                sleep: { try? await Task.sleep(for: $0) }
             ),
             log: log
         )
@@ -59,13 +62,16 @@ public enum PunctualProbeReport {
     /// The config row `CLAUDE.md` asks every trace for, so a report says which
     /// build and settings produced it.
     static func header(server: String, duration: Duration) -> [String] {
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "-"
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "-"
+        let build = info?["CFBundleVersion"] as? String ?? "-"
         return [
             "gchat Punctual probe",
-            "config: build \(build), server path \(server), duration \(duration.components.seconds)s, "
+            "config: build \(version) (\(build)), server path \(server), "
+                + "choose server topic: availability, duration \(duration.components.seconds)s, "
                 + "started \(ISO8601DateFormatter().string(from: Date()))",
-            "Read this before pasting it anywhere: strings are lengths, people are numbered, "
-                + "but a one-word lowercase string would print as itself.",
+            "Strings print as their length (s<n>, or w<n> for a lowercase word), people as numbers, "
+                + "times relative to now. Read it before pasting it anywhere all the same.",
             ""
         ]
     }
@@ -165,17 +171,26 @@ public enum PunctualProbeReport {
         let members = await APIProbeReport.appendMemberResolutionSummary(
             conversations: conversations, client: client, lines: &lines
         )
-        var number = 0
-        let people = LocalBridgeBackend.presenceTargets(from: members).map { id in
-            if id.rawValue == selfUserID {
-                return PunctualWatchRun.Person(id: id.rawValue, label: "self")
-            }
-            number += 1
-            return PunctualWatchRun.Person(id: id.rawValue, label: "person \(number)")
-        }
-        lines.append("watching: \(people.count) (\(number) others"
-            + (people.count > number ? " and self)" : ")"))
+        let people = ordered(
+            LocalBridgeBackend.presenceTargets(from: members).map(\.rawValue), selfUserID: selfUserID
+        )
+        let others = people.count(where: { $0.label != "self" })
+        lines
+            .append("watching: \(people.count) (\(others) others" +
+                (people.count > others ? " and self)" : ")"))
         return people
+    }
+
+    /// `self` first: the owner can change their own state on demand, and the
+    /// first watch is the one on the channel even if an add is refused. The
+    /// others are numbered in the order given, never by id.
+    static func ordered(_ ids: [String], selfUserID: String?) -> [PunctualWatchRun.Person] {
+        let me = ids.filter { $0 == selfUserID }.prefix(1)
+            .map { PunctualWatchRun.Person(id: $0, label: "self") }
+        let others = ids.filter { $0 != selfUserID }.enumerated().map { index, id in
+            PunctualWatchRun.Person(id: id, label: "person \(index + 1)")
+        }
+        return me + others
     }
 
     /// The capture's `zx` values are 12 lowercase letters and digits.

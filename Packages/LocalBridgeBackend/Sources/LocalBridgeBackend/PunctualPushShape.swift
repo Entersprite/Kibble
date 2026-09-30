@@ -13,16 +13,25 @@ import GChatBridgeCore
 ///   string nested inside a string.
 /// - A string of digits is a time (`@now-3m`) when it is a plausible one,
 ///   and otherwise `d<length>`, because it could be an id.
-/// - A short lowercase word with only `-` and `_` besides is printed, since
-///   the protocol's vocabulary (`user-state-changes`, `noop`) is the finding.
+/// - A word from `vocabulary`, the words the capture's own requests and
+///   answers use, is printed. Any other lowercase word becomes `w<length>`:
+///   it could be a SID, a status someone typed (`lunch`) or a username, and
+///   the review showed a lowercase SID printing in full. A `w<n>` where a
+///   value is expected is the cue to add a word here after a run.
 /// - Every other string becomes `s<length>`.
 /// - A number up to 99 999 prints as itself; a larger one is a time when
 ///   plausible, and otherwise `n<digits>`.
 ///
-/// **The residual risk** is a person's name that is one lowercase word. The
-/// report's header asks the owner to read it before pasting it anywhere.
 enum PunctualPushShape {
     private static let largestPrinted = 99999.0
+
+    /// Every word the capture's Punctual traffic uses (`findings.md` §47.1),
+    /// plus BrowserChannel's `noop`, `stop` and `close`.
+    static let vocabulary: Set<String> = [
+        "availability", "c", "calendar", "close", "events", "group", "group-state-changes",
+        "hub-web-ringing", "noop", "state", "stop", "typing", "user", "user-state-changes",
+        "user-targeted-changes", "workflows"
+    ]
 
     static func render(_ value: PBLiteValue, people: [String: String], now: Date) -> String {
         switch value {
@@ -58,7 +67,7 @@ enum PunctualPushShape {
             digits = String(unsigned).count
         case let .double(double):
             value = double
-            digits = String(Int64(clamping: Int64(exactly: double.rounded()) ?? 0).magnitude).count
+            digits = String(format: "%.0f", abs(double)).count
         }
         if abs(value) <= largestPrinted {
             if case let .double(double) = number, double != double.rounded() {
@@ -80,16 +89,15 @@ enum PunctualPushShape {
         if !text.isEmpty, text.allSatisfy(\.isASCIIDigit) {
             return Double(text).flatMap { time($0, now: now) } ?? "d\(text.count)"
         }
-        if isProtocolWord(text) {
+        if vocabulary.contains(text) {
             return "\"\(text)\""
         }
-        return "s\(text.count)"
+        return isLowercaseWord(text) ? "w\(text.count)" : "s\(text.count)"
     }
 
-    private static func isProtocolWord(_ text: String) -> Bool {
-        guard let first = text.unicodeScalars.first, text.count <= 24,
-              ("a" ... "z").contains(first) else { return false }
-        return text.unicodeScalars.allSatisfy { ("a" ... "z").contains($0) || $0 == "-" || $0 == "_" }
+    private static func isLowercaseWord(_ text: String) -> Bool {
+        !text.isEmpty && text.unicodeScalars
+            .allSatisfy { ("a" ... "z").contains($0) || $0 == "-" || $0 == "_" }
     }
 
     /// The same instant in each unit a time could be sent in, as the api

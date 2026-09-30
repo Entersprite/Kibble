@@ -87,11 +87,84 @@ struct PunctualProbeReportTests {
         #expect(text.contains("key source: mole shell"))
     }
 
+    /// Review finding 8: the header is on disk before the first request, so
+    /// a run quit during the opening cannot leave the last run's file
+    /// looking like this one's.
+    @Test func theHeaderIsFlushedBeforeAnyRequest() async throws {
+        let flushes = FlushLog()
+        let transport = FlushWitnessTransport(flushes: flushes)
+        _ = try await PunctualProbeReport.run(
+            store: storedStore(), transport: transport, endpoints: ChatEndpoints(),
+            flush: { flushes.record($0) }
+        )
+        let onDisk = try #require(transport.flushedAtFirstRequest)
+        #expect(onDisk.contains("config: build "))
+    }
+
+    /// `self` is watched first: the owner can change their own state on
+    /// demand, and the first watch is the one that survives a refused add.
+    @Test func selfIsWatchedFirstAndOthersAreNumberedInOrder() {
+        let people = PunctualProbeReport.ordered(["a", "me", "b"], selfUserID: "me")
+        #expect(people.map(\.label) == ["self", "person 1", "person 2"])
+        #expect(people.map(\.id) == ["me", "a", "b"])
+    }
+
+    @Test func theConfigRowNamesTheChooseServerDeviation() {
+        let header = PunctualProbeReport.header(server: "prod-09-us", duration: .seconds(600))
+        #expect(header[1].contains("choose server topic: availability"))
+    }
+
     @Test func theReportCarriesItsConfigRowAndNoCredential() async throws {
         let (text, _) = try await run([page(tzliq: nil), selfStatus(), page(tzliq: nil)])
         #expect(text.contains("config: build "))
         #expect(text.contains("server path prod-09-us"))
         #expect(!text.contains("COOKIE-SECRET"))
         #expect(!text.contains("XSRF\""))
+    }
+}
+
+/// `flush` is synchronous, so its record is too, in call order.
+private final class FlushLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    var texts: [String] {
+        lock.withLock { recorded }
+    }
+
+    func record(_ text: String) {
+        lock.withLock { recorded.append(text) }
+    }
+}
+
+/// Records what had been flushed when the first request went out, then fails
+/// it, so the run stops at the bootstrap.
+private final class FlushWitnessTransport: HTTPTransport, @unchecked Sendable {
+    private let flushes: FlushLog
+    private let lock = NSLock()
+    private var sent = false
+    private var witnessed: String?
+
+    init(flushes: FlushLog) {
+        self.flushes = flushes
+    }
+
+    var flushedAtFirstRequest: String? {
+        lock.withLock { witnessed }
+    }
+
+    func send(_: HTTPRequest) async throws -> HTTPResponse {
+        let last = flushes.texts.last
+        lock.withLock {
+            if !sent {
+                sent = true
+                witnessed = last
+            }
+        }
+        throw ScriptedTransport.Exhausted()
+    }
+
+    func stream(_: HTTPRequest) async throws -> HTTPStream {
+        throw ScriptedTransport.Exhausted()
     }
 }

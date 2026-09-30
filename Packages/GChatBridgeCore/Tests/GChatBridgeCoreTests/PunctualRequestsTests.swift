@@ -117,6 +117,8 @@ struct PunctualRequestsTests {
         #expect(fields.map(\.0) == ["count", "ofs", "req0___data__", "req1___data__", "req2___data__"])
         #expect(fields[0].1 == "3")
         #expect(fields[1].1 == "2")
+        // The capture's adds carried no `X-WebChannel-Content-Type`; only the open did.
+        #expect(request.headers["X-WebChannel-Content-Type"] == nil)
         #expect(try fields[4].1 == (watches[2].json()))
     }
 
@@ -134,9 +136,13 @@ struct PunctualRequestsTests {
     }
 
     @Test func everyRequestCarriesTheBrowserHeaders() throws {
+        let channel = PunctualChannelID(gsessionID: "g", sid: "s")
+        let watch = PunctualWatch(sequence: 2, topic: .availability(userID: "1"))
         for request in try [
             requests.chooseServer(.availability(userID: "1")),
-            requests.poll(on: PunctualChannelID(gsessionID: "g", sid: "s"), aid: 0, zx: "z")
+            requests.open(gsessionID: "g", rid: 1, zx: "z", watch: watch),
+            requests.add([watch], on: channel, rid: 2, aid: 0, zx: "z"),
+            requests.poll(on: channel, aid: 0, zx: "z")
         ] {
             #expect(request.headers["User-Agent"] == ChatEndpoints.defaultUserAgent)
             #expect(request.headers["Origin"] == "https://chat.google.com")

@@ -45,6 +45,19 @@ struct PunctualPushShapeTests {
             == #"["user-state-changes","state","noop","c"]"#)
     }
 
+    /// Review finding 1: a lowercase word outside the capture's vocabulary
+    /// could be a SID, a status someone typed, or a username, so it is
+    /// masked as a word of its length. These all printed before.
+    @Test func aLowercaseWordOutsideTheVocabularyIsOnlyItsLength() throws {
+        #expect(try render(#"["lunch","ooo","secretsidlowercase","mark_g"]"#) == "[w5,w3,w18,w6]")
+    }
+
+    /// A 21-digit id sent as a JSON number cannot be an `Int64`; it still
+    /// reports its digit count, not `n1`.
+    @Test func aLargeDoubleReportsItsDigitCount() throws {
+        #expect(try render("[1.23456789012345678e20]") == "[n21]")
+    }
+
     /// Anything with a capital, a digit, a space or punctuation other than
     /// `-` and `_` is not a protocol word here, so it is masked.
     @Test func mixedCaseAndDigitsAreNotProtocolWords() throws {
