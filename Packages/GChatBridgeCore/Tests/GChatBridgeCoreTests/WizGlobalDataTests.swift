@@ -121,6 +121,29 @@ struct WizGlobalDataTests {
         #expect(rendered.contains("DynamiteWebUi"))
     }
 
+    // MARK: - The Punctual key
+
+    /// `findings.md` §47: the API key every Punctual request carries as `key=`
+    /// is `WIZ_global_data.Tzliq` on `/app/home`. The value here is invented;
+    /// 39 characters because the real one is.
+    @Test("the Punctual key is read from Tzliq, and described by its length only")
+    func thePunctualKeyIsReadFromTzliq() throws {
+        let key = String(repeating: "k", count: 39)
+        let html = #"<script>window.WIZ_global_data = {"qwAQke":"DynamiteWebUi","Tzliq":""#
+            + key + #""};</script>"#
+        let wiz = try #require(WizGlobalData(html: html))
+        #expect(wiz.punctualKey == key)
+        #expect(!"\(wiz)".contains(key))
+        #expect("\(wiz)".contains("punctual key: 39 chars"))
+    }
+
+    @Test("a shell without Tzliq has no Punctual key")
+    func aShellWithoutTzliqHasNoPunctualKey() throws {
+        let wiz = try #require(WizGlobalData(html: Self.shell(app: "DynamiteWebUi")))
+        #expect(wiz.punctualKey == nil)
+        #expect("\(wiz)".contains("punctual key: none"))
+    }
+
     // MARK: - The assignment's punctuation
 
     /// **Regression, from a real signed-in shell.**

@@ -100,6 +100,7 @@ public final class SystemLaunchServices: LaunchServices {
         switch probe {
         case .keychain: await LaunchProbes.keychainCheck()
         case .api: await LaunchProbes.apiProbe()
+        case .punctual: await LaunchProbes.punctualProbe()
         }
     }
 

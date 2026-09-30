@@ -73,7 +73,8 @@ extension APIProbeReport {
 
     /// `now-14m`, `now+3h`, `now+4d`: whole units, rounded toward the larger
     /// one only past 90 of the smaller, so a meeting's minutes stay minutes.
-    private static func relative(_ interval: TimeInterval) -> String {
+    /// Not `private`: the Punctual probe prints its times the same way.
+    static func relative(_ interval: TimeInterval) -> String {
         let sign = interval < 0 ? "-" : "+"
         let magnitude = abs(interval)
         let (value, unit): (Double, String) = switch magnitude {

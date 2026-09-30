@@ -30,6 +30,14 @@ public struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
     /// signed-out shell does.
     public let xsrfToken: String?
 
+    /// The API key Punctual requests carry as `key=` (`Tzliq`), or `nil`.
+    ///
+    /// Seen on `/app/home` (`findings.md` §47). Whether `/mole/world`'s shell
+    /// carries it too is `[Verify]`, which is why this is optional rather than
+    /// a sign-in requirement. A browser key, not a credential, but it is
+    /// reported by length all the same.
+    public let punctualKey: String?
+
     /// How many keys the blob had. Around 128 for an authenticated shell and
     /// around 68 signed out; not a decision input, but the number a human wants
     /// when a shell is not the shape they expected.
@@ -61,7 +69,9 @@ public struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
     /// survive that.
     public var description: String {
         let token = xsrfToken.map { "\($0.count) chars" } ?? "none"
-        return "WizGlobalData(app: \(appName ?? "none"), xsrf: \(token), keys: \(keyCount))"
+        let punctual = punctualKey.map { "\($0.count) chars" } ?? "none"
+        return "WizGlobalData(app: \(appName ?? "none"), xsrf: \(token), "
+            + "punctual key: \(punctual), keys: \(keyCount))"
     }
 }
 
@@ -84,6 +94,7 @@ public extension WizGlobalData {
     private static let assignment = "WIZ_global_data"
     private static let appNameKey = "qwAQke"
     private static let xsrfTokenKey = "SMqcke"
+    private static let punctualKeyKey = "Tzliq"
 
     private static let signedInApp = "DynamiteWebUi"
     private static let signedOutApp = "AccountsSignInUi"
@@ -110,6 +121,7 @@ public extension WizGlobalData {
         self.init(
             appName: appName,
             xsrfToken: fields[Self.xsrfTokenKey] as? String,
+            punctualKey: fields[Self.punctualKeyKey] as? String,
             keyCount: fields.count,
             signInState: Self.state(ofApp: appName)
         )

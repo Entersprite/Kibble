@@ -85,7 +85,8 @@ public enum APIProbeReport {
     /// The credential, or `nil` once the reason it is unusable has been
     /// appended - a Keychain that refuses is not the same as no session, and
     /// the two get different sentences.
-    private static func appendCredential(
+    /// Not `private`: `PunctualProbeReport` opens the same way.
+    static func appendCredential(
         store: KeychainCredentialStore,
         lines: inout [String]
     ) async -> SessionCookies? {
@@ -110,7 +111,8 @@ public enum APIProbeReport {
     /// authenticates - an `/api/` failure with a dead credential would be
     /// uninterpretable. `nil` once "not signed in" or "bootstrap failed" has
     /// been appended.
-    private static func appendBootstrap(
+    /// Not `private`: `PunctualProbeReport` opens the same way.
+    static func appendBootstrap(
         cookies: SessionCookies,
         store: KeychainCredentialStore,
         transport: any HTTPTransport,
@@ -158,7 +160,8 @@ public enum APIProbeReport {
     /// Also the only place this account's own id is ever read, so it can
     /// resolve a read receipt to `self`/`other` further down the report -
     /// `selfUserID` is set on success and left `nil` otherwise, never printed.
-    private static func appendVerifiedCall(
+    /// Not `private`: `PunctualProbeReport` opens the same way.
+    static func appendVerifiedCall(
         client: ProtoAPIClient,
         selfUserID: inout String?,
         lines: inout [String]
@@ -322,7 +325,8 @@ public enum APIProbeReport {
     /// never been sent by this implementation before this call, so this is
     /// this call's first live evidence, not a confirmed shape.
     /// Returns the members it named, for the presence section.
-    private static func appendMemberResolutionSummary(
+    /// Not `private`: `PunctualProbeReport` opens the same way.
+    static func appendMemberResolutionSummary(
         conversations: [Conversation],
         client: ProtoAPIClient,
         lines: inout [String]

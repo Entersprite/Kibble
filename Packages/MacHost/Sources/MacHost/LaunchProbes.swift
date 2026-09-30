@@ -1,7 +1,7 @@
 import Foundation
 import LocalBridgeBackend
 
-/// The two `--probe=` diagnostics, split out of `AppEnvironment` because they
+/// The `--probe=` diagnostics that replace the launch, split out of `AppEnvironment` because they
 /// are self-contained - reachable only behind a flag, and touching neither
 /// `phase` nor the store directly.
 ///
@@ -41,6 +41,30 @@ enum LaunchProbes {
             APIProbeReport.run(conversationIndexOverride: probeConversationOverride()),
             to: "api-probe.txt"
         )
+    }
+
+    /// `--probe=punctual`. Long-running, so the report is rewritten after
+    /// every line rather than once at the end: a run that is quit early keeps
+    /// what it saw. `--probe-minutes=N` changes the ten-minute default, and
+    /// `--punctual-server=` the server path, both parsed here for the reason
+    /// `--probe-conversation=` is.
+    static func punctualProbe() async -> String {
+        let name = "punctual-probe.txt"
+        guard let directory = try? SystemLaunchServices.supportDirectory() else {
+            return "Could not resolve where to write \(name)."
+        }
+        let url = directory.appendingPathComponent(name)
+        let minutes = argument("--probe-minutes=").flatMap(Int.init)
+        let text = await PunctualProbeReport.run(
+            serverPath: argument("--punctual-server="),
+            duration: minutes.map { .seconds($0 * 60) } ?? PunctualProbeReport.defaultDuration,
+            flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
+        )
+        return write(text, to: name)
+    }
+
+    private static func argument(_ prefix: String) -> String? {
+        CommandLine.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
     }
 
     private static func probeConversationOverride() -> Int? {
