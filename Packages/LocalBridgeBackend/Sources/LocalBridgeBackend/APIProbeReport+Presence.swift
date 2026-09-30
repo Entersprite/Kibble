@@ -40,6 +40,9 @@ extension APIProbeReport {
                 )
                 lines.append(contentsOf: presenceLines(response, asked: ids))
                 lines.append(contentsOf: unnamedPresenceLines(response, selfUserID: selfUserID))
+                lines.append(contentsOf: decodedStatusLines(
+                    response.userPresences.map(\.userStatus), selfUserID: selfUserID, now: Date()
+                ))
             } catch {
                 lines.append("  FAILED: \(safeDescription(of: error))")
             }

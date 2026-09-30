@@ -161,6 +161,8 @@ extension APIProbeReport {
             return
         }
         lines.append(contentsOf: selfStatusLines(response))
+        let status = response.userStatus
+        lines.append(contentsOf: decodedStatusLines([status], selfUserID: status.userID.id, now: Date()))
     }
 
     static func selfStatusLines(_ response: GetSelfUserStatusResponse) -> [String] {
