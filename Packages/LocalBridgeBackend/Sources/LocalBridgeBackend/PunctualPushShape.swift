@@ -11,8 +11,9 @@ import GChatBridgeCore
 /// - A string whose content is JSON is parsed and rendered as `json(…)`. Two
 ///   reads in session 35 leaked personal data through exactly this case, a
 ///   string nested inside a string.
-/// - A string of digits is a time (`@now-3m`) when it is a plausible one,
-///   and otherwise `d<length>`, because it could be an id.
+/// - A string of five digits or fewer prints as itself, quoted: pushes name
+///   a watch by its sequence that way. A longer one is a time (`@now-3m`)
+///   when plausible, and otherwise `d<length>`, because it could be an id.
 /// - A word from `vocabulary`, the words the capture's own requests and
 ///   answers use, is printed. Any other lowercase word becomes `w<length>`:
 ///   it could be a SID, a status someone typed (`lunch`) or a username, and
@@ -87,6 +88,11 @@ enum PunctualPushShape {
             return "json(\(render(nested, people: people, now: now)))"
         }
         if !text.isEmpty, text.allSatisfy(\.isASCIIDigit) {
+            // Five digits or fewer cannot be an id, and run 1 showed pushes
+            // naming a watch by its sequence this way (`findings.md` §48).
+            if text.count <= 5 {
+                return "\"\(text)\""
+            }
             return Double(text).flatMap { time($0, now: now) } ?? "d\(text.count)"
         }
         if vocabulary.contains(text) {

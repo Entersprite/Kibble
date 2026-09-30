@@ -113,6 +113,9 @@ enum PunctualWatchRun {
         }
 
         await log.append("")
+        // A push names its watch by sequence, never by id (`findings.md` §48).
+        let legend = zip(watches, people).map { "\($0.sequence)=\($1.label)" }.joined(separator: ", ")
+        await log.append("watch sequences: \(legend)")
         await log.append("pushes (times since the channel opened; keepalives counted, not printed):")
         let started = settings.now()
         let duration = settings.duration
@@ -138,8 +141,9 @@ enum PunctualWatchRun {
         }
     }
 
-    /// `person 3` and `self` become `person`, and `@now-3m` becomes `@t`, so
-    /// the same push about two people counts once. Applied to the printer's
+    /// `person 3` and `self` become `person`, `@now-3m` becomes `@t`, and a
+    /// short digit string such as a watch sequence becomes `"#"`, so the same
+    /// push about two people counts once. Applied to the printer's
     /// own output, which holds no value to leak.
     static func collapsed(_ shape: String) -> String {
         shape
@@ -147,6 +151,7 @@ enum PunctualWatchRun {
                 of: #"(?<![\w"-])(person \d+|self)(?![\w"-])"#, with: "person", options: .regularExpression
             )
             .replacingOccurrences(of: #"@now[+-]\d+[smhd]"#, with: "@t", options: .regularExpression)
+            .replacingOccurrences(of: #""\d{1,5}""#, with: ##""#""##, options: .regularExpression)
     }
 
     /// Error text for a report a human pastes: the core's framing and

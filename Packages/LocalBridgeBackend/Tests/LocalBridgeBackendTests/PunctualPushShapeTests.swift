@@ -52,6 +52,13 @@ struct PunctualPushShapeTests {
         #expect(try render(#"["lunch","ooo","secretsidlowercase","mark_g"]"#) == "[w5,w3,w18,w6]")
     }
 
+    /// Run 1 (`findings.md` §48): pushes name a watch by its sequence as a
+    /// string, and a small state value would arrive the same way. Five digits
+    /// or fewer cannot be an id, so they print; `d<n>` hid which was which.
+    @Test func shortDigitStringsPrintAndLongOnesOnlyTheirLength() throws {
+        #expect(try render(#"["1","17","12345","123456"]"#) == #"["1","17","12345",d6]"#)
+    }
+
     /// A 21-digit id sent as a JSON number cannot be an `Int64`; it still
     /// reports its digit count, not `n1`.
     @Test func aLargeDoubleReportsItsDigitCount() throws {

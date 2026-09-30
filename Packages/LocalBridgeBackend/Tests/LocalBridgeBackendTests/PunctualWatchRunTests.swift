@@ -240,6 +240,23 @@ struct PunctualWatchRunTests {
         #expect(bodies[1].hasPrefix("count=1&ofs=11&"))
     }
 
+    /// Run 1: a push names its watch by sequence, not by id, so the report
+    /// says which sequence is whom.
+    @Test func theReportMapsEachWatchSequenceToItsPerson() async {
+        let transport = ScriptedTransport(
+            [chosen, opened, added],
+            streams: [.init(chunks: Self.pushChunks())]
+        )
+        let lines = await run(transport)
+        #expect(lines.contains("watch sequences: 1=person 1, 2=person 2, 3=self"))
+    }
+
+    /// The summary counts a batch once whatever sequences it names.
+    @Test func collapsingFoldsSequencesSoOneBatchShapeCountsOnce() {
+        #expect(PunctualWatchRun
+            .collapsed(#"[["1",[null]],["17",[null]]]"#) == ##"[["#",[null]],["#",[null]]]"##)
+    }
+
     /// `self` and `person N` collapse only as labels, never inside a word.
     @Test func collapsingTouchesLabelsOnly() {
         #expect(PunctualWatchRun.collapsed(#"["self-status",self,person 3,@now-3m]"#)
