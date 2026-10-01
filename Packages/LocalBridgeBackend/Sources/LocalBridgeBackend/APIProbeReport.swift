@@ -29,16 +29,16 @@ public enum APIProbeReport {
     /// therefore names no core type - which is what the containment lint checks
     /// for. Same shape as `LocalBridgeBackend.using(_:transport:)` in
     /// `SessionHandoff.swift`.
-    /// `conversationIndexOverride` is `--probe-conversation=N` in `MacHost`'s
+    /// `conversation` is `--probe-conversation=` in `MacHost`'s
     /// `LaunchProbes.swift` - parsed there, not here, so this package keeps
     /// reading no `CommandLine` state and the containment lint's shape is
-    /// undisturbed. `nil` keeps the default: the most recently active
-    /// conversation, per `APIProbeReport+History.swift`'s own doc comment.
+    /// undisturbed. The default is the most recently active conversation,
+    /// per `APIProbeReport+History.swift`'s own doc comment.
     public static func run(
         store: KeychainCredentialStore = KeychainCredentialStore(),
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
-        conversationIndexOverride: Int? = nil
+        conversation: ProbeConversation = .mostRecent
     ) async -> String {
         // Broken into one append-or-stop step per stage of the connect
         // sequence, each a function of its own, rather than one long body -
@@ -74,7 +74,7 @@ public enum APIProbeReport {
         let probedGroup = await appendLadder(
             client: client,
             selfUserID: selfUserID,
-            conversationIndexOverride: conversationIndexOverride,
+            conversation: conversation,
             lines: &lines
         )
         lines.append("")
@@ -224,7 +224,7 @@ public enum APIProbeReport {
     private static func appendLadder(
         client: ProtoAPIClient,
         selfUserID: String?,
-        conversationIndexOverride: Int?,
+        conversation: ProbeConversation,
         lines: inout [String]
     ) async -> GroupId? {
         lines.append("")
@@ -245,7 +245,7 @@ public enum APIProbeReport {
             client: client,
             mapping: mapping,
             selfUserID: selfUserID,
-            conversationIndexOverride: conversationIndexOverride,
+            conversation: conversation,
             lines: &lines
         )
     }
