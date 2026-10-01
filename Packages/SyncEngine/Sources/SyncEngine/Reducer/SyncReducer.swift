@@ -25,7 +25,7 @@ public enum SyncReducer {
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged:
             supersedingStaleError(reduceMessageEvent(event))
         case .conversationsChanged, .conversationUpdated, .membersChanged, .membersResolved,
-             .readStateChanged, .typingChanged, .presenceChanged:
+             .readStateChanged, .typingChanged, .presenceChanged, .statusChanged:
             supersedingStaleError(reduceConversationEvent(event))
         case .selfIdentified:
             supersedingStaleError(reduceSessionEvent(event))
@@ -122,6 +122,8 @@ public enum SyncReducer {
             ])
         case let .presenceChanged(member, presence):
             Reduction(writes: [.setPresence(member: member, presence: presence)])
+        case let .statusChanged(member, status):
+            Reduction(writes: [.setStatus(member: member, status: status)])
         default:
             Reduction()
         }

@@ -15,6 +15,7 @@ struct ModelCodingTests {
         try expectWireStable(Fixture.conversationWithReadPosition, golden: "conversation-readPosition")
         try expectWireStable(Fixture.human, golden: "member")
         try expectWireStable(Fixture.bot, golden: "member-app")
+        try expectWireStable(Fixture.humanWithStatus, golden: "member-status")
         try expectWireStable(Fixture.message, golden: "message")
         try expectWireStable(Fixture.messageWithMentions, golden: "message-mentions")
         try expectWireStable(Fixture.thread, golden: "thread")

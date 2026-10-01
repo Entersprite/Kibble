@@ -27,6 +27,66 @@ public enum PresenceMapping {
         return result
     }
 
+    /// Each answered person's status, from `user_status.custom_status`.
+    ///
+    /// The key is present only when the entry carries a `user_status`: one
+    /// without it says nothing ("nobody told us"), which must not clear a
+    /// status. A `user_status` with nothing to show - no custom status, or
+    /// only empty strings - maps to `nil`, which is "cleared". So does one
+    /// already past its expiry at `now`, whatever the server still sends: the
+    /// poll then clears it within one interval, where a render-time check
+    /// alone would leave it until the row happened to redraw.
+    public static func statuses(
+        _ response: GetUserPresenceResponse,
+        now: Date
+    ) -> [ChatKit.Member.ID: MemberStatus?] {
+        var result: [ChatKit.Member.ID: MemberStatus?] = [:]
+        for entry in response.userPresences where entry.hasUserStatus {
+            let id = entry.userID.id
+            guard !id.isEmpty else { continue }
+            result[ChatKit.Member.ID(id)] = status(of: entry.userStatus, now: now)
+        }
+        return result
+    }
+
+    /// `Emoji.custom_emoji` (2) and its `shortcode` (3): purple's proto names
+    /// them, the vendored one does not, so they are read from the bytes.
+    private static let customEmojiField = 2
+    private static let shortcodeField = 3
+
+    static func status(of userStatus: UserStatus, now: Date) -> MemberStatus? {
+        guard userStatus.hasCustomStatus else { return nil }
+        let custom = userStatus.customStatus
+        let unicode = custom.hasEmoji ? custom.emoji.unicode : ""
+        let legacy = custom.hasStatusEmoji ? custom.statusEmoji : ""
+        let shortcode = custom.hasEmoji ? customEmojiShortcode(in: custom.emoji) : nil
+        let expiry = custom.hasStateExpiryTimestampUsec && custom.stateExpiryTimestampUsec > 0
+            ? Date(timeIntervalSince1970: Double(custom.stateExpiryTimestampUsec) / 1_000_000)
+            : nil
+        let status = MemberStatus(
+            emoji: [unicode, legacy].first { !$0.isEmpty },
+            customEmojiShortcode: shortcode,
+            text: custom.hasStatusText && !custom.statusText.isEmpty ? custom.statusText : nil,
+            expiresAt: expiry
+        )
+        if status.isEmpty {
+            return nil
+        }
+        if let expiry, expiry <= now {
+            return nil
+        }
+        return status
+    }
+
+    private static func customEmojiShortcode(in emoji: Emoji) -> String? {
+        guard let custom = ProtoFieldScan.payloads(ofField: customEmojiField, in: emoji.unknownFields.data)
+            .first,
+            let bytes = ProtoFieldScan.payloads(ofField: shortcodeField, in: custom).first,
+            !bytes.isEmpty
+        else { return nil }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
     /// `nil` when the entry says nothing about presence at all - "nobody told
     /// us", which `Member.presence` keeps distinct from `.unknown`.
     static func presence(of entry: UserPresence) -> ChatKit.Presence? {

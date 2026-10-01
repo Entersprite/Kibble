@@ -46,7 +46,7 @@ public extension ChatStore {
     private static func perform(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case .replaceConversations, .upsertConversation, .upsertMembers,
-             .setMembership, .setPresence:
+             .setMembership, .setPresence, .setStatus:
             try performConversationWrite(write, in: db)
         case .setReadState, .markUnread:
             try performReadWrite(write, in: db)
@@ -75,17 +75,18 @@ public extension ChatStore {
         case let .upsertMembers(members):
             for member in members {
                 var row = try MemberRow(member)
-                // The `lastReadAt` rule, for presence: a snapshot that carries
-                // none - every `get_members` answer - says nothing about it,
-                // so what `.setPresence` recorded is carried forward rather
-                // than overwritten with NULL. Only `clearEphemeralState`
-                // clears it.
-                if row.presence == nil {
-                    row.presence = try String.fetchOne(
-                        db,
-                        sql: "SELECT presence FROM member WHERE id = ?",
-                        arguments: [row.id]
-                    )
+                // The `lastReadAt` rule, for presence and status: a snapshot
+                // that carries none - every `get_members` answer - says
+                // nothing about them, so what `.setPresence` and `.setStatus`
+                // recorded is carried forward rather than overwritten with
+                // NULL. Only `clearEphemeralState`, and a `.setStatus(nil)`,
+                // clear them.
+                if row.presence == nil || row.status == nil,
+                   let stored = try Row.fetchOne(
+                       db, sql: "SELECT presence, status FROM member WHERE id = ?", arguments: [row.id]
+                   ) {
+                    row.presence = row.presence ?? stored["presence"]
+                    row.status = row.status ?? stored["status"]
                 }
                 try row.upsert(db)
             }
@@ -98,6 +99,12 @@ public extension ChatStore {
             try db.execute(
                 sql: "UPDATE member SET presence = ? WHERE id = ?",
                 arguments: [Wire.string(presence), member.rawValue]
+            )
+        case let .setStatus(member, status):
+            // An UPDATE, for `.setPresence`'s reason.
+            try db.execute(
+                sql: "UPDATE member SET status = ? WHERE id = ?",
+                arguments: [status.map(Wire.json), member.rawValue]
             )
         default:
             break
@@ -243,7 +250,7 @@ public extension ChatStore {
             )
         case .clearEphemeralState:
             try db.execute(sql: "DELETE FROM typing")
-            try db.execute(sql: "UPDATE member SET presence = NULL")
+            try db.execute(sql: "UPDATE member SET presence = NULL, status = NULL")
             // The connection state, the last error and the Mentions backfill's
             // status are claims about now too. A fresh process that has not
             // connected must not inherit "connected" from whatever the last

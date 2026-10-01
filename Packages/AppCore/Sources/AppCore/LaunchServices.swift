@@ -82,7 +82,8 @@ public struct LaunchArguments: Sendable, Equatable {
             // by double-clicking the app is the real bridge.
             usesRealBackend: !arguments.contains("--backend=fixture"),
             probe: arguments.contains("--probe=keychain") ? .keychain
-                : arguments.contains("--probe=api") ? .api : nil,
+                : arguments.contains("--probe=api") ? .api
+                : arguments.contains("--probe=punctual") ? .punctual : nil,
             runsDiagnostics: arguments.contains("--probe=appnap")
         )
     }
@@ -92,6 +93,9 @@ public struct LaunchArguments: Sendable, Equatable {
 public enum LaunchProbe: Sendable, Equatable {
     case keychain
     case api
+    /// Watches availability on Punctual for about ten minutes and reports the
+    /// pushes' shapes (`findings.md` §47).
+    case punctual
 }
 
 /// One backend, who we are, and the thing that drives a fake world.

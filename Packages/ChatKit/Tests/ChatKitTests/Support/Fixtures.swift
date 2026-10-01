@@ -41,6 +41,26 @@ enum Fixture {
     /// value this build does not model — both of which the seam has to survive.
     static let bot = Member(id: botID, kind: .app, presence: .unknown("SHARING_DISABLED"))
 
+    /// A status with its optionals left out, so the golden shows them omitted
+    /// rather than written as `null`.
+    static let humanWithStatus = Member(
+        id: humanID,
+        kind: .human,
+        displayName: "Ada Lovelace",
+        presence: .doNotDisturb,
+        status: MemberStatus(emoji: "🌴", text: "On vacation")
+    )
+
+    /// Every field set, so the golden pins each key's spelling and the date's
+    /// RFC 3339 form. The custom shortcode alongside a Unicode emoji is not a
+    /// shape the wire sends; it is here only to pin the key.
+    static let status = MemberStatus(
+        emoji: "🌴",
+        customEmojiShortcode: ":beach:",
+        text: "On vacation",
+        expiresAt: readAt
+    )
+
     /// What `get_self_user_status` actually returns: an id and a kind, never a
     /// name. Deliberately not `human` above, which carries a full profile - a
     /// `selfIdentified` sample that looked like every other member fixture
@@ -183,6 +203,7 @@ extension Fixture {
         Sample("event-membersChanged", .membersChanged(conversationID: spaceID, members: [human, bot])),
         Sample("event-membersResolved", .membersResolved([human, bot])),
         Sample("event-presenceChanged", .presenceChanged(member: botID, presence: .doNotDisturb)),
+        Sample("event-statusChanged", .statusChanged(member: humanID, status: status)),
         Sample("event-gap", .gap(scope: .conversation(spaceID), reason: "event buffer overflow")),
         Sample("event-backendError", .backendError(.rateLimited(retryAfter: .milliseconds(1500)))),
         Sample("event-unknown", .unknown(type: "somethingNewer", payload: unknownPayload))

@@ -141,6 +141,34 @@ struct PresencePollTests: PresencePollFixtures {
         await backend.disconnect()
     }
 
+    /// The error comes after the withdrawal, never before it. Every
+    /// withdrawal event passes through `SyncReducer.supersedingStaleError`,
+    /// which clears the last error, so an error emitted first was erased at
+    /// once - and, reported only once per run, never shown. Reporting before
+    /// withdrawing turns this red.
+    @Test func aFailuresErrorComesAfterItsWithdrawal() async throws {
+        let transport = try transport([.people(["u-1": .active]), .failure], dmMembers: ["u-1"])
+        let backend = backend(transport, interval: .milliseconds(20))
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+
+        _ = try await backend.loadConversations()
+        try await awaitPolls(2, on: transport)
+        let events = await log.settle()
+
+        let withdrawal = try #require(events.lastIndex {
+            $0 == .presenceChanged(member: ada, presence: LocalBridgeBackend.absentPresence)
+        })
+        let error = try #require(events.firstIndex {
+            if case let .backendError(error) = $0 {
+                return "\(error)".contains("get_user_presence")
+            }
+            return false
+        })
+        #expect(withdrawal < error)
+        await backend.disconnect()
+    }
+
     /// `.setPresence` is an UPDATE, so presence for someone with no member row
     /// yet is dropped - and deduplication would then never send it again.
     /// The first poll therefore waits for the world load's name lookup, which

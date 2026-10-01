@@ -28,6 +28,7 @@ struct LaunchArgumentsTests {
     @Test func eachProbeIsRecognised() {
         #expect(LaunchArguments.parsing(["GChat", "--probe=keychain"]).probe == .keychain)
         #expect(LaunchArguments.parsing(["GChat", "--probe=api"]).probe == .api)
+        #expect(LaunchArguments.parsing(["GChat", "--probe=punctual"]).probe == .punctual)
     }
 
     /// `--probe=appnap` is a different kind of flag: it does not short-circuit

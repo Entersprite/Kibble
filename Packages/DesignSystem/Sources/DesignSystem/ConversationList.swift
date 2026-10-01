@@ -147,6 +147,12 @@ struct ConversationRow: View {
                 // the wire (`findings.md` §37.8), so weighting on it meant no
                 // conversation was ever bold.
                 .fontWeight(showsUnread ? .semibold : .regular)
+            if let status = Display.status(
+                of: conversation, directory: state.directory, me: state.me, connection: state.connection,
+                now: .now
+            ) {
+                StatusMark(status: status)
+            }
             Spacer(minLength: 4)
             // Google's own mute (`Conversation.isMuted`, only the fixture
             // sets it) or this account's local record (decision 1).

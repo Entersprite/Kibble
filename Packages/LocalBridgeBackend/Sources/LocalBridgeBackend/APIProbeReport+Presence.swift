@@ -22,23 +22,36 @@ extension APIProbeReport {
     private static let dndStateField = 1
     private static let topLevelDndField = 3
 
+    /// Followed by the in-a-meeting spike's sections
+    /// (`APIProbeReport+MeetingSpike.swift`), over the same people.
     static func appendPresenceSummary(
         members: [ChatKit.Member],
+        selfUserID: String?,
         client: ProtoAPIClient,
         lines: inout [String]
     ) async {
         lines.append("presence summary (get_user_presence):")
         let ids = LocalBridgeBackend.presenceTargets(from: members)
         lines.append("  people asked about: \(ids.count)")
-        guard !ids.isEmpty else { return }
-        let response: GetUserPresenceResponse
-        do {
-            response = try await client.call(.getUserPresence, LocalBridgeBackend.getUserPresenceRequest(ids))
-        } catch {
-            lines.append("  FAILED: \(safeDescription(of: error))")
-            return
+        if !ids.isEmpty {
+            do {
+                let response = try await client.call(
+                    .getUserPresence, LocalBridgeBackend.getUserPresenceRequest(ids)
+                )
+                lines.append(contentsOf: presenceLines(response, asked: ids))
+                lines.append(contentsOf: unnamedPresenceLines(response, selfUserID: selfUserID))
+                lines.append(contentsOf: decodedStatusLines(
+                    response.userPresences.map(\.userStatus), selfUserID: selfUserID, now: Date()
+                ))
+            } catch {
+                lines.append("  FAILED: \(safeDescription(of: error))")
+            }
         }
-        lines.append(contentsOf: presenceLines(response, asked: ids))
+        // Does not depend on the call above succeeding. The self status,
+        // which depends on nothing, is the report's last section instead
+        // (`run`), so its call cannot move any earlier section's.
+        lines.append("")
+        await appendUserStatusSummary(ids: ids, selfUserID: selfUserID, client: client, lines: &lines)
     }
 
     static func presenceLines(_ response: GetUserPresenceResponse, asked: [ChatKit.Member.ID]) -> [String] {

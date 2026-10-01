@@ -19,7 +19,8 @@ public enum LaunchPhase {
     case running(ChatSessionModel)
     case failed(String)
 
-    /// A diagnostic run finished - `--probe=keychain` and `--probe=api`.
+    /// A diagnostic run finished - `--probe=keychain`, `--probe=api` and
+    /// `--probe=punctual`.
     ///
     /// The associated string is a **short confirmation naming the file the
     /// full report was written to**, not the report itself. The whole

@@ -13,6 +13,9 @@ actor PresenceTransport: HTTPTransport {
     /// One poll's answer: people and their wire presence, or a failure.
     enum Answer {
         case people([String: GChatBridgeCore.Presence])
+        /// Everyone active, each with a `user_status`: a custom status with
+        /// this text and a palm tree, or `nil` for one with no custom status.
+        case statuses([String: String?])
         case failure
     }
 
@@ -98,13 +101,29 @@ actor PresenceTransport: HTTPTransport {
         }
         let answer = answers.count > 1 ? answers.removeFirst() : answers.first
         pollsAnswered += 1
-        guard case let .people(people)? = answer else { throw Boom() }
         var response = GetUserPresenceResponse()
-        response.userPresences = people.keys.sorted().map { id in
-            var entry = UserPresence()
-            entry.userID.id = id
-            entry.presence = people[id] ?? .undefinedPresence
-            return entry
+        switch answer {
+        case let .people(people)?:
+            response.userPresences = people.keys.sorted().map { id in
+                var entry = UserPresence()
+                entry.userID.id = id
+                entry.presence = people[id] ?? .undefinedPresence
+                return entry
+            }
+        case let .statuses(statuses)?:
+            response.userPresences = statuses.keys.sorted().map { id in
+                var entry = UserPresence()
+                entry.userID.id = id
+                entry.presence = .active
+                entry.userStatus.userID.id = id
+                if case let text?? = statuses[id] {
+                    entry.userStatus.customStatus.statusText = text
+                    entry.userStatus.customStatus.emoji.unicode = "🌴"
+                }
+                return entry
+            }
+        case .failure?, nil:
+            throw Boom()
         }
         return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedBytes())
     }
