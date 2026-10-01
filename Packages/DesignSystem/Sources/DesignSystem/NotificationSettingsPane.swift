@@ -209,7 +209,7 @@ public struct NotificationSettingsPane: View {
         } header: {
             Text("Sections")
         } footer: {
-            Text("Other also covers conversation types this version of GChat doesn’t recognise.")
+            Text("Other also covers conversation types this version of Kibble doesn’t recognise.")
         }
     }
 

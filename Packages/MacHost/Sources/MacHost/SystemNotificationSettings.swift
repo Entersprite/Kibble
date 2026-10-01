@@ -43,7 +43,7 @@ struct SignOutConfirmation: ViewModifier {
 
     func body(content: Content) -> some View {
         content.confirmationDialog(
-            "Sign out of GChat?",
+            "Sign out of Kibble?",
             isPresented: $isPresented,
             titleVisibility: .visible
         ) {

@@ -42,7 +42,7 @@ public struct MenuBarLabel: View {
                 Label("\(environment.badgeCount)", systemImage: "bubble.left.and.bubble.right")
                     .labelStyle(.titleAndIcon)
             } else {
-                Label("GChat", systemImage: "bubble.left.and.bubble.right")
+                Label("Kibble", systemImage: "bubble.left.and.bubble.right")
                     .labelStyle(.iconOnly)
             }
         }
@@ -79,11 +79,11 @@ public struct MenuBarContent: View {
             }
             Divider()
         }
-        Button("Open GChat") {
+        Button("Open Kibble") {
             MainWindow.show(using: openWindow)
         }
         Divider()
-        Button("Quit GChat") {
+        Button("Quit Kibble") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
