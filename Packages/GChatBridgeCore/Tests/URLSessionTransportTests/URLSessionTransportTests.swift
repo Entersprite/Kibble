@@ -353,3 +353,38 @@ struct URLSessionTransportTests {
         }
     }
 }
+
+/// `HTTPRequest.followsRedirects`: whether the loading system may chase a 3xx
+/// on its own. Attachments need it off, because a redirect leaves
+/// `chat.google.com` and the `Cookie` header this package sets by hand would
+/// otherwise go with it to whichever host the `Location` names.
+@Suite("URLSession transport - redirects")
+struct URLSessionTransportRedirectTests {
+    let stub = StubSession()
+
+    var transport: URLSessionTransport {
+        URLSessionTransport(session: stub.session)
+    }
+
+    @Test("a redirect is followed by default")
+    func followsByDefault() async throws {
+        stub.enqueue(.init(status: 302, headers: ["Location": "/next"]))
+        stub.enqueue(.json(#"{"landed":true}"#))
+        let response = try await transport.send(HTTPRequest(url: stub.baseURL))
+        #expect(response.status == 200)
+        #expect(response.url?.path() == "/next")
+        #expect(stub.requests.count == 2)
+    }
+
+    @Test("a request that does not follow redirects gets the 3xx itself")
+    func refusesWhenAsked() async throws {
+        stub.enqueue(.init(status: 302, headers: ["Location": "/next"]))
+        stub.enqueue(.json(#"{"landed":true}"#))
+        let response = try await transport.send(
+            HTTPRequest(url: stub.baseURL, followsRedirects: false)
+        )
+        #expect(response.status == 302)
+        #expect(response.headers["Location"] == "/next")
+        #expect(stub.requests.count == 1)
+    }
+}

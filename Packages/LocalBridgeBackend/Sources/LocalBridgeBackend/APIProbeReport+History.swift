@@ -90,24 +90,28 @@ extension APIProbeReport {
     /// and the two only ever travel together anyway: `worldItems` exists
     /// solely to find the one item matching whichever `conversations` entry
     /// `chooseConversationIndex` picks.
+    ///
+    /// Returns the group it probed, so `appendAttachmentSections` can run
+    /// against the same conversation without a sixth parameter here.
+    @discardableResult
     static func appendTopicsLadderSection(
         client: ProtoAPIClient,
         mapping: (conversations: [Conversation], worldItems: [WorldItemLite]),
         selfUserID: String?,
         conversationIndexOverride: Int?,
         lines: inout [String]
-    ) async {
+    ) async -> GroupId? {
         lines.append("list_topics ladder:")
         let conversations = mapping.conversations
         guard !conversations.isEmpty else {
             lines.append("  no conversation available to probe (empty or failed world mapping)")
-            return
+            return nil
         }
         guard let index = chooseConversationIndex(
             conversations, override: conversationIndexOverride, lines: &lines
         ) else {
             lines.append("  no conversation available to probe (empty or failed world mapping)")
-            return
+            return nil
         }
         let conversation = conversations[index]
         lines.append(conversationKindLine(conversation.kind))
@@ -118,7 +122,7 @@ extension APIProbeReport {
             // rather than force-unwrapped, the same "unreachable today is not
             // a promise" posture `WorldMapping.kind(for:)` already takes.
             lines.append("  conversation index \(index)'s id could not become a GroupId")
-            return
+            return nil
         }
 
         let rungs = TopicsRequestLadder.rungs(for: group)
@@ -159,6 +163,7 @@ extension APIProbeReport {
             worldItems: mapping.worldItems,
             lines: &lines
         )
+        return group
     }
 
     /// The topics analogue of `appendNestedItemShapes` - `findings.md` has no

@@ -142,6 +142,18 @@ public final class StubURLProtocol: URLProtocol {
                 httpVersion: "HTTP/1.1",
                 headerFields: stub.headers
             )!
+            // A 3xx with a `Location` is reported as a redirect, the way the
+            // loading system's own HTTP protocol reports one, so a session's
+            // redirect policy is consulted exactly as it would be live. A
+            // policy that refuses it makes the loading system deliver the 3xx
+            // itself, which is why the response and body still follow.
+            if (300 ..< 400).contains(stub.status),
+               let location = stub.headers["Location"],
+               let target = URL(string: location, relativeTo: request.url)?.absoluteURL {
+                var redirected = request
+                redirected.url = target
+                client?.urlProtocol(self, wasRedirectedTo: redirected, redirectResponse: response)
+            }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: stub.body)
             client?.urlProtocolDidFinishLoading(self)
