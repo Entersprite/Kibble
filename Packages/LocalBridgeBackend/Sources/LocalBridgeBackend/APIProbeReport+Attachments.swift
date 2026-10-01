@@ -183,12 +183,24 @@ extension APIProbeReport {
         ]
     }
 
+    /// In full when it is a known host, or a host under Google's own domains
+    /// made only of plain lowercase words (`chat.usercontent.google.com`):
+    /// that names a service. Anything else - digits, hyphens, another domain -
+    /// is reduced to its last two labels, since a label like
+    /// `doc-0s-…-docs` can carry an identifier.
     private static func renderHost(_ host: String) -> String {
-        guard !knownHosts.contains(host) else { return host }
+        guard !knownHosts.contains(host), !isPlainGoogleHost(host) else { return host }
         let labels = host.split(separator: ".")
         guard labels.count > 2 else { return host }
         let extra = labels.count - 2
         return "\(labels.suffix(2).joined(separator: ".")) (+\(extra) label\(extra == 1 ? "" : "s"))"
+    }
+
+    private static func isPlainGoogleHost(_ host: String) -> Bool {
+        guard host.hasSuffix(".google.com") || host.hasSuffix(".googleusercontent.com") else { return false }
+        return host.split(separator: ".").allSatisfy { label in
+            !label.isEmpty && label.allSatisfy { $0.isASCII && $0.isLowercase && $0.isLetter }
+        }
     }
 
     private static func describe(_ reason: AttachmentFetchFailure.Reason) -> String {

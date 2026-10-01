@@ -200,6 +200,18 @@ struct AttachmentProbeTests {
         #expect(lines.last == "    content type none, 0 bytes, format unrecognised")
     }
 
+    /// A host of plain words under Google's own domains names a service, not
+    /// a person; it prints in full, so a run can say which host refused it.
+    @Test("a Google host made only of plain words prints in full")
+    func plainWordGoogleHostsPrint() {
+        let fetched = FetchedAttachment(
+            body: Data(), contentType: nil,
+            hops: [AttachmentHop(host: "chat.usercontent.google.com", status: 403, carriedCredentials: true)]
+        )
+        let lines = APIProbeReport.attachmentFetchLines(label: "x", outcome: .success(fetched))
+        #expect(lines.first == "  x: chat.usercontent.google.com 403 (credentials)")
+    }
+
     @Test("formats are read from magic bytes")
     func magic() {
         #expect(APIProbeReport.imageFormat(Data([0xFF, 0xD8, 0xFF, 0xE0])) == "JPEG")

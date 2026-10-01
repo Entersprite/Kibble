@@ -120,7 +120,7 @@ public struct AttachmentFetch: Sendable {
         var url = firstURL(token: token, contentType: contentType, variant: variant)
         var hops: [AttachmentHop] = []
         while hops.count < Self.maxHops {
-            let authorised = isChatHost(url)
+            let authorised = carriesCookies(url)
             let response: HTTPResponse
             do {
                 response = try await transport.send(request(for: url, authorised: authorised))
@@ -129,7 +129,7 @@ public struct AttachmentFetch: Sendable {
             } catch {
                 throw AttachmentFetchFailure(reason: .transport(nil), hops: hops)
             }
-            if authorised {
+            if isChatHost(url) {
                 await credentials.absorb(response.headers)
             }
             hops.append(AttachmentHop(
@@ -193,13 +193,24 @@ public struct AttachmentFetch: Sendable {
         return components.url!
     }
 
+    /// `https` on Google's own domain: the chat host and its siblings, where
+    /// a file download is served (`findings.md` §52), with the label boundary
+    /// `CookieScope` insists on. mautrix's rule (`client.py:205-215`); a
+    /// browser would send each sibling only the cookies whose domain covers
+    /// it, but the jar no longer knows domains, so it is the whole jar.
+    /// `googleusercontent.com` is never sent anything: it signs its own URLs.
+    private func carriesCookies(_ url: URL) -> Bool {
+        guard url.scheme == "https", let host = url.host()?.lowercased() else { return false }
+        return isChatHost(url) || host == "google.com" || host.hasSuffix(".google.com")
+    }
+
     private func isChatHost(_ url: URL) -> Bool {
         url.scheme == "https" && url.host() == endpoints.host.host()
     }
 
     private func request(for url: URL, authorised: Bool) async -> HTTPRequest {
         var fields = [("User-Agent", endpoints.userAgent)]
-        if authorised, let xsrfToken {
+        if isChatHost(url), let xsrfToken {
             fields.append(("x-framework-xsrf-token", xsrfToken))
         }
         let request = HTTPRequest(
