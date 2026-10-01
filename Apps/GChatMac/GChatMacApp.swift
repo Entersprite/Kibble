@@ -31,7 +31,7 @@ struct GChatMacApp: App {
         // `Window`, not `WindowGroup`: one window, so `openWindow(id:)` from
         // the menu bar or a notification brings it back rather than making a
         // second one.
-        Window("GChat", id: MainWindow.id) {
+        Window("Kibble", id: MainWindow.id) {
             // A stable container, so a phase change swapping the content
             // below is not reported as the window closing and reopening.
             ZStack { content }
@@ -73,7 +73,7 @@ struct GChatMacApp: App {
         .menuBarExtraStyle(.menu)
 
         // HIG for app settings: a toolbar of panes, title following the pane,
-        // opened from GChat › Settings… (⌘,) - all provided by `Settings` and
+        // opened from Kibble › Settings… (⌘,) - all provided by `Settings` and
         // `TabView`. Changes apply as they are made.
         Settings {
             TabView(selection: $settingsPane) {

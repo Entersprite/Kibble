@@ -183,6 +183,11 @@ public final class SystemLaunchServices: LaunchServices {
 
     /// Not `private`: the probes write their report files beside the same
     /// database, and this is the one place that path is computed.
+    ///
+    /// Still named `GChat` after the app became Kibble, on purpose: it holds
+    /// the store an existing install already has, and renaming it would start
+    /// that install over. It moves with the bundle identifier, in the
+    /// repository-wide rename (`docs/superpowers/plans/2026-10-01-kibble-rename.md`).
     public static func supportDirectory() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,

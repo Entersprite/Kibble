@@ -69,7 +69,7 @@ public final class NotificationSettingsModel {
             do {
                 settings = try store.load(for: account) ?? NotificationSettings()
             } catch {
-                loadError = "GChat couldn’t read your saved notification settings. The defaults are in use, "
+                loadError = "Kibble couldn’t read your saved notification settings. The defaults are in use, "
                     + "with read receipts off until you turn them back on."
                 withholdReceiptsAfterLoadFailure()
             }
@@ -156,7 +156,7 @@ public final class NotificationSettingsModel {
             try store.save(settings, for: account)
             saveError = nil
         } catch {
-            saveError = "GChat couldn’t save your notification settings."
+            saveError = "Kibble couldn’t save your notification settings."
         }
     }
 

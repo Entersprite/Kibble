@@ -93,7 +93,7 @@ public struct ChatWindow: View {
         if state.showingMentions {
             return "Mentions"
         }
-        guard let conversation = state.selectedConversation else { return "GChat" }
+        guard let conversation = state.selectedConversation else { return "Kibble" }
         return Display.title(of: conversation, directory: state.directory, me: state.me)
     }
 

@@ -23,6 +23,10 @@ protocol SecretStorage: Sendable {
 /// and was never the product.
 public actor KeychainCredentialStore: CredentialStore {
     /// The default Keychain service. One per app, not per account.
+    ///
+    /// Still `gchat` after the app became Kibble, on purpose: renaming it
+    /// loses the saved session. It moves with a migration, in the
+    /// repository-wide rename (`docs/superpowers/plans/2026-10-01-kibble-rename.md`).
     public static let defaultService = "com.entersprite.gchat.session"
 
     /// The default account name.
