@@ -23,6 +23,7 @@ public extension Capabilities {
         canSetNotificationLevel: true,
         canMarkRead: true,
         supportsThreads: true,
-        supportsHistoryCatchUp: true
+        supportsHistoryCatchUp: true,
+        canFetchAttachments: true
     )
 }

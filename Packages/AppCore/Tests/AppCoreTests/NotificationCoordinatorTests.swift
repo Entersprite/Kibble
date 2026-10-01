@@ -152,6 +152,45 @@ struct NotificationCoordinatorTests {
         #expect(notification.title == "Alice")
     }
 
+    private func withAttachments(_ attachments: [ChatKit.Attachment], text: String = "") -> Message {
+        var message = message(from: alice.id, in: space, text: text)
+        message.attachments = attachments
+        return message
+    }
+
+    private let png = ChatKit.Attachment(id: "a", name: "a.png", contentType: "image/png")
+    private let pdf = ChatKit.Attachment(id: "b", name: "b.pdf", contentType: "application/pdf")
+
+    @Test func anImageOnlyMessageSaysItSentAnImage() {
+        let notification = NotificationCoordinator.notification(
+            for: withAttachments([pdf, png]), in: nil, directory: [alice.id: alice], me: me.id
+        )
+        #expect(notification.body == "Sent an image")
+    }
+
+    @Test func aFileOnlyMessageSaysItSentAFile() {
+        let notification = NotificationCoordinator.notification(
+            for: withAttachments([pdf]), in: nil, directory: [alice.id: alice], me: me.id
+        )
+        #expect(notification.body == "Sent a file")
+    }
+
+    @Test func textBesideAnAttachmentIsStillTheBody() {
+        let notification = NotificationCoordinator.notification(
+            for: withAttachments([png], text: "look"), in: nil, directory: [alice.id: alice], me: me.id
+        )
+        #expect(notification.body == "look")
+    }
+
+    /// A hidden preview hides what kind of thing was sent, too.
+    @Test func aHiddenPreviewSaysOnlyNewMessage() {
+        let notification = NotificationCoordinator.notification(
+            for: withAttachments([png]), in: nil, directory: [alice.id: alice], me: me.id,
+            presentation: .init(isPassive: false, playsSound: true, showsPreview: false)
+        )
+        #expect(notification.body == "New message")
+    }
+
     // MARK: - The viewing gate
 
     /// The defect this slice found: frontmost with no window is not viewing,

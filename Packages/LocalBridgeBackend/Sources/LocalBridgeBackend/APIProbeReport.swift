@@ -71,13 +71,24 @@ public enum APIProbeReport {
         guard await appendVerifiedCall(client: client, selfUserID: &selfUserID, lines: &lines) else {
             return lines.joined(separator: "\n")
         }
-        await appendLadder(
+        let probedGroup = await appendLadder(
             client: client,
             selfUserID: selfUserID,
             conversationIndexOverride: conversationIndexOverride,
             lines: &lines
         )
         lines.append("")
+        if let probedGroup {
+            await appendAttachmentSections(
+                client: client,
+                group: probedGroup,
+                fetches: attachmentFetches(
+                    transport: transport, endpoints: endpoints, bootstrapped: bootstrapped
+                ),
+                lines: &lines
+            )
+            lines.append("")
+        }
         await appendSelfStatusSummary(client: client, lines: &lines)
         return lines.joined(separator: "\n")
     }
@@ -215,7 +226,7 @@ public enum APIProbeReport {
         selfUserID: String?,
         conversationIndexOverride: Int?,
         lines: inout [String]
-    ) async {
+    ) async -> GroupId? {
         lines.append("")
         lines.append("paginated_world ladder:")
         let results = await WorldRequestLadder.run(WorldRequestLadder.rungs, with: client)
@@ -230,7 +241,7 @@ public enum APIProbeReport {
         // The topics ladder - step 6 of this slice - runs against one of the
         // conversations the world call already produced, rather than a
         // second `paginated_world` round trip just to get one to probe.
-        await appendTopicsLadderSection(
+        return await appendTopicsLadderSection(
             client: client,
             mapping: mapping,
             selfUserID: selfUserID,

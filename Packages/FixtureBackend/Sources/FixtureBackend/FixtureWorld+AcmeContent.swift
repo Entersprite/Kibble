@@ -22,6 +22,7 @@ extension Acme {
 
         var reactions: [Reaction] = []
         var mentions: [Mention] = []
+        var attachments: [Attachment] = []
 
         var message: Message {
             Message(
@@ -32,6 +33,7 @@ extension Acme {
                 text: text,
                 createdAt: at(minute),
                 reactions: reactions,
+                attachments: attachments,
                 mentions: mentions
             )
         }
@@ -78,7 +80,11 @@ extension Acme {
             id: "msg:pe-6", conversation: priceEngine, thread: "topic:variance", sender: maya,
             text: "Yes, auto-approve anything matching the MAP file and leave the rest "
                 + "for review.",
-            minute: 40
+            minute: 40,
+            attachments: [Attachment(
+                id: "fixture-upload:map-file", name: "MAP update - Tuesday.pdf",
+                contentType: "application/pdf"
+            )]
         ),
         Line(
             id: "msg:pe-mention", conversation: priceEngine, thread: "topic:variance", sender: maya,
@@ -99,7 +105,11 @@ extension Acme {
             id: "msg:sw-1", conversation: storefront, thread: "topic:checkout", sender: priya,
             text: "Checkout A/B results are in: the single-page flow converted 2.3% "
                 + "better on mobile.",
-            minute: -19
+            minute: -19,
+            attachments: [Attachment(
+                id: "fixture-upload:funnel", name: "checkout-funnel.png",
+                contentType: "image/png", width: 320, height: 200
+            )]
         ),
         Line(
             id: "msg:sw-2", conversation: storefront, thread: "topic:checkout", sender: tom,

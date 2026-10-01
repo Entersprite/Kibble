@@ -98,13 +98,27 @@ public struct HTTPRequest: Sendable, Hashable {
     /// now checked against this rather than assumed to have one.
     public var traceLabel: String?
 
+    /// Whether the transport may chase a 3xx on its own. `false` hands the
+    /// 3xx back as the response, for a caller that must decide each hop
+    /// itself.
+    ///
+    /// **This is a credential decision.** The `Cookie` header is set by hand
+    /// (`SessionCredentials.authorising(_:)`), and a transport that follows a
+    /// redirect carries the request's headers to whichever host the
+    /// `Location` names. Every request this package made before attachments
+    /// redirected, if at all, only to `accounts.google.com`. An attachment's
+    /// redirects leave Google's chat host for `googleusercontent.com`, so
+    /// `AttachmentFetch` turns this off and scopes credentials per hop.
+    public var followsRedirects: Bool
+
     public init(
         method: Method = .get,
         url: URL,
         headers: HTTPHeaders = HTTPHeaders([]),
         body: Data? = nil,
         timeout: Duration = .seconds(70),
-        traceLabel: String? = nil
+        traceLabel: String? = nil,
+        followsRedirects: Bool = true
     ) {
         self.method = method
         self.url = url
@@ -112,6 +126,7 @@ public struct HTTPRequest: Sendable, Hashable {
         self.body = body
         self.timeout = timeout
         self.traceLabel = traceLabel
+        self.followsRedirects = followsRedirects
     }
 }
 

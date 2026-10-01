@@ -68,7 +68,10 @@ public final class URLSessionTransport: HTTPTransport {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: Self.urlRequest(from: request))
+            (data, response) = try await session.data(
+                for: Self.urlRequest(from: request),
+                delegate: request.followsRedirects ? nil : RefuseRedirects.shared
+            )
         } catch {
             // Classified here, and only here: this is the one place in the
             // package that knows the concrete error came from the URL loading

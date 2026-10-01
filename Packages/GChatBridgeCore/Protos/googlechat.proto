@@ -862,6 +862,14 @@ message UrlMetadata {
 	optional string mime_type = 12;
 }
 
+// From reference/purple-googlechat-master/googlechat.proto, which is newer
+// than this file (findings.md §37.1). UploadMetadata field 5 carried a
+// width and height on the first upload any probe saw (findings.md §51.1).
+message Dimension {
+	optional int32 width = 1;
+	optional int32 height = 2;
+}
+
 message UploadMetadata {
 	oneof Payload {
 		string attachment_token = 1;
@@ -869,7 +877,7 @@ message UploadMetadata {
 	}
 	optional string content_name = 3;
 	optional string content_type = 4;
-	//optional Dimension original_dimension = 5;
+	optional Dimension original_dimension = 5;
 	optional string local_id = 6;
 	// optional VideoReference video_reference = 7;
 	// optional VirusScanResult virus_scan_result = 8;

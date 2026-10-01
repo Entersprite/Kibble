@@ -23,6 +23,7 @@ struct CapabilitiesTests {
         #expect(capabilities.canMarkRead == false)
         #expect(capabilities.supportsThreads == false)
         #expect(capabilities.supportsHistoryCatchUp == false)
+        #expect(capabilities.canFetchAttachments == false)
         #expect(capabilities.extendedFlags.isEmpty)
     }
 
@@ -37,6 +38,7 @@ struct CapabilitiesTests {
         #expect(capabilities.canDeleteMessages == false)
         #expect(capabilities.canSetNotificationLevel == false)
         #expect(capabilities.supportsHistoryCatchUp == false)
+        #expect(capabilities.canFetchAttachments == false)
     }
 
     @Test("the default initialiser is all-false too, so the two paths agree")

@@ -40,7 +40,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// shape. `receivesReadReceipts` stays false and is a different claim -
     /// it is about *other people's* read positions, which nothing here maps.
     public nonisolated let capabilities = Capabilities(
-        canSendMessages: true, canMarkRead: true, supportsThreads: true
+        canSendMessages: true, canMarkRead: true, supportsThreads: true, canFetchAttachments: true
     )
 
     public nonisolated let events: AsyncStream<ChatEvent>
@@ -101,6 +101,8 @@ public actor LocalBridgeBackend: ChatBackend {
     /// Not `private`: `LocalBridgeBackend+SelfIdentification.swift` reads it
     /// too, the same reason `emit(_:)` below is not `private` either.
     var apiClient: ProtoAPIClient?
+    /// Built beside `apiClient` and cleared with it (`+Attachments.swift`).
+    var attachmentFetch: AttachmentFetch?
 
     /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
     /// and so a second `loadConversations()` supersedes the first rather than
@@ -215,6 +217,9 @@ public actor LocalBridgeBackend: ChatBackend {
                 credentials: credentials,
                 xsrfToken: wiz.xsrfToken
             )
+            attachmentFetch = AttachmentFetch(
+                transport: transport, endpoints: endpoints, credentials: credentials, xsrfToken: wiz.xsrfToken
+            )
             emit(.connectionStateChanged(.connected))
             // **Started, not awaited**, the same rule `loadConversations()`
             // follows for `resolveAndEmitMembers` and for the same reason:
@@ -257,6 +262,7 @@ public actor LocalBridgeBackend: ChatBackend {
         guard isConnected else { return }
         isConnected = false
         apiClient = nil
+        attachmentFetch = nil
         memberResolution?.cancel()
         memberResolution = nil
         forgetDirectory()

@@ -5184,6 +5184,40 @@ public nonisolated struct UrlMetadata: Sendable {
   fileprivate var _mimeType: String? = nil
 }
 
+/// From reference/purple-googlechat-master/googlechat.proto, which is newer
+/// than this file (findings.md §37.1). UploadMetadata field 5 carried a
+/// width and height on the first upload any probe saw (findings.md §51.1).
+public nonisolated struct Dimension: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var width: Int32 {
+    get {_width ?? 0}
+    set {_width = newValue}
+  }
+  /// Returns true if `width` has been explicitly set.
+  public var hasWidth: Bool {self._width != nil}
+  /// Clears the value of `width`. Subsequent reads from it will return its default value.
+  public mutating func clearWidth() {self._width = nil}
+
+  public var height: Int32 {
+    get {_height ?? 0}
+    set {_height = newValue}
+  }
+  /// Returns true if `height` has been explicitly set.
+  public var hasHeight: Bool {self._height != nil}
+  /// Clears the value of `height`. Subsequent reads from it will return its default value.
+  public mutating func clearHeight() {self._height = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _width: Int32? = nil
+  fileprivate var _height: Int32? = nil
+}
+
 public nonisolated struct UploadMetadata: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -5218,7 +5252,15 @@ public nonisolated struct UploadMetadata: Sendable {
   /// Clears the value of `contentType`. Subsequent reads from it will return its default value.
   public mutating func clearContentType() {self._contentType = nil}
 
-  ///optional Dimension original_dimension = 5;
+  public var originalDimension: Dimension {
+    get {_originalDimension ?? Dimension()}
+    set {_originalDimension = newValue}
+  }
+  /// Returns true if `originalDimension` has been explicitly set.
+  public var hasOriginalDimension: Bool {self._originalDimension != nil}
+  /// Clears the value of `originalDimension`. Subsequent reads from it will return its default value.
+  public mutating func clearOriginalDimension() {self._originalDimension = nil}
+
   public var localID: String {
     get {_localID ?? String()}
     set {_localID = newValue}
@@ -5251,6 +5293,7 @@ public nonisolated struct UploadMetadata: Sendable {
 
   fileprivate var _contentName: String? = nil
   fileprivate var _contentType: String? = nil
+  fileprivate var _originalDimension: Dimension? = nil
   fileprivate var _localID: String? = nil
   fileprivate var _clonedDriveID: String? = nil
 }
@@ -18775,9 +18818,48 @@ nonisolated extension UrlMetadata: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
+nonisolated extension Dimension: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "Dimension"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}width\0\u{1}height\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self._width) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self._height) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._width {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._height {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Dimension, rhs: Dimension) -> Bool {
+    if lhs._width != rhs._width {return false}
+    if lhs._height != rhs._height {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension UploadMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "UploadMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}attachment_token\0\u{4}\u{2}content_name\0\u{3}content_type\0\u{4}\u{2}local_id\0\u{4}\u{3}cloned_drive_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}attachment_token\0\u{4}\u{2}content_name\0\u{3}content_type\0\u{3}original_dimension\0\u{3}local_id\0\u{4}\u{3}cloned_drive_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -18795,6 +18877,7 @@ nonisolated extension UploadMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
       }()
       case 3: try { try decoder.decodeSingularStringField(value: &self._contentName) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self._contentType) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._originalDimension) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self._localID) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self._clonedDriveID) }()
       default: break
@@ -18816,6 +18899,9 @@ nonisolated extension UploadMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     try { if let v = self._contentType {
       try visitor.visitSingularStringField(value: v, fieldNumber: 4)
     } }()
+    try { if let v = self._originalDimension {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
     try { if let v = self._localID {
       try visitor.visitSingularStringField(value: v, fieldNumber: 6)
     } }()
@@ -18829,6 +18915,7 @@ nonisolated extension UploadMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if lhs.payload != rhs.payload {return false}
     if lhs._contentName != rhs._contentName {return false}
     if lhs._contentType != rhs._contentType {return false}
+    if lhs._originalDimension != rhs._originalDimension {return false}
     if lhs._localID != rhs._localID {return false}
     if lhs._clonedDriveID != rhs._clonedDriveID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
