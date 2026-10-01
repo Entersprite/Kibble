@@ -42,9 +42,18 @@ public final class SystemLaunchServices: LaunchServices {
 
     public func eraseStore() throws {
         try ChatStore.onDisk(at: Self.databasePath(for: arguments)).erase()
-        if let attachments = attachmentCacheDirectory(),
-           FileManager.default.fileExists(atPath: attachments.path()) {
-            try FileManager.default.removeItem(at: attachments)
+        try Self.removeAttachmentDirectory(attachmentCacheDirectory())
+    }
+
+    /// Removes the attachment cache's directory and everything in it. A
+    /// directory that was never written is not an error; any other failure
+    /// throws, so a sign-out that could not remove the images says so.
+    static func removeAttachmentDirectory(_ directory: URL?) throws {
+        guard let directory else { return }
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch CocoaError.fileNoSuchFile {
+            return
         }
     }
 

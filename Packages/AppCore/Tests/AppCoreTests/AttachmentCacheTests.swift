@@ -161,6 +161,53 @@ struct AttachmentCacheTests {
         #expect(Set(Self.files(in: directory)) == ["2.png", "3.png"])
     }
 
+    /// A read is what keeps an entry: the cap removes the least recently
+    /// *used*, not the oldest written. The name has a space, because
+    /// `URL.path()` percent-encodes one and the touch failed silently for
+    /// exactly the names macOS screenshots get (the review's Important 2).
+    @Test func aReadRefreshesAnEntrySoTheCapRemovesAnother() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func attachment(_ index: Int) -> ChatKit.Attachment {
+            ChatKit.Attachment(
+                id: "token-\(index)",
+                name: "Screen Shot \(index).png",
+                contentType: "image/png"
+            )
+        }
+        let writer = Self.cache(FetchRecorder(), directory: directory, capacity: 30)
+        _ = try await writer.data(for: attachment(1), size: .preview)
+        try await Task.sleep(for: .milliseconds(20))
+        _ = try await writer.data(for: attachment(2), size: .preview)
+        try await Task.sleep(for: .milliseconds(20))
+        // A fresh instance, so the read comes from disk rather than memory.
+        let reader = Self.cache(FetchRecorder(), directory: directory, capacity: 30)
+        _ = try await reader.data(for: attachment(1), size: .preview)
+        try await Task.sleep(for: .milliseconds(20))
+        _ = try await reader.data(for: attachment(3), size: .preview)
+        #expect(Set(Self.files(in: directory)) == ["Screen Shot 1.png", "Screen Shot 3.png"])
+    }
+
+    /// The one entry the trim never removes is the one it just wrote, or a
+    /// single original larger than the cap would hand Quick Look a dead file.
+    @Test func anEntryLargerThanTheWholeCapSurvivesItsOwnWrite() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = Self.cache(FetchRecorder(), directory: directory, capacity: 4)
+        let url = try await cache.originalFile(for: Self.image)
+        #expect(try Data(contentsOf: url) == Data("token-1/original".utf8))
+    }
+
+    @Test func aDirectoryThatCannotBeWrittenIsAWriteFailureNotAMissingDirectory() async throws {
+        let blocker = Self.directory()
+        try Data("not a directory".utf8).write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let cache = Self.cache(FetchRecorder(), directory: blocker)
+        await #expect(throws: AttachmentCache.WriteFailed.self) {
+            _ = try await cache.originalFile(for: Self.image)
+        }
+    }
+
     // MARK: - Erase
 
     @Test func eraseEmptiesMemoryAndDisk() async throws {
@@ -174,8 +221,25 @@ struct AttachmentCacheTests {
 
         await cache.erase()
         #expect(Self.files(in: directory).isEmpty)
-        _ = try await cache.data(for: Self.image, size: .preview)
-        #expect(await recorder.calls.count == 2)
+    }
+
+    /// Terminal: the instance belonged to the account just signed out of,
+    /// and a call that was already queued on it must not fetch and write
+    /// that account's image into the directory the next session uses.
+    @Test func anErasedCacheRefusesEveryLaterCall() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = FetchRecorder()
+        let cache = Self.cache(recorder, directory: directory)
+        await cache.erase()
+        await #expect(throws: AttachmentCache.Erased.self) {
+            _ = try await cache.data(for: Self.image, size: .preview)
+        }
+        await #expect(throws: AttachmentCache.Erased.self) {
+            _ = try await cache.originalFile(for: Self.image)
+        }
+        #expect(await recorder.calls.isEmpty)
+        #expect(Self.files(in: directory).isEmpty)
     }
 
     /// The race sign-out cannot afford: a fetch already in flight when the
@@ -193,10 +257,23 @@ struct AttachmentCacheTests {
         await recorder.release()
         _ = try? await inFlight.value
         #expect(Self.files(in: directory).isEmpty)
+    }
 
-        // And memory: the next request fetches again.
-        _ = try await cache.data(for: Self.image, size: .preview)
-        #expect(await recorder.calls.count == 2)
+    /// `originalFile(for:)` writes after its own `await`, so it needs the
+    /// same refusal `data(for:)` has (the review's Important 1).
+    @Test func anOriginalInFlightAtEraseNeverReachesDisk() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = FetchRecorder()
+        await recorder.hold()
+        let cache = Self.cache(recorder, directory: directory)
+        let inFlight = Task { try await cache.originalFile(for: Self.image) }
+        try await Self.waitUntilHeld(recorder, count: 1)
+
+        await cache.erase()
+        await recorder.release()
+        await #expect(throws: (any Error).self) { _ = try await inFlight.value }
+        #expect(Self.files(in: directory).isEmpty)
     }
 
     // MARK: - The file Quick Look opens
@@ -222,6 +299,16 @@ struct AttachmentCacheTests {
     func fileNamesAreMadeSafe(name: String, contentType: String, expected: String) {
         let attachment = ChatKit.Attachment(id: "t", name: name, contentType: contentType)
         #expect(AttachmentCache.fileName(for: attachment) == expected)
+    }
+
+    /// A file name's limit is 255 bytes, and 200 CJK characters are 600.
+    @Test func aLongNameIsCutByBytesAndKeepsItsExtension() {
+        let attachment = ChatKit.Attachment(
+            id: "t", name: String(repeating: "日", count: 300) + ".png", contentType: "image/png"
+        )
+        let name = AttachmentCache.fileName(for: attachment)
+        #expect(name.utf8.count <= 200)
+        #expect(name.hasSuffix("日.png"))
     }
 
     @Test func withNoDirectoryThereIsNoFileToOpen() async {

@@ -27,11 +27,23 @@ enum AttachmentLayout {
     /// `canLoadImages` is whether the host supplied a loader. Without one an
     /// image is named rather than drawn, because nothing could fill it.
     static func parts(of message: Message, canLoadImages: Bool) -> Parts {
-        let images = canLoadImages ? message.attachments.filter(\.isImage) : []
-        let files = message.attachments.filter { !canLoadImages || !$0.isImage }
+        let images = canLoadImages ? message.attachments.filter(drawsAsPicture) : []
+        let files = message.attachments.filter { !canLoadImages || !drawsAsPicture($0) }
         let hasText = !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return Parts(images: images, files: files, showsText: hasText || message.attachments.isEmpty)
     }
+
+    /// Only the types ImageIO decodes. Any other `image/` type (SVG, an icon,
+    /// a Photoshop file) would fail behind a Retry that could never succeed,
+    /// so it is named instead.
+    static func drawsAsPicture(_ attachment: Attachment) -> Bool {
+        decodable.contains(attachment.contentType.lowercased())
+    }
+
+    private static let decodable: Set = [
+        "image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp",
+        "image/heic", "image/heif", "image/tiff", "image/bmp"
+    ]
 
     /// Aspect-fit inside `maxSide`, at most one point per pixel, never below
     /// `minSide`. Unknown or zero sizes are the fallback square.
@@ -67,9 +79,11 @@ enum AttachmentLayout {
 /// One uploaded image inside a message.
 ///
 /// Sized from the declared dimensions before anything loads, so the
-/// transcript does not jump when the bytes arrive; re-sized from the decoded
-/// image only when nothing was declared. Clicking fetches the original and
-/// hands it to Quick Look.
+/// transcript does not jump when the bytes arrive, and from the decoded image
+/// once it has: the decode applies the EXIF orientation, and a declared size
+/// taken before rotation would otherwise crop a portrait photo `[Verify]`
+/// against an iPhone upload. Clicking fetches the original and hands it to
+/// Quick Look.
 struct AttachmentImage: View {
     let attachment: Attachment
     let load: (Attachment, AttachmentSize) async throws -> Data
@@ -88,7 +102,7 @@ struct AttachmentImage: View {
     @State private var openFailed = false
 
     private var size: CGSize {
-        if case let .loaded(image) = phase, attachment.width == nil || attachment.height == nil {
+        if case let .loaded(image) = phase {
             return AttachmentLayout.displaySize(width: image.width, height: image.height)
         }
         return AttachmentLayout.displaySize(width: attachment.width, height: attachment.height)
@@ -106,23 +120,39 @@ struct AttachmentImage: View {
         switch phase {
         case .loading:
             placeholder { ProgressView().controlSize(.small) }
+                .accessibilityLabel(AttachmentLayout.label(for: attachment))
         case let .loaded(image):
             loaded(image)
         case .failed:
+            // The words when they fit, the button alone when they do not: a
+            // 320x40 sliver has no room for both (`minSide`).
             placeholder {
-                VStack(spacing: 6) {
-                    Label("Couldn't load image", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Retry") { attempt += 1 }
-                        .controlSize(.small)
+                ViewThatFits(in: .vertical) {
+                    VStack(spacing: 6) {
+                        Label("Couldn't load image", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        retry.labelStyle(.titleOnly)
+                    }
+                    retry.labelStyle(.iconOnly)
                 }
             }
         }
     }
 
+    private var retry: some View {
+        Button {
+            phase = .loading
+            attempt += 1
+        } label: {
+            Label("Retry", systemImage: "arrow.clockwise")
+        }
+        .controlSize(.small)
+        .accessibilityLabel("Retry loading \(AttachmentLayout.label(for: attachment))")
+    }
+
     @ViewBuilder private func loaded(_ image: CGImage) -> some View {
-        let picture = Image(decorative: image, scale: 1)
+        let picture = Image(image, scale: 1, label: Text(AttachmentLayout.label(for: attachment)))
             .resizable()
             .scaledToFill()
             .frame(width: size.width, height: size.height)
@@ -142,16 +172,22 @@ struct AttachmentImage: View {
                 .accessibilityLabel(AttachmentLayout.label(for: attachment))
                 .accessibilityHint("Opens the full-size image")
         } else {
-            picture.accessibilityLabel(AttachmentLayout.label(for: attachment))
+            picture
         }
     }
 
     private func placeholder(@ViewBuilder _ inside: () -> some View) -> some View {
         Rectangle().fill(.quinary).overlay { inside() }
-            .accessibilityLabel(AttachmentLayout.label(for: attachment))
     }
 
+    /// Runs on every appear, because `.task` does. A row scrolled back into
+    /// view keeps its `@State`, and an image already drawn must not flash back
+    /// to a spinner, or turn into a failure because the network went away
+    /// since. Retry sets `.loading` itself before it bumps `attempt`.
     private func fetch() async {
+        if case .loaded = phase {
+            return
+        }
         phase = .loading
         do {
             let data = try await load(attachment, .preview)

@@ -32,16 +32,23 @@ public actor AttachmentCache {
     /// `originalFile(for:)` without a directory: there is nowhere to put a file.
     public struct NoDirectory: Error {}
 
+    /// Any call on an instance after `erase()`.
+    public struct Erased: Error {}
+
+    /// The original could not be written where Quick Look could open it.
+    public struct WriteFailed: Error {}
+
     private let directory: URL?
     private let capacity: Int
     private let fetch: Fetch
     private let memory = NSCache<NSString, NSData>()
     private var inFlight: [String: Task<Data, any Error>] = [:]
 
-    /// Bumped by `erase()`. A fetch that started under an older generation
-    /// still answers its caller but writes nothing: the account it belonged to
-    /// has been signed out of.
-    private var generation = 0
+    /// Set by `erase()`, and never cleared: the instance belonged to the
+    /// account just signed out of. Checked on entry and again after every
+    /// `await`, because a call already queued on the actor can run after the
+    /// erase, and a fetch already in flight finishes after it.
+    private var isErased = false
 
     /// `capacity` bounds the disk, in bytes; the oldest entries go first. One
     /// entry larger than the whole cap is kept anyway, because the file it
@@ -54,6 +61,7 @@ public actor AttachmentCache {
     }
 
     public func data(for attachment: Attachment, size: AttachmentSize) async throws -> Data {
+        guard !isErased else { throw Erased() }
         let key = Self.key(attachment, size)
         if let hit = memory.object(forKey: key as NSString) {
             return hit as Data
@@ -65,28 +73,23 @@ public actor AttachmentCache {
         if let running = inFlight[key] {
             return try await running.value
         }
-        let started = generation
         let task = Task { [fetch] in try await fetch(attachment, size) }
         inFlight[key] = task
-        do {
-            let data = try await task.value
-            guard started == generation else { return data }
-            inFlight[key] = nil
-            remember(data, key)
-            writeToDisk(data, key, name: Self.fileName(for: attachment))
-            return data
-        } catch {
-            if started == generation {
-                inFlight[key] = nil
-            }
-            throw error
-        }
+        defer { inFlight[key] = nil }
+        let data = try await task.value
+        guard !isErased else { throw Erased() }
+        remember(data, key)
+        writeToDisk(data, key, name: Self.fileName(for: attachment))
+        return data
     }
 
     /// The full-size image as a file, for Quick Look.
     public func originalFile(for attachment: Attachment) async throws -> URL {
+        guard !isErased else { throw Erased() }
         guard directory != nil else { throw NoDirectory() }
         let key = Self.key(attachment, .original)
+        // No second erase check here: `data(for:)` throws `Erased` after its
+        // own `await`, and nothing between there and the write below suspends.
         let data = try await data(for: attachment, size: .original)
         if let existing = storedFile(key) {
             return existing
@@ -94,15 +97,15 @@ public actor AttachmentCache {
         // Memory had it but the disk did not, or the write failed: try once
         // more, and report the failure this time.
         guard let written = writeToDisk(data, key, name: Self.fileName(for: attachment)) else {
-            throw NoDirectory()
+            throw WriteFailed()
         }
         return written
     }
 
-    /// Everything, from memory and disk, and every fetch still running is
-    /// disowned.
+    /// Everything, from memory and disk; every fetch still running is
+    /// disowned, and every later call on this instance throws `Erased`.
     public func erase() {
-        generation += 1
+        isErased = true
         for task in inFlight.values {
             task.cancel()
         }
@@ -130,12 +133,26 @@ public actor AttachmentCache {
         if name.isEmpty || name.allSatisfy({ $0 == "." }) {
             name = "attachment"
         }
-        name = String(name.prefix(200))
         if (name as NSString).pathExtension.isEmpty,
            let ext = extensions[attachment.contentType.lowercased()] {
             name += ".\(ext)"
         }
-        return name
+        return truncated(name, toBytes: 200)
+    }
+
+    /// Cut from the end of the stem by whole Characters until the UTF-8 form
+    /// fits, keeping the extension Quick Look types the file by. The limit is
+    /// a file name's 255 bytes, with room to spare; 200 CJK characters are
+    /// 600 of them.
+    private static func truncated(_ name: String, toBytes limit: Int) -> String {
+        guard name.utf8.count > limit else { return name }
+        let ext = (name as NSString).pathExtension
+        let suffix = ext.isEmpty ? "" : ".\(ext)"
+        var stem = Substring((name as NSString).deletingPathExtension)
+        while !stem.isEmpty, stem.utf8.count + suffix.utf8.count > limit {
+            stem = stem.dropLast()
+        }
+        return String(stem) + suffix
     }
 
     private static let extensions = [
@@ -166,7 +183,12 @@ public actor AttachmentCache {
     private func readFromDisk(_ key: String) -> Data? {
         guard let file = storedFile(key), let data = try? Data(contentsOf: file) else { return nil }
         // Touched, so the cap removes what has not been looked at for longest.
-        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path())
+        // Through the URL, never `file.path()`: that is percent-encoded, so a
+        // name with a space - every macOS screenshot - was silently skipped.
+        var touched = file
+        var values = URLResourceValues()
+        values.contentModificationDate = Date()
+        try? touched.setResourceValues(values)
         return data
     }
 

@@ -64,6 +64,23 @@ struct AttachmentLayoutTests {
         #expect(parts.files == [png])
     }
 
+    /// An image type nothing here can decode would fail forever behind a
+    /// Retry that can never succeed, so it is named instead.
+    @Test(arguments: ["image/svg+xml", "image/x-icon", "image/vnd.adobe.photoshop"])
+    func anUndecodableImageTypeIsAChip(_ contentType: String) {
+        let odd = ChatKit.Attachment(id: "o", name: "o", contentType: contentType)
+        let parts = AttachmentLayout.parts(of: message(text: "", attachments: [odd]), canLoadImages: true)
+        #expect(parts.images.isEmpty)
+        #expect(parts.files == [odd])
+    }
+
+    @Test(arguments: ["image/png", "image/jpeg", "IMAGE/GIF", "image/webp", "image/heic", "image/heif"])
+    func aDecodableImageTypeIsAPicture(_ contentType: String) {
+        let picture = ChatKit.Attachment(id: "p", name: "p", contentType: contentType)
+        let parts = AttachmentLayout.parts(of: message(text: "", attachments: [picture]), canLoadImages: true)
+        #expect(parts.images == [picture])
+    }
+
     /// The case every message before this slice is.
     @Test func aMessageWithNoAttachmentsAlwaysShowsItsText() {
         let parts = AttachmentLayout.parts(of: message(text: "", attachments: []), canLoadImages: true)
