@@ -97,4 +97,32 @@ public protocol ChatBackend: Sendable {
         _ level: NotificationLevel,
         for conversation: Conversation.ID
     ) async throws
+
+    /// An attachment's bytes, at `size`. See the default below for why this
+    /// is a request rather than a command, and what a backend that has not
+    /// implemented it does.
+    ///
+    /// **A requirement, not only an extension method, on purpose.** A method
+    /// declared only in an extension is dispatched statically, so through
+    /// `any ChatBackend` the refusing default would run even on a backend that
+    /// implements it (`AttachmentDataTests`).
+    func attachmentData(_ attachment: Attachment, size: AttachmentSize) async throws -> Data
+}
+
+/// Separate from the protocol body only so the default can sit beside it.
+public extension ChatBackend {
+    /// The default `attachmentData(_:size:)`.
+    ///
+    /// A request and its answer rather than a command and an event, because
+    /// the bytes are megabytes and the event stream has one consumer: an image
+    /// pushed through it would go through the reducer to reach a view.
+    /// `attachment.id` is the backend's own opaque handle, handed back.
+    ///
+    /// The default refuses, so a backend that has not thought about
+    /// attachments is one that cannot fetch them, the direction
+    /// `Capabilities` defaults in. A backend that can overrides this and sets
+    /// `canFetchAttachments`.
+    func attachmentData(_: Attachment, size _: AttachmentSize) async throws -> Data {
+        throw ChatError.unsupported(capability: "canFetchAttachments")
+    }
 }

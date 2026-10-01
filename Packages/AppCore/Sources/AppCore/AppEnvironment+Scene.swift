@@ -153,7 +153,15 @@ public extension AppEnvironment {
             showMentions: runningModel == nil ? nil : { [weak self] in self?.runningModel?.showMentions() },
             openMention: runningModel == nil ? nil : { [weak self] conversation, message in
                 self?.runningModel?.open(conversation: conversation, message: message)
-            }
+            },
+            loadAttachment: canFetchAttachments ? { [weak self] attachment, size in
+                guard let self else { throw NoSession() }
+                return try await loadAttachment(attachment, size: size)
+            } : nil,
+            openAttachment: canFetchAttachments ? { [weak self] attachment in
+                guard let self else { throw NoSession() }
+                return try await openAttachment(attachment)
+            } : nil
         )
     }
 

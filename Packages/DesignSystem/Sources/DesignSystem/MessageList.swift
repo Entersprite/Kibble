@@ -36,6 +36,10 @@ enum TranscriptScroll {
 /// The transcript.
 public struct MessageList: View {
     let state: ChatSceneState
+    /// `ChatSceneActions.loadAttachment` and `.openAttachment`, handed down to
+    /// each bubble. `nil` draws images as their names.
+    let loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
+    let openAttachment: ((Attachment) async throws -> URL)?
 
     /// The last target this list scrolled to, so that it is honoured once.
     /// `@State` is enough: opening a mention always passes through the
@@ -43,8 +47,14 @@ public struct MessageList: View {
     /// nothing.
     @State private var honoured: Message.ID?
 
-    public init(state: ChatSceneState) {
+    public init(
+        state: ChatSceneState,
+        loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
+        openAttachment: ((Attachment) async throws -> URL)? = nil
+    ) {
         self.state = state
+        self.loadAttachment = loadAttachment
+        self.openAttachment = openAttachment
     }
 
     public var body: some View {
@@ -52,8 +62,11 @@ public struct MessageList: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(state.messages, id: \.id) { message in
-                        MessageBubble(message: message, state: state)
-                            .id(message.id)
+                        MessageBubble(
+                            message: message, state: state,
+                            loadAttachment: loadAttachment, openAttachment: openAttachment
+                        )
+                        .id(message.id)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -90,6 +103,12 @@ public struct MessageList: View {
 struct MessageBubble: View {
     let message: Message
     let state: ChatSceneState
+    var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
+    var openAttachment: ((Attachment) async throws -> URL)?
+
+    private var parts: AttachmentLayout.Parts {
+        AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
+    }
 
     private var isMine: Bool {
         message.sender == state.me
@@ -127,7 +146,21 @@ struct MessageBubble: View {
                         timestamp
                     }
                 }
-                bubble
+                if message.isDeleted {
+                    bubble
+                } else {
+                    // Pictures above the words, as Messages draws them, and
+                    // files last; an image-only message has no empty bubble.
+                    if let loadAttachment {
+                        ForEach(parts.images, id: \.id) { image in
+                            AttachmentImage(attachment: image, load: loadAttachment, open: openAttachment)
+                        }
+                    }
+                    if parts.showsText {
+                        bubble
+                    }
+                    ForEach(parts.files, id: \.id) { AttachmentChip(attachment: $0) }
+                }
                 if !message.reactions.isEmpty {
                     ReactionRow(reactions: message.reactions)
                 }

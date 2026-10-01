@@ -146,9 +146,38 @@ public enum ChannelEventMapping {
             // `Message.localID` documents. `nil` rather than `""` for absent,
             // because an empty string would match an optimistic copy that also
             // had none.
+            attachments: attachments(message.annotations),
             localID: message.hasLocalID ? message.localID : nil,
             mentions: mentions(message.annotations)
         )
+    }
+
+    /// A message's uploads: annotations whose metadata is `upload_metadata`,
+    /// measured on live `list_topics` pages as type 13 (`findings.md` §51.1).
+    /// Live channel events carrying them are `[Verify]`, as for mentions.
+    ///
+    /// Decided by the oneof, not by `annotation.type`: the payload is what a
+    /// fetch needs, and an upload whose type fell outside the vendored enum
+    /// would still carry it. **No token, no attachment**, because nothing
+    /// could ever fetch it. The URLs stay `nil` (they need credentials no view
+    /// holds) and the token is handed back to `attachmentData(_:size:)`. A
+    /// zero or absent dimension is unknown, never zero.
+    static func attachments(_ annotations: [GChatBridgeCore.Annotation]) -> [ChatKit.Attachment] {
+        annotations.compactMap { annotation in
+            guard case let .uploadMetadata(upload)? = annotation.metadata,
+                  !upload.attachmentToken.isEmpty
+            else { return nil }
+            let dimension = upload.hasOriginalDimension ? upload.originalDimension : nil
+            let width = dimension.flatMap { $0.width > 0 && $0.height > 0 ? Int($0.width) : nil }
+            let height = dimension.flatMap { $0.width > 0 && $0.height > 0 ? Int($0.height) : nil }
+            return ChatKit.Attachment(
+                id: upload.attachmentToken,
+                name: upload.contentName,
+                contentType: upload.contentType,
+                width: width,
+                height: height
+            )
+        }
     }
 
     /// A message's mentions (mentions spec §2): `USER_MENTION` annotations of

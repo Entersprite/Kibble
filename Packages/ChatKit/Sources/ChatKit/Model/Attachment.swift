@@ -23,13 +23,21 @@ public struct Attachment: Codable, Hashable, Sendable {
     public var downloadURL: URL?
     public var thumbnailURL: URL?
 
+    /// The size the upload declared, in pixels, so a view can reserve the
+    /// right shape before the bytes arrive. `nil` when the backend did not say,
+    /// which every attachment stored before these existed decodes as.
+    public var width: Int?
+    public var height: Int?
+
     public init(
         id: String,
         name: String,
         contentType: String,
         byteSize: Int? = nil,
         downloadURL: URL? = nil,
-        thumbnailURL: URL? = nil
+        thumbnailURL: URL? = nil,
+        width: Int? = nil,
+        height: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -37,6 +45,14 @@ public struct Attachment: Codable, Hashable, Sendable {
         self.byteSize = byteSize
         self.downloadURL = downloadURL
         self.thumbnailURL = thumbnailURL
+        self.width = width
+        self.height = height
+    }
+
+    /// Whether a client should draw it as a picture. A prefix match, as
+    /// `contentType`'s own comment says a client only ever does.
+    public var isImage: Bool {
+        contentType.lowercased().hasPrefix("image/")
     }
 
     enum CodingKeys: String, CodingKey {
@@ -46,5 +62,15 @@ public struct Attachment: Codable, Hashable, Sendable {
         case byteSize
         case downloadURL
         case thumbnailURL
+        case width
+        case height
     }
+}
+
+/// Which rendition of an attachment's bytes to ask a backend for.
+public enum AttachmentSize: String, Sendable, Hashable {
+    /// Big enough for a message bubble.
+    case preview
+    /// As large as the backend will serve.
+    case original
 }

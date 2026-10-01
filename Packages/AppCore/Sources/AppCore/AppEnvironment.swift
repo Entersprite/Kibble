@@ -43,6 +43,9 @@ public final class AppEnvironment {
     /// the model has to be reachable before it is parked, not after.
     private(set) var model: ChatSessionModel?
 
+    /// This session's attachment cache (`AppEnvironment+Attachments.swift`).
+    var attachments: AttachmentCache?
+
     /// The last value `setActive(_:)` was told, held even while `model` is
     /// `nil` so it is not silently dropped.
     ///
@@ -140,6 +143,7 @@ public final class AppEnvironment {
             // rules then decide. The old `ghostMode` key migrates into the
             // first account's global rule (`NotificationSettingsModel`).
             beginSettingsSession(engine: engine)
+            attachments = makeAttachmentCache(in: services.attachmentCacheDirectory(), engine: engine)
             let model = ChatSessionModel(
                 store: store, engine: engine, me: selection.me, markReadTrace: services.markReadTraceSink()
             )
@@ -282,6 +286,8 @@ public final class AppEnvironment {
         identityTask = nil
         // Nothing is deleted: the account's settings wait for it to sign in again.
         settings.switchAccount(to: nil)
+        // First, and on every path: an image needs no live model to be erased.
+        await eraseAttachments()
         do {
             if let model {
                 // The fixture's demo world, ticking on its own actor. Its

@@ -208,6 +208,16 @@ public struct ChatSceneActions {
     /// Opens a mention: its conversation, scrolled to its message.
     public var openMention: ((Conversation.ID, Message.ID) -> Void)?
 
+    /// An attachment's bytes, at a size. **Optional, and `nil` draws no
+    /// image**: a backend that cannot fetch gets the file's name instead of a
+    /// placeholder that never fills (`CLAUDE.md`: never draw a control the
+    /// seam cannot honour). Async, because the bytes are a round trip away.
+    public var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
+
+    /// The full-size image as a file, for Quick Look. `nil` makes an image
+    /// not clickable.
+    public var openAttachment: ((Attachment) async throws -> URL)?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
@@ -220,7 +230,9 @@ public struct ChatSceneActions {
         markRead: ((Conversation.ID) -> Void)? = nil,
         showNotificationSettings: ((Conversation.ID) -> Void)? = nil,
         showMentions: (() -> Void)? = nil,
-        openMention: ((Conversation.ID, Message.ID) -> Void)? = nil
+        openMention: ((Conversation.ID, Message.ID) -> Void)? = nil,
+        loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
+        openAttachment: ((Attachment) async throws -> URL)? = nil
     ) {
         self.select = select
         self.send = send
@@ -234,5 +246,7 @@ public struct ChatSceneActions {
         self.showNotificationSettings = showNotificationSettings
         self.showMentions = showMentions
         self.openMention = openMention
+        self.loadAttachment = loadAttachment
+        self.openAttachment = openAttachment
     }
 }

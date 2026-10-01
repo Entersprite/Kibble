@@ -237,8 +237,9 @@ final class NotificationCoordinator {
     /// - The subtitle names the sender, except where the title already does -
     ///   a one-to-one conversation, human or app - or where nobody has named
     ///   the sender yet, since a raw user id in a banner reads as a bug.
-    /// - An empty body (an attachment-only message, today) says so rather than
-    ///   posting a blank banner.
+    /// - An empty body says what was sent instead - an image, a file, or just
+    ///   a message - rather than posting a blank banner. With previews hidden
+    ///   it says only "New message", since the kind is content too.
     static func notification(
         for message: Message,
         in conversation: Conversation?,
@@ -266,12 +267,20 @@ final class NotificationCoordinator {
             conversationID: message.conversationID,
             title: title,
             subtitle: subtitle,
-            body: presentation.showsPreview && !text.isEmpty ? text : "New message",
+            body: presentation.showsPreview ? (text.isEmpty ? Self.placeholderBody(for: message) : text)
+                : "New message",
             createdAt: message.createdAt,
             isPassive: presentation.isPassive,
             playsSound: presentation.playsSound,
             offersMarkRead: offersMarkRead
         )
+    }
+
+    private static func placeholderBody(for message: Message) -> String {
+        if message.attachments.contains(where: \.isImage) {
+            return "Sent an image"
+        }
+        return message.attachments.isEmpty ? "New message" : "Sent a file"
     }
 
     private func remember(_ id: Message.ID) {

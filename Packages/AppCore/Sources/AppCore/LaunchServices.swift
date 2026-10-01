@@ -55,6 +55,13 @@ public protocol LaunchServices: AnyObject {
     /// comes back into `ChatSessionModel.init`, unaware of the flag, the file
     /// or the concrete sink behind it.
     func markReadTraceSink() -> (any MarkReadTraceSink)?
+
+    /// Where this launch's attachment cache keeps its files, or `nil` for a
+    /// cache that keeps them in memory only. Separate per backend, for the
+    /// reason the database is: a fixture's pictures must never appear in a
+    /// real session. `eraseStore()` removes it too, for the path that signs
+    /// out with no session to ask (`AttachmentCache`'s doc comment).
+    func attachmentCacheDirectory() -> URL?
 }
 
 /// What the launch was asked for, parsed once.

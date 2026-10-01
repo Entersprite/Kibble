@@ -21,6 +21,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     public var canMarkRead: Bool
     public var supportsThreads: Bool
     public var supportsHistoryCatchUp: Bool
+    /// `ChatBackend.attachmentData(_:size:)` returns bytes rather than
+    /// refusing.
+    public var canFetchAttachments: Bool
 
     /// The escape hatch. A newer backend can advertise a capability this build
     /// has no property for, and a newer client can look for it by name without
@@ -41,6 +44,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canMarkRead: Bool = false,
         supportsThreads: Bool = false,
         supportsHistoryCatchUp: Bool = false,
+        canFetchAttachments: Bool = false,
         extendedFlags: Set<String> = []
     ) {
         self.canSendMessages = canSendMessages
@@ -54,6 +58,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canMarkRead = canMarkRead
         self.supportsThreads = supportsThreads
         self.supportsHistoryCatchUp = supportsHistoryCatchUp
+        self.canFetchAttachments = canFetchAttachments
         self.extendedFlags = extendedFlags
     }
 }
@@ -73,6 +78,7 @@ public extension Capabilities {
         case canMarkRead
         case supportsThreads
         case supportsHistoryCatchUp
+        case canFetchAttachments
         case extendedFlags
     }
 
@@ -96,6 +102,7 @@ public extension Capabilities {
             canMarkRead: flag(.canMarkRead),
             supportsThreads: flag(.supportsThreads),
             supportsHistoryCatchUp: flag(.supportsHistoryCatchUp),
+            canFetchAttachments: flag(.canFetchAttachments),
             extendedFlags: Set(
                 container.decodeIfPresent([String].self, forKey: .extendedFlags) ?? []
             )
@@ -115,6 +122,7 @@ public extension Capabilities {
         try container.encode(canMarkRead, forKey: .canMarkRead)
         try container.encode(supportsThreads, forKey: .supportsThreads)
         try container.encode(supportsHistoryCatchUp, forKey: .supportsHistoryCatchUp)
+        try container.encode(canFetchAttachments, forKey: .canFetchAttachments)
         try container.encode(extendedFlags.sorted(), forKey: .extendedFlags)
     }
 }

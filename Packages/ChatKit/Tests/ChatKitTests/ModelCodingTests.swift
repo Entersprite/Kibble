@@ -21,6 +21,25 @@ struct ModelCodingTests {
         try expectWireStable(Fixture.thread, golden: "thread")
         try expectWireStable(Fixture.reaction, golden: "reaction")
         try expectWireStable(Fixture.attachment, golden: "attachment")
+        try expectWireStable(Fixture.imageAttachment, golden: "attachment-image")
+    }
+
+    /// Every attachment stored before the dimensions existed has no such keys.
+    @Test("an attachment without dimensions decodes them as unknown")
+    func attachmentWithoutDimensions() throws {
+        let json = #"{"contentType":"image/png","id":"t","name":"a.png"}"#
+        let attachment = try Wire.decode(Attachment.self, from: json)
+        #expect(attachment.width == nil)
+        #expect(attachment.height == nil)
+        #expect(attachment.isImage)
+    }
+
+    @Test("an image is anything whose content type starts image/")
+    func isImage() {
+        #expect(Fixture.imageAttachment.isImage)
+        #expect(!Fixture.attachment.isImage)
+        #expect(Attachment(id: "t", name: "x", contentType: "IMAGE/JPEG").isImage)
+        #expect(!Attachment(id: "t", name: "x", contentType: "").isImage)
     }
 
     /// Not a typealias, so these cannot be mixed up at a call site. That much is

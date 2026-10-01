@@ -53,6 +53,10 @@ final class FakeLaunchServices: LaunchServices {
     /// it and then assert the erase actually removed it.
     let store: ChatStore
     let backend: FakeLaunchBackend
+    /// A fresh directory per fake, under the system's temporary one, so a
+    /// test can look at what the attachment cache wrote and what sign-out left.
+    let attachmentDirectory = FileManager.default.temporaryDirectory
+        .appending(path: "app-core-attachments-\(UUID().uuidString)")
     let driver: RecordingDemoDriver?
 
     /// The store's connection state at the instant `makeSession()` was
@@ -135,6 +139,10 @@ final class FakeLaunchServices: LaunchServices {
 
     /// Always `nil`: no test here exercises `--probe=markread`, and `AppCore`
     /// must not know or care what a real sink looks like.
+    func attachmentCacheDirectory() -> URL? {
+        attachmentDirectory
+    }
+
     func markReadTraceSink() -> (any MarkReadTraceSink)? {
         nil
     }
@@ -189,6 +197,23 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
     /// fetched from one that did not.
     func answerHistory(with messages: [Message]) {
         history.withLock { $0 = messages }
+    }
+
+    /// Every attachment fetch, as `id/size`. Behind a lock for `commands`' reason.
+    private let fetches = Mutex<[String]>([])
+
+    var attachmentFetches: [String] {
+        fetches.withLock { $0 }
+    }
+
+    /// The protocol's refusing default unless the capability says otherwise,
+    /// so a test without it sees exactly what a real backend without it does.
+    func attachmentData(_ attachment: Attachment, size: AttachmentSize) async throws -> Data {
+        guard capabilities.canFetchAttachments else {
+            throw ChatError.unsupported(capability: "canFetchAttachments")
+        }
+        fetches.withLock { $0.append("\(attachment.id)/\(size.rawValue)") }
+        return Data("bytes:\(attachment.id)/\(size.rawValue)".utf8)
     }
 
     /// Every command handed to `send(_:)`, for a test to read.

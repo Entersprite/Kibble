@@ -78,6 +78,16 @@ enum Fixture {
         thumbnailURL: URL(string: "https://example.com/thumb/1")
     )
 
+    /// An uploaded image as the bridge maps one: an opaque token, the size
+    /// the upload declared, and no URLs, because its URLs need credentials.
+    static let imageAttachment = Attachment(
+        id: "upload-token-1",
+        name: "screenshot.png",
+        contentType: "image/png",
+        width: 416,
+        height: 340
+    )
+
     static let conversation = Conversation(
         id: spaceID,
         kind: .space,
@@ -158,6 +168,7 @@ enum Fixture {
         receivesTypingState: true,
         canMarkRead: true,
         supportsThreads: true,
+        canFetchAttachments: true,
         extendedFlags: ["voiceRooms", "customEmoji"]
     )
 

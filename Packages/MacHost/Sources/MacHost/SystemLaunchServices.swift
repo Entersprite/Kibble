@@ -42,6 +42,28 @@ public final class SystemLaunchServices: LaunchServices {
 
     public func eraseStore() throws {
         try ChatStore.onDisk(at: Self.databasePath(for: arguments)).erase()
+        if let attachments = attachmentCacheDirectory(),
+           FileManager.default.fileExists(atPath: attachments.path()) {
+            try FileManager.default.removeItem(at: attachments)
+        }
+    }
+
+    /// Under the container's Caches, which is not backed up, beside nothing
+    /// else this app writes. `nil` if the system has no caches directory, and
+    /// the cache then keeps its images in memory.
+    public func attachmentCacheDirectory() -> URL? {
+        try? FileManager.default.url(
+            for: .cachesDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        .appending(path: "GChat", directoryHint: .isDirectory)
+        .appending(path: Self.attachmentDirectoryName(for: arguments), directoryHint: .isDirectory)
+    }
+
+    static func attachmentDirectoryName(for arguments: LaunchArguments) -> String {
+        arguments.usesRealBackend ? "attachments-local" : "attachments-fixture"
     }
 
     /// The only place in the repo that picks a backend.

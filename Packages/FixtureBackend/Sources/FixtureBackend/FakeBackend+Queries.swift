@@ -60,6 +60,22 @@ public extension FakeBackend {
     }
 }
 
+// MARK: - Attachments
+
+public extension FakeBackend {
+    /// `FixtureImage.png` for any attachment some message in the world
+    /// carries, at either size. No connection needed, like the other reads.
+    /// An attachment the world does not hold is refused rather than invented,
+    /// the same rule `FakeHTTPTransport` follows for a script that ran out.
+    func attachmentData(_ attachment: Attachment, size _: AttachmentSize) async throws -> Data {
+        try require(capabilities.canFetchAttachments, "canFetchAttachments")
+        guard world.messages.contains(where: { $0.attachments.contains { $0.id == attachment.id } }) else {
+            throw ChatError.unknown("the fixture world holds no attachment \(attachment.id)")
+        }
+        return FixtureImage.png
+    }
+}
+
 // MARK: - Mutation helpers
 
 extension FakeBackend {

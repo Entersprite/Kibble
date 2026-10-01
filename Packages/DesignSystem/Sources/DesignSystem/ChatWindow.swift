@@ -37,14 +37,18 @@ public struct ChatWindow: View {
                     // wrong from opposite directions: `.bar` drew a flat grey
                     // slab, and `safeAreaBar` brought the system's blurred
                     // backdrop. `ComposerScrim` is the fade itself.
-                    MessageList(state: state)
-                        .safeAreaInset(edge: .bottom, spacing: 0) {
-                            VStack(spacing: 0) {
-                                TypingStrip(state: state)
-                                composer(for: conversation)
-                            }
-                            .background(alignment: .bottom) { ComposerScrim() }
+                    MessageList(
+                        state: state,
+                        loadAttachment: actions.loadAttachment,
+                        openAttachment: actions.openAttachment
+                    )
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        VStack(spacing: 0) {
+                            TypingStrip(state: state)
+                            composer(for: conversation)
                         }
+                        .background(alignment: .bottom) { ComposerScrim() }
+                    }
                 } else {
                     ContentUnavailableView(
                         "Pick a conversation",

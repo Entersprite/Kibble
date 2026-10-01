@@ -30,4 +30,14 @@ struct DatabasePathTests {
         #expect(fixture == "chat-fixture.sqlite")
         #expect(real != fixture)
     }
+
+    /// The same rule for pictures: a fixture's image cached under the real
+    /// bridge's directory would show in a real conversation's bubble.
+    @Test func theFixtureAndTheRealBridgeNeverShareAnAttachmentCache() {
+        let real = SystemLaunchServices.attachmentDirectoryName(for: LaunchArguments(usesRealBackend: true))
+        let fixture = SystemLaunchServices
+            .attachmentDirectoryName(for: LaunchArguments(usesRealBackend: false))
+        #expect(real == "attachments-local")
+        #expect(fixture == "attachments-fixture")
+    }
 }
