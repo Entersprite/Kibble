@@ -79,6 +79,65 @@ struct AttachmentFetchTests {
         #expect(items.first { $0.name == "sz" }?.value == "w10000-h10000")
     }
 
+    @Test("the file variant asks for the bytes as uploaded, with no size")
+    func fileVariantShape() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.image("PDF", contentType: "application/pdf")])
+        _ = try await Self.fetch(transport).fetch(token: "t", contentType: "application/pdf", variant: .file)
+        let sent = try #require(await transport.sent.first)
+        let items = try #require(URLComponents(url: sent.url, resolvingAgainstBaseURL: false)?.queryItems)
+        let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(query["url_type"] == "DOWNLOAD_URL")
+        #expect(query["content_type"] == "application/pdf")
+        #expect(query["attachment_token"] == "t")
+        #expect(query["sz"] == nil)
+    }
+
+    /// An uploaded web page is a file like any other; only a page where
+    /// something else was expected is the sign-in shell.
+    @Test("an HTML file downloaded as a file is not a failure")
+    func htmlFileIsAFile() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.image(
+            "<html>notes</html>",
+            contentType: "text/html"
+        )])
+        let fetched = try await Self.fetch(transport).fetch(
+            token: "t",
+            contentType: "text/html",
+            variant: .file
+        )
+        #expect(fetched.body == Data("<html>notes</html>".utf8))
+    }
+
+    @Test("a page where a PDF was expected is still a failure")
+    func htmlWhereAFileWasExpected() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.image(
+            "<html>sign in</html>",
+            contentType: "text/html"
+        )])
+        let failure = await #expect(throws: AttachmentFetchFailure.self) {
+            try await Self.fetch(transport).fetch(token: "t", contentType: "application/pdf", variant: .file)
+        }
+        #expect(failure?.reason == .htmlInsteadOfAttachment)
+    }
+
+    @Test("the final hop's Content-Disposition is handed back")
+    func contentDisposition() async throws {
+        let transport = FakeHTTPTransport(responses: [HTTPResponse(
+            status: 200,
+            headers: HTTPHeaders([
+                ("Content-Type", "application/pdf"),
+                ("Content-Disposition", "attachment; filename=\"a.pdf\"")
+            ]),
+            body: Data("PDF".utf8)
+        )])
+        let fetched = try await Self.fetch(transport).fetch(
+            token: "t",
+            contentType: "application/pdf",
+            variant: .file
+        )
+        #expect(fetched.contentDisposition == "attachment; filename=\"a.pdf\"")
+    }
+
     @Test("no account segment when the endpoints have none")
     func noAccountSegment() async throws {
         let transport = FakeHTTPTransport(responses: [Self.image()])

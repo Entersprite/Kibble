@@ -6,6 +6,10 @@ public enum AttachmentVariant: Sendable, Hashable {
     case preview
     /// As large as the server will serve it.
     case original
+    /// The bytes as uploaded, for a file rather than a picture
+    /// (`url_type=DOWNLOAD_URL`, both references). mautrix: "usually there
+    /// are 4 redirects for files" `[Verify]` for this account.
+    case file
 }
 
 /// One request in an attachment fetch's redirect chain. Hosts and statuses
@@ -30,11 +34,15 @@ public struct FetchedAttachment: Sendable, Hashable {
     /// The final hop's `Content-Type`, if it sent one.
     public let contentType: String?
     public let hops: [AttachmentHop]
+    /// The final hop's `Content-Disposition`, if it sent one. Carries the file
+    /// name, so it is reported by presence only.
+    public let contentDisposition: String?
 
-    public init(body: Data, contentType: String?, hops: [AttachmentHop]) {
+    public init(body: Data, contentType: String?, hops: [AttachmentHop], contentDisposition: String? = nil) {
         self.body = body
         self.contentType = contentType
         self.hops = hops
+        self.contentDisposition = contentDisposition
     }
 }
 
@@ -144,27 +152,44 @@ public struct AttachmentFetch: Sendable {
                 throw AttachmentFetchFailure(reason: .httpStatus(response.status), hops: hops)
             }
             let type = response.headers["Content-Type"]
-            if type?.lowercased().hasPrefix("text/html") == true {
+            if Self.isPage(type), !(variant == .file && Self.isPage(contentType)) {
                 throw AttachmentFetchFailure(reason: .htmlInsteadOfAttachment, hops: hops)
             }
-            return FetchedAttachment(body: response.body, contentType: type, hops: hops)
+            return FetchedAttachment(
+                body: response.body,
+                contentType: type,
+                hops: hops,
+                contentDisposition: response.headers["Content-Disposition"]
+            )
         }
         throw AttachmentFetchFailure(reason: .tooManyRedirects, hops: hops)
     }
 
-    /// `url_type=FIFE_URL` because only images are fetched; a file would want
-    /// `DOWNLOAD_URL` (both references). The `sz` values are mautrix's for the
-    /// original and a 2x bubble width for the preview `[Verify]` that the
-    /// server honours them.
+    /// A page where an attachment was expected is how an unusable session
+    /// presents itself (auth failure is HTTP 200 here) - unless the upload
+    /// itself is a page, which only a file download can be asked for.
+    private static func isPage(_ contentType: String?) -> Bool {
+        contentType?.lowercased().hasPrefix("text/html") == true
+    }
+
+    /// `FIFE_URL` for a picture, `DOWNLOAD_URL` for a file (both references).
+    /// The `sz` values are mautrix's for the original and a 2x bubble width
+    /// for the preview `[Verify]` that the server honours them; a file has
+    /// none. `content_type` is sent for both, as purple does.
     func firstURL(token: String, contentType: String, variant: AttachmentVariant) -> URL {
         let base = endpoints.base.appendingPathComponent("api").appendingPathComponent("get_attachment_url")
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
-        components.percentEncodedQuery = QueryEncoding.query([
-            ("url_type", "FIFE_URL"),
+        var items = [
+            ("url_type", variant == .file ? "DOWNLOAD_URL" : "FIFE_URL"),
             ("content_type", contentType),
-            ("attachment_token", token),
-            ("sz", variant == .preview ? "w1024" : "w10000-h10000")
-        ])
+            ("attachment_token", token)
+        ]
+        switch variant {
+        case .preview: items.append(("sz", "w1024"))
+        case .original: items.append(("sz", "w10000-h10000"))
+        case .file: break
+        }
+        components.percentEncodedQuery = QueryEncoding.query(items)
         return components.url!
     }
 

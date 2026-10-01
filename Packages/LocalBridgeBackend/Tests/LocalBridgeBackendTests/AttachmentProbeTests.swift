@@ -94,6 +94,43 @@ struct AttachmentProbeTests {
         #expect(shapes.firstImage == ProbedUpload(token: "img", contentType: "image/jpeg"))
     }
 
+    @Test("the first non-image upload is the one chosen to download")
+    func choosesFirstFile() throws {
+        let shapes = try APIProbeReport.attachmentShapes([
+            Fixture.reply(annotations: [Self.upload(token: "img", contentType: "image/png")]),
+            Fixture.reply(annotations: [Self.upload(token: "pdf", contentType: "application/pdf")])
+        ])
+        #expect(shapes.firstFile == ProbedUpload(token: "pdf", contentType: "application/pdf"))
+    }
+
+    @Test("a download reports its hops, type, size and whether a filename came back - never the name")
+    func downloadLines() {
+        let fetched = FetchedAttachment(
+            body: Data(repeating: 0x25, count: 1234),
+            contentType: "application/pdf",
+            hops: [
+                AttachmentHop(host: "chat.google.com", status: 302, carriedCredentials: true),
+                AttachmentHop(host: "chat.google.com", status: 302, carriedCredentials: true),
+                AttachmentHop(host: "lh3.googleusercontent.com", status: 200, carriedCredentials: false)
+            ],
+            contentDisposition: "attachment; filename=\"\(Self.nameSecret)\""
+        )
+        let lines = APIProbeReport.attachmentDownloadLines(label: "/u/0", outcome: .success(fetched))
+        #expect(lines == [
+            "  /u/0: chat.google.com 302 (credentials) → chat.google.com 302 (credentials) → "
+                + "lh3.googleusercontent.com 200",
+            "    content type application/pdf, 1234 bytes; Content-Disposition present, filename present"
+        ])
+        #expect(!lines.joined().contains("holiday"))
+    }
+
+    @Test("a download without Content-Disposition says so")
+    func downloadLinesWithoutDisposition() {
+        let fetched = FetchedAttachment(body: Data(), contentType: nil, hops: [])
+        let lines = APIProbeReport.attachmentDownloadLines(label: "x", outcome: .success(fetched))
+        #expect(lines.last == "    content type none, 0 bytes; Content-Disposition absent, filename absent")
+    }
+
     @Test("the shapes report carries no token and no filename")
     func shapesNeverLeak() throws {
         let lines = try APIProbeReport.attachmentShapesLines(

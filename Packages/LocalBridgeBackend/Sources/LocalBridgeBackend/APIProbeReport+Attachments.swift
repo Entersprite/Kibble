@@ -29,6 +29,9 @@ struct AttachmentShapes: Equatable {
     /// The first upload whose MIME type starts `image/`: the one the fetch
     /// section asks for. Held, never printed.
     var firstImage: ProbedUpload?
+    /// The first upload that is not an image: the one the download section
+    /// asks for. Held, never printed.
+    var firstFile: ProbedUpload?
 }
 
 struct UploadDimensionShape: Equatable {
@@ -94,11 +97,11 @@ extension APIProbeReport {
                 shapes.dimensions.append(UploadDimensionShape(width: width, height: height))
             }
         }
-        if shapes.firstImage == nil, metadata.contentType.hasPrefix("image/") {
-            shapes.firstImage = ProbedUpload(
-                token: metadata.attachmentToken,
-                contentType: metadata.contentType
-            )
+        let upload = ProbedUpload(token: metadata.attachmentToken, contentType: metadata.contentType)
+        if metadata.contentType.hasPrefix("image/") {
+            shapes.firstImage = shapes.firstImage ?? upload
+        } else {
+            shapes.firstFile = shapes.firstFile ?? upload
         }
     }
 
@@ -134,13 +137,39 @@ extension APIProbeReport {
         label: String,
         outcome: Result<FetchedAttachment, AttachmentFetchFailure>
     ) -> [String] {
+        hopLines(label: label, outcome: outcome) { fetched in
+            "content type \(fetched.contentType.map(contentTypeKey) ?? "none"), "
+                + "\(fetched.body.count) bytes, format \(imageFormat(fetched.body))"
+        }
+    }
+
+    /// A file's download. `Content-Disposition` carries the file's name, so
+    /// it and its `filename=` are reported by presence only.
+    static func attachmentDownloadLines(
+        label: String,
+        outcome: Result<FetchedAttachment, AttachmentFetchFailure>
+    ) -> [String] {
+        hopLines(label: label, outcome: outcome) { fetched in
+            let disposition = fetched.contentDisposition
+            let hasFilename = disposition?.lowercased().contains("filename") == true
+            return "content type \(fetched.contentType.map(contentTypeKey) ?? "none"), "
+                + "\(fetched.body.count) bytes; "
+                + "Content-Disposition \(disposition == nil ? "absent" : "present"), "
+                + "filename \(hasFilename ? "present" : "absent")"
+        }
+    }
+
+    private static func hopLines(
+        label: String,
+        outcome: Result<FetchedAttachment, AttachmentFetchFailure>,
+        success: (FetchedAttachment) -> String
+    ) -> [String] {
         let hops: [AttachmentHop]
         let detail: String
         switch outcome {
         case let .success(fetched):
             hops = fetched.hops
-            detail = "content type \(fetched.contentType.map(contentTypeKey) ?? "none"), "
-                + "\(fetched.body.count) bytes, format \(imageFormat(fetched.body))"
+            detail = success(fetched)
         case let .failure(failure):
             hops = failure.hops
             detail = "FAILED: \(describe(failure.reason))"
@@ -226,20 +255,37 @@ extension APIProbeReport {
         lines.append(contentsOf: attachmentShapesLines(shapes))
         lines.append("")
         lines.append("attachment fetch (preview, first image upload):")
-        guard let upload = shapes.firstImage else {
-            lines.append("  no image upload on this page - post one in this conversation and rerun")
-            return
-        }
-        for (label, fetch) in fetches {
-            let outcome: Result<FetchedAttachment, AttachmentFetchFailure>
-            do {
-                outcome = try await .success(fetch.fetch(
-                    token: upload.token, contentType: upload.contentType, variant: .preview
-                ))
-            } catch {
-                outcome = .failure(error)
+        if let upload = shapes.firstImage {
+            for (label, fetch) in fetches {
+                let outcome = await outcome(of: fetch, upload, .preview)
+                lines.append(contentsOf: attachmentFetchLines(label: label, outcome: outcome))
             }
-            lines.append(contentsOf: attachmentFetchLines(label: label, outcome: outcome))
+        } else {
+            lines.append("  no image upload on this page - post one in this conversation and rerun")
+        }
+        lines.append("")
+        lines.append("attachment download (file, first non-image upload):")
+        if let upload = shapes.firstFile {
+            for (label, fetch) in fetches {
+                let outcome = await outcome(of: fetch, upload, .file)
+                lines.append(contentsOf: attachmentDownloadLines(label: label, outcome: outcome))
+            }
+        } else {
+            lines.append("  no file upload on this page - post one in this conversation and rerun")
+        }
+    }
+
+    private static func outcome(
+        of fetch: AttachmentFetch,
+        _ upload: ProbedUpload,
+        _ variant: AttachmentVariant
+    ) async -> Result<FetchedAttachment, AttachmentFetchFailure> {
+        do {
+            return try await .success(fetch.fetch(
+                token: upload.token, contentType: upload.contentType, variant: variant
+            ))
+        } catch {
+            return .failure(error)
         }
     }
 
