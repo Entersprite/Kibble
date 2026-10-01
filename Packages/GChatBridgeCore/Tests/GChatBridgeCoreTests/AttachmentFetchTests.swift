@@ -138,6 +138,22 @@ struct AttachmentFetchTests {
         #expect(fetched.contentDisposition == "attachment; filename=\"a.pdf\"")
     }
 
+    /// The call Chat on the web makes to open a file in its viewer, seen in
+    /// the owner's DevTools capture (`findings.md` §52.2): `content_type` and
+    /// `attachment_token`, nothing else, under `/api/`.
+    @Test("the viewer config is asked for under /api/ with the token and the type")
+    func projectorConfigShape() async throws {
+        let transport = FakeHTTPTransport(responses: [HTTPResponse(
+            status: 200, headers: HTTPHeaders([("Content-Type", "application/json")]), body: Data("[]".utf8)
+        )])
+        _ = try await Self.fetch(transport).projectorConfig(token: "t", contentType: "application/pdf")
+        let sent = try #require(await transport.sent.first)
+        #expect(sent.url.path().hasSuffix("/api/get_projector_config"))
+        let items = try #require(URLComponents(url: sent.url, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(Set(items.map(\.name)) == ["content_type", "attachment_token"])
+        #expect(sent.headers.fields.contains { $0.value.contains(Self.cookieSecret) })
+    }
+
     @Test("no account segment when the endpoints have none")
     func noAccountSegment() async throws {
         let transport = FakeHTTPTransport(responses: [Self.image()])

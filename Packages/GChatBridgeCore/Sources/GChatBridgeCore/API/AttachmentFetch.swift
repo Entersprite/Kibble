@@ -117,7 +117,36 @@ public struct AttachmentFetch: Sendable {
         contentType: String,
         variant: AttachmentVariant
     ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
-        var url = firstURL(token: token, contentType: contentType, variant: variant)
+        try await follow(
+            from: firstURL(token: token, contentType: contentType, variant: variant),
+            pageIsAnAnswer: variant == .file && Self.isPage(contentType)
+        )
+    }
+
+    /// The viewer's configuration for one upload: what Chat on the web asks
+    /// for when a file is opened, rather than `get_attachment_url`
+    /// (`findings.md` §52.2). Followed under the same credential rule.
+    public func projectorConfig(
+        token: String,
+        contentType: String
+    ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
+        let base = endpoints.base.appendingPathComponent("api").appendingPathComponent("get_projector_config")
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+        components.percentEncodedQuery = QueryEncoding.query([
+            ("content_type", contentType),
+            ("attachment_token", token)
+        ])
+        return try await follow(from: components.url!, pageIsAnAnswer: false)
+    }
+
+    /// Every hop by hand: credentials by host, `Set-Cookie` from the chat
+    /// host only, a sign-in redirect as a failure of its own.
+    /// `pageIsAnAnswer` is whether a `text/html` body is what was asked for.
+    private func follow(
+        from start: URL,
+        pageIsAnAnswer: Bool
+    ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
+        var url = start
         var hops: [AttachmentHop] = []
         while hops.count < Self.maxHops {
             let authorised = carriesCookies(url)
@@ -152,7 +181,7 @@ public struct AttachmentFetch: Sendable {
                 throw AttachmentFetchFailure(reason: .httpStatus(response.status), hops: hops)
             }
             let type = response.headers["Content-Type"]
-            if Self.isPage(type), !(variant == .file && Self.isPage(contentType)) {
+            if Self.isPage(type), !pageIsAnAnswer {
                 throw AttachmentFetchFailure(reason: .htmlInsteadOfAttachment, hops: hops)
             }
             return FetchedAttachment(

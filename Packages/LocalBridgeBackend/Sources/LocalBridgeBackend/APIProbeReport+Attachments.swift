@@ -105,7 +105,7 @@ extension APIProbeReport {
         }
     }
 
-    private static func contentTypeKey(_ type: String) -> String {
+    static func contentTypeKey(_ type: String) -> String {
         let shaped = type.range(of: #"^[a-z]+/[a-z0-9.+-]{1,40}$"#, options: .regularExpression) != nil
         return shaped ? type : "(unusual, \(type.count) chars)"
     }
@@ -159,7 +159,7 @@ extension APIProbeReport {
         }
     }
 
-    private static func hopLines(
+    static func hopLines(
         label: String,
         outcome: Result<FetchedAttachment, AttachmentFetchFailure>,
         success: (FetchedAttachment) -> String
@@ -188,7 +188,7 @@ extension APIProbeReport {
     /// that names a service. Anything else - digits, hyphens, another domain -
     /// is reduced to its last two labels, since a label like
     /// `doc-0s-…-docs` can carry an identifier.
-    private static func renderHost(_ host: String) -> String {
+    static func renderHost(_ host: String) -> String {
         guard !knownHosts.contains(host), !isPlainGoogleHost(host) else { return host }
         let labels = host.split(separator: ".")
         guard labels.count > 2 else { return host }
@@ -285,6 +285,8 @@ extension APIProbeReport {
         } else {
             lines.append("  no file upload on this page - post one in this conversation and rerun")
         }
+        lines.append("")
+        await appendProjectorConfigSection(upload: shapes.firstFile, fetches: fetches, lines: &lines)
     }
 
     private static func outcome(
