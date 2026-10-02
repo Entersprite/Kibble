@@ -120,8 +120,8 @@ struct StoredSessionTests {
 
     @Test("a session's domains and paths survive the round trip")
     func domainsRoundTrip() throws {
-        let original = StoredSession(
-            credential: SessionCookies(cookies: [
+        let original = try StoredSession(
+            credential: #require(SessionCookies(cookies: [
                 SessionCookies.Cookie(name: "SID", value: "lowercasesid", domain: ".google.com", path: "/"),
                 SessionCookies.Cookie(
                     name: "COMPASS",
@@ -129,7 +129,7 @@ struct StoredSessionTests {
                     domain: "chat.google.com",
                     path: "/"
                 )
-            ])!,
+            ])),
             capturedAt: now,
             expiresAt: nil
         )
