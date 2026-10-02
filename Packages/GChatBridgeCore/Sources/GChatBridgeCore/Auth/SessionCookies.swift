@@ -133,3 +133,42 @@ public extension SessionCookies {
         self.init(cookies: parsed)
     }
 }
+
+// MARK: - Where each cookie is sent
+
+public extension SessionCookies.Cookie {
+    /// Whether a browser would send this cookie with a request to `url`
+    /// (`findings.md` §52.9). `https` only: every request in this protocol is
+    /// TLS, and `Secure` is not stored, so a cookie is treated as secure.
+    func isSent(to url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host(), !host.isEmpty else { return false }
+        guard let domain else {
+            // Captured before domains were kept, for this host alone.
+            return host.lowercased() == CookieScope.chat.host
+        }
+        let requestPath = url.path(percentEncoded: false)
+        return CookieScope(host: host, path: requestPath.isEmpty ? "/" : requestPath, isSecure: true)
+            .admits(domain: domain, path: path ?? "/", isSecure: true)
+    }
+}
+
+public extension SessionCookies {
+    /// The `Cookie` header for one request: the cookies `url` admits, in
+    /// capture order, minus `names`. `nil` when none is admitted, so a caller
+    /// sends no header at all rather than an empty one.
+    func header(for url: URL, withholding names: Set<String> = []) -> String? {
+        Self.header(cookies, for: url, withholding: names)
+    }
+
+    /// The same rule over a jar's live list, so `CookieJar` and a snapshot can
+    /// never disagree about it.
+    internal static func header(
+        _ cookies: [Cookie],
+        for url: URL,
+        withholding names: Set<String>
+    ) -> String? {
+        let sent = cookies.filter { !names.contains($0.name) && $0.isSent(to: url) }
+        guard !sent.isEmpty else { return nil }
+        return sent.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+    }
+}
