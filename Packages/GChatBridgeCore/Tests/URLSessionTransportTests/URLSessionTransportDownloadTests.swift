@@ -84,6 +84,32 @@ struct URLSessionTransportDownloadRedirectTests {
     }
 }
 
+/// The guard behind `download`'s `cannotWriteFile`: extracted into
+/// `URLSessionTransport.openForWriting(_:)` so it can be driven directly,
+/// rather than only through `download`'s own catch-and-classify, which would
+/// pass just as well with the guard deleted (`FileHandle(forWritingTo:)`
+/// still throws *something*, only never `TransportFailure.cannotWriteFile`
+/// specifically) - review fix round 1.
+@Suite("URLSession transport - openForWriting")
+struct URLSessionTransportOpenForWritingTests {
+    @Test("a file under a directory that does not exist throws cannotWriteFile")
+    func missingParentDirectoryThrowsCannotWriteFile() {
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("missing")
+            .appendingPathComponent("file")
+        #expect {
+            _ = try URLSessionTransport.openForWriting(missing)
+        } throws: { error in
+            guard let failure = error as? TransportFailure else { return false }
+            if case .cannotWriteFile = failure {
+                return true
+            }
+            return false
+        }
+    }
+}
+
 /// Records `(written, total)` progress pairs thread-safely, mirroring
 /// `HTTPTransportDownloadTests.ProgressLog` - duplicated rather than shared
 /// because `GChatBridgeCoreTests` and `URLSessionTransportTests` are separate

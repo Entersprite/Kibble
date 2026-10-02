@@ -31,7 +31,11 @@ public extension URLSessionTransport {
             try await Self.write(bytes, to: file, total: total, progress: progress)
         } catch {
             try? FileManager.default.removeItem(at: file)
-            throw error is CancellationError || error is TransportFailure ? error : Self.classify(error)
+            // `classify` only rewraps a real `URLError`; a `CancellationError`
+            // or `TransportFailure.cannotWriteFile` from `openForWriting` is
+            // neither, so it already returns both unchanged - see its own
+            // `guard let urlError = error as? URLError else { return error }`.
+            throw Self.classify(error)
         }
         return (
             HTTPResponse(
@@ -46,16 +50,30 @@ public extension URLSessionTransport {
 
     internal static let downloadChunk = 64 * 1024
 
+    /// Creates `file` and opens it for writing, throwing
+    /// `TransportFailure.cannotWriteFile` when creation fails - a full disk,
+    /// a missing parent directory, a sandbox denial, never anything about
+    /// the network. `internal`, not `private`, so
+    /// `URLSessionTransportDownloadTests` can drive it directly via
+    /// `@testable import`, the same reason `classify` and the
+    /// request/response conversions above are internal rather than private:
+    /// a test reaching `download` end to end cannot force `createFile` to
+    /// fail without also depending on real disk state, so the guard itself
+    /// needs its own seam.
+    static func openForWriting(_ file: URL) throws -> FileHandle {
+        guard FileManager.default.createFile(atPath: file.path(percentEncoded: false), contents: nil) else {
+            throw TransportFailure.cannotWriteFile
+        }
+        return try FileHandle(forWritingTo: file)
+    }
+
     private static func write(
         _ bytes: URLSession.AsyncBytes,
         to file: URL,
         total: Int?,
         progress: @Sendable (Int, Int?) -> Void
     ) async throws {
-        guard FileManager.default.createFile(atPath: file.path(percentEncoded: false), contents: nil) else {
-            throw TransportFailure.cannotWriteFile
-        }
-        let handle = try FileHandle(forWritingTo: file)
+        let handle = try openForWriting(file)
         defer { try? handle.close() }
         var buffer = Data()
         buffer.reserveCapacity(downloadChunk)
