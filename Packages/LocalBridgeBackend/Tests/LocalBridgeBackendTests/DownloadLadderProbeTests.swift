@@ -71,4 +71,47 @@ struct DownloadLadderProbeTests {
         ])
         #expect(!lines.joined().contains("secret"))
     }
+
+    /// §52.6 compared names; a re-encoded `Location` differs in a value. Each
+    /// redirect's verdict prints in chain order, and a hop that did not
+    /// redirect prints nothing.
+    @Test("each redirect says whether its Location was requested verbatim")
+    func locationFidelity() {
+        let failure = AttachmentFetchFailure(
+            reason: .httpStatus(403),
+            hops: [
+                AttachmentHop(
+                    host: "chat.google.com",
+                    status: 302,
+                    carriedCredentials: true,
+                    location: .verbatim
+                ),
+                AttachmentHop(
+                    host: "chat.google.com",
+                    status: 302,
+                    carriedCredentials: true,
+                    location: .reencoded
+                ),
+                AttachmentHop(
+                    host: "chat.google.com",
+                    status: 302,
+                    carriedCredentials: true,
+                    location: .relative
+                ),
+                AttachmentHop(host: "chat.usercontent.google.com", status: 403, carriedCredentials: true)
+            ]
+        )
+        let lines = APIProbeReport.attachmentDownloadLines(label: "x", outcome: .failure(failure))
+        #expect(lines.last == "    locations: verbatim, RE-ENCODED, relative")
+    }
+
+    @Test("a chain with no redirect prints no locations line")
+    func noRedirectNoLocations() {
+        let failure = AttachmentFetchFailure(
+            reason: .httpStatus(403),
+            hops: [AttachmentHop(host: "chat.google.com", status: 403, carriedCredentials: true)]
+        )
+        let lines = APIProbeReport.attachmentDownloadLines(label: "x", outcome: .failure(failure))
+        #expect(!lines.contains { $0.contains("locations") })
+    }
 }

@@ -12,35 +12,6 @@ public enum AttachmentVariant: Sendable, Hashable {
     case file
 }
 
-/// One request in an attachment fetch's redirect chain. A hop's URL carries
-/// the attachment token or a signed parameter, so it is never kept whole:
-/// the host, the path's segments and the query's names, never a query value.
-public struct AttachmentHop: Sendable, Hashable {
-    public let host: String
-    public let status: Int
-    /// Whether this hop was sent the session's cookie and xsrf token.
-    public let carriedCredentials: Bool
-    /// Raw, and a segment can be an identifier: anything that prints these
-    /// masks each one first (`findings.md` §52.5).
-    public let pathSegments: [String]
-    /// The query's parameter names, in order. Never a value.
-    public let queryNames: [String]
-
-    public init(
-        host: String,
-        status: Int,
-        carriedCredentials: Bool,
-        pathSegments: [String] = [],
-        queryNames: [String] = []
-    ) {
-        self.host = host
-        self.status = status
-        self.carriedCredentials = carriedCredentials
-        self.pathSegments = pathSegments
-        self.queryNames = queryNames
-    }
-}
-
 /// An attachment's bytes, and the chain that produced them.
 public struct FetchedAttachment: Sendable, Hashable {
     public let body: Data
@@ -236,25 +207,14 @@ public struct AttachmentFetch: Sendable {
         while hops.count < Self.maxHops {
             let authorised = carriesCookies(url)
             site = max(site, fetchSite(url))
-            let response: HTTPResponse
-            do {
-                response = try await transport.send(request(
-                    for: url, authorised: authorised, style: style, site: site
-                ))
-            } catch let classified as ClassifiedTransportFailure {
-                throw AttachmentFetchFailure(reason: .transport(classified.reason), hops: hops)
-            } catch {
-                throw AttachmentFetchFailure(reason: .transport(nil), hops: hops)
-            }
-            if isChatHost(url) {
-                await credentials.absorb(response.headers)
-            }
-            hops.append(Self.hop(url, response.status, authorised: authorised))
+            let response = try await send(url, authorised: authorised, style: style, site: site, hops: hops)
+            let location = response.isRedirect ? response.headers["Location"] : nil
+            let next = location.flatMap { URL(string: $0, relativeTo: url)?.absoluteURL }
+            let fidelity = Self.fidelity(of: location, parsedAs: next)
+            hops.append(Self.hop(url, response.status, authorised: authorised, location: fidelity))
 
             if response.isRedirect {
-                guard let location = response.headers["Location"],
-                      let next = URL(string: location, relativeTo: url)?.absoluteURL
-                else {
+                guard let next else {
                     throw AttachmentFetchFailure(reason: .redirectWithoutLocation, hops: hops)
                 }
                 if next.host() == "accounts.google.com" {
@@ -282,15 +242,60 @@ public struct AttachmentFetch: Sendable {
         throw AttachmentFetchFailure(reason: .tooManyRedirects, hops: hops)
     }
 
-    private static func hop(_ url: URL, _ status: Int, authorised: Bool) -> AttachmentHop {
+    /// One hop, with a transport failure carrying the hops made before it,
+    /// and `Set-Cookie` absorbed from the chat host only.
+    private func send(
+        _ url: URL,
+        authorised: Bool,
+        style: RequestStyle,
+        site: FetchSite,
+        hops: [AttachmentHop]
+    ) async throws(AttachmentFetchFailure) -> HTTPResponse {
+        let response: HTTPResponse
+        do {
+            response = try await transport.send(request(
+                for: url,
+                authorised: authorised,
+                style: style,
+                site: site
+            ))
+        } catch let classified as ClassifiedTransportFailure {
+            throw AttachmentFetchFailure(reason: .transport(classified.reason), hops: hops)
+        } catch {
+            throw AttachmentFetchFailure(reason: .transport(nil), hops: hops)
+        }
+        if isChatHost(url) {
+            await credentials.absorb(response.headers)
+        }
+        return response
+    }
+
+    private static func hop(
+        _ url: URL,
+        _ status: Int,
+        authorised: Bool,
+        location: AttachmentHop.LocationFidelity?
+    ) -> AttachmentHop {
         AttachmentHop(
             host: url.host() ?? "",
             status: status,
             carriedCredentials: authorised,
             pathSegments: url.pathComponents.filter { $0 != "/" },
             queryNames: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
-                .map(\.name)
+                .map(\.name),
+            location: location
         )
+    }
+
+    /// `URL(string:)` percent-encodes what it cannot accept (a `|`, a space,
+    /// a stray `%`) rather than failing, and the transport sends the parsed
+    /// URL, so a changed spelling is a changed request. `nil` when there is
+    /// no redirect to compare.
+    private static func fidelity(of location: String?, parsedAs next: URL?) -> AttachmentHop
+        .LocationFidelity? {
+        guard let location, let next else { return nil }
+        guard URL(string: location)?.scheme != nil else { return .relative }
+        return next.absoluteString == location ? .verbatim : .reencoded
     }
 
     private static func refusal(_ response: HTTPResponse) -> AttachmentFetchFailure.Refusal {

@@ -70,7 +70,21 @@ extension APIProbeReport {
             let headers = names.isEmpty ? "-" : names.joined(separator: ",")
             lines.append("    refusal: content type \(type), \(refusal.bodyBytes) bytes, headers \(headers)")
         }
+        let locations = hops.compactMap(\.location).map(locationWord)
+        if !locations.isEmpty {
+            lines.append("    locations: " + locations.joined(separator: ", "))
+        }
         return lines
+    }
+
+    /// Uppercase for the one that would explain a refusal, so it stands out
+    /// in a pasted run.
+    private static func locationWord(_ fidelity: AttachmentHop.LocationFidelity) -> String {
+        switch fidelity {
+        case .verbatim: "verbatim"
+        case .reencoded: "RE-ENCODED"
+        case .relative: "relative"
+        }
     }
 
     private static func addressShape(_ hop: AttachmentHop) -> String {
