@@ -20,7 +20,8 @@ import Foundation
 ///
 /// ## What this type is not
 ///
-/// It is not a cookie jar. There is no domain, path or expiry here, and no
+/// It is not a cookie jar. Each cookie keeps the domain and path it was captured with, so a request can be
+/// sent only what a browser would send (`findings.md` §52.9), but there is no expiry here and no
 /// `Set-Cookie` handling: `register?ignore_compass_cookie=1` does return
 /// `Set-Cookie` and does rotate `COMPASS` server-side, so a live session needs
 /// somewhere to apply that — but that belongs with the transport that sees the
@@ -34,10 +35,21 @@ public struct SessionCookies: Sendable, Hashable, CustomStringConvertible {
     public struct Cookie: Sendable, Hashable {
         public let name: String
         public let value: String
+        /// Where a browser would send it, spelled as the cookie store spelled
+        /// it: a leading dot is a domain cookie (`.google.com`), none is
+        /// host-only (`chat.google.com`). `nil` for a cookie captured before
+        /// domains were kept, which goes to `CookieScope.chat`'s host only
+        /// (`findings.md` §52.9).
+        public let domain: String?
+        /// The cookie's path, `/` when the store reported none. `nil` exactly
+        /// when `domain` is.
+        public let path: String?
 
-        public init(name: String, value: String) {
+        public init(name: String, value: String, domain: String? = nil, path: String? = nil) {
             self.name = name
             self.value = value
+            self.domain = domain
+            self.path = path
         }
     }
 
@@ -54,6 +66,12 @@ public struct SessionCookies: Sendable, Hashable, CustomStringConvertible {
 
     public var count: Int {
         cookies.count
+    }
+
+    /// How many cookies know their domain. A session stored before §52.9
+    /// has none; one captured since has all. Reported as a count only.
+    public var domainCount: Int {
+        cookies.count { $0.domain != nil }
     }
 
     /// The size of the header this will produce. A real capture is around 4990

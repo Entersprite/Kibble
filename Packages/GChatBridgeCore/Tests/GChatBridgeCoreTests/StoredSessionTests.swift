@@ -103,4 +103,57 @@ struct StoredSessionTests {
         #expect(described.contains("COMPASS"))
         #expect(!described.contains("value-for-COMPASS"))
     }
+
+    // MARK: - Domains (findings.md §52.9)
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return decoder
+    }()
+
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        return encoder
+    }()
+
+    @Test("a session's domains and paths survive the round trip")
+    func domainsRoundTrip() throws {
+        let original = StoredSession(
+            credential: SessionCookies(cookies: [
+                SessionCookies.Cookie(name: "SID", value: "lowercasesid", domain: ".google.com", path: "/"),
+                SessionCookies.Cookie(
+                    name: "COMPASS",
+                    value: "lowercasecompass",
+                    domain: "chat.google.com",
+                    path: "/"
+                )
+            ])!,
+            capturedAt: now,
+            expiresAt: nil
+        )
+        let decoded = try Self.decoder.decode(StoredSession.self, from: Self.encoder.encode(original))
+        #expect(decoded == original)
+        #expect(decoded.credential.domainCount == 2)
+    }
+
+    /// A literal blob in the format every session stored before §52.9 has,
+    /// not one this build encoded: the test that it still decodes has to
+    /// start from bytes the new code never wrote.
+    @Test("a session stored before domains were kept decodes, with none")
+    func legacyBlobDecodes() throws {
+        let blob = Data(#"{"cookies":[{"name":"SID","value":"v"}],"capturedAt":1788166800}"#.utf8)
+        let decoded = try Self.decoder.decode(StoredSession.self, from: blob)
+        #expect(decoded.credential.cookies == [SessionCookies.Cookie(name: "SID", value: "v")])
+        #expect(decoded.credential.cookies.first?.domain == nil)
+        #expect(decoded.credential.domainCount == 0)
+    }
+
+    @Test("a session without domains encodes without the keys")
+    func legacyEncodesWithoutKeys() throws {
+        let text = try String(decoding: Self.encoder.encode(session(expiresAt: nil)), as: UTF8.self)
+        #expect(!text.contains("domain"))
+        #expect(!text.contains("path"))
+    }
 }
