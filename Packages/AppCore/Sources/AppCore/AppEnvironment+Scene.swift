@@ -56,7 +56,8 @@ public extension AppEnvironment {
                 failedConversations: model.mentionBackfill.failedConversations
             ),
             unreadMentionCount: model.unreadMentionCount,
-            scrollTarget: model.scrollTarget
+            scrollTarget: model.scrollTarget,
+            downloads: downloads?.states ?? [:]
         )
     }
 
@@ -161,7 +162,8 @@ public extension AppEnvironment {
             openAttachment: canFetchAttachments ? { [weak self] attachment in
                 guard let self else { throw NoSession() }
                 return try await openAttachment(attachment)
-            } : nil
+            } : nil,
+            attachmentFiles: attachmentFileActions
         )
     }
 

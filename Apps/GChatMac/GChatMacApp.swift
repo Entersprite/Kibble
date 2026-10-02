@@ -95,6 +95,13 @@ struct GChatMacApp: App {
                     )
                     .frame(width: 560, height: 420)
                 }
+                Tab("Downloads", systemImage: "arrow.down.circle", value: "downloads") {
+                    DownloadSettingsPane(
+                        state: environment.downloadSettingsState,
+                        actions: environment.downloadSettingsActions
+                    )
+                    .frame(width: 560, height: 220)
+                }
                 Tab("Account", systemImage: "person.crop.circle", value: "account") {
                     AccountSettingsPane(
                         state: environment.accountSettingsState,
