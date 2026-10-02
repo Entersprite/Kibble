@@ -60,6 +60,18 @@ struct DownloadCoordinatorGuardTests {
         #expect(fixture.names(in: fixture.folder) == ["report.pdf"])
     }
 
+    @Test func aStopBeforeTheTransferBeginsNeitherCallsTheBackendNorRecreatesStaging() async throws {
+        let fixture = try DownloadFixture()
+        defer { fixture.cleanUp() }
+        fixture.coordinator.start(DownloadFixture.report)
+        let task = try #require(fixture.coordinator.task(for: DownloadFixture.report))
+        fixture.coordinator.stopAll()
+        await task.value
+        #expect(await fixture.script.destinations.isEmpty)
+        #expect(!fixture.exists(fixture.staging))
+        #expect(fixture.state == nil)
+    }
+
     @Test func aURLInsideAnErrorIsNeverShown() async throws {
         let fixture = try DownloadFixture()
         defer { fixture.cleanUp() }

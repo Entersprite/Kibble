@@ -70,8 +70,7 @@ public final class DownloadCoordinator {
         if let file = placed[attachment.id], Self.exists(file) {
             do {
                 // The save panel already asked whether to replace an existing file.
-                try? FileManager.default.removeItem(at: target)
-                try FileManager.default.copyItem(at: file, to: target)
+                try DownloadNaming.deliver(file, to: target, copying: true)
             } catch {
                 states[attachment.id] = .failed(Self.message(for: error))
             }
@@ -135,6 +134,8 @@ public final class DownloadCoordinator {
             }
         }
         do {
+            // A stop that landed before this body began: no staging, no backend call.
+            try Task.checkCancellation()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try await download(attachment, staged) { progress in
                 Task { @MainActor [weak self] in self?.progressed(id, progress, token: token) }
@@ -159,14 +160,14 @@ public final class DownloadCoordinator {
     /// Late progress - it hops to this actor - never moves a finished or
     /// failed chip back to downloading, nor a newer transfer's chip.
     private func progressed(_ id: String, _ progress: AttachmentProgress, token: UUID) {
+        // The token is the guard; `.downloading` is belt-and-braces behind it.
         guard isCurrent(token, for: id), case .downloading = states[id] else { return }
         states[id] = .downloading(progress)
     }
 
     private func place(_ staged: URL, attachment: Attachment, into target: URL?) throws -> URL {
         if let target {
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.moveItem(at: staged, to: target)
+            try DownloadNaming.deliver(staged, to: target, copying: false)
             return target
         }
         let result = try platform.withAccess { folder in

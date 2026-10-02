@@ -20,6 +20,24 @@ struct DownloadNamingTests {
         #expect(!leaf.hasPrefix("."))
     }
 
+    @Test(
+        "a long name is cut to 240 UTF-8 bytes, room for a \" 9999\" suffix, keeping its extension",
+        arguments: [String(repeating: "x", count: 296) + ".pdf", String(repeating: "é", count: 296) + ".pdf"]
+    )
+    func longNames(_ name: String) {
+        let leaf = DownloadNaming.leaf(name)
+        #expect(leaf.utf8.count <= 240)
+        #expect(leaf.utf8.count > 200)
+        #expect(leaf.hasSuffix(".pdf"))
+    }
+
+    @Test("an extension longer than the cap is cut with the rest rather than kept")
+    func longExtension() {
+        let leaf = DownloadNaming.leaf("a." + String(repeating: "x", count: 300))
+        #expect(leaf.utf8.count <= 240)
+        #expect(leaf.hasPrefix("a"))
+    }
+
     @Test("placing into a folder that already holds the name gives name 2, then name 3")
     func collisions() throws {
         let root = Self.directory()

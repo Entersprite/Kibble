@@ -29,6 +29,8 @@ struct DownloadCoordinatorTests {
         // Give a second transfer every chance to reach the backend.
         _ = await eventually(timeout: .milliseconds(100)) { await fixture.script.heldCount > 1 }
         #expect(await fixture.script.destinations.count == 1)
+        // Save As is refused before it asks where: no panel while a transfer runs.
+        #expect(fixture.platform.suggestedNames.isEmpty)
         await fixture.script.release()
         try await fixture.finish()
         #expect(fixture.state == .done)
