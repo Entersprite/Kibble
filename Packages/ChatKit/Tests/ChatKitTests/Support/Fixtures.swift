@@ -260,7 +260,8 @@ extension Fixture {
         Sample("error-transport", .transport("connection reset")),
         Sample("error-decoding", .decoding("unexpected field")),
         Sample("error-server", .server(status: 503, message: "backend unavailable")),
-        Sample("error-unknown", .unknown("quotaExceeded"))
+        Sample("error-unknown", .unknown("quotaExceeded")),
+        Sample("error-signInRequired", .signInRequired("this session predates cookie domains"))
     ]
 
     static let connectionStates: [Sample<ConnectionState>] = [

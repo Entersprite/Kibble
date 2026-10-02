@@ -165,7 +165,8 @@ struct FrameCodingTests {
             "transport",
             "decoding",
             "server",
-            "unknown"
+            "unknown",
+            "signInRequired"
         ]
         #expect(try Set(Fixture.errors.map { try discriminator(of: $0.value) }) == expected)
     }

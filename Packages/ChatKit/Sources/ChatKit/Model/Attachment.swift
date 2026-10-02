@@ -74,3 +74,15 @@ public enum AttachmentSize: String, Sendable, Hashable {
     /// As large as the backend will serve.
     case original
 }
+
+/// How far a file download has got. `totalBytes` is `nil` when the server
+/// sent no length, which a view draws as a spinner rather than a bar.
+public struct AttachmentProgress: Sendable, Hashable {
+    public var bytesReceived: Int
+    public var totalBytes: Int?
+
+    public init(bytesReceived: Int, totalBytes: Int?) {
+        self.bytesReceived = bytesReceived
+        self.totalBytes = totalBytes
+    }
+}

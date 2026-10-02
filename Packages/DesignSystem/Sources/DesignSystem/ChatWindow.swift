@@ -261,6 +261,7 @@ struct StatusStrip: View {
         case let .rateLimited(retryAfter):
             retryAfter.map { "Rate limited. Retrying in \($0)." } ?? "Rate limited."
         case let .unsupported(capability): "This backend cannot \(capability)."
+        case .signInRequired: "Sign in again to download files."
         case let .transport(message): "Connection problem: \(message)"
         case let .decoding(message): "Could not read a message: \(message)"
         case let .server(status, message): "Server error \(status): \(message)"
