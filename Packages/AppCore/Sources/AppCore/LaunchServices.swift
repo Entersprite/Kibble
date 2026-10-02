@@ -62,6 +62,11 @@ public protocol LaunchServices: AnyObject {
     /// real session. `eraseStore()` removes it too, for the path that signs
     /// out with no session to ask (`AttachmentCache`'s doc comment).
     func attachmentCacheDirectory() -> URL?
+
+    /// The platform's half of a download: the folder, its sandbox access,
+    /// Finder and the save panel. One instance for the process, because it
+    /// holds the chosen folder.
+    func downloadPlatform() -> any DownloadPlatform
 }
 
 /// What the launch was asked for, parsed once.

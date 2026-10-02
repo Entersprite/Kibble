@@ -15,7 +15,9 @@ struct AttachmentFetchTests {
 
     static func credentials() -> SessionCredentials {
         SessionCredentials(
-            SessionCookies(cookies: [SessionCookies.Cookie(name: "SID", value: cookieSecret)])!
+            SessionCookies(cookies: [
+                SessionCookies.Cookie(name: "SID", value: cookieSecret, domain: ".google.com", path: "/")
+            ])!
         )
     }
 
@@ -79,6 +81,81 @@ struct AttachmentFetchTests {
         #expect(items.first { $0.name == "sz" }?.value == "w10000-h10000")
     }
 
+    @Test("the file variant asks for the bytes as uploaded, with no size")
+    func fileVariantShape() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.image("PDF", contentType: "application/pdf")])
+        _ = try await Self.fetch(transport).fetch(token: "t", contentType: "application/pdf", variant: .file)
+        let sent = try #require(await transport.sent.first)
+        let items = try #require(URLComponents(url: sent.url, resolvingAgainstBaseURL: false)?.queryItems)
+        let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(query["url_type"] == "DOWNLOAD_URL")
+        #expect(query["content_type"] == "application/pdf")
+        #expect(query["attachment_token"] == "t")
+        #expect(query["sz"] == nil)
+    }
+
+    /// An uploaded web page is a file like any other; only a page where
+    /// something else was expected is the sign-in shell.
+    @Test("an HTML file downloaded as a file is not a failure")
+    func htmlFileIsAFile() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.image(
+            "<html>notes</html>",
+            contentType: "text/html"
+        )])
+        let fetched = try await Self.fetch(transport).fetch(
+            token: "t",
+            contentType: "text/html",
+            variant: .file
+        )
+        #expect(fetched.body == Data("<html>notes</html>".utf8))
+    }
+
+    @Test("a page where a PDF was expected is still a failure")
+    func htmlWhereAFileWasExpected() async throws {
+        let transport = FakeHTTPTransport(responses: [Self.image(
+            "<html>sign in</html>",
+            contentType: "text/html"
+        )])
+        let failure = await #expect(throws: AttachmentFetchFailure.self) {
+            try await Self.fetch(transport).fetch(token: "t", contentType: "application/pdf", variant: .file)
+        }
+        #expect(failure?.reason == .htmlInsteadOfAttachment)
+    }
+
+    @Test("the final hop's Content-Disposition is handed back")
+    func contentDisposition() async throws {
+        let transport = FakeHTTPTransport(responses: [HTTPResponse(
+            status: 200,
+            headers: HTTPHeaders([
+                ("Content-Type", "application/pdf"),
+                ("Content-Disposition", "attachment; filename=\"a.pdf\"")
+            ]),
+            body: Data("PDF".utf8)
+        )])
+        let fetched = try await Self.fetch(transport).fetch(
+            token: "t",
+            contentType: "application/pdf",
+            variant: .file
+        )
+        #expect(fetched.contentDisposition == "attachment; filename=\"a.pdf\"")
+    }
+
+    /// The call Chat on the web makes to open a file in its viewer, seen in
+    /// the owner's DevTools capture (`findings.md` §52.2): `content_type` and
+    /// `attachment_token`, nothing else, under `/api/`.
+    @Test("the viewer config is asked for under /api/ with the token and the type")
+    func projectorConfigShape() async throws {
+        let transport = FakeHTTPTransport(responses: [HTTPResponse(
+            status: 200, headers: HTTPHeaders([("Content-Type", "application/json")]), body: Data("[]".utf8)
+        )])
+        _ = try await Self.fetch(transport).projectorConfig(token: "t", contentType: "application/pdf")
+        let sent = try #require(await transport.sent.first)
+        #expect(sent.url.path().hasSuffix("/api/get_projector_config"))
+        let items = try #require(URLComponents(url: sent.url, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(Set(items.map(\.name)) == ["content_type", "attachment_token"])
+        #expect(sent.headers.fields.contains { $0.value.contains(Self.cookieSecret) })
+    }
+
     @Test("no account segment when the endpoints have none")
     func noAccountSegment() async throws {
         let transport = FakeHTTPTransport(responses: [Self.image()])
@@ -90,99 +167,6 @@ struct AttachmentFetchTests {
         )
         _ = try await fetch.fetch(token: "t", contentType: "image/png", variant: .preview)
         #expect(try #require(await transport.sent.first).url.path() == "/api/get_attachment_url")
-    }
-
-    // MARK: - Credentials, hop by hop
-
-    @Test("the chat host gets the cookie, the xsrf token and the user agent")
-    func chatHostIsAuthorised() async throws {
-        let transport = FakeHTTPTransport(responses: [Self.image()])
-        _ = try await Self.fetch(transport).fetch(token: "t", contentType: "image/png", variant: .preview)
-        let sent = try #require(await transport.sent.first)
-        #expect(sent.headers["Cookie"]?.contains(Self.cookieSecret) == true)
-        #expect(sent.headers["x-framework-xsrf-token"] == Self.xsrfSecret)
-        #expect(sent.headers["User-Agent"] == ChatEndpoints.defaultUserAgent)
-    }
-
-    @Test("a hop off the chat host carries no credential of any kind")
-    func otherHostsGetNothing() async throws {
-        let transport = FakeHTTPTransport(responses: [
-            Self.redirect(to: Self.fife),
-            Self.redirect(to: "https://chat.google.com/api/after"),
-            Self.redirect(to: "https://mail.google.com/elsewhere"),
-            Self.image()
-        ])
-        let fetched = try await Self.fetch(transport).fetch(
-            token: "t", contentType: "image/png", variant: .preview
-        )
-        let sent = await transport.sent
-        #expect(sent.count == 4)
-        for request in sent {
-            #expect(request.followsRedirects == false)
-            let carries = request.headers.fields.contains {
-                $0.value.contains(Self.cookieSecret) || $0.value.contains(Self.xsrfSecret)
-            }
-            #expect(carries == (request.url.host() == "chat.google.com"), "\(request.url.host() ?? "?")")
-        }
-        #expect(fetched.hops.map(\.host) == [
-            "chat.google.com", "lh3.googleusercontent.com", "chat.google.com", "mail.google.com"
-        ])
-        #expect(fetched.hops.map(\.carriedCredentials) == [true, false, true, false])
-    }
-
-    @Test("plain http to the chat host is not the chat host")
-    func insecureChatHostGetsNothing() async throws {
-        let transport = FakeHTTPTransport(responses: [
-            Self.redirect(to: "http://chat.google.com/api/plain"),
-            Self.image()
-        ])
-        _ = try await Self.fetch(transport).fetch(token: "t", contentType: "image/png", variant: .preview)
-        let second = try #require(await transport.sent.last)
-        #expect(second.headers["Cookie"] == nil)
-        #expect(second.headers["x-framework-xsrf-token"] == nil)
-    }
-
-    @Test("a relative Location resolves against the hop that sent it")
-    func relativeLocation() async throws {
-        let transport = FakeHTTPTransport(responses: [
-            Self.redirect(to: Self.fife),
-            Self.redirect(to: "/fife/second"),
-            Self.image()
-        ])
-        _ = try await Self.fetch(transport).fetch(token: "t", contentType: "image/png", variant: .preview)
-        let last = try #require(await transport.sent.last)
-        #expect(last.url.absoluteString == "https://lh3.googleusercontent.com/fife/second")
-        #expect(last.headers["Cookie"] == nil)
-    }
-
-    @Test("a rotated cookie from the chat host is absorbed into the jar")
-    func absorbsFromChatHost() async throws {
-        let credentials = Self.credentials()
-        let transport = FakeHTTPTransport(responses: [
-            Self.redirect(to: Self.fife, setCookie: "SIDCC=rotated; Path=/"),
-            Self.image()
-        ])
-        _ = try await Self.fetch(transport, credentials: credentials).fetch(
-            token: "t", contentType: "image/png", variant: .preview
-        )
-        #expect(await credentials.header().contains("SIDCC=rotated"))
-    }
-
-    @Test("a cookie set by any other host never reaches the chat jar")
-    func ignoresOtherHostsCookies() async throws {
-        let credentials = Self.credentials()
-        let transport = FakeHTTPTransport(responses: [
-            Self.redirect(to: Self.fife),
-            HTTPResponse(
-                status: 200,
-                headers: HTTPHeaders([("Content-Type", "image/png"), ("Set-Cookie", "FOREIGN=x; Path=/")]),
-                body: Data("PNG".utf8)
-            )
-        ])
-        _ = try await Self.fetch(transport, credentials: credentials).fetch(
-            token: "t", contentType: "image/png", variant: .preview
-        )
-        #expect(await !credentials.header().contains("FOREIGN"))
     }
 
     // MARK: - Outcomes
@@ -206,11 +190,12 @@ struct AttachmentFetchTests {
         let transport = FakeHTTPTransport(responses: [
             Self.redirect(to: "https://accounts.google.com/ServiceLogin?continue=x")
         ])
-        await #expect(throws: AttachmentFetchFailure(reason: .signInRedirect, hops: [
-            AttachmentHop(host: "chat.google.com", status: 302, carriedCredentials: true)
-        ])) {
+        let failure = await #expect(throws: AttachmentFetchFailure.self) {
             try await Self.fetch(transport).fetch(token: "t", contentType: "image/png", variant: .preview)
         }
+        #expect(failure?.reason == .signInRedirect)
+        #expect(failure?.hops.map(\.host) == ["chat.google.com"])
+        #expect(failure?.hops.map(\.status) == [302])
         #expect(await transport.sent.count == 1)
     }
 

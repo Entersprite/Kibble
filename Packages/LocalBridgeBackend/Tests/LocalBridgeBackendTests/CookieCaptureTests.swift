@@ -147,4 +147,35 @@ struct CookieCaptureTests {
         #expect(rendered.contains("COMPASS"))
         #expect(rendered.contains("OSID"))
     }
+
+    @Test("each stored cookie keeps the domain and path it was captured with")
+    func domainsAreKept() throws {
+        let capture = capture([
+            cookie("SID", domain: ".google.com"),
+            cookie("COMPASS", domain: "chat.google.com"),
+            cookie("LSID", domain: "accounts.google.com")
+        ])
+        let cookies = try #require(capture.session?.credential.cookies)
+        #expect(cookies.map(\.name) == ["SID", "COMPASS"])
+        #expect(cookies.map(\.domain) == [".google.com", "chat.google.com"])
+        #expect(cookies.map(\.path) == ["/", "/"])
+    }
+
+    @Test("an empty path from the store is the root")
+    func emptyPathIsRoot() {
+        let capture = capture([cookie("SID", domain: ".google.com", path: "")])
+        #expect(capture.session?.credential.cookies.first?.path == "/")
+    }
+
+    /// `CookieJar.apply` compares a stored domain against a lowercased
+    /// `Set-Cookie` scope; a domain the store capitalised differently would
+    /// never match by identity. Lowercasing at capture is what keeps that
+    /// comparison robust, and the leading dot - a domain cookie's marker -
+    /// is untouched by case.
+    @Test("a captured domain is lowercased, keeping the leading dot")
+    func domainIsLowercased() throws {
+        let capture = capture([cookie("SID", domain: ".Google.COM")])
+        let cookie = try #require(capture.session?.credential.cookies.first)
+        #expect(cookie.domain == ".google.com")
+    }
 }

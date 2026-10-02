@@ -239,12 +239,61 @@ struct ReadReceiptReportTests {
 
     // MARK: - conversation selection
 
-    private func conversation(lastActivity: Date?) -> Conversation {
+    private func conversation(lastActivity: Date?, kind: Conversation.Kind = .directMessage) -> Conversation {
         Conversation(
             id: Conversation.ID(rawValue: "dm:\(UUID().uuidString)"),
-            kind: .directMessage,
+            kind: kind,
             lastActivity: lastActivity
         )
+    }
+
+    /// A busy space - one an app posts into every few minutes - outruns any
+    /// DM on recency, so the newest message in a DM someone just staged is
+    /// never what "most recently active" picks (`findings.md` §52).
+    @Test("dm picks the most recently active direct message over a newer space")
+    func dmPicksTheNewestDirectMessage() {
+        let conversations = [
+            conversation(lastActivity: Date(timeIntervalSince1970: 100)),
+            conversation(lastActivity: Date(timeIntervalSince1970: 900), kind: .space),
+            conversation(lastActivity: Date(timeIntervalSince1970: 200)),
+            conversation(lastActivity: Date(timeIntervalSince1970: 50))
+        ]
+        var lines: [String] = []
+
+        let index = APIProbeReport.chooseConversationIndex(
+            conversations, choice: .mostRecentDirectMessage, lines: &lines
+        )
+
+        #expect(index == 2)
+        #expect(lines.contains(where: { $0.contains("most recently active direct message") }))
+    }
+
+    @Test("dm with no direct message falls back to most recently active, with a note")
+    func dmWithoutADirectMessageFallsBack() {
+        let conversations = [
+            conversation(lastActivity: Date(timeIntervalSince1970: 100), kind: .space),
+            conversation(lastActivity: Date(timeIntervalSince1970: 300), kind: .space)
+        ]
+        var lines: [String] = []
+
+        let index = APIProbeReport.chooseConversationIndex(
+            conversations, choice: .mostRecentDirectMessage, lines: &lines
+        )
+
+        #expect(index == 1)
+        #expect(lines.contains(where: { $0.contains("no direct message") }))
+    }
+
+    @Test(arguments: [
+        ("dm", ProbeConversation.mostRecentDirectMessage),
+        ("DM", .mostRecentDirectMessage),
+        ("3", .index(3)),
+        ("", .mostRecent),
+        ("space", .mostRecent),
+        ("-1", .mostRecent)
+    ])
+    func theArgumentIsParsed(_ argument: String, _ expected: ProbeConversation) {
+        #expect(ProbeConversation(argument: argument) == expected)
     }
 
     @Test("chooses the conversation with the greatest lastActivity")
@@ -256,7 +305,7 @@ struct ReadReceiptReportTests {
         ]
         var lines: [String] = []
 
-        let index = APIProbeReport.chooseConversationIndex(conversations, override: nil, lines: &lines)
+        let index = APIProbeReport.chooseConversationIndex(conversations, choice: .mostRecent, lines: &lines)
 
         #expect(index == 1)
         #expect(lines.contains(where: { $0.contains("most recently active") }))
@@ -270,7 +319,7 @@ struct ReadReceiptReportTests {
         ]
         var lines: [String] = []
 
-        let index = APIProbeReport.chooseConversationIndex(conversations, override: nil, lines: &lines)
+        let index = APIProbeReport.chooseConversationIndex(conversations, choice: .mostRecent, lines: &lines)
 
         #expect(index == 1)
     }
@@ -283,7 +332,7 @@ struct ReadReceiptReportTests {
         ]
         var lines: [String] = []
 
-        let index = APIProbeReport.chooseConversationIndex(conversations, override: 1, lines: &lines)
+        let index = APIProbeReport.chooseConversationIndex(conversations, choice: .index(1), lines: &lines)
 
         #expect(index == 1)
         #expect(lines.contains(where: { $0.contains("explicit --probe-conversation") }))
@@ -297,7 +346,7 @@ struct ReadReceiptReportTests {
         ]
         var lines: [String] = []
 
-        let index = APIProbeReport.chooseConversationIndex(conversations, override: 99, lines: &lines)
+        let index = APIProbeReport.chooseConversationIndex(conversations, choice: .index(99), lines: &lines)
 
         #expect(index == 1)
         #expect(lines.contains(where: { $0.contains("out of range") }))

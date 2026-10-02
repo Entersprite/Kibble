@@ -71,7 +71,10 @@ struct HTTPTransportTests {
             ]),
             body: Data()
         )
-        jar.absorb(setCookie: response.headers.setCookies)
+        try jar.absorb(
+            setCookie: response.headers.setCookies,
+            from: #require(URL(string: "https://chat.google.com/"))
+        )
         #expect(jar["SIDCC"] == "new")
         #expect(jar["__Secure-1PSIDCC"] == "fresh")
         #expect(jar.rotations.count == 2)

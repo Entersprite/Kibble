@@ -56,6 +56,14 @@ struct AttachmentDataTests {
         func attachmentData(_ attachment: ChatKit.Attachment, size: AttachmentSize) async throws -> Data {
             Data("\(attachment.id)/\(size.rawValue)".utf8)
         }
+
+        func downloadAttachment(
+            _: ChatKit.Attachment, to destination: URL,
+            progress: @escaping @Sendable (AttachmentProgress) -> Void
+        ) async throws {
+            progress(AttachmentProgress(bytesReceived: 1, totalBytes: 1))
+            try Data("x".utf8).write(to: destination)
+        }
     }
 
     /// The trap this pins: a method declared only in a protocol extension is
@@ -75,5 +83,34 @@ struct AttachmentDataTests {
             let backend: any ChatBackend = BackendWithoutAttachments()
             _ = try await backend.attachmentData(Fixture.imageAttachment, size: .preview)
         }
+    }
+
+    @Test("a backend that has not thought about downloads refuses, named by its capability")
+    func downloadRefusesByDefault() async throws {
+        let backend: any ChatBackend = BackendWithoutAttachments()
+        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        await #expect(throws: ChatError.unsupported(capability: "canDownloadFiles")) {
+            try await backend.downloadAttachment(
+                ChatKit.Attachment(id: "a", name: "a.pdf", contentType: "application/pdf"),
+                to: destination,
+                progress: { _ in }
+            )
+        }
+        #expect(!FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)))
+    }
+
+    /// Through `any ChatBackend`, which is how `SyncEngine` holds a backend:
+    /// an extension-only method would dispatch statically to the refusing default.
+    @Test("an implementing backend is reached through the existential")
+    func downloadDispatchesDynamically() async throws {
+        let backend: any ChatBackend = BackendWithAttachments()
+        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: destination) }
+        try await backend.downloadAttachment(
+            ChatKit.Attachment(id: "a", name: "a.pdf", contentType: "application/pdf"),
+            to: destination,
+            progress: { _ in }
+        )
+        #expect(try Data(contentsOf: destination) == Data("x".utf8))
     }
 }

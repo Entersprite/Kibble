@@ -29,6 +29,9 @@ struct AttachmentShapes: Equatable {
     /// The first upload whose MIME type starts `image/`: the one the fetch
     /// section asks for. Held, never printed.
     var firstImage: ProbedUpload?
+    /// The first upload that is not an image: the one the download section
+    /// asks for. Held, never printed.
+    var firstFile: ProbedUpload?
 }
 
 struct UploadDimensionShape: Equatable {
@@ -94,16 +97,20 @@ extension APIProbeReport {
                 shapes.dimensions.append(UploadDimensionShape(width: width, height: height))
             }
         }
-        if shapes.firstImage == nil, metadata.contentType.hasPrefix("image/") {
-            shapes.firstImage = ProbedUpload(
-                token: metadata.attachmentToken,
-                contentType: metadata.contentType
-            )
+        let upload = ProbedUpload(token: metadata.attachmentToken, contentType: metadata.contentType)
+        if metadata.contentType.hasPrefix("image/") {
+            shapes.firstImage = shapes.firstImage ?? upload
+        } else {
+            shapes.firstFile = shapes.firstFile ?? upload
         }
     }
 
-    private static func contentTypeKey(_ type: String) -> String {
-        let shaped = type.range(of: #"^[a-z]+/[a-z0-9.+-]{1,40}$"#, options: .regularExpression) != nil
+    /// The type itself, optionally with one `charset` parameter (§52.3 met
+    /// `application/json; charset=utf-8`). Any other parameter is a value
+    /// nothing has shown the shape of, so the whole type becomes a length.
+    static func contentTypeKey(_ type: String) -> String {
+        let pattern = #"^[a-z]+/[a-z0-9.+-]{1,40}(; ?charset=[A-Za-z0-9-]{1,20})?$"#
+        let shaped = type.range(of: pattern, options: .regularExpression) != nil
         return shaped ? type : "(unusual, \(type.count) chars)"
     }
 
@@ -134,13 +141,39 @@ extension APIProbeReport {
         label: String,
         outcome: Result<FetchedAttachment, AttachmentFetchFailure>
     ) -> [String] {
+        hopLines(label: label, outcome: outcome) { fetched in
+            "content type \(fetched.contentType.map(contentTypeKey) ?? "none"), "
+                + "\(fetched.body.count) bytes, format \(imageFormat(fetched.body))"
+        }
+    }
+
+    /// A file's download. `Content-Disposition` carries the file's name, so
+    /// it and its `filename=` are reported by presence only.
+    static func attachmentDownloadLines(
+        label: String,
+        outcome: Result<FetchedAttachment, AttachmentFetchFailure>
+    ) -> [String] {
+        hopLines(label: label, outcome: outcome) { fetched in
+            let disposition = fetched.contentDisposition
+            let hasFilename = disposition?.lowercased().contains("filename") == true
+            return "content type \(fetched.contentType.map(contentTypeKey) ?? "none"), "
+                + "\(fetched.body.count) bytes; "
+                + "Content-Disposition \(disposition == nil ? "absent" : "present"), "
+                + "filename \(hasFilename ? "present" : "absent"), format \(fileFormat(fetched.body))"
+        } + addressAndRefusalLines(outcome)
+    }
+
+    static func hopLines(
+        label: String,
+        outcome: Result<FetchedAttachment, AttachmentFetchFailure>,
+        success: (FetchedAttachment) -> String
+    ) -> [String] {
         let hops: [AttachmentHop]
         let detail: String
         switch outcome {
         case let .success(fetched):
             hops = fetched.hops
-            detail = "content type \(fetched.contentType.map(contentTypeKey) ?? "none"), "
-                + "\(fetched.body.count) bytes, format \(imageFormat(fetched.body))"
+            detail = success(fetched)
         case let .failure(failure):
             hops = failure.hops
             detail = "FAILED: \(describe(failure.reason))"
@@ -154,12 +187,24 @@ extension APIProbeReport {
         ]
     }
 
-    private static func renderHost(_ host: String) -> String {
-        guard !knownHosts.contains(host) else { return host }
+    /// In full when it is a known host, or a host under Google's own domains
+    /// made only of plain lowercase words (`chat.usercontent.google.com`):
+    /// that names a service. Anything else - digits, hyphens, another domain -
+    /// is reduced to its last two labels, since a label like
+    /// `doc-0s-…-docs` can carry an identifier.
+    static func renderHost(_ host: String) -> String {
+        guard !knownHosts.contains(host), !isPlainGoogleHost(host) else { return host }
         let labels = host.split(separator: ".")
         guard labels.count > 2 else { return host }
         let extra = labels.count - 2
         return "\(labels.suffix(2).joined(separator: ".")) (+\(extra) label\(extra == 1 ? "" : "s"))"
+    }
+
+    private static func isPlainGoogleHost(_ host: String) -> Bool {
+        guard host.hasSuffix(".google.com") || host.hasSuffix(".googleusercontent.com") else { return false }
+        return host.split(separator: ".").allSatisfy { label in
+            !label.isEmpty && label.allSatisfy { $0.isASCII && $0.isLowercase && $0.isLetter }
+        }
     }
 
     private static func describe(_ reason: AttachmentFetchFailure.Reason) -> String {
@@ -170,7 +215,20 @@ extension APIProbeReport {
         case let .httpStatus(status): "HTTP \(status)"
         case .htmlInsteadOfAttachment: "an HTML page instead of the attachment"
         case let .transport(reason): "transport: \(reason?.safeDescription ?? "unclassified")"
+        case let .truncated(expected, received): "ended early, \(received) of \(expected) bytes"
         }
+    }
+
+    /// The file's kind from its first bytes - PDF, ZIP, or a picture's format -
+    /// so a run can say the download is the file, not only that it arrived.
+    static func fileFormat(_ data: Data) -> String {
+        if data.starts(with: Array("%PDF".utf8)) {
+            return "PDF"
+        }
+        if data.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
+            return "ZIP"
+        }
+        return imageFormat(data)
     }
 
     /// The format a body's first bytes name. Read rather than trusted from
@@ -209,6 +267,7 @@ extension APIProbeReport {
         client: ProtoAPIClient,
         group: GroupId,
         fetches: [(label: String, fetch: AttachmentFetch)],
+        rotation: RotationRung,
         lines: inout [String]
     ) async {
         lines.append("attachment shapes (counts only):")
@@ -226,20 +285,47 @@ extension APIProbeReport {
         lines.append(contentsOf: attachmentShapesLines(shapes))
         lines.append("")
         lines.append("attachment fetch (preview, first image upload):")
-        guard let upload = shapes.firstImage else {
-            lines.append("  no image upload on this page - post one in this conversation and rerun")
-            return
-        }
-        for (label, fetch) in fetches {
-            let outcome: Result<FetchedAttachment, AttachmentFetchFailure>
-            do {
-                outcome = try await .success(fetch.fetch(
-                    token: upload.token, contentType: upload.contentType, variant: .preview
-                ))
-            } catch {
-                outcome = .failure(error)
+        if let upload = shapes.firstImage {
+            for (label, fetch) in fetches {
+                let outcome = await outcome(of: fetch, upload, .preview)
+                lines.append(contentsOf: attachmentFetchLines(label: label, outcome: outcome))
             }
-            lines.append(contentsOf: attachmentFetchLines(label: label, outcome: outcome))
+        } else {
+            lines.append("  no image upload on this page - post one in this conversation and rerun")
+        }
+        lines.append("")
+        lines.append("attachment download (file, first non-image upload):")
+        if let upload = shapes.firstFile {
+            for (label, fetch) in fetches {
+                let outcome = await outcome(of: fetch, upload, .file)
+                lines.append(contentsOf: attachmentDownloadLines(label: label, outcome: outcome))
+            }
+        } else {
+            lines.append("  no file upload on this page - post one in this conversation and rerun")
+        }
+        lines.append("")
+        await appendDownloadLadderSection(
+            upload: shapes.firstFile,
+            fetch: fetches.first?.fetch,
+            lines: &lines
+        )
+        lines.append("")
+        await appendRotatedDownloadSection(upload: shapes.firstFile, rung: rotation, lines: &lines)
+        lines.append("")
+        await appendProjectorConfigSection(upload: shapes.firstFile, fetches: fetches, lines: &lines)
+    }
+
+    private static func outcome(
+        of fetch: AttachmentFetch,
+        _ upload: ProbedUpload,
+        _ variant: AttachmentVariant
+    ) async -> Result<FetchedAttachment, AttachmentFetchFailure> {
+        do {
+            return try await .success(fetch.fetch(
+                token: upload.token, contentType: upload.contentType, variant: variant
+            ))
+        } catch {
+            return .failure(error)
         }
     }
 

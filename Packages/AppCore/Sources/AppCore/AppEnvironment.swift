@@ -14,7 +14,7 @@ import SyncEngine
 public final class AppEnvironment {
     public private(set) var phase: LaunchPhase = .loading
 
-    private let services: any LaunchServices
+    let services: any LaunchServices
     private var driver: (any DemoDriver)?
 
     /// The session this launch built, held from the moment it exists rather
@@ -45,6 +45,8 @@ public final class AppEnvironment {
 
     /// This session's attachment cache (`AppEnvironment+Attachments.swift`).
     var attachments: AttachmentCache?
+    /// This session's file downloads (`DownloadCoordinator`).
+    var downloads: DownloadCoordinator?
 
     /// The last value `setActive(_:)` was told, held even while `model` is
     /// `nil` so it is not silently dropped.
@@ -144,6 +146,7 @@ public final class AppEnvironment {
             // first account's global rule (`NotificationSettingsModel`).
             beginSettingsSession(engine: engine)
             attachments = makeAttachmentCache(in: services.attachmentCacheDirectory(), engine: engine)
+            downloads = makeDownloads(engine: engine)
             let model = ChatSessionModel(
                 store: store, engine: engine, me: selection.me, markReadTrace: services.markReadTraceSink()
             )
@@ -288,6 +291,7 @@ public final class AppEnvironment {
         settings.switchAccount(to: nil)
         // First, and on every path: an image needs no live model to be erased.
         await eraseAttachments()
+        stopDownloads()
         do {
             if let model {
                 // The fixture's demo world, ticking on its own actor. Its

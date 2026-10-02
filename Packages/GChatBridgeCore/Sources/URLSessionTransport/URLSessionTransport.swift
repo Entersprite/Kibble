@@ -16,7 +16,10 @@ import GChatBridgeCore
 /// the seam's other side, and keeping it this thin is what stops the Linux
 /// promise from being a claim rather than a fact.
 public final class URLSessionTransport: HTTPTransport {
-    private let session: URLSession
+    /// Internal, not private: `URLSessionTransport+Download.swift` is a
+    /// separate file so `download` does not inflate this one past the lint's
+    /// length ceiling, and it needs the same session `send`/`stream` use.
+    let session: URLSession
     /// Where `stream()` reports the long poll's transport-level behaviour, if
     /// anywhere. `nil` on every construction site but the one
     /// `LocalBridgeBackend.SessionHandoff` builds when `--probe=channeltrace`
@@ -242,7 +245,7 @@ public final class URLSessionTransport: HTTPTransport {
 
     // MARK: - Conversion
 
-    private static func urlRequest(from request: HTTPRequest) -> URLRequest {
+    static func urlRequest(from request: HTTPRequest) -> URLRequest {
         var urlRequest = URLRequest(url: request.url)
         urlRequest.httpMethod = request.method.rawValue
         urlRequest.httpBody = request.body
@@ -256,7 +259,7 @@ public final class URLSessionTransport: HTTPTransport {
         return urlRequest
     }
 
-    private static func httpResponse(from response: URLResponse) throws -> HTTPURLResponse {
+    static func httpResponse(from response: URLResponse) throws -> HTTPURLResponse {
         guard let http = response as? HTTPURLResponse else {
             throw TransportFailure.notHTTP
         }
@@ -303,7 +306,7 @@ public final class URLSessionTransport: HTTPTransport {
     /// Rebuilds the headers, restoring the repeated `Set-Cookie` fields
     /// Foundation collapsed into one comma-joined value. The splitting itself
     /// lives in the portable core, where it can be tested without a socket.
-    private static func headers(of response: HTTPURLResponse) -> HTTPHeaders {
+    static func headers(of response: HTTPURLResponse) -> HTTPHeaders {
         var collapsed: [String: String] = [:]
         for (key, value) in response.allHeaderFields {
             guard let name = key as? String else { continue }
@@ -382,11 +385,16 @@ private struct StreamTraceRecorder {
 /// already reports.
 public enum TransportFailure: Error, CustomStringConvertible {
     case notHTTP
+    /// `download`'s own file could not be created or written - a full disk
+    /// or a sandbox denial, not anything the server sent.
+    case cannotWriteFile
 
     public var description: String {
         switch self {
         case .notHTTP:
             "the response was not an HTTP response"
+        case .cannotWriteFile:
+            "the download could not be written to disk"
         }
     }
 }

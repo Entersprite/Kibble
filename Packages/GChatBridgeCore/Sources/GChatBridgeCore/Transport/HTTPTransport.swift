@@ -46,7 +46,7 @@ public struct HTTPHeaders: Sendable, Hashable {
         all(name).first
     }
 
-    /// Every `Set-Cookie` value, ready for `CookieJar.absorb(setCookie:)`.
+    /// Every `Set-Cookie` value, ready for `CookieJar.absorb(setCookie:from:)`.
     public var setCookies: [String] {
         all("Set-Cookie")
     }
@@ -229,11 +229,50 @@ public protocol HTTPTransport: Sendable {
     /// something that actually returns early; a conformance that does not
     /// override it is not lying, it is only as slow as `send(_:)`.
     func fireAndForget(_ request: HTTPRequest) async throws -> HTTPHeaders
+
+    /// The response with its body written to a file the caller owns, for a
+    /// body that must not be held in memory (`AttachmentFetch.download`).
+    /// `progress` is called with the bytes written so far and the total, when
+    /// the response stated one. Progress is reported only for a response that
+    /// is not a redirect: a redirect's body is not the download.
+    /// `response.body` is empty. On a throw, nothing this call wrote is left
+    /// on disk.
+    ///
+    /// **A requirement with a default**, so a transport that streams
+    /// (`URLSessionTransport`) is reached through `any HTTPTransport`.
+    func download(
+        _ request: HTTPRequest,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> (response: HTTPResponse, file: URL)
 }
 
 public extension HTTPTransport {
     func fireAndForget(_ request: HTTPRequest) async throws -> HTTPHeaders {
         try await send(request).headers
+    }
+
+    /// Through `send`, then to a file: correct for a fake and for a Linux
+    /// build, and holds the body in memory once, which is what the streaming
+    /// override exists to avoid.
+    func download(
+        _ request: HTTPRequest,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> (response: HTTPResponse, file: URL) {
+        var response = try await send(request)
+        let file = HTTPTransportFiles.temporaryFile()
+        try response.body.write(to: file)
+        if !response.isRedirect {
+            progress(response.body.count, response.body.count)
+        }
+        response.body = Data()
+        return (response, file)
+    }
+}
+
+/// Where a download's body is written before its caller takes it.
+public enum HTTPTransportFiles {
+    public static func temporaryFile() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("gchat-download-\(UUID().uuidString)")
     }
 }
 

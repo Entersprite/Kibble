@@ -142,6 +142,25 @@ struct KeychainCredentialStoreTests {
         let decoded = try JSONDecoder().decode(StoredSession.self, from: blob)
         #expect(decoded.credential.cookies.map(\.name) == ["COMPASS"])
     }
+
+    @Test("a rotated session written back keeps its domains for the next launch")
+    func rotationKeepsDomains() async throws {
+        let storage = FakeStorage()
+        let scoped = try #require(SessionCookies(cookies: [
+            SessionCookies.Cookie(name: "SID", value: "v", domain: ".google.com", path: "/"),
+            SessionCookies.Cookie(name: "COMPASS", value: "v", domain: "chat.google.com", path: "/")
+        ]))
+        try await store(storage).store(StoredSession(credential: scoped, capturedAt: now, expiresAt: nil))
+        let rotated = try #require(SessionCookies(cookies: [
+            SessionCookies.Cookie(name: "SID", value: "v", domain: ".google.com", path: "/"),
+            SessionCookies.Cookie(name: "COMPASS", value: "w", domain: "chat.google.com", path: "/")
+        ]))
+        try await store(storage).replaceCredential(with: rotated)
+        // A fresh store over the same storage: what the next launch reads.
+        let read = try #require(try await store(storage).currentSession())
+        #expect(read.credential.cookies.map(\.domain) == [".google.com", "chat.google.com"])
+        #expect(read.credential["COMPASS"] == "w")
+    }
 }
 
 /// The one part that talks to the real Keychain, checked at the level it can

@@ -24,6 +24,7 @@ public extension Capabilities {
         canMarkRead: true,
         supportsThreads: true,
         supportsHistoryCatchUp: true,
-        canFetchAttachments: true
+        canFetchAttachments: true,
+        canDownloadFiles: true
     )
 }

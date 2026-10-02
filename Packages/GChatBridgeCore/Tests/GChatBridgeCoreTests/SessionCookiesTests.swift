@@ -132,4 +132,68 @@ struct SessionCookiesTests {
         let cookies = try #require(SessionCookies(header: Self.realisticHeader))
         #expect(cookies.byteCount == Self.realisticHeader.utf8.count)
     }
+
+    // MARK: - Where a cookie is sent (findings.md §52.9)
+
+    static let sid = SessionCookies.Cookie(
+        name: "SID",
+        value: "lowercasesid",
+        domain: ".google.com",
+        path: "/"
+    )
+    static let compass = SessionCookies.Cookie(
+        name: "COMPASS", value: "lowercasecompass", domain: "chat.google.com", path: "/"
+    )
+    static let legacy = SessionCookies.Cookie(name: "OSID", value: "lowercaseosid")
+
+    @Test("the download host is sent the .google.com cookie and not chat.google.com's")
+    func downloadHost() throws {
+        let url = try #require(URL(string: "https://chat.usercontent.google.com/download?x=1"))
+        #expect(Self.sid.isSent(to: url))
+        #expect(!Self.compass.isSent(to: url))
+    }
+
+    @Test("a cookie with no recorded domain goes to chat.google.com and nowhere else")
+    func legacyGoesToChatOnly() throws {
+        #expect(try Self.legacy.isSent(to: #require(URL(string: "https://chat.google.com/u/0/api/x"))))
+        #expect(try !Self.legacy
+            .isSent(to: #require(URL(string: "https://chat.usercontent.google.com/download"))))
+        #expect(try !Self.legacy
+            .isSent(to: #require(URL(string: "https://accounts.google.com/RotateCookies"))))
+    }
+
+    @Test("nothing is sent over http")
+    func httpsOnly() throws {
+        let url = try #require(URL(string: "http://chat.google.com/"))
+        #expect(!Self.sid.isSent(to: url))
+        #expect(!Self.compass.isSent(to: url))
+        #expect(!Self.legacy.isSent(to: url))
+    }
+
+    @Test("a mixed-case host is still sent its cookies")
+    func mixedCaseHost() throws {
+        let url = try #require(URL(string: "https://Chat.Google.com/u/0/api/x"))
+        #expect(Self.compass.isSent(to: url))
+        #expect(Self.legacy.isSent(to: url))
+    }
+
+    @Test("the account index is part of the path a cookie is matched against")
+    func accountPaths() throws {
+        let scoped = SessionCookies.Cookie(name: "X", value: "v", domain: ".google.com", path: "/u/0")
+        #expect(try Self.sid.isSent(to: #require(URL(string: "https://chat.google.com/u/1/api/x"))))
+        #expect(try scoped.isSent(to: #require(URL(string: "https://chat.google.com/u/0/api/x"))))
+        #expect(try !scoped.isSent(to: #require(URL(string: "https://chat.google.com/u/1/api/x"))))
+    }
+
+    @Test("the header holds what a URL admits, in capture order, and is nil when nothing is")
+    func header() throws {
+        let cookies = try #require(SessionCookies(cookies: [Self.sid, Self.compass, Self.legacy]))
+        let chat = try #require(URL(string: "https://chat.google.com/u/0/api/x"))
+        let download = try #require(URL(string: "https://chat.usercontent.google.com/download"))
+        let images = try #require(URL(string: "https://lh3.googleusercontent.com/fife/x"))
+        #expect(cookies.header(for: chat) == "SID=lowercasesid; COMPASS=lowercasecompass; OSID=lowercaseosid")
+        #expect(cookies.header(for: download) == "SID=lowercasesid")
+        #expect(cookies.header(for: images) == nil)
+        #expect(cookies.header(for: chat, withholding: ["COMPASS"]) == "SID=lowercasesid; OSID=lowercaseosid")
+    }
 }

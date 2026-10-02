@@ -107,6 +107,20 @@ public protocol ChatBackend: Sendable {
     /// `any ChatBackend` the refusing default would run even on a backend that
     /// implements it (`AttachmentDataTests`).
     func attachmentData(_ attachment: Attachment, size: AttachmentSize) async throws -> Data
+
+    /// Downloads a file attachment into `destination`, reporting progress as
+    /// the bytes arrive. The backend writes `destination` and, on any failure
+    /// or cancellation, removes whatever it wrote there, so a caller never
+    /// finds a partial file. `destination` must not exist. Cancellation is the
+    /// calling task's.
+    ///
+    /// **A requirement, not only an extension method**, for the reason
+    /// `attachmentData(_:size:)` gives.
+    func downloadAttachment(
+        _ attachment: Attachment,
+        to destination: URL,
+        progress: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws
 }
 
 /// Separate from the protocol body only so the default can sit beside it.
@@ -124,5 +138,13 @@ public extension ChatBackend {
     /// `canFetchAttachments`.
     func attachmentData(_: Attachment, size _: AttachmentSize) async throws -> Data {
         throw ChatError.unsupported(capability: "canFetchAttachments")
+    }
+
+    /// The default refuses, so a backend that has not thought about downloads
+    /// is one that cannot do them, the direction `Capabilities` defaults in.
+    func downloadAttachment(
+        _: Attachment, to _: URL, progress _: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws {
+        throw ChatError.unsupported(capability: "canDownloadFiles")
     }
 }

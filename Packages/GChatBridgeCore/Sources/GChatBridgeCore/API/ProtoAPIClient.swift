@@ -107,7 +107,7 @@ public actor ProtoAPIClient {
         // Absorbed before the status is judged: a response that rotated a cookie
         // and then failed still rotated the cookie, and dropping it would leave
         // the jar behind the server.
-        await credentials.absorb(response.headers)
+        await credentials.absorb(response.headers, from: request.url)
         guard response.status == 200 else { throw APIFailure.httpStatus(response.status) }
         return RawAPIResponse(status: response.status, body: response.body)
     }

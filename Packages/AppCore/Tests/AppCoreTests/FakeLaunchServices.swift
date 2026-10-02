@@ -58,6 +58,13 @@ final class FakeLaunchServices: LaunchServices {
     let attachmentDirectory = FileManager.default.temporaryDirectory
         .appending(path: "app-core-attachments-\(UUID().uuidString)")
     let driver: RecordingDemoDriver?
+    /// The download folder `downloadPlatformFake` places finished files in:
+    /// fresh per fake, under the temporary directory, and created only by a
+    /// test that downloads, so the fakes that never do leave nothing behind.
+    let downloadDirectory = FileManager.default.temporaryDirectory
+        .appending(path: "app-core-downloads-\(UUID().uuidString)", directoryHint: .isDirectory)
+    /// The one platform for this process, as `LaunchServices.downloadPlatform()` requires.
+    let downloadPlatformFake: FakeDownloadPlatform
 
     /// The store's connection state at the instant `makeSession()` was
     /// entered.
@@ -77,6 +84,7 @@ final class FakeLaunchServices: LaunchServices {
     ) throws {
         self.arguments = arguments
         self.driver = driver
+        downloadPlatformFake = FakeDownloadPlatform(folder: downloadDirectory)
         store = try ChatStore.inMemory()
         backend = FakeLaunchBackend(capabilities: backendCapabilities ?? Capabilities(canSendMessages: true))
     }
@@ -146,6 +154,10 @@ final class FakeLaunchServices: LaunchServices {
     func markReadTraceSink() -> (any MarkReadTraceSink)? {
         nil
     }
+
+    func downloadPlatform() -> any DownloadPlatform {
+        downloadPlatformFake
+    }
 }
 
 /// A backend that connects, emits nothing, and can be told to fail
@@ -214,6 +226,57 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
         }
         fetches.withLock { $0.append("\(attachment.id)/\(size.rawValue)") }
         return Data("bytes:\(attachment.id)/\(size.rawValue)".utf8)
+    }
+
+    /// `holdDownloads()`'s state, and what the held transfers did. Behind a
+    /// lock for `commands`' reason.
+    private struct DownloadLog {
+        var holding = false
+        var entered = 0
+        var cancelled = 0
+    }
+
+    private let downloadLog = Mutex(DownloadLog())
+
+    /// Makes every later download wait until it is cancelled, so a test can
+    /// sign out while one is running.
+    func holdDownloads() {
+        downloadLog.withLock { $0.holding = true }
+    }
+
+    var downloadsEntered: Int {
+        downloadLog.withLock { $0.entered }
+    }
+
+    var downloadsCancelled: Int {
+        downloadLog.withLock { $0.cancelled }
+    }
+
+    /// The protocol's refusing default unless the capability says otherwise;
+    /// with it, writes "PDF" to `destination`, or holds until cancelled. A
+    /// cancelled transfer throws `ChatError.transport`, as the real backend does.
+    func downloadAttachment(
+        _: Attachment,
+        to destination: URL,
+        progress: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws {
+        guard capabilities.canDownloadFiles else {
+            throw ChatError.unsupported(capability: "canDownloadFiles")
+        }
+        let holding = downloadLog.withLock { log in
+            log.entered += 1
+            return log.holding
+        }
+        if holding {
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                downloadLog.withLock { $0.cancelled += 1 }
+                throw ChatError.transport("cancelled")
+            }
+        }
+        try Data("PDF".utf8).write(to: destination)
+        progress(AttachmentProgress(bytesReceived: 3, totalBytes: 3))
     }
 
     /// Every command handed to `send(_:)`, for a test to read.

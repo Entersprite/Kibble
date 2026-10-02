@@ -18,12 +18,6 @@ struct CookieScopeTests {
         #expect(CookieScope.chat.admits(domain: ".google.com", path: "/", isSecure: true))
     }
 
-    @Test func aParentDomainWithoutItsLeadingDotIsStillAdmitted() {
-        // RFC 6265 strips the dot at parse time; the two spellings mean the
-        // same thing and a capture may present either.
-        #expect(CookieScope.chat.admits(domain: "google.com", path: "/", isSecure: true))
-    }
-
     @Test func aSiblingHostIsRefused() {
         // LSID, SMSV, ACCOUNT_CHOOSER. A browser never sends these to Chat.
         #expect(!CookieScope.chat.admits(domain: "accounts.google.com", path: "/", isSecure: true))
@@ -130,5 +124,36 @@ struct CookieScopeTests {
             .filter { CookieScope.chat.admits(domain: $0.1, path: "/", isSecure: true) }
             .map(\.0)
         #expect(admitted == ["COMPASS", "OSID", "__Secure-1PSID", "SAPISID"])
+    }
+
+    // MARK: - Host-only cookies (findings.md §52.9)
+
+    @Test("a domain without a leading dot is host-only: that host, and no subdomain")
+    func hostOnly() {
+        let chat = CookieScope(host: "chat.google.com", path: "/", isSecure: true)
+        let deeper = CookieScope(host: "x.chat.google.com", path: "/", isSecure: true)
+        #expect(chat.admits(domain: "chat.google.com", path: "/", isSecure: true))
+        #expect(!deeper.admits(domain: "chat.google.com", path: "/", isSecure: true))
+    }
+
+    @Test("a leading dot covers the domain and every subdomain, at a label boundary")
+    func domainCookie() {
+        func admits(_ host: String) -> Bool {
+            CookieScope(host: host, path: "/", isSecure: true).admits(
+                domain: ".google.com",
+                path: "/",
+                isSecure: true
+            )
+        }
+        #expect(admits("google.com"))
+        #expect(admits("chat.usercontent.google.com"))
+        #expect(!admits("oogle.com"))
+        #expect(!admits("notgoogle.com"))
+    }
+
+    @Test("hosts compare without case")
+    func caseInsensitive() {
+        #expect(CookieScope(host: "Chat.Google.com", path: "/", isSecure: true)
+            .admits(domain: "chat.google.com", path: "/", isSecure: true))
     }
 }

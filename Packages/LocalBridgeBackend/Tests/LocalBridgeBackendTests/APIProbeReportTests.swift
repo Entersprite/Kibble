@@ -345,9 +345,15 @@ struct APIProbeReportTests {
     /// pastes into `findings.md`. It must never carry a cookie value, a token
     /// or a message.
     @Test func theHeaderNeverCarriesACookieValueOrToken() {
-        let text = APIProbeReport.header(cookieCount: 26, byteCount: 4990, hasToken: true)
+        let text = APIProbeReport.header(cookieCount: 26, domainCount: 26, byteCount: 4990, hasToken: true)
         #expect(text.contains("26"))
         #expect(text.contains("4990"))
         #expect(text.contains("present"))
+    }
+
+    @Test("the session line says how many cookies know their domain")
+    func sessionLineCountsDomains() {
+        #expect(APIProbeReport.header(cookieCount: 18, domainCount: 0, byteCount: 3275, hasToken: true)
+            == "session: 18 cookies (0 with domains), 3275 bytes; xsrf token present")
     }
 }

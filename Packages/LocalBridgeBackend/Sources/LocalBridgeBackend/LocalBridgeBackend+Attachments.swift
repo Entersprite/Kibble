@@ -28,6 +28,41 @@ public extension LocalBridgeBackend {
         }
     }
 
+    func downloadAttachment(
+        _ attachment: ChatKit.Attachment,
+        to destination: URL,
+        progress: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws {
+        guard let attachmentFetch else {
+            throw ChatError.unknown(
+                "downloadAttachment(_:to:progress:) requires connect() to succeed first - "
+                    + "there is no verified session or xsrf token yet"
+            )
+        }
+        guard await !credentials.hasUnscopedCookies else {
+            throw ChatError.signInRequired("this session was stored before cookie domains were kept")
+        }
+        guard !FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) else {
+            throw ChatError.unknown("the download's destination already exists")
+        }
+        let downloaded: DownloadedAttachment
+        do {
+            downloaded = try await attachmentFetch.download(
+                token: attachment.id, contentType: attachment.contentType
+            ) { received, total in
+                progress(AttachmentProgress(bytesReceived: received, totalBytes: total))
+            }
+        } catch {
+            throw Self.chatError(fromAttachmentFetch: error.reason)
+        }
+        do {
+            try FileManager.default.moveItem(at: downloaded.file, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: downloaded.file)
+            throw ChatError.unknown("the downloaded file could not be moved into place")
+        }
+    }
+
     /// What a view is told. Never the token, never a URL: the failure's hops
     /// carry hosts and statuses only, and none of them reach this either.
     internal static func chatError(fromAttachmentFetch reason: AttachmentFetchFailure.Reason) -> ChatError {
@@ -44,6 +79,8 @@ public extension LocalBridgeBackend {
             .unknown("the attachment fetch returned a page instead of the attachment")
         case let .transport(classified):
             .transport(classified?.safeDescription ?? "the attachment fetch failed")
+        case let .truncated(expected, received):
+            .unknown("the download ended early: \(received) of \(expected) bytes")
         }
     }
 }

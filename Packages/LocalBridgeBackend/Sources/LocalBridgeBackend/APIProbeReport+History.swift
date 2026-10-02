@@ -17,25 +17,29 @@ import GChatBridgeCore
 /// this report already follows, because this report is pasted verbatim into
 /// a committed file and now describes real conversations.
 extension APIProbeReport {
-    /// Which conversation to probe: the one with the greatest `sort_timestamp`
-    /// (`Conversation.lastActivity`, per `WorldMapping.swift:77-78`) - the one
-    /// necessarily just used, since a failing repro needs the conversation the
-    /// repro actually happened in, not conversation zero of whatever order
-    /// `paginated_world` returned. `nil` sorts lowest, matching
+    /// Which conversation to probe. `.mostRecent` is the one with the greatest
+    /// `sort_timestamp` (`Conversation.lastActivity`, per `WorldMapping.swift:77-78`)
+    /// - the one necessarily just used, since a failing repro needs the
+    /// conversation the repro actually happened in, not conversation zero of
+    /// whatever order `paginated_world` returned. `nil` sorts lowest, matching
     /// `Conversation.lastActivity`'s own doc comment ("never, or not known
     /// yet" belongs below anything with a timestamp).
     ///
-    /// `override` is `--probe-conversation=N`, threaded down from
-    /// `APIProbeReport.run(conversationIndexOverride:)`. An out-of-range
-    /// override is reported and falls back to the same most-recently-active
-    /// choice rather than silently picking something the caller did not ask
-    /// for.
+    /// `.mostRecentDirectMessage` is the same over direct messages only: on an
+    /// account with a space an app posts into every few minutes, that space
+    /// outruns any DM a run was staged in (`findings.md` §52).
+    ///
+    /// `.index` is world order, which the report never names, so it is only
+    /// useful to repeat an earlier run. An index out of range, or a DM choice
+    /// with no DM, is reported and falls back to `.mostRecent` rather than
+    /// silently picking something the caller did not ask for.
     static func chooseConversationIndex(
         _ conversations: [Conversation],
-        override: Int?,
+        choice: ProbeConversation,
         lines: inout [String]
     ) -> Int? {
-        if let override {
+        switch choice {
+        case let .index(override):
             guard conversations.indices.contains(override) else {
                 lines.append(
                     "  --probe-conversation=\(override) is out of range "
@@ -46,11 +50,23 @@ extension APIProbeReport {
             lines.append("  probing conversation index \(override) of \(conversations.count) "
                 + "(explicit --probe-conversation)")
             return override
+        case .mostRecentDirectMessage:
+            if let index = mostRecentlyActiveIndex(conversations, where: { $0.kind == .directMessage }) {
+                lines.append("  probing conversation index \(index) of \(conversations.count) "
+                    + "(most recently active direct message)")
+                return index
+            }
+            lines
+                .append(
+                    "  --probe-conversation=dm found no direct message - falling back to most recently active"
+                )
+            return mostRecentlyActiveIndex(conversations)
+        case .mostRecent:
+            guard let index = mostRecentlyActiveIndex(conversations) else { return nil }
+            lines.append("  probing conversation index \(index) of \(conversations.count) "
+                + "(most recently active)")
+            return index
         }
-        guard let index = mostRecentlyActiveIndex(conversations) else { return nil }
-        lines.append("  probing conversation index \(index) of \(conversations.count) "
-            + "(most recently active)")
-        return index
     }
 
     /// The probed conversation's kind - `findings.md` §39.2: a
@@ -77,8 +93,11 @@ extension APIProbeReport {
         return token ?? "not encodable"
     }
 
-    private static func mostRecentlyActiveIndex(_ conversations: [Conversation]) -> Int? {
-        conversations.indices.max { lhs, rhs in
+    private static func mostRecentlyActiveIndex(
+        _ conversations: [Conversation],
+        where include: (Conversation) -> Bool = { _ in true }
+    ) -> Int? {
+        conversations.indices.filter { include(conversations[$0]) }.max { lhs, rhs in
             (conversations[lhs].lastActivity ?? .distantPast)
                 < (conversations[rhs].lastActivity ?? .distantPast)
         }
@@ -98,7 +117,7 @@ extension APIProbeReport {
         client: ProtoAPIClient,
         mapping: (conversations: [Conversation], worldItems: [WorldItemLite]),
         selfUserID: String?,
-        conversationIndexOverride: Int?,
+        conversation: ProbeConversation,
         lines: inout [String]
     ) async -> GroupId? {
         lines.append("list_topics ladder:")
@@ -108,7 +127,7 @@ extension APIProbeReport {
             return nil
         }
         guard let index = chooseConversationIndex(
-            conversations, override: conversationIndexOverride, lines: &lines
+            conversations, choice: conversation, lines: &lines
         ) else {
             lines.append("  no conversation available to probe (empty or failed world mapping)")
             return nil

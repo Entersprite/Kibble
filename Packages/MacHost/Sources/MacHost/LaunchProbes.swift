@@ -38,7 +38,7 @@ enum LaunchProbes {
     /// report defaults to the most recently active conversation.
     static func apiProbe() async -> String {
         await write(
-            APIProbeReport.run(conversationIndexOverride: probeConversationOverride()),
+            APIProbeReport.run(conversation: probeConversation()),
             to: "api-probe.txt"
         )
     }
@@ -68,10 +68,10 @@ enum LaunchProbes {
         CommandLine.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
     }
 
-    private static func probeConversationOverride() -> Int? {
-        CommandLine.arguments
-            .first { $0.hasPrefix("--probe-conversation=") }
-            .flatMap { Int($0.dropFirst("--probe-conversation=".count)) }
+    /// `--probe-conversation=dm` for the newest direct message, `=N` for a
+    /// world-order index, absent for the most recently active conversation.
+    private static func probeConversation() -> ProbeConversation {
+        argument("--probe-conversation=").map(ProbeConversation.init(argument:)) ?? .mostRecent
     }
 
     /// Writes a probe's full report to `name` beside the app's database, and

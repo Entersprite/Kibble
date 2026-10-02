@@ -159,6 +159,18 @@ public final class SystemLaunchServices: LaunchServices {
 
     private let appNapProbe = AppNapProbe()
 
+    /// One for the process, because it holds the chosen folder. Its bookmark
+    /// sits beside the databases, shared by both backends: where files go is
+    /// the person's choice, not a session's. With no support directory the
+    /// folder is Downloads and a choice lasts only this launch.
+    private lazy var downloads = SystemDownloadPlatform(
+        bookmarkFile: try? Self.supportDirectory().appendingPathComponent("download-folder.bookmark")
+    )
+
+    public func downloadPlatform() -> any DownloadPlatform {
+        downloads
+    }
+
     /// Where to write the channel trace, if `--probe=channeltrace` was asked
     /// for - `nil` on every ordinary launch.
     ///

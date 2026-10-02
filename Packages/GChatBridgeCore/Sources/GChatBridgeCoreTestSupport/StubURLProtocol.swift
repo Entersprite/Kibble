@@ -42,6 +42,9 @@ public final class StubURLProtocol: URLProtocol {
     public enum Outcome {
         case success(Stub)
         case failure(URLError.Code)
+        /// The stub's response and body, then `URLError(code)` instead of
+        /// the end of the body: a connection lost part-way through.
+        case failureAfterBody(Stub, URLError.Code)
     }
 
     /// Host-partitioned stub queues and request logs.
@@ -135,6 +138,20 @@ public final class StubURLProtocol: URLProtocol {
                 self,
                 didFailWithError: URLError(code, userInfo: [NSURLErrorFailingURLErrorKey: request.url as Any])
             )
+        case let .failureAfterBody(stub, code):
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: stub.status,
+                httpVersion: "HTTP/1.1",
+                headerFields: stub.headers
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: stub.body)
+            // Later, on this loading thread's run loop. Failed at once, the
+            // reader was handed the failure and none of the body - measured:
+            // a 70 000-byte body reported no 64 KiB write before it.
+            pendingFailure = URLError(code, userInfo: [NSURLErrorFailingURLErrorKey: request.url as Any])
+            perform(#selector(failPending), with: nil, afterDelay: Self.failureDelay)
         case let .success(stub):
             let response = HTTPURLResponse(
                 url: request.url!,
@@ -161,6 +178,17 @@ public final class StubURLProtocol: URLProtocol {
     }
 
     override public func stopLoading() {}
+
+    /// How long `failureAfterBody` waits between the body and the failure.
+    static let failureDelay: TimeInterval = 0.5
+
+    private var pendingFailure: URLError?
+
+    @objc private func failPending() {
+        guard let pendingFailure else { return }
+        self.pendingFailure = nil
+        client?.urlProtocol(self, didFailWithError: pendingFailure)
+    }
 }
 
 /// One isolated stubbing context. Swift Testing creates a fresh suite instance
@@ -195,6 +223,12 @@ public final class StubSession {
     /// suite gets without asking.
     public func enqueueFailure(_ code: URLError.Code) {
         StubURLProtocol.registry.enqueue(.failure(code), host: host)
+    }
+
+    /// Answers the next request with `stub`'s response and body, then fails
+    /// it with `code` before the body ends.
+    public func enqueue(_ stub: StubURLProtocol.Stub, thenFail code: URLError.Code) {
+        StubURLProtocol.registry.enqueue(.failureAfterBody(stub, code), host: host)
     }
 
     public func enqueue(json: String, status: Int = 200) {

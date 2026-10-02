@@ -271,7 +271,10 @@ struct ChannelSessionTests {
     /// happened to hold at construction.
     @Test func aSessionBuiltFromSharedCredentialsSeesARotationMadeByAnotherConsumer() async {
         let credentials = SessionCredentials(cookies())
-        await credentials.absorb(HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]))
+        await credentials.absorb(
+            HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
+            from: ChatEndpoints().host
+        )
 
         let transport = FakeHTTPTransport(
             responses: [ok(), ok(), ok()],

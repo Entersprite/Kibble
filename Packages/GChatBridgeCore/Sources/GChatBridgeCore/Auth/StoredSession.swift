@@ -95,16 +95,23 @@ public extension StoredSession {
         case expiresAt
     }
 
+    /// `domain` and `path` are optional both ways: a session stored before
+    /// `findings.md` §52.9 has neither key and decodes with both `nil`, and
+    /// one without them encodes without the keys, so its blob is unchanged.
     private struct CookiePair: Codable {
         let name: String
         let value: String
+        let domain: String?
+        let path: String?
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let pairs = try container.decode([CookiePair].self, forKey: .cookies)
         guard let credential = SessionCookies(
-            cookies: pairs.map { SessionCookies.Cookie(name: $0.name, value: $0.value) }
+            cookies: pairs.map {
+                SessionCookies.Cookie(name: $0.name, value: $0.value, domain: $0.domain, path: $0.path)
+            }
         ) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .cookies,
@@ -122,7 +129,12 @@ public extension StoredSession {
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(
-            credential.cookies.map { CookiePair(name: $0.name, value: $0.value) },
+            credential.cookies.map { CookiePair(
+                name: $0.name,
+                value: $0.value,
+                domain: $0.domain,
+                path: $0.path
+            ) },
             forKey: .cookies
         )
         try container.encode(capturedAt, forKey: .capturedAt)

@@ -94,6 +94,53 @@ struct AttachmentProbeTests {
         #expect(shapes.firstImage == ProbedUpload(token: "img", contentType: "image/jpeg"))
     }
 
+    @Test("the first non-image upload is the one chosen to download")
+    func choosesFirstFile() throws {
+        let shapes = try APIProbeReport.attachmentShapes([
+            Fixture.reply(annotations: [Self.upload(token: "img", contentType: "image/png")]),
+            Fixture.reply(annotations: [Self.upload(token: "pdf", contentType: "application/pdf")])
+        ])
+        #expect(shapes.firstFile == ProbedUpload(token: "pdf", contentType: "application/pdf"))
+    }
+
+    @Test("a download reports its hops, type, size and whether a filename came back - never the name")
+    func downloadLines() {
+        let fetched = FetchedAttachment(
+            body: Data(repeating: 0x25, count: 1234),
+            contentType: "application/pdf",
+            hops: [
+                AttachmentHop(host: "chat.google.com", status: 302, carriedCredentials: true),
+                AttachmentHop(host: "chat.google.com", status: 302, carriedCredentials: true),
+                AttachmentHop(host: "lh3.googleusercontent.com", status: 200, carriedCredentials: false)
+            ],
+            contentDisposition: "attachment; filename=\"\(Self.nameSecret)\""
+        )
+        let lines = APIProbeReport.attachmentDownloadLines(label: "/u/0", outcome: .success(fetched))
+        #expect(lines == [
+            "  /u/0: chat.google.com 302 (credentials) → chat.google.com 302 (credentials) → "
+                + "lh3.googleusercontent.com 200",
+            "    content type application/pdf, 1234 bytes; Content-Disposition present, filename present, "
+                + "format unrecognised"
+        ])
+        #expect(!lines.joined().contains("holiday"))
+    }
+
+    @Test("a download without Content-Disposition says so")
+    func downloadLinesWithoutDisposition() {
+        let fetched = FetchedAttachment(body: Data(), contentType: nil, hops: [])
+        let lines = APIProbeReport.attachmentDownloadLines(label: "x", outcome: .success(fetched))
+        #expect(lines.last == "    content type none, 0 bytes; Content-Disposition absent, filename absent, "
+            + "format unrecognised")
+    }
+
+    @Test("a download's format is read from its first bytes: PDF, ZIP, or a picture's")
+    func downloadFormat() {
+        #expect(APIProbeReport.fileFormat(Data("%PDF-1.7".utf8)) == "PDF")
+        #expect(APIProbeReport.fileFormat(Data([0x50, 0x4B, 0x03, 0x04, 0x14])) == "ZIP")
+        #expect(APIProbeReport.fileFormat(Data([0x89, 0x50, 0x4E, 0x47])) == "PNG")
+        #expect(APIProbeReport.fileFormat(Data("plain".utf8)) == "unrecognised")
+    }
+
     @Test("the shapes report carries no token and no filename")
     func shapesNeverLeak() throws {
         let lines = try APIProbeReport.attachmentShapesLines(
@@ -161,6 +208,18 @@ struct AttachmentProbeTests {
         let lines = APIProbeReport.attachmentFetchLines(label: "x", outcome: .success(fetched))
         #expect(lines.first == "  x: googleusercontent.com (+1 label) 200")
         #expect(lines.last == "    content type none, 0 bytes, format unrecognised")
+    }
+
+    /// A host of plain words under Google's own domains names a service, not
+    /// a person; it prints in full, so a run can say which host refused it.
+    @Test("a Google host made only of plain words prints in full")
+    func plainWordGoogleHostsPrint() {
+        let fetched = FetchedAttachment(
+            body: Data(), contentType: nil,
+            hops: [AttachmentHop(host: "chat.usercontent.google.com", status: 403, carriedCredentials: true)]
+        )
+        let lines = APIProbeReport.attachmentFetchLines(label: "x", outcome: .success(fetched))
+        #expect(lines.first == "  x: chat.usercontent.google.com 403 (credentials)")
     }
 
     @Test("formats are read from magic bytes")

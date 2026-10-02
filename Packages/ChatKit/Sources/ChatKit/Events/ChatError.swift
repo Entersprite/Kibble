@@ -23,6 +23,11 @@ public enum ChatError: Error, Codable, Hashable, Sendable {
     /// is greppable against the property that would have allowed it.
     case unsupported(capability: String)
 
+    /// The session works, but this action needs a sign-in it predates: a
+    /// session stored before cookie domains were kept (`findings.md` §52.9).
+    /// A client offers to sign in again; it does not sign the person out.
+    case signInRequired(String)
+
     /// The connection failed: DNS, TLS, a dropped long poll. Retryable in
     /// principle.
     case transport(String)
@@ -55,6 +60,7 @@ extension ChatError {
         case sessionExpired
         case rateLimited
         case unsupported
+        case signInRequired
         case transport
         case decoding
         case server
@@ -92,6 +98,8 @@ extension ChatError {
             )
         case .unsupported:
             try .unsupported(capability: container.decode(String.self, forKey: .capability))
+        case .signInRequired:
+            try .signInRequired(container.decode(String.self, forKey: .message))
         case .transport:
             try .transport(container.decode(String.self, forKey: .message))
         case .decoding:
@@ -128,6 +136,9 @@ extension ChatError {
         into container: inout KeyedEncodingContainer<CodingKeys>
     ) throws {
         switch self {
+        case let .signInRequired(message):
+            try container.encode(Tag.signInRequired.rawValue, forKey: .type)
+            try container.encode(message, forKey: .message)
         case let .transport(message):
             try container.encode(Tag.transport.rawValue, forKey: .type)
             try container.encode(message, forKey: .message)

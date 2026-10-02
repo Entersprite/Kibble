@@ -29,8 +29,9 @@ public actor SessionCredentials {
         self.onRotation = onRotation
     }
 
-    /// The `Cookie` header value as it stands **now**, not as it was captured.
-    public func header() -> String {
+    /// Every cookie in the jar, flat, for tests and diagnostics; never what a
+    /// request sends - see `authorising(_:withholding:)`.
+    func header() -> String {
         jar.headerValue
     }
 
@@ -39,34 +40,49 @@ public actor SessionCredentials {
         jar.snapshot
     }
 
+    /// Whether any cookie predates kept domains (`findings.md` §52.9). Such a
+    /// session sends the download host nothing, so a download is refused
+    /// before it is tried (`LocalBridgeBackend.downloadAttachment`). A count
+    /// of names would do as well; this says only yes or no.
+    public var hasUnscopedCookies: Bool {
+        jar.snapshot?.cookies.contains { $0.domain == nil } ?? false
+    }
+
     /// How many rotations have been seen. Test and probe reporting only - it is
     /// a count, never a value.
     func rotationCount() -> Int {
         jar.rotations.count
     }
 
-    /// Applies every `Set-Cookie` from one response, and reports a snapshot
-    /// **only when something actually changed**.
+    /// Applies every `Set-Cookie` from one response from `url`, and reports a
+    /// snapshot **only when something actually changed**.
+    ///
+    /// `url` is the host that answered: a cookie with no `Domain` is that
+    /// host's alone, and one whose `Domain` it does not match is ignored
+    /// (`CookieJar`, `findings.md` §52.9).
     ///
     /// Only when: the credential store is on disk, and rewriting an unchanged
     /// session once per poll cycle is a write per second for as long as the app
     /// runs.
-    public func absorb(_ headers: HTTPHeaders) async {
+    public func absorb(_ headers: HTTPHeaders, from url: URL) async {
         let before = jar.rotations.count
-        jar.absorb(setCookie: headers.setCookies)
+        jar.absorb(setCookie: headers.setCookies, from: url)
         guard jar.rotations.count > before, let snapshot = jar.snapshot else { return }
         await onRotation?(snapshot)
     }
 
-    /// Returns the request with the **current** `Cookie` header attached.
+    /// Returns the request with the cookies its URL admits attached, as they
+    /// stand **now**, and no `Cookie` field at all when none does.
     ///
     /// Lives here rather than on each caller because the credential is the
     /// thing that knows what authorising means - and because the channel is no
-    /// longer the only caller.
-    func authorising(_ request: HTTPRequest) -> HTTPRequest {
+    /// longer the only caller. `withholding` names cookies left out of this one
+    /// request (`AttachmentFetch.RequestStyle`, a probe's experiment).
+    func authorising(_ request: HTTPRequest, withholding names: Set<String> = []) -> HTTPRequest {
+        guard let value = jar.header(for: request.url, withholding: names) else { return request }
         var request = request
         request.headers = HTTPHeaders(fields:
-            request.headers.fields + [HTTPHeaders.Field(name: "Cookie", value: jar.headerValue)]
+            request.headers.fields + [HTTPHeaders.Field(name: "Cookie", value: value)]
         )
         return request
     }

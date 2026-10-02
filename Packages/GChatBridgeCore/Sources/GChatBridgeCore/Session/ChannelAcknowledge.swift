@@ -45,8 +45,8 @@ extension ChannelSession {
     ///   - transport: Passed explicitly rather than read from `self.transport`,
     ///     which is what lets this live outside `ChannelSession.swift`.
     ///   - onHeaders: What the caller does with the response's headers -
-    ///     `ChannelSession.absorb(_:)` in production, so a rotated cookie on
-    ///     even this response is not silently dropped.
+    ///     `ChannelSession.absorb(_:from:)` in production, so a rotated cookie
+    ///     on even this response is not silently dropped.
     ///   - onFailure: What the caller does when the request fails outright -
     ///     `ChannelSession.apply(.failed(_:))` in production. A failure here
     ///     still reports and reconnects like any other transport failure;
@@ -99,5 +99,20 @@ extension ChannelSession {
         await acknowledge(
             credentials.authorising(request), via: transport, onHeaders: onHeaders, onFailure: onFailure
         )
+    }
+
+    /// `onHeaders` for `sendInitialPingIfPossible`: absorbs from the ping's
+    /// own URL, from `request.url` before `authorising` attaches cookies to
+    /// it - and does nothing when `pingURL` is `nil`, which is the same
+    /// silent no-op `sendInitialPingIfPossible` itself falls back to when no
+    /// ping could be built.
+    static func onPingHeaders(
+        pingURL: URL?,
+        credentials: SessionCredentials
+    ) -> @Sendable (HTTPHeaders) async -> Void {
+        { headers in
+            guard let pingURL else { return }
+            await credentials.absorb(headers, from: pingURL)
+        }
     }
 }

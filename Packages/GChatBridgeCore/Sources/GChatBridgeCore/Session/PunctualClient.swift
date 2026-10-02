@@ -18,13 +18,13 @@ public struct PunctualClient: Sendable {
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let response = try await transport.send(credentials.authorising(request))
-        await credentials.absorb(response.headers)
+        await credentials.absorb(response.headers, from: request.url)
         return response
     }
 
     public func stream(_ request: HTTPRequest) async throws -> HTTPStream {
         let stream = try await transport.stream(credentials.authorising(request))
-        await credentials.absorb(stream.headers)
+        await credentials.absorb(stream.headers, from: request.url)
         return stream
     }
 }

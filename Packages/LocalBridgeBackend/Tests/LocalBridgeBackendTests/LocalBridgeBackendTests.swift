@@ -117,11 +117,13 @@ struct LocalBridgeBackendTests {
     /// else stays false: the UI reads capabilities to decide what to offer,
     /// and a bridge that claimed more would give the user a button that
     /// silently fails. `canFetchAttachments` joined once the fetch worked
-    /// on the live account (`findings.md` §51.2).
+    /// on the live account (`findings.md` §51.2), and `canDownloadFiles`
+    /// once a file download did (§52.10).
     @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
         #expect(backend.capabilities == Capabilities(
-            canSendMessages: true, canMarkRead: true, supportsThreads: true, canFetchAttachments: true
+            canSendMessages: true, canMarkRead: true, supportsThreads: true, canFetchAttachments: true,
+            canDownloadFiles: true
         ))
     }
 

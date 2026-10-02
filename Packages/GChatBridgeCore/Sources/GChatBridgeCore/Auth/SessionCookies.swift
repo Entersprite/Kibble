@@ -20,7 +20,8 @@ import Foundation
 ///
 /// ## What this type is not
 ///
-/// It is not a cookie jar. There is no domain, path or expiry here, and no
+/// It is not a cookie jar. Each cookie keeps the domain and path it was captured with, so a request can be
+/// sent only what a browser would send (`findings.md` §52.9), but there is no expiry here and no
 /// `Set-Cookie` handling: `register?ignore_compass_cookie=1` does return
 /// `Set-Cookie` and does rotate `COMPASS` server-side, so a live session needs
 /// somewhere to apply that — but that belongs with the transport that sees the
@@ -34,10 +35,23 @@ public struct SessionCookies: Sendable, Hashable, CustomStringConvertible {
     public struct Cookie: Sendable, Hashable {
         public let name: String
         public let value: String
+        /// Where a browser would send it, spelled as the cookie store spelled
+        /// it: a leading dot is a domain cookie (`.google.com`), none is
+        /// host-only (`chat.google.com`). `nil` for a cookie captured before
+        /// domains were kept, which goes to `CookieScope.chat`'s host only
+        /// (`findings.md` §52.9).
+        public let domain: String?
+        /// The cookie's path, `/` when the store reported none. Normally
+        /// `nil` exactly when `domain` is - both come from the same capture
+        /// or the same `Set-Cookie` - but the initializer does not enforce
+        /// the pairing, so treat that as the usual case, not a guarantee.
+        public let path: String?
 
-        public init(name: String, value: String) {
+        public init(name: String, value: String, domain: String? = nil, path: String? = nil) {
             self.name = name
             self.value = value
+            self.domain = domain
+            self.path = path
         }
     }
 
@@ -54,6 +68,12 @@ public struct SessionCookies: Sendable, Hashable, CustomStringConvertible {
 
     public var count: Int {
         cookies.count
+    }
+
+    /// How many cookies know their domain. A session stored before §52.9
+    /// has none; one captured since has all. Reported as a count only.
+    public var domainCount: Int {
+        cookies.count { $0.domain != nil }
     }
 
     /// The size of the header this will produce. A real capture is around 4990
@@ -113,5 +133,44 @@ public extension SessionCookies {
                 )
             }
         self.init(cookies: parsed)
+    }
+}
+
+// MARK: - Where each cookie is sent
+
+public extension SessionCookies.Cookie {
+    /// Whether a browser would send this cookie with a request to `url`
+    /// (`findings.md` §52.9). `https` only: every request in this protocol is
+    /// TLS, and `Secure` is not stored, so a cookie is treated as secure.
+    func isSent(to url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host(), !host.isEmpty else { return false }
+        guard let domain else {
+            // Captured before domains were kept, for this host alone.
+            return host.lowercased() == CookieScope.chat.host
+        }
+        let requestPath = url.path(percentEncoded: false)
+        return CookieScope(host: host, path: requestPath.isEmpty ? "/" : requestPath, isSecure: true)
+            .admits(domain: domain, path: path ?? "/", isSecure: true)
+    }
+}
+
+public extension SessionCookies {
+    /// The `Cookie` header for one request: the cookies `url` admits, in
+    /// capture order, minus `names`. `nil` when none is admitted, so a caller
+    /// sends no header at all rather than an empty one.
+    func header(for url: URL, withholding names: Set<String> = []) -> String? {
+        Self.header(cookies, for: url, withholding: names)
+    }
+
+    /// The same rule over a jar's live list, so `CookieJar` and a snapshot can
+    /// never disagree about it.
+    internal static func header(
+        _ cookies: [Cookie],
+        for url: URL,
+        withholding names: Set<String>
+    ) -> String? {
+        let sent = cookies.filter { !names.contains($0.name) && $0.isSent(to: url) }
+        guard !sent.isEmpty else { return nil }
+        return sent.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
     }
 }
