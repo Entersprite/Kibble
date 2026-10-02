@@ -213,19 +213,3 @@ struct AttachmentImage: View {
         }
     }
 }
-
-/// A non-image upload, or an image with no loader: its name, and nothing to
-/// click, because nothing here can download a file yet.
-struct AttachmentChip: View {
-    let attachment: Attachment
-
-    var body: some View {
-        Label(AttachmentLayout.label(for: attachment), systemImage: "paperclip")
-            .font(.callout)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quinary, in: RoundedRectangle(cornerRadius: 10))
-    }
-}

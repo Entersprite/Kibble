@@ -40,7 +40,9 @@ public struct ChatWindow: View {
                     MessageList(
                         state: state,
                         loadAttachment: actions.loadAttachment,
-                        openAttachment: actions.openAttachment
+                        openAttachment: actions.openAttachment,
+                        downloads: state.downloads,
+                        attachmentFiles: actions.attachmentFiles
                     )
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {

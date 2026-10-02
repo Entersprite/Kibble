@@ -40,6 +40,12 @@ public struct MessageList: View {
     /// each bubble. `nil` draws images as their names.
     let loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
     let openAttachment: ((Attachment) async throws -> URL)?
+    /// `ChatSceneState.downloads` and `ChatSceneActions.attachmentFiles`,
+    /// handed down to each bubble's file chips the same way. `nil` actions
+    /// draw a plain label (`CLAUDE.md`: never draw a control the seam cannot
+    /// honour).
+    let downloads: [String: AttachmentDownloadState]
+    let attachmentFiles: AttachmentFileActions?
 
     /// The last target this list scrolled to, so that it is honoured once.
     /// `@State` is enough: opening a mention always passes through the
@@ -50,11 +56,15 @@ public struct MessageList: View {
     public init(
         state: ChatSceneState,
         loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
-        openAttachment: ((Attachment) async throws -> URL)? = nil
+        openAttachment: ((Attachment) async throws -> URL)? = nil,
+        downloads: [String: AttachmentDownloadState] = [:],
+        attachmentFiles: AttachmentFileActions? = nil
     ) {
         self.state = state
         self.loadAttachment = loadAttachment
         self.openAttachment = openAttachment
+        self.downloads = downloads
+        self.attachmentFiles = attachmentFiles
     }
 
     public var body: some View {
@@ -64,7 +74,8 @@ public struct MessageList: View {
                     ForEach(state.messages, id: \.id) { message in
                         MessageBubble(
                             message: message, state: state,
-                            loadAttachment: loadAttachment, openAttachment: openAttachment
+                            loadAttachment: loadAttachment, openAttachment: openAttachment,
+                            downloads: downloads, attachmentFiles: attachmentFiles
                         )
                         .id(message.id)
                     }
@@ -105,6 +116,8 @@ struct MessageBubble: View {
     let state: ChatSceneState
     var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
     var openAttachment: ((Attachment) async throws -> URL)?
+    var downloads: [String: AttachmentDownloadState] = [:]
+    var attachmentFiles: AttachmentFileActions?
 
     private var parts: AttachmentLayout.Parts {
         AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
@@ -159,7 +172,13 @@ struct MessageBubble: View {
                     if parts.showsText {
                         bubble
                     }
-                    ForEach(parts.files, id: \.id) { AttachmentChip(attachment: $0) }
+                    ForEach(parts.files, id: \.id) {
+                        AttachmentChip(
+                            attachment: $0,
+                            state: downloads[$0.id] ?? .idle,
+                            actions: attachmentFiles
+                        )
+                    }
                 }
                 if !message.reactions.isEmpty {
                     ReactionRow(reactions: message.reactions)

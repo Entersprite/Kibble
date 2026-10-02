@@ -76,6 +76,10 @@ public struct ChatSceneState: Sendable, Equatable {
     /// The message the transcript scrolls to once, after a mention is opened.
     public var scrollTarget: Message.ID?
 
+    /// Each file attachment's download, keyed by `Attachment.id`. An absent
+    /// key is `.idle` - see `AttachmentDownloadState`.
+    public var downloads: [String: AttachmentDownloadState]
+
     public init(
         conversations: [Conversation] = [],
         directory: [Member.ID: Member] = [:],
@@ -96,7 +100,8 @@ public struct ChatSceneState: Sendable, Equatable {
         mentions: [MentionItem] = [],
         mentionsStatus: MentionsStatus = MentionsStatus(),
         unreadMentionCount: Int = 0,
-        scrollTarget: Message.ID? = nil
+        scrollTarget: Message.ID? = nil,
+        downloads: [String: AttachmentDownloadState] = [:]
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -118,6 +123,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.mentionsStatus = mentionsStatus
         self.unreadMentionCount = unreadMentionCount
         self.scrollTarget = scrollTarget
+        self.downloads = downloads
     }
 
     public var selectedConversation: Conversation? {
@@ -218,6 +224,12 @@ public struct ChatSceneActions {
     /// not clickable.
     public var openAttachment: ((Attachment) async throws -> URL)?
 
+    /// Download, cancel, open, reveal and Save As for a non-image file chip.
+    /// **Optional, and `nil` is the point** - `CLAUDE.md`: never draw a
+    /// control the seam cannot honour, so a backend that cannot download
+    /// files draws a plain label instead of a click that goes nowhere.
+    public var attachmentFiles: AttachmentFileActions?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
@@ -232,7 +244,8 @@ public struct ChatSceneActions {
         showMentions: (() -> Void)? = nil,
         openMention: ((Conversation.ID, Message.ID) -> Void)? = nil,
         loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
-        openAttachment: ((Attachment) async throws -> URL)? = nil
+        openAttachment: ((Attachment) async throws -> URL)? = nil,
+        attachmentFiles: AttachmentFileActions? = nil
     ) {
         self.select = select
         self.send = send
@@ -248,5 +261,6 @@ public struct ChatSceneActions {
         self.openMention = openMention
         self.loadAttachment = loadAttachment
         self.openAttachment = openAttachment
+        self.attachmentFiles = attachmentFiles
     }
 }
