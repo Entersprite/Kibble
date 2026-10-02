@@ -23,6 +23,16 @@ struct AttachmentChipTests {
         #expect(shown.primary == primary)
     }
 
+    @Test("the primary button's accessibility label names the action and the file", arguments: [
+        (AttachmentDownloadState.idle, "Download a.pdf"),
+        (.downloading(AttachmentProgress(bytesReceived: 1, totalBytes: 4)), "Downloading a.pdf"),
+        (.done, "Open a.pdf"),
+        (.failed("Sign in again to download files"), "Download a.pdf")
+    ])
+    func accessibilityLabels(_ state: AttachmentDownloadState, _ expected: String) {
+        #expect(AttachmentChip.Presentation(state: state).accessibilityLabel(for: "a.pdf") == expected)
+    }
+
     @Test("the failure's message is the help text, and nothing else is")
     func failureHelp() {
         #expect(AttachmentChip.Presentation(state: .failed("x")).help == "x")

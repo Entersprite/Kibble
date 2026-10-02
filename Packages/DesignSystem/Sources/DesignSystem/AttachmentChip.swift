@@ -30,10 +30,34 @@ struct AttachmentChip: View {
                 )
             }
         }
+
+        /// The primary button's accessible name - the action, not the icon,
+        /// since VoiceOver otherwise reads only "<name>, <size>, button" and
+        /// never says whether a click downloads or opens the file. A failed
+        /// state's `primary` is already `.download`, so it reads the same as
+        /// idle; the failure message stays the hint/help, not the label.
+        func accessibilityLabel(for name: String) -> String {
+            switch primary {
+            case .download: "Download \(name)"
+            case .open: "Open \(name)"
+            case .none: "Downloading \(name)"
+            }
+        }
     }
 
     static func sizeLabel(_ attachment: Attachment) -> String? {
         attachment.byteSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+    }
+
+    /// The chip's `accessibilityValue` while a known-size download is under
+    /// way - `nil` (so nothing is attached) for every other state, and for an
+    /// unknown total, since a percentage cannot be said of a spinner.
+    private var downloadPercentLabel: String? {
+        guard case let .downloading(progress) = state, let total = progress.totalBytes, total > 0 else {
+            return nil
+        }
+        let percent = Int((Double(progress.bytesReceived) / Double(total) * 100).rounded())
+        return "\(percent) percent"
     }
 
     var body: some View {
@@ -61,6 +85,7 @@ struct AttachmentChip: View {
 
     @ViewBuilder private func interactive(_ actions: AttachmentFileActions) -> some View {
         let shown = Presentation(state: state)
+        let name = AttachmentLayout.label(for: attachment)
         HStack(spacing: 6) {
             Button {
                 switch shown.primary {
@@ -72,7 +97,8 @@ struct AttachmentChip: View {
                 label(symbol: shown.symbol)
             }
             .buttonStyle(.plain)
-            .help(shown.help ?? "")
+            .accessibilityLabel(shown.accessibilityLabel(for: name))
+            .conditionalHelp(shown.help)
             if case let .downloading(progress) = state {
                 if let total = progress.totalBytes, total > 0 {
                     ProgressView(value: Double(progress.bytesReceived), total: Double(total))
@@ -86,6 +112,7 @@ struct AttachmentChip: View {
                 .buttonStyle(.plain)
             }
         }
+        .conditionalAccessibilityValue(downloadPercentLabel)
         .contextMenu {
             if state == .done {
                 Button("Open") { actions.open(attachment) }
@@ -96,6 +123,29 @@ struct AttachmentChip: View {
                 Button("Download") { actions.download(attachment) }
             }
             Button("Save As…") { actions.saveAs(attachment) }
+        }
+    }
+}
+
+private extension View {
+    /// `.help(_:)`, but attaches nothing for `nil` rather than an empty
+    /// tooltip - an idle or done chip has no failure message to show.
+    @ViewBuilder func conditionalHelp(_ text: String?) -> some View {
+        if let text {
+            help(text)
+        } else {
+            self
+        }
+    }
+
+    /// `.accessibilityValue(_:)`, but attaches nothing for `nil` rather than
+    /// an empty value - only a known-size download in progress has a
+    /// percentage to report.
+    @ViewBuilder func conditionalAccessibilityValue(_ text: String?) -> some View {
+        if let text {
+            accessibilityValue(text)
+        } else {
+            self
         }
     }
 }
