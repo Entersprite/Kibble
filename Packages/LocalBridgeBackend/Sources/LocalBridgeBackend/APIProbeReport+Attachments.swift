@@ -105,8 +105,12 @@ extension APIProbeReport {
         }
     }
 
+    /// The type itself, optionally with one `charset` parameter (§52.3 met
+    /// `application/json; charset=utf-8`). Any other parameter is a value
+    /// nothing has shown the shape of, so the whole type becomes a length.
     static func contentTypeKey(_ type: String) -> String {
-        let shaped = type.range(of: #"^[a-z]+/[a-z0-9.+-]{1,40}$"#, options: .regularExpression) != nil
+        let pattern = #"^[a-z]+/[a-z0-9.+-]{1,40}(; ?charset=[A-Za-z0-9-]{1,20})?$"#
+        let shaped = type.range(of: pattern, options: .regularExpression) != nil
         return shaped ? type : "(unusual, \(type.count) chars)"
     }
 
@@ -285,6 +289,12 @@ extension APIProbeReport {
         } else {
             lines.append("  no file upload on this page - post one in this conversation and rerun")
         }
+        lines.append("")
+        await appendDownloadLadderSection(
+            upload: shapes.firstFile,
+            fetch: fetches.first?.fetch,
+            lines: &lines
+        )
         lines.append("")
         await appendProjectorConfigSection(upload: shapes.firstFile, fetches: fetches, lines: &lines)
     }

@@ -95,6 +95,52 @@ public struct AttachmentFetch: Sendable {
 
     static let timeout = Duration.seconds(30)
 
+    /// How each hop is asked. The app's style is the default; the others
+    /// exist so the download probe can tell which difference from a browser
+    /// `chat.usercontent.google.com` refuses (`findings.md` §52.4). Chat on
+    /// the web downloads a file by navigating a new tab to it.
+    public struct RequestStyle: Sendable, Hashable {
+        /// A browser navigation's `Sec-Fetch-*`, `Upgrade-Insecure-Requests`
+        /// and `Accept`, with `Sec-Fetch-Site` computed over the chain the
+        /// way a browser computes it for a redirect.
+        public var navigation: Bool
+        /// `Referer: https://<chat host>/` - the origin only, which is what a
+        /// browser's default referrer policy sends off-origin - to Google
+        /// hosts only.
+        public var referer: Bool
+        /// Whether `get_attachment_url` is sent `content_type`. purple sends
+        /// it; mautrix leaves it out for `DOWNLOAD_URL` (§52.1).
+        public var sendsContentType: Bool
+
+        public init(navigation: Bool = false, referer: Bool = false, sendsContentType: Bool = true) {
+            self.navigation = navigation
+            self.referer = referer
+            self.sendsContentType = sendsContentType
+        }
+
+        public static let app = RequestStyle()
+    }
+
+    /// `Sec-Fetch-Site`, ordered so a chain keeps the least related value it
+    /// has passed through.
+    private enum FetchSite: Int, Comparable {
+        case sameOrigin, sameSite, crossSite
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+
+        var header: String {
+            switch self {
+            case .sameOrigin: "same-origin"
+            case .sameSite: "same-site"
+            case .crossSite: "cross-site"
+            }
+        }
+    }
+
+    static let navigationAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+
     private let transport: any HTTPTransport
     private let endpoints: ChatEndpoints
     private let credentials: SessionCredentials
@@ -115,11 +161,17 @@ public struct AttachmentFetch: Sendable {
     public func fetch(
         token: String,
         contentType: String,
-        variant: AttachmentVariant
+        variant: AttachmentVariant,
+        style: RequestStyle = .app
     ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
         try await follow(
-            from: firstURL(token: token, contentType: contentType, variant: variant),
-            pageIsAnAnswer: variant == .file && Self.isPage(contentType)
+            from: firstURL(
+                token: token,
+                contentType: style.sendsContentType ? contentType : nil,
+                variant: variant
+            ),
+            pageIsAnAnswer: variant == .file && Self.isPage(contentType),
+            style: style
         )
     }
 
@@ -136,7 +188,7 @@ public struct AttachmentFetch: Sendable {
             ("content_type", contentType),
             ("attachment_token", token)
         ])
-        return try await follow(from: components.url!, pageIsAnAnswer: false)
+        return try await follow(from: components.url!, pageIsAnAnswer: false, style: .app)
     }
 
     /// Every hop by hand: credentials by host, `Set-Cookie` from the chat
@@ -144,15 +196,20 @@ public struct AttachmentFetch: Sendable {
     /// `pageIsAnAnswer` is whether a `text/html` body is what was asked for.
     private func follow(
         from start: URL,
-        pageIsAnAnswer: Bool
+        pageIsAnAnswer: Bool,
+        style: RequestStyle
     ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
         var url = start
         var hops: [AttachmentHop] = []
+        var site = FetchSite.sameOrigin
         while hops.count < Self.maxHops {
             let authorised = carriesCookies(url)
+            site = max(site, fetchSite(url))
             let response: HTTPResponse
             do {
-                response = try await transport.send(request(for: url, authorised: authorised))
+                response = try await transport.send(request(
+                    for: url, authorised: authorised, style: style, site: site
+                ))
             } catch let classified as ClassifiedTransportFailure {
                 throw AttachmentFetchFailure(reason: .transport(classified.reason), hops: hops)
             } catch {
@@ -205,14 +262,15 @@ public struct AttachmentFetch: Sendable {
     /// The `sz` values are mautrix's for the original and a 2x bubble width
     /// for the preview `[Verify]` that the server honours them; a file has
     /// none. `content_type` is sent for both, as purple does.
-    func firstURL(token: String, contentType: String, variant: AttachmentVariant) -> URL {
+    /// `contentType` is `nil` when the request style leaves it out.
+    func firstURL(token: String, contentType: String?, variant: AttachmentVariant) -> URL {
         let base = endpoints.base.appendingPathComponent("api").appendingPathComponent("get_attachment_url")
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
-        var items = [
-            ("url_type", variant == .file ? "DOWNLOAD_URL" : "FIFE_URL"),
-            ("content_type", contentType),
-            ("attachment_token", token)
-        ]
+        var items = [("url_type", variant == .file ? "DOWNLOAD_URL" : "FIFE_URL")]
+        if let contentType {
+            items.append(("content_type", contentType))
+        }
+        items.append(("attachment_token", token))
         switch variant {
         case .preview: items.append(("sz", "w1024"))
         case .original: items.append(("sz", "w10000-h10000"))
@@ -233,14 +291,39 @@ public struct AttachmentFetch: Sendable {
         return isChatHost(url) || host == "google.com" || host.hasSuffix(".google.com")
     }
 
+    private func fetchSite(_ url: URL) -> FetchSite {
+        if isChatHost(url) {
+            return .sameOrigin
+        }
+        return carriesCookies(url) ? .sameSite : .crossSite
+    }
+
     private func isChatHost(_ url: URL) -> Bool {
         url.scheme == "https" && url.host() == endpoints.host.host()
     }
 
-    private func request(for url: URL, authorised: Bool) async -> HTTPRequest {
+    private func request(
+        for url: URL,
+        authorised: Bool,
+        style: RequestStyle,
+        site: FetchSite
+    ) async -> HTTPRequest {
         var fields = [("User-Agent", endpoints.userAgent)]
         if isChatHost(url), let xsrfToken {
             fields.append(("x-framework-xsrf-token", xsrfToken))
+        }
+        if style.navigation {
+            fields += [
+                ("Accept", Self.navigationAccept),
+                ("Sec-Fetch-Dest", "document"),
+                ("Sec-Fetch-Mode", "navigate"),
+                ("Sec-Fetch-Site", site.header),
+                ("Sec-Fetch-User", "?1"),
+                ("Upgrade-Insecure-Requests", "1")
+            ]
+        }
+        if style.referer, carriesCookies(url), let host = endpoints.host.host() {
+            fields.append(("Referer", "https://\(host)/"))
         }
         let request = HTTPRequest(
             url: url,
