@@ -6,7 +6,8 @@ public struct DownloadFolder: Equatable, Sendable {
     /// Whether this is the system's Downloads folder rather than one the
     /// person chose.
     public var isDefault: Bool
-    /// Said once, when the chosen folder could not be used and Downloads was used instead.
+    /// Said while the chosen folder cannot be used; downloads go to Downloads
+    /// until it can, or until the person picks another.
     public var notice: String?
 
     public init(url: URL, isDefault: Bool, notice: String? = nil) {

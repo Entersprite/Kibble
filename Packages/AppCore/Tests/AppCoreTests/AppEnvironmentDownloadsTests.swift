@@ -116,8 +116,33 @@ struct AppEnvironmentDownloadsTests {
         let services = try FakeLaunchServices()
         let environment = AppEnvironment(services: services)
         let state = environment.downloadSettingsState
-        #expect(state.folderPath == services.downloadDirectory.path(percentEncoded: false))
+        #expect(state.folderPath == services.downloadDirectory.resolvingSymlinksInPath()
+            .path(percentEncoded: false))
         #expect(state.isDefault)
         #expect(state.notice == nil)
+    }
+
+    /// The sandbox's Downloads is a symlink inside the container: the pane
+    /// shows where it leads, and the folder written to is left alone.
+    @Test func aSymlinkedFolderShowsItsResolvedPath() throws {
+        let services = try FakeLaunchServices()
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "download-symlink-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = root.appending(path: "Real Downloads", directoryHint: .isDirectory)
+        let link = root.appending(path: "Downloads")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        services.downloadPlatformFake.folder = DownloadFolder(url: link, isDefault: true)
+        let environment = AppEnvironment(services: services)
+
+        let state = environment.downloadSettingsState
+
+        let resolved = target.resolvingSymlinksInPath().path(percentEncoded: false)
+        // Positive control: the link and its target really are different paths.
+        try #require(link.path(percentEncoded: false) != resolved)
+        #expect(state.folderPath == resolved)
+        #expect(state.folderName == "Real Downloads")
+        #expect(services.downloadPlatformFake.folder.url == link)
     }
 }

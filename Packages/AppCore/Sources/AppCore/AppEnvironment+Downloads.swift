@@ -75,11 +75,15 @@ extension AppEnvironment {
 }
 
 public extension AppEnvironment {
+    /// The path is resolved for display only - in the sandbox the default
+    /// folder is a symlink inside the container, which is not where a person
+    /// would look. Writing still goes through `folder.url`, untouched.
     var downloadSettingsState: DownloadSettingsState {
         let folder = downloads?.folder ?? services.downloadPlatform().folder
+        let shown = folder.url.resolvingSymlinksInPath().path(percentEncoded: false)
         return DownloadSettingsState(
-            folderName: FileManager.default.displayName(atPath: folder.url.path(percentEncoded: false)),
-            folderPath: folder.url.path(percentEncoded: false),
+            folderName: FileManager.default.displayName(atPath: shown),
+            folderPath: shown,
             isDefault: folder.isDefault,
             notice: folder.notice
         )

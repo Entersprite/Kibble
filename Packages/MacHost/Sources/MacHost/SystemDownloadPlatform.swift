@@ -53,7 +53,7 @@ public final class SystemDownloadPlatform: DownloadPlatform {
 
     /// Blames the folder only when the folder is the problem. A failure inside
     /// `body` becomes `DownloadFolderUnavailable` when it is a refused write -
-    /// the sandbox access that was lost, which the POSIX check need not see -
+    /// the sandbox access that was lost, which a POSIX check need not see -
     /// or when, with access still held, the folder is now missing or
     /// unwritable. Anything else propagates unchanged: a staged file that is
     /// gone says "no such file" too, and is not the folder's fault.
@@ -65,9 +65,8 @@ public final class SystemDownloadPlatform: DownloadPlatform {
                 url.stopAccessingSecurityScopedResource()
             }
         }
-        guard folder.isDefault || scoped || Self.isUsableFolder(url) else {
-            throw DownloadFolderUnavailable(folderName: url.lastPathComponent)
-        }
+        // No check before `body`: a folder that cannot be used fails there,
+        // and the catch below names it.
         do {
             return try body(url)
         } catch {
@@ -103,27 +102,39 @@ public final class SystemDownloadPlatform: DownloadPlatform {
     }
 
     /// The bookmarked folder, or Downloads when there is none. A folder that
-    /// is gone is said once, without its path.
+    /// is gone is noticed, without its path, on every launch it stays gone:
+    /// the bookmark is kept, because a removable drive may come back.
     static func resolve(_ bookmarkFile: URL?) -> DownloadFolder {
         guard let bookmarkFile, let data = try? Data(contentsOf: bookmarkFile) else {
             return defaultFolder(notice: nil)
         }
+        let gone =
+            defaultFolder(notice: "The folder Kibble was saving to is gone, so downloads go to Downloads.")
         var stale = false
         guard let url = try? URL(
             resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
             bookmarkDataIsStale: &stale
-        ), FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-            return defaultFolder(
-                notice: "The folder Kibble was saving to is gone, so downloads go to Downloads."
-            )
+        ) else {
+            return gone
         }
-        if stale, url.startAccessingSecurityScopedResource() {
-            defer { url.stopAccessingSecurityScopedResource() }
-            if let fresh = try? url.bookmarkData(
-                options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
-            ) {
-                try? fresh.write(to: bookmarkFile, options: .atomic)
+        // Held across the existence check, not only the refresh: in the App
+        // Sandbox a folder outside the container cannot even be stat'ed
+        // without its scope, so an unscoped check would read a chosen folder
+        // as gone on every relaunch. [Verify] in a signed, sandboxed run - the
+        // unsandboxed test runner cannot show the refusal.
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
             }
+        }
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            return gone
+        }
+        if stale, scoped, let fresh = try? url.bookmarkData(
+            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
+        ) {
+            try? fresh.write(to: bookmarkFile, options: .atomic)
         }
         return DownloadFolder(url: url, isDefault: false)
     }
