@@ -2,17 +2,24 @@ import Foundation
 import Testing
 @testable import GChatBridgeCore
 
-/// `RequestStyle.chatHostOnly`: cookies a browser keeps for the chat host
-/// alone, withheld from every other host. The jar has no domains, so it sends
-/// `COMPASS` and `OSID` to `chat.usercontent.google.com`, which no browser
-/// does (`findings.md` §52.8).
+/// `RequestStyle.chatHostOnly`: an explicit withholding for a probe
+/// experimenting with a cookie that would otherwise reach a sibling under
+/// domain scoping (`findings.md` §52.9). A cookie such as `COMPASS`, whose own
+/// `Domain` already confines it to the chat host, never reaches
+/// `chat.usercontent.google.com` regardless of this mechanism
+/// (`findings.md` §52.8).
 @Suite("Attachment fetch: chat-host-only cookies")
 struct AttachmentFetchWithholdTests {
     static func credentials() -> SessionCredentials {
         SessionCredentials(SessionCookies(cookies: [
-            SessionCookies.Cookie(name: "SID", value: "lowercasesid"),
-            SessionCookies.Cookie(name: "COMPASS", value: "lowercasecompass"),
-            SessionCookies.Cookie(name: "HSID", value: "lowercasehsid")
+            SessionCookies.Cookie(name: "SID", value: "lowercasesid", domain: ".google.com", path: "/"),
+            SessionCookies.Cookie(
+                name: "COMPASS",
+                value: "lowercasecompass",
+                domain: "chat.google.com",
+                path: "/"
+            ),
+            SessionCookies.Cookie(name: "HSID", value: "lowercasehsid", domain: ".google.com", path: "/")
         ])!)
     }
 
@@ -38,9 +45,12 @@ struct AttachmentFetchWithholdTests {
         ])
     }
 
-    @Test("the app's style withholds nothing")
+    @Test("the app's style withholds nothing beyond what each cookie's own domain already excludes")
     func appStyleSendsTheJar() async throws {
         let sent = try await Self.cookies(.app)
-        #expect(sent[1] == "SID=lowercasesid; COMPASS=lowercasecompass; HSID=lowercasehsid")
+        // COMPASS never reaches the sibling because its own Domain confines
+        // it to the chat host (`findings.md` §52.9) - not because `.app`
+        // withholds it; `.app`'s own `chatHostOnly` is empty.
+        #expect(sent[1] == "SID=lowercasesid; HSID=lowercasehsid")
     }
 }

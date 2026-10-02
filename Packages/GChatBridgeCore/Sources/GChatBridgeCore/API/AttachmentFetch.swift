@@ -88,9 +88,9 @@ public struct AttachmentFetchFailure: Error, Hashable {
 /// is sent the session's cookie and xsrf token. That is mautrix's rule, made
 /// narrower: it authorises any `*.google.com`, but the jar was scoped for the
 /// chat host at capture time (`CookieScope`), so no other host is owed it.
-/// `Set-Cookie` is absorbed from the chat host alone for the same reason: the
-/// jar is one flat header, and a cookie another host set would be replayed
-/// to the chat host.
+/// Each hop is sent only what its host admits (`SessionCookies.Cookie.isSent(to:)`),
+/// and `Set-Cookie` is absorbed from every hop that was sent cookies, stored
+/// where its `Domain` says (`findings.md` §52.9).
 public struct AttachmentFetch: Sendable {
     /// Requests per fetch. Ten is mautrix's bound.
     public static let maxHops = 10
@@ -238,8 +238,10 @@ public struct AttachmentFetch: Sendable {
         } catch {
             throw AttachmentFetchFailure(reason: .transport(nil), hops: hops)
         }
-        if isChatHost(url) {
-            await credentials.absorb(response.headers)
+        // From every hop that was sent cookies: each lands where its Domain
+        // says, so a sibling cannot plant one on the chat host (findings.md §52.9).
+        if authorised {
+            await credentials.absorb(response.headers, from: url)
         }
         return response
     }
@@ -311,9 +313,8 @@ public struct AttachmentFetch: Sendable {
 
     /// `https` on Google's own domain: the chat host and its siblings, where
     /// a file download is served (`findings.md` §52), with the label boundary
-    /// `CookieScope` insists on. mautrix's rule (`client.py:205-215`); a
-    /// browser would send each sibling only the cookies whose domain covers
-    /// it, but the jar no longer knows domains, so it is the whole jar.
+    /// `CookieScope` insists on. mautrix's rule (`client.py:205-215`); each
+    /// sibling is then sent only the cookies whose domain covers it.
     /// `googleusercontent.com` is never sent anything: it signs its own URLs.
     private func carriesCookies(_ url: URL) -> Bool {
         guard url.scheme == "https", let host = url.host()?.lowercased() else { return false }

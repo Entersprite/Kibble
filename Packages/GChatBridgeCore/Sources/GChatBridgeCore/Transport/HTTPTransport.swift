@@ -46,7 +46,7 @@ public struct HTTPHeaders: Sendable, Hashable {
         all(name).first
     }
 
-    /// Every `Set-Cookie` value, ready for `CookieJar.absorb(setCookie:)`.
+    /// Every `Set-Cookie` value, ready for `CookieJar.absorb(setCookie:from:)`.
     public var setCookies: [String] {
         all("Set-Cookie")
     }

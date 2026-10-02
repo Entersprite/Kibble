@@ -24,11 +24,13 @@ import Foundation
 ///
 /// ## What this deliberately is not
 ///
-/// Not an RFC 6265 implementation. There is no domain or path matching and no
-/// expiry clock: every cookie here belongs to one host and is replayed to that
-/// host, which is exactly what the reference implementation does by flattening
-/// them the same way. The one attribute that *is* honoured is deletion, because
-/// replaying a cookie the server has just retired is worse than dropping it.
+/// Not a full RFC 6265 implementation: no expiry clock, no `SameSite`, no
+/// public-suffix list. It does keep each cookie's domain and path, send each
+/// request only what they admit, and store a `Set-Cookie` where its `Domain`
+/// and `Path` say, because sending a host a cookie a browser would not is how
+/// every file download was refused (`findings.md` §52.9). The one expiry rule
+/// that *is* honoured is deletion, because replaying a cookie the server has
+/// just retired is worse than dropping it.
 struct CookieJar: Sendable, CustomStringConvertible {
     private var cookies: [SessionCookies.Cookie]
     private(set) var rotations: [CookieRotation] = []
@@ -47,10 +49,11 @@ struct CookieJar: Sendable, CustomStringConvertible {
         cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
     }
 
-    /// The header without the named cookies, for a host that a browser would
-    /// not send them to. The jar keeps no domains, so the caller names them.
-    func headerValue(withholding names: Set<String>) -> String {
-        cookies.filter { !names.contains($0.name) }.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+    /// The `Cookie` header for one request: what `url` admits, minus `names`
+    /// (`SessionCookies.header(for:withholding:)`, the one rule). `nil` when
+    /// nothing is admitted.
+    func header(for url: URL, withholding names: Set<String> = []) -> String? {
+        SessionCookies.header(cookies, for: url, withholding: names)
     }
 
     subscript(name: String) -> String? {
@@ -74,63 +77,76 @@ struct CookieJar: Sendable, CustomStringConvertible {
 // MARK: - Absorbing Set-Cookie
 
 extension CookieJar {
-    /// Applies every `Set-Cookie` value from one response.
+    /// Applies every `Set-Cookie` value from one response from `url`.
     ///
     /// Takes an array because a single response rotates several at once — the
     /// observed run rotated three in one reopen. Any header representation that
     /// collapses repeated names would silently drop two of the three, which is
     /// why `HTTPResponse` preserves them.
-    mutating func absorb(setCookie values: [String]) {
+    mutating func absorb(setCookie values: [String], from url: URL) {
         for value in values {
-            apply(setCookie: value)
+            apply(setCookie: value, from: url)
         }
     }
 
-    private mutating func apply(setCookie raw: String) {
-        guard let incoming = Self.parse(raw) else { return }
+    private mutating func apply(setCookie raw: String, from url: URL) {
+        guard let incoming = Self.parse(raw), let scope = Self.scope(of: incoming, from: url) else { return }
         let name = incoming.name
         let value = incoming.value
-        let existing = cookies.firstIndex { $0.name == name }
-
+        // A cookie captured before domains were kept is matched by name, and
+        // keeps `nil`: rotation never invents a domain (findings.md §52.9).
+        let existing = cookies.firstIndex { $0.name == name && $0.domain == nil }
+            ?? cookies.firstIndex { $0.name == name && $0.domain == scope.domain && $0.path == scope.path }
         if incoming.isDeletion {
             guard let existing else { return }
-            rotations.append(
-                CookieRotation(
-                    name: name,
-                    change: .deleted,
-                    oldLength: cookies[existing].value.count,
-                    newLength: 0
-                )
-            )
+            rotations.append(CookieRotation(
+                name: name, change: .deleted, oldLength: cookies[existing].value.count, newLength: 0
+            ))
             cookies.remove(at: existing)
             return
         }
-
         guard let existing else {
-            rotations.append(
-                CookieRotation(name: name, change: .added, oldLength: 0, newLength: value.count)
-            )
-            cookies.append(SessionCookies.Cookie(name: name, value: value))
+            rotations.append(CookieRotation(name: name, change: .added, oldLength: 0, newLength: value.count))
+            cookies.append(SessionCookies.Cookie(
+                name: name,
+                value: value,
+                domain: scope.domain,
+                path: scope.path
+            ))
             return
         }
-
-        let old = cookies[existing].value
-        guard old != value else { return } // re-sending the same value is not a rotation
-        rotations.append(
-            CookieRotation(
-                name: name,
-                change: .rotated,
-                oldLength: old.count,
-                newLength: value.count
-            )
-        )
+        let old = cookies[existing]
+        guard old.value != value else { return } // re-sending the same value is not a rotation
+        rotations.append(CookieRotation(
+            name: name, change: .rotated, oldLength: old.value.count, newLength: value.count
+        ))
         // Replaced in place: the capture order is the browser's order, and a
         // rotation is not a reason to reorder the header.
-        cookies[existing] = SessionCookies.Cookie(name: name, value: value)
+        cookies[existing] = SessionCookies.Cookie(
+            name: name,
+            value: value,
+            domain: old.domain,
+            path: old.path
+        )
     }
 
-    /// Splits a `Set-Cookie` value into the pair to store, and decides whether
-    /// it is a deletion.
+    /// Where a `Set-Cookie` from `url` is stored (RFC 6265 §5.3): host-only
+    /// for that host with no `Domain`, otherwise the dotted domain, provided
+    /// the host domain-matches it. `nil` means the cookie is ignored whole: a
+    /// host may not set a cookie for another site, and a single-label domain
+    /// (`com`) stands in for the public-suffix check this client has no list
+    /// for. A `Path` that is absent or not absolute is the root.
+    private static func scope(of incoming: Incoming, from url: URL) -> (domain: String, path: String)? {
+        guard let host = url.host()?.lowercased(), !host.isEmpty else { return nil }
+        let path = incoming.path.flatMap { $0.hasPrefix("/") ? $0 : nil } ?? "/"
+        guard let attribute = incoming.domain else { return (host, path) }
+        let bare = String(attribute.lowercased().drop { $0 == "." })
+        guard bare.contains("."), host == bare || host.hasSuffix("." + bare) else { return nil }
+        return ("." + bare, path)
+    }
+
+    /// Splits a `Set-Cookie` value into the pair to store, its `Domain` and
+    /// `Path`, and whether it is a deletion.
     ///
     /// A deletion is an **empty value plus** either an expiry in the past or
     /// `Max-Age` of zero or less. The two halves both matter: `OTZ=` with no
@@ -140,6 +156,9 @@ extension CookieJar {
         let name: String
         let value: String
         let isDeletion: Bool
+        /// The attribute as sent; empty is absent (RFC 6265 §5.2.3).
+        let domain: String?
+        let path: String?
     }
 
     private static func parse(_ raw: String) -> Incoming? {
@@ -152,9 +171,25 @@ extension CookieJar {
         let name = String(pair[pair.startIndex ..< separator]).trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return nil }
         let value = String(pair[pair.index(after: separator)...])
+        let attributes = segments.dropFirst()
 
-        let deleted = value.isEmpty && segments.dropFirst().contains { isExpiry($0) }
-        return Incoming(name: name, value: value, isDeletion: deleted)
+        let deleted = value.isEmpty && attributes.contains { isExpiry($0) }
+        return Incoming(
+            name: name,
+            value: value,
+            isDeletion: deleted,
+            domain: attribute("domain", in: attributes),
+            path: attribute("path", in: attributes)
+        )
+    }
+
+    /// The last value of a named attribute, as RFC 6265 §5.3 takes the last
+    /// one; `nil` when absent or empty.
+    private static func attribute(_ name: String, in attributes: ArraySlice<String>) -> String? {
+        let prefix = name + "="
+        let value = attributes.last { $0.lowercased().hasPrefix(prefix) }
+            .map { String($0.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces) }
+        return value?.isEmpty == false ? value : nil
     }
 
     private static func isExpiry(_ attribute: String) -> Bool {

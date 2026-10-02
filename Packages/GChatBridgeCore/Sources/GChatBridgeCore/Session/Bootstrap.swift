@@ -148,15 +148,20 @@ public struct Bootstrap: Sendable {
         cookies: SessionCookies,
         endpoints: ChatEndpoints = ChatEndpoints()
     ) async throws -> WizGlobalData {
+        var fields = [
+            ("referer", ChatEndpoints.mailReferer),
+            // Without this, Chat authenticates the session and then serves
+            // its unsupported-browser page. See ChatEndpoints.userAgent.
+            ("User-Agent", endpoints.userAgent)
+        ]
+        // What the shell's host admits (findings.md §52.9) - all of a
+        // session's cookies for chat.google.com, as before.
+        if let cookie = cookies.header(for: endpoints.moleWorld) {
+            fields.insert(("Cookie", cookie), at: 0)
+        }
         let request = HTTPRequest(
             url: endpoints.moleWorld,
-            headers: HTTPHeaders([
-                ("Cookie", cookies.headerValue),
-                ("referer", ChatEndpoints.mailReferer),
-                // Without this, Chat authenticates the session and then serves
-                // its unsupported-browser page. See ChatEndpoints.userAgent.
-                ("User-Agent", endpoints.userAgent)
-            ]),
+            headers: HTTPHeaders(fields),
             // `--probe=channeltrace` (`findings.md` §26.3) once recorded this
             // as an 887 KB GET with no name at all - the one request this
             // package issues without going through `ChannelRequests` or

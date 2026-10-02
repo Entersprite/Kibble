@@ -42,7 +42,7 @@ struct SetCookieSplittingTests {
         #expect(compass == "COMPASS=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/")
 
         var jar = try CookieJar(#require(SessionCookies(header: "COMPASS=live; SID=a")))
-        jar.absorb(setCookie: cookies)
+        try jar.absorb(setCookie: cookies, from: #require(URL(string: "https://chat.google.com/")))
         #expect(jar["COMPASS"] == nil, "the deletion was not understood")
         #expect(jar["SIDCC"] == "aaa")
     }

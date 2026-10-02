@@ -16,9 +16,9 @@ import Foundation
 /// Not from either reference, which predate the cookie. The method, headers
 /// and body are what third-party clients send to recover a session that a
 /// scripted login left without the pair (notebooklm-py issue #865)
-/// `[Verify]` against Google's own pages. The whole jar is sent, because it
-/// no longer knows domains: a browser would withhold the `chat.google.com`
-/// cookies (`COMPASS`, `OSID`) from the accounts host.
+/// `[Verify]` against Google's own pages. The accounts host is sent what it
+/// admits, which for a session captured since §52.9 is the `.google.com`
+/// cookies.
 ///
 /// Every `Set-Cookie` it answers is absorbed into `credentials`, so the
 /// caller decides whether that credential persists by what it hands in.
@@ -65,7 +65,7 @@ public struct RotateCookies: Sendable {
             followsRedirects: false
         ))
         let response = try await transport.send(request)
-        await credentials.absorb(response.headers)
+        await credentials.absorb(response.headers, from: Self.url)
         return Outcome(
             status: response.status,
             setCookieNames: response.headers.setCookies.map { value in

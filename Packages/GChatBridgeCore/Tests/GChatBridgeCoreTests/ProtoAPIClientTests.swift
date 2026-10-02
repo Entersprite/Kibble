@@ -81,7 +81,7 @@ struct ProtoAPIClientTests {
     @Test func theLiveCookieHeaderGoesOnTheRequest() async throws {
         let transport = try FakeHTTPTransport(responses: [ok(selfStatusResponse())])
         let credentials = SessionCredentials(cookies())
-        await credentials.absorb(HTTPHeaders([("Set-Cookie", "SID=rotated")]))
+        await credentials.absorb(HTTPHeaders([("Set-Cookie", "SID=rotated")]), from: ChatEndpoints().host)
         let client = ProtoAPIClient(
             transport: transport,
             endpoints: ChatEndpoints(),

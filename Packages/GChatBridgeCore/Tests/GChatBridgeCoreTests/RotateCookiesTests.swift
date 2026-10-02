@@ -10,7 +10,14 @@ struct RotateCookiesTests {
 
     static func credentials() -> SessionCredentials {
         SessionCredentials(
-            SessionCookies(cookies: [SessionCookies.Cookie(name: "__Secure-1PSID", value: cookieSecret)])!
+            SessionCookies(cookies: [
+                SessionCookies.Cookie(
+                    name: "__Secure-1PSID",
+                    value: cookieSecret,
+                    domain: ".google.com",
+                    path: "/"
+                )
+            ])!
         )
     }
 

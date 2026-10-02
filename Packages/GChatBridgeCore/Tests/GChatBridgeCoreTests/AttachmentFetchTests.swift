@@ -15,7 +15,9 @@ struct AttachmentFetchTests {
 
     static func credentials() -> SessionCredentials {
         SessionCredentials(
-            SessionCookies(cookies: [SessionCookies.Cookie(name: "SID", value: cookieSecret)])!
+            SessionCookies(cookies: [
+                SessionCookies.Cookie(name: "SID", value: cookieSecret, domain: ".google.com", path: "/")
+            ])!
         )
     }
 

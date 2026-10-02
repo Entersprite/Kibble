@@ -75,9 +75,10 @@ struct AttachmentFetchCredentialTests {
         })
     }
 
-    /// A sibling Google host is sent the jar, but what it sets is scoped to it
-    /// by a browser, and the jar is one flat header replayed to the chat host.
-    @Test("a cookie set by a sibling Google host is not absorbed")
+    /// A sibling Google host is sent the jar, and what it sets with no
+    /// `Domain` is now absorbed - but host-only, for that sibling alone
+    /// (`findings.md` §52.9), so it never reaches a request to the chat host.
+    @Test("a cookie a sibling sets without Domain is the sibling's, and never reaches the chat host")
     func siblingCookiesAreNotAbsorbed() async throws {
         let credentials = AttachmentFetchTests.credentials()
         let transport = FakeHTTPTransport(responses: [
@@ -94,7 +95,36 @@ struct AttachmentFetchCredentialTests {
         _ = try await AttachmentFetchTests.fetch(transport, credentials: credentials).fetch(
             token: "t", contentType: "application/pdf", variant: .file
         )
-        #expect(await !credentials.header().contains("SIBLING"))
+        let next = try await credentials
+            .authorising(HTTPRequest(url: #require(URL(string: "https://chat.google.com/"))))
+        #expect(next.headers["Cookie"]?.contains("SIBLING") != true)
+    }
+
+    /// The counterpart to the test above: a sibling's rotation of a cookie
+    /// that *does* carry `Domain=.google.com` is not sibling-only - it reaches
+    /// the chat host's next request, the same as a browser's cookie store
+    /// would (`findings.md` §52.9). This only holds because `Set-Cookie` is
+    /// absorbed from every authorised hop, not the chat host alone.
+    @Test("a .google.com cookie a sibling rotates reaches the chat host's next request")
+    func siblingRotationReachesChatHost() async throws {
+        let credentials = AttachmentFetchTests.credentials()
+        let transport = FakeHTTPTransport(responses: [
+            AttachmentFetchTests.redirect(to: "https://chat.usercontent.google.com/d", setCookie: nil),
+            HTTPResponse(
+                status: 200,
+                headers: HTTPHeaders([
+                    ("Content-Type", "application/pdf"),
+                    ("Set-Cookie", "SIDCC=two; Domain=.google.com; Path=/")
+                ]),
+                body: Data("PDF".utf8)
+            )
+        ])
+        _ = try await AttachmentFetchTests.fetch(transport, credentials: credentials).fetch(
+            token: "t", contentType: "application/pdf", variant: .file
+        )
+        let next = try await credentials
+            .authorising(HTTPRequest(url: #require(URL(string: "https://chat.google.com/"))))
+        #expect(next.headers["Cookie"]?.contains("SIDCC=two") == true)
     }
 
     @Test("plain http to the chat host is not the chat host")

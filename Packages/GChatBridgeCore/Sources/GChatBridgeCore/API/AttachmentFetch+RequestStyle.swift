@@ -18,9 +18,11 @@ public extension AttachmentFetch {
         /// it; mautrix leaves it out for `DOWNLOAD_URL` (§52.1).
         public var sendsContentType: Bool
         /// Cookie names sent to the chat host and withheld from every other
-        /// host. The jar keeps no domains, so without this a sibling such as
-        /// `chat.usercontent.google.com` is sent `COMPASS` and `OSID`, which
-        /// a browser keeps for `chat.google.com` alone (`findings.md` §52.8).
+        /// host, for a probe experimenting with a cookie that would otherwise
+        /// reach a sibling under domain scoping. A cookie with no recorded
+        /// domain, or one scoped to the chat host itself, already stays off a
+        /// sibling such as `chat.usercontent.google.com` without this
+        /// (`findings.md` §52.8, §52.9).
         public var chatHostOnly: Set<String>
 
         public init(

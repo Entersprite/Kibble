@@ -256,7 +256,7 @@ public actor ChannelSession {
             let ack = requests.acknowledge(sid: sid, aid: aid, zx: nextCacheBuster())
             await Self.acknowledge(
                 credentials.authorising(ack), via: transport,
-                onHeaders: { await absorb($0) }, onFailure: { await apply(.failed($0)) }
+                onHeaders: { await absorb($0, from: ack.url) }, onFailure: { await apply(.failed($0)) }
             )
 
         case let .sendInitialPing(sid, aid):
@@ -270,7 +270,8 @@ public actor ChannelSession {
             let ping = requests.ping(sid: sid, aid: aid, rid: requestIdentifier, ofs: ofs)
             await Self.sendInitialPingIfPossible(
                 ping, credentials: credentials, via: transport,
-                onHeaders: { await absorb($0) }, onFailure: { await apply(.failed($0)) }
+                onHeaders: Self.onPingHeaders(pingURL: ping?.url, credentials: credentials),
+                onFailure: { await apply(.failed($0)) }
             )
 
         case let .reopen(sid, aid):
@@ -310,7 +311,7 @@ public actor ChannelSession {
         do {
             let request = await credentials.authorising(request)
             let response = try await transport.send(request)
-            await absorb(response.headers)
+            await absorb(response.headers, from: request.url)
             next()
         } catch {
             applyTransportFailure(error)
@@ -321,7 +322,7 @@ public actor ChannelSession {
         do {
             let request = await credentials.authorising(request)
             let stream = try await transport.stream(request)
-            await absorb(stream.headers)
+            await absorb(stream.headers, from: request.url)
             apply(.streamOpened(
                 status: stream.status,
                 initialResponse: stream.headers["X-HTTP-Initial-Response"]
@@ -389,8 +390,8 @@ public actor ChannelSession {
 
     // MARK: - Credentials
 
-    private func absorb(_ headers: HTTPHeaders) async {
-        await credentials.absorb(headers)
+    private func absorb(_ headers: HTTPHeaders, from url: URL) async {
+        await credentials.absorb(headers, from: url)
     }
 
     private func nextCacheBuster() -> String {

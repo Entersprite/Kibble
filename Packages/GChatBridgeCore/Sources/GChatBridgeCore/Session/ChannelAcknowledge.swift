@@ -100,4 +100,19 @@ extension ChannelSession {
             credentials.authorising(request), via: transport, onHeaders: onHeaders, onFailure: onFailure
         )
     }
+
+    /// `onHeaders` for `sendInitialPingIfPossible`: absorbs from the ping's
+    /// own URL, from `request.url` before `authorising` attaches cookies to
+    /// it - and does nothing when `pingURL` is `nil`, which is the same
+    /// silent no-op `sendInitialPingIfPossible` itself falls back to when no
+    /// ping could be built.
+    static func onPingHeaders(
+        pingURL: URL?,
+        credentials: SessionCredentials
+    ) -> @Sendable (HTTPHeaders) async -> Void {
+        { headers in
+            guard let pingURL else { return }
+            await credentials.absorb(headers, from: pingURL)
+        }
+    }
 }

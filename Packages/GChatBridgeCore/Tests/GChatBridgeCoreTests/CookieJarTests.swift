@@ -32,7 +32,7 @@ struct CookieJarTests {
     @Test("attributes are stripped, so only the name and value are replayed")
     func stripsAttributes() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["SIDCC=two; Path=/; Secure; HttpOnly; Max-Age=63072000"])
+        jar.absorb(setCookie: ["SIDCC=two; Path=/; Secure; HttpOnly; Max-Age=63072000"], from: Self.chat)
         #expect(jar["SIDCC"] == "two")
         #expect(!jar.headerValue.contains("HttpOnly"))
         #expect(!jar.headerValue.contains("Path"))
@@ -41,7 +41,7 @@ struct CookieJarTests {
     @Test("a rotated cookie replaces the old value in place, keeping its position")
     func rotationKeepsOrder() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["COMPASS=new"])
+        jar.absorb(setCookie: ["COMPASS=new"], from: Self.chat)
         #expect(jar.headerValue == "SID=a; COMPASS=new; SIDCC=one")
         #expect(jar.count == 3)
     }
@@ -49,7 +49,7 @@ struct CookieJarTests {
     @Test("a cookie the jar has never seen is appended rather than dropped")
     func newCookieIsAppended() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["__Secure-1PSIDCC=fresh"])
+        jar.absorb(setCookie: ["__Secure-1PSIDCC=fresh"], from: Self.chat)
         #expect(jar.count == 4)
         #expect(jar["__Secure-1PSIDCC"] == "fresh")
     }
@@ -64,7 +64,7 @@ struct CookieJarTests {
             "SIDCC=two; Path=/",
             "__Secure-1PSIDCC=x; Secure",
             "__Secure-3PSIDCC=y; Secure"
-        ])
+        ], from: Self.chat)
         #expect(jar.count == 5)
         #expect(jar["SIDCC"] == "two")
         #expect(jar["__Secure-3PSIDCC"] == "y")
@@ -78,7 +78,7 @@ struct CookieJarTests {
     @Test("a cookie cleared with an expired date is removed, not stored empty")
     func expiredCookieIsRemoved() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["COMPASS=; Expires=Thu, 01 Jan 1970 00:00:00 GMT"])
+        jar.absorb(setCookie: ["COMPASS=; Expires=Thu, 01 Jan 1970 00:00:00 GMT"], from: Self.chat)
         #expect(jar["COMPASS"] == nil)
         #expect(jar.count == 2)
     }
@@ -86,7 +86,7 @@ struct CookieJarTests {
     @Test("Max-Age=0 also deletes")
     func maxAgeZeroDeletes() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["SIDCC=; Max-Age=0"])
+        jar.absorb(setCookie: ["SIDCC=; Max-Age=0"], from: Self.chat)
         #expect(jar["SIDCC"] == nil)
     }
 
@@ -95,7 +95,7 @@ struct CookieJarTests {
     @Test("an empty value without an expiry is kept")
     func emptyValueWithoutExpiryIsKept() {
         var jar = Self.jar("SID=a; OTZ=x")
-        jar.absorb(setCookie: ["OTZ="])
+        jar.absorb(setCookie: ["OTZ="], from: Self.chat)
         #expect(jar["OTZ"] == "")
         #expect(jar.count == 2)
     }
@@ -107,7 +107,7 @@ struct CookieJarTests {
     @Test("a rotation is recorded with old and new lengths, never values")
     func rotationIsLogged() throws {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["COMPASS=\(String(repeating: "n", count: 1029))"])
+        jar.absorb(setCookie: ["COMPASS=\(String(repeating: "n", count: 1029))"], from: Self.chat)
         #expect(jar.rotations.count == 1)
         let rotation = try #require(jar.rotations.first)
         #expect(rotation.name == "COMPASS")
@@ -119,14 +119,14 @@ struct CookieJarTests {
     @Test("an unchanged value is not logged as a rotation")
     func unchangedIsNotARotation() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["SIDCC=one"])
+        jar.absorb(setCookie: ["SIDCC=one"], from: Self.chat)
         #expect(jar.rotations.isEmpty)
     }
 
     @Test("additions and deletions are logged distinctly from rotations")
     func additionsAndDeletionsAreLogged() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["NEWONE=z", "SID=; Max-Age=0"])
+        jar.absorb(setCookie: ["NEWONE=z", "SID=; Max-Age=0"], from: Self.chat)
         #expect(jar.rotations.map(\.change) == [.added, .deleted])
     }
 
@@ -134,7 +134,7 @@ struct CookieJarTests {
     @Test("neither the log nor the description ever contains a cookie value")
     func neverLeaksValues() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["COMPASS=supersecretvalue"])
+        jar.absorb(setCookie: ["COMPASS=supersecretvalue"], from: Self.chat)
         let rendered = "\(jar)" + jar.rotations.map { "\($0)" }.joined()
         #expect(!rendered.contains("supersecretvalue"))
         #expect(rendered.contains("COMPASS"))
@@ -145,7 +145,7 @@ struct CookieJarTests {
     @Test("a malformed Set-Cookie is ignored without disturbing the jar")
     func malformedIsIgnored() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["", "   ", "novalue", "=orphan"])
+        jar.absorb(setCookie: ["", "   ", "novalue", "=orphan"], from: Self.chat)
         #expect(jar.headerValue == "SID=a; COMPASS=old; SIDCC=one")
         #expect(jar.rotations.isEmpty)
     }
@@ -155,8 +155,90 @@ struct CookieJarTests {
     @Test("the jar can hand back a snapshot for the credential store")
     func snapshotRoundTrip() {
         var jar = Self.jar()
-        jar.absorb(setCookie: ["COMPASS=new"])
+        jar.absorb(setCookie: ["COMPASS=new"], from: Self.chat)
         let snapshot = jar.snapshot
         #expect(snapshot?.headerValue == "SID=a; COMPASS=new; SIDCC=one")
+    }
+
+    // MARK: - Domains and paths (findings.md §52.9)
+
+    static let chat = URL(string: "https://chat.google.com/u/0/api/x")!
+    static let download = URL(string: "https://chat.usercontent.google.com/download")!
+
+    static func scopedJar() -> CookieJar {
+        CookieJar(SessionCookies(cookies: [
+            SessionCookies.Cookie(name: "SIDCC", value: "one", domain: ".google.com", path: "/"),
+            SessionCookies.Cookie(name: "COMPASS", value: "old", domain: "chat.google.com", path: "/")
+        ])!)
+    }
+
+    @Test("a Set-Cookie with no Domain is host-only, for the host that answered")
+    func noDomainIsHostOnly() {
+        var jar = Self.scopedJar()
+        jar.absorb(setCookie: ["NEW=v; Path=/"], from: Self.download)
+        #expect(jar.header(for: Self.download) == "SIDCC=one; NEW=v")
+        #expect(jar.header(for: Self.chat) == "SIDCC=one; COMPASS=old")
+    }
+
+    @Test("COMPASS rotated by the chat host replaces the captured one in place")
+    func hostOnlyRotationReplaces() {
+        var jar = Self.scopedJar()
+        jar.absorb(setCookie: ["COMPASS=new; Path=/; Secure; HttpOnly"], from: Self.chat)
+        #expect(jar.header(for: Self.chat) == "SIDCC=one; COMPASS=new")
+        #expect(jar.count == 2)
+    }
+
+    @Test("Domain=google.com and Domain=.google.com are the same domain cookie")
+    func domainAttributeIsNormalised() {
+        var jar = Self.scopedJar()
+        jar.absorb(setCookie: ["SIDCC=two; Domain=google.com; Path=/"], from: Self.chat)
+        jar.absorb(setCookie: ["SIDCC=three; Domain=.google.com; Path=/"], from: Self.chat)
+        #expect(jar.header(for: Self.download) == "SIDCC=three")
+        #expect(jar.count == 2)
+    }
+
+    @Test(arguments: [
+        "X=v; Domain=example.com",
+        "X=v; Domain=com",
+        "X=v; Domain=.com",
+        "X=v; Domain=oogle.com"
+    ])
+    func aDomainTheHostCannotSetIsIgnored(_ header: String) {
+        var jar = Self.scopedJar()
+        jar.absorb(setCookie: [header], from: Self.chat)
+        #expect(jar.count == 2)
+    }
+
+    @Test("two cookies with one name on two domains are two cookies")
+    func sameNameTwoDomains() {
+        var jar = Self.scopedJar()
+        jar.absorb(setCookie: ["SIDCC=host; Path=/"], from: Self.chat)
+        #expect(jar.count == 3)
+        #expect(jar.header(for: Self.chat) == "SIDCC=one; COMPASS=old; SIDCC=host")
+        #expect(jar.header(for: Self.download) == "SIDCC=one")
+    }
+
+    @Test("a cookie with no recorded domain is rotated by name and stays without one")
+    func legacyRotationStaysLegacy() throws {
+        var jar = try CookieJar(#require(SessionCookies(header: "SID=a; COMPASS=old")))
+        jar.absorb(setCookie: ["COMPASS=new; Domain=.google.com; Path=/"], from: Self.chat)
+        #expect(jar.snapshot?.cookies.map(\.domain) == [nil, nil])
+        #expect(jar.header(for: Self.chat) == "SID=a; COMPASS=new")
+        #expect(jar.header(for: Self.download) == nil)
+    }
+
+    @Test("a deletion removes the cookie with that name, domain and path, and no other")
+    func scopedDeletion() {
+        var jar = Self.scopedJar()
+        jar.absorb(setCookie: ["SIDCC=host; Path=/"], from: Self.chat)
+        jar.absorb(setCookie: ["SIDCC=; Path=/; Max-Age=0"], from: Self.chat)
+        #expect(jar.header(for: Self.chat) == "SIDCC=one; COMPASS=old")
+    }
+
+    @Test("a Path that is not absolute is the root")
+    func relativePathIsRoot() {
+        var jar = Self.scopedJar()
+        jar.absorb(setCookie: ["NEW=v; Path=api"], from: Self.chat)
+        #expect(jar.snapshot?.cookies.last?.path == "/")
     }
 }
