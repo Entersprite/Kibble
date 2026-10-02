@@ -70,17 +70,20 @@ struct URLSessionTransportDownloadRedirectTests {
         URLSessionTransport(session: stub.session)
     }
 
-    @Test("a download that does not follow redirects gets the 3xx itself, as a file")
+    /// And reports no progress for it: a redirect's body is not the download.
+    @Test("a download that does not follow redirects gets the 3xx itself, as a file, with no progress")
     func refusesWhenAsked() async throws {
         stub.enqueue(StubURLProtocol.Stub(status: 302, headers: ["Location": "/next"]))
         stub.enqueue(StubURLProtocol.Stub(status: 200, body: Data(#"{"landed":true}"#.utf8)))
+        let seen = ProgressLog()
         let (response, file) = try await transport.download(
             HTTPRequest(url: stub.baseURL, followsRedirects: false)
-        ) { _, _ in }
+        ) { seen.append($0, $1) }
         defer { try? FileManager.default.removeItem(at: file) }
         #expect(response.status == 302)
         #expect(response.headers["Location"] == "/next")
         #expect(stub.requests.count == 1)
+        #expect(seen.values.isEmpty)
     }
 }
 

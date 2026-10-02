@@ -71,9 +71,10 @@ struct AttachmentFetchDownloadTests {
 
     static func download(
         _ transport: RecordingDownloadTransport,
-        contentType: String = "application/pdf"
+        contentType: String = "application/pdf",
+        progress: ProgressLog = ProgressLog()
     ) async throws(AttachmentFetchFailure) -> DownloadedAttachment {
-        try await fetch(transport).download(token: "t", contentType: contentType) { _, _ in }
+        try await fetch(transport).download(token: "t", contentType: contentType) { progress.append($0, $1) }
     }
 
     @Test("a redirect to the download host returns the file, and the redirect's own file is gone")
@@ -92,6 +93,23 @@ struct AttachmentFetchDownloadTests {
         #expect(files.count == 2)
         #expect(files.last == downloaded.file)
         #expect(await transport.remaining == [downloaded.file])
+    }
+
+    /// A redirect's body is not the download, so a bar that starts on a 302
+    /// would fill (or show zero of zero) before the file has begun.
+    @Test("progress is reported for the file's hop only, never for a redirect")
+    func progressSkipsRedirects() async throws {
+        let transport = RecordingDownloadTransport([
+            AttachmentFetchTests.redirect(to: Self.downloadHost),
+            Self.file("PDF", extra: [("Content-Length", "3")])
+        ])
+        defer { Task { await transport.cleanUp() } }
+        let progress = ProgressLog()
+        _ = try await Self.download(transport, progress: progress)
+        let reports = progress.values
+        #expect(!reports.isEmpty)
+        #expect(reports.first == .init(written: 3, total: 3))
+        #expect(!reports.contains { $0.total == 0 })
     }
 
     @Test("a body shorter than its Content-Length is truncated, and leaves no file")

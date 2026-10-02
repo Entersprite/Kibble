@@ -32,7 +32,13 @@ public extension AttachmentFetch {
         guard let file = walked.file else {
             throw AttachmentFetchFailure(reason: .transport(nil), hops: walked.hops)
         }
-        let received = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        // A size that cannot be read is not a size of zero, which would
+        // report a whole file as truncated.
+        let attributes = try? FileManager.default.attributesOfItem(atPath: file.path(percentEncoded: false))
+        guard let received = (attributes?[.size] as? NSNumber)?.intValue else {
+            Self.discard(file)
+            throw AttachmentFetchFailure(reason: .transport(nil), hops: walked.hops)
+        }
         if let expected = Self.statedLength(walked.response.headers), expected != received {
             Self.discard(file)
             throw AttachmentFetchFailure(

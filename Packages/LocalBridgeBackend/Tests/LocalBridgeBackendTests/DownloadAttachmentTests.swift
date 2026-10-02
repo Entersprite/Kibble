@@ -48,6 +48,35 @@ private actor DownloadTransport: HTTPTransport {
     }
 }
 
+/// `DownloadTransport` with every file `download` hands out recorded, so a
+/// test can ask which were left on disk. `download` is still the protocol's
+/// default, reached through the inner transport.
+private actor FileRecordingTransport: HTTPTransport {
+    private let inner: DownloadTransport
+    private(set) var files: [URL] = []
+
+    init(_ inner: DownloadTransport) {
+        self.inner = inner
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        try await inner.send(request)
+    }
+
+    func stream(_ request: HTTPRequest) async throws -> HTTPStream {
+        try await inner.stream(request)
+    }
+
+    func download(
+        _ request: HTTPRequest,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> (response: HTTPResponse, file: URL) {
+        let answer = try await inner.download(request, progress: progress)
+        files.append(answer.file)
+        return answer
+    }
+}
+
 /// Progress reports, from whatever executor the transport calls on.
 private final class ProgressRecorder: @unchecked Sendable {
     private let lock = NSLock()
@@ -161,15 +190,40 @@ struct DownloadAttachmentTests {
         #expect(!Self.exists(destination))
     }
 
+    /// Refused before anything is fetched: without the guard the chain
+    /// downloads and `moveItem` refuses instead, which also throws and also
+    /// leaves the file alone, so the request and the exact error are what
+    /// tell the two apart.
     @Test func anExistingDestinationIsRefusedAndLeftAlone() async throws {
-        let backend = LocalBridgeBackend(cookies: Self.scoped, transport: Self.transport())
+        let transport = Self.transport()
+        let backend = LocalBridgeBackend(cookies: Self.scoped, transport: transport)
         try await backend.connect()
         let destination = Self.destination()
         defer { try? FileManager.default.removeItem(at: destination) }
         try Data("mine".utf8).write(to: destination)
-        await #expect(throws: ChatError.self) {
+        await #expect(throws: ChatError.unknown("the download's destination already exists")) {
             try await backend.downloadAttachment(Self.attachment, to: destination) { _ in }
         }
         #expect(try Data(contentsOf: destination) == Data("mine".utf8))
+        #expect(await !transport.askedForAnAttachmentURL)
+    }
+
+    /// A destination whose directory does not exist: the download succeeds,
+    /// the move fails, and the downloaded file is deleted rather than left in
+    /// the temporary directory.
+    @Test func aFailedMoveLeavesNoDownloadedFile() async throws {
+        let transport = FileRecordingTransport(Self.transport())
+        let backend = LocalBridgeBackend(cookies: Self.scoped, transport: transport)
+        try await backend.connect()
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-\(UUID().uuidString)")
+            .appendingPathComponent("a.pdf")
+        await #expect(throws: ChatError.unknown("the downloaded file could not be moved into place")) {
+            try await backend.downloadAttachment(Self.attachment, to: destination) { _ in }
+        }
+        let files = await transport.files
+        #expect(files.count == 2)
+        #expect(!files.contains(where: Self.exists))
+        #expect(!Self.exists(destination))
     }
 }

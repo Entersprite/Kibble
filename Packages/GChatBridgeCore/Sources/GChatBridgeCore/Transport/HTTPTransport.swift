@@ -233,8 +233,10 @@ public protocol HTTPTransport: Sendable {
     /// The response with its body written to a file the caller owns, for a
     /// body that must not be held in memory (`AttachmentFetch.download`).
     /// `progress` is called with the bytes written so far and the total, when
-    /// the response stated one. `response.body` is empty. On a throw, nothing
-    /// this call wrote is left on disk.
+    /// the response stated one. Progress is reported only for a response that
+    /// is not a redirect: a redirect's body is not the download.
+    /// `response.body` is empty. On a throw, nothing this call wrote is left
+    /// on disk.
     ///
     /// **A requirement with a default**, so a transport that streams
     /// (`URLSessionTransport`) is reached through `any HTTPTransport`.
@@ -259,7 +261,9 @@ public extension HTTPTransport {
         var response = try await send(request)
         let file = HTTPTransportFiles.temporaryFile()
         try response.body.write(to: file)
-        progress(response.body.count, response.body.count)
+        if !response.isRedirect {
+            progress(response.body.count, response.body.count)
+        }
         response.body = Data()
         return (response, file)
     }

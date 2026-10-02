@@ -29,6 +29,25 @@ struct HTTPTransportDownloadTests {
         #expect(try Data(contentsOf: file) == Data("PDF".utf8))
         #expect(seen.last == .init(written: 3, total: 3))
     }
+
+    @Test("a redirect is written to a file, and reports no progress: its body is not the download")
+    func redirectReportsNoProgress() async throws {
+        let transport: any HTTPTransport = FakeHTTPTransport(responses: [
+            HTTPResponse(
+                status: 302,
+                headers: HTTPHeaders([("Location", "https://x.test/next")]),
+                body: Data()
+            )
+        ])
+        let seen = ProgressLog()
+        let (response, file) = try await transport
+            .download(HTTPRequest(url: #require(URL(string: "https://x.test/")))) {
+                seen.append($0, $1)
+            }
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(response.status == 302)
+        #expect(seen.values.isEmpty)
+    }
 }
 
 /// Records `(written, total)` progress pairs thread-safely: `download`'s
