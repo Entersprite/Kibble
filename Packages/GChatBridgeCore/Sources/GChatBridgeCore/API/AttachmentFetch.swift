@@ -30,50 +30,6 @@ public struct FetchedAttachment: Sendable, Hashable {
     }
 }
 
-/// Why a fetch failed, with every hop made before it did.
-public struct AttachmentFetchFailure: Error, Hashable {
-    public enum Reason: Sendable, Hashable {
-        /// A hop redirected to Google's sign-in page: the session is not usable.
-        case signInRedirect
-        /// `AttachmentFetch.maxHops` requests, and the last one still redirected.
-        case tooManyRedirects
-        case redirectWithoutLocation
-        case httpStatus(Int)
-        /// A 2xx whose body is a page. Auth failure is HTTP 200 on this
-        /// protocol, so this is how an unusable session can present itself.
-        case htmlInsteadOfAttachment
-        /// Classified by the transport, or `nil` when it could not be. Never
-        /// the error itself, whose description can carry the request's URL.
-        case transport(TransportFailureReason?)
-    }
-
-    /// What a refusing hop answered with, without its body or any header
-    /// value: whether it is a page, how big, and which headers it set.
-    public struct Refusal: Sendable, Hashable {
-        public let contentType: String?
-        public let bodyBytes: Int
-        /// Lowercased and sorted, once each.
-        public let headerNames: [String]
-
-        public init(contentType: String?, bodyBytes: Int, headerNames: [String]) {
-            self.contentType = contentType
-            self.bodyBytes = bodyBytes
-            self.headerNames = headerNames
-        }
-    }
-
-    public let reason: Reason
-    public let hops: [AttachmentHop]
-    /// Set for `.httpStatus` only.
-    public let refusal: Refusal?
-
-    public init(reason: Reason, hops: [AttachmentHop], refusal: Refusal? = nil) {
-        self.reason = reason
-        self.hops = hops
-        self.refusal = refusal
-    }
-}
-
 /// Fetches an uploaded attachment's bytes through `get_attachment_url`.
 ///
 /// ## Why it follows redirects itself
@@ -121,7 +77,7 @@ public struct AttachmentFetch: Sendable {
 
     static let navigationAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
-    private let transport: any HTTPTransport
+    let transport: any HTTPTransport
     private let endpoints: ChatEndpoints
     private let credentials: SessionCredentials
     private let xsrfToken: String?
@@ -144,7 +100,7 @@ public struct AttachmentFetch: Sendable {
         variant: AttachmentVariant,
         style: RequestStyle = .app
     ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
-        try await follow(
+        let walked = try await walk(
             from: firstURL(
                 token: token,
                 contentType: style.sendsContentType ? contentType : nil,
@@ -152,7 +108,8 @@ public struct AttachmentFetch: Sendable {
             ),
             pageIsAnAnswer: variant == .file && Self.isPage(contentType),
             style: style
-        )
+        ) { try await (transport.send($0), nil) }
+        return Self.fetched(walked.response, hops: walked.hops)
     }
 
     /// The viewer's configuration for one upload: what Chat on the web asks
@@ -168,65 +125,105 @@ public struct AttachmentFetch: Sendable {
             ("content_type", contentType),
             ("attachment_token", token)
         ])
-        return try await follow(from: components.url!, pageIsAnAnswer: false, style: .app)
+        let walked = try await walk(from: components.url!, pageIsAnAnswer: false, style: .app) {
+            try await (transport.send($0), nil)
+        }
+        return Self.fetched(walked.response, hops: walked.hops)
     }
 
-    /// Every hop by hand: credentials by what each host admits, `Set-Cookie`
-    /// absorbed only from a hop that actually carried them, a sign-in
-    /// redirect as a failure of its own. `pageIsAnAnswer` is whether a
-    /// `text/html` body is what was asked for.
-    private func follow(
+    private static func fetched(_ response: HTTPResponse, hops: [AttachmentHop]) -> FetchedAttachment {
+        FetchedAttachment(
+            body: response.body,
+            contentType: response.headers["Content-Type"],
+            hops: hops,
+            contentDisposition: response.headers["Content-Disposition"]
+        )
+    }
+
+    /// The hop-by-hop walk `fetch`, `projectorConfig` and `download` all take:
+    /// credentials by host, `Set-Cookie` only from a hop that was sent cookies,
+    /// a sign-in redirect as a failure of its own, at most `maxHops`.
+    /// `exchange` is the one difference - `send` holds a body in memory,
+    /// `download` writes it to a file - and the walk deletes the file of every
+    /// hop but an accepted last one.
+    func walk(
         from start: URL,
         pageIsAnAnswer: Bool,
-        style: RequestStyle
-    ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
+        style: RequestStyle,
+        exchange: (HTTPRequest) async throws -> (HTTPResponse, URL?)
+    ) async throws(AttachmentFetchFailure) -> Walked {
         var url = start
         var hops: [AttachmentHop] = []
         var site = FetchSite.sameOrigin
         while hops.count < Self.maxHops {
-            let eligible = carriesCookies(url)
             site = max(site, fetchSite(url))
-            let sent = try await send(url, authorised: eligible, style: style, site: site, hops: hops)
-            let response = sent.response
-            let location = response.isRedirect ? response.headers["Location"] : nil
+            let sent = try await send(url, style: style, site: site, hops: hops, exchange: exchange)
+            let location = sent.response.isRedirect ? sent.response.headers["Location"] : nil
             let next = location.flatMap { URL(string: $0, relativeTo: url)?.absoluteURL }
             let fidelity = Self.fidelity(of: location, parsedAs: next)
             hops.append(Self.hop(
-                url, response.status, carriedCredentials: sent.carriedCredentials, location: fidelity
+                url, sent.response.status, carriedCredentials: sent.carriedCredentials, location: fidelity
             ))
-
-            if response.isRedirect {
-                guard let next else {
-                    throw AttachmentFetchFailure(reason: .redirectWithoutLocation, hops: hops)
+            do {
+                if sent.response.isRedirect {
+                    Self.discard(sent.file)
+                    url = try Self.redirectTarget(next, hops: hops)
+                    continue
                 }
-                if next.host() == "accounts.google.com" {
-                    throw AttachmentFetchFailure(reason: .signInRedirect, hops: hops)
-                }
-                url = next
-                continue
+                try Self.accept(sent.response, pageIsAnAnswer: pageIsAnAnswer, hops: hops)
+            } catch {
+                Self.discard(sent.file)
+                throw error
             }
-            guard (200 ..< 300).contains(response.status) else {
-                throw AttachmentFetchFailure(
-                    reason: .httpStatus(response.status), hops: hops, refusal: Self.refusal(response)
-                )
-            }
-            let type = response.headers["Content-Type"]
-            if Self.isPage(type), !pageIsAnAnswer {
-                throw AttachmentFetchFailure(reason: .htmlInsteadOfAttachment, hops: hops)
-            }
-            return FetchedAttachment(
-                body: response.body,
-                contentType: type,
-                hops: hops,
-                contentDisposition: response.headers["Content-Disposition"]
-            )
+            return Walked(response: sent.response, file: sent.file, hops: hops)
         }
         throw AttachmentFetchFailure(reason: .tooManyRedirects, hops: hops)
     }
 
+    /// Where `walk` ends: the accepted response, the file its exchange wrote
+    /// (`nil` for `send`), and every hop.
+    struct Walked {
+        let response: HTTPResponse
+        let file: URL?
+        let hops: [AttachmentHop]
+    }
+
+    static func redirectTarget(_ next: URL?, hops: [AttachmentHop]) throws(AttachmentFetchFailure) -> URL {
+        guard let next else { throw AttachmentFetchFailure(reason: .redirectWithoutLocation, hops: hops) }
+        if next.host() == "accounts.google.com" {
+            throw AttachmentFetchFailure(reason: .signInRedirect, hops: hops)
+        }
+        return next
+    }
+
+    static func accept(
+        _ response: HTTPResponse, pageIsAnAnswer: Bool, hops: [AttachmentHop]
+    ) throws(AttachmentFetchFailure) {
+        guard (200 ..< 300).contains(response.status) else {
+            throw AttachmentFetchFailure(
+                reason: .httpStatus(response.status), hops: hops, refusal: refusal(response)
+            )
+        }
+        if isPage(response.headers["Content-Type"]), !pageIsAnAnswer {
+            throw AttachmentFetchFailure(reason: .htmlInsteadOfAttachment, hops: hops)
+        }
+    }
+
+    static func discard(_ file: URL?) {
+        if let file {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    private struct Sent {
+        let response: HTTPResponse
+        let file: URL?
+        let carriedCredentials: Bool
+    }
+
     /// One hop, with a transport failure carrying the hops made before it.
     ///
-    /// `authorised` is only *eligibility* (`carriesCookies`) - whether this
+    /// `carriesCookies(url)` is only *eligibility* - whether this
     /// host is a candidate for the session's cookies at all. Whether a
     /// `Cookie` field actually went out is a separate fact, read off the
     /// built request itself: an eligible host with nothing admitted for it
@@ -238,16 +235,17 @@ public struct AttachmentFetch: Sendable {
     /// fix round 1, Important 1).
     private func send(
         _ url: URL,
-        authorised: Bool,
         style: RequestStyle,
         site: FetchSite,
-        hops: [AttachmentHop]
-    ) async throws(AttachmentFetchFailure) -> (response: HTTPResponse, carriedCredentials: Bool) {
-        let built = await request(for: url, authorised: authorised, style: style, site: site)
+        hops: [AttachmentHop],
+        exchange: (HTTPRequest) async throws -> (HTTPResponse, URL?)
+    ) async throws(AttachmentFetchFailure) -> Sent {
+        let built = await request(for: url, authorised: carriesCookies(url), style: style, site: site)
         let carriedCredentials = built.headers["Cookie"] != nil
         let response: HTTPResponse
+        let file: URL?
         do {
-            response = try await transport.send(built)
+            (response, file) = try await exchange(built)
         } catch let classified as ClassifiedTransportFailure {
             throw AttachmentFetchFailure(reason: .transport(classified.reason), hops: hops)
         } catch {
@@ -260,7 +258,7 @@ public struct AttachmentFetch: Sendable {
         if carriedCredentials {
             await credentials.absorb(response.headers, from: url)
         }
-        return (response, carriedCredentials)
+        return Sent(response: response, file: file, carriedCredentials: carriedCredentials)
     }
 
     private static func hop(
@@ -302,7 +300,7 @@ public struct AttachmentFetch: Sendable {
     /// A page where an attachment was expected is how an unusable session
     /// presents itself (auth failure is HTTP 200 here) - unless the upload
     /// itself is a page, which only a file download can be asked for.
-    private static func isPage(_ contentType: String?) -> Bool {
+    static func isPage(_ contentType: String?) -> Bool {
         contentType?.lowercased().hasPrefix("text/html") == true
     }
 

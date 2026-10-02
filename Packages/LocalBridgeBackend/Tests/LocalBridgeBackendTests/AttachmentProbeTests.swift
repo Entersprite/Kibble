@@ -119,7 +119,8 @@ struct AttachmentProbeTests {
         #expect(lines == [
             "  /u/0: chat.google.com 302 (credentials) → chat.google.com 302 (credentials) → "
                 + "lh3.googleusercontent.com 200",
-            "    content type application/pdf, 1234 bytes; Content-Disposition present, filename present"
+            "    content type application/pdf, 1234 bytes; Content-Disposition present, filename present, "
+                + "format unrecognised"
         ])
         #expect(!lines.joined().contains("holiday"))
     }
@@ -128,7 +129,16 @@ struct AttachmentProbeTests {
     func downloadLinesWithoutDisposition() {
         let fetched = FetchedAttachment(body: Data(), contentType: nil, hops: [])
         let lines = APIProbeReport.attachmentDownloadLines(label: "x", outcome: .success(fetched))
-        #expect(lines.last == "    content type none, 0 bytes; Content-Disposition absent, filename absent")
+        #expect(lines.last == "    content type none, 0 bytes; Content-Disposition absent, filename absent, "
+            + "format unrecognised")
+    }
+
+    @Test("a download's format is read from its first bytes: PDF, ZIP, or a picture's")
+    func downloadFormat() {
+        #expect(APIProbeReport.fileFormat(Data("%PDF-1.7".utf8)) == "PDF")
+        #expect(APIProbeReport.fileFormat(Data([0x50, 0x4B, 0x03, 0x04, 0x14])) == "ZIP")
+        #expect(APIProbeReport.fileFormat(Data([0x89, 0x50, 0x4E, 0x47])) == "PNG")
+        #expect(APIProbeReport.fileFormat(Data("plain".utf8)) == "unrecognised")
     }
 
     @Test("the shapes report carries no token and no filename")

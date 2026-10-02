@@ -159,7 +159,7 @@ extension APIProbeReport {
             return "content type \(fetched.contentType.map(contentTypeKey) ?? "none"), "
                 + "\(fetched.body.count) bytes; "
                 + "Content-Disposition \(disposition == nil ? "absent" : "present"), "
-                + "filename \(hasFilename ? "present" : "absent")"
+                + "filename \(hasFilename ? "present" : "absent"), format \(fileFormat(fetched.body))"
         } + addressAndRefusalLines(outcome)
     }
 
@@ -215,7 +215,20 @@ extension APIProbeReport {
         case let .httpStatus(status): "HTTP \(status)"
         case .htmlInsteadOfAttachment: "an HTML page instead of the attachment"
         case let .transport(reason): "transport: \(reason?.safeDescription ?? "unclassified")"
+        case let .truncated(expected, received): "ended early, \(received) of \(expected) bytes"
         }
+    }
+
+    /// The file's kind from its first bytes - PDF, ZIP, or a picture's format -
+    /// so a run can say the download is the file, not only that it arrived.
+    static func fileFormat(_ data: Data) -> String {
+        if data.starts(with: Array("%PDF".utf8)) {
+            return "PDF"
+        }
+        if data.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
+            return "ZIP"
+        }
+        return imageFormat(data)
     }
 
     /// The format a body's first bytes name. Read rather than trusted from

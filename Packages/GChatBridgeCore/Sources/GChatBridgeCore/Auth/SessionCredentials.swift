@@ -40,6 +40,14 @@ public actor SessionCredentials {
         jar.snapshot
     }
 
+    /// Whether any cookie predates kept domains (`findings.md` §52.9). Such a
+    /// session sends the download host nothing, so a download is refused
+    /// before it is tried (`LocalBridgeBackend.downloadAttachment`). A count
+    /// of names would do as well; this says only yes or no.
+    public var hasUnscopedCookies: Bool {
+        jar.snapshot?.cookies.contains { $0.domain == nil } ?? false
+    }
+
     /// How many rotations have been seen. Test and probe reporting only - it is
     /// a count, never a value.
     func rotationCount() -> Int {

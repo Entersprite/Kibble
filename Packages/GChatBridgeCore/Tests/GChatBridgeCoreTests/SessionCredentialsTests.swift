@@ -125,6 +125,19 @@ struct SessionCredentialsTests {
         )
         #expect(sent.headers["Cookie"] == "SID=lowercasesid; SIDCC=one")
     }
+
+    /// What `LocalBridgeBackend.downloadAttachment` refuses on: a session
+    /// whose cookies predate kept domains sends the download host nothing.
+    @Test("a session parsed from a header has unscoped cookies")
+    func headerSessionIsUnscoped() async throws {
+        let legacy = try SessionCredentials(#require(SessionCookies(header: "SID=a; COMPASS=b")))
+        #expect(await legacy.hasUnscopedCookies)
+    }
+
+    @Test("a session whose every cookie has a domain has none")
+    func scopedSessionIsNot() async {
+        #expect(await !Self.scoped().hasUnscopedCookies)
+    }
 }
 
 /// An actor rather than a captured `var`, because the callback is `@Sendable`

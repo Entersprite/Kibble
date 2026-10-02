@@ -39,8 +39,10 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `[Verify]` until one deliberate call against live traffic confirms the
     /// shape. `receivesReadReceipts` stays false and is a different claim -
     /// it is about *other people's* read positions, which nothing here maps.
+    /// `canDownloadFiles` is backed by `findings.md` §52.10's live download.
     public nonisolated let capabilities = Capabilities(
-        canSendMessages: true, canMarkRead: true, supportsThreads: true, canFetchAttachments: true
+        canSendMessages: true, canMarkRead: true, supportsThreads: true, canFetchAttachments: true,
+        canDownloadFiles: true
     )
 
     public nonisolated let events: AsyncStream<ChatEvent>
@@ -60,7 +62,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// Shared with `ChannelSession`, which is the entire reason this exists as
     /// a hoisted actor rather than a value each caller copies: two jars for one
     /// session means the second is stale within seconds (`findings.md` §12.3).
-    private let credentials: SessionCredentials
+    let credentials: SessionCredentials
     /// Handed to every `ChannelSession` this backend opens. Always `.default`
     /// outside tests - see the internal initialiser.
     private let channelRetry: RetryPolicy
