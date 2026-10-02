@@ -80,7 +80,7 @@ enum ProjectorConfigShape {
         !text.isEmpty && text.count <= 30 && text.allSatisfy { $0.isASCII && $0.isLowercase && $0.isLetter }
     }
 
-    private static func isIdentifier(_ text: String) -> Bool {
+    static func isIdentifier(_ text: String) -> Bool {
         guard let first = text.first, first.isASCII, first.isLetter || first == "_", text.count <= 40
         else { return false }
         return text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }

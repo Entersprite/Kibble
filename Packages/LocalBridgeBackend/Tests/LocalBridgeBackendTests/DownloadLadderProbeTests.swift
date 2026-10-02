@@ -35,4 +35,40 @@ struct DownloadLadderProbeTests {
     func anythingElseIsALength(_ type: String) {
         #expect(APIProbeReport.contentTypeKey(type) == "(unusual, \(type.count) chars)")
     }
+
+    /// §52.5's open question: does the browser's download address have the
+    /// same path and parameter names as ours? Names and plain words print;
+    /// a segment that could be an identifier, every query value and every
+    /// header value do not.
+    @Test("a refused download prints each hop's address shape and the refusal's shape")
+    func addressAndRefusalShapes() {
+        let failure = AttachmentFetchFailure(
+            reason: .httpStatus(403),
+            hops: [
+                AttachmentHop(
+                    host: "chat.google.com", status: 302, carriedCredentials: true,
+                    pathSegments: ["u", "0", "api", "get_attachment_url"],
+                    queryNames: ["url_type", "attachment_token"]
+                ),
+                AttachmentHop(
+                    host: "chat.usercontent.google.com", status: 403, carriedCredentials: true,
+                    pathSegments: ["download", "lowercasesecret9", "x"],
+                    queryNames: ["auth", "lowercase-secret"]
+                )
+            ],
+            refusal: AttachmentFetchFailure.Refusal(
+                contentType: "text/html; charset=utf-8", bodyBytes: 1234,
+                headerNames: ["content-type", "x_lowercase.secret"]
+            )
+        )
+        let lines = APIProbeReport.attachmentDownloadLines(label: "x", outcome: .failure(failure))
+        #expect(lines == [
+            "  x: chat.google.com 302 (credentials) → chat.usercontent.google.com 403 (credentials)",
+            "    FAILED: HTTP 403",
+            "    addresses: chat.google.com /u/0/api/get_attachment_url ?url_type,attachment_token"
+                + " → chat.usercontent.google.com /download/…/x ?auth,?",
+            "    refusal: content type text/html; charset=utf-8, 1234 bytes, headers content-type,h18"
+        ])
+        #expect(!lines.joined().contains("secret"))
+    }
 }

@@ -160,7 +160,7 @@ extension APIProbeReport {
                 + "\(fetched.body.count) bytes; "
                 + "Content-Disposition \(disposition == nil ? "absent" : "present"), "
                 + "filename \(hasFilename ? "present" : "absent")"
-        }
+        } + addressAndRefusalLines(outcome)
     }
 
     static func hopLines(

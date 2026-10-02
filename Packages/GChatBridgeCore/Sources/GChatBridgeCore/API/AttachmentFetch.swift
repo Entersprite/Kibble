@@ -12,19 +12,32 @@ public enum AttachmentVariant: Sendable, Hashable {
     case file
 }
 
-/// One request in an attachment fetch's redirect chain. Hosts and statuses
-/// only: a hop's URL carries the attachment token or a signed parameter, so
-/// it is never kept.
+/// One request in an attachment fetch's redirect chain. A hop's URL carries
+/// the attachment token or a signed parameter, so it is never kept whole:
+/// the host, the path's segments and the query's names, never a query value.
 public struct AttachmentHop: Sendable, Hashable {
     public let host: String
     public let status: Int
     /// Whether this hop was sent the session's cookie and xsrf token.
     public let carriedCredentials: Bool
+    /// Raw, and a segment can be an identifier: anything that prints these
+    /// masks each one first (`findings.md` §52.5).
+    public let pathSegments: [String]
+    /// The query's parameter names, in order. Never a value.
+    public let queryNames: [String]
 
-    public init(host: String, status: Int, carriedCredentials: Bool) {
+    public init(
+        host: String,
+        status: Int,
+        carriedCredentials: Bool,
+        pathSegments: [String] = [],
+        queryNames: [String] = []
+    ) {
         self.host = host
         self.status = status
         self.carriedCredentials = carriedCredentials
+        self.pathSegments = pathSegments
+        self.queryNames = queryNames
     }
 }
 
@@ -63,12 +76,30 @@ public struct AttachmentFetchFailure: Error, Hashable {
         case transport(TransportFailureReason?)
     }
 
+    /// What a refusing hop answered with, without its body or any header
+    /// value: whether it is a page, how big, and which headers it set.
+    public struct Refusal: Sendable, Hashable {
+        public let contentType: String?
+        public let bodyBytes: Int
+        /// Lowercased and sorted, once each.
+        public let headerNames: [String]
+
+        public init(contentType: String?, bodyBytes: Int, headerNames: [String]) {
+            self.contentType = contentType
+            self.bodyBytes = bodyBytes
+            self.headerNames = headerNames
+        }
+    }
+
     public let reason: Reason
     public let hops: [AttachmentHop]
+    /// Set for `.httpStatus` only.
+    public let refusal: Refusal?
 
-    public init(reason: Reason, hops: [AttachmentHop]) {
+    public init(reason: Reason, hops: [AttachmentHop], refusal: Refusal? = nil) {
         self.reason = reason
         self.hops = hops
+        self.refusal = refusal
     }
 }
 
@@ -218,9 +249,7 @@ public struct AttachmentFetch: Sendable {
             if isChatHost(url) {
                 await credentials.absorb(response.headers)
             }
-            hops.append(AttachmentHop(
-                host: url.host() ?? "", status: response.status, carriedCredentials: authorised
-            ))
+            hops.append(Self.hop(url, response.status, authorised: authorised))
 
             if response.isRedirect {
                 guard let location = response.headers["Location"],
@@ -235,7 +264,9 @@ public struct AttachmentFetch: Sendable {
                 continue
             }
             guard (200 ..< 300).contains(response.status) else {
-                throw AttachmentFetchFailure(reason: .httpStatus(response.status), hops: hops)
+                throw AttachmentFetchFailure(
+                    reason: .httpStatus(response.status), hops: hops, refusal: Self.refusal(response)
+                )
             }
             let type = response.headers["Content-Type"]
             if Self.isPage(type), !pageIsAnAnswer {
@@ -249,6 +280,25 @@ public struct AttachmentFetch: Sendable {
             )
         }
         throw AttachmentFetchFailure(reason: .tooManyRedirects, hops: hops)
+    }
+
+    private static func hop(_ url: URL, _ status: Int, authorised: Bool) -> AttachmentHop {
+        AttachmentHop(
+            host: url.host() ?? "",
+            status: status,
+            carriedCredentials: authorised,
+            pathSegments: url.pathComponents.filter { $0 != "/" },
+            queryNames: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                .map(\.name)
+        )
+    }
+
+    private static func refusal(_ response: HTTPResponse) -> AttachmentFetchFailure.Refusal {
+        AttachmentFetchFailure.Refusal(
+            contentType: response.headers["Content-Type"],
+            bodyBytes: response.body.count,
+            headerNames: Array(Set(response.headers.fields.map { $0.name.lowercased() })).sorted()
+        )
     }
 
     /// A page where an attachment was expected is how an unusable session

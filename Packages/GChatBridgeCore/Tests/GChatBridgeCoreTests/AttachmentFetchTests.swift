@@ -188,11 +188,12 @@ struct AttachmentFetchTests {
         let transport = FakeHTTPTransport(responses: [
             Self.redirect(to: "https://accounts.google.com/ServiceLogin?continue=x")
         ])
-        await #expect(throws: AttachmentFetchFailure(reason: .signInRedirect, hops: [
-            AttachmentHop(host: "chat.google.com", status: 302, carriedCredentials: true)
-        ])) {
+        let failure = await #expect(throws: AttachmentFetchFailure.self) {
             try await Self.fetch(transport).fetch(token: "t", contentType: "image/png", variant: .preview)
         }
+        #expect(failure?.reason == .signInRedirect)
+        #expect(failure?.hops.map(\.host) == ["chat.google.com"])
+        #expect(failure?.hops.map(\.status) == [302])
         #expect(await transport.sent.count == 1)
     }
 

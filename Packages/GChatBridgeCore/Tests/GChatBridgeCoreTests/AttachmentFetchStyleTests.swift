@@ -70,3 +70,48 @@ struct AttachmentFetchStyleTests {
         #expect(query.contains { $0.name == "attachment_token" })
     }
 }
+
+/// What a hop keeps of its URL and of a refusal, for the probe to compare
+/// with the browser's download address (`findings.md` §52.5). Names only:
+/// a value can be the token.
+@Suite("Attachment fetch - shapes")
+struct AttachmentFetchShapeTests {
+    @Test("each hop keeps its path segments and its query names, never a value")
+    func hopShapes() async throws {
+        let transport = FakeHTTPTransport(responses: [
+            AttachmentFetchTests
+                .redirect(to: "https://chat.usercontent.google.com/download/more?auth=lowercasesecret&id=x"),
+            AttachmentFetchTests.image()
+        ])
+        let fetched = try await AttachmentFetchTests.fetch(transport).fetch(
+            token: "lowercasetoken", contentType: "image/png", variant: .preview
+        )
+        #expect(fetched.hops[0].pathSegments == ["u", "0", "api", "get_attachment_url"])
+        #expect(fetched.hops[1].pathSegments == ["download", "more"])
+        #expect(fetched.hops[1].queryNames == ["auth", "id"])
+        #expect(fetched.hops[0].queryNames == ["url_type", "content_type", "attachment_token", "sz"])
+    }
+
+    @Test("a refusal keeps its content type, body size and header names")
+    func refusalShape() async throws {
+        let transport = FakeHTTPTransport(responses: [
+            AttachmentFetchTests.redirect(to: "https://chat.usercontent.google.com/download"),
+            HTTPResponse(
+                status: 403,
+                headers: HTTPHeaders([("Content-Type", "text/html"), ("X-Thing", "lowercasesecret")]),
+                body: Data("nope".utf8)
+            )
+        ])
+        do {
+            _ = try await AttachmentFetchTests.fetch(transport).fetch(
+                token: "t", contentType: "application/pdf", variant: .file
+            )
+            Issue.record("expected a refusal")
+        } catch {
+            #expect(error.reason == .httpStatus(403))
+            #expect(error.refusal == AttachmentFetchFailure.Refusal(
+                contentType: "text/html", bodyBytes: 4, headerNames: ["content-type", "x-thing"]
+            ))
+        }
+    }
+}
