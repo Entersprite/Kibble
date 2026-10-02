@@ -35,12 +35,18 @@ struct AttachmentFetchWithholdTests {
         return await transport.sent.map { $0.headers["Cookie"] }
     }
 
+    /// Review fix round 1, Important 2: `COMPASS` is host-only and domain
+    /// scoping already keeps it off the sibling regardless of
+    /// `chatHostOnly`, so withholding it here could never fail. `HSID`
+    /// carries `Domain=.google.com` and so is eligible for the sibling under
+    /// domain scoping alone - withholding it is the only way this mechanism,
+    /// rather than domain scoping, is what is under test.
     @Test("the chat host gets the whole jar, a sibling gets the rest, googleusercontent nothing")
     func withheldFromSiblingsOnly() async throws {
-        let sent = try await Self.cookies(AttachmentFetch.RequestStyle(chatHostOnly: ["COMPASS"]))
+        let sent = try await Self.cookies(AttachmentFetch.RequestStyle(chatHostOnly: ["HSID"]))
         #expect(sent == [
             "SID=lowercasesid; COMPASS=lowercasecompass; HSID=lowercasehsid",
-            "SID=lowercasesid; HSID=lowercasehsid",
+            "SID=lowercasesid",
             nil
         ])
     }

@@ -45,8 +45,8 @@ extension ChannelSession {
     ///   - transport: Passed explicitly rather than read from `self.transport`,
     ///     which is what lets this live outside `ChannelSession.swift`.
     ///   - onHeaders: What the caller does with the response's headers -
-    ///     `ChannelSession.absorb(_:)` in production, so a rotated cookie on
-    ///     even this response is not silently dropped.
+    ///     `ChannelSession.absorb(_:from:)` in production, so a rotated cookie
+    ///     on even this response is not silently dropped.
     ///   - onFailure: What the caller does when the request fails outright -
     ///     `ChannelSession.apply(.failed(_:))` in production. A failure here
     ///     still reports and reconnects like any other transport failure;

@@ -241,4 +241,19 @@ struct CookieJarTests {
         jar.absorb(setCookie: ["NEW=v; Path=api"], from: Self.chat)
         #expect(jar.snapshot?.cookies.last?.path == "/")
     }
+
+    // MARK: - A sibling must not touch a legacy chat-host cookie (review fix round 1, Important 1)
+
+    /// A sibling's host-only `Set-Cookie` used to match a legacy (domain
+    /// `nil`) cookie by name alone, so `chat.usercontent.google.com` could
+    /// rewrite or delete a chat-host credential it was never sent in the
+    /// first place. The legacy match is now gated on the incoming scope
+    /// actually covering the chat host.
+    @Test("a sibling cannot rewrite or delete a legacy chat-host cookie by name")
+    func siblingCannotTouchALegacyChatHostCookie() throws {
+        var jar = try CookieJar(#require(SessionCookies(header: "SID=a; COMPASS=old; OSID=o")))
+        jar.absorb(setCookie: ["COMPASS=x; Path=/"], from: Self.download)
+        jar.absorb(setCookie: ["OSID=; Path=/; Max-Age=0"], from: Self.download)
+        #expect(jar.header(for: Self.chat) == "SID=a; COMPASS=old; OSID=o")
+    }
 }

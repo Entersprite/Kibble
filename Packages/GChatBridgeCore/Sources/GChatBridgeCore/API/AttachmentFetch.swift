@@ -84,13 +84,17 @@ public struct AttachmentFetchFailure: Error, Hashable {
 /// `googleusercontent.com`, and for files comes back again (mautrix
 /// `client.py:205`: "usually there are 4 redirects for files and 1 for
 /// images") `[Verify]` for this account. Each hop is requested with
-/// `followsRedirects == false`, and only a hop to **`https` on the chat host**
-/// is sent the session's cookie and xsrf token. That is mautrix's rule, made
-/// narrower: it authorises any `*.google.com`, but the jar was scoped for the
-/// chat host at capture time (`CookieScope`), so no other host is owed it.
-/// Each hop is sent only what its host admits (`SessionCookies.Cookie.isSent(to:)`),
-/// and `Set-Cookie` is absorbed from every hop that was sent cookies, stored
-/// where its `Domain` says (`findings.md` §52.9).
+/// `followsRedirects == false`, and a `https` hop on Google's own domain -
+/// the chat host and its siblings - is sent whatever its own `Domain` admits
+/// (`SessionCookies.Cookie.isSent(to:)`), the same way a browser would; the
+/// xsrf token goes to the chat host alone. That is mautrix's rule
+/// (`client.py:205-215`), made precise: it authorises any `*.google.com`
+/// wholesale, but a cookie only reaches a host its own scope covers
+/// (`findings.md` §52.9). `Set-Cookie` is absorbed only from a hop whose
+/// request actually carried a `Cookie` field - not merely an eligible one -
+/// stored where its `Domain` says, so a sibling can neither plant a cookie on
+/// the chat host nor touch one it was never sent (review fix round 1,
+/// Important 1).
 public struct AttachmentFetch: Sendable {
     /// Requests per fetch. Ten is mautrix's bound.
     public static let maxHops = 10
@@ -167,9 +171,10 @@ public struct AttachmentFetch: Sendable {
         return try await follow(from: components.url!, pageIsAnAnswer: false, style: .app)
     }
 
-    /// Every hop by hand: credentials by host, `Set-Cookie` from the chat
-    /// host only, a sign-in redirect as a failure of its own.
-    /// `pageIsAnAnswer` is whether a `text/html` body is what was asked for.
+    /// Every hop by hand: credentials by what each host admits, `Set-Cookie`
+    /// absorbed only from a hop that actually carried them, a sign-in
+    /// redirect as a failure of its own. `pageIsAnAnswer` is whether a
+    /// `text/html` body is what was asked for.
     private func follow(
         from start: URL,
         pageIsAnAnswer: Bool,
@@ -179,13 +184,16 @@ public struct AttachmentFetch: Sendable {
         var hops: [AttachmentHop] = []
         var site = FetchSite.sameOrigin
         while hops.count < Self.maxHops {
-            let authorised = carriesCookies(url)
+            let eligible = carriesCookies(url)
             site = max(site, fetchSite(url))
-            let response = try await send(url, authorised: authorised, style: style, site: site, hops: hops)
+            let sent = try await send(url, authorised: eligible, style: style, site: site, hops: hops)
+            let response = sent.response
             let location = response.isRedirect ? response.headers["Location"] : nil
             let next = location.flatMap { URL(string: $0, relativeTo: url)?.absoluteURL }
             let fidelity = Self.fidelity(of: location, parsedAs: next)
-            hops.append(Self.hop(url, response.status, authorised: authorised, location: fidelity))
+            hops.append(Self.hop(
+                url, response.status, carriedCredentials: sent.carriedCredentials, location: fidelity
+            ))
 
             if response.isRedirect {
                 guard let next else {
@@ -216,46 +224,55 @@ public struct AttachmentFetch: Sendable {
         throw AttachmentFetchFailure(reason: .tooManyRedirects, hops: hops)
     }
 
-    /// One hop, with a transport failure carrying the hops made before it,
-    /// and `Set-Cookie` absorbed from the chat host only.
+    /// One hop, with a transport failure carrying the hops made before it.
+    ///
+    /// `authorised` is only *eligibility* (`carriesCookies`) - whether this
+    /// host is a candidate for the session's cookies at all. Whether a
+    /// `Cookie` field actually went out is a separate fact, read off the
+    /// built request itself: an eligible host with nothing admitted for it
+    /// (a legacy, chat-host-only cookie hopping to a sibling, say) sends no
+    /// `Cookie` field, and that is the fact both the absorb gate and
+    /// `AttachmentHop.carriedCredentials` must agree on - using eligibility
+    /// for either one let a sibling's `Set-Cookie` be absorbed, and reported
+    /// as credentialed, for a hop that carried no credential at all (review
+    /// fix round 1, Important 1).
     private func send(
         _ url: URL,
         authorised: Bool,
         style: RequestStyle,
         site: FetchSite,
         hops: [AttachmentHop]
-    ) async throws(AttachmentFetchFailure) -> HTTPResponse {
+    ) async throws(AttachmentFetchFailure) -> (response: HTTPResponse, carriedCredentials: Bool) {
+        let built = await request(for: url, authorised: authorised, style: style, site: site)
+        let carriedCredentials = built.headers["Cookie"] != nil
         let response: HTTPResponse
         do {
-            response = try await transport.send(request(
-                for: url,
-                authorised: authorised,
-                style: style,
-                site: site
-            ))
+            response = try await transport.send(built)
         } catch let classified as ClassifiedTransportFailure {
             throw AttachmentFetchFailure(reason: .transport(classified.reason), hops: hops)
         } catch {
             throw AttachmentFetchFailure(reason: .transport(nil), hops: hops)
         }
-        // From every hop that was sent cookies: each lands where its Domain
-        // says, so a sibling cannot plant one on the chat host (findings.md §52.9).
-        if authorised {
+        // From every hop whose request actually carried a Cookie field: each
+        // lands where its Domain says, so a sibling cannot plant one on the
+        // chat host, or touch a legacy cookie it was never sent (findings.md
+        // §52.9; review fix round 1, Important 1).
+        if carriedCredentials {
             await credentials.absorb(response.headers, from: url)
         }
-        return response
+        return (response, carriedCredentials)
     }
 
     private static func hop(
         _ url: URL,
         _ status: Int,
-        authorised: Bool,
+        carriedCredentials: Bool,
         location: AttachmentHop.LocationFidelity?
     ) -> AttachmentHop {
         AttachmentHop(
             host: url.host() ?? "",
             status: status,
-            carriedCredentials: authorised,
+            carriedCredentials: carriedCredentials,
             pathSegments: url.pathComponents.filter { $0 != "/" },
             queryNames: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
                 .map(\.name),

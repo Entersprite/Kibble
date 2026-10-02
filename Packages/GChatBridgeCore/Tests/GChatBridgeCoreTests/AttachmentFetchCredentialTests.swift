@@ -95,6 +95,14 @@ struct AttachmentFetchCredentialTests {
         _ = try await AttachmentFetchTests.fetch(transport, credentials: credentials).fetch(
             token: "t", contentType: "application/pdf", variant: .file
         )
+        // Positive control: the fixture's `SID` carries `Domain=.google.com`,
+        // so the sibling hop does carry a Cookie field and `SIBLING` really
+        // is absorbed - just host-only, to the sibling alone. Without this,
+        // the assertion below would also pass if nothing were absorbed at
+        // all.
+        let siblingRequest = try await credentials
+            .authorising(HTTPRequest(url: #require(URL(string: "https://chat.usercontent.google.com/d"))))
+        #expect(siblingRequest.headers["Cookie"]?.contains("SIBLING=x") == true)
         let next = try await credentials
             .authorising(HTTPRequest(url: #require(URL(string: "https://chat.google.com/"))))
         #expect(next.headers["Cookie"]?.contains("SIBLING") != true)
@@ -125,6 +133,38 @@ struct AttachmentFetchCredentialTests {
         let next = try await credentials
             .authorising(HTTPRequest(url: #require(URL(string: "https://chat.google.com/"))))
         #expect(next.headers["Cookie"]?.contains("SIDCC=two") == true)
+    }
+
+    /// Review fix round 1, Important 1: `authorised` (eligibility -
+    /// `carriesCookies`) is not the same fact as "a `Cookie` header was
+    /// actually sent". A legacy session's only cookie is host-only to the
+    /// chat host, so the eligible-but-cookieless sibling hop must neither
+    /// report `carriedCredentials: true` nor have its `Set-Cookie` absorbed -
+    /// otherwise a sibling's `COMPASS=x` would replace the chat host's own
+    /// legacy `COMPASS` it was never sent to begin with.
+    @Test("a legacy session sends the sibling no cookie, absorbs nothing, and reports no credentials")
+    func legacySiblingHopCarriesNoCookieAndAbsorbsNothing() async throws {
+        let credentials = try SessionCredentials(#require(SessionCookies(cookies: [
+            SessionCookies.Cookie(name: "COMPASS", value: "old")
+        ])))
+        let transport = FakeHTTPTransport(responses: [
+            AttachmentFetchTests.redirect(to: "https://chat.usercontent.google.com/d", setCookie: nil),
+            HTTPResponse(
+                status: 200,
+                headers: HTTPHeaders([
+                    ("Content-Type", "application/pdf"),
+                    ("Set-Cookie", "COMPASS=x; Path=/")
+                ]),
+                body: Data("PDF".utf8)
+            )
+        ])
+        let fetched = try await AttachmentFetchTests.fetch(transport, credentials: credentials).fetch(
+            token: "t", contentType: "application/pdf", variant: .file
+        )
+        #expect(fetched.hops[1].carriedCredentials == false)
+        let next = try await credentials
+            .authorising(HTTPRequest(url: #require(URL(string: "https://chat.google.com/"))))
+        #expect(next.headers["Cookie"] == "COMPASS=old")
     }
 
     @Test("plain http to the chat host is not the chat host")

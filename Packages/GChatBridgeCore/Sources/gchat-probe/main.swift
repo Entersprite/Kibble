@@ -119,14 +119,16 @@ enum Probe {
         transport: any HTTPTransport
     ) async {
         guard let path = ProcessInfo.processInfo.environment["GCHAT_DUMP_SHELL"] else { return }
-        let request = HTTPRequest(
-            url: endpoints.moleWorld,
-            headers: HTTPHeaders([
-                ("Cookie", cookies.headerValue),
-                ("referer", ChatEndpoints.mailReferer),
-                ("User-Agent", endpoints.userAgent)
-            ])
-        )
+        var fields = [
+            ("referer", ChatEndpoints.mailReferer),
+            ("User-Agent", endpoints.userAgent)
+        ]
+        // What the shell's host admits (findings.md §52.9), the same rule
+        // `Bootstrap.run` uses.
+        if let cookie = cookies.header(for: endpoints.moleWorld) {
+            fields.insert(("Cookie", cookie), at: 0)
+        }
+        let request = HTTPRequest(url: endpoints.moleWorld, headers: HTTPHeaders(fields))
         do {
             let response = try await transport.send(request)
             try response.body.write(to: URL(fileURLWithPath: path))

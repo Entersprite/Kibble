@@ -95,7 +95,19 @@ extension CookieJar {
         let value = incoming.value
         // A cookie captured before domains were kept is matched by name, and
         // keeps `nil`: rotation never invents a domain (findings.md §52.9).
-        let existing = cookies.firstIndex { $0.name == name && $0.domain == nil }
+        // But only when the incoming scope actually covers the chat host -
+        // otherwise a sibling's host-only `Set-Cookie` (no `Domain` at all)
+        // would match a legacy chat-host cookie by name alone and rewrite or
+        // delete a credential it was never sent to begin with. Reusing
+        // `CookieScope.admits` rather than re-deriving "does this scope reach
+        // the chat host" is the same rule `SessionCookies.Cookie.isSent(to:)`
+        // already applies per-request (review fix round 1, Important 1).
+        let legacyScopeCoversChatHost = CookieScope.chat.admits(
+            domain: scope.domain, path: scope.path, isSecure: true
+        )
+        let existing = (legacyScopeCoversChatHost
+            ? cookies.firstIndex { $0.name == name && $0.domain == nil }
+            : nil)
             ?? cookies.firstIndex { $0.name == name && $0.domain == scope.domain && $0.path == scope.path }
         if incoming.isDeletion {
             guard let existing else { return }
