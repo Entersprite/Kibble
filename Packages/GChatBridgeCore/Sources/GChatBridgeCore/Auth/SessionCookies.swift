@@ -41,8 +41,10 @@ public struct SessionCookies: Sendable, Hashable, CustomStringConvertible {
         /// domains were kept, which goes to `CookieScope.chat`'s host only
         /// (`findings.md` §52.9).
         public let domain: String?
-        /// The cookie's path, `/` when the store reported none. `nil` exactly
-        /// when `domain` is.
+        /// The cookie's path, `/` when the store reported none. Normally
+        /// `nil` exactly when `domain` is - both come from the same capture
+        /// or the same `Set-Cookie` - but the initializer does not enforce
+        /// the pairing, so treat that as the usual case, not a guarantee.
         public let path: String?
 
         public init(name: String, value: String, domain: String? = nil, path: String? = nil) {

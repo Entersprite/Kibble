@@ -166,4 +166,16 @@ struct CookieCaptureTests {
         let capture = capture([cookie("SID", domain: ".google.com", path: "")])
         #expect(capture.session?.credential.cookies.first?.path == "/")
     }
+
+    /// `CookieJar.apply` compares a stored domain against a lowercased
+    /// `Set-Cookie` scope; a domain the store capitalised differently would
+    /// never match by identity. Lowercasing at capture is what keeps that
+    /// comparison robust, and the leading dot - a domain cookie's marker -
+    /// is untouched by case.
+    @Test("a captured domain is lowercased, keeping the leading dot")
+    func domainIsLowercased() throws {
+        let capture = capture([cookie("SID", domain: ".Google.COM")])
+        let cookie = try #require(capture.session?.credential.cookies.first)
+        #expect(cookie.domain == ".google.com")
+    }
 }

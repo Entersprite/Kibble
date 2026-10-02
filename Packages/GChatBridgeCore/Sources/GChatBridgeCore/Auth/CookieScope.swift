@@ -27,10 +27,15 @@ import Foundation
 /// public-suffix list, and no cookie ordering. It answers one question —
 /// *would a browser send this cookie to this origin* — for the two attributes
 /// that actually partitioned the observed capture, plus `Secure` because it is
-/// free. `CookieJar` remains the thing that tracks a live session; this decides
-/// what goes into one. A domain without a leading dot is host-only, the way a
-/// cookie store spells it; a `Set-Cookie` attribute is normalised to the
-/// dotted spelling before it reaches here (`CookieJar`).
+/// free. `CookieJar` remains the thing that tracks a live session; this
+/// decides what a cookie may reach, and at more than one moment: what a
+/// capture may persist at all (`CookieCapture`), what a domain-less legacy
+/// cookie is sent on every later request (`SessionCookies.Cookie.isSent(to:)`),
+/// and which `Set-Cookie` answers may rotate one (`CookieJar.apply`'s
+/// legacy-scope guard) — not only what first goes into the jar. A domain
+/// without a leading dot is host-only, the way a cookie store spells it; a
+/// `Set-Cookie` attribute is normalised to the dotted spelling before it
+/// reaches here (`CookieJar`).
 public struct CookieScope: Sendable, Hashable {
     /// The host a request is going to, e.g. `chat.google.com`. Compared
     /// case-insensitively; a stored value keeps whatever case it was given.
@@ -55,8 +60,13 @@ public struct CookieScope: Sendable, Hashable {
     /// Root path on purpose: it is the *least* selective request path, so a
     /// cookie admitted here is admitted for every deeper Chat URL as well.
     /// Scoping tighter would drop cookies that later requests legitimately
-    /// need, and this type is used to decide what to persist, not to build one
-    /// particular request.
+    /// need. Used at capture time to decide what may be persisted at all
+    /// (`CookieCapture`) - and, past capture, as the one host a domain-less
+    /// legacy cookie is still sent to on every request
+    /// (`SessionCookies.Cookie.isSent(to:)`) and the one a `Set-Cookie`
+    /// answer must cover to rotate such a cookie at all
+    /// (`CookieJar.apply`'s legacy-scope guard). Not only what first goes
+    /// into the jar.
     public static let chat = CookieScope(host: "chat.google.com", path: "/", isSecure: true)
 
     /// Whether a cookie with these attributes would be sent to this origin.

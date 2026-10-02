@@ -74,4 +74,26 @@ struct RotateCookiesTests {
         ).send()
         #expect(outcome == RotateCookies.Outcome(status: 401, setCookieNames: []))
     }
+
+    /// Final review Minor 4: a legacy cookie is host-only to the chat host,
+    /// so this request carries it no `Cookie` field at all. A `Domain=
+    /// .google.com` answer is exactly the scope `CookieJar.apply`'s
+    /// legacy-match guard treats as covering the chat host - so only gating
+    /// the absorb on the request actually having carried `Cookie` (not mere
+    /// eligibility) stops this host from rotating a cookie it was never
+    /// sent, the same case `AttachmentFetchCredentialTests` pins per hop.
+    @Test("a legacy session sends accounts.google.com nothing, so its answer never rotates the cookie")
+    func legacySessionAbsorbsNothing() async throws {
+        let credentials = try SessionCredentials(#require(SessionCookies(cookies: [
+            SessionCookies.Cookie(name: "SIDCC", value: "old")
+        ])))
+        let transport = FakeHTTPTransport(responses: [Self.answer(setCookies: [
+            "SIDCC=x; Domain=.google.com; Path=/"
+        ])])
+        _ = try await RotateCookies(transport: transport, userAgent: "agent", credentials: credentials).send()
+        #expect(await credentials.rotationCount() == 0)
+        let next = try await credentials
+            .authorising(HTTPRequest(url: #require(URL(string: "https://chat.google.com/"))))
+        #expect(next.headers["Cookie"] == "SIDCC=old")
+    }
 }

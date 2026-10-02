@@ -137,15 +137,23 @@ struct AttachmentFetchCredentialTests {
 
     /// Review fix round 1, Important 1: `authorised` (eligibility -
     /// `carriesCookies`) is not the same fact as "a `Cookie` header was
-    /// actually sent". A legacy session's only cookie is host-only to the
-    /// chat host, so the eligible-but-cookieless sibling hop must neither
-    /// report `carriedCredentials: true` nor have its `Set-Cookie` absorbed -
-    /// otherwise a sibling's `COMPASS=x` would replace the chat host's own
-    /// legacy `COMPASS` it was never sent to begin with.
-    @Test("a legacy session sends the sibling no cookie, absorbs nothing, and reports no credentials")
+    /// actually sent". A legacy cookie is host-only to the chat host, so an
+    /// eligible sibling it was never sent must not have its `Set-Cookie`
+    /// absorbed - and this is the case that actually exercises the gate: a
+    /// `Set-Cookie` with no `Domain` at all (the earlier draft of this test)
+    /// is scoped host-only to the *sibling*, which the jar's own name+domain
+    /// identity already refuses to match against the domain-less legacy
+    /// cookie, so the gate was never reached and the test could not fail with
+    /// it weakened to `if authorised`. A `Domain=.google.com` answer is
+    /// different: `CookieJar.apply`'s legacy-scope guard treats any scope
+    /// that *covers* the chat host as a match for a domain-less cookie by
+    /// name, regardless of whether that scope is who the cookie was actually
+    /// sent to - so only the `carriedCredentials` gate (not eligibility)
+    /// stops a sibling that was never sent this cookie from rotating it.
+    @Test("a legacy session sends the sibling no cookie, so its Set-Cookie never rotates the legacy one")
     func legacySiblingHopCarriesNoCookieAndAbsorbsNothing() async throws {
         let credentials = try SessionCredentials(#require(SessionCookies(cookies: [
-            SessionCookies.Cookie(name: "COMPASS", value: "old")
+            SessionCookies.Cookie(name: "SIDCC", value: "old")
         ])))
         let transport = FakeHTTPTransport(responses: [
             AttachmentFetchTests.redirect(to: "https://chat.usercontent.google.com/d", setCookie: nil),
@@ -153,7 +161,7 @@ struct AttachmentFetchCredentialTests {
                 status: 200,
                 headers: HTTPHeaders([
                     ("Content-Type", "application/pdf"),
-                    ("Set-Cookie", "COMPASS=x; Path=/")
+                    ("Set-Cookie", "SIDCC=x; Domain=.google.com; Path=/")
                 ]),
                 body: Data("PDF".utf8)
             )
@@ -162,9 +170,10 @@ struct AttachmentFetchCredentialTests {
             token: "t", contentType: "application/pdf", variant: .file
         )
         #expect(fetched.hops[1].carriedCredentials == false)
+        #expect(await credentials.rotationCount() == 0)
         let next = try await credentials
             .authorising(HTTPRequest(url: #require(URL(string: "https://chat.google.com/"))))
-        #expect(next.headers["Cookie"] == "COMPASS=old")
+        #expect(next.headers["Cookie"] == "SIDCC=old")
     }
 
     @Test("plain http to the chat host is not the chat host")

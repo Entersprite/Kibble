@@ -18,14 +18,6 @@ struct CookieScopeTests {
         #expect(CookieScope.chat.admits(domain: ".google.com", path: "/", isSecure: true))
     }
 
-    @Test func aParentDomainWithALeadingDotIsAdmitted() {
-        // Before `findings.md` §52.9 this fixture read "google.com" (no dot)
-        // and still matched: the two spellings were treated as equivalent.
-        // They are not — a leading dot is what makes this a domain cookie
-        // rather than host-only, so the dot stays in the fixture.
-        #expect(CookieScope.chat.admits(domain: ".google.com", path: "/", isSecure: true))
-    }
-
     @Test func aSiblingHostIsRefused() {
         // LSID, SMSV, ACCOUNT_CHOOSER. A browser never sends these to Chat.
         #expect(!CookieScope.chat.admits(domain: "accounts.google.com", path: "/", isSecure: true))

@@ -29,8 +29,9 @@ public actor SessionCredentials {
         self.onRotation = onRotation
     }
 
-    /// The `Cookie` header value as it stands **now**, not as it was captured.
-    public func header() -> String {
+    /// Every cookie in the jar, flat, for tests and diagnostics; never what a
+    /// request sends - see `authorising(_:withholding:)`.
+    func header() -> String {
         jar.headerValue
     }
 

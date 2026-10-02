@@ -53,10 +53,18 @@ struct RotatedDownloadProbeTests {
     func rotatesACopy() async throws {
         let transport = PSIDTSTransport()
         let saved = RotationCount()
+        // Domain-scoped, as a session captured since §52.9 is: the whole
+        // `__Secure-*PSID*` family rides on `.google.com`, so this is what
+        // actually reaches `accounts.google.com` and carries a `Cookie`
+        // field for `RotateCookies` to absorb against (final review Minor
+        // 4) - a domain-less legacy `SID` sends that host nothing at all,
+        // and this rung could not recover `__Secure-1PSIDTS` for it.
         let session = try SessionCredentials(
             #require(SessionCookies(cookies: [SessionCookies.Cookie(
                 name: "SID",
-                value: "lowercasesid"
+                value: "lowercasesid",
+                domain: ".google.com",
+                path: "/"
             )])),
             onRotation: { _ in await saved.increment() }
         )
