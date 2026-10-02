@@ -254,6 +254,7 @@ extension APIProbeReport {
         client: ProtoAPIClient,
         group: GroupId,
         fetches: [(label: String, fetch: AttachmentFetch)],
+        rotation: RotationRung,
         lines: inout [String]
     ) async {
         lines.append("attachment shapes (counts only):")
@@ -295,6 +296,8 @@ extension APIProbeReport {
             fetch: fetches.first?.fetch,
             lines: &lines
         )
+        lines.append("")
+        await appendRotatedDownloadSection(upload: shapes.firstFile, rung: rotation, lines: &lines)
         lines.append("")
         await appendProjectorConfigSection(upload: shapes.firstFile, fetches: fetches, lines: &lines)
     }

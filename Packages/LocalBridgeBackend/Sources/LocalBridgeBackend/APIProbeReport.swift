@@ -85,6 +85,12 @@ public enum APIProbeReport {
                 fetches: attachmentFetches(
                     transport: transport, endpoints: endpoints, bootstrapped: bootstrapped
                 ),
+                rotation: RotationRung(
+                    transport: transport,
+                    endpoints: endpoints,
+                    credentials: bootstrapped.credentials,
+                    xsrfToken: bootstrapped.wiz.xsrfToken
+                ),
                 lines: &lines
             )
             lines.append("")
