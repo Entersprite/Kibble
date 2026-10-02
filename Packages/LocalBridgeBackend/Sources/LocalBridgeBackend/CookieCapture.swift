@@ -105,7 +105,13 @@ public struct CookieCapture: Sendable {
         )
 
         session = SessionCookies(
-            cookies: admitted.map { SessionCookies.Cookie(name: $0.name, value: $0.value) }
+            cookies: admitted.map {
+                // Kept so each request can be sent only what a browser would
+                // send it (findings.md §52.9). An unset path is the root.
+                SessionCookies.Cookie(
+                    name: $0.name, value: $0.value, domain: $0.domain, path: $0.path.isEmpty ? "/" : $0.path
+                )
+            }
         ).map { credential in
             StoredSession(
                 credential: credential,

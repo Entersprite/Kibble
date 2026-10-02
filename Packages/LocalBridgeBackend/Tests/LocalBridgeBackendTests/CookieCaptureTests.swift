@@ -147,4 +147,23 @@ struct CookieCaptureTests {
         #expect(rendered.contains("COMPASS"))
         #expect(rendered.contains("OSID"))
     }
+
+    @Test("each stored cookie keeps the domain and path it was captured with")
+    func domainsAreKept() throws {
+        let capture = capture([
+            cookie("SID", domain: ".google.com"),
+            cookie("COMPASS", domain: "chat.google.com"),
+            cookie("LSID", domain: "accounts.google.com")
+        ])
+        let cookies = try #require(capture.session?.credential.cookies)
+        #expect(cookies.map(\.name) == ["SID", "COMPASS"])
+        #expect(cookies.map(\.domain) == [".google.com", "chat.google.com"])
+        #expect(cookies.map(\.path) == ["/", "/"])
+    }
+
+    @Test("an empty path from the store is the root")
+    func emptyPathIsRoot() {
+        let capture = capture([cookie("SID", domain: ".google.com", path: "")])
+        #expect(capture.session?.credential.cookies.first?.path == "/")
+    }
 }

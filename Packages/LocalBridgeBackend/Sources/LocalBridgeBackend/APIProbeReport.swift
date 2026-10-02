@@ -20,8 +20,9 @@ public enum APIProbeReport {
     /// The first line of a report: what the credential looked like before any
     /// request went out. A pure function so `theReportNeverCarriesACookieValueOrToken`
     /// can pin the wording without standing up a transport or a Keychain.
-    public static func header(cookieCount: Int, byteCount: Int, hasToken: Bool) -> String {
-        "session: \(cookieCount) cookies, \(byteCount) bytes; "
+    /// `domainCount` distinguishes zero (pre-§52.9 sessions) from the full count.
+    public static func header(cookieCount: Int, domainCount: Int, byteCount: Int, hasToken: Bool) -> String {
+        "session: \(cookieCount) cookies (\(domainCount) with domains), \(byteCount) bytes; "
             + "xsrf token \(hasToken ? "present" : "absent")"
     }
 
@@ -159,6 +160,7 @@ public enum APIProbeReport {
         }
         lines.append(header(
             cookieCount: cookies.count,
+            domainCount: cookies.domainCount,
             byteCount: cookies.byteCount,
             hasToken: wiz.xsrfToken != nil
         ))
