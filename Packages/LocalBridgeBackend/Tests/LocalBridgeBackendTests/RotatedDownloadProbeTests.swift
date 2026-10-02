@@ -75,6 +75,7 @@ struct RotatedDownloadProbeTests {
             "  5 app request, rotated copy: chat.google.com 302 (credentials)"
                 + " → chat.usercontent.google.com 200 (credentials)"
         ])
+        #expect(lines.contains { $0.hasPrefix("  7 rotated copy, chat-host cookies withheld: ") })
         #expect(!lines.joined().contains("lowercase"))
         // The session the rung copied: never rotated, never saved.
         #expect(await session.snapshot?["__Secure-1PSIDTS"] == nil)

@@ -15,8 +15,19 @@ extension APIProbeReport {
             "3 + no content_type",
             AttachmentFetch.RequestStyle(navigation: true, referer: true, sendsContentType: false)
         ),
-        ("4 app request, no content_type", AttachmentFetch.RequestStyle(sendsContentType: false))
+        ("4 app request, no content_type", AttachmentFetch.RequestStyle(sendsContentType: false)),
+        (
+            "6 app request, chat-host cookies withheld",
+            AttachmentFetch.RequestStyle(chatHostOnly: chatHostCookies)
+        )
     ]
+
+    /// The cookies §52.7's capture report scoped to `chat.google.com` itself,
+    /// by name, because the jar dropped domains. A probe's experiment, not
+    /// a rule: if withholding them is what works, the fix is a jar that keeps
+    /// domains, never this list (`CLAUDE.md`: never name a cookie set).
+    /// Numbered 6 so rungs 1-5 keep the labels §52.5-§52.8 recorded.
+    static let chatHostCookies: Set<String> = ["COMPASS", "OSID", "__Secure-OSID", "OTZ"]
 
     /// The app's own endpoints only: §52.1 showed the bare path answers the
     /// same, and every rung is a request against the live account.

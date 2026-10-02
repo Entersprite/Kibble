@@ -63,10 +63,14 @@ public actor SessionCredentials {
     /// Lives here rather than on each caller because the credential is the
     /// thing that knows what authorising means - and because the channel is no
     /// longer the only caller.
-    func authorising(_ request: HTTPRequest) -> HTTPRequest {
+    ///
+    /// `withholding` names cookies left out of this one request, for a host
+    /// a browser would not send them to (`AttachmentFetch.RequestStyle`).
+    func authorising(_ request: HTTPRequest, withholding names: Set<String> = []) -> HTTPRequest {
         var request = request
+        let value = names.isEmpty ? jar.headerValue : jar.headerValue(withholding: names)
         request.headers = HTTPHeaders(fields:
-            request.headers.fields + [HTTPHeaders.Field(name: "Cookie", value: jar.headerValue)]
+            request.headers.fields + [HTTPHeaders.Field(name: "Cookie", value: value)]
         )
         return request
     }

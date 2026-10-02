@@ -13,9 +13,10 @@ struct DownloadLadderProbeTests {
             AttachmentFetch.RequestStyle(navigation: true),
             AttachmentFetch.RequestStyle(navigation: true, referer: true),
             AttachmentFetch.RequestStyle(navigation: true, referer: true, sendsContentType: false),
-            AttachmentFetch.RequestStyle(sendsContentType: false)
+            AttachmentFetch.RequestStyle(sendsContentType: false),
+            AttachmentFetch.RequestStyle(chatHostOnly: ["COMPASS", "OSID", "__Secure-OSID", "OTZ"])
         ])
-        #expect(Set(APIProbeReport.downloadLadder.map(\.label)).count == 4)
+        #expect(Set(APIProbeReport.downloadLadder.map(\.label)).count == 5)
     }
 
     /// §52.3 printed `application/json; charset=utf-8` as "unusual": a

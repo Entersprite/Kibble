@@ -55,18 +55,24 @@ extension APIProbeReport {
         let fetch = AttachmentFetch(
             transport: rung.transport, endpoints: rung.endpoints, credentials: copy, xsrfToken: rung.xsrfToken
         )
-        let outcome: Result<FetchedAttachment, AttachmentFetchFailure>
-        do {
-            outcome = try await .success(fetch.fetch(
-                token: upload.token, contentType: upload.contentType, variant: .file
-            ))
-        } catch {
-            outcome = .failure(error)
+        let rotatedRungs: [(label: String, style: AttachmentFetch.RequestStyle)] = [
+            ("5 app request, rotated copy", .app),
+            (
+                "7 rotated copy, chat-host cookies withheld",
+                AttachmentFetch.RequestStyle(chatHostOnly: chatHostCookies)
+            )
+        ]
+        for (label, style) in rotatedRungs {
+            let outcome: Result<FetchedAttachment, AttachmentFetchFailure>
+            do {
+                outcome = try await .success(fetch.fetch(
+                    token: upload.token, contentType: upload.contentType, variant: .file, style: style
+                ))
+            } catch {
+                outcome = .failure(error)
+            }
+            lines.append(contentsOf: attachmentDownloadLines(label: label, outcome: outcome))
         }
-        lines.append(contentsOf: attachmentDownloadLines(
-            label: "5 app request, rotated copy",
-            outcome: outcome
-        ))
     }
 
     /// A cookie's name prints when it is made only of the characters Google's

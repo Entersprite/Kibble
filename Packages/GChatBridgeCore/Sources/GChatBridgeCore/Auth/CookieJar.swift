@@ -47,6 +47,12 @@ struct CookieJar: Sendable, CustomStringConvertible {
         cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
     }
 
+    /// The header without the named cookies, for a host that a browser would
+    /// not send them to. The jar keeps no domains, so the caller names them.
+    func headerValue(withholding names: Set<String>) -> String {
+        cookies.filter { !names.contains($0.name) }.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+    }
+
     subscript(name: String) -> String? {
         cookies.first { $0.name == name }?.value
     }
