@@ -12,4 +12,14 @@ public extension SyncEngine {
     func attachmentData(_ attachment: Attachment, size: AttachmentSize) async throws -> Data {
         try await backend.attachmentData(attachment, size: size)
     }
+
+    /// The backend's download, unchanged: a file is the caller's, not the
+    /// store's, so nothing here is cached or recorded.
+    func downloadAttachment(
+        _ attachment: Attachment,
+        to destination: URL,
+        progress: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws {
+        try await backend.downloadAttachment(attachment, to: destination, progress: progress)
+    }
 }
