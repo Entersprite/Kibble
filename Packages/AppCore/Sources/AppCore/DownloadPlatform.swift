@@ -33,6 +33,10 @@ public protocol DownloadPlatform: AnyObject {
     func reveal(_ file: URL)
     /// Asks where to save a copy; `nil` when the person cancelled.
     func chooseSaveDestination(suggestedName: String) -> URL?
+    /// Says that a Save As of a finished file failed. The chip keeps saying
+    /// the file is downloaded, because it still is, so the failure is told
+    /// here instead. `message` names no path and no URL.
+    func showFailure(_ message: String)
 }
 
 /// The download folder exists in settings but cannot be written to - its

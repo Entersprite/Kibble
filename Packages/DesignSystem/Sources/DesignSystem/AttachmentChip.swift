@@ -12,11 +12,23 @@ struct AttachmentChip: View {
 
     enum Primary: Equatable { case download, open, none }
 
+    /// A known-size transfer's progress bar.
+    struct Bar: Equatable {
+        let value: Double
+        let total: Double
+    }
+
     /// What the chip shows and does for a state, apart from the view.
     struct Presentation: Equatable {
         let symbol: String
         let primary: Primary
         let help: String?
+        /// Whether the context menu offers Save As - not while a transfer
+        /// runs, when the coordinator would ignore it.
+        let offersSaveAs: Bool
+        /// The bar for a transfer whose size is known; `nil` for a spinner
+        /// and for every other state.
+        let bar: Bar?
 
         init(state: AttachmentDownloadState) {
             switch state {
@@ -29,6 +41,26 @@ struct AttachmentChip: View {
                     message
                 )
             }
+            if case let .downloading(progress) = state {
+                offersSaveAs = false
+                // A body can outrun the size it was announced with; the bar
+                // stops full rather than past its end.
+                if let total = progress.totalBytes, total > 0 {
+                    bar = Bar(value: Double(min(progress.bytesReceived, total)), total: Double(total))
+                } else {
+                    bar = nil
+                }
+            } else {
+                offersSaveAs = true
+                bar = nil
+            }
+        }
+
+        /// The chip's `accessibilityValue` while a known-size download is
+        /// under way - `nil` (so nothing is attached) otherwise, since a
+        /// percentage cannot be said of a spinner.
+        var percentLabel: String? {
+            bar.map { "\(Int(($0.value / $0.total * 100).rounded())) percent" }
         }
 
         /// The primary button's accessible name - the action, not the icon,
@@ -47,17 +79,6 @@ struct AttachmentChip: View {
 
     static func sizeLabel(_ attachment: Attachment) -> String? {
         attachment.byteSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
-    }
-
-    /// The chip's `accessibilityValue` while a known-size download is under
-    /// way - `nil` (so nothing is attached) for every other state, and for an
-    /// unknown total, since a percentage cannot be said of a spinner.
-    private var downloadPercentLabel: String? {
-        guard case let .downloading(progress) = state, let total = progress.totalBytes, total > 0 else {
-            return nil
-        }
-        let percent = Int((Double(progress.bytesReceived) / Double(total) * 100).rounded())
-        return "\(percent) percent"
     }
 
     var body: some View {
@@ -99,9 +120,9 @@ struct AttachmentChip: View {
             .buttonStyle(.plain)
             .accessibilityLabel(shown.accessibilityLabel(for: name))
             .conditionalHelp(shown.help)
-            if case let .downloading(progress) = state {
-                if let total = progress.totalBytes, total > 0 {
-                    ProgressView(value: Double(progress.bytesReceived), total: Double(total))
+            if case .downloading = state {
+                if let bar = shown.bar {
+                    ProgressView(value: bar.value, total: bar.total)
                         .frame(width: 60)
                 } else {
                     ProgressView().controlSize(.small)
@@ -112,7 +133,7 @@ struct AttachmentChip: View {
                 .buttonStyle(.plain)
             }
         }
-        .conditionalAccessibilityValue(downloadPercentLabel)
+        .conditionalAccessibilityValue(shown.percentLabel)
         .contextMenu {
             if state == .done {
                 Button("Open") { actions.open(attachment) }
@@ -122,7 +143,9 @@ struct AttachmentChip: View {
             } else {
                 Button("Download") { actions.download(attachment) }
             }
-            Button("Save As…") { actions.saveAs(attachment) }
+            if shown.offersSaveAs {
+                Button("Save As…") { actions.saveAs(attachment) }
+            }
         }
     }
 }

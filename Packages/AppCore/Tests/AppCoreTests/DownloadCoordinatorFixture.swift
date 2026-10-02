@@ -7,13 +7,18 @@ import Testing
 /// The backend's half of a download, scripted: records every destination it
 /// was handed, keeps the progress callback, can hold a transfer until the test
 /// releases it, and writes "PDF" unless told to throw. A cancelled transfer
-/// throws `ChatError.transport`, as the real backend does.
+/// throws `ChatError.transport`, as the real backend does - unless told to
+/// finish regardless, as a transfer whose last byte landed just before the
+/// cancel does.
 actor DownloadScript {
     private(set) var destinations: [URL] = []
     /// Every transfer's progress callback, in the order the transfers began.
     private(set) var progressCallbacks: [@Sendable (AttachmentProgress) -> Void] = []
     private var failure: ChatError?
     private var holding = false
+    private var ignoringCancellation = false
+    /// Transfers that wrote their file and returned normally.
+    private(set) var completed = 0
     private var held: [CheckedContinuation<Void, Never>] = []
 
     var heldCount: Int {
@@ -26,6 +31,10 @@ actor DownloadScript {
 
     func hold() {
         holding = true
+    }
+
+    func finishEvenIfCancelled() {
+        ignoringCancellation = true
     }
 
     func fail(with error: ChatError) {
@@ -53,13 +62,14 @@ actor DownloadScript {
         if holding {
             await withCheckedContinuation { held.append($0) }
         }
-        if Task.isCancelled {
+        if Task.isCancelled, !ignoringCancellation {
             throw ChatError.transport("cancelled")
         }
         if let failure {
             throw failure
         }
         try Data("PDF".utf8).write(to: destination)
+        completed += 1
     }
 }
 

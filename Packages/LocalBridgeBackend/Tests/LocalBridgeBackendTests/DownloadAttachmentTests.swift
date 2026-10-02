@@ -77,6 +77,46 @@ private actor FileRecordingTransport: HTTPTransport {
     }
 }
 
+/// `FileRecordingTransport`, except that the file host's download never
+/// answers: it waits, in bounded sleeps, until its task is cancelled, as a
+/// transfer does mid-body. Every file it does hand out is recorded.
+private actor StallingTransport: HTTPTransport {
+    struct NeverCancelled: Error {}
+
+    private let inner: DownloadTransport
+    private(set) var files: [URL] = []
+    private(set) var stalled = false
+
+    init(_ inner: DownloadTransport) {
+        self.inner = inner
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        try await inner.send(request)
+    }
+
+    func stream(_ request: HTTPRequest) async throws -> HTTPStream {
+        try await inner.stream(request)
+    }
+
+    func download(
+        _ request: HTTPRequest,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> (response: HTTPResponse, file: URL) {
+        if request.url.host() == "chat.usercontent.google.com" {
+            stalled = true
+            // About thirty seconds at most, inside the suite's time limit.
+            for _ in 0 ..< 3000 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            throw NeverCancelled()
+        }
+        let answer = try await inner.download(request, progress: progress)
+        files.append(answer.file)
+        return answer
+    }
+}
+
 /// Progress reports, from whatever executor the transport calls on.
 private final class ProgressRecorder: @unchecked Sendable {
     private let lock = NSLock()
@@ -225,5 +265,34 @@ struct DownloadAttachmentTests {
         #expect(files.count == 2)
         #expect(!files.contains(where: Self.exists))
         #expect(!Self.exists(destination))
+    }
+
+    /// Cancelled while the file's body is still arriving: an error, nothing
+    /// at the destination, and the file of the redirect before it gone.
+    @Test func aCancelMidTransferLeavesNothingBehind() async throws {
+        let transport = StallingTransport(Self.transport())
+        let backend = LocalBridgeBackend(cookies: Self.scoped, transport: transport)
+        try await backend.connect()
+        let destination = Self.destination()
+        defer { try? FileManager.default.removeItem(at: destination) }
+        let download = Task {
+            try await backend.downloadAttachment(Self.attachment, to: destination) { _ in }
+        }
+        // Bounded: five seconds at most for the chain to reach the file host.
+        for _ in 0 ..< 500 {
+            if await transport.stalled {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(await transport.stalled)
+        download.cancel()
+        let outcome = await download.result
+        #expect(throws: ChatError.self) { try outcome.get() }
+        #expect(!Self.exists(destination))
+        let files = await transport.files
+        // Positive control: the redirect's hop did hand out a file.
+        #expect(files.count == 1)
+        #expect(!files.contains(where: Self.exists))
     }
 }

@@ -45,24 +45,22 @@ public final class DownloadCoordinator {
     /// moved or deleted, rather than opening nothing. Does nothing while a
     /// transfer is running, the same rule as `begin`.
     public func open(_ attachment: Attachment) {
-        guard tasks[attachment.id] == nil else { return }
-        guard let file = placed[attachment.id], Self.exists(file) else {
-            placed[attachment.id] = nil
-            states[attachment.id] = nil
-            begin(attachment, into: nil)
-            return
+        if let file = placedFile(attachment) {
+            platform.open(file)
         }
-        platform.open(file)
     }
 
+    /// Shows the finished file in Finder, by `open`'s rules.
     public func reveal(_ attachment: Attachment) {
-        if let file = placed[attachment.id], Self.exists(file) {
+        if let file = placedFile(attachment) {
             platform.reveal(file)
         }
     }
 
     /// Copies a finished file to a place the person picks, or downloads
-    /// straight there when it is not downloaded yet.
+    /// straight there when it is not downloaded yet. A copy that fails
+    /// leaves the chip done - the file is still downloaded - and says so
+    /// through the platform instead.
     public func saveAs(_ attachment: Attachment) {
         guard tasks[attachment.id] == nil,
               let target = platform.chooseSaveDestination(suggestedName: DownloadNaming.leaf(attachment.name))
@@ -72,7 +70,7 @@ public final class DownloadCoordinator {
                 // The save panel already asked whether to replace an existing file.
                 try DownloadNaming.deliver(file, to: target, copying: true)
             } catch {
-                states[attachment.id] = .failed(Self.message(for: error))
+                platform.showFailure("Kibble couldn't save “\(target.lastPathComponent)”")
             }
             return
         }
@@ -151,6 +149,20 @@ public final class DownloadCoordinator {
                 states[id] = Task.isCancelled ? nil : .failed(Self.message(for: error))
             }
         }
+    }
+
+    /// The placed file while it is still there. When it is not, the chip
+    /// is cleared and the attachment downloaded again, and the answer is
+    /// `nil`; `nil` too while a transfer is running.
+    private func placedFile(_ attachment: Attachment) -> URL? {
+        guard tasks[attachment.id] == nil else { return nil }
+        guard let file = placed[attachment.id], Self.exists(file) else {
+            placed[attachment.id] = nil
+            states[attachment.id] = nil
+            begin(attachment, into: nil)
+            return nil
+        }
+        return file
     }
 
     private func isCurrent(_ token: UUID, for id: String) -> Bool {

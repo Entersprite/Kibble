@@ -33,6 +33,45 @@ struct AttachmentChipTests {
         #expect(AttachmentChip.Presentation(state: state).accessibilityLabel(for: "a.pdf") == expected)
     }
 
+    @Test("Save As is offered in every state but downloading", arguments: [
+        (AttachmentDownloadState.idle, true),
+        (.downloading(AttachmentProgress(bytesReceived: 1, totalBytes: 4)), false),
+        (.downloading(AttachmentProgress(bytesReceived: 1, totalBytes: nil)), false),
+        (.done, true),
+        (.failed("x"), true)
+    ])
+    func saveAsIsOffered(_ state: AttachmentDownloadState, _ offered: Bool) {
+        #expect(AttachmentChip.Presentation(state: state).offersSaveAs == offered)
+    }
+
+    /// A body longer than its stated size - a server that understated it -
+    /// fills the bar and says 100 percent, never more.
+    @Test("the bar and the percentage stop at the total", arguments: [
+        (1, 4, 1.0, "25 percent"),
+        (4, 4, 4.0, "100 percent"),
+        (9, 4, 4.0, "100 percent")
+    ])
+    func barStopsAtTheTotal(_ received: Int, _ total: Int, _ value: Double, _ percent: String) {
+        let shown = AttachmentChip.Presentation(
+            state: .downloading(AttachmentProgress(bytesReceived: received, totalBytes: total))
+        )
+        #expect(shown.bar == AttachmentChip.Bar(value: value, total: Double(total)))
+        #expect(shown.percentLabel == percent)
+    }
+
+    @Test("an unknown or zero total, and every other state, has no bar and no percentage", arguments: [
+        AttachmentDownloadState.downloading(AttachmentProgress(bytesReceived: 9, totalBytes: nil)),
+        .downloading(AttachmentProgress(bytesReceived: 9, totalBytes: 0)),
+        .idle,
+        .done,
+        .failed("x")
+    ])
+    func noBar(_ state: AttachmentDownloadState) {
+        let shown = AttachmentChip.Presentation(state: state)
+        #expect(shown.bar == nil)
+        #expect(shown.percentLabel == nil)
+    }
+
     @Test("the failure's message is the help text, and nothing else is")
     func failureHelp() {
         #expect(AttachmentChip.Presentation(state: .failed("x")).help == "x")

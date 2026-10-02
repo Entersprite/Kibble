@@ -47,12 +47,48 @@ struct URLSessionTransportDownloadTests {
         #expect(try Data(contentsOf: file).isEmpty)
     }
 
-    @Test("a transport failure is classified and leaves no file")
+    @Test("a transport failure before the response is classified and leaves no file")
     func failureIsClassified() async throws {
+        let file = Self.namedFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         stub.enqueueFailure(.timedOut)
         await #expect(throws: ClassifiedTransportFailure.self) {
-            _ = try await transport.download(HTTPRequest(url: stub.baseURL)) { _, _ in }
+            _ = try await transport.download(HTTPRequest(url: stub.baseURL), to: file) { _, _ in }
         }
+        #expect(!FileManager.default.fileExists(atPath: file.path(percentEncoded: false)))
+    }
+
+    /// The file exists by the time the body fails - it was opened when the
+    /// response arrived - so this is the case the clean-up is for.
+    @Test("a body that fails part-way is classified and its file removed")
+    func partialBodyLeavesNoFile() async throws {
+        let file = Self.namedFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        // More than one 64 KiB write, so one chunk reaches the file first.
+        let body = Data(repeating: 7, count: 70000)
+        stub.enqueue(
+            StubURLProtocol.Stub(status: 200, body: body, headers: ["Content-Length": "200000"]),
+            thenFail: .networkConnectionLost
+        )
+        let existedMidway = ProgressLog()
+        await #expect(throws: ClassifiedTransportFailure.self) {
+            _ = try await transport.download(HTTPRequest(url: stub.baseURL), to: file) { written, _ in
+                let there = FileManager.default.fileExists(atPath: file.path(percentEncoded: false))
+                existedMidway.append(written, there ? 1 : 0)
+            }
+        }
+        // Positive control: a chunk was written, to a file that then existed.
+        #expect(existedMidway.values == [ProgressLog.Entry(written: 65536, total: 1)])
+        #expect(!FileManager.default.fileExists(atPath: file.path(percentEncoded: false)))
+    }
+
+    /// A file in a directory of its own, so no other test's download is
+    /// mistaken for this one's.
+    private static func namedFile() -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("url-session-download-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("body")
     }
 }
 

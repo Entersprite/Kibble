@@ -5,7 +5,8 @@ import Observation
 
 /// AppKit's half of a download: the folder (Downloads, or one the person
 /// picked, kept as a security-scoped bookmark beside the database), sandbox
-/// access around each placement, Finder, and the save panel.
+/// access around each placement, Finder, the save panel, and the alert a
+/// failed Save As shows.
 ///
 /// `@Observable` so Settings › Downloads redraws when the folder changes with
 /// no session running, when it reads `folder` here rather than through a
@@ -90,6 +91,14 @@ public final class SystemDownloadPlatform: DownloadPlatform {
         panel.nameFieldStringValue = suggestedName
         panel.canCreateDirectories = true
         return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    /// Modal, like the save panel it follows.
+    public func showFailure(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = message
+        alert.runModal()
     }
 
     /// An existing directory this process may write into.

@@ -54,6 +54,26 @@ struct DownloadCoordinatorTests {
         #expect(fixture.names(in: fixture.staging).isEmpty)
     }
 
+    /// The backend finished - the file is staged - but the cancel landed
+    /// first: the file is not placed and the chip forgets the transfer.
+    @Test func aCancelThatLandsAsTheTransferFinishesPlacesNothing() async throws {
+        let fixture = try DownloadFixture()
+        defer { fixture.cleanUp() }
+        await fixture.script.hold()
+        await fixture.script.finishEvenIfCancelled()
+        fixture.coordinator.start(DownloadFixture.report)
+        try await fixture.waitUntilHeld()
+        let task = try #require(fixture.coordinator.task(for: DownloadFixture.report))
+        fixture.coordinator.cancel(DownloadFixture.report)
+        await fixture.script.release()
+        await task.value
+        // Positive control: the backend did return normally, with the file written.
+        #expect(await fixture.script.completed == 1)
+        #expect(fixture.state == nil)
+        #expect(fixture.names(in: fixture.folder).isEmpty)
+        #expect(fixture.names(in: fixture.staging).isEmpty)
+    }
+
     @Test func anExpiredSignInSaysSignInAgain() async throws {
         let fixture = try DownloadFixture()
         defer { fixture.cleanUp() }
@@ -124,6 +144,19 @@ struct DownloadCoordinatorTests {
         try FileManager.default.removeItem(at: fixture.folder.appending(path: "report.pdf"))
         fixture.coordinator.open(DownloadFixture.report)
         #expect(fixture.platform.opened.isEmpty)
+        try await fixture.finish()
+        #expect(fixture.state == .done)
+        #expect(await fixture.script.destinations.count == 2)
+        #expect(fixture.names(in: fixture.folder) == ["report.pdf"])
+    }
+
+    @Test func revealingADeletedFileDownloadsItAgain() async throws {
+        let fixture = try DownloadFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.downloadToDone()
+        try FileManager.default.removeItem(at: fixture.folder.appending(path: "report.pdf"))
+        fixture.coordinator.reveal(DownloadFixture.report)
+        #expect(fixture.platform.revealed.isEmpty)
         try await fixture.finish()
         #expect(fixture.state == .done)
         #expect(await fixture.script.destinations.count == 2)

@@ -8,8 +8,8 @@ public struct DownloadSettingsState: Equatable, Sendable {
     /// The folder's full path, shown as a tooltip rather than inline, since a
     /// path is rarely what a person wants to read at a glance.
     public var folderPath: String
-    /// Whether the folder is still the host's built-in default, so "Use
-    /// Downloads" is only offered once it has actually been changed.
+    /// Whether the folder is still the host's built-in default - one half
+    /// of `offersUseDownloads`.
     public var isDefault: Bool
     /// A one-line diagnostic (e.g. a folder that could no longer be reached),
     /// drawn under the controls. `nil` in the ordinary case.
@@ -20,6 +20,13 @@ public struct DownloadSettingsState: Equatable, Sendable {
         self.folderPath = folderPath
         self.isDefault = isDefault
         self.notice = notice
+    }
+
+    /// Once the folder has been changed, and whenever there is a notice:
+    /// a chosen folder that is gone reads as the default with a notice, and
+    /// "Use Downloads" is what forgets it and clears the notice.
+    var offersUseDownloads: Bool {
+        !isDefault || notice != nil
     }
 }
 
@@ -56,7 +63,7 @@ public struct DownloadSettingsPane: View {
             }
             HStack {
                 Button("Change…", action: actions.choose)
-                if !state.isDefault {
+                if state.offersUseDownloads {
                     Button("Use Downloads", action: actions.useDefault)
                 }
             }

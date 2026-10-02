@@ -14,6 +14,17 @@ public extension URLSessionTransport {
         _ request: HTTPRequest,
         progress: @escaping @Sendable (Int, Int?) -> Void
     ) async throws -> (response: HTTPResponse, file: URL) {
+        try await download(request, to: HTTPTransportFiles.temporaryFile(), progress: progress)
+    }
+
+    /// `download`, writing to `file`: `internal` so a test can name the file
+    /// and see that a body which fails part-way leaves nothing there, which a
+    /// random temporary name would hide among every other test's files.
+    internal func download(
+        _ request: HTTPRequest,
+        to file: URL,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> (response: HTTPResponse, file: URL) {
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
         do {
@@ -26,7 +37,6 @@ public extension URLSessionTransport {
         }
         let http = try Self.httpResponse(from: response)
         let total = http.expectedContentLength >= 0 ? Int(http.expectedContentLength) : nil
-        let file = HTTPTransportFiles.temporaryFile()
         // A redirect's body is not the download, so it reports nothing.
         let ignored: @Sendable (Int, Int?) -> Void = { _, _ in }
         let reported = (300 ..< 400).contains(http.statusCode) ? ignored : progress
