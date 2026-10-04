@@ -123,7 +123,7 @@ struct LocalBridgeBackendTests {
         let backend = backend([])
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
-            canFetchAttachments: true, canDownloadFiles: true
+            canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true
         ))
     }
 

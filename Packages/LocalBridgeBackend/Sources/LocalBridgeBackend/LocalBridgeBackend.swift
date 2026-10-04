@@ -43,9 +43,11 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `canReact` is true: `.setReaction` posts through `update_reaction`
     /// (`LocalBridgeBackend+Reactions.swift`), `[Verify]` until a live toggle
     /// confirms the shape.
+    /// `canFetchCustomEmoji` is true on `findings.md` §54.4's capture: the
+    /// image call is the one Chat on the web makes, `[Verify]` from here.
     public nonisolated let capabilities = Capabilities(
         canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
-        canFetchAttachments: true, canDownloadFiles: true
+        canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true
     )
 
     public nonisolated let events: AsyncStream<ChatEvent>
