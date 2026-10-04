@@ -141,6 +141,9 @@ public enum ChannelEventMapping {
                 ? Microseconds.date(message.lastEditTime)
                 : nil,
             isDeleted: message.hasDeleteTime && message.deleteTime > 0,
+            // Field 21; `findings.md` §53.1. A push carries none reliably, so
+            // `SyncEngine` keeps the stored set for pushes.
+            reactions: ReactionMapping.reactions(message.reactions),
             // Echoed straight back by the server on a message we sent, and
             // absent on everyone else's - which is exactly the distinction
             // `Message.localID` documents. `nil` rather than `""` for absent,

@@ -138,6 +138,12 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `--probe=events`' tally (`LocalBridgeBackend+EventTally.swift`); `nil` otherwise.
     var eventTally: EventTallyFile?
     let presencePollInterval: Duration
+    /// Coalesced `list_messages` refetches triggered by `MESSAGE_REACTED`
+    /// (`LocalBridgeBackend+ReactionRefetch.swift`).
+    var reactionRefetches = ReactionRefetches()
+    /// How long a refetch waits before asking: `defaultReactionRefetchDelay`
+    /// outside tests.
+    let reactionRefetchDelay: Duration
 
     public init(
         cookies: SessionCookies,
@@ -176,6 +182,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// backend opens; see `ChannelSession`'s own doc comment on why `nil`
     /// degrades rather than fails.
     /// - Parameter presencePollInterval: Shortened by tests only.
+    /// - Parameter reactionRefetchDelay: Shortened by tests only.
     init(
         cookies: SessionCookies,
         transport: any HTTPTransport,
@@ -183,7 +190,8 @@ public actor LocalBridgeBackend: ChatBackend {
         retry: RetryPolicy,
         onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
         reachability: (any ReachabilityMonitor)? = nil,
-        presencePollInterval: Duration = defaultPresencePollInterval
+        presencePollInterval: Duration = defaultPresencePollInterval,
+        reactionRefetchDelay: Duration = defaultReactionRefetchDelay
     ) {
         self.cookies = cookies
         self.endpoints = endpoints
@@ -191,6 +199,7 @@ public actor LocalBridgeBackend: ChatBackend {
         channelRetry = retry
         channelReachability = reachability
         self.presencePollInterval = presencePollInterval
+        self.reactionRefetchDelay = reactionRefetchDelay
         credentials = SessionCredentials(cookies, onRotation: onRotation)
         bootstrap = Bootstrap(transport: transport)
         (events, continuation) = AsyncStream.makeStream(
@@ -271,6 +280,7 @@ public actor LocalBridgeBackend: ChatBackend {
         memberResolution?.cancel()
         memberResolution = nil
         forgetDirectory()
+        forgetReactionRefetches()
         selfIdentification?.cancel()
         selfIdentification = nil
         stopPresencePoll()
@@ -331,6 +341,11 @@ public actor LocalBridgeBackend: ChatBackend {
     private func deliver(_ array: ChannelArray) {
         guard let event = ChannelEvent(array) else { return }
         recordInTally(event)
+        for body in event.bodies {
+            if let reacted = ChannelEventMapping.reactedMessage(in: body) {
+                requestReactionRefetch(reacted)
+            }
+        }
         let chatEvents = ChannelEventMapping.chatEvents(from: event)
         for chatEvent in chatEvents {
             emit(chatEvent)

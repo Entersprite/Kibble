@@ -28,6 +28,19 @@ public enum StoreWrite: Sendable, Equatable {
 
     case upsertMessage(Message)
 
+    /// A message from a push. The same as `upsertMessage`, except that a
+    /// stored message keeps its stored reactions: a push is never the source
+    /// of truth for them (reactions spec §2.2), because in proto2 a repeated
+    /// field has no presence. History pages use `upsertMessage`, which is
+    /// authoritative, and `setReactions` changes them otherwise.
+    ///
+    /// **A tombstone keeps nothing.** A deletion arrives through this same
+    /// case - the bridge maps no `messageDeleted`; `ChannelEventMapping` turns
+    /// a `deleteTime` into `messageUpdated` with `isDeleted` set - so an
+    /// `isDeleted` message takes its own (empty) reactions rather than what is
+    /// stored, and a tombstone never draws live reaction buttons.
+    case upsertMessageKeepingReactions(Message)
+
     /// A tombstone. The message keeps its place in the ordering, because the
     /// protocol keeps sending it and a hole would break paging.
     case markMessageDeleted(id: Message.ID, in: Conversation.ID)

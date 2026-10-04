@@ -62,7 +62,13 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// One conversation's snapshot has been replaced.
     case conversationUpdated(Conversation)
 
+    /// Its `reactions` are not authoritative: a client keeps the reactions it
+    /// already holds for the message, and `reactionChanged` and history
+    /// change them.
     case messageReceived(Message)
+    /// Its `reactions` are not authoritative: a client keeps the reactions it
+    /// already holds for the message, and `reactionChanged` and history
+    /// change them.
     case messageUpdated(Message)
 
     /// A tombstone arrived. The `Message` itself may also be re-sent with
@@ -72,7 +78,7 @@ public enum ChatEvent: Codable, Hashable, Sendable {
 
     /// The complete reaction set for a message, not a diff. Reaction counts are
     /// small and a diff would need ordering guarantees this protocol does not
-    /// offer.
+    /// offer. The only push that changes a stored message's reactions.
     case reactionChanged(messageID: Message.ID, reactions: [Reaction])
 
     case typingChanged(conversationID: Conversation.ID, member: Member.ID, isTyping: Bool)

@@ -50,7 +50,8 @@ public extension ChatStore {
             try performConversationWrite(write, in: db)
         case .setReadState, .markUnread:
             try performReadWrite(write, in: db)
-        case .upsertMessage, .markMessageDeleted, .removeMessage, .setReactions:
+        case .upsertMessage, .upsertMessageKeepingReactions, .markMessageDeleted, .removeMessage,
+             .setReactions:
             try performMessageWrite(write, in: db)
         case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
              .clearEphemeralState:
@@ -166,6 +167,17 @@ public extension ChatStore {
 
     private static func performMessageWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case let .upsertMessageKeepingReactions(message):
+            var kept = message
+            // A tombstone takes its own (empty) reactions rather than what is
+            // stored - see `StoreWrite.upsertMessageKeepingReactions`'s doc
+            // comment for why a deletion arrives through this same case.
+            if !message.isDeleted, let stored = try String.fetchOne(
+                db, sql: "SELECT reactions FROM message WHERE id = ?", arguments: [message.id.rawValue]
+            ) {
+                kept.reactions = try Wire.value([Reaction].self, from: stored)
+            }
+            try performMessageWrite(.upsertMessage(kept), in: db)
         case let .upsertMessage(message):
             // An optimistic copy and its echo are the same message with two
             // different ids: the client invented one, the server assigned the
@@ -187,9 +199,13 @@ public extension ChatStore {
             // ordering because the protocol keeps sending it and a hole would
             // break paging. A message the store never held is simply not here -
             // it holds pages, not all of history - so this is a no-op then.
-            // Its mentions go with its text: a tombstone mentions nobody.
+            // Its mentions go with its text: a tombstone mentions nobody. And
+            // its reactions: a tombstone offers no toggles.
             try db.execute(
-                sql: "UPDATE message SET isDeleted = 1, text = '', mentions = '[]' WHERE id = ?",
+                sql: """
+                UPDATE message SET isDeleted = 1, text = '', mentions = '[]', reactions = '[]'
+                WHERE id = ?
+                """,
                 arguments: [id.rawValue]
             )
         case let .removeMessage(id):

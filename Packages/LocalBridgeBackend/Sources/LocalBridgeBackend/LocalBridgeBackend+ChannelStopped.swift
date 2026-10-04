@@ -87,6 +87,15 @@ extension LocalBridgeBackend {
         // `isConnected` is false, so nothing else would ever stop the poll,
         // and it would call Google every interval until relaunch.
         stopPresencePoll()
+        // Fix round 1, Finding 1: `forgetDirectory()` alone bumps
+        // `directoryGeneration`, which only stops a refetch from *emitting* -
+        // it does not clear `phases`. Without this, a message stuck in
+        // `.waiting`/`.fetching` when the channel dies terminally stays there
+        // for the life of the backend: `disconnect()` after this point
+        // returns early (`guard isConnected`, already false), and a later
+        // `connect()` resets nothing, so `requestReactionRefetch` for that
+        // same message id is absorbed by the stale phase forever.
+        forgetReactionRefetches()
         let failure = await channel.failure
         let reason = failure.map(String.init(describing:)) ?? "the channel closed"
         let issue = failure.map(ConnectionIssueMapping.issue(for:))

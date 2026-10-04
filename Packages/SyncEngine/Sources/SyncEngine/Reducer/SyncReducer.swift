@@ -78,15 +78,17 @@ public enum SyncReducer {
             // store holding the message, but only an *arrival* can make a
             // conversation unread - an edit to something already read must
             // not raise the dot again.
+            // A push keeps stored reactions (`StoreWrite.upsertMessageKeepingReactions`).
             Reduction(
                 writes: [
-                    .upsertMessage(message),
+                    .upsertMessageKeepingReactions(message),
                     .markUnread(conversation: message.conversationID, sender: message.sender)
                 ],
                 effects: [.announceArrival(message)]
             )
         case let .messageUpdated(message):
-            Reduction(writes: [.upsertMessage(message)])
+            // A push keeps stored reactions (`StoreWrite.upsertMessageKeepingReactions`).
+            Reduction(writes: [.upsertMessageKeepingReactions(message)])
         case let .messageDeleted(id, conversationID):
             Reduction(writes: [.markMessageDeleted(id: id, in: conversationID)])
         case let .reactionChanged(messageID, reactions):

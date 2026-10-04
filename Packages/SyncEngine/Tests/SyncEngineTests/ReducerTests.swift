@@ -199,7 +199,7 @@ struct ReducerTests {
     @Test func aReceivedMessageIsAnUpsertAndMarksUnread() {
         let arrival = sample()
         #expect(SyncReducer.reduce(.messageReceived(arrival)).writes == [
-            .upsertMessage(arrival),
+            .upsertMessageKeepingReactions(arrival),
             .markUnread(conversation: arrival.conversationID, sender: arrival.sender),
             .setLastError(nil)
         ])
@@ -216,7 +216,7 @@ struct ReducerTests {
     @Test func anUpdatedMessageIsAnUpsertAndDoesNotMarkUnread() {
         let edited = sample("corrected")
         #expect(SyncReducer.reduce(.messageUpdated(edited)).writes
-            == [.upsertMessage(edited), .setLastError(nil)])
+            == [.upsertMessageKeepingReactions(edited), .setLastError(nil)])
     }
 
     @Test func aDeletionIsATombstoneNotARemoval() {
