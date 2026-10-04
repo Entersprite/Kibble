@@ -22,4 +22,11 @@ public extension SyncEngine {
     ) async throws {
         try await backend.downloadAttachment(attachment, to: destination, progress: progress)
     }
+
+    /// A custom emoji's picture, from the backend. Thrown, never recorded,
+    /// for `attachmentData(_:size:)`'s reason: a capsule that cannot load
+    /// shows its shortcode, which is the whole of the failure.
+    func customEmojiImage(_ emoji: CustomEmojiRef) async throws -> Data {
+        try await backend.customEmojiImage(emoji)
+    }
 }

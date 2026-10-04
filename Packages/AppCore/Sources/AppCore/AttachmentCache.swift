@@ -29,6 +29,9 @@ import Foundation
 public actor AttachmentCache {
     public typealias Fetch = @Sendable (Attachment, AttachmentSize) async throws -> Data
 
+    /// A custom emoji's picture, by its reference (reactions spec §3).
+    public typealias CustomEmojiFetch = @Sendable (CustomEmojiRef) async throws -> Data
+
     /// `originalFile(for:)` without a directory: there is nowhere to put a file.
     public struct NoDirectory: Error {}
 
@@ -38,8 +41,12 @@ public actor AttachmentCache {
     /// The original could not be written where Quick Look could open it.
     public struct WriteFailed: Error {}
 
+    /// `customEmojiData(for:)` on a cache built without a way to fetch one.
+    public struct NoCustomEmojiFetch: Error {}
+
     private let directory: URL?
     private let capacity: Int
+    private let customEmojiFetch: CustomEmojiFetch?
     private let fetch: Fetch
     private let memory = NSCache<NSString, NSData>()
     private var inFlight: [String: Task<Data, any Error>] = [:]
@@ -53,16 +60,46 @@ public actor AttachmentCache {
     /// `capacity` bounds the disk, in bytes; the oldest entries go first. One
     /// entry larger than the whole cap is kept anyway, because the file it
     /// just wrote may be the one Quick Look is about to open.
-    public init(directory: URL?, capacity: Int = 200 * 1_048_576, fetch: @escaping Fetch) {
+    /// `customEmojiFetch` is optional so a cache that only holds attachments
+    /// needs nothing new.
+    public init(
+        directory: URL?,
+        capacity: Int = 200 * 1_048_576,
+        customEmojiFetch: CustomEmojiFetch? = nil,
+        fetch: @escaping Fetch
+    ) {
         self.directory = directory
         self.capacity = capacity
+        self.customEmojiFetch = customEmojiFetch
         self.fetch = fetch
         memory.totalCostLimit = 64 * 1_048_576
     }
 
     public func data(for attachment: Attachment, size: AttachmentSize) async throws -> Data {
+        try await cached(Self.key(attachment, size), name: Self.fileName(for: attachment)) { [fetch] in
+            try await fetch(attachment, size)
+        }
+    }
+
+    /// A custom emoji's picture, under the same custody as an attachment:
+    /// memory, then disk, then one fetch shared by every capsule asking, and
+    /// gone on `erase()`. Keyed by the emoji's id, never its token, so a
+    /// token refreshed by a later history load still finds the stored image.
+    public func customEmojiData(for emoji: CustomEmojiRef) async throws -> Data {
+        guard let customEmojiFetch else { throw NoCustomEmojiFetch() }
+        return try await cached(Self.key(emoji), name: "custom-emoji") {
+            try await customEmojiFetch(emoji)
+        }
+    }
+
+    /// Memory, disk, then `fetch`, with one fetch per key in flight; checked
+    /// for an erase on entry and again after the `await`.
+    private func cached(
+        _ key: String,
+        name: String,
+        fetch: @escaping @Sendable () async throws -> Data
+    ) async throws -> Data {
         guard !isErased else { throw Erased() }
-        let key = Self.key(attachment, size)
         if let hit = memory.object(forKey: key as NSString) {
             return hit as Data
         }
@@ -73,13 +110,13 @@ public actor AttachmentCache {
         if let running = inFlight[key] {
             return try await running.value
         }
-        let task = Task { [fetch] in try await fetch(attachment, size) }
+        let task = Task { try await fetch() }
         inFlight[key] = task
         defer { inFlight[key] = nil }
         let data = try await task.value
         guard !isErased else { throw Erased() }
         remember(data, key)
-        writeToDisk(data, key, name: Self.fileName(for: attachment))
+        writeToDisk(data, key, name: name)
         return data
     }
 
@@ -118,7 +155,17 @@ public actor AttachmentCache {
     // MARK: - Names
 
     static func key(_ attachment: Attachment, _ size: AttachmentSize) -> String {
-        SHA256.hash(data: Data("\(size.rawValue)|\(attachment.id)".utf8))
+        digest("\(size.rawValue)|\(attachment.id)")
+    }
+
+    /// `emoji|` cannot collide with an attachment's key, whose prefix is a
+    /// size's raw value.
+    static func key(_ emoji: CustomEmojiRef) -> String {
+        digest("emoji|\(emoji.id)")
+    }
+
+    private static func digest(_ string: String) -> String {
+        SHA256.hash(data: Data(string.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
     }

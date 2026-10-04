@@ -10,13 +10,25 @@ extension AppEnvironment {
     struct NoSession: Error {}
 
     func makeAttachmentCache(in directory: URL?, engine: SyncEngine) -> AttachmentCache {
-        AttachmentCache(directory: directory) { [engine] attachment, size in
+        AttachmentCache(directory: directory, customEmojiFetch: { [engine] emoji in
+            try await engine.customEmojiImage(emoji)
+        }, fetch: { [engine] attachment, size in
             try await engine.attachmentData(attachment, size: size)
-        }
+        })
     }
 
     var canFetchAttachments: Bool {
         runningModel?.capabilities.canFetchAttachments == true
+    }
+
+    var canFetchCustomEmoji: Bool {
+        runningModel?.capabilities.canFetchCustomEmoji == true
+    }
+
+    /// Read through `self` at call time, for `loadAttachment(_:size:)`'s reason.
+    func loadCustomEmoji(_ emoji: CustomEmojiRef) async throws -> Data {
+        guard let attachments else { throw NoSession() }
+        return try await attachments.customEmojiData(for: emoji)
     }
 
     /// Read through `self` at call time, never captured: a view still on
