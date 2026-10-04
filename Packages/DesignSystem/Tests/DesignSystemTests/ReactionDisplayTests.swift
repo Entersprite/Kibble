@@ -44,6 +44,19 @@ struct ReactionDisplayTests {
         #expect(ReactionDisplay.imageRequest(for: Reaction(emoji: "👍", count: 1), canLoad: true) == nil)
     }
 
+    /// Review fix: a token arriving later changes the key, so a capsule on
+    /// screen retries; the same reference keeps the same key.
+    @Test func aTokenArrivingLaterChangesTheImageTaskKey() {
+        let bare = CustomEmojiRef(id: "e-1", shortcode: ":parrot:")
+        let tokened = CustomEmojiRef(id: "e-1", shortcode: ":parrot:", imageToken: "t")
+        let before = Reaction(emoji: bare.displayText, count: 1, customEmoji: bare)
+        let after = Reaction(emoji: tokened.displayText, count: 1, customEmoji: tokened)
+        #expect(ReactionDisplay.imageTaskKey(for: before, canLoad: true)
+            != ReactionDisplay.imageTaskKey(for: after, canLoad: true))
+        #expect(ReactionDisplay.imageTaskKey(for: after, canLoad: true)
+            == ReactionDisplay.imageTaskKey(for: after, canLoad: true))
+    }
+
     /// Review Focus 5: bytes that are not an image leave the shortcode.
     @Test func undecodableBytesGiveNoImage() {
         #expect(ReactionDisplay.image(from: Data("<html>refused</html>".utf8)) == nil)

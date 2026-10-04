@@ -53,6 +53,13 @@ enum ReactionDisplay {
         canLoad ? reaction.customEmoji : nil
     }
 
+    /// What the capsule's image load is keyed on: the whole reference, token
+    /// included, so a token that arrives with a later history load restarts
+    /// the load in a capsule already on screen. `nil` when nothing loads.
+    static func imageTaskKey(for reaction: Reaction, canLoad: Bool) -> CustomEmojiRef? {
+        imageRequest(for: reaction, canLoad: canLoad)
+    }
+
     /// Decoded small: a capsule never needs more than a few dozen pixels.
     /// `nil` for bytes ImageIO cannot read, which keeps the shortcode.
     static func image(from data: Data) -> CGImage? {
@@ -126,7 +133,7 @@ struct ReactionCapsule: View {
         .padding(.vertical, 2)
         .background(reaction.includesMe ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.quinary))
         .clipShape(Capsule())
-        .task(id: ReactionDisplay.imageRequest(for: reaction, canLoad: loadImage != nil)?.id) {
+        .task(id: ReactionDisplay.imageTaskKey(for: reaction, canLoad: loadImage != nil)) {
             guard let loadImage, image == nil,
                   let emoji = ReactionDisplay.imageRequest(for: reaction, canLoad: true)
             else { return }
