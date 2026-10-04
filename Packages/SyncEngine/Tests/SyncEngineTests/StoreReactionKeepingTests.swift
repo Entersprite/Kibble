@@ -12,6 +12,7 @@ struct StoreReactionKeepingTests {
     private func message(
         _ id: String,
         text: String = "hi",
+        isDeleted: Bool = false,
         reactions: [Reaction] = [],
         localID: String? = nil
     )
@@ -19,7 +20,7 @@ struct StoreReactionKeepingTests {
         Message(
             id: Message.ID(id), conversationID: conversation, threadID: MessageThread.ID("t-1"),
             sender: Member.ID("u-1"), text: text, createdAt: Date(timeIntervalSince1970: 1000),
-            reactions: reactions, localID: localID
+            isDeleted: isDeleted, reactions: reactions, localID: localID
         )
     }
 
@@ -44,6 +45,20 @@ struct StoreReactionKeepingTests {
         #expect(try stored(store, "m-2")?.reactions == thumbs)
     }
 
+    /// Fix round 1, Finding 1. The bridge maps no `messageDeleted`; a deletion
+    /// arrives as `messageUpdated` with `isDeleted` set
+    /// (`ChannelEventMapping.swift:143`), through this same case. Without the
+    /// `!isDeleted` guard, a tombstone would keep its stored reactions and
+    /// `MessageList` would draw live toggle buttons under "Message deleted".
+    @Test func aDeletionPushDropsTheReactions() throws {
+        let store = try ChatStore.inMemory()
+        try store.apply([.upsertMessage(message("m-1", reactions: thumbs))])
+        try store.apply([.upsertMessageKeepingReactions(message("m-1", isDeleted: true))])
+        let row = try #require(try stored(store, "m-1"))
+        #expect(row.isDeleted)
+        #expect(row.reactions == [])
+    }
+
     /// Review Focus 1.
     @Test func aHistoryPageReplacesReactions() throws {
         let store = try ChatStore.inMemory()
@@ -53,10 +68,13 @@ struct StoreReactionKeepingTests {
     }
 
     /// Review Focus 3: the echo replaces the optimistic row by `localID`, and
-    /// keeps only reactions stored under its own id.
+    /// keeps only reactions stored under its own id. The optimistic row
+    /// carries `thumbs` and the echo none, so a passing `reactions == []`
+    /// proves the optimistic row's reactions do not carry over to the
+    /// server id - not merely that both sides happened to be empty.
     @Test func theEchoOfASendStillReplacesTheOptimisticRow() throws {
         let store = try ChatStore.inMemory()
-        try store.apply([.upsertMessage(message("local/l-1", localID: "l-1"))])
+        try store.apply([.upsertMessage(message("local/l-1", reactions: thumbs, localID: "l-1"))])
         try store.apply([.upsertMessageKeepingReactions(message("m-real", localID: "l-1"))])
         let messages = try store.messages(in: conversation)
         #expect(messages.map(\.id.rawValue) == ["m-real"])

@@ -169,7 +169,10 @@ public extension ChatStore {
         switch write {
         case let .upsertMessageKeepingReactions(message):
             var kept = message
-            if let stored = try String.fetchOne(
+            // A tombstone takes its own (empty) reactions rather than what is
+            // stored - see `StoreWrite.upsertMessageKeepingReactions`'s doc
+            // comment for why a deletion arrives through this same case.
+            if !message.isDeleted, let stored = try String.fetchOne(
                 db, sql: "SELECT reactions FROM message WHERE id = ?", arguments: [message.id.rawValue]
             ) {
                 kept.reactions = try Wire.value([Reaction].self, from: stored)
