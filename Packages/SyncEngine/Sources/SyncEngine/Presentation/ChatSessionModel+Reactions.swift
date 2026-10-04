@@ -11,7 +11,7 @@ public extension ChatSessionModel {
     /// from `messages`: a GRDB `ValueObservation` refreshes `messages` only
     /// after its tracked query re-runs, asynchronously, so a second toggle
     /// issued before that refresh would fold against a row `store.apply` has
-    /// already superseded, lose the first toggle silently.
+    /// already superseded, losing the first toggle silently.
     ///
     /// The toggled set is written straight to the store, folded with
     /// `[Reaction].applying` - the same fold the fixture uses - and the command
@@ -21,17 +21,34 @@ public extension ChatSessionModel {
     /// (`ChatSessionModel.reactionTasks`/`reactionChainTail`), so two quick
     /// toggles reach the wire in the order they were clicked and `stop()` can
     /// cancel whichever is still running - the same reasoning as `markTasks`.
-    /// A refusal puts the previous set back and shows the error, in one
-    /// transaction (`SyncEngine.submit`).
     ///
-    /// **Known gap, accepted rather than fixed:** a refusal restores the
-    /// snapshot taken at its own click, so a late refusal can briefly erase a
-    /// later toggle's optimistic write until the next push or history load
-    /// corrects it (reactions spec §3).
+    /// **A refusal undoes by folding the inverse against the current row, not
+    /// by restoring a snapshot taken at click time.** `submitReaction` passes
+    /// `SyncEngine.submit` an empty `undoing:`, and on a `false` return - with
+    /// the task not itself cancelled - re-reads the message from the store and
+    /// writes `current.reactions.applying(choice, add: !add)`: the opposite of
+    /// this toggle, applied to whatever the row holds *now*. A snapshot goes
+    /// stale the moment a second toggle lands before the first's refusal
+    /// comes back: with the session expired, adding 🛞 then 👍 used to have
+    /// A's refusal restore the snapshot from before A's own click (wiping
+    /// 👍), then B's refusal restore the snapshot from before B's click
+    /// (putting 🛞 back) - a reaction the server never accepted, left behind
+    /// because each restore undid to a fixed point instead of undoing its own
+    /// effect. Folding the inverse against the current row undoes exactly one
+    /// toggle regardless of what else has landed since, the same reasoning
+    /// `[Reaction].applying`'s own idempotence exists for. The error is still
+    /// recorded and shown on refusal either way - `SyncEngine.submit` writes
+    /// `.setLastError` whether or not `undoing` is empty.
     ///
-    /// Does nothing for a message that has no server id yet (`local/`, the
-    /// optimistic send's prefix), for a toggle that would change nothing, and
-    /// on a backend that cannot react.
+    /// **Remaining limitation:** when an add and a remove of the *same* emoji
+    /// are both refused, their inverse folds are independent - neither knows
+    /// about the other's click - and can still leave a phantom entry (or drop
+    /// a real one) until the next push or history load corrects it.
+    ///
+    /// Does nothing: on a backend that cannot react (`capabilities.canReact`);
+    /// for a message that has no server id yet (`local/`, the optimistic
+    /// send's prefix); for a message not in the store, or a store read error
+    /// (`try? store.message`); and for a toggle that would change nothing.
     func react(to messageID: Message.ID, with choice: ReactionChoice, add: Bool) {
         guard capabilities.canReact,
               !messageID.rawValue.hasPrefix("local/"),
@@ -47,7 +64,7 @@ public extension ChatSessionModel {
                 conversationID: message.conversationID, threadID: message.threadID,
                 customEmoji: choice.customEmoji
             ),
-            undoing: [.setReactions(messageID: messageID, reactions: previous)]
+            messageID: messageID, choice: choice, add: add
         )
     }
 
@@ -59,13 +76,30 @@ public extension ChatSessionModel {
     /// still running - `reactionTasks` does not grow without bound because of
     /// that removal, and `reactionChainTail` (not itself in the dictionary) is
     /// the one handle `react` chains the next submission after.
-    private func submitReaction(_ command: ChatCommand, undoing writes: [StoreWrite]) {
+    ///
+    /// On refusal, folds the inverse of `choice`/`add` against whatever the
+    /// store holds *at that moment* - see `react(to:with:add:)`'s doc comment
+    /// for why that, rather than the snapshot taken at click time, is what
+    /// undoes correctly when toggles chain. Nothing is folded when the task
+    /// was itself cancelled first (`stop()`): a session that no longer owns
+    /// the store must not write to it, the same guard `markTasks` observes.
+    private func submitReaction(
+        _ command: ChatCommand,
+        messageID: Message.ID,
+        choice: ReactionChoice,
+        add: Bool
+    ) {
         let id = UUID()
         let previousTail = reactionChainTail
-        let task = Task { @MainActor [weak self, engine] in
+        let task = Task { @MainActor [weak self, engine, store] in
             _ = await previousTail?.value
             guard !Task.isCancelled else { return }
-            await engine.submit(command, undoing: writes)
+            let accepted = await engine.submit(command, undoing: [])
+            if !accepted, !Task.isCancelled, let current = try? store.message(messageID) {
+                try? store.apply([.setReactions(
+                    messageID: messageID, reactions: current.reactions.applying(choice, add: !add)
+                )])
+            }
             self?.reactionTasks.removeValue(forKey: id)
         }
         reactionTasks[id] = task

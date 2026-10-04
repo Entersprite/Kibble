@@ -21,6 +21,19 @@ struct ReactionShapes: Equatable {
     /// emoji carried one, so a field neither proto names still shows
     /// (`CLAUDE.md`: believe the walk).
     var emojiFields: [Int: Int] = [:]
+    /// Top-level field numbers inside each `Reaction` itself, from the same
+    /// byte walk one level up. A reactor-identity field would sit at the
+    /// `Reaction` level, not inside its `Emoji`, and `emojiFields`'s walk
+    /// cannot see it.
+    var reactionFields: [Int: Int] = [:]
+    /// How many reactions' `Emoji` could not be re-serialized for the byte
+    /// walk, so a failure reads as "none" never silently. **`[Verify]` this
+    /// ever happens** - every field the vendored proto declares on `Emoji`,
+    /// `CustomEmoji` and `Reaction` is `optional`, so nothing known today
+    /// makes `serializedBytes()` throw; counted anyway so a future required
+    /// field does not read as "walked, found nothing" instead of "could not
+    /// walk".
+    var walkFailures = 0
     /// The first message with a reaction: what the `list_messages` check asks
     /// for. Held, never printed.
     var firstReacted: ReactedMessage?
@@ -81,18 +94,27 @@ extension APIProbeReport {
             for number in Set(ProtoFieldScan.fields(in: bytes).fields.map(\.number)) {
                 shapes.emojiFields[number, default: 0] += 1
             }
+        } else {
+            shapes.walkFailures += 1
+        }
+        if let bytes: Data = try? reaction.serializedBytes() {
+            for number in Set(ProtoFieldScan.fields(in: bytes).fields.map(\.number)) {
+                shapes.reactionFields[number, default: 0] += 1
+            }
         }
     }
 
     static func reactionShapesLines(_ shapes: ReactionShapes) -> [String] {
-        [
+        let walkFailureSuffix = shapes.walkFailures > 0 ? " (walk failures \(shapes.walkFailures))" : ""
+        return [
             "  messages with reactions: \(shapes.withReactions)/\(shapes.messages)",
             "  reactions: \(shapes.reactions); unicode \(shapes.unicode), custom \(shapes.custom) "
                 + "(with ephemeral_url \(shapes.customWithURL)), neither \(shapes.neither)",
             "  current_user_participated: \(shapes.includesMe); create_timestamp present: "
                 + "\(shapes.withCreateTimestamp)",
             "  count values: \(reactionTally(shapes.countTally))",
-            "  Emoji fields (byte walk): \(reactionTally(shapes.emojiFields))"
+            "  Emoji fields (byte walk): \(reactionTally(shapes.emojiFields))\(walkFailureSuffix)",
+            "  Reaction fields (byte walk): \(reactionTally(shapes.reactionFields))"
         ]
     }
 

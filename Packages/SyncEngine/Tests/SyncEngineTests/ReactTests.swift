@@ -67,6 +67,23 @@ struct ReactTests {
         await harness.model.stop()
     }
 
+    /// The inverse-fold fix: a snapshot restore undoes to a fixed point, so a
+    /// second refusal can put back more than its own click added. Folding the
+    /// inverse of each toggle against whatever the store holds at refusal
+    /// time undoes exactly its own effect regardless of order, so two
+    /// different emoji - both refused, clicked with no settle between - still
+    /// end back at the original set.
+    @Test func twoRefusedTogglesOfDifferentEmojiEndAtTheOriginalSet() async throws {
+        let harness = try await running()
+        let before = try stored(harness)
+        await harness.backend.failSubmissions(true)
+        harness.model.react(to: harness.message.id, with: ReactionChoice(emoji: "🛞"), add: true)
+        harness.model.react(to: harness.message.id, with: ReactionChoice(emoji: "👍"), add: true)
+        await settleAutoMarkRead()
+        #expect(try stored(harness) == before)
+        await harness.model.stop()
+    }
+
     /// Review Focus 2: the second toggle folds against the first's write.
     @Test func twoQuickTogglesCancelOut() async throws {
         let harness = try await running()
@@ -157,6 +174,31 @@ struct ReactTests {
         // into a session that has already moved on.
         #expect(try stored(harness) == before.applying(ReactionChoice(emoji: "🛞"), add: true))
         #expect(try harness.store.lastError() == nil)
+    }
+
+    /// A chained toggle not yet sent when `stop()` runs must never reach the
+    /// backend afterward. Covers the `guard !Task.isCancelled` right after
+    /// `await previousTail?.value` and before `engine.submit` in
+    /// `submitReaction`: without it, a toggle queued behind one still held at
+    /// the backend would be submitted into a session that has already moved
+    /// on, the same trap `markTasks`' own guards close for marks.
+    @Test func stopBeforeAChainedReactionIsSentSendsNothingFurther() async throws {
+        let harness = try await running()
+        await harness.backend.holdSubmissions(true)
+        harness.model.react(to: harness.message.id, with: ReactionChoice(emoji: "🛞"), add: true)
+        harness.model.react(to: harness.message.id, with: ReactionChoice(emoji: "👍"), add: true)
+        await settleAutoMarkRead()
+        await harness.model.stop()
+        await harness.backend.releaseHeldSubmission()
+        await settleAutoMarkRead()
+        let setReactionCount = await harness.backend.commands.count {
+            if case .setReaction = $0 {
+                true
+            } else {
+                false
+            }
+        }
+        #expect(setReactionCount == 1)
     }
 
     /// Review Finding 2, the ordering half: a second toggle must not even

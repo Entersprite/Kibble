@@ -19,11 +19,16 @@ struct ReactionProbeTests {
         return message
     }
 
-    private func unicode(_ text: String, count: Int32, mine: Bool = false) -> GChatBridgeCore.Reaction {
+    private func unicode(
+        _ text: String, count: Int32, mine: Bool = false, createTimestamp: Int64? = nil
+    ) -> GChatBridgeCore.Reaction {
         var reaction = GChatBridgeCore.Reaction()
         reaction.emoji.unicode = text
         reaction.count = count
         reaction.currentUserParticipated = mine
+        if let createTimestamp {
+            reaction.createTimestamp = createTimestamp
+        }
         return reaction
     }
 
@@ -38,23 +43,40 @@ struct ReactionProbeTests {
         return reaction
     }
 
+    /// Neither a unicode string nor a custom emoji - an `Emoji` with nothing
+    /// set, the shape `shapes.neither` exists to count.
+    private func neither(count: Int32) -> GChatBridgeCore.Reaction {
+        var reaction = GChatBridgeCore.Reaction()
+        reaction.count = count
+        return reaction
+    }
+
     @Test func itCountsKindsAndTalliesCounts() {
         let shapes = APIProbeReport.reactionShapes([
             message(
                 id: "m-1",
-                reactions: [unicode("👍", count: 2, mine: true), custom(url: "https://x.invalid/e", count: 1)]
+                reactions: [
+                    unicode("👍", count: 2, mine: true),
+                    custom(url: "https://x.invalid/e", count: 1),
+                    neither(count: 1)
+                ]
             ),
             message(id: "m-2", reactions: []),
-            message(id: "m-3", reactions: [unicode("🎉", count: 1)])
+            message(id: "m-3", reactions: [unicode("🎉", count: 1, createTimestamp: 1_700_000_000)])
         ])
         #expect(shapes.messages == 3)
         #expect(shapes.withReactions == 2)
-        #expect(shapes.reactions == 3)
+        #expect(shapes.reactions == 4)
         #expect(shapes.unicode == 2)
         #expect(shapes.custom == 1)
         #expect(shapes.customWithURL == 1)
+        #expect(shapes.neither == 1)
         #expect(shapes.includesMe == 1)
-        #expect(shapes.countTally == [1: 2, 2: 1])
+        #expect(shapes.withCreateTimestamp == 1)
+        #expect(shapes.countTally == [1: 3, 2: 1])
+        // Two unicode emoji (field 1) and one custom (field 2); `neither`'s
+        // empty `Emoji` serializes to zero bytes and contributes to neither.
+        #expect(shapes.emojiFields == [1: 2, 2: 1])
         #expect(shapes.firstReacted?.messageID == "m-1")
         #expect(shapes.firstCustomURL == "https://x.invalid/e")
     }
@@ -98,6 +120,36 @@ struct ReactionProbeTests {
         let text = APIProbeReport.attachmentFetchLines(label: "ephemeral_url", outcome: .success(fetched))
             .joined(separator: "\n")
         #expect(!text.contains("secret"))
+    }
+
+    /// `CLAUDE.md`: "believe the walk" - a field neither this repo's vendored
+    /// proto nor purple's names still has to show up, because the next field
+    /// Google adds to `Emoji` will not be in either until someone notices it
+    /// on the wire. Built by hand rather than through the generated setters,
+    /// since no setter exists for a field the message does not declare: field
+    /// 9, wire type 2 (length-delimited), a 3-byte payload. Decoding through
+    /// `Emoji(serializedBytes:)` is what exercises the real path - SwiftProtobuf
+    /// keeps an unrecognised field in `unknownFields` and re-emits it on the
+    /// next `serializedBytes()`, which is what `reactionShapes` then walks.
+    @Test func anEmojiWithAnUnnamedFieldStillShowsInTheWalk() throws {
+        let fieldNineLengthDelimited = Data([0x4A, 0x03, 0x01, 0x02, 0x03])
+        let emoji = try GChatBridgeCore.Emoji(serializedBytes: fieldNineLengthDelimited)
+        var reaction = GChatBridgeCore.Reaction()
+        reaction.emoji = emoji
+        reaction.count = 1
+        let shapes = APIProbeReport.reactionShapes([message(id: "m-1", reactions: [reaction])])
+        #expect(shapes.emojiFields[9] == 1)
+    }
+
+    /// The `Reaction`-level sibling of the test above: a reactor-identity
+    /// field would sit here, one level above `Emoji`, which is exactly the
+    /// byte walk `emojiFields` cannot reach - hence `reactionFields` as its
+    /// own tally. Field 10, wire type 0 (varint), value 5.
+    @Test func aReactionWithAnUnnamedFieldShowsInTheReactionWalk() throws {
+        let fieldTenVarint = Data([0x50, 0x05])
+        let reaction = try GChatBridgeCore.Reaction(serializedBytes: fieldTenVarint)
+        let shapes = APIProbeReport.reactionShapes([message(id: "m-1", reactions: [reaction])])
+        #expect(shapes.reactionFields[10] == 1)
     }
 
     @Test func aMessageWithNoReactionsAnywhereSaysSo() {
