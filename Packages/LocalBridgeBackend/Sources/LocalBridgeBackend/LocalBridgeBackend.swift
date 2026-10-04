@@ -40,9 +40,12 @@ public actor LocalBridgeBackend: ChatBackend {
     /// shape. `receivesReadReceipts` stays false and is a different claim -
     /// it is about *other people's* read positions, which nothing here maps.
     /// `canDownloadFiles` is backed by `findings.md` §52.10's live download.
+    /// `canReact` is true: `.setReaction` posts through `update_reaction`
+    /// (`LocalBridgeBackend+Reactions.swift`), `[Verify]` until a live toggle
+    /// confirms the shape.
     public nonisolated let capabilities = Capabilities(
-        canSendMessages: true, canMarkRead: true, supportsThreads: true, canFetchAttachments: true,
-        canDownloadFiles: true
+        canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
+        canFetchAttachments: true, canDownloadFiles: true
     )
 
     public nonisolated let events: AsyncStream<ChatEvent>
