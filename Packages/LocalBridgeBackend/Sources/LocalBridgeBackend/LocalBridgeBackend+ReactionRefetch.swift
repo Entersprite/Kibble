@@ -36,7 +36,8 @@ extension LocalBridgeBackend {
         }
     }
 
-    /// `disconnect()` calls this: nothing waits or fetches into the next session.
+    /// `disconnect()` and `channelStopped` both call this: nothing waits or
+    /// fetches into the next session.
     func forgetReactionRefetches() {
         reactionRefetches.tasks.values.forEach { $0.cancel() }
         reactionRefetches = ReactionRefetches()

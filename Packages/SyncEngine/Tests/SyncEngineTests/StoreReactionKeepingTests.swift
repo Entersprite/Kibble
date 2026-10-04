@@ -80,4 +80,18 @@ struct StoreReactionKeepingTests {
         #expect(messages.map(\.id.rawValue) == ["m-real"])
         #expect(messages.first?.reactions == [])
     }
+
+    /// Final review: `.markMessageDeleted` is the other deletion path - the
+    /// one `ChatStore.perform(_:in:)` routes straight to SQL rather than
+    /// through `upsertMessageKeepingReactions`'s `!isDeleted` guard above.
+    /// Before this fix its UPDATE cleared `text` and `mentions` but not
+    /// `reactions`, so a tombstone reached this way kept live toggle buttons.
+    @Test func markingADeletionDropsTheReactions() throws {
+        let store = try ChatStore.inMemory()
+        try store.apply([.upsertMessage(message("m-1", reactions: thumbs))])
+        try store.apply([.markMessageDeleted(id: Message.ID("m-1"), in: conversation)])
+        let row = try #require(try stored(store, "m-1"))
+        #expect(row.isDeleted)
+        #expect(row.reactions == [])
+    }
 }

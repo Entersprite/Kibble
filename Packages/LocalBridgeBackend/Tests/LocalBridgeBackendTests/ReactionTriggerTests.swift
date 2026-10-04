@@ -35,9 +35,16 @@ struct ReactionTriggerTests {
     /// `message_id`; `MessageId` 1 parent / 2 id; `MessageParentId` 4 topic;
     /// `TopicId` 2 id / 3 group; `GroupId` 1 space; `SpaceId` 1. Field numbers
     /// from the vendored proto, values invented.
-    private func reactedBody(type: Int = 24, messageID: String? = "m-1", topicID: String? = "t-1") -> String {
-        let group = padded([1: padded([1: quoted("s-1")], upTo: 1)], upTo: 3)
-        let topic = padded([2: topicID.map(quoted), 3: group].compactMapValues { $0 }, upTo: 3)
+    ///
+    /// `group` defaults to space `s-1`; pass the all-null shape
+    /// (`padded([:], upTo: 3)`) to name a group with neither a space nor a
+    /// DM id, which is the shape `aGroupNamingNeitherASpaceNorADMIsNoTrigger`
+    /// below needs.
+    private func reactedBody(
+        type: Int = 24, messageID: String? = "m-1", topicID: String? = "t-1", group: String? = nil
+    ) -> String {
+        let resolvedGroup = group ?? padded([1: padded([1: quoted("s-1")], upTo: 1)], upTo: 3)
+        let topic = padded([2: topicID.map(quoted), 3: resolvedGroup].compactMapValues { $0 }, upTo: 3)
         let identifier = padded(
             [1: padded([4: topic], upTo: 4), 2: messageID.map(quoted)].compactMapValues { $0 },
             upTo: 2
@@ -65,6 +72,16 @@ struct ReactionTriggerTests {
     @Test(arguments: [(String?.none, Optional("t-1")), (Optional("m-1"), String?.none)])
     func aReactionWithoutAnAddressIsNoTrigger(_ messageID: String?, _ topicID: String?) throws {
         #expect(try reacted(reactedBody(messageID: messageID, topicID: topicID)) == nil)
+    }
+
+    /// Final review: every other test here uses space `s-1`, so
+    /// `reactedMessage(in:)`'s `conversationID(...) != nil` condition had no
+    /// test that could fail without it. A `GroupId` naming neither a space
+    /// nor a DM - `conversationID(_:)`'s `default: nil` branch - names
+    /// nowhere to refetch from.
+    @Test func aGroupNamingNeitherASpaceNorADMIsNoTrigger() throws {
+        let noGroup = padded([:], upTo: 3)
+        #expect(try reacted(reactedBody(group: noGroup)) == nil)
     }
 
     /// Nothing is dropped: the event still maps to `.unknown` as before.

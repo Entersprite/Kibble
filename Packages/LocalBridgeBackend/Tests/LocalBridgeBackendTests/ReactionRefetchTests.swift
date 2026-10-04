@@ -145,6 +145,56 @@ struct ReactionRefetchTests: SenderResolutionFixtures {
         #expect(await transport.listMessagesCalls == 2)
     }
 
+    /// Final review: the post-fetch `guard !Task.isCancelled, generation ==
+    /// directoryGeneration` (after `await apiClient.call`) had no test. A
+    /// fetch that was already in flight when `disconnect()` ran must not
+    /// emit once Google finally answers it - the call was made for a session
+    /// that no longer exists.
+    @Test func disconnectingDuringAFetchEmitsNothing() async throws {
+        let transport = RefetchTransport(shell: shell(), answer: answer(reactions: [thumbs(1)]))
+        await transport.hold(true)
+        let backend = backend(transport, delay: .zero)
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+        await backend.requestReactionRefetch(target())
+        // The fetch is in flight, held, by the time this returns.
+        _ = await log.settle()
+        await backend.disconnect()
+        await transport.hold(false)
+        await transport.release()
+        let events = await log.settle()
+        #expect(reactionChanges(events).isEmpty)
+        #expect(await transport.listMessagesCalls == 1)
+    }
+
+    /// Final review, the clobber the guard's doc comment warns about: an old
+    /// session's fetch, left running across a disconnect and reconnect, must
+    /// not land on top of the new session's own refetch of the same message.
+    /// Both calls answer the same way (`RefetchTransport` has one `answer`),
+    /// so without the guard the old call's late response emits a second
+    /// `.reactionChanged` and re-finishes a phase entry the new fetch is
+    /// still using.
+    @Test func reconnectingDuringAFetchDoesNotClobberTheNewSessionsRefetch() async throws {
+        let transport = RefetchTransport(shell: shell(), answer: answer(reactions: [thumbs(1)]))
+        await transport.hold(true)
+        let backend = backend(transport, delay: .zero)
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+        await backend.requestReactionRefetch(target())
+        // The old session's fetch is in flight, held.
+        _ = await log.settle()
+        await backend.disconnect()
+        try await backend.connect()
+        await backend.requestReactionRefetch(target())
+        // The new session's fetch is in flight too, held right behind it.
+        _ = await log.settle()
+        await transport.hold(false)
+        await transport.release()
+        let events = await log.settle()
+        #expect(reactionChanges(events) == [[ChatKit.Reaction(emoji: "👍", count: 1)]])
+        #expect(await transport.listMessagesCalls == 2)
+    }
+
     @Test func aMessageNotOnThePageEmitsNothing() async throws {
         let transport = RefetchTransport(shell: shell(), answer: nil)
         let backend = backend(transport, delay: .zero)
