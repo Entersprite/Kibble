@@ -32,3 +32,32 @@ enum ReactionMapping {
         return ChatKit.Reaction(emoji: emoji.unicode, count: count, includesMe: wire.currentUserParticipated)
     }
 }
+
+/// What a `MESSAGE_REACTED` body names: the message to refetch, and the topic
+/// to refetch it from (`list_messages`' parent, `findings.md` §53.2).
+struct ReactedMessage: Equatable {
+    let messageID: ChatKit.Message.ID
+    let parent: MessageParentId
+}
+
+extension ChannelEventMapping {
+    /// The trigger for a reaction refetch, or `nil`.
+    ///
+    /// **Type 24 only, `[Verify]`.** No run has yet shown which event a
+    /// reaction pushes (`findings.md` §53.3); 24 is the one every proto names.
+    /// Dispatch is on the tag, never the body (§12.1.3). A body without a
+    /// message id or a topic names nothing to refetch.
+    static func reactedMessage(in body: ChannelEventBody) -> ReactedMessage? {
+        guard body.typeTag == 24 else { return nil }
+        let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
+        guard case let .messageReaction(event)? = decoded.message.type else { return nil }
+        let identifier = event.messageID
+        guard !identifier.messageID.isEmpty, !identifier.parentID.topicID.topicID.isEmpty,
+              conversationID(identifier.parentID.topicID.groupID) != nil
+        else { return nil }
+        return ReactedMessage(
+            messageID: ChatKit.Message.ID(identifier.messageID),
+            parent: identifier.parentID
+        )
+    }
+}
