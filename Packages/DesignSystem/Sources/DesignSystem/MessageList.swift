@@ -46,6 +46,10 @@ public struct MessageList: View {
     /// honour).
     let downloads: [String: AttachmentDownloadState]
     let attachmentFiles: AttachmentFileActions?
+    /// `ChatSceneActions.reactions`, handed down to each bubble. `nil` draws
+    /// a read-only row and no context menu (`CLAUDE.md`: never draw a
+    /// control the seam cannot honour).
+    let reactions: ReactionActions?
 
     /// The last target this list scrolled to, so that it is honoured once.
     /// `@State` is enough: opening a mention always passes through the
@@ -58,13 +62,15 @@ public struct MessageList: View {
         loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
         openAttachment: ((Attachment) async throws -> URL)? = nil,
         downloads: [String: AttachmentDownloadState] = [:],
-        attachmentFiles: AttachmentFileActions? = nil
+        attachmentFiles: AttachmentFileActions? = nil,
+        reactions: ReactionActions? = nil
     ) {
         self.state = state
         self.loadAttachment = loadAttachment
         self.openAttachment = openAttachment
         self.downloads = downloads
         self.attachmentFiles = attachmentFiles
+        self.reactions = reactions
     }
 
     public var body: some View {
@@ -75,7 +81,8 @@ public struct MessageList: View {
                         MessageBubble(
                             message: message, state: state,
                             loadAttachment: loadAttachment, openAttachment: openAttachment,
-                            downloads: downloads, attachmentFiles: attachmentFiles
+                            downloads: downloads, attachmentFiles: attachmentFiles,
+                            reactions: reactions
                         )
                         .id(message.id)
                     }
@@ -118,6 +125,7 @@ struct MessageBubble: View {
     var openAttachment: ((Attachment) async throws -> URL)?
     var downloads: [String: AttachmentDownloadState] = [:]
     var attachmentFiles: AttachmentFileActions?
+    var reactions: ReactionActions?
 
     private var parts: AttachmentLayout.Parts {
         AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
@@ -181,9 +189,15 @@ struct MessageBubble: View {
                     }
                 }
                 if !message.reactions.isEmpty {
-                    ReactionRow(reactions: message.reactions)
+                    ReactionRow(
+                        reactions: message.reactions,
+                        toggle: reactions.map { actions in
+                            { choice, add in actions.toggle(message.id, choice, add) }
+                        }
+                    )
                 }
             }
+            .modifier(ReactionMenu(message: message, actions: reactions))
             if !isMine {
                 Spacer(minLength: 60)
             }
@@ -235,27 +249,6 @@ struct MessageBubble: View {
             .background(isMine ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quinary))
             .foregroundStyle(isMine ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .clipShape(RoundedRectangle(cornerRadius: 14))
-        }
-    }
-}
-
-struct ReactionRow: View {
-    let reactions: [Reaction]
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(reactions, id: \.emoji) { reaction in
-                HStack(spacing: 3) {
-                    Text(reaction.emoji)
-                    Text("\(reaction.count)").monospacedDigit()
-                }
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(reaction.includesMe ? AnyShapeStyle(.tint.opacity(0.18))
-                    : AnyShapeStyle(.quinary))
-                .clipShape(Capsule())
-            }
         }
     }
 }

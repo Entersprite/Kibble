@@ -230,6 +230,11 @@ public struct ChatSceneActions {
     /// files draws a plain label instead of a click that goes nowhere.
     public var attachmentFiles: AttachmentFileActions?
 
+    /// Toggle a reaction, from a capsule or the bubble's menu. **Optional,
+    /// and `nil` is the point**: a backend that cannot react gets a read-only
+    /// row and no menu.
+    public var reactions: ReactionActions?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
@@ -245,7 +250,8 @@ public struct ChatSceneActions {
         openMention: ((Conversation.ID, Message.ID) -> Void)? = nil,
         loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
         openAttachment: ((Attachment) async throws -> URL)? = nil,
-        attachmentFiles: AttachmentFileActions? = nil
+        attachmentFiles: AttachmentFileActions? = nil,
+        reactions: ReactionActions? = nil
     ) {
         self.select = select
         self.send = send
@@ -262,5 +268,6 @@ public struct ChatSceneActions {
         self.loadAttachment = loadAttachment
         self.openAttachment = openAttachment
         self.attachmentFiles = attachmentFiles
+        self.reactions = reactions
     }
 }
