@@ -191,6 +191,23 @@ struct CommandTests {
         #expect(reactions == [Reaction(emoji: "👍", count: 1, includesMe: true)])
     }
 
+    /// A custom reaction is appended with its identity, so the row can tell
+    /// two `:parrot:`s apart.
+    @Test func aCustomReactionIsAddedByIdentity() async throws {
+        let (backend, collector) = try await connected()
+        let parrot = CustomEmojiRef(id: "e-1", shortcode: ":parrot:")
+
+        try await backend.send(.setReaction(
+            messageID: seed, emoji: parrot.displayText, add: true, customEmoji: parrot
+        ))
+
+        guard case let .reactionChanged(_, reactions) = await collector.nextOne() else {
+            Issue.record("expected reactionChanged")
+            return
+        }
+        #expect(reactions == [Reaction(emoji: ":parrot:", count: 1, includesMe: true, customEmoji: parrot)])
+    }
+
     @Test func removingTheLastReactionRemovesTheEntry() async throws {
         let (backend, collector) = try await connected()
 

@@ -244,6 +244,14 @@ extension Fixture {
         Sample("command-deleteMessage", .deleteMessage(id: messageID)),
         Sample("command-setReaction", .setReaction(messageID: messageID, emoji: "🛞", add: true)),
         Sample(
+            "command-setReaction-addressed",
+            .setReaction(
+                messageID: messageID, emoji: ":party-parrot:", add: false,
+                conversationID: spaceID, threadID: threadID,
+                customEmoji: CustomEmojiRef(id: "custom-emoji-uuid-1", shortcode: ":party-parrot:")
+            )
+        ),
+        Sample(
             "command-setTyping",
             .setTyping(conversationID: spaceID, threadID: threadID, isTyping: false)
         ),

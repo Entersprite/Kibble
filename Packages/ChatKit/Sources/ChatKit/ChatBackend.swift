@@ -121,6 +121,10 @@ public protocol ChatBackend: Sendable {
         to destination: URL,
         progress: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws
+
+    /// A custom emoji's image. **A requirement, not only an extension
+    /// method**, for the reason `attachmentData(_:size:)` gives.
+    func customEmojiImage(_ emoji: CustomEmojiRef) async throws -> Data
 }
 
 /// Separate from the protocol body only so the default can sit beside it.
@@ -146,5 +150,11 @@ public extension ChatBackend {
         _: Attachment, to _: URL, progress _: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws {
         throw ChatError.unsupported(capability: "canDownloadFiles")
+    }
+
+    /// Refuses, so a backend that has not thought about custom emoji draws
+    /// their shortcodes, the direction `Capabilities` defaults in.
+    func customEmojiImage(_: CustomEmojiRef) async throws -> Data {
+        throw ChatError.unsupported(capability: "canFetchCustomEmoji")
     }
 }

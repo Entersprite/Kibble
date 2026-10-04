@@ -28,8 +28,9 @@ public extension FakeBackend {
             try editMessage(id, text: text)
         case let .deleteMessage(id):
             try deleteMessage(id)
-        case let .setReaction(messageID, emoji, add):
-            try setReaction(on: messageID, emoji: emoji, add: add)
+        case let .setReaction(messageID, emoji, add, _, _, customEmoji):
+            let choice = customEmoji.map(ReactionChoice.init(customEmoji:)) ?? ReactionChoice(emoji: emoji)
+            try setReaction(on: messageID, choice: choice, add: add)
         case let .setTyping(conversationID, _, _):
             try setTyping(in: conversationID)
         case let .markRead(conversationID, upTo):
@@ -106,17 +107,10 @@ private extension FakeBackend {
         emit(.messageDeleted(id: id, in: deleted.conversationID))
     }
 
-    func setReaction(on id: Message.ID, emoji: String, add: Bool) throws {
+    func setReaction(on id: Message.ID, choice: ReactionChoice, add: Bool) throws {
         try require(capabilities.canReact, "canReact")
-        let me = world.me
         let updated = try updateMessage(id) { message in
-            Self.applyReaction(
-                emoji: emoji,
-                add: add,
-                by: me,
-                isLocalUser: true,
-                to: &message.reactions
-            )
+            message.reactions = message.reactions.applying(choice, add: add)
         }
         // The complete set, not a diff: reaction counts are small, and a diff
         // would need ordering guarantees this protocol does not offer.
