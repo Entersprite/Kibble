@@ -137,6 +137,12 @@ public final class ChatSessionModel {
     /// above: read and written from `ChatSessionModel+AutoMarkRead.swift`.
     var markGeneration: [Conversation.ID: Int] = [:]
 
+    /// Reaction submissions, chained in click order; each removes itself from
+    /// here when done. `reactionChainTail` is the one the next chains after.
+    /// `ChatSessionModel+Reactions.swift`'s business; `stop()` cancels them.
+    var reactionTasks: [UUID: Task<Void, Never>] = [:]
+    var reactionChainTail: Task<Void, Never>?
+
     /// The text of a send that was not accepted, and the conversation it was
     /// typed in.
     ///
@@ -284,6 +290,11 @@ public final class ChatSessionModel {
             task.cancel()
         }
         markTasks = [:]
+        for task in reactionTasks.values {
+            task.cancel()
+        }
+        reactionTasks = [:]
+        reactionChainTail = nil
         // Unreachable today - a fresh model is built per session - but a
         // stale watermark or a retained draft from the account being signed
         // out of must not survive into a model reused for the next sign-in.

@@ -18,6 +18,17 @@ public extension ChatStore {
         try database.read { db in try Self.fetchMessages(conversation, db) }
     }
 
+    /// One message by id, read straight from the database rather than from
+    /// whatever a `ValueObservation` has last delivered.
+    ///
+    /// `ChatSessionModel.react` needs this: its observation of `messages`
+    /// refreshes only after its tracked query re-runs, asynchronously, so a
+    /// second toggle issued before that refresh would otherwise fold against a
+    /// row `store.apply` has already superseded.
+    func message(_ id: Message.ID) throws -> Message? {
+        try database.read { db in try Self.fetchMessage(id, db) }
+    }
+
     func members() throws -> [Member] {
         try database.read(Self.fetchMembers)
     }
@@ -147,6 +158,13 @@ extension ChatStore {
             .filter(Column("conversationID") == conversation.rawValue)
             .order(Column("createdAt").asc, Column("id").asc)
             .fetchAll(db)
+            .map { try $0.message }
+    }
+
+    static func fetchMessage(_ id: Message.ID, _ db: Database) throws -> Message? {
+        try MessageRow
+            .filter(Column("id") == id.rawValue)
+            .fetchOne(db)
             .map { try $0.message }
     }
 
