@@ -33,10 +33,15 @@ public extension LocalBridgeBackend {
             try await markRead(conversationID, upTo: upTo)
         case let .watchPresence(members):
             watchPresence(members)
+        case let .setReaction(messageID, emoji, add, conversationID, threadID, customEmoji):
+            try await setReaction(
+                messageID: messageID, emoji: emoji, add: add,
+                conversationID: conversationID, threadID: threadID, customEmoji: customEmoji
+            )
         // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
         // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
         // until someone decides whether this backend can honour it.
-        case .editMessage, .deleteMessage, .setReaction, .setTyping,
+        case .editMessage, .deleteMessage, .setTyping,
              .setNotificationLevel, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }

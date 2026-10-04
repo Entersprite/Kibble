@@ -144,3 +144,12 @@ public extension APIMethod where Request == MarkGroupReadstateRequest,
         Self("mark_group_readstate")
     }
 }
+
+public extension APIMethod where Request == UpdateReactionRequest, Response == UpdateReactionResponse {
+    /// Adding or removing one reaction - `ReactionRequests.updateReaction`.
+    /// `purple` declares it (`googlechat_connection.h:110`) and never calls
+    /// it; `maugclib` does (`client.py:754-759`). `[Verify]` until a live run.
+    static var updateReaction: Self {
+        Self("update_reaction")
+    }
+}

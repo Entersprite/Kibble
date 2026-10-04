@@ -25,6 +25,7 @@ struct CapabilitiesTests {
         #expect(capabilities.supportsHistoryCatchUp == false)
         #expect(capabilities.canFetchAttachments == false)
         #expect(capabilities.canDownloadFiles == false)
+        #expect(capabilities.canFetchCustomEmoji == false)
         #expect(capabilities.extendedFlags.isEmpty)
     }
 

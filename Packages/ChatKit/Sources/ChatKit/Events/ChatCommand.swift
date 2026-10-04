@@ -36,7 +36,21 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// `add: false` removes the reaction. One command rather than two because
     /// the backend call is one call, and a client toggling a button should not
     /// have to know which direction it is going twice.
-    case setReaction(messageID: Message.ID, emoji: String, add: Bool)
+    ///
+    /// `conversationID` and `threadID` address the message: Google's
+    /// `update_reaction` names a message by group, topic and id, and a backend
+    /// holds no store to look them up in. Optional on the wire, because a
+    /// frame from before they existed must still decode; a backend that needs
+    /// them and is not given them refuses the command. `customEmoji` is set for
+    /// a workspace's custom emoji, and then `emoji` holds its `displayText`.
+    case setReaction(
+        messageID: Message.ID,
+        emoji: String,
+        add: Bool,
+        conversationID: Conversation.ID? = nil,
+        threadID: MessageThread.ID? = nil,
+        customEmoji: CustomEmojiRef? = nil
+    )
 
     /// Typing state is a claim about *now*, so it has no timestamp and no
     /// delivery guarantee. A backend whose `Capabilities.canSendTypingState` is
@@ -78,6 +92,7 @@ extension ChatCommand {
         case messageID
         case emoji
         case add
+        case customEmoji
         case isTyping
         case upTo
         case level
@@ -132,7 +147,10 @@ extension ChatCommand {
             try .setReaction(
                 messageID: container.decode(Message.ID.self, forKey: .messageID),
                 emoji: container.decode(String.self, forKey: .emoji),
-                add: container.decode(Bool.self, forKey: .add)
+                add: container.decode(Bool.self, forKey: .add),
+                conversationID: container.decodeIfPresent(Conversation.ID.self, forKey: .conversationID),
+                threadID: container.decodeIfPresent(MessageThread.ID.self, forKey: .threadID),
+                customEmoji: container.decodeIfPresent(CustomEmojiRef.self, forKey: .customEmoji)
             )
         default:
             nil
@@ -205,11 +223,14 @@ extension ChatCommand {
         case let .deleteMessage(id):
             try container.encode(Tag.deleteMessage.rawValue, forKey: .type)
             try container.encode(id, forKey: .id)
-        case let .setReaction(messageID, emoji, add):
+        case let .setReaction(messageID, emoji, add, conversationID, threadID, customEmoji):
             try container.encode(Tag.setReaction.rawValue, forKey: .type)
             try container.encode(messageID, forKey: .messageID)
             try container.encode(emoji, forKey: .emoji)
             try container.encode(add, forKey: .add)
+            try container.encodeIfPresent(conversationID, forKey: .conversationID)
+            try container.encodeIfPresent(threadID, forKey: .threadID)
+            try container.encodeIfPresent(customEmoji, forKey: .customEmoji)
         default:
             return false
         }

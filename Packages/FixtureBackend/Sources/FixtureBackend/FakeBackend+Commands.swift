@@ -28,8 +28,9 @@ public extension FakeBackend {
             try editMessage(id, text: text)
         case let .deleteMessage(id):
             try deleteMessage(id)
-        case let .setReaction(messageID, emoji, add):
-            try setReaction(on: messageID, emoji: emoji, add: add)
+        case let .setReaction(messageID, emoji, add, _, _, customEmoji):
+            let choice = customEmoji.map(ReactionChoice.init(customEmoji:)) ?? ReactionChoice(emoji: emoji)
+            try setReaction(on: messageID, choice: choice, add: add)
         case let .setTyping(conversationID, _, _):
             try setTyping(in: conversationID)
         case let .markRead(conversationID, upTo):
@@ -106,17 +107,10 @@ private extension FakeBackend {
         emit(.messageDeleted(id: id, in: deleted.conversationID))
     }
 
-    func setReaction(on id: Message.ID, emoji: String, add: Bool) throws {
+    func setReaction(on id: Message.ID, choice: ReactionChoice, add: Bool) throws {
         try require(capabilities.canReact, "canReact")
-        let me = world.me
         let updated = try updateMessage(id) { message in
-            Self.applyReaction(
-                emoji: emoji,
-                add: add,
-                by: me,
-                isLocalUser: true,
-                to: &message.reactions
-            )
+            message.reactions = message.reactions.applying(choice, add: add)
         }
         // The complete set, not a diff: reaction counts are small, and a diff
         // would need ordering guarantees this protocol does not offer.
@@ -149,7 +143,8 @@ extension FakeBackend {
     /// Idempotent in both directions: reacting twice is one reaction, and
     /// removing one that was never there changes nothing. The real protocol
     /// behaves that way because the client's button is a toggle over state it
-    /// may not have seen yet.
+    /// may not have seen yet. Delegates to `[Reaction].applying`, the fold the
+    /// optimistic write uses.
     static func applyReaction(
         emoji: String,
         add: Bool,
@@ -157,29 +152,6 @@ extension FakeBackend {
         isLocalUser: Bool,
         to reactions: inout [Reaction]
     ) {
-        let index = reactions.firstIndex { $0.emoji == emoji }
-        switch (add, index) {
-        case let (true, existing?):
-            guard !isLocalUser || !reactions[existing].includesMe else { return }
-            reactions[existing].count += 1
-            reactions[existing].includesMe = reactions[existing].includesMe || isLocalUser
-        case (true, nil):
-            reactions.append(Reaction(emoji: emoji, count: 1, includesMe: isLocalUser))
-        case let (false, existing?):
-            guard !isLocalUser || reactions[existing].includesMe else { return }
-            // The tally goes through a local rather than being compared in
-            // place: swiftlint's empty_count reads `…count <= 0` as a
-            // collection emptiness check, and this is a reaction tally.
-            let remaining = reactions[existing].count - 1
-            reactions[existing].count = remaining
-            if isLocalUser {
-                reactions[existing].includesMe = false
-            }
-            if remaining < 1 {
-                reactions.remove(at: existing)
-            }
-        case (false, nil):
-            return
-        }
+        reactions = reactions.applying(ReactionChoice(emoji: emoji), add: add, isLocalUser: isLocalUser)
     }
 }

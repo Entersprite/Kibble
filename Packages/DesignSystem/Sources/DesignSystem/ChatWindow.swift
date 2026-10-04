@@ -42,7 +42,8 @@ public struct ChatWindow: View {
                         loadAttachment: actions.loadAttachment,
                         openAttachment: actions.openAttachment,
                         downloads: state.downloads,
-                        attachmentFiles: actions.attachmentFiles
+                        attachmentFiles: actions.attachmentFiles,
+                        reactions: actions.reactions
                     )
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {

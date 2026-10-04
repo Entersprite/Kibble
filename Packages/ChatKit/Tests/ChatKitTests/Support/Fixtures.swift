@@ -69,6 +69,11 @@ enum Fixture {
 
     static let reaction = Reaction(emoji: "🛞", count: 3, includesMe: true)
 
+    static let customReaction = Reaction(
+        emoji: ":party-parrot:", count: 2, includesMe: false,
+        customEmoji: CustomEmojiRef(id: "custom-emoji-uuid-1", shortcode: ":party-parrot:")
+    )
+
     static let attachment = Attachment(
         id: "attachment-data-ref-1",
         name: "invoice.pdf",
@@ -238,6 +243,14 @@ extension Fixture {
         Sample("command-editMessage", .editMessage(id: messageID, text: "Corrected.")),
         Sample("command-deleteMessage", .deleteMessage(id: messageID)),
         Sample("command-setReaction", .setReaction(messageID: messageID, emoji: "🛞", add: true)),
+        Sample(
+            "command-setReaction-addressed",
+            .setReaction(
+                messageID: messageID, emoji: ":party-parrot:", add: false,
+                conversationID: spaceID, threadID: threadID,
+                customEmoji: CustomEmojiRef(id: "custom-emoji-uuid-1", shortcode: ":party-parrot:")
+            )
+        ),
         Sample(
             "command-setTyping",
             .setTyping(conversationID: spaceID, threadID: threadID, isTyping: false)

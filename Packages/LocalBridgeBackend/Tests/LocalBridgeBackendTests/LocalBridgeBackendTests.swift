@@ -122,8 +122,8 @@ struct LocalBridgeBackendTests {
     @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
         #expect(backend.capabilities == Capabilities(
-            canSendMessages: true, canMarkRead: true, supportsThreads: true, canFetchAttachments: true,
-            canDownloadFiles: true
+            canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
+            canFetchAttachments: true, canDownloadFiles: true
         ))
     }
 

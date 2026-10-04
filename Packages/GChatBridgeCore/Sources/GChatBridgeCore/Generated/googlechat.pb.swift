@@ -35,6 +35,19 @@ public nonisolated enum UserType: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
+public nonisolated enum EmojiState: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
+  case unspecified = 0
+  case emojiEnabled = 1
+  case emojiSystemDisabled = 2
+  case emojiHidden = 3
+  case emojiDeleted = 4
+
+  public init() {
+    self = .unspecified
+  }
+
+}
+
 public nonisolated enum InviteCategory: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
   case unknownInvite = 0
   case regularInvite = 1
@@ -583,80 +596,237 @@ public nonisolated struct DndSettings: Sendable {
   fileprivate var _stateRemainingDurationUsec: Int64? = nil
 }
 
+public nonisolated struct CustomerId: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var customerID: String {
+    get {_customerID ?? String()}
+    set {_customerID = newValue}
+  }
+  /// Returns true if `customerID` has been explicitly set.
+  public var hasCustomerID: Bool {self._customerID != nil}
+  /// Clears the value of `customerID`. Subsequent reads from it will return its default value.
+  public mutating func clearCustomerID() {self._customerID = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _customerID: String? = nil
+}
+
+public nonisolated struct CustomEmoji: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var uuid: String {
+    get {_uuid ?? String()}
+    set {_uuid = newValue}
+  }
+  /// Returns true if `uuid` has been explicitly set.
+  public var hasUuid: Bool {self._uuid != nil}
+  /// Clears the value of `uuid`. Subsequent reads from it will return its default value.
+  public mutating func clearUuid() {self._uuid = nil}
+
+  public var shortcode: String {
+    get {_shortcode ?? String()}
+    set {_shortcode = newValue}
+  }
+  /// Returns true if `shortcode` has been explicitly set.
+  public var hasShortcode: Bool {self._shortcode != nil}
+  /// Clears the value of `shortcode`. Subsequent reads from it will return its default value.
+  public mutating func clearShortcode() {self._shortcode = nil}
+
+  public var state: EmojiState {
+    get {_state ?? .unspecified}
+    set {_state = newValue}
+  }
+  /// Returns true if `state` has been explicitly set.
+  public var hasState: Bool {self._state != nil}
+  /// Clears the value of `state`. Subsequent reads from it will return its default value.
+  public mutating func clearState() {self._state = nil}
+
+  public var creatorUserID: UserId {
+    get {_creatorUserID ?? UserId()}
+    set {_creatorUserID = newValue}
+  }
+  /// Returns true if `creatorUserID` has been explicitly set.
+  public var hasCreatorUserID: Bool {self._creatorUserID != nil}
+  /// Clears the value of `creatorUserID`. Subsequent reads from it will return its default value.
+  public mutating func clearCreatorUserID() {self._creatorUserID = nil}
+
+  public var ownerCustomerID: CustomerId {
+    get {_ownerCustomerID ?? CustomerId()}
+    set {_ownerCustomerID = newValue}
+  }
+  /// Returns true if `ownerCustomerID` has been explicitly set.
+  public var hasOwnerCustomerID: Bool {self._ownerCustomerID != nil}
+  /// Clears the value of `ownerCustomerID`. Subsequent reads from it will return its default value.
+  public mutating func clearOwnerCustomerID() {self._ownerCustomerID = nil}
+
+  public var blobID: String {
+    get {_blobID ?? String()}
+    set {_blobID = newValue}
+  }
+  /// Returns true if `blobID` has been explicitly set.
+  public var hasBlobID: Bool {self._blobID != nil}
+  /// Clears the value of `blobID`. Subsequent reads from it will return its default value.
+  public mutating func clearBlobID() {self._blobID = nil}
+
+  public var createTimeMicros: Int64 {
+    get {_createTimeMicros ?? 0}
+    set {_createTimeMicros = newValue}
+  }
+  /// Returns true if `createTimeMicros` has been explicitly set.
+  public var hasCreateTimeMicros: Bool {self._createTimeMicros != nil}
+  /// Clears the value of `createTimeMicros`. Subsequent reads from it will return its default value.
+  public mutating func clearCreateTimeMicros() {self._createTimeMicros = nil}
+
+  public var readToken: String {
+    get {_readToken ?? String()}
+    set {_readToken = newValue}
+  }
+  /// Returns true if `readToken` has been explicitly set.
+  public var hasReadToken: Bool {self._readToken != nil}
+  /// Clears the value of `readToken`. Subsequent reads from it will return its default value.
+  public mutating func clearReadToken() {self._readToken = nil}
+
+  public var updateTimeMicros: Int64 {
+    get {_updateTimeMicros ?? 0}
+    set {_updateTimeMicros = newValue}
+  }
+  /// Returns true if `updateTimeMicros` has been explicitly set.
+  public var hasUpdateTimeMicros: Bool {self._updateTimeMicros != nil}
+  /// Clears the value of `updateTimeMicros`. Subsequent reads from it will return its default value.
+  public mutating func clearUpdateTimeMicros() {self._updateTimeMicros = nil}
+
+  public var ephemeralURL: String {
+    get {_ephemeralURL ?? String()}
+    set {_ephemeralURL = newValue}
+  }
+  /// Returns true if `ephemeralURL` has been explicitly set.
+  public var hasEphemeralURL: Bool {self._ephemeralURL != nil}
+  /// Clears the value of `ephemeralURL`. Subsequent reads from it will return its default value.
+  public mutating func clearEphemeralURL() {self._ephemeralURL = nil}
+
+  public var contentType: String {
+    get {_contentType ?? String()}
+    set {_contentType = newValue}
+  }
+  /// Returns true if `contentType` has been explicitly set.
+  public var hasContentType: Bool {self._contentType != nil}
+  /// Clears the value of `contentType`. Subsequent reads from it will return its default value.
+  public mutating func clearContentType() {self._contentType = nil}
+
+  public var deleteTimeMicros: Int64 {
+    get {_deleteTimeMicros ?? 0}
+    set {_deleteTimeMicros = newValue}
+  }
+  /// Returns true if `deleteTimeMicros` has been explicitly set.
+  public var hasDeleteTimeMicros: Bool {self._deleteTimeMicros != nil}
+  /// Clears the value of `deleteTimeMicros`. Subsequent reads from it will return its default value.
+  public mutating func clearDeleteTimeMicros() {self._deleteTimeMicros = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _uuid: String? = nil
+  fileprivate var _shortcode: String? = nil
+  fileprivate var _state: EmojiState? = nil
+  fileprivate var _creatorUserID: UserId? = nil
+  fileprivate var _ownerCustomerID: CustomerId? = nil
+  fileprivate var _blobID: String? = nil
+  fileprivate var _createTimeMicros: Int64? = nil
+  fileprivate var _readToken: String? = nil
+  fileprivate var _updateTimeMicros: Int64? = nil
+  fileprivate var _ephemeralURL: String? = nil
+  fileprivate var _contentType: String? = nil
+  fileprivate var _deleteTimeMicros: Int64? = nil
+}
+
+/// purple's shape (`reference/purple-googlechat-master/googlechat.proto:178-183`):
+/// no longer a oneof, and field 2 is a custom emoji.
 public nonisolated struct Emoji: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var content: Emoji.OneOf_Content? = nil
-
   public var unicode: String {
-    get {
-      if case .unicode(let v)? = content {return v}
-      return String()
-    }
-    set {content = .unicode(newValue)}
+    get {_unicode ?? String()}
+    set {_unicode = newValue}
   }
+  /// Returns true if `unicode` has been explicitly set.
+  public var hasUnicode: Bool {self._unicode != nil}
+  /// Clears the value of `unicode`. Subsequent reads from it will return its default value.
+  public mutating func clearUnicode() {self._unicode = nil}
+
+  public var customEmoji: CustomEmoji {
+    get {_customEmoji ?? CustomEmoji()}
+    set {_customEmoji = newValue}
+  }
+  /// Returns true if `customEmoji` has been explicitly set.
+  public var hasCustomEmoji: Bool {self._customEmoji != nil}
+  /// Clears the value of `customEmoji`. Subsequent reads from it will return its default value.
+  public mutating func clearCustomEmoji() {self._customEmoji = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public nonisolated enum OneOf_Content: Equatable, Sendable {
-    case unicode(String)
-
-  }
-
   public init() {}
+
+  fileprivate var _unicode: String? = nil
+  fileprivate var _customEmoji: CustomEmoji? = nil
 }
 
-public nonisolated struct CustomStatus: Sendable {
+public nonisolated struct CustomStatus: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var statusText: String {
-    get {_statusText ?? String()}
-    set {_statusText = newValue}
+    get {_storage._statusText ?? String()}
+    set {_uniqueStorage()._statusText = newValue}
   }
   /// Returns true if `statusText` has been explicitly set.
-  public var hasStatusText: Bool {self._statusText != nil}
+  public var hasStatusText: Bool {_storage._statusText != nil}
   /// Clears the value of `statusText`. Subsequent reads from it will return its default value.
-  public mutating func clearStatusText() {self._statusText = nil}
+  public mutating func clearStatusText() {_uniqueStorage()._statusText = nil}
 
   public var statusEmoji: String {
-    get {_statusEmoji ?? String()}
-    set {_statusEmoji = newValue}
+    get {_storage._statusEmoji ?? String()}
+    set {_uniqueStorage()._statusEmoji = newValue}
   }
   /// Returns true if `statusEmoji` has been explicitly set.
-  public var hasStatusEmoji: Bool {self._statusEmoji != nil}
+  public var hasStatusEmoji: Bool {_storage._statusEmoji != nil}
   /// Clears the value of `statusEmoji`. Subsequent reads from it will return its default value.
-  public mutating func clearStatusEmoji() {self._statusEmoji = nil}
+  public mutating func clearStatusEmoji() {_uniqueStorage()._statusEmoji = nil}
 
   public var stateExpiryTimestampUsec: Int64 {
-    get {_stateExpiryTimestampUsec ?? 0}
-    set {_stateExpiryTimestampUsec = newValue}
+    get {_storage._stateExpiryTimestampUsec ?? 0}
+    set {_uniqueStorage()._stateExpiryTimestampUsec = newValue}
   }
   /// Returns true if `stateExpiryTimestampUsec` has been explicitly set.
-  public var hasStateExpiryTimestampUsec: Bool {self._stateExpiryTimestampUsec != nil}
+  public var hasStateExpiryTimestampUsec: Bool {_storage._stateExpiryTimestampUsec != nil}
   /// Clears the value of `stateExpiryTimestampUsec`. Subsequent reads from it will return its default value.
-  public mutating func clearStateExpiryTimestampUsec() {self._stateExpiryTimestampUsec = nil}
+  public mutating func clearStateExpiryTimestampUsec() {_uniqueStorage()._stateExpiryTimestampUsec = nil}
 
   public var emoji: Emoji {
-    get {_emoji ?? Emoji()}
-    set {_emoji = newValue}
+    get {_storage._emoji ?? Emoji()}
+    set {_uniqueStorage()._emoji = newValue}
   }
   /// Returns true if `emoji` has been explicitly set.
-  public var hasEmoji: Bool {self._emoji != nil}
+  public var hasEmoji: Bool {_storage._emoji != nil}
   /// Clears the value of `emoji`. Subsequent reads from it will return its default value.
-  public mutating func clearEmoji() {self._emoji = nil}
+  public mutating func clearEmoji() {_uniqueStorage()._emoji = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _statusText: String? = nil
-  fileprivate var _statusEmoji: String? = nil
-  fileprivate var _stateExpiryTimestampUsec: Int64? = nil
-  fileprivate var _emoji: Emoji? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct UserStatus: Sendable {
@@ -1253,61 +1423,65 @@ public nonisolated struct GetMembersResponse: Sendable {
   public init() {}
 }
 
-public nonisolated struct UserPresence: @unchecked Sendable {
+public nonisolated struct UserPresence: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var userID: UserId {
-    get {_storage._userID ?? UserId()}
-    set {_uniqueStorage()._userID = newValue}
+    get {_userID ?? UserId()}
+    set {_userID = newValue}
   }
   /// Returns true if `userID` has been explicitly set.
-  public var hasUserID: Bool {_storage._userID != nil}
+  public var hasUserID: Bool {self._userID != nil}
   /// Clears the value of `userID`. Subsequent reads from it will return its default value.
-  public mutating func clearUserID() {_uniqueStorage()._userID = nil}
+  public mutating func clearUserID() {self._userID = nil}
 
   public var presence: Presence {
-    get {_storage._presence ?? .undefinedPresence}
-    set {_uniqueStorage()._presence = newValue}
+    get {_presence ?? .undefinedPresence}
+    set {_presence = newValue}
   }
   /// Returns true if `presence` has been explicitly set.
-  public var hasPresence: Bool {_storage._presence != nil}
+  public var hasPresence: Bool {self._presence != nil}
   /// Clears the value of `presence`. Subsequent reads from it will return its default value.
-  public mutating func clearPresence() {_uniqueStorage()._presence = nil}
+  public mutating func clearPresence() {self._presence = nil}
 
   public var activeUntil: Int64 {
-    get {_storage._activeUntil ?? 0}
-    set {_uniqueStorage()._activeUntil = newValue}
+    get {_activeUntil ?? 0}
+    set {_activeUntil = newValue}
   }
   /// Returns true if `activeUntil` has been explicitly set.
-  public var hasActiveUntil: Bool {_storage._activeUntil != nil}
+  public var hasActiveUntil: Bool {self._activeUntil != nil}
   /// Clears the value of `activeUntil`. Subsequent reads from it will return its default value.
-  public mutating func clearActiveUntil() {_uniqueStorage()._activeUntil = nil}
+  public mutating func clearActiveUntil() {self._activeUntil = nil}
 
   public var dndState: DndState_State {
-    get {_storage._dndState ?? .unknown}
-    set {_uniqueStorage()._dndState = newValue}
+    get {_dndState ?? .unknown}
+    set {_dndState = newValue}
   }
   /// Returns true if `dndState` has been explicitly set.
-  public var hasDndState: Bool {_storage._dndState != nil}
+  public var hasDndState: Bool {self._dndState != nil}
   /// Clears the value of `dndState`. Subsequent reads from it will return its default value.
-  public mutating func clearDndState() {_uniqueStorage()._dndState = nil}
+  public mutating func clearDndState() {self._dndState = nil}
 
   public var userStatus: UserStatus {
-    get {_storage._userStatus ?? UserStatus()}
-    set {_uniqueStorage()._userStatus = newValue}
+    get {_userStatus ?? UserStatus()}
+    set {_userStatus = newValue}
   }
   /// Returns true if `userStatus` has been explicitly set.
-  public var hasUserStatus: Bool {_storage._userStatus != nil}
+  public var hasUserStatus: Bool {self._userStatus != nil}
   /// Clears the value of `userStatus`. Subsequent reads from it will return its default value.
-  public mutating func clearUserStatus() {_uniqueStorage()._userStatus = nil}
+  public mutating func clearUserStatus() {self._userStatus = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _storage = _StorageClass.defaultInstance
+  fileprivate var _userID: UserId? = nil
+  fileprivate var _presence: Presence? = nil
+  fileprivate var _activeUntil: Int64? = nil
+  fileprivate var _dndState: DndState_State? = nil
+  fileprivate var _userStatus: UserStatus? = nil
 }
 
 public nonisolated struct GetUserPresenceRequest: Sendable {
@@ -4329,55 +4503,52 @@ public nonisolated struct Attachment: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-public nonisolated struct Reaction: Sendable {
+public nonisolated struct Reaction: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var emoji: Emoji {
-    get {_emoji ?? Emoji()}
-    set {_emoji = newValue}
+    get {_storage._emoji ?? Emoji()}
+    set {_uniqueStorage()._emoji = newValue}
   }
   /// Returns true if `emoji` has been explicitly set.
-  public var hasEmoji: Bool {self._emoji != nil}
+  public var hasEmoji: Bool {_storage._emoji != nil}
   /// Clears the value of `emoji`. Subsequent reads from it will return its default value.
-  public mutating func clearEmoji() {self._emoji = nil}
+  public mutating func clearEmoji() {_uniqueStorage()._emoji = nil}
 
   public var count: Int32 {
-    get {_count ?? 0}
-    set {_count = newValue}
+    get {_storage._count ?? 0}
+    set {_uniqueStorage()._count = newValue}
   }
   /// Returns true if `count` has been explicitly set.
-  public var hasCount: Bool {self._count != nil}
+  public var hasCount: Bool {_storage._count != nil}
   /// Clears the value of `count`. Subsequent reads from it will return its default value.
-  public mutating func clearCount() {self._count = nil}
+  public mutating func clearCount() {_uniqueStorage()._count = nil}
 
   public var currentUserParticipated: Bool {
-    get {_currentUserParticipated ?? false}
-    set {_currentUserParticipated = newValue}
+    get {_storage._currentUserParticipated ?? false}
+    set {_uniqueStorage()._currentUserParticipated = newValue}
   }
   /// Returns true if `currentUserParticipated` has been explicitly set.
-  public var hasCurrentUserParticipated: Bool {self._currentUserParticipated != nil}
+  public var hasCurrentUserParticipated: Bool {_storage._currentUserParticipated != nil}
   /// Clears the value of `currentUserParticipated`. Subsequent reads from it will return its default value.
-  public mutating func clearCurrentUserParticipated() {self._currentUserParticipated = nil}
+  public mutating func clearCurrentUserParticipated() {_uniqueStorage()._currentUserParticipated = nil}
 
   public var createTimestamp: Int64 {
-    get {_createTimestamp ?? 0}
-    set {_createTimestamp = newValue}
+    get {_storage._createTimestamp ?? 0}
+    set {_uniqueStorage()._createTimestamp = newValue}
   }
   /// Returns true if `createTimestamp` has been explicitly set.
-  public var hasCreateTimestamp: Bool {self._createTimestamp != nil}
+  public var hasCreateTimestamp: Bool {_storage._createTimestamp != nil}
   /// Clears the value of `createTimestamp`. Subsequent reads from it will return its default value.
-  public mutating func clearCreateTimestamp() {self._createTimestamp = nil}
+  public mutating func clearCreateTimestamp() {_uniqueStorage()._createTimestamp = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _emoji: Emoji? = nil
-  fileprivate var _count: Int32? = nil
-  fileprivate var _currentUserParticipated: Bool? = nil
-  fileprivate var _createTimestamp: Int64? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct MessageParentId: Sendable {
@@ -6868,46 +7039,46 @@ public nonisolated struct CreateMessageResponse: Sendable {
   fileprivate var _currentGroupRevision: ReadRevision? = nil
 }
 
-public nonisolated struct UpdateReactionRequest: Sendable {
+public nonisolated struct UpdateReactionRequest: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var requestHeader: RequestHeader {
-    get {_requestHeader ?? RequestHeader()}
-    set {_requestHeader = newValue}
+    get {_storage._requestHeader ?? RequestHeader()}
+    set {_uniqueStorage()._requestHeader = newValue}
   }
   /// Returns true if `requestHeader` has been explicitly set.
-  public var hasRequestHeader: Bool {self._requestHeader != nil}
+  public var hasRequestHeader: Bool {_storage._requestHeader != nil}
   /// Clears the value of `requestHeader`. Subsequent reads from it will return its default value.
-  public mutating func clearRequestHeader() {self._requestHeader = nil}
+  public mutating func clearRequestHeader() {_uniqueStorage()._requestHeader = nil}
 
   public var messageID: MessageId {
-    get {_messageID ?? MessageId()}
-    set {_messageID = newValue}
+    get {_storage._messageID ?? MessageId()}
+    set {_uniqueStorage()._messageID = newValue}
   }
   /// Returns true if `messageID` has been explicitly set.
-  public var hasMessageID: Bool {self._messageID != nil}
+  public var hasMessageID: Bool {_storage._messageID != nil}
   /// Clears the value of `messageID`. Subsequent reads from it will return its default value.
-  public mutating func clearMessageID() {self._messageID = nil}
+  public mutating func clearMessageID() {_uniqueStorage()._messageID = nil}
 
   public var emoji: Emoji {
-    get {_emoji ?? Emoji()}
-    set {_emoji = newValue}
+    get {_storage._emoji ?? Emoji()}
+    set {_uniqueStorage()._emoji = newValue}
   }
   /// Returns true if `emoji` has been explicitly set.
-  public var hasEmoji: Bool {self._emoji != nil}
+  public var hasEmoji: Bool {_storage._emoji != nil}
   /// Clears the value of `emoji`. Subsequent reads from it will return its default value.
-  public mutating func clearEmoji() {self._emoji = nil}
+  public mutating func clearEmoji() {_uniqueStorage()._emoji = nil}
 
   public var type: UpdateReactionRequest.ReactionUpdateType {
-    get {_type ?? .add}
-    set {_type = newValue}
+    get {_storage._type ?? .add}
+    set {_uniqueStorage()._type = newValue}
   }
   /// Returns true if `type` has been explicitly set.
-  public var hasType: Bool {self._type != nil}
+  public var hasType: Bool {_storage._type != nil}
   /// Clears the value of `type`. Subsequent reads from it will return its default value.
-  public mutating func clearType() {self._type = nil}
+  public mutating func clearType() {_uniqueStorage()._type = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -6923,10 +7094,7 @@ public nonisolated struct UpdateReactionRequest: Sendable {
 
   public init() {}
 
-  fileprivate var _requestHeader: RequestHeader? = nil
-  fileprivate var _messageID: MessageId? = nil
-  fileprivate var _emoji: Emoji? = nil
-  fileprivate var _type: UpdateReactionRequest.ReactionUpdateType? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct UpdateReactionResponse: Sendable {
@@ -8268,55 +8436,55 @@ public nonisolated struct MessageEvent: Sendable {
   fileprivate var _isHeadMessage: Bool? = nil
 }
 
-public nonisolated struct MessageReactionEvent: Sendable {
+public nonisolated struct MessageReactionEvent: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var messageID: MessageId {
-    get {_messageID ?? MessageId()}
-    set {_messageID = newValue}
+    get {_storage._messageID ?? MessageId()}
+    set {_uniqueStorage()._messageID = newValue}
   }
   /// Returns true if `messageID` has been explicitly set.
-  public var hasMessageID: Bool {self._messageID != nil}
+  public var hasMessageID: Bool {_storage._messageID != nil}
   /// Clears the value of `messageID`. Subsequent reads from it will return its default value.
-  public mutating func clearMessageID() {self._messageID = nil}
+  public mutating func clearMessageID() {_uniqueStorage()._messageID = nil}
 
   public var emoji: Emoji {
-    get {_emoji ?? Emoji()}
-    set {_emoji = newValue}
+    get {_storage._emoji ?? Emoji()}
+    set {_uniqueStorage()._emoji = newValue}
   }
   /// Returns true if `emoji` has been explicitly set.
-  public var hasEmoji: Bool {self._emoji != nil}
+  public var hasEmoji: Bool {_storage._emoji != nil}
   /// Clears the value of `emoji`. Subsequent reads from it will return its default value.
-  public mutating func clearEmoji() {self._emoji = nil}
+  public mutating func clearEmoji() {_uniqueStorage()._emoji = nil}
 
   public var userID: UserId {
-    get {_userID ?? UserId()}
-    set {_userID = newValue}
+    get {_storage._userID ?? UserId()}
+    set {_uniqueStorage()._userID = newValue}
   }
   /// Returns true if `userID` has been explicitly set.
-  public var hasUserID: Bool {self._userID != nil}
+  public var hasUserID: Bool {_storage._userID != nil}
   /// Clears the value of `userID`. Subsequent reads from it will return its default value.
-  public mutating func clearUserID() {self._userID = nil}
+  public mutating func clearUserID() {_uniqueStorage()._userID = nil}
 
   public var timestamp: Int64 {
-    get {_timestamp ?? 0}
-    set {_timestamp = newValue}
+    get {_storage._timestamp ?? 0}
+    set {_uniqueStorage()._timestamp = newValue}
   }
   /// Returns true if `timestamp` has been explicitly set.
-  public var hasTimestamp: Bool {self._timestamp != nil}
+  public var hasTimestamp: Bool {_storage._timestamp != nil}
   /// Clears the value of `timestamp`. Subsequent reads from it will return its default value.
-  public mutating func clearTimestamp() {self._timestamp = nil}
+  public mutating func clearTimestamp() {_uniqueStorage()._timestamp = nil}
 
   public var type: MessageReactionEvent.ReactionEventType {
-    get {_type ?? .add}
-    set {_type = newValue}
+    get {_storage._type ?? .add}
+    set {_uniqueStorage()._type = newValue}
   }
   /// Returns true if `type` has been explicitly set.
-  public var hasType: Bool {self._type != nil}
+  public var hasType: Bool {_storage._type != nil}
   /// Clears the value of `type`. Subsequent reads from it will return its default value.
-  public mutating func clearType() {self._type = nil}
+  public mutating func clearType() {_uniqueStorage()._type = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -8332,11 +8500,7 @@ public nonisolated struct MessageReactionEvent: Sendable {
 
   public init() {}
 
-  fileprivate var _messageID: MessageId? = nil
-  fileprivate var _emoji: Emoji? = nil
-  fileprivate var _userID: UserId? = nil
-  fileprivate var _timestamp: Int64? = nil
-  fileprivate var _type: MessageReactionEvent.ReactionEventType? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct MessageDeletedEvent: Sendable {
@@ -13054,6 +13218,10 @@ nonisolated extension UserType: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0HUMAN\0\u{1}BOT\0")
 }
 
+nonisolated extension EmojiState: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0EMOJI_STATE_UNSPECIFIED\0\u{1}EMOJI_ENABLED\0\u{1}EMOJI_SYSTEM_DISABLED\0\u{1}EMOJI_HIDDEN\0\u{1}EMOJI_DELETED\0")
+}
+
 nonisolated extension InviteCategory: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0UNKNOWN_INVITE\0\u{1}REGULAR_INVITE\0\u{1}SPAM_INVITE\0")
 }
@@ -13343,9 +13511,9 @@ nonisolated extension DndSettings.DndState_State: SwiftProtobuf._ProtoNameProvid
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0UNKNOWN\0\u{1}AVAILABLE\0\u{1}DND\0")
 }
 
-nonisolated extension Emoji: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = "Emoji"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}unicode\0")
+nonisolated extension CustomerId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "CustomerId"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}customer_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -13353,14 +13521,7 @@ nonisolated extension Emoji: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try {
-        var v: String?
-        try decoder.decodeSingularStringField(value: &v)
-        if let v = v {
-          if self.content != nil {try decoder.handleConflictingOneOf()}
-          self.content = .unicode(v)
-        }
-      }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self._customerID) }()
       default: break
       }
     }
@@ -13371,14 +13532,142 @@ nonisolated extension Emoji: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
-    try { if case .unicode(let v)? = self.content {
+    try { if let v = self._customerID {
       try visitor.visitSingularStringField(value: v, fieldNumber: 1)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
+  public static func ==(lhs: CustomerId, rhs: CustomerId) -> Bool {
+    if lhs._customerID != rhs._customerID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension CustomEmoji: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "CustomEmoji"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}uuid\0\u{2}\u{2}shortcode\0\u{1}state\0\u{3}creator_user_id\0\u{3}owner_customer_id\0\u{3}blob_id\0\u{3}create_time_micros\0\u{3}read_token\0\u{3}update_time_micros\0\u{3}ephemeral_url\0\u{3}content_type\0\u{3}delete_time_micros\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self._uuid) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._shortcode) }()
+      case 4: try { try decoder.decodeSingularEnumField(value: &self._state) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._creatorUserID) }()
+      case 6: try { try decoder.decodeSingularMessageField(value: &self._ownerCustomerID) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self._blobID) }()
+      case 8: try { try decoder.decodeSingularInt64Field(value: &self._createTimeMicros) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self._readToken) }()
+      case 10: try { try decoder.decodeSingularInt64Field(value: &self._updateTimeMicros) }()
+      case 11: try { try decoder.decodeSingularStringField(value: &self._ephemeralURL) }()
+      case 12: try { try decoder.decodeSingularStringField(value: &self._contentType) }()
+      case 13: try { try decoder.decodeSingularInt64Field(value: &self._deleteTimeMicros) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._uuid {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._shortcode {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._state {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._creatorUserID {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
+    try { if let v = self._ownerCustomerID {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+    } }()
+    try { if let v = self._blobID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 7)
+    } }()
+    try { if let v = self._createTimeMicros {
+      try visitor.visitSingularInt64Field(value: v, fieldNumber: 8)
+    } }()
+    try { if let v = self._readToken {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 9)
+    } }()
+    try { if let v = self._updateTimeMicros {
+      try visitor.visitSingularInt64Field(value: v, fieldNumber: 10)
+    } }()
+    try { if let v = self._ephemeralURL {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 11)
+    } }()
+    try { if let v = self._contentType {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 12)
+    } }()
+    try { if let v = self._deleteTimeMicros {
+      try visitor.visitSingularInt64Field(value: v, fieldNumber: 13)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: CustomEmoji, rhs: CustomEmoji) -> Bool {
+    if lhs._uuid != rhs._uuid {return false}
+    if lhs._shortcode != rhs._shortcode {return false}
+    if lhs._state != rhs._state {return false}
+    if lhs._creatorUserID != rhs._creatorUserID {return false}
+    if lhs._ownerCustomerID != rhs._ownerCustomerID {return false}
+    if lhs._blobID != rhs._blobID {return false}
+    if lhs._createTimeMicros != rhs._createTimeMicros {return false}
+    if lhs._readToken != rhs._readToken {return false}
+    if lhs._updateTimeMicros != rhs._updateTimeMicros {return false}
+    if lhs._ephemeralURL != rhs._ephemeralURL {return false}
+    if lhs._contentType != rhs._contentType {return false}
+    if lhs._deleteTimeMicros != rhs._deleteTimeMicros {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Emoji: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "Emoji"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}unicode\0\u{3}custom_emoji\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self._unicode) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._customEmoji) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._unicode {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._customEmoji {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
   public static func ==(lhs: Emoji, rhs: Emoji) -> Bool {
-    if lhs.content != rhs.content {return false}
+    if lhs._unicode != rhs._unicode {return false}
+    if lhs._customEmoji != rhs._customEmoji {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -13388,46 +13677,88 @@ nonisolated extension CustomStatus: SwiftProtobuf.Message, SwiftProtobuf._Messag
   public static let protoMessageName: String = "CustomStatus"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}status_text\0\u{3}status_emoji\0\u{3}state_expiry_timestamp_usec\0\u{1}emoji\0")
 
+  fileprivate class _StorageClass {
+    var _statusText: String? = nil
+    var _statusEmoji: String? = nil
+    var _stateExpiryTimestampUsec: Int64? = nil
+    var _emoji: Emoji? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _statusText = source._statusText
+      _statusEmoji = source._statusEmoji
+      _stateExpiryTimestampUsec = source._stateExpiryTimestampUsec
+      _emoji = source._emoji
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self._statusText) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self._statusEmoji) }()
-      case 3: try { try decoder.decodeSingularInt64Field(value: &self._stateExpiryTimestampUsec) }()
-      case 4: try { try decoder.decodeSingularMessageField(value: &self._emoji) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._statusText) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._statusEmoji) }()
+        case 3: try { try decoder.decodeSingularInt64Field(value: &_storage._stateExpiryTimestampUsec) }()
+        case 4: try { try decoder.decodeSingularMessageField(value: &_storage._emoji) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._statusText {
-      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._statusEmoji {
-      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
-    } }()
-    try { if let v = self._stateExpiryTimestampUsec {
-      try visitor.visitSingularInt64Field(value: v, fieldNumber: 3)
-    } }()
-    try { if let v = self._emoji {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-    } }()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._statusText {
+        try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._statusEmoji {
+        try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+      } }()
+      try { if let v = _storage._stateExpiryTimestampUsec {
+        try visitor.visitSingularInt64Field(value: v, fieldNumber: 3)
+      } }()
+      try { if let v = _storage._emoji {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+      } }()
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: CustomStatus, rhs: CustomStatus) -> Bool {
-    if lhs._statusText != rhs._statusText {return false}
-    if lhs._statusEmoji != rhs._statusEmoji {return false}
-    if lhs._stateExpiryTimestampUsec != rhs._stateExpiryTimestampUsec {return false}
-    if lhs._emoji != rhs._emoji {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._statusText != rhs_storage._statusText {return false}
+        if _storage._statusEmoji != rhs_storage._statusEmoji {return false}
+        if _storage._stateExpiryTimestampUsec != rhs_storage._stateExpiryTimestampUsec {return false}
+        if _storage._emoji != rhs_storage._emoji {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -14116,95 +14447,51 @@ nonisolated extension UserPresence: SwiftProtobuf.Message, SwiftProtobuf._Messag
   public static let protoMessageName: String = "UserPresence"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{1}presence\0\u{3}dnd_state\0\u{3}active_until\0\u{3}user_status\0")
 
-  fileprivate class _StorageClass {
-    var _userID: UserId? = nil
-    var _presence: Presence? = nil
-    var _activeUntil: Int64? = nil
-    var _dndState: DndState_State? = nil
-    var _userStatus: UserStatus? = nil
-
-      // This property is used as the initial default value for new instances of the type.
-      // The type itself is protecting the reference to its storage via CoW semantics.
-      // This will force a copy to be made of this reference when the first mutation occurs;
-      // hence, it is safe to mark this as `nonisolated(unsafe)`.
-      static nonisolated(unsafe) let defaultInstance = _StorageClass()
-
-    private init() {}
-
-    init(copying source: _StorageClass) {
-      _userID = source._userID
-      _presence = source._presence
-      _activeUntil = source._activeUntil
-      _dndState = source._dndState
-      _userStatus = source._userStatus
-    }
-  }
-
-  fileprivate mutating func _uniqueStorage() -> _StorageClass {
-    if !isKnownUniquelyReferenced(&_storage) {
-      _storage = _StorageClass(copying: _storage)
-    }
-    return _storage
-  }
-
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    _ = _uniqueStorage()
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      while let fieldNumber = try decoder.nextFieldNumber() {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every case branch when no optimizations are
-        // enabled. https://github.com/apple/swift-protobuf/issues/1034
-        switch fieldNumber {
-        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._userID) }()
-        case 2: try { try decoder.decodeSingularEnumField(value: &_storage._presence) }()
-        case 3: try { try decoder.decodeSingularEnumField(value: &_storage._dndState) }()
-        case 4: try { try decoder.decodeSingularInt64Field(value: &_storage._activeUntil) }()
-        case 5: try { try decoder.decodeSingularMessageField(value: &_storage._userStatus) }()
-        default: break
-        }
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._userID) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self._presence) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self._dndState) }()
+      case 4: try { try decoder.decodeSingularInt64Field(value: &self._activeUntil) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._userStatus) }()
+      default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every if/case branch local when no optimizations
-      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-      // https://github.com/apple/swift-protobuf/issues/1182
-      try { if let v = _storage._userID {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-      } }()
-      try { if let v = _storage._presence {
-        try visitor.visitSingularEnumField(value: v, fieldNumber: 2)
-      } }()
-      try { if let v = _storage._dndState {
-        try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
-      } }()
-      try { if let v = _storage._activeUntil {
-        try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
-      } }()
-      try { if let v = _storage._userStatus {
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
-      } }()
-    }
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._userID {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._presence {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._dndState {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._activeUntil {
+      try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._userStatus {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: UserPresence, rhs: UserPresence) -> Bool {
-    if lhs._storage !== rhs._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
-        let _storage = _args.0
-        let rhs_storage = _args.1
-        if _storage._userID != rhs_storage._userID {return false}
-        if _storage._presence != rhs_storage._presence {return false}
-        if _storage._activeUntil != rhs_storage._activeUntil {return false}
-        if _storage._dndState != rhs_storage._dndState {return false}
-        if _storage._userStatus != rhs_storage._userStatus {return false}
-        return true
-      }
-      if !storagesAreEqual {return false}
-    }
+    if lhs._userID != rhs._userID {return false}
+    if lhs._presence != rhs._presence {return false}
+    if lhs._activeUntil != rhs._activeUntil {return false}
+    if lhs._dndState != rhs._dndState {return false}
+    if lhs._userStatus != rhs._userStatus {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -17908,46 +18195,88 @@ nonisolated extension Reaction: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   public static let protoMessageName: String = "Reaction"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}emoji\0\u{1}count\0\u{3}current_user_participated\0\u{3}create_timestamp\0")
 
+  fileprivate class _StorageClass {
+    var _emoji: Emoji? = nil
+    var _count: Int32? = nil
+    var _currentUserParticipated: Bool? = nil
+    var _createTimestamp: Int64? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _emoji = source._emoji
+      _count = source._count
+      _currentUserParticipated = source._currentUserParticipated
+      _createTimestamp = source._createTimestamp
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._emoji) }()
-      case 2: try { try decoder.decodeSingularInt32Field(value: &self._count) }()
-      case 3: try { try decoder.decodeSingularBoolField(value: &self._currentUserParticipated) }()
-      case 4: try { try decoder.decodeSingularInt64Field(value: &self._createTimestamp) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._emoji) }()
+        case 2: try { try decoder.decodeSingularInt32Field(value: &_storage._count) }()
+        case 3: try { try decoder.decodeSingularBoolField(value: &_storage._currentUserParticipated) }()
+        case 4: try { try decoder.decodeSingularInt64Field(value: &_storage._createTimestamp) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._emoji {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._count {
-      try visitor.visitSingularInt32Field(value: v, fieldNumber: 2)
-    } }()
-    try { if let v = self._currentUserParticipated {
-      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
-    } }()
-    try { if let v = self._createTimestamp {
-      try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
-    } }()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._emoji {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._count {
+        try visitor.visitSingularInt32Field(value: v, fieldNumber: 2)
+      } }()
+      try { if let v = _storage._currentUserParticipated {
+        try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
+      } }()
+      try { if let v = _storage._createTimestamp {
+        try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
+      } }()
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Reaction, rhs: Reaction) -> Bool {
-    if lhs._emoji != rhs._emoji {return false}
-    if lhs._count != rhs._count {return false}
-    if lhs._currentUserParticipated != rhs._currentUserParticipated {return false}
-    if lhs._createTimestamp != rhs._createTimestamp {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._emoji != rhs_storage._emoji {return false}
+        if _storage._count != rhs_storage._count {return false}
+        if _storage._currentUserParticipated != rhs_storage._currentUserParticipated {return false}
+        if _storage._createTimestamp != rhs_storage._createTimestamp {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -20836,46 +21165,88 @@ nonisolated extension UpdateReactionRequest: SwiftProtobuf.Message, SwiftProtobu
   public static let protoMessageName: String = "UpdateReactionRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}message_id\0\u{1}emoji\0\u{1}type\0\u{4}a\u{1}request_header\0")
 
+  fileprivate class _StorageClass {
+    var _requestHeader: RequestHeader? = nil
+    var _messageID: MessageId? = nil
+    var _emoji: Emoji? = nil
+    var _type: UpdateReactionRequest.ReactionUpdateType? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _requestHeader = source._requestHeader
+      _messageID = source._messageID
+      _emoji = source._emoji
+      _type = source._type
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._messageID) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._emoji) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self._type) }()
-      case 100: try { try decoder.decodeSingularMessageField(value: &self._requestHeader) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._messageID) }()
+        case 2: try { try decoder.decodeSingularMessageField(value: &_storage._emoji) }()
+        case 3: try { try decoder.decodeSingularEnumField(value: &_storage._type) }()
+        case 100: try { try decoder.decodeSingularMessageField(value: &_storage._requestHeader) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._messageID {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._emoji {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
-    try { if let v = self._type {
-      try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
-    } }()
-    try { if let v = self._requestHeader {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 100)
-    } }()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._messageID {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._emoji {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+      } }()
+      try { if let v = _storage._type {
+        try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
+      } }()
+      try { if let v = _storage._requestHeader {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 100)
+      } }()
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: UpdateReactionRequest, rhs: UpdateReactionRequest) -> Bool {
-    if lhs._requestHeader != rhs._requestHeader {return false}
-    if lhs._messageID != rhs._messageID {return false}
-    if lhs._emoji != rhs._emoji {return false}
-    if lhs._type != rhs._type {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._requestHeader != rhs_storage._requestHeader {return false}
+        if _storage._messageID != rhs_storage._messageID {return false}
+        if _storage._emoji != rhs_storage._emoji {return false}
+        if _storage._type != rhs_storage._type {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -22501,51 +22872,95 @@ nonisolated extension MessageReactionEvent: SwiftProtobuf.Message, SwiftProtobuf
   public static let protoMessageName: String = "MessageReactionEvent"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}message_id\0\u{1}emoji\0\u{3}user_id\0\u{1}timestamp\0\u{1}type\0")
 
+  fileprivate class _StorageClass {
+    var _messageID: MessageId? = nil
+    var _emoji: Emoji? = nil
+    var _userID: UserId? = nil
+    var _timestamp: Int64? = nil
+    var _type: MessageReactionEvent.ReactionEventType? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _messageID = source._messageID
+      _emoji = source._emoji
+      _userID = source._userID
+      _timestamp = source._timestamp
+      _type = source._type
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._messageID) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._emoji) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._userID) }()
-      case 4: try { try decoder.decodeSingularInt64Field(value: &self._timestamp) }()
-      case 5: try { try decoder.decodeSingularEnumField(value: &self._type) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._messageID) }()
+        case 2: try { try decoder.decodeSingularMessageField(value: &_storage._emoji) }()
+        case 3: try { try decoder.decodeSingularMessageField(value: &_storage._userID) }()
+        case 4: try { try decoder.decodeSingularInt64Field(value: &_storage._timestamp) }()
+        case 5: try { try decoder.decodeSingularEnumField(value: &_storage._type) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._messageID {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._emoji {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
-    try { if let v = self._userID {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    } }()
-    try { if let v = self._timestamp {
-      try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
-    } }()
-    try { if let v = self._type {
-      try visitor.visitSingularEnumField(value: v, fieldNumber: 5)
-    } }()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._messageID {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._emoji {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+      } }()
+      try { if let v = _storage._userID {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+      } }()
+      try { if let v = _storage._timestamp {
+        try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
+      } }()
+      try { if let v = _storage._type {
+        try visitor.visitSingularEnumField(value: v, fieldNumber: 5)
+      } }()
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: MessageReactionEvent, rhs: MessageReactionEvent) -> Bool {
-    if lhs._messageID != rhs._messageID {return false}
-    if lhs._emoji != rhs._emoji {return false}
-    if lhs._userID != rhs._userID {return false}
-    if lhs._timestamp != rhs._timestamp {return false}
-    if lhs._type != rhs._type {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._messageID != rhs_storage._messageID {return false}
+        if _storage._emoji != rhs_storage._emoji {return false}
+        if _storage._userID != rhs_storage._userID {return false}
+        if _storage._timestamp != rhs_storage._timestamp {return false}
+        if _storage._type != rhs_storage._type {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

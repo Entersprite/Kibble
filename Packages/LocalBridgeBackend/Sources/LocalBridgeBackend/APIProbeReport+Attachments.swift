@@ -313,6 +313,8 @@ extension APIProbeReport {
         await appendRotatedDownloadSection(upload: shapes.firstFile, rung: rotation, lines: &lines)
         lines.append("")
         await appendProjectorConfigSection(upload: shapes.firstFile, fetches: fetches, lines: &lines)
+        lines.append("")
+        await appendReactionSections(client: client, group: group, fetch: fetches.first?.fetch, lines: &lines)
     }
 
     private static func outcome(

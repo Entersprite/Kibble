@@ -131,6 +131,16 @@ public struct AttachmentFetch: Sendable {
         return Self.fetched(walked.response, hops: walked.hops)
     }
 
+    /// An address Google handed out - a custom emoji's `ephemeral_url` - walked
+    /// under the same rules as every fetch here: credentials by host, a
+    /// sign-in redirect as a failure, at most `maxHops`.
+    public func fetch(url: URL) async throws(AttachmentFetchFailure) -> FetchedAttachment {
+        let walked = try await walk(from: url, pageIsAnAnswer: false, style: .app) {
+            try await (transport.send($0), nil)
+        }
+        return Self.fetched(walked.response, hops: walked.hops)
+    }
+
     private static func fetched(_ response: HTTPResponse, hops: [AttachmentHop]) -> FetchedAttachment {
         FetchedAttachment(
             body: response.body,

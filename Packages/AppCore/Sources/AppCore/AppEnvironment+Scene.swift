@@ -163,7 +163,12 @@ public extension AppEnvironment {
                 guard let self else { throw NoSession() }
                 return try await openAttachment(attachment)
             } : nil,
-            attachmentFiles: attachmentFileActions
+            attachmentFiles: attachmentFileActions,
+            reactions: runningModel?.capabilities.canReact == true
+                ? ReactionActions { [weak self] message, choice, add in
+                    self?.runningModel?.react(to: message, with: choice, add: add)
+                }
+                : nil
         )
     }
 
