@@ -20,6 +20,7 @@ struct ModelCodingTests {
         try expectWireStable(Fixture.messageWithMentions, golden: "message-mentions")
         try expectWireStable(Fixture.thread, golden: "thread")
         try expectWireStable(Fixture.reaction, golden: "reaction")
+        try expectWireStable(Fixture.customReaction, golden: "reaction-custom")
         try expectWireStable(Fixture.attachment, golden: "attachment")
         try expectWireStable(Fixture.imageAttachment, golden: "attachment-image")
     }

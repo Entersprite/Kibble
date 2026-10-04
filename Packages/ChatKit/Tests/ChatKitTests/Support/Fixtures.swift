@@ -69,6 +69,11 @@ enum Fixture {
 
     static let reaction = Reaction(emoji: "🛞", count: 3, includesMe: true)
 
+    static let customReaction = Reaction(
+        emoji: ":party-parrot:", count: 2, includesMe: false,
+        customEmoji: CustomEmojiRef(id: "custom-emoji-uuid-1", shortcode: ":party-parrot:")
+    )
+
     static let attachment = Attachment(
         id: "attachment-data-ref-1",
         name: "invoice.pdf",
