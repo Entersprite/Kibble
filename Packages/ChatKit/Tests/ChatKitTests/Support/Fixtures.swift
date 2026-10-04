@@ -74,6 +74,13 @@ enum Fixture {
         customEmoji: CustomEmojiRef(id: "custom-emoji-uuid-1", shortcode: ":party-parrot:")
     )
 
+    static let customReactionWithToken = Reaction(
+        emoji: ":party-parrot:", count: 2, includesMe: false,
+        customEmoji: CustomEmojiRef(
+            id: "custom-emoji-uuid-1", shortcode: ":party-parrot:", imageToken: "opaque-image-token-1"
+        )
+    )
+
     static let attachment = Attachment(
         id: "attachment-data-ref-1",
         name: "invoice.pdf",
