@@ -57,10 +57,38 @@ message DndSettings {
 	optional int64 state_remaining_duration_usec = 3;
 }
 
+message CustomerId {
+	optional string customer_id = 1;
+}
+
+enum EmojiState {
+	EMOJI_STATE_UNSPECIFIED = 0;
+	EMOJI_ENABLED = 1;
+	EMOJI_SYSTEM_DISABLED = 2;
+	EMOJI_HIDDEN = 3;
+	EMOJI_DELETED = 4;
+}
+
+message CustomEmoji {
+	optional string uuid = 1;
+	optional string shortcode = 3;
+	optional EmojiState state = 4;
+	optional UserId creator_user_id = 5;
+	optional CustomerId owner_customer_id = 6;
+	optional string blob_id = 7;
+	optional int64 create_time_micros = 8;
+	optional string read_token = 9;
+	optional int64 update_time_micros = 10;
+	optional string ephemeral_url = 11;
+	optional string content_type = 12;
+	optional int64 delete_time_micros = 13;
+}
+
+// purple's shape (`reference/purple-googlechat-master/googlechat.proto:178-183`):
+// no longer a oneof, and field 2 is a custom emoji.
 message Emoji {
-	oneof Content {
-		string unicode = 1;
-	}
+	optional string unicode = 1;
+	optional CustomEmoji custom_emoji = 2;
 }
 
 message CustomStatus {

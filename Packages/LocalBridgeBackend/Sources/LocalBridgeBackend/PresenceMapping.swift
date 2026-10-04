@@ -49,11 +49,6 @@ public enum PresenceMapping {
         return result
     }
 
-    /// `Emoji.custom_emoji` (2) and its `shortcode` (3): purple's proto names
-    /// them, the vendored one does not, so they are read from the bytes.
-    private static let customEmojiField = 2
-    private static let shortcodeField = 3
-
     static func status(of userStatus: UserStatus, now: Date) -> MemberStatus? {
         guard userStatus.hasCustomStatus else { return nil }
         let custom = userStatus.customStatus
@@ -78,13 +73,13 @@ public enum PresenceMapping {
         return status
     }
 
+    /// `Emoji.custom_emoji.shortcode`. Named since the reactions slice merged
+    /// purple's `Emoji` (it used to be read out of `unknownFields`).
     private static func customEmojiShortcode(in emoji: Emoji) -> String? {
-        guard let custom = ProtoFieldScan.payloads(ofField: customEmojiField, in: emoji.unknownFields.data)
-            .first,
-            let bytes = ProtoFieldScan.payloads(ofField: shortcodeField, in: custom).first,
-            !bytes.isEmpty
+        guard emoji.hasCustomEmoji, emoji.customEmoji.hasShortcode,
+              !emoji.customEmoji.shortcode.isEmpty
         else { return nil }
-        return String(decoding: bytes, as: UTF8.self)
+        return emoji.customEmoji.shortcode
     }
 
     /// `nil` when the entry says nothing about presence at all - "nobody told

@@ -6,8 +6,8 @@ import Testing
 @testable import LocalBridgeBackend
 
 /// `user_status.custom_status` becoming `MemberStatus`. Field numbers from the
-/// vendored proto, plus purple's `Emoji.custom_emoji` (2), which only purple's
-/// proto names and so is read from the bytes.
+/// vendored proto, including `Emoji.custom_emoji` (2), now named since the
+/// reactions slice merged purple's `Emoji`/`CustomEmoji` into it.
 struct StatusMappingTests {
     private func entry(_ id: String, _ build: (inout UserStatus) -> Void) -> UserPresence {
         var entry = UserPresence()
@@ -56,9 +56,9 @@ struct StatusMappingTests {
         #expect(mapped[ada] == MemberStatus(emoji: "🤒"))
     }
 
-    /// A custom image emoji is `Emoji` field 2 (`CustomEmoji`, purple's
-    /// proto), whose field 3 is the shortcode. The vendored proto keeps it in
-    /// `unknownFields`.
+    /// A custom image emoji is `Emoji.custom_emoji` (`CustomEmoji`, field 2),
+    /// whose `shortcode` (field 3) the vendored proto now names directly -
+    /// the reactions slice merged purple's `Emoji`/`CustomEmoji` into it.
     @Test func aCustomEmojiIsReadFromTheBytes() throws {
         let shortcode = Data(":party-parrot:".utf8)
         var custom = Data([0x1A, UInt8(shortcode.count)])
@@ -66,8 +66,8 @@ struct StatusMappingTests {
         var bytes = Data([0x12, UInt8(custom.count)])
         bytes.append(custom)
         let emoji = try Emoji(serializedBytes: bytes)
-        // Positive control: the vendored proto really does not name it.
-        #expect(emoji.content == nil)
+        // Positive control: the vendored proto now names it directly.
+        #expect(emoji.hasCustomEmoji)
 
         let mapped = map([entry("u-1") {
             $0.customStatus.emoji = emoji
