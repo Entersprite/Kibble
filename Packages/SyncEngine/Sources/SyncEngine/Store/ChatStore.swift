@@ -50,7 +50,8 @@ public extension ChatStore {
             try performConversationWrite(write, in: db)
         case .setReadState, .markUnread:
             try performReadWrite(write, in: db)
-        case .upsertMessage, .markMessageDeleted, .removeMessage, .setReactions:
+        case .upsertMessage, .upsertMessageKeepingReactions, .markMessageDeleted, .removeMessage,
+             .setReactions:
             try performMessageWrite(write, in: db)
         case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
              .clearEphemeralState:
@@ -166,6 +167,14 @@ public extension ChatStore {
 
     private static func performMessageWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case let .upsertMessageKeepingReactions(message):
+            var kept = message
+            if let stored = try String.fetchOne(
+                db, sql: "SELECT reactions FROM message WHERE id = ?", arguments: [message.id.rawValue]
+            ) {
+                kept.reactions = try Wire.value([Reaction].self, from: stored)
+            }
+            try performMessageWrite(.upsertMessage(kept), in: db)
         case let .upsertMessage(message):
             // An optimistic copy and its echo are the same message with two
             // different ids: the client invented one, the server assigned the
