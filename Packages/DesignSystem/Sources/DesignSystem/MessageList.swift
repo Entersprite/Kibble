@@ -193,7 +193,8 @@ struct MessageBubble: View {
                         reactions: message.reactions,
                         toggle: reactions.map { actions in
                             { choice, add in actions.toggle(message.id, choice, add) }
-                        }
+                        },
+                        loadImage: reactions?.customImage
                     )
                 }
             }

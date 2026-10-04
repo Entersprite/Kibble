@@ -1,4 +1,5 @@
 import ChatKit
+import CoreGraphics
 import SwiftUI
 
 /// What a person can do to a message's reactions. **Optional on
@@ -9,9 +10,16 @@ import SwiftUI
 public struct ReactionActions {
     /// The message, the emoji, and whether to add (`false` removes).
     public var toggle: (Message.ID, ReactionChoice, Bool) -> Void
+    /// A custom emoji's picture. `nil` when the backend cannot fetch one:
+    /// every custom capsule then shows its shortcode (reactions spec §4.4).
+    public var customImage: ((CustomEmojiRef) async throws -> Data)?
 
-    public init(toggle: @escaping (Message.ID, ReactionChoice, Bool) -> Void) {
+    public init(
+        toggle: @escaping (Message.ID, ReactionChoice, Bool) -> Void,
+        customImage: ((CustomEmojiRef) async throws -> Data)? = nil
+    ) {
         self.toggle = toggle
+        self.customImage = customImage
     }
 }
 
@@ -34,6 +42,22 @@ enum ReactionDisplay {
         let base = "\(reaction.emoji), \(reaction.count)"
         return reaction.includesMe ? "\(base), you reacted" : base
     }
+
+    /// The picture's side, in points: about the height of the capsule's
+    /// emoji glyph at `.caption2`.
+    static let imageSide: CGFloat = 14
+
+    /// The emoji to fetch a picture for: a custom one, and only when the host
+    /// supplied a loader.
+    static func imageRequest(for reaction: Reaction, canLoad: Bool) -> CustomEmojiRef? {
+        canLoad ? reaction.customEmoji : nil
+    }
+
+    /// Decoded small: a capsule never needs more than a few dozen pixels.
+    /// `nil` for bytes ImageIO cannot read, which keeps the shortcode.
+    static func image(from data: Data) -> CGImage? {
+        AttachmentLayout.decode(data, maxPixel: 64)
+    }
 }
 
 struct ReactionRow: View {
@@ -41,6 +65,8 @@ struct ReactionRow: View {
     /// `nil` draws plain capsules; set, each capsule toggles the person's own
     /// reaction for its emoji.
     var toggle: ((ReactionChoice, Bool) -> Void)?
+    /// A custom emoji's picture; `nil` shows shortcodes.
+    var loadImage: ((CustomEmojiRef) async throws -> Data)?
 
     var body: some View {
         HStack(spacing: 4) {
@@ -49,12 +75,12 @@ struct ReactionRow: View {
                     Button {
                         toggle(reaction.choice, !reaction.includesMe)
                     } label: {
-                        ReactionCapsule(reaction: reaction)
+                        ReactionCapsule(reaction: reaction, loadImage: loadImage)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(ReactionDisplay.accessibilityLabel(for: reaction))
                 } else {
-                    ReactionCapsule(reaction: reaction)
+                    ReactionCapsule(reaction: reaction, loadImage: loadImage)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(ReactionDisplay.accessibilityLabel(for: reaction))
                 }
@@ -63,14 +89,36 @@ struct ReactionRow: View {
     }
 }
 
-/// One emoji and its count. A custom emoji shows its shortcode until plan 1b
-/// gives it an image.
+/// One emoji and its count. A custom emoji shows its picture once loaded,
+/// and its `:shortcode:` before that, without a loader, or when the bytes
+/// do not decode (reactions spec §4.1, §5): a failure has no other sign.
 struct ReactionCapsule: View {
     let reaction: Reaction
+    var loadImage: ((CustomEmojiRef) async throws -> Data)?
+    @State private var image: CGImage?
+
+    /// `image` is for a render harness, which cannot run `.task`.
+    init(
+        reaction: Reaction,
+        loadImage: ((CustomEmojiRef) async throws -> Data)? = nil,
+        image: CGImage? = nil
+    ) {
+        self.reaction = reaction
+        self.loadImage = loadImage
+        _image = State(initialValue: image)
+    }
 
     var body: some View {
         HStack(spacing: 3) {
-            Text(reaction.emoji)
+            if let image {
+                Image(image, scale: 1, label: Text(reaction.emoji))
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: ReactionDisplay.imageSide, height: ReactionDisplay.imageSide)
+            } else {
+                Text(reaction.emoji)
+            }
             Text("\(reaction.count)").monospacedDigit()
         }
         .font(.caption2)
@@ -78,6 +126,12 @@ struct ReactionCapsule: View {
         .padding(.vertical, 2)
         .background(reaction.includesMe ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.quinary))
         .clipShape(Capsule())
+        .task(id: ReactionDisplay.imageRequest(for: reaction, canLoad: loadImage != nil)?.id) {
+            guard let loadImage, image == nil,
+                  let emoji = ReactionDisplay.imageRequest(for: reaction, canLoad: true)
+            else { return }
+            image = await (try? loadImage(emoji)).flatMap(ReactionDisplay.image(from:))
+        }
     }
 }
 
