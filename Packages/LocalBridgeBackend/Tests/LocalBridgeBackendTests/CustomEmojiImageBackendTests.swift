@@ -10,10 +10,20 @@ private actor EmojiTransport: HTTPTransport {
     struct NoStream: Error {}
 
     private let shell: HTTPResponse
+    /// The final hop's response, today's PNG by default so every test but
+    /// Fix 4's own is unaffected.
+    private let lh3Response: HTTPResponse
     private(set) var sent: [HTTPRequest] = []
 
-    init(shell: HTTPResponse) {
+    init(
+        shell: HTTPResponse,
+        lh3Response: HTTPResponse = HTTPResponse(
+            status: 200, headers: HTTPHeaders([("Content-Type", "image/png")]),
+            body: Data([0x89, 0x50, 0x4E, 0x47])
+        )
+    ) {
         self.shell = shell
+        self.lh3Response = lh3Response
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -29,10 +39,7 @@ private actor EmojiTransport: HTTPTransport {
             )
         }
         if request.url.host() == "lh3.googleusercontent.com" {
-            return HTTPResponse(
-                status: 200, headers: HTTPHeaders([("Content-Type", "image/png")]),
-                body: Data([0x89, 0x50, 0x4E, 0x47])
-            )
+            return lh3Response
         }
         return HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data())
     }
@@ -50,11 +57,11 @@ struct CustomEmojiImageBackendTests {
     )
     private static let tokenless = CustomEmojiRef(id: "e-1", shortcode: ":parrot:")
 
-    private static func transport() -> EmojiTransport {
+    private static func transport(lh3Response: HTTPResponse? = nil) -> EmojiTransport {
         let html = LocalBridgeBackendTests.shell(app: "DynamiteWebUi")
-        return EmojiTransport(
-            shell: HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data(html.utf8))
-        )
+        let shell = HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data(html.utf8))
+        guard let lh3Response else { return EmojiTransport(shell: shell) }
+        return EmojiTransport(shell: shell, lh3Response: lh3Response)
     }
 
     @Test func theCapabilityIsAdvertised() {
@@ -85,6 +92,23 @@ struct CustomEmojiImageBackendTests {
             _ = try await backend.customEmojiImage(Self.tokenless)
         }
         #expect(await transport.sent.allSatisfy { !$0.url.path.contains("/api/get_custom_emoji_image") })
+    }
+
+    /// Fix 4: only `text/html` is rejected upstream (`AttachmentFetchFailure`'s
+    /// own page guard), so a 200 of any other non-image type needs its own
+    /// check - otherwise `AttachmentCache` would write it to disk as the
+    /// emoji's picture, for good.
+    @Test func aNonImageResponseThrowsRatherThanBeingReturned() async throws {
+        let transport = Self.transport(lh3Response: HTTPResponse(
+            status: 200,
+            headers: HTTPHeaders([("Content-Type", "text/plain")]),
+            body: Data("not an image".utf8)
+        ))
+        let backend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
+        try await backend.connect()
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.customEmojiImage(Self.parrot)
+        }
     }
 
     @Test func beforeConnectItThrowsRatherThanFetching() async {

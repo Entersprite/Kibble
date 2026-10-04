@@ -35,6 +35,13 @@ private actor EmojiRecorder {
         if holding {
             await withCheckedContinuation { held.append($0) }
         }
+        // The real backend refuses a tokenless reference (reactions spec
+        // §2.4), so the fake does too, after the hold above: a test that
+        // holds several requests at once needs a tokenless one to still
+        // register as held, not throw before it ever gets there.
+        guard emoji.imageToken != nil else {
+            throw ChatError.unknown("no image token")
+        }
         if failuresLeft > 0 {
             failuresLeft -= 1
             throw ChatError.server(status: 503, message: "try later")
@@ -46,6 +53,7 @@ private actor EmojiRecorder {
 @Suite(.timeLimit(.minutes(1)))
 struct CustomEmojiCacheTests {
     private static let parrot = CustomEmojiRef(id: "e-1", shortcode: ":parrot:", imageToken: "t")
+    private static let tokenlessParrot = CustomEmojiRef(id: "e-1", shortcode: ":parrot:")
 
     private static func directory() -> URL {
         FileManager.default.temporaryDirectory
@@ -130,6 +138,24 @@ struct CustomEmojiCacheTests {
             _ = try await pending.value
         }
         #expect(!FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)))
+    }
+
+    /// Fix 1: a tokenless capsule's fetch must not absorb a tokened one for
+    /// the same emoji id - sharing one fetch would throw the "no image
+    /// token" error for the tokened request too.
+    @Test func aTokenlessFetchDoesNotAbsorbATokenedOne() async throws {
+        let recorder = EmojiRecorder()
+        await recorder.hold()
+        let cache = Self.cache(recorder, directory: nil)
+        let tokenlessTask = Task { try await cache.customEmojiData(for: Self.tokenlessParrot) }
+        try await Self.waitUntilHeld(recorder, count: 1)
+        let tokenedTask = Task { try await cache.customEmojiData(for: Self.parrot) }
+        try await Self.waitUntilHeld(recorder, count: 2)
+        await recorder.release()
+        await #expect(throws: ChatError.self) {
+            _ = try await tokenlessTask.value
+        }
+        #expect(try await tokenedTask.value == Data("emoji/e-1".utf8))
     }
 
     /// An emoji and an attachment that share an id are different entries.

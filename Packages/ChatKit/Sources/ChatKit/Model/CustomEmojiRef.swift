@@ -19,8 +19,9 @@ public struct CustomEmojiRef: Codable, Hashable, Sendable {
     /// `ChatBackend.customEmojiImage(_:)`, the way `Attachment.id` is for an
     /// upload. For the local bridge it is Google's `read_token`
     /// (`findings.md` §54.4). `nil` for a reference stored before it was
-    /// kept, or built without one: the capsule shows the shortcode until the
-    /// next history load supplies it.
+    /// kept, or built without one: the capsule shows the shortcode until a
+    /// history load covers that message, or the same emoji's picture is
+    /// already cached by id.
     ///
     /// Not part of the identity: `ReactionChoice.key` is the `id` alone.
     /// Equality still compares it, as a value.

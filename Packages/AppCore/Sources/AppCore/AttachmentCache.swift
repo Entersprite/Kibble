@@ -85,18 +85,29 @@ public actor AttachmentCache {
     /// memory, then disk, then one fetch shared by every capsule asking, and
     /// gone on `erase()`. Keyed by the emoji's id, never its token, so a
     /// token refreshed by a later history load still finds the stored image.
+    /// The in-flight key is the id *and* the token: a tokenless capsule and a
+    /// tokened one for the same emoji must not share one fetch, or the
+    /// tokenless request's "no image token" throw would answer for both.
     public func customEmojiData(for emoji: CustomEmojiRef) async throws -> Data {
         guard let customEmojiFetch else { throw NoCustomEmojiFetch() }
-        return try await cached(Self.key(emoji), name: "custom-emoji") {
+        return try await cached(
+            Self.key(emoji), name: "custom-emoji",
+            flight: "\(Self.key(emoji))|\(emoji.imageToken ?? "")"
+        ) {
             try await customEmojiFetch(emoji)
         }
     }
 
-    /// Memory, disk, then `fetch`, with one fetch per key in flight; checked
-    /// for an erase on entry and again after the `await`.
+    /// Memory and disk are keyed by `key` alone, so a tokenless request still
+    /// finds an image another request already stored. In flight is keyed by
+    /// `flight` instead (defaulting to `key`), so a request that must not be
+    /// folded into another one in flight for the same `key` - a tokenless
+    /// custom emoji request beside a tokened one, say - gets its own fetch.
+    /// Checked for an erase on entry and again after the `await`.
     private func cached(
         _ key: String,
         name: String,
+        flight: String? = nil,
         fetch: @escaping @Sendable () async throws -> Data
     ) async throws -> Data {
         guard !isErased else { throw Erased() }
@@ -107,12 +118,13 @@ public actor AttachmentCache {
             remember(stored, key)
             return stored
         }
-        if let running = inFlight[key] {
+        let flightKey = flight ?? key
+        if let running = inFlight[flightKey] {
             return try await running.value
         }
         let task = Task { try await fetch() }
-        inFlight[key] = task
-        defer { inFlight[key] = nil }
+        inFlight[flightKey] = task
+        defer { inFlight[flightKey] = nil }
         let data = try await task.value
         guard !isErased else { throw Erased() }
         remember(data, key)
