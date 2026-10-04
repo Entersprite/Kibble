@@ -32,10 +32,17 @@ struct ReactionProbeTests {
         return reaction
     }
 
+    /// The sentinel sits in every value a custom-emoji fetch might need
+    /// (`uuid`, `shortcode`, `blob_id`, `read_token`, and - when `url` is
+    /// given - `ephemeral_url`), so the leak test below exercises all five at
+    /// once (`CLAUDE.md`: pick the secret from inside the masker's own
+    /// exception).
     private func custom(url: String?, count: Int32) -> GChatBridgeCore.Reaction {
         var reaction = GChatBridgeCore.Reaction()
         reaction.emoji.customEmoji.uuid = "secret-uuid"
         reaction.emoji.customEmoji.shortcode = ":secretshortcode:"
+        reaction.emoji.customEmoji.blobID = "secret-blob-id"
+        reaction.emoji.customEmoji.readToken = "secret-read-token"
         if let url {
             reaction.emoji.customEmoji.ephemeralURL = url
         }
@@ -150,6 +157,67 @@ struct ReactionProbeTests {
         let reaction = try GChatBridgeCore.Reaction(serializedBytes: fieldTenVarint)
         let shapes = APIProbeReport.reactionShapes([message(id: "m-1", reactions: [reaction])])
         #expect(shapes.reactionFields[10] == 1)
+    }
+
+    // MARK: - Custom emoji: what a fetch for its image needs
+
+    /// A custom emoji carrying everything a fetch might use: the byte walk
+    /// sees every field it set, `content_type` and `state` land in their own
+    /// tallies, and the three candidate fetch inputs are counted by length,
+    /// never by value.
+    @Test func itWalksCustomEmojiFieldsContentTypeStateAndInputLengths() {
+        var reaction = GChatBridgeCore.Reaction()
+        reaction.emoji.customEmoji.uuid = "secret-uuid"
+        reaction.emoji.customEmoji.shortcode = ":secretshortcode:"
+        reaction.emoji.customEmoji.blobID = "secret-blob-identifier"
+        reaction.emoji.customEmoji.readToken = "secret-read-token-value"
+        reaction.emoji.customEmoji.ephemeralURL = "https://secrethost.invalid/secretpath"
+        reaction.emoji.customEmoji.contentType = "image/png"
+        reaction.emoji.customEmoji.state = .emojiEnabled
+        reaction.count = 1
+        let shapes = APIProbeReport.reactionShapes([message(id: "m-1", reactions: [reaction])])
+        // Fields present on the wire: 1 uuid, 3 shortcode, 4 state, 7 blob_id,
+        // 9 read_token, 11 ephemeral_url, 12 content_type.
+        #expect(shapes.customFields == [1: 1, 3: 1, 4: 1, 7: 1, 9: 1, 11: 1, 12: 1])
+        #expect(shapes.customContentTypes == ["image/png": 1])
+        #expect(shapes.customStates == [GChatBridgeCore.EmojiState.emojiEnabled.rawValue: 1])
+        let blobLength = "secret-blob-identifier".utf8.count
+        let tokenLength = "secret-read-token-value".utf8.count
+        let urlLength = "https://secrethost.invalid/secretpath".utf8.count
+        #expect(shapes.customBlobIDLengths == [blobLength: 1])
+        #expect(shapes.customReadTokenLengths == [tokenLength: 1])
+        #expect(shapes.customEphemeralURLLengths == [urlLength: 1])
+    }
+
+    /// `CLAUDE.md`: "believe the walk" - a field neither vendored proto names
+    /// still has to show up inside `CustomEmoji` too, the same way it already
+    /// does for `Emoji` and `Reaction`. Field 20, wire type 0 (varint), value
+    /// 5: tag byte is `(20 << 3) | 0 = 160`, which needs two varint bytes
+    /// since it exceeds 127.
+    @Test func aCustomEmojiWithAnUnnamedFieldStillShowsInTheWalk() throws {
+        let fieldTwentyVarint = Data([0xA0, 0x01, 0x05])
+        let customEmoji = try GChatBridgeCore.CustomEmoji(serializedBytes: fieldTwentyVarint)
+        var reaction = GChatBridgeCore.Reaction()
+        reaction.emoji.customEmoji = customEmoji
+        reaction.count = 1
+        let shapes = APIProbeReport.reactionShapes([message(id: "m-1", reactions: [reaction])])
+        #expect(shapes.customFields[20] == 1)
+    }
+
+    /// `EmojiState` is a closed proto2 enum, so a raw value it does not name
+    /// clears `hasState` and the typed decode would read as "absent" - the
+    /// same trap `MentionShapesTests` pins for `AnnotationType` and
+    /// `UserMentionMetadata.TypeEnum`. Field 4, wire type 0, value 9 - one
+    /// past `emojiDeleted` (4), outside the enum's 0...4 range.
+    @Test func aRawStateOutsideTheEnumShowsViaTheUnknownFieldsVarintPath() throws {
+        let fieldFourValueNine = Data([0x20, 0x09])
+        let customEmoji = try GChatBridgeCore.CustomEmoji(serializedBytes: fieldFourValueNine)
+        #expect(!customEmoji.hasState) // positive control on the fixture
+        var reaction = GChatBridgeCore.Reaction()
+        reaction.emoji.customEmoji = customEmoji
+        reaction.count = 1
+        let shapes = APIProbeReport.reactionShapes([message(id: "m-1", reactions: [reaction])])
+        #expect(shapes.customStates == [9: 1])
     }
 
     @Test func aMessageWithNoReactionsAnywhereSaysSo() {
