@@ -61,10 +61,10 @@ struct SetReactionTests {
 
     private func command(
         conversation: String? = "space/s-1", thread: String? = "t-1", add: Bool = true,
-        custom: CustomEmojiRef? = nil
+        custom: CustomEmojiRef? = nil, messageID: String = "m-1", emoji: String = "👍"
     ) -> ChatCommand {
         .setReaction(
-            messageID: Message.ID("m-1"), emoji: custom?.displayText ?? "👍", add: add,
+            messageID: Message.ID(messageID), emoji: custom?.displayText ?? emoji, add: add,
             conversationID: conversation.map { Conversation.ID($0) },
             threadID: thread.map { MessageThread.ID($0) },
             customEmoji: custom
@@ -93,7 +93,7 @@ struct SetReactionTests {
         let decoded = try UpdateReactionRequest(serializedBytes: body)
         let expected = try ReactionRequests.updateReaction(
             group: #require(ChannelEventMapping.groupID(for: Conversation.ID("space/s-1"))),
-            topicID: "t-1", messageID: "m-1", unicode: "👍", customEmojiID: nil, add: true
+            topicID: "t-1", messageID: "m-1", emoji: .unicode("👍"), add: true
         )
         #expect(decoded.messageID == expected.messageID)
         #expect(decoded.emoji == expected.emoji)
@@ -126,6 +126,26 @@ struct SetReactionTests {
         try await backend.connect()
         await #expect(throws: ChatError.self) {
             try await backend.send(command(conversation: conversation, thread: thread))
+        }
+        #expect(await transport.sent.allSatisfy { !$0.url.path.contains("/api/update_reaction") })
+    }
+
+    /// Finding 1 (review round 1, Important): an empty message id, an empty
+    /// emoji with no custom emoji, or a custom emoji with an empty id must
+    /// each fail before the network, never reach `/api/update_reaction`
+    /// carrying the empty field.
+    @Test(arguments: [
+        ("", "👍", String?.none),
+        ("m-1", "", String?.none),
+        ("m-1", "👍", Optional(""))
+    ])
+    func anEmptyFieldSendsNothing(_ messageID: String, _ emoji: String, _ customID: String?) async throws {
+        let transport = try RoutingTransport(shell: shellResponse(), reaction: accepted())
+        let backend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
+        try await backend.connect()
+        let custom = customID.map { CustomEmojiRef(id: $0, shortcode: ":parrot:") }
+        await #expect(throws: ChatError.self) {
+            try await backend.send(command(custom: custom, messageID: messageID, emoji: emoji))
         }
         #expect(await transport.sent.allSatisfy { !$0.url.path.contains("/api/update_reaction") })
     }

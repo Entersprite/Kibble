@@ -37,12 +37,23 @@ extension LocalBridgeBackend {
         guard let threadID, !threadID.rawValue.isEmpty else {
             throw ChatError.unknown("a reaction needs its message's topic, and this command has none")
         }
+        guard !messageID.rawValue.isEmpty else {
+            throw ChatError.unknown("a reaction needs its message's id, and this command has none")
+        }
+        if let customEmoji {
+            guard !customEmoji.id.isEmpty else {
+                throw ChatError.unknown("a reaction needs its custom emoji's id, and this command has none")
+            }
+        } else {
+            guard !emoji.isEmpty else {
+                throw ChatError.unknown("a reaction needs an emoji, and this command has none")
+            }
+        }
         let request = ReactionRequests.updateReaction(
             group: group,
             topicID: threadID.rawValue,
             messageID: messageID.rawValue,
-            unicode: customEmoji == nil ? emoji : nil,
-            customEmojiID: customEmoji?.id,
+            emoji: customEmoji.map { .custom(id: $0.id) } ?? .unicode(emoji),
             add: add
         )
         do {

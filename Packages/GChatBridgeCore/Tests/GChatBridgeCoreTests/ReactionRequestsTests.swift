@@ -14,7 +14,7 @@ struct ReactionRequestsTests {
     @Test func aUnicodeAddNamesTheMessageByGroupTopicAndID() {
         let request = ReactionRequests.updateReaction(
             group: space("s-1"), topicID: "t-1", messageID: "m-1",
-            unicode: "👍", customEmojiID: nil, add: true
+            emoji: .unicode("👍"), add: true
         )
         #expect(request.hasRequestHeader)
         #expect(request.messageID.parentID.topicID.groupID.spaceID.spaceID == "s-1")
@@ -28,7 +28,7 @@ struct ReactionRequestsTests {
     @Test func aCustomRemoveSendsOnlyTheUUID() {
         let request = ReactionRequests.updateReaction(
             group: space("s-1"), topicID: "t-1", messageID: "m-1",
-            unicode: nil, customEmojiID: "e-1", add: false
+            emoji: .custom(id: "e-1"), add: false
         )
         #expect(!request.emoji.hasUnicode)
         #expect(request.emoji.customEmoji.uuid == "e-1")
@@ -39,7 +39,7 @@ struct ReactionRequestsTests {
     @Test func itRoundTripsThroughSerialisation() throws {
         let request = ReactionRequests.updateReaction(
             group: space("s-1"), topicID: "t-1", messageID: "m-1",
-            unicode: "🎉", customEmojiID: nil, add: true
+            emoji: .unicode("🎉"), add: true
         )
         let bytes: Data = try request.serializedBytes()
         let decoded = try UpdateReactionRequest(serializedBytes: bytes)
