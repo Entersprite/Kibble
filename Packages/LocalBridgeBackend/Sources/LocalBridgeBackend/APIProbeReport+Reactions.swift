@@ -32,8 +32,32 @@ struct ReactionShapes: Equatable {
     /// `CustomEmoji` and `Reaction` is `optional`, so nothing known today
     /// makes `serializedBytes()` throw; counted anyway so a future required
     /// field does not read as "walked, found nothing" instead of "could not
-    /// walk".
+    /// walk". Shared with the `CustomEmoji` walk below - either message
+    /// failing to re-serialize lands here, so the report shows one number
+    /// for "the byte walk could not run" rather than two.
     var walkFailures = 0
+    /// Top-level field numbers inside each reaction's `CustomEmoji`, from the
+    /// same byte walk one level inside `emoji.customEmoji` - what a fetch for
+    /// the image needs lives here, not in `emojiFields`, which only ever sees
+    /// `Emoji`'s own two fields (unicode, custom_emoji).
+    var customFields: [Int: Int] = [:]
+    /// `content_type` values, reduced the same way the attachment probe does
+    /// (`APIProbeReport.contentTypeKey(_:)`), `hasContentType` only.
+    var customContentTypes: [String: Int] = [:]
+    /// `state` raw value → count: the typed value when `hasState`, otherwise
+    /// the raw field-4 varints from `unknownFields` - `EmojiState` is a
+    /// closed proto2 enum, so an out-of-range state clears the presence bit
+    /// (`CLAUDE.md`: "believe the walk"; the same merge `countType` uses for
+    /// `AnnotationType` in `APIProbeReport+Mentions.swift`).
+    var customStates: [Int: Int] = [:]
+    /// `blob_id` UTF-8 length → count, for custom emoji that carry one.
+    /// Never the value.
+    var customBlobIDLengths: [Int: Int] = [:]
+    /// `read_token` UTF-8 length → count, likewise.
+    var customReadTokenLengths: [Int: Int] = [:]
+    /// `ephemeral_url` UTF-8 length → count, likewise - the third input a
+    /// fetch might use, alongside `blob_id` and `read_token`.
+    var customEphemeralURLLengths: [Int: Int] = [:]
     /// The first message with a reaction: what the `list_messages` check asks
     /// for. Held, never printed.
     var firstReacted: ReactedMessage?
@@ -50,6 +74,9 @@ struct ReactionShapes: Equatable {
 /// The probe's reaction sections. Its own file for `file_length`, like the
 /// mentions section; pure apart from `appendReactionSections`.
 extension APIProbeReport {
+    /// `CustomEmoji.state`'s field number, for the raw-varint fallback below.
+    private static let customStateField = 4
+
     static func reactionShapes(_ messages: [GChatBridgeCore.Message]) -> ReactionShapes {
         var shapes = ReactionShapes()
         for message in messages {
@@ -78,6 +105,7 @@ extension APIProbeReport {
                 shapes.customWithURL += 1
                 shapes.firstCustomURL = shapes.firstCustomURL ?? emoji.customEmoji.ephemeralURL
             }
+            countCustom(emoji.customEmoji, into: &shapes)
         } else if emoji.hasUnicode, !emoji.unicode.isEmpty {
             shapes.unicode += 1
         } else {
@@ -104,6 +132,43 @@ extension APIProbeReport {
         }
     }
 
+    /// What a fetch for a custom emoji's image needs to know: the fields on
+    /// the wire (`believe the walk` - an unnamed number still has to show),
+    /// the `content_type` it declares, its `state`, and the lengths of the
+    /// three candidate inputs a fetch might use (`blob_id`, `read_token`,
+    /// `ephemeral_url`) - never their values.
+    private static func countCustom(_ customEmoji: CustomEmoji, into shapes: inout ReactionShapes) {
+        if let bytes: Data = try? customEmoji.serializedBytes() {
+            for number in Set(ProtoFieldScan.fields(in: bytes).fields.map(\.number)) {
+                shapes.customFields[number, default: 0] += 1
+            }
+        } else {
+            shapes.walkFailures += 1
+        }
+        if customEmoji.hasContentType {
+            shapes.customContentTypes[contentTypeKey(customEmoji.contentType), default: 0] += 1
+        }
+        if customEmoji.hasState {
+            shapes.customStates[customEmoji.state.rawValue, default: 0] += 1
+        } else {
+            for raw in ProtoFieldScan.varintValues(
+                ofField: customStateField,
+                in: customEmoji.unknownFields.data
+            ) {
+                shapes.customStates[Int(clamping: raw), default: 0] += 1
+            }
+        }
+        if customEmoji.hasBlobID, !customEmoji.blobID.isEmpty {
+            shapes.customBlobIDLengths[customEmoji.blobID.utf8.count, default: 0] += 1
+        }
+        if customEmoji.hasReadToken, !customEmoji.readToken.isEmpty {
+            shapes.customReadTokenLengths[customEmoji.readToken.utf8.count, default: 0] += 1
+        }
+        if customEmoji.hasEphemeralURL, !customEmoji.ephemeralURL.isEmpty {
+            shapes.customEphemeralURLLengths[customEmoji.ephemeralURL.utf8.count, default: 0] += 1
+        }
+    }
+
     static func reactionShapesLines(_ shapes: ReactionShapes) -> [String] {
         let walkFailureSuffix = shapes.walkFailures > 0 ? " (walk failures \(shapes.walkFailures))" : ""
         return [
@@ -114,12 +179,26 @@ extension APIProbeReport {
                 + "\(shapes.withCreateTimestamp)",
             "  count values: \(reactionTally(shapes.countTally))",
             "  Emoji fields (byte walk): \(reactionTally(shapes.emojiFields))\(walkFailureSuffix)",
-            "  Reaction fields (byte walk): \(reactionTally(shapes.reactionFields))"
+            "  Reaction fields (byte walk): \(reactionTally(shapes.reactionFields))",
+            "  CustomEmoji fields (byte walk): \(reactionTally(shapes.customFields))",
+            "  custom content types: \(contentTypeTally(shapes.customContentTypes)); "
+                + "states: \(reactionTally(shapes.customStates))",
+            "  custom input lengths: blob_id \(reactionTally(shapes.customBlobIDLengths)), "
+                + "read_token \(reactionTally(shapes.customReadTokenLengths)), "
+                + "ephemeral_url \(reactionTally(shapes.customEphemeralURLLengths))"
         ]
     }
 
     /// `value×count` pairs, keys ascending; `none` when empty.
     private static func reactionTally(_ counts: [Int: Int]) -> String {
+        guard !counts.isEmpty else { return "none" }
+        return counts.sorted { $0.key < $1.key }.map { "\($0.key)×\($0.value)" }.joined(separator: " ")
+    }
+
+    /// `type×count` pairs, keys sorted lexicographically; `none` when empty.
+    /// `type` is already reduced through `contentTypeKey(_:)`, so nothing
+    /// here can be a value outside the shape that function admits.
+    private static func contentTypeTally(_ counts: [String: Int]) -> String {
         guard !counts.isEmpty else { return "none" }
         return counts.sorted { $0.key < $1.key }.map { "\($0.key)×\($0.value)" }.joined(separator: " ")
     }
