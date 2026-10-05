@@ -7,6 +7,8 @@ MACOSX_DEPLOYMENT_TARGET = 26.0
 SWIFT_VERSION = 6.0
 SWIFT_STRICT_CONCURRENCY = complete
 
+// Written by scripts/release.sh, never by hand: vYEAR.WEEK.N, the ISO week and
+// that week's release count from 0. The build number is the same three integers.
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 1
 
