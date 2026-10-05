@@ -24,5 +24,9 @@ Fixtures/raw/
 *cookies*.json
 *.p12
 
-# Spike build output (spike SOURCE is kept; its build products are not)
-Spikes/**/.build/
+# Kept on this machine, never published: project notes, agent instructions,
+# spikes, and brainstorming scratch
+/docs/
+/CLAUDE.md
+/Spikes/
+/.superpowers/
