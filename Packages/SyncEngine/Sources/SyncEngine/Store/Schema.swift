@@ -18,6 +18,7 @@ enum Schema {
         migrator.registerMigration("v6", migrate: addMemberCount)
         migrator.registerMigration("v7", migrate: addMentionBackfillStatus)
         migrator.registerMigration("v8", migrate: addMemberStatus)
+        migrator.registerMigration("v9", migrate: addEmojiRecents)
         return migrator
     }
 
@@ -39,6 +40,23 @@ enum Schema {
         try db.alter(table: "syncState") { table in
             table.add(column: "mentionBackfillRunning", .boolean).notNull().defaults(to: false)
             table.add(column: "mentionBackfillFailed", .integer).notNull().defaults(to: 0)
+        }
+    }
+
+    /// The person's recent reactions (reactions spec §3), keyed by
+    /// `ReactionChoice.key`. A custom emoji keeps its reference, token
+    /// included, so its recent can draw its picture. In the account's store,
+    /// so `ChatStore.erase()` takes them with the account. `usedAt` is seconds
+    /// since 1970 as a double: it is only ever ordered by.
+    private static func addEmojiRecents(_ db: Database) throws {
+        try db.create(table: "emojiRecent") { table in
+            table.primaryKey("key", .text)
+            table.column("emoji", .text).notNull()
+            table.column("customEmojiID", .text)
+            table.column("shortcode", .text)
+            table.column("imageToken", .text)
+            table.column("usedAt", .double).notNull()
+            table.column("uses", .integer).notNull().defaults(to: 1)
         }
     }
 

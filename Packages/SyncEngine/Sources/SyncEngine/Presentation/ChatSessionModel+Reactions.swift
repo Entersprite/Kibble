@@ -49,6 +49,17 @@ public extension ChatSessionModel {
     /// for a message that has no server id yet (`local/`, the optimistic
     /// send's prefix); for a message not in the store, or a store read error
     /// (`try? store.message`); and for a toggle that would change nothing.
+    /// The person's recent reactions, newest first; empty when the store
+    /// cannot be read. Read at call time, so a menu shows the latest.
+    func recentReactions(limit: Int) -> [ReactionChoice] {
+        (try? store.recentReactions(limit: limit)) ?? []
+    }
+
+    /// The distinct custom emoji in this account's stored reactions.
+    func storedCustomEmoji() -> [CustomEmojiRef] {
+        (try? store.storedCustomEmoji()) ?? []
+    }
+
     func react(to messageID: Message.ID, with choice: ReactionChoice, add: Bool) {
         guard capabilities.canReact,
               !messageID.rawValue.hasPrefix("local/"),
@@ -95,6 +106,10 @@ public extension ChatSessionModel {
             _ = await previousTail?.value
             guard !Task.isCancelled else { return }
             let accepted = await engine.submit(command, undoing: [])
+            // Only an accepted add is something the person used.
+            if accepted, add, !Task.isCancelled {
+                try? store.recordReactionUse(choice, at: Date())
+            }
             if !accepted, !Task.isCancelled, let current = try? store.message(messageID) {
                 try? store.apply([.setReactions(
                     messageID: messageID, reactions: current.reactions.applying(choice, add: !add)
