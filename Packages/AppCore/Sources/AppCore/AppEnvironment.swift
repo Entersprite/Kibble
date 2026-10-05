@@ -1,4 +1,5 @@
 import ChatKit
+import DesignSystem
 import Foundation
 import Observation
 import SyncEngine
@@ -66,7 +67,7 @@ public final class AppEnvironment {
     ///
     /// Applied at construction, right beside `beginSettingsSession(engine:)` in
     /// `start()`, which is the one place a model is actually built.
-    private var pendingActive: Bool?
+    var pendingActive: Bool?
 
     /// The other two inputs to the viewing gate, beside `pendingActive`'s
     /// frontmost. Written from `AppEnvironment+Viewing.swift`; see
@@ -96,12 +97,22 @@ public final class AppEnvironment {
     /// dialog, so both can be confirmed before either finishes.
     private var isSigningOut = false
 
+    /// The app's one skin tone for reactions (reactions spec §3). Not
+    /// personal data, so it lives in the app's defaults and survives sign-out.
+    public internal(set) var skinTone: SkinTone = .none
+
+    /// The app's defaults, for `skinTone` (`AppEnvironment+SkinTone.swift`).
+    @ObservationIgnored let preferences: UserDefaults
+
     public init(
         services: any LaunchServices,
         notifications delivery: (any NotificationDelivering)? = nil,
-        settingsStore: any NotificationSettingsStore = InMemoryNotificationSettingsStore()
+        settingsStore: any NotificationSettingsStore = InMemoryNotificationSettingsStore(),
+        preferences: UserDefaults = .standard
     ) {
         self.services = services
+        self.preferences = preferences
+        skinTone = SkinTone(rawValue: preferences.integer(forKey: Self.skinToneKey)) ?? .none
         // Only a real account may take the legacy ghost-mode key; the fixture
         // identifies a demo account of its own.
         settings = NotificationSettingsModel(
@@ -368,24 +379,6 @@ public final class AppEnvironment {
     public func setActive(_ active: Bool) {
         pendingActive = active
         applyViewing()
-    }
-
-    /// Whether the user can see the window: frontmost, open and not minimised.
-    ///
-    /// **One value for two consumers, so they cannot drift.** Automatic
-    /// mark-as-read publishes only while this is true, and a notification is
-    /// suppressed as "on screen" only while it is true. Before it existed the
-    /// model was told frontmost alone, from a `.task` on the window's own view
-    /// - so closing the window cancelled the only thing reporting focus, left
-    /// the value frozen at `true`, and read receipts could be published for a
-    /// conversation nobody could see. Unknown frontmost reads as `true`, the
-    /// model's own default, which `pendingActive`'s doc comment explains.
-    var isViewing: Bool {
-        (pendingActive ?? true) && windowOpen && !windowMinimized
-    }
-
-    func applyViewing() {
-        model?.setActive(isViewing)
     }
 
     /// Whether `signOut()` has a running session to act on. The menu command is

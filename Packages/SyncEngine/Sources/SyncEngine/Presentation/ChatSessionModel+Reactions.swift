@@ -5,6 +5,19 @@ import Foundation
 
 /// Its own file for swiftlint's `file_length`, like `+Send.swift`.
 public extension ChatSessionModel {
+    /// The person's recent reactions, newest first, from the observed
+    /// `recentReactionChoices`: views call this while they render, so it is
+    /// never a store read (slice 2 review, Important 1).
+    func recentReactions(limit: Int) -> [ReactionChoice] {
+        Array(recentReactionChoices.prefix(limit))
+    }
+
+    /// The distinct custom emoji in this account's stored reactions. A store
+    /// read, so the picker calls it once when it opens.
+    func storedCustomEmoji() -> [CustomEmojiRef] {
+        (try? store.storedCustomEmoji()) ?? []
+    }
+
     /// Adds or removes the person's own reaction, and shows it at once.
     ///
     /// Reads the message from the store (`ChatStore.message(_:)`) rather than
@@ -95,6 +108,10 @@ public extension ChatSessionModel {
             _ = await previousTail?.value
             guard !Task.isCancelled else { return }
             let accepted = await engine.submit(command, undoing: [])
+            // Only an accepted add is something the person used.
+            if accepted, add, !Task.isCancelled {
+                try? store.recordReactionUse(choice, at: Date())
+            }
             if !accepted, !Task.isCancelled, let current = try? store.message(messageID) {
                 try? store.apply([.setReactions(
                     messageID: messageID, reactions: current.reactions.applying(choice, add: !add)

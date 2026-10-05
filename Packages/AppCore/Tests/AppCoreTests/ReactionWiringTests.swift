@@ -41,4 +41,42 @@ struct ReactionWiringTests {
         let environment = try await running(canReact: true, canFetchCustomEmoji: true)
         #expect(environment.actions.reactions?.customImage != nil)
     }
+
+    /// Slice 2: the skin tone is the app's, and survives a new environment on
+    /// the same defaults (reactions spec §3).
+    @Test func theSkinToneIsSavedAndReadBack() async throws {
+        let suite = "reaction-wiring-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let services = try FakeLaunchServices(
+            backendCapabilities: Capabilities(canSendMessages: true, canReact: true)
+        )
+        let first = AppEnvironment(services: services, preferences: defaults)
+        await first.start()
+        let actions = try #require(first.actions.reactions)
+        #expect(actions.skinTone == .none)
+        actions.setSkinTone(.medium)
+        #expect(first.actions.reactions?.skinTone == .medium)
+        let second = AppEnvironment(services: services, preferences: defaults)
+        #expect(second.skinTone == .medium)
+    }
+
+    /// Slice 2: the actions answer with the running model's observed recents.
+    /// (Recording on an accepted add is `EmojiRecentsTests`' in SyncEngine;
+    /// this fake backend serves no conversations to react in.)
+    @Test func theActionsReadTheRunningSessionsRecents() async throws {
+        let services = try FakeLaunchServices(
+            backendCapabilities: Capabilities(canSendMessages: true, canReact: true)
+        )
+        let environment = AppEnvironment(services: services)
+        await environment.start()
+        let actions = try #require(environment.actions.reactions)
+        #expect(actions.recents().isEmpty)
+        try services.store.recordReactionUse(ReactionChoice(emoji: "🛞"), at: Date())
+        // Observed, not read: the model's value arrives a moment later.
+        for _ in 0 ..< 400 where actions.recents().isEmpty {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(actions.recents().map(\.emoji) == ["🛞"])
+    }
 }

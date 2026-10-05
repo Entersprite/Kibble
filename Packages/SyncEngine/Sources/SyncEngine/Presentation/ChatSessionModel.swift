@@ -54,6 +54,8 @@ public final class ChatSessionModel {
     public private(set) var unreadMentionCount = 0
     /// Whether a backfill is running, and how many conversations it could not check.
     public private(set) var mentionBackfill = MentionBackfillStatus()
+    /// The 24 newest recent reactions, fed by `store.observeRecentReactions`.
+    public private(set) var recentReactionChoices: [ReactionChoice] = []
     /// Whether the sidebar's Mentions row is chosen; `selected` is `nil` then.
     /// `internal(set)` for `+Mentions.swift`.
     public internal(set) var showingMentions = false
@@ -262,10 +264,10 @@ public final class ChatSessionModel {
         watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
         watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
         watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
-        // Everything `SyncEngine.record` writes arrives here. Without this
-        // watch the property below was only ever set by an observation
-        // throwing, so a refused send or a failed history page was recorded
-        // and never rendered.
+        watch(store.observeRecentReactions(limit: 24)) { [weak self] in self?.recentReactionChoices = $0 }
+        // Everything `SyncEngine.record` writes arrives here. Without it the
+        // property below was set only by an observation throwing, so a refused
+        // send or a failed history page was recorded and never rendered.
         watch(store.observeLastError()) { [weak self] in self?.lastError = $0 }
         try await engine.start()
     }

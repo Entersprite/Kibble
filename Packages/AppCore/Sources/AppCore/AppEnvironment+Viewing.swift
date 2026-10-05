@@ -24,3 +24,23 @@ public extension AppEnvironment {
         applyViewing()
     }
 }
+
+extension AppEnvironment {
+    /// Whether the user can see the window: frontmost, open and not minimised.
+    ///
+    /// **One value for two consumers, so they cannot drift.** Automatic
+    /// mark-as-read publishes only while this is true, and a notification is
+    /// suppressed as "on screen" only while it is true. Before it existed the
+    /// model was told frontmost alone, from a `.task` on the window's own view
+    /// - so closing the window cancelled the only thing reporting focus, left
+    /// the value frozen at `true`, and read receipts could be published for a
+    /// conversation nobody could see. Unknown frontmost reads as `true`, the
+    /// model's own default, which `pendingActive`'s doc comment explains.
+    var isViewing: Bool {
+        (pendingActive ?? true) && windowOpen && !windowMinimized
+    }
+
+    func applyViewing() {
+        model?.setActive(isViewing)
+    }
+}
