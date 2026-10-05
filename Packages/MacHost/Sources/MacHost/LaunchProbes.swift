@@ -43,6 +43,17 @@ enum LaunchProbes {
         )
     }
 
+    /// `--probe=upload`: one upload, nothing posted. `--probe-conversation=`
+    /// picks where, as for `--probe=api`, except that absent means the newest
+    /// DM, where a run is most easily staged.
+    static func uploadProbe() async -> String {
+        let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
+        return await write(
+            UploadProbeReport.run(conversation: choice ?? .mostRecentDirectMessage),
+            to: "upload-probe.txt"
+        )
+    }
+
     /// `--probe=punctual`. Long-running, so the report is rewritten after
     /// every line rather than once at the end: a run that is quit early keeps
     /// what it saw. `--probe-minutes=N` changes the ten-minute default, and

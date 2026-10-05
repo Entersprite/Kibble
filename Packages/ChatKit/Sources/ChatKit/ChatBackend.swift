@@ -125,6 +125,24 @@ public protocol ChatBackend: Sendable {
     /// A custom emoji's image. **A requirement, not only an extension
     /// method**, for the reason `attachmentData(_:size:)` gives.
     func customEmojiImage(_ emoji: CustomEmojiRef) async throws -> Data
+
+    /// Uploads a staged file into `conversation` and returns the attachment a
+    /// `ChatCommand.sendMessage` then carries. Nothing is posted: an upload
+    /// that is never sent is believed to be invisible to everyone `[Verify]`. Progress counts bytes
+    /// sent, in `AttachmentProgress.bytesReceived`'s place. Cancellation is
+    /// the calling task's.
+    ///
+    /// A request rather than a command for the reason `attachmentData` is
+    /// one: the bytes are megabytes, and a command frame should carry a
+    /// reference, never the file.
+    ///
+    /// **A requirement, not only an extension method**, for the reason
+    /// `attachmentData(_:size:)` gives.
+    func uploadAttachment(
+        _ attachment: OutgoingAttachment,
+        to conversation: Conversation.ID,
+        progress: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws -> Attachment
 }
 
 /// Separate from the protocol body only so the default can sit beside it.
@@ -156,5 +174,15 @@ public extension ChatBackend {
     /// their shortcodes, the direction `Capabilities` defaults in.
     func customEmojiImage(_: CustomEmojiRef) async throws -> Data {
         throw ChatError.unsupported(capability: "canFetchCustomEmoji")
+    }
+
+    /// Refuses, so a backend that has not thought about uploads offers no way
+    /// to attach a file, the direction `Capabilities` defaults in.
+    func uploadAttachment(
+        _: OutgoingAttachment,
+        to _: Conversation.ID,
+        progress _: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws -> Attachment {
+        throw ChatError.unsupported(capability: "canSendAttachments")
     }
 }

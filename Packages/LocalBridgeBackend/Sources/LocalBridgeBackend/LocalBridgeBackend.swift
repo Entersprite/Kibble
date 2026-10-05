@@ -45,9 +45,12 @@ public actor LocalBridgeBackend: ChatBackend {
     /// confirms the shape.
     /// `canFetchCustomEmoji` is true on `findings.md` §54.4's capture: the
     /// image call is the one Chat on the web makes, `[Verify]` from here.
+    /// `canSendAttachments` is true on both references' agreement
+    /// (`LocalBridgeBackend+Uploads.swift`), `[Verify]` until a live upload.
     public nonisolated let capabilities = Capabilities(
         canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
-        canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true
+        canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
+        canSendAttachments: true
     )
 
     public nonisolated let events: AsyncStream<ChatEvent>
@@ -110,6 +113,14 @@ public actor LocalBridgeBackend: ChatBackend {
     var apiClient: ProtoAPIClient?
     /// Built beside `apiClient` and cleared with it (`+Attachments.swift`).
     var attachmentFetch: AttachmentFetch?
+    /// Built beside `apiClient` and cleared with it (`+Uploads.swift`).
+    var attachmentUpload: AttachmentUpload?
+    /// What each upload this session made answered, by token, so a send
+    /// returns it verbatim (`uploadAnnotations(_:uploaded:)`). Cleared by
+    /// `connect()` and `disconnect()`. An upload still in flight across a
+    /// disconnect writes its entry afterwards; that is harmless, because a
+    /// token names one upload and a send only looks up the ones it carries.
+    var uploadedMetadata: [String: UploadMetadata] = [:]
 
     /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
     /// and so a second `loadConversations()` supersedes the first rather than
@@ -236,6 +247,10 @@ public actor LocalBridgeBackend: ChatBackend {
             attachmentFetch = AttachmentFetch(
                 transport: transport, endpoints: endpoints, credentials: credentials, xsrfToken: wiz.xsrfToken
             )
+            attachmentUpload = AttachmentUpload(
+                transport: transport, endpoints: endpoints, credentials: credentials, xsrfToken: wiz.xsrfToken
+            )
+            uploadedMetadata = [:]
             emit(.connectionStateChanged(.connected))
             // **Started, not awaited**, the same rule `loadConversations()`
             // follows for `resolveAndEmitMembers` and for the same reason:
@@ -279,6 +294,8 @@ public actor LocalBridgeBackend: ChatBackend {
         isConnected = false
         apiClient = nil
         attachmentFetch = nil
+        attachmentUpload = nil
+        uploadedMetadata = [:]
         memberResolution?.cancel()
         memberResolution = nil
         forgetDirectory()

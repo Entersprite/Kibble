@@ -247,6 +247,16 @@ extension Fixture {
             "command-sendMessage-newThread",
             .sendMessage(conversationID: dmID, threadID: nil, text: "Hello.", localID: nil)
         ),
+        Sample(
+            "command-sendMessage-attachments",
+            .sendMessage(
+                conversationID: dmID, threadID: nil, text: "", localID: "draft-44",
+                attachments: [Attachment(
+                    id: "upload-token-1", name: "tread.png", contentType: "image/png",
+                    byteSize: 77594, width: 416, height: 300
+                )]
+            )
+        ),
         Sample("command-editMessage", .editMessage(id: messageID, text: "Corrected.")),
         Sample("command-deleteMessage", .deleteMessage(id: messageID)),
         Sample("command-setReaction", .setReaction(messageID: messageID, emoji: "🛞", add: true)),

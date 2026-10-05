@@ -132,6 +132,19 @@ public actor AttachmentCache {
         return data
     }
 
+    /// Keeps bytes this app already has - a picture it has just sent - under
+    /// both sizes, so the transcript does not fetch back what it uploaded.
+    /// The preview's server rendition is smaller, and the view decodes either
+    /// at bubble size, so the original serves for both.
+    public func seed(_ data: Data, for attachment: Attachment) {
+        guard !isErased else { return }
+        for size in [AttachmentSize.preview, .original] {
+            let key = Self.key(attachment, size)
+            remember(data, key)
+            writeToDisk(data, key, name: Self.fileName(for: attachment))
+        }
+    }
+
     /// The full-size image as a file, for Quick Look.
     public func originalFile(for attachment: Attachment) async throws -> URL {
         guard !isErased else { throw Erased() }

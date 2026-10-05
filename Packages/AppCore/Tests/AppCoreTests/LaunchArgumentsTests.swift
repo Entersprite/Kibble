@@ -29,6 +29,7 @@ struct LaunchArgumentsTests {
         #expect(LaunchArguments.parsing(["GChat", "--probe=keychain"]).probe == .keychain)
         #expect(LaunchArguments.parsing(["GChat", "--probe=api"]).probe == .api)
         #expect(LaunchArguments.parsing(["GChat", "--probe=punctual"]).probe == .punctual)
+        #expect(LaunchArguments.parsing(["GChat", "--probe=upload"]).probe == .upload)
     }
 
     /// `--probe=appnap` is a different kind of flag: it does not short-circuit

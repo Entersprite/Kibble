@@ -61,6 +61,9 @@ public actor FakeBackend {
     /// as were produced. See `emittedCount`.
     var emitted = 0
     var isConnected = false
+    /// Every attachment `uploadAttachment(_:to:progress:)` has handed out, so
+    /// a send naming any other is refused rather than invented.
+    var uploaded: [String: Attachment] = [:]
 
     /// Distinguishes the first connection from a reconnection, which is the
     /// difference between a clean start and a gap.

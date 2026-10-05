@@ -28,6 +28,8 @@ final class FakeLaunchServices: LaunchServices {
     var arguments: LaunchArguments
 
     var storedSessionExists = true
+    /// What the composer's paperclip is answered with.
+    var filesToSend: [URL] = []
     var probeReport = "Written to probe.txt."
 
     /// The clock `makeSession()` hands the engine for the mention backfill.
@@ -87,6 +89,10 @@ final class FakeLaunchServices: LaunchServices {
         downloadPlatformFake = FakeDownloadPlatform(folder: downloadDirectory)
         store = try ChatStore.inMemory()
         backend = FakeLaunchBackend(capabilities: backendCapabilities ?? Capabilities(canSendMessages: true))
+    }
+
+    func chooseFilesToSend() -> [URL] {
+        filesToSend
     }
 
     func hasStoredSession() async throws -> Bool {

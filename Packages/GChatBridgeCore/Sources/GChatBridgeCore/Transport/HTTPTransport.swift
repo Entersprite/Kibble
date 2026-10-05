@@ -66,6 +66,9 @@ public struct HTTPRequest: Sendable, Hashable {
     public enum Method: String, Sendable, Hashable {
         case get = "GET"
         case post = "POST"
+        /// An upload's bytes (`AttachmentUpload`), sent to the address the
+        /// upload's start answered with, as both references do.
+        case put = "PUT"
     }
 
     public var method: Method
@@ -244,6 +247,19 @@ public protocol HTTPTransport: Sendable {
         _ request: HTTPRequest,
         progress: @escaping @Sendable (Int, Int?) -> Void
     ) async throws -> (response: HTTPResponse, file: URL)
+
+    /// The request with `file`'s contents as its body, for a body that must
+    /// not be held in memory (`AttachmentUpload`). `request.body` is ignored.
+    /// `progress` is called with the bytes sent so far and the total, when
+    /// known, and ends with the whole file once a response that is not a
+    /// redirect arrives: a redirect uploaded nothing.
+    ///
+    /// **A requirement with a default**, for the reason `download` gives.
+    func upload(
+        _ request: HTTPRequest,
+        fromFile file: URL,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> HTTPResponse
 }
 
 public extension HTTPTransport {
@@ -266,6 +282,24 @@ public extension HTTPTransport {
         }
         response.body = Data()
         return (response, file)
+    }
+
+    /// Reads the file into the body and goes through `send`: correct for a
+    /// fake and for a Linux build, and holds the file in memory once, which
+    /// is what the streaming override exists to avoid.
+    func upload(
+        _ request: HTTPRequest,
+        fromFile file: URL,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> HTTPResponse {
+        let body = try Data(contentsOf: file)
+        var request = request
+        request.body = body
+        let response = try await send(request)
+        if !response.isRedirect {
+            progress(body.count, body.count)
+        }
+        return response
     }
 }
 
