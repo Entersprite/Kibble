@@ -317,4 +317,16 @@ struct AttachmentCacheTests {
             _ = try await cache.originalFile(for: Self.image)
         }
     }
+
+    /// A picture this app has just sent is kept from the file, at both
+    /// sizes, so the transcript never fetches back what it uploaded.
+    @Test func aSeededAttachmentIsServedWithoutAFetch() async throws {
+        let recorder = FetchRecorder()
+        let cache = AttachmentCache(directory: nil) { try await recorder.fetch($0, $1) }
+        let sent = ChatKit.Attachment(id: "sent", name: "a.png", contentType: "image/png")
+        await cache.seed(Data("local".utf8), for: sent)
+        #expect(try await cache.data(for: sent, size: .preview) == Data("local".utf8))
+        #expect(try await cache.data(for: sent, size: .original) == Data("local".utf8))
+        #expect(await recorder.calls.isEmpty)
+    }
 }

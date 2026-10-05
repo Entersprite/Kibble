@@ -67,6 +67,18 @@ public protocol LaunchServices: AnyObject {
     /// Finder and the save panel. One instance for the process, because it
     /// holds the chosen folder.
     func downloadPlatform() -> any DownloadPlatform
+
+    /// Asks which files to send, and answers the files chosen, or none when
+    /// the person cancelled. A requirement with a default, so a host with no
+    /// picker answers none and the composer's paperclip does nothing worse
+    /// than nothing.
+    func chooseFilesToSend() -> [URL]
+}
+
+public extension LaunchServices {
+    func chooseFilesToSend() -> [URL] {
+        []
+    }
 }
 
 /// What the launch was asked for, parsed once.
@@ -95,7 +107,8 @@ public struct LaunchArguments: Sendable, Equatable {
             usesRealBackend: !arguments.contains("--backend=fixture"),
             probe: arguments.contains("--probe=keychain") ? .keychain
                 : arguments.contains("--probe=api") ? .api
-                : arguments.contains("--probe=punctual") ? .punctual : nil,
+                : arguments.contains("--probe=punctual") ? .punctual
+                : arguments.contains("--probe=upload") ? .upload : nil,
             runsDiagnostics: arguments.contains("--probe=appnap")
         )
     }
@@ -108,6 +121,9 @@ public enum LaunchProbe: Sendable, Equatable {
     /// Watches availability on Punctual for about ten minutes and reports the
     /// pushes' shapes (`findings.md` §47).
     case punctual
+    /// Uploads one generated 16×16 PNG into a conversation and posts
+    /// nothing, reporting the upload's shape (`UploadProbeReport`).
+    case upload
 }
 
 /// One backend, who we are, and the thing that drives a fake world.

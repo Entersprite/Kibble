@@ -80,6 +80,9 @@ public struct ChatSceneState: Sendable, Equatable {
     /// key is `.idle` - see `AttachmentDownloadState`.
     public var downloads: [String: AttachmentDownloadState]
 
+    /// The selected conversation's staged files, for the composer.
+    public var stagedAttachments: [ComposerAttachment]
+
     public init(
         conversations: [Conversation] = [],
         directory: [Member.ID: Member] = [:],
@@ -101,7 +104,8 @@ public struct ChatSceneState: Sendable, Equatable {
         mentionsStatus: MentionsStatus = MentionsStatus(),
         unreadMentionCount: Int = 0,
         scrollTarget: Message.ID? = nil,
-        downloads: [String: AttachmentDownloadState] = [:]
+        downloads: [String: AttachmentDownloadState] = [:],
+        stagedAttachments: [ComposerAttachment] = []
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -124,6 +128,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.unreadMentionCount = unreadMentionCount
         self.scrollTarget = scrollTarget
         self.downloads = downloads
+        self.stagedAttachments = stagedAttachments
     }
 
     public var selectedConversation: Conversation? {
@@ -235,6 +240,12 @@ public struct ChatSceneActions {
     /// row and no menu.
     public var reactions: ReactionActions?
 
+    /// Stage files to send: the composer's paperclip, files dropped on the
+    /// conversation, and removing one. **Optional, and `nil` is the point**:
+    /// a backend that cannot upload gets neither the paperclip nor a drop
+    /// target.
+    public var composerAttachments: ComposerAttachmentActions?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (String) -> Void = { _ in },
@@ -251,7 +262,8 @@ public struct ChatSceneActions {
         loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
         openAttachment: ((Attachment) async throws -> URL)? = nil,
         attachmentFiles: AttachmentFileActions? = nil,
-        reactions: ReactionActions? = nil
+        reactions: ReactionActions? = nil,
+        composerAttachments: ComposerAttachmentActions? = nil
     ) {
         self.select = select
         self.send = send
@@ -269,5 +281,6 @@ public struct ChatSceneActions {
         self.openAttachment = openAttachment
         self.attachmentFiles = attachmentFiles
         self.reactions = reactions
+        self.composerAttachments = composerAttachments
     }
 }

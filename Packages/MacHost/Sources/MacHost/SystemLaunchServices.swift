@@ -132,6 +132,7 @@ public final class SystemLaunchServices: LaunchServices {
         case .keychain: await LaunchProbes.keychainCheck()
         case .api: await LaunchProbes.apiProbe()
         case .punctual: await LaunchProbes.punctualProbe()
+        case .upload: await LaunchProbes.uploadProbe()
         }
     }
 
@@ -169,6 +170,10 @@ public final class SystemLaunchServices: LaunchServices {
 
     public func downloadPlatform() -> any DownloadPlatform {
         downloads
+    }
+
+    public func chooseFilesToSend() -> [URL] {
+        SystemFilePicker.chooseFilesToSend()
     }
 
     /// Where to write the channel trace, if `--probe=channeltrace` was asked

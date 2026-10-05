@@ -57,7 +57,8 @@ public extension AppEnvironment {
             ),
             unreadMentionCount: model.unreadMentionCount,
             scrollTarget: model.scrollTarget,
-            downloads: downloads?.states ?? [:]
+            downloads: downloads?.states ?? [:],
+            stagedAttachments: Self.composerAttachments(model.stagedAttachments)
         )
     }
 
@@ -178,7 +179,8 @@ public extension AppEnvironment {
                     skinTone: skinTone,
                     setSkinTone: { [weak self] in self?.setSkinTone($0) }
                 )
-                : nil
+                : nil,
+            composerAttachments: composerAttachmentActions
         )
     }
 

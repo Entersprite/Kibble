@@ -167,6 +167,9 @@ public final class AppEnvironment {
             // comment for the drop this closes. Unconditional now: with
             // nothing told, `isViewing` is `true`, the model's own default.
             model.setActive(isViewing)
+            model.didUpload = { [weak self] attachment, file in
+                self?.seedUpload(attachment, from: file)
+            }
             // Held **before** it is started, not after it is parked in
             // `.running`. By the time `start()` can throw, the engine's
             // consumer is already live - see `model`'s own doc comment for why

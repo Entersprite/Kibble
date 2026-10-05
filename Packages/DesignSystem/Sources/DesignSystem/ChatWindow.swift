@@ -52,6 +52,7 @@ public struct ChatWindow: View {
                         }
                         .background(alignment: .bottom) { ComposerScrim() }
                     }
+                    .modifier(FileDropTarget(stage: dropStage))
                 } else {
                     ContentUnavailableView(
                         "Pick a conversation",
@@ -76,6 +77,8 @@ public struct ChatWindow: View {
                 ),
                 restoring: state.failedDraft,
                 onRestored: actions.draftRestored,
+                attachments: state.stagedAttachments,
+                attachmentActions: actions.composerAttachments,
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without
@@ -94,6 +97,13 @@ public struct ChatWindow: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
         }
+    }
+
+    /// Where a drop goes, if anywhere: only where the composer is drawn and
+    /// the host can stage files.
+    private var dropStage: (([URL]) -> Void)? {
+        guard state.capabilities.canSendMessages else { return nil }
+        return actions.composerAttachments?.stage
     }
 
     private var title: String {
@@ -121,6 +131,40 @@ public struct ChatWindow: View {
             return Display.headerSubtitle(presence: presence, status: status) ?? ""
         }
         return Display.memberCountLabel(of: conversation) ?? ""
+    }
+}
+
+/// Files dropped on the conversation are staged in its composer, with a tint
+/// while a drag is over it. No stage, no drop target, so a backend that cannot
+/// upload refuses the drag rather than swallowing it.
+struct FileDropTarget: ViewModifier {
+    let stage: (([URL]) -> Void)?
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        if let stage {
+            content
+                .dropDestination(for: URL.self) { urls, _ in
+                    let files = urls.filter(\.isFileURL)
+                    guard !files.isEmpty else { return false }
+                    stage(files)
+                    return true
+                } isTargeted: { isTargeted = $0 }
+                .overlay {
+                    if isTargeted {
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.accentColor, lineWidth: 2)
+                            .background(
+                                Color.accentColor.opacity(0.08),
+                                in: RoundedRectangle(cornerRadius: 12)
+                            )
+                            .padding(6)
+                            .allowsHitTesting(false)
+                    }
+                }
+        } else {
+            content
+        }
     }
 }
 
