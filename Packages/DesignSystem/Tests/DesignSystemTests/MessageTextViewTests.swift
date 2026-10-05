@@ -68,6 +68,65 @@
             #expect(full.height - edited.height == 7)
         }
 
+        /// Review fix (Critical 1): `NSTextView` resets its own container to
+        /// its frame, so a view that has a frame must still measure the text,
+        /// not the frame.
+        @Test func aFramedViewStillMeasuresItsText() {
+            let view = Self.view("hello")
+            view.frame = NSRect(x: 0, y: 0, width: 400, height: 40)
+            #expect(view.fittingSize(forWidth: 400).width < 100)
+        }
+
+        @Test func aViewFramedNarrowMeasuresShorterWhenOfferedMore() {
+            let long = String(repeating: "wrapping words ", count: 20)
+            let view = Self.view(long)
+            let narrow = view.fittingSize(forWidth: 120)
+            view.frame = NSRect(origin: .zero, size: narrow)
+            let wide = view.fittingSize(forWidth: 400)
+            #expect(wide.height < narrow.height)
+            #expect(wide.width > narrow.width)
+        }
+
+        /// Review fix (Minor 4): an infinite proposal is the ideal size, not
+        /// the container's ten-million-point limit.
+        @Test func anInfiniteProposalIsTheIdealSize() {
+            let view = Self.view("hello")
+            #expect(view.fittingSize(forWidth: .infinity) == view.fittingSize(forWidth: nil))
+            #expect(view.fittingSize(forWidth: nil).width < 100)
+        }
+
+        /// Review fix (Important 3): a read-only bubble's menu has no editing
+        /// items. Read from a real `menu(for:)`, through the delegate.
+        @Test func theNativeMenuOffersReadingItemsOnly() throws {
+            let coordinator = MessageTextView.Coordinator(
+                message: Self.message(), actions: ReactionActions { _, _, _ in }
+            )
+            let view = Self.view("hello there")
+            view.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
+            view.delegate = coordinator
+            let event = try #require(NSEvent.mouseEvent(
+                with: .rightMouseDown, location: NSPoint(x: 20, y: 20), modifierFlags: [], timestamp: 0,
+                windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            ))
+            let menu = try #require(view.menu(for: event))
+            let titles = menu.items.map(\.title)
+            #expect(titles.first == "React")
+            #expect(titles.contains("Copy"))
+            for editing in [
+                "Cut",
+                "Paste",
+                "Paste and Match Style",
+                "Font",
+                "Spelling and Grammar",
+                "Substitutions"
+            ] {
+                #expect(!titles.contains(editing), "\(editing) is still offered")
+            }
+            let separators = menu.items.map(\.isSeparatorItem)
+            #expect(separators.last == false)
+            #expect(!zip(separators, separators.dropFirst()).contains { $0 && $1 })
+        }
+
         @Test func theTextStartsInsideTheInsets() {
             #expect(Self.view("hello").textContainerOrigin == NSPoint(x: 12, y: 7))
         }

@@ -61,7 +61,9 @@
             }
 
             func textView(_: NSTextView, menu: NSMenu, for _: NSEvent, at _: Int) -> NSMenu? {
-                NativeReactionMenu.insertReactions(into: menu, message: message, actions: actions)
+                NativeReactionMenu.insertReactions(
+                    into: ReadingTextMenu.trimmed(menu), message: message, actions: actions
+                )
             }
         }
     }
@@ -72,6 +74,8 @@
     final class BubbleTextView: NSTextView {
         var insets = NSEdgeInsets() {
             didSet {
+                // Every SwiftUI update sets this; only a change relays out.
+                guard Insets(insets) != Insets(oldValue) else { return }
                 trackFrameWidth()
                 needsDisplay = true
             }
@@ -115,25 +119,69 @@
         }
 
         /// The size the bubble needs at `width`: never wider than offered, and
-        /// at least one line high, even when empty. `nil` is the ideal size,
-        /// the text on as few lines as its own line breaks allow.
+        /// at least one line high, even when empty. `nil` or an infinite width
+        /// is the ideal size, the text on as few lines as its own line breaks
+        /// allow.
+        ///
+        /// Measured on a private TextKit stack, never the view's own:
+        /// `NSTextView` puts its container back to its frame's width, so once
+        /// SwiftUI has placed the view, its own layout answers for the frame
+        /// rather than the text. That made short bubbles full width and clipped
+        /// wrapped text after a resize (session 45 review, Critical 1). The
+        /// last answer is kept, because SwiftUI asks the same question
+        /// repeatedly.
         func fittingSize(forWidth width: CGFloat?) -> CGSize {
-            guard let container = textContainer, let layout = layoutManager else { return .zero }
+            let width = width.flatMap { $0.isFinite ? $0 : nil }
+            let text = attributedString()
+            if let last = lastMeasurement, last.width == width, last.insets == Insets(insets),
+               last.text.isEqual(to: text) {
+                return last.size
+            }
             let horizontal = insets.left + insets.right
-            let tracked = container.size
-            defer { container.size = tracked }
             let available = width.map { max(1, $0 - horizontal) } ?? CGFloat.greatestFiniteMagnitude
-            container.size = NSSize(width: available, height: CGFloat.greatestFiniteMagnitude)
+            let storage = NSTextStorage(attributedString: text)
+            let layout = NSLayoutManager()
+            storage.addLayoutManager(layout)
+            let container = NSTextContainer(size: NSSize(
+                width: available,
+                height: CGFloat.greatestFiniteMagnitude
+            ))
+            container.lineFragmentPadding = 0
+            layout.addTextContainer(container)
             layout.ensureLayout(for: container)
             let used = layout.usedRect(for: container)
             let lineHeight = layout.defaultLineHeight(for: NSFont.preferredFont(forTextStyle: .body))
-            let fitted = CGSize(
+            var fitted = CGSize(
                 width: (used.width + horizontal).rounded(.up),
                 height: (max(used.height, lineHeight) + insets.top + insets.bottom).rounded(.up)
             )
-            guard let width else { return fitted }
-            return CGSize(width: min(fitted.width, width), height: fitted.height)
+            if let width {
+                fitted.width = min(fitted.width, width)
+            }
+            lastMeasurement = Measurement(text: text, width: width, insets: Insets(insets), size: fitted)
+            return fitted
         }
+
+        /// `NSEdgeInsets` is not `Equatable`.
+        private struct Insets: Equatable {
+            let top, left, bottom, right: CGFloat
+
+            init(_ insets: NSEdgeInsets) {
+                top = insets.top
+                left = insets.left
+                bottom = insets.bottom
+                right = insets.right
+            }
+        }
+
+        private struct Measurement {
+            let text: NSAttributedString
+            let width: CGFloat?
+            let insets: Insets
+            let size: CGSize
+        }
+
+        private var lastMeasurement: Measurement?
 
         /// The container is as wide as the frame minus the insets, so the text
         /// wraps where `fittingSize(forWidth:)` measured it.
