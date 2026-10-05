@@ -98,6 +98,32 @@ struct UpdateSettingsModelTests {
         #expect(fake.automaticallyInstalls == true)
     }
 
+    /// Final review, Important 1: a choice made in Sparkle's own window is
+    /// the person's, so the pane shows it and the next launch keeps it.
+    @Test func aChoiceMadeInTheUpdateWindowIsAdoptedAndKept() throws {
+        let store = try defaults()
+        let fake = FakeUpdater()
+        let model = UpdateSettingsModel(updater: fake, defaults: store, version: "1")
+        model.start()
+        fake.personSetsAutomaticInstallInUpdateWindow(true)
+        #expect(model.state.automaticallyInstalls == true)
+        let next = FakeUpdater()
+        UpdateSettingsModel(updater: next, defaults: store, version: "1").start()
+        #expect(next.settingsAtStart?.installs == true)
+    }
+
+    /// The model's own push of `false` while automatic checks are off is not
+    /// the person turning automatic install off.
+    @Test func theModelsOwnPushIsNotMistakenForThePersonsChoice() throws {
+        let fake = FakeUpdater()
+        let model = try UpdateSettingsModel(updater: fake, defaults: defaults(), version: "1")
+        model.start()
+        model.setAutomaticallyInstalls(true)
+        model.setAutomaticallyChecks(false)
+        fake.onChange?()
+        #expect(model.state.automaticallyInstalls == true)
+    }
+
     @Test func choicesPersistAcrossInstances() throws {
         let store = try defaults()
         let first = UpdateSettingsModel(updater: FakeUpdater(), defaults: store, version: "1")

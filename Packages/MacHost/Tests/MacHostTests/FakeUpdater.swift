@@ -48,6 +48,13 @@ final class FakeUpdater: AppUpdating {
         backgroundChecks += 1
     }
 
+    /// Stands in for Sparkle's own update window, whose "Automatically
+    /// download and install updates" checkbox writes the setting directly.
+    func personSetsAutomaticInstallInUpdateWindow(_ isOn: Bool) {
+        automaticallyInstalls = isOn
+        onChange?()
+    }
+
     /// Stands in for the updater finishing a check.
     func finishCheck(at date: Date) {
         lastChecked = date

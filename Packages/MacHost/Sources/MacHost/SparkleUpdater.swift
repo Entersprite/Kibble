@@ -14,7 +14,7 @@ public final class SparkleUpdater: AppUpdating {
     private let controller = SPUStandardUpdaterController(
         startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
     )
-    private var observation: NSKeyValueObservation?
+    private var observations: [NSKeyValueObservation] = []
     public var onChange: (@MainActor () -> Void)?
 
     public init() {}
@@ -46,15 +46,20 @@ public final class SparkleUpdater: AppUpdating {
         set { updater.automaticallyDownloadsUpdates = newValue }
     }
 
-    /// Observes `canCheckForUpdates` only. `lastUpdateCheckDate` is not
-    /// documented as KVO-compliant (`SPUUpdater.h`, Sparkle 2.10), but a
+    /// Observes `canCheckForUpdates`, and `automaticallyDownloadsUpdates`,
+    /// which Sparkle's own update window can change. `lastUpdateCheckDate` is
+    /// not documented as KVO-compliant (`SPUUpdater.h`, Sparkle 2.10), but a
     /// check that ends flips `canCheckForUpdates` back, and the model reads
-    /// both on every change.
+    /// everything on every change.
     public func start() throws {
         try updater.start()
-        observation = updater.observe(\.canCheckForUpdates) { [weak self] _, _ in
+        let changed: @Sendable () -> Void = { [weak self] in
             Task { @MainActor in self?.onChange?() }
         }
+        observations = [
+            updater.observe(\.canCheckForUpdates) { _, _ in changed() },
+            updater.observe(\.automaticallyDownloadsUpdates) { _, _ in changed() }
+        ]
     }
 
     public func checkNow() {

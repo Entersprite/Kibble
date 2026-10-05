@@ -36,6 +36,9 @@ public final class UpdateSettingsModel {
     @ObservationIgnored private let updater: (any AppUpdating)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var started = false
+    /// What `apply()` last told the updater about automatic install, so a
+    /// different value seen later is known to be someone else's write.
+    @ObservationIgnored private var pushedInstalls: Bool?
 
     /// `updater` is `nil` in a development build, which never checks.
     public init(updater: (any AppUpdating)?, defaults: UserDefaults, version: String) {
@@ -130,12 +133,24 @@ public final class UpdateSettingsModel {
         case .daily: 86400
         case .atLaunch: Self.atLaunchBackstop
         }
-        updater.automaticallyInstalls = automaticallyChecks && automaticallyInstalls
+        let installs = automaticallyChecks && automaticallyInstalls
+        updater.automaticallyInstalls = installs
+        pushedInstalls = installs
     }
 
+    /// Also adopts a change to automatic install that the model did not make:
+    /// Sparkle's update window has its own "Automatically download and install
+    /// updates" checkbox, which writes the setting directly. Without this the
+    /// pane would show the old choice and the next `start()` would undo the
+    /// person's (final review, session 49).
     private func refresh() {
         guard let updater else { return }
         canCheck = notice == nil && updater.canCheck
         lastChecked = updater.lastChecked
+        if let pushedInstalls, updater.automaticallyInstalls != pushedInstalls {
+            automaticallyInstalls = updater.automaticallyInstalls
+            defaults.set(automaticallyInstalls, forKey: Self.installKey)
+            self.pushedInstalls = updater.automaticallyInstalls
+        }
     }
 }
