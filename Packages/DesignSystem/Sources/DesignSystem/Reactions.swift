@@ -35,6 +35,25 @@ enum QuickReactions {
     }
 }
 
+/// One emoji of the quick row, for one message: what both the SwiftUI menu
+/// and the native text menu draw (native text menu spec §2), so they cannot
+/// drift apart.
+struct QuickReactionItem: Equatable {
+    let emoji: String
+    let choice: ReactionChoice
+    /// Whether choosing it adds; `false` removes the person's own.
+    let adds: Bool
+}
+
+enum QuickReactionItems {
+    static func items(for reactions: [Reaction]) -> [QuickReactionItem] {
+        QuickReactions.defaults.map { emoji in
+            let choice = ReactionChoice(emoji: emoji)
+            return QuickReactionItem(emoji: emoji, choice: choice, adds: QuickReactions.adds(choice, to: reactions))
+        }
+    }
+}
+
 enum ReactionDisplay {
     /// "👍, 2, you reacted". The emoji is spoken by VoiceOver; a custom emoji
     /// is its shortcode, which `emoji` already holds.
@@ -153,22 +172,17 @@ struct ReactionMenu: ViewModifier {
         if let actions, !message.isDeleted {
             content.contextMenu {
                 ControlGroup {
-                    ForEach(QuickReactions.defaults, id: \.self) { emoji in
-                        let choice = ReactionChoice(emoji: emoji)
+                    ForEach(QuickReactionItems.items(for: message.reactions), id: \.emoji) { item in
                         Button {
-                            actions.toggle(
-                                message.id,
-                                choice,
-                                QuickReactions.adds(choice, to: message.reactions)
-                            )
+                            actions.toggle(message.id, item.choice, item.adds)
                         } label: {
                             // The palette draws the icon and drops the title,
                             // so the emoji goes in as a picture; the title
                             // stays for VoiceOver (`EmojiGlyph`).
                             Label {
-                                Text(emoji)
+                                Text(item.emoji)
                             } icon: {
-                                if let glyph = EmojiGlyph.image(for: emoji) {
+                                if let glyph = EmojiGlyph.image(for: item.emoji) {
                                     Image(decorative: glyph, scale: EmojiGlyph.scale)
                                         .renderingMode(.original)
                                 }
