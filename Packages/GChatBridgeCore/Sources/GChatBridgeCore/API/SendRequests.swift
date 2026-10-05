@@ -25,10 +25,11 @@ import Foundation
 /// `Message` - that is what `ChatKit.Message.localID` exists for, and what lets
 /// a client replace an optimistic copy instead of showing the message twice.
 ///
-/// `annotations` is left empty on both. The reference passes formatting
-/// annotations through from Matrix; there is no formatting in this client's
-/// composer yet, and sending an empty repeated field is identical on the wire
-/// to not sending one.
+/// `annotations` is empty on both unless the message carries an upload
+/// (`uploadAnnotation(_:)`). The reference also passes formatting annotations
+/// through from Matrix; there is no formatting in this client's composer yet,
+/// and sending an empty repeated field is identical on the wire to not
+/// sending one.
 public enum SendRequests {
     /// A new top-level message. The only path a flat conversation has, and
     /// `findings.md` §20.4 observed every conversation on the test account is
@@ -36,7 +37,8 @@ public enum SendRequests {
     public static func createTopic(
         group: GroupId,
         text: String,
-        localID: String
+        localID: String,
+        annotations: [Annotation] = []
     ) -> CreateTopicRequest {
         var request = CreateTopicRequest()
         request.requestHeader = APIRequestHeader.make()
@@ -46,6 +48,7 @@ public enum SendRequests {
         // `client.py:465`. Set on this path and absent from the other, because
         // `CreateMessageRequest` has no such field.
         request.historyV2 = true
+        request.annotations = annotations
         request.messageInfo = messageInfo()
         return request
     }
@@ -58,7 +61,8 @@ public enum SendRequests {
         group: GroupId,
         topicID: String,
         text: String,
-        localID: String
+        localID: String,
+        annotations: [Annotation] = []
     ) -> CreateMessageRequest {
         var topic = TopicId()
         topic.groupID = group
@@ -71,8 +75,22 @@ public enum SendRequests {
         request.parentID = parent
         request.localID = localID
         request.textBody = text
+        request.annotations = annotations
         request.messageInfo = messageInfo()
         return request
+    }
+
+    /// The annotation that attaches an upload to a message: type 13 with the
+    /// metadata `AttachmentUpload` returned, rendered as a chip. Purple
+    /// (`googlechat_conversation.c:1759-1767`) and mautrix
+    /// (`portal.py:1102-1108`) set exactly these three fields, and no span:
+    /// an upload is not anchored to any text. `[Verify]` until a live send.
+    public static func uploadAnnotation(_ metadata: UploadMetadata) -> Annotation {
+        var annotation = Annotation()
+        annotation.type = .uploadMetadata
+        annotation.uploadMetadata = metadata
+        annotation.chipRenderType = .render
+        return annotation
     }
 
     /// `client.py:454` / `:468`, both paths identically.
