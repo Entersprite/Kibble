@@ -66,10 +66,6 @@
             run()
         }
     }
-#endif
-
-#if os(macOS)
-    import AppKit
 
     /// The native text menu without its editing items. `NSTextView` offers
     /// Cut, Paste, Font, Spelling and Substitutions even when it is read-only;

@@ -87,6 +87,19 @@
             #expect(wide.width > narrow.width)
         }
 
+        /// Re-review fix: the measurement cache must key on a snapshot of the
+        /// text. `attributedString()` is the view's live storage, so a cached
+        /// alias always matched and an edited message kept its old size.
+        @Test func changedTextAtTheSameWidthIsMeasuredAgain() {
+            let view = Self.view("hello")
+            let before = view.fittingSize(forWidth: 400)
+            view.show(MentionAttributes.attributed(
+                String(repeating: "much longer text ", count: 10), mentions: [], me: nil, inOwnBubble: false
+            ))
+            let after = view.fittingSize(forWidth: 400)
+            #expect(after.height > before.height)
+        }
+
         /// Review fix (Minor 4): an infinite proposal is the ideal size, not
         /// the container's ten-million-point limit.
         @Test func anInfiniteProposalIsTheIdealSize() {

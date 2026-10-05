@@ -132,7 +132,9 @@
         /// repeatedly.
         func fittingSize(forWidth width: CGFloat?) -> CGSize {
             let width = width.flatMap { $0.isFinite ? $0 : nil }
-            let text = attributedString()
+            // A copy: `attributedString()` is the live storage, and a cached
+            // alias of it would match every later text (session 45 re-review).
+            let text = NSAttributedString(attributedString: attributedString())
             if let last = lastMeasurement, last.width == width, last.insets == Insets(insets),
                last.text.isEqual(to: text) {
                 return last.size
