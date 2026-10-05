@@ -22,12 +22,13 @@ public extension LocalBridgeBackend {
     /// family in this package.
     func send(_ command: ChatCommand) async throws {
         switch command {
-        case let .sendMessage(conversationID, threadID, text, localID):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments):
             try await sendMessage(
                 conversationID: conversationID,
                 threadID: threadID,
                 text: text,
-                localID: localID
+                localID: localID,
+                attachments: attachments
             )
         case let .markRead(conversationID, upTo):
             try await markRead(conversationID, upTo: upTo)
@@ -51,7 +52,8 @@ public extension LocalBridgeBackend {
         conversationID: Conversation.ID,
         threadID: MessageThread.ID?,
         text: String,
-        localID: String?
+        localID: String?,
+        attachments: [ChatKit.Attachment]
     ) async throws {
         guard let apiClient else {
             throw ChatError.unknown(
@@ -69,6 +71,7 @@ public extension LocalBridgeBackend {
         // the server echoes this back on the resulting message and it is the
         // only thing that marks the echo as ours.
         let identifier = localID ?? SendRequests.makeLocalID()
+        let annotations = Self.uploadAnnotations(attachments, uploaded: uploadedMetadata)
         // `threadID` is never `nil` for a message this backend produced itself
         // (`ChannelEventMapping.swift` always fills it in from the topic a
         // message was posted in), so the emptiness check - not just the
@@ -80,7 +83,8 @@ public extension LocalBridgeBackend {
             let response: CreateMessageResponse
             do {
                 response = try await apiClient.call(.createMessage, SendRequests.createMessage(
-                    group: group, topicID: threadID.rawValue, text: text, localID: identifier
+                    group: group, topicID: threadID.rawValue, text: text, localID: identifier,
+                    annotations: annotations
                 ))
             } catch {
                 throw Self.chatError(fromAPI: error, call: "the /api/ create_message call")
@@ -94,7 +98,7 @@ public extension LocalBridgeBackend {
             let response: CreateTopicResponse
             do {
                 response = try await apiClient.call(.createTopic, SendRequests.createTopic(
-                    group: group, text: text, localID: identifier
+                    group: group, text: text, localID: identifier, annotations: annotations
                 ))
             } catch {
                 throw Self.chatError(fromAPI: error, call: "the /api/ create_topic call")

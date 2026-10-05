@@ -23,11 +23,20 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// `Message`, which is what lets the client replace its optimistic copy
     /// instead of showing the message twice. A client that does not show
     /// messages optimistically can leave it `nil`.
+    ///
+    /// `attachments` are uploads, each returned by
+    /// `ChatBackend.uploadAttachment(_:to:progress:)` for this conversation,
+    /// and `text` may then be empty. Encoded only when there are some, and a
+    /// missing key decodes to none, so a frame from before attachments
+    /// existed means exactly what it meant then. A backend whose
+    /// `Capabilities.canSendAttachments` is `false` refuses a send carrying
+    /// any rather than posting the text alone.
     case sendMessage(
         conversationID: Conversation.ID,
         threadID: MessageThread.ID?,
         text: String,
-        localID: String?
+        localID: String?,
+        attachments: [Attachment] = []
     )
 
     case editMessage(id: Message.ID, text: String)
@@ -97,6 +106,7 @@ extension ChatCommand {
         case upTo
         case level
         case members
+        case attachments
     }
 
     enum Tag: String {
@@ -134,7 +144,8 @@ extension ChatCommand {
                     MessageThread.ID.self, forKey: .threadID
                 ),
                 text: container.decode(String.self, forKey: .text),
-                localID: container.decodeIfPresent(String.self, forKey: .localID)
+                localID: container.decodeIfPresent(String.self, forKey: .localID),
+                attachments: container.decodeIfPresent([Attachment].self, forKey: .attachments) ?? []
             )
         case Tag.editMessage.rawValue:
             try .editMessage(
@@ -210,12 +221,15 @@ extension ChatCommand {
         into container: inout KeyedEncodingContainer<CodingKeys>
     ) throws -> Bool {
         switch self {
-        case let .sendMessage(conversationID, threadID, text, localID):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments):
             try container.encode(Tag.sendMessage.rawValue, forKey: .type)
             try container.encode(conversationID, forKey: .conversationID)
             try container.encodeIfPresent(threadID, forKey: .threadID)
             try container.encode(text, forKey: .text)
             try container.encodeIfPresent(localID, forKey: .localID)
+            if !attachments.isEmpty {
+                try container.encode(attachments, forKey: .attachments)
+            }
         case let .editMessage(id, text):
             try container.encode(Tag.editMessage.rawValue, forKey: .type)
             try container.encode(id, forKey: .id)

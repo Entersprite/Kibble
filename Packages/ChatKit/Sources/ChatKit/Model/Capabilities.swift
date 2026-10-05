@@ -29,6 +29,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     public var canDownloadFiles: Bool
     /// `ChatBackend.customEmojiImage(_:)` returns bytes rather than refusing.
     public var canFetchCustomEmoji: Bool
+    /// `ChatBackend.uploadAttachment(_:to:progress:)` uploads rather than
+    /// refusing, and `ChatCommand.sendMessage` honours `attachments`.
+    public var canSendAttachments: Bool
 
     /// The escape hatch. A newer backend can advertise a capability this build
     /// has no property for, and a newer client can look for it by name without
@@ -52,6 +55,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canFetchAttachments: Bool = false,
         canDownloadFiles: Bool = false,
         canFetchCustomEmoji: Bool = false,
+        canSendAttachments: Bool = false,
         extendedFlags: Set<String> = []
     ) {
         self.canSendMessages = canSendMessages
@@ -68,6 +72,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canFetchAttachments = canFetchAttachments
         self.canDownloadFiles = canDownloadFiles
         self.canFetchCustomEmoji = canFetchCustomEmoji
+        self.canSendAttachments = canSendAttachments
         self.extendedFlags = extendedFlags
     }
 }
@@ -90,6 +95,7 @@ public extension Capabilities {
         case canFetchAttachments
         case canDownloadFiles
         case canFetchCustomEmoji
+        case canSendAttachments
         case extendedFlags
     }
 
@@ -116,6 +122,7 @@ public extension Capabilities {
             canFetchAttachments: flag(.canFetchAttachments),
             canDownloadFiles: flag(.canDownloadFiles),
             canFetchCustomEmoji: flag(.canFetchCustomEmoji),
+            canSendAttachments: flag(.canSendAttachments),
             extendedFlags: Set(
                 container.decodeIfPresent([String].self, forKey: .extendedFlags) ?? []
             )
@@ -138,6 +145,7 @@ public extension Capabilities {
         try container.encode(canFetchAttachments, forKey: .canFetchAttachments)
         try container.encode(canDownloadFiles, forKey: .canDownloadFiles)
         try container.encode(canFetchCustomEmoji, forKey: .canFetchCustomEmoji)
+        try container.encode(canSendAttachments, forKey: .canSendAttachments)
         try container.encode(extendedFlags.sorted(), forKey: .extendedFlags)
     }
 }

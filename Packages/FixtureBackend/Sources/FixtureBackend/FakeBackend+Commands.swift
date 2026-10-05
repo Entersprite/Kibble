@@ -22,8 +22,10 @@ public extension FakeBackend {
     func send(_ command: ChatCommand) async throws {
         try requireConnected()
         switch command {
-        case let .sendMessage(conversationID, threadID, text, localID):
-            try sendMessage(in: conversationID, thread: threadID, text: text, localID: localID)
+        case let .sendMessage(conversationID, threadID, text, localID, attachments):
+            try sendMessage(
+                in: conversationID, thread: threadID, text: text, localID: localID, attachments: attachments
+            )
         case let .editMessage(id, text):
             try editMessage(id, text: text)
         case let .deleteMessage(id):
@@ -58,11 +60,18 @@ private extension FakeBackend {
         in conversationID: Conversation.ID,
         thread: MessageThread.ID?,
         text: String,
-        localID: String?
+        localID: String?,
+        attachments: [Attachment]
     ) throws {
         try require(capabilities.canSendMessages, "canSendMessages")
         if thread != nil {
             try require(capabilities.supportsThreads, "supportsThreads")
+        }
+        if !attachments.isEmpty {
+            try require(capabilities.canSendAttachments, "canSendAttachments")
+        }
+        guard attachments.allSatisfy({ uploaded[$0.id] != nil }) else {
+            throw ChatError.unknown("an attachment this fixture never uploaded was sent")
         }
         guard world.conversation(conversationID) != nil else {
             throw ChatError.unknown("no conversation \(conversationID) in this fixture world")
@@ -77,6 +86,7 @@ private extension FakeBackend {
             sender: world.me,
             text: text,
             createdAt: advance(),
+            attachments: attachments,
             localID: localID
         )
         world.messages.append(message)
