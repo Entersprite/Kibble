@@ -63,11 +63,6 @@ public final class ChatSessionModel {
     /// scroll to, until the next selection. `internal(set)` for `+Mentions.swift`.
     public internal(set) var scrollTarget: Message.ID?
 
-    /// Forwarded from the backend so a view can degrade without meeting one.
-    public var capabilities: Capabilities {
-        engine.capabilities
-    }
-
     /// Whether the app is frontmost. Fed by the app shell; `true` by default
     /// so every existing construction site and test keeps its behaviour.
     ///
@@ -160,6 +155,8 @@ public final class ChatSessionModel {
     /// reasoning as `published` and `markTasks` above, and still invisible
     /// outside this module.
     var failed: (conversationID: Conversation.ID, text: String)?
+    /// Each conversation's staged files, and the sends uploading them (`+Staging.swift`).
+    public internal(set) var composerFiles = ComposerFiles()
 
     /// Not `private` for the same reason as `failed` just above:
     /// `send(_:)`'s optimistic row is written through this from
@@ -297,6 +294,7 @@ public final class ChatSessionModel {
         }
         reactionTasks = [:]
         reactionChainTail = nil
+        composerFiles.cancelSends()
         // Unreachable today - a fresh model is built per session - but a
         // stale watermark or a retained draft from the account being signed
         // out of must not survive into a model reused for the next sign-in.

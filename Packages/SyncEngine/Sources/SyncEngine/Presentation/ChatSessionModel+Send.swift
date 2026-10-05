@@ -21,6 +21,12 @@ import Foundation
 /// `send(_:)`'s untracked `Task` - which is a known and deliberately
 /// out-of-scope wart, not something this split fixed or introduced.
 public extension ChatSessionModel {
+    /// Forwarded from the backend so a view can degrade without meeting one.
+    /// Here rather than in `ChatSessionModel.swift`, for that file's length.
+    var capabilities: Capabilities {
+        engine.capabilities
+    }
+
     /// The failed text, but only while its own conversation is open.
     var failedDraft: String? {
         guard let failed, failed.conversationID == selected else { return nil }
@@ -44,8 +50,15 @@ public extension ChatSessionModel {
     /// A backend that cannot send is not asked. The composer is already hidden
     /// in that case, but a model that wrote an optimistic row anyway would show
     /// a message that never leaves.
+    ///
+    /// With files staged, the text goes with the first of them instead
+    /// (`sendStaged(_:in:)`).
     func send(_ text: String) {
         guard let selected, capabilities.canSendMessages else { return }
+        if stagedAttachments.contains(where: { !$0.isUploading }) {
+            sendStaged(text, in: selected)
+            return
+        }
         let localID = UUID().uuidString
         // Invented here, and therefore retracted from here. The `local/`
         // prefix is this file's convention and stays this file's business:

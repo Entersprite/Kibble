@@ -23,6 +23,25 @@ public extension SyncEngine {
         try await backend.downloadAttachment(attachment, to: destination, progress: progress)
     }
 
+    /// The backend's upload, with a failure **recorded** as well as thrown,
+    /// unlike a picture's: a file that will not upload is a send that did not
+    /// happen, and says so the way a refused send does (`submit`). Not
+    /// recorded once cancelled, for `submit`'s reason.
+    func uploadAttachment(
+        _ attachment: OutgoingAttachment,
+        to conversation: Conversation.ID,
+        progress: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws -> Attachment {
+        do {
+            return try await backend.uploadAttachment(attachment, to: conversation, progress: progress)
+        } catch {
+            if !Task.isCancelled {
+                record(error)
+            }
+            throw error
+        }
+    }
+
     /// A custom emoji's picture, from the backend. Thrown, never recorded,
     /// for `attachmentData(_:size:)`'s reason: a capsule that cannot load
     /// shows its shortcode, which is the whole of the failure.

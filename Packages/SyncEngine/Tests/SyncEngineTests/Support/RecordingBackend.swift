@@ -37,6 +37,9 @@ actor RecordingBackend: ChatBackend {
     private var heldSubmissions: [CheckedContinuation<Void, Never>] = []
 
     private(set) var loadMessagesCalls = 0
+    /// Every `uploadAttachment` call, in order, failed ones included.
+    private(set) var uploads: [OutgoingAttachment] = []
+    private var failingUploads = false
 
     init(world: FixtureWorld = .minimal, capabilities: Capabilities = .fixture) {
         inner = FakeBackend(world: world, capabilities: capabilities)
@@ -86,6 +89,12 @@ actor RecordingBackend: ChatBackend {
     /// can be told from a mark that never fetched.
     func failHistory(_ shouldFail: Bool) {
         failingHistory = shouldFail
+    }
+
+    /// Makes every later `uploadAttachment` record the file and then throw,
+    /// without forwarding it.
+    func failUploads(_ shouldFail: Bool) {
+        failingUploads = shouldFail
     }
 
     /// Releases the oldest `send(_:)` call currently blocked by
@@ -159,6 +168,18 @@ actor RecordingBackend: ChatBackend {
             throw ChatError.notAuthenticated
         }
         return try await inner.loadMessages(in: conversation, before: before)
+    }
+
+    func uploadAttachment(
+        _ attachment: OutgoingAttachment,
+        to conversation: Conversation.ID,
+        progress: @escaping @Sendable (AttachmentProgress) -> Void
+    ) async throws -> Attachment {
+        uploads.append(attachment)
+        if failingUploads {
+            throw ChatError.server(status: 400, message: "the upload's bytes were refused")
+        }
+        return try await inner.uploadAttachment(attachment, to: conversation, progress: progress)
     }
 
     func setNotificationSetting(
