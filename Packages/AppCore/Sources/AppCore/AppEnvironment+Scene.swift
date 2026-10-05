@@ -172,7 +172,11 @@ public extension AppEnvironment {
                     customImage: canFetchCustomEmoji ? { [weak self] emoji in
                         guard let self else { throw NoSession() }
                         return try await loadCustomEmoji(emoji)
-                    } : nil
+                    } : nil,
+                    recents: { [weak self] in self?.runningModel?.recentReactions(limit: 24) ?? [] },
+                    customCatalog: { [weak self] in self?.runningModel?.storedCustomEmoji() ?? [] },
+                    skinTone: skinTone,
+                    setSkinTone: { [weak self] in self?.setSkinTone($0) }
                 )
                 : nil
         )

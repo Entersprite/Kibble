@@ -8,7 +8,7 @@ import GRDB
 extension ChatStore {
     /// One more use of `choice`, at `date`. A token arriving with a later use
     /// replaces none with one, never one with none.
-    func recordReactionUse(_ choice: ReactionChoice, at date: Date) throws {
+    public func recordReactionUse(_ choice: ReactionChoice, at date: Date) throws {
         try database.write { db in
             try db.execute(
                 sql: """

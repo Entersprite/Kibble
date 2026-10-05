@@ -13,13 +13,30 @@ public struct ReactionActions {
     /// A custom emoji's picture. `nil` when the backend cannot fetch one:
     /// every custom capsule then shows its shortcode (reactions spec §4.4).
     public var customImage: ((CustomEmojiRef) async throws -> Data)?
+    /// The person's recent reactions, newest first: the quick row and the
+    /// picker's Recent section (reactions slice 2). Read when a menu opens.
+    public var recents: () -> [ReactionChoice]
+    /// The custom emoji this account has seen, for the picker's Custom
+    /// section (spec §2.4's fallback: no catalog call is known).
+    public var customCatalog: () -> [CustomEmojiRef]
+    /// The app's one skin tone, and how to change it (spec §3, §4.4).
+    public var skinTone: SkinTone
+    public var setSkinTone: (SkinTone) -> Void
 
     public init(
         toggle: @escaping (Message.ID, ReactionChoice, Bool) -> Void,
-        customImage: ((CustomEmojiRef) async throws -> Data)? = nil
+        customImage: ((CustomEmojiRef) async throws -> Data)? = nil,
+        recents: @escaping () -> [ReactionChoice] = { [] },
+        customCatalog: @escaping () -> [CustomEmojiRef] = { [] },
+        skinTone: SkinTone = .none,
+        setSkinTone: @escaping (SkinTone) -> Void = { _ in }
     ) {
         self.toggle = toggle
         self.customImage = customImage
+        self.recents = recents
+        self.customCatalog = customCatalog
+        self.skinTone = skinTone
+        self.setSkinTone = setSkinTone
     }
 }
 
