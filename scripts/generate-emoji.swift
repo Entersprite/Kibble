@@ -32,17 +32,24 @@ func normalised(_ emoji: String) -> String {
 
 let emojiFont = CTFontCreateWithName("AppleColorEmoji" as CFString, 20, nil)
 
-/// One glyph, from the emoji font, and not .notdef: the system draws it as an emoji.
+/// One run from the emoji font, no .notdef, and exactly one glyph with an
+/// advance: the system draws it as one emoji. Not "exactly one glyph": the
+/// kiss and couple sequences shape to a zero-advance glyph plus the visible
+/// one, and counting glyphs dropped all six (slice 2 review, Important 2).
 func drawsAsOneGlyph(_ emoji: String) -> Bool {
     let attributed = NSAttributedString(
         string: emoji, attributes: [NSAttributedString.Key(kCTFontAttributeName as String): emojiFont]
     )
     let line = CTLineCreateWithAttributedString(attributed)
     let runs = CTLineGetGlyphRuns(line) as? [CTRun] ?? []
-    guard runs.count == 1, CTRunGetGlyphCount(runs[0]) == 1 else { return false }
-    var glyph = CGGlyph()
-    CTRunGetGlyphs(runs[0], CFRange(location: 0, length: 1), &glyph)
-    return glyph != 0
+    guard runs.count == 1 else { return false }
+    let count = CTRunGetGlyphCount(runs[0])
+    guard count >= 1 else { return false }
+    var glyphs = [CGGlyph](repeating: 0, count: count)
+    var advances = [CGSize](repeating: .zero, count: count)
+    CTRunGetGlyphs(runs[0], CFRange(location: 0, length: 0), &glyphs)
+    CTRunGetAdvances(runs[0], CFRange(location: 0, length: 0), &advances)
+    return !glyphs.contains(0) && advances.filter { $0.width > 0 }.count == 1
 }
 
 // MARK: - emoji-test.txt

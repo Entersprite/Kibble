@@ -45,7 +45,9 @@ struct ReactionWiringTests {
     /// Slice 2: the skin tone is the app's, and survives a new environment on
     /// the same defaults (reactions spec §3).
     @Test func theSkinToneIsSavedAndReadBack() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "reaction-wiring-\(UUID().uuidString)"))
+        let suite = "reaction-wiring-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
         let services = try FakeLaunchServices(
             backendCapabilities: Capabilities(canSendMessages: true, canReact: true)
         )
@@ -71,6 +73,10 @@ struct ReactionWiringTests {
         let actions = try #require(environment.actions.reactions)
         #expect(actions.recents().isEmpty)
         try services.store.recordReactionUse(ReactionChoice(emoji: "🛞"), at: Date())
+        // Observed, not read: the model's value arrives a moment later.
+        for _ in 0 ..< 400 where actions.recents().isEmpty {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         #expect(actions.recents().map(\.emoji) == ["🛞"])
     }
 }

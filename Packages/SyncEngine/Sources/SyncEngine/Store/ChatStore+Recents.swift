@@ -31,22 +31,33 @@ extension ChatStore {
 
     /// Newest first.
     func recentReactions(limit: Int) throws -> [ReactionChoice] {
-        try database.read { db in
-            try Row.fetchAll(
-                db,
-                sql: """
-                SELECT emoji, customEmojiID, shortcode, imageToken
-                FROM emojiRecent ORDER BY usedAt DESC LIMIT ?
-                """,
-                arguments: [limit]
-            ).map { row in
-                if let id: String = row["customEmojiID"], let shortcode: String = row["shortcode"] {
-                    return ReactionChoice(customEmoji: CustomEmojiRef(
-                        id: id, shortcode: shortcode, imageToken: row["imageToken"]
-                    ))
-                }
-                return ReactionChoice(emoji: row["emoji"])
+        try database.read { db in try Self.fetchRecentReactions(limit: limit, db) }
+    }
+
+    /// For `ChatSessionModel.recentReactionChoices`: the views read recents
+    /// while they render, so they get an observed value, never a store read
+    /// per bubble per render (slice 2 review, Important 1).
+    func observeRecentReactions(limit: Int) -> AsyncValueObservation<[ReactionChoice]> {
+        ValueObservation
+            .tracking { db in try Self.fetchRecentReactions(limit: limit, db) }
+            .values(in: database)
+    }
+
+    private static func fetchRecentReactions(limit: Int, _ db: Database) throws -> [ReactionChoice] {
+        try Row.fetchAll(
+            db,
+            sql: """
+            SELECT emoji, customEmojiID, shortcode, imageToken
+            FROM emojiRecent ORDER BY usedAt DESC LIMIT ?
+            """,
+            arguments: [limit]
+        ).map { row in
+            if let id: String = row["customEmojiID"], let shortcode: String = row["shortcode"] {
+                return ReactionChoice(customEmoji: CustomEmojiRef(
+                    id: id, shortcode: shortcode, imageToken: row["imageToken"]
+                ))
             }
+            return ReactionChoice(emoji: row["emoji"])
         }
     }
 

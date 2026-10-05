@@ -14,7 +14,9 @@ public struct ReactionActions {
     /// every custom capsule then shows its shortcode (reactions spec §4.4).
     public var customImage: ((CustomEmojiRef) async throws -> Data)?
     /// The person's recent reactions, newest first: the quick row and the
-    /// picker's Recent section (reactions slice 2). Read when a menu opens.
+    /// picker's Recent section (reactions slice 2). Called while views render
+    /// (a context menu's contents are built with the bubble), so a host must
+    /// answer from memory, never from a store read.
     public var recents: () -> [ReactionChoice]
     /// The custom emoji this account has seen, for the picker's Custom
     /// section (spec §2.4's fallback: no catalog call is known).
@@ -217,8 +219,9 @@ struct ReactionCapsule: View {
 struct ReactionMenu: ViewModifier {
     let message: Message
     let actions: ReactionActions?
-    /// Opens the full picker ("More Emoji…", spec §4.2).
-    var onMore: () -> Void = {}
+    /// Opens the full picker ("More Emoji…", spec §4.2); `nil` draws no such
+    /// item (`CLAUDE.md`: never draw a control the seam cannot honour).
+    var onMore: (() -> Void)?
 
     func body(content: Content) -> some View {
         if let actions, !message.isDeleted {
@@ -246,7 +249,9 @@ struct ReactionMenu: ViewModifier {
                     }
                 }
                 .controlGroupStyle(.palette)
-                Button("More Emoji…", systemImage: EmojiPickerModel.addSymbol, action: onMore)
+                if let onMore {
+                    Button("More Emoji…", systemImage: EmojiPickerModel.addSymbol, action: onMore)
+                }
             }
         } else {
             content

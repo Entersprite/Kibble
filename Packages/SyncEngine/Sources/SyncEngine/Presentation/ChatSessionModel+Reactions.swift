@@ -5,6 +5,19 @@ import Foundation
 
 /// Its own file for swiftlint's `file_length`, like `+Send.swift`.
 public extension ChatSessionModel {
+    /// The person's recent reactions, newest first, from the observed
+    /// `recentReactionChoices`: views call this while they render, so it is
+    /// never a store read (slice 2 review, Important 1).
+    func recentReactions(limit: Int) -> [ReactionChoice] {
+        Array(recentReactionChoices.prefix(limit))
+    }
+
+    /// The distinct custom emoji in this account's stored reactions. A store
+    /// read, so the picker calls it once when it opens.
+    func storedCustomEmoji() -> [CustomEmojiRef] {
+        (try? store.storedCustomEmoji()) ?? []
+    }
+
     /// Adds or removes the person's own reaction, and shows it at once.
     ///
     /// Reads the message from the store (`ChatStore.message(_:)`) rather than
@@ -49,17 +62,6 @@ public extension ChatSessionModel {
     /// for a message that has no server id yet (`local/`, the optimistic
     /// send's prefix); for a message not in the store, or a store read error
     /// (`try? store.message`); and for a toggle that would change nothing.
-    /// The person's recent reactions, newest first; empty when the store
-    /// cannot be read. Read at call time, so a menu shows the latest.
-    func recentReactions(limit: Int) -> [ReactionChoice] {
-        (try? store.recentReactions(limit: limit)) ?? []
-    }
-
-    /// The distinct custom emoji in this account's stored reactions.
-    func storedCustomEmoji() -> [CustomEmojiRef] {
-        (try? store.storedCustomEmoji()) ?? []
-    }
-
     func react(to messageID: Message.ID, with choice: ReactionChoice, add: Bool) {
         guard capabilities.canReact,
               !messageID.rawValue.hasPrefix("local/"),
