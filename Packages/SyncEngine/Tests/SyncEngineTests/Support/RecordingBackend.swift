@@ -40,6 +40,8 @@ actor RecordingBackend: ChatBackend {
     /// Every `uploadAttachment` call, in order, failed ones included.
     private(set) var uploads: [OutgoingAttachment] = []
     private var failingUploads = false
+    private var holdingUploads = false
+    private var heldUploads: [CheckedContinuation<Void, Never>] = []
 
     init(world: FixtureWorld = .minimal, capabilities: Capabilities = .fixture) {
         inner = FakeBackend(world: world, capabilities: capabilities)
@@ -95,6 +97,21 @@ actor RecordingBackend: ChatBackend {
     /// without forwarding it.
     func failUploads(_ shouldFail: Bool) {
         failingUploads = shouldFail
+    }
+
+    /// Makes every later `uploadAttachment` record the file, then block until
+    /// `releaseHeldUpload()`: an upload that has started and not answered.
+    func holdUploads(_ shouldHold: Bool) {
+        holdingUploads = shouldHold
+    }
+
+    func releaseHeldUpload() {
+        guard !heldUploads.isEmpty else { return }
+        heldUploads.removeFirst().resume()
+    }
+
+    var heldUploadCount: Int {
+        heldUploads.count
     }
 
     /// Releases the oldest `send(_:)` call currently blocked by
@@ -176,8 +193,20 @@ actor RecordingBackend: ChatBackend {
         progress: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws -> Attachment {
         uploads.append(attachment)
+        if holdingUploads {
+            await withCheckedContinuation { heldUploads.append($0) }
+        }
         if failingUploads {
             throw ChatError.server(status: 400, message: "the upload's bytes were refused")
+        }
+        // `acceptWithoutForwarding` covers uploads too: an upload that
+        // answers after `stop()` has disconnected the fixture.
+        if accepting {
+            return Attachment(
+                id: "accepted-\(attachment.id)",
+                name: attachment.name,
+                contentType: attachment.contentType
+            )
         }
         return try await inner.uploadAttachment(attachment, to: conversation, progress: progress)
     }

@@ -117,7 +117,9 @@ public actor LocalBridgeBackend: ChatBackend {
     var attachmentUpload: AttachmentUpload?
     /// What each upload this session made answered, by token, so a send
     /// returns it verbatim (`uploadAnnotations(_:uploaded:)`). Cleared by
-    /// `disconnect()`.
+    /// `connect()` and `disconnect()`. An upload still in flight across a
+    /// disconnect writes its entry afterwards; that is harmless, because a
+    /// token names one upload and a send only looks up the ones it carries.
     var uploadedMetadata: [String: UploadMetadata] = [:]
 
     /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
@@ -248,6 +250,7 @@ public actor LocalBridgeBackend: ChatBackend {
             attachmentUpload = AttachmentUpload(
                 transport: transport, endpoints: endpoints, credentials: credentials, xsrfToken: wiz.xsrfToken
             )
+            uploadedMetadata = [:]
             emit(.connectionStateChanged(.connected))
             // **Started, not awaited**, the same rule `loadConversations()`
             // follows for `resolveAndEmitMembers` and for the same reason:

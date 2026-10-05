@@ -49,11 +49,15 @@ public struct ComposerFiles {
 
     nonisolated init() {}
 
-    mutating func cancelSends() {
+    /// Cancels every send and forgets every staged file: what `stop()` asks
+    /// for, so a cancelled file is not left uploading forever in a model
+    /// that is reused.
+    mutating func reset() {
         for task in sends.values {
             task.cancel()
         }
         sends = [:]
+        staged = [:]
     }
 }
 

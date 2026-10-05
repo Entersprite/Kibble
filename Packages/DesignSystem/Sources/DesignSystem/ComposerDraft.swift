@@ -29,13 +29,18 @@ public struct ComposerDraft: Equatable, Sendable {
     ///
     /// A `nil` forgets what was adopted, so the same text failing a second
     /// time is offered again rather than silently dropped.
+    ///
+    /// **Never over what the person has typed since.** A failed upload can
+    /// hand its caption back minutes after Send, by which time the field
+    /// may hold the next message; the caption then goes first and the newer
+    /// text after it, and nothing is lost.
     public mutating func adopt(_ restoring: String?) -> Bool {
         guard let restoring, !restoring.isEmpty else {
             adopted = nil
             return false
         }
         guard restoring != adopted else { return false }
-        text = restoring
+        text = text.isEmpty || text == restoring ? restoring : restoring + "\n" + text
         adopted = restoring
         return true
     }

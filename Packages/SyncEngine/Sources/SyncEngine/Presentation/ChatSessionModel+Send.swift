@@ -59,6 +59,9 @@ public extension ChatSessionModel {
             sendStaged(text, in: selected)
             return
         }
+        // Only a staged file makes an empty send mean something. A composer
+        // one frame behind its staged files must not post an empty message.
+        guard !text.isEmpty else { return }
         let localID = UUID().uuidString
         // Invented here, and therefore retracted from here. The `local/`
         // prefix is this file's convention and stays this file's business:

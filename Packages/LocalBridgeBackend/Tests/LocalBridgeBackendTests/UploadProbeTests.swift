@@ -142,4 +142,9 @@ struct UploadProbeTests {
             )
         #expect(UploadProbeTransport.describe(url) == "chat.google.com/upload/<40 chars> ?a,b")
     }
+
+    @Test func aChangedNameIsShownEscaped() {
+        #expect(UploadProbeReport.escaped("a%20b\u{202F}é.png") == "a%20b\\u{202F}\\u{E9}.png")
+        #expect(UploadProbeReport.fileName.unicodeScalars.contains("\u{202F}"))
+    }
 }

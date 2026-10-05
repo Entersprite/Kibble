@@ -17,12 +17,17 @@ struct StagedSendTests {
         )
     }
 
+    /// `me` is the fixture's own user, so `post` writes its optimistic row:
+    /// with `nil` there is no row, and a test of its retraction proves
+    /// nothing (session 50's review, Important 3).
     private static func model(
         _ backend: RecordingBackend
     ) async throws -> (ChatSessionModel, Conversation.ID) {
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
-        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
+        let model = ChatSessionModel(
+            store: store, engine: engine, me: FixtureWorld.minimal.me, markReadDebounce: .zero
+        )
         try await model.start()
         await settleAutoMarkRead()
         let conversation = FixtureWorld.minimal.messages[0].conversationID
@@ -130,13 +135,21 @@ struct StagedSendTests {
     }
 
     /// The upload worked and the message was refused: the file is kept, the
-    /// text comes back, and the optimistic row is retracted.
+    /// text comes back, and the optimistic row - there while the post was in
+    /// flight - is retracted.
     @Test func aRefusedMessageKeepsTheFile() async throws {
         let backend = RecordingBackend()
         let (model, conversation) = try await Self.model(backend)
         model.stage([Self.file("a")])
         await backend.failSubmissions(true)
+        await backend.holdSubmissions(true)
         model.send("caption")
+        await settleAutoMarkRead(until: "the post is held") { await backend.heldSubmissionCount == 1 }
+        // Positive control: the row this test says is retracted exists.
+        let during = try model.store.messages(in: conversation)
+        #expect(during.contains { $0.id.rawValue.hasPrefix("local/") && $0.attachments.count == 1 })
+
+        await backend.releaseHeldSubmission()
         await settleAutoMarkRead(until: "the send stopped") {
             model.stagedAttachments.allSatisfy { !$0.isUploading }
         }
@@ -144,6 +157,25 @@ struct StagedSendTests {
         #expect(model.failedDraft == "caption")
         let rows = try model.store.messages(in: conversation)
         #expect(!rows.contains { $0.id.rawValue.hasPrefix("local/") })
+        await model.stop()
+    }
+
+    /// The optimistic row and the echo are one message, attachment and all.
+    @Test func theEchoReplacesTheOptimisticRowWithItsAttachment() async throws {
+        let backend = RecordingBackend()
+        let (model, conversation) = try await Self.model(backend)
+        let before = try model.store.messages(in: conversation).count
+        model.stage([Self.file("a")])
+        model.send("caption")
+        await settleAutoMarkRead(until: "sent") { model.stagedAttachments.isEmpty }
+        await settleAutoMarkRead(until: "the echo replaced the row") {
+            (try? model.store.messages(in: conversation))?
+                .contains { $0.id.rawValue.hasPrefix("local/") } == false
+        }
+        let rows = try model.store.messages(in: conversation)
+        #expect(rows.count == before + 1)
+        #expect(rows.last?.attachments.map(\.name) == ["a.png"])
+        #expect(rows.last?.text == "caption")
         await model.stop()
     }
 
@@ -200,21 +232,62 @@ struct StagedSendTests {
         await model.stop()
     }
 
-    @Test func stopCancelsASendInFlight() async throws {
+    /// The post is accepted after `stop()`, so only the cancellation can
+    /// keep the second file from uploading (session 50's review, Important
+    /// 2: with the post failing, the send stopped either way).
+    @Test func stopCancelsASendWhosePostIsInFlight() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
         model.stage([Self.file("a"), Self.file("b")])
         await backend.holdSubmissions(true)
-        model.send("")
+        await backend.acceptWithoutForwarding(true)
+        model.send("caption")
         await settleAutoMarkRead(until: "the first message is held") { await backend.heldSubmissionCount == 1
         }
         #expect(model.composerFiles.sends.count == 1)
         await model.stop()
         #expect(model.composerFiles.sends.isEmpty)
+        #expect(model.composerFiles.staged.isEmpty)
         await backend.releaseHeldSubmission()
         await settleAutoMarkRead()
-        // The second file was never uploaded: the cancelled send stopped.
         #expect(await backend.uploads.map(\.id) == ["a"])
+    }
+
+    /// An upload that fails after `stop()` must not hand its caption back
+    /// into a model that has been stopped.
+    @Test func stopCancelsASendWhoseUploadIsInFlight() async throws {
+        let backend = RecordingBackend()
+        let (model, _) = try await Self.model(backend)
+        model.stage([Self.file("a")])
+        await backend.holdUploads(true)
+        await backend.failUploads(true)
+        model.send("caption")
+        await settleAutoMarkRead(until: "the upload is held") { await backend.heldUploadCount == 1 }
+        await model.stop()
+        await backend.releaseHeldUpload()
+        await settleAutoMarkRead()
+        #expect(model.failed == nil)
+        #expect(model.lastError == nil)
+    }
+
+    /// An upload that succeeds after `stop()` must not be posted, nor told
+    /// to the host, for an account that has been stopped.
+    @Test func anUploadAnsweringAfterStopIsNotPosted() async throws {
+        let backend = RecordingBackend()
+        let (model, conversation) = try await Self.model(backend)
+        var told = 0
+        model.didUpload = { _, _ in told += 1 }
+        model.stage([Self.file("a")])
+        await backend.holdUploads(true)
+        await backend.acceptWithoutForwarding(true)
+        model.send("caption")
+        await settleAutoMarkRead(until: "the upload is held") { await backend.heldUploadCount == 1 }
+        await model.stop()
+        await backend.releaseHeldUpload()
+        await settleAutoMarkRead()
+        #expect(told == 0)
+        #expect(await Self.sends(backend).isEmpty)
+        #expect(try !model.store.messages(in: conversation).contains { $0.id.rawValue.hasPrefix("local/") })
     }
 
     @Test func aBackendThatCannotUploadStagesNothing() async throws {

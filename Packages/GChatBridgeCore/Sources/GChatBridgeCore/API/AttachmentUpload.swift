@@ -236,9 +236,10 @@ public struct AttachmentUpload: Sendable {
 
     /// Base64 first, as both references decode it, then raw, as every
     /// `/api/` answer actually arrives despite asking for base64
-    /// (`findings.md` §3.6). Raw protobuf starts with a tag byte such as
-    /// `0x0A`, which is never valid base64, so the order cannot misread one
-    /// as the other.
+    /// (`findings.md` §3.6). Raw `UploadMetadata` cannot pass for base64: its
+    /// first tag is a newline (`0x0A`), which the trim removes, but the
+    /// length and tag bytes after it (`0x12`, `0x1A`, `0x22`, and any byte
+    /// under `0x20`) are outside the base64 alphabet.
     static func decode(_ body: Data) -> UploadMetadata? {
         let trimmed = String(decoding: body, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         if let decoded = Data(base64Encoded: trimmed),

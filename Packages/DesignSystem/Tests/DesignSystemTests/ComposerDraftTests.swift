@@ -56,4 +56,13 @@ struct ComposerDraftTests {
         #expect(draft.adopt("") == false)
         #expect(draft.text == "mine")
     }
+
+    /// A failed upload's caption can come back minutes after Send, over the
+    /// next message being typed (session 50's review, Important 1).
+    @Test func aRestoreNeverOverwritesWhatWasTypedSince() {
+        var draft = ComposerDraft()
+        draft.edit("the next message")
+        #expect(draft.adopt("see attached") == true)
+        #expect(draft.text == "see attached\nthe next message")
+    }
 }

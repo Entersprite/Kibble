@@ -5,8 +5,9 @@ import URLSessionTransport
 
 /// `--probe=upload`: one upload of a generated 16×16 PNG into one real
 /// conversation, through `AttachmentUpload`, **and nothing posted**. An
-/// upload no message names is invisible to everyone, so this is the one
-/// write that can be probed without anyone seeing it.
+/// upload no message names is believed to be invisible to everyone
+/// `[Verify]`, which is what makes this the one write probed without a
+/// staged conversation.
 ///
 /// Three rungs, stopping at the first that works, so a working shape costs
 /// one upload: purple's shape on the app's endpoints, then without the
@@ -22,7 +23,11 @@ public enum UploadProbeReport {
     static let png = Data(base64Encoded:
         "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGOQz79BEmIY1TCqYfhqAACa"
             + "HWYQlSTCVwAAAABJRU5ErkJggg==")!
-    static let fileName = "kibble-upload-probe.png"
+    /// Shaped like a default macOS screenshot name, which has a narrow
+    /// no-break space (U+202F) before PM, plus an accented letter, so one run
+    /// also answers whether a name outside ASCII survives the percent-encoded
+    /// `x-goog-upload-file-name` (`AttachmentUpload.headerSafe`) `[Verify]`.
+    static let fileName = "Kibble probe café 9.41\u{202F}PM.png"
 
     /// What every rung shares: the transport and the bootstrapped session.
     struct Session {
@@ -174,10 +179,24 @@ public enum UploadProbeReport {
         return [
             "  UPLOADED. metadata fields: \(fields)",
             "    attachment token: \(metadata.attachmentToken.count) chars",
-            "    content_name echoed: \(metadata.contentName == fileName), "
+            "    content_name echoed: \(metadata.contentName == fileName)"
+                + (metadata.contentName == fileName ? "" : " (came back as \(escaped(metadata.contentName)))")
+                + ", "
                 + "content_type: \(metadata.hasContentType ? metadata.contentType : "absent"), "
                 + "original_dimension: \(dimension)"
         ]
+    }
+}
+
+extension UploadProbeReport {
+    /// The probe's own name as it came back, with everything outside
+    /// printable ASCII as `\u{…}`, so a percent sign and a U+202F are both
+    /// visible. Only ever applied to `content_name`, which this probe chose.
+    static func escaped(_ name: String) -> String {
+        name.unicodeScalars.map { scalar in
+            scalar.isASCII && scalar.value >= 0x20 && scalar.value < 0x7F
+                ? String(scalar) : "\\u{\(String(scalar.value, radix: 16, uppercase: true))}"
+        }.joined()
     }
 }
 

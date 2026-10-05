@@ -128,7 +128,7 @@ public protocol ChatBackend: Sendable {
 
     /// Uploads a staged file into `conversation` and returns the attachment a
     /// `ChatCommand.sendMessage` then carries. Nothing is posted: an upload
-    /// that is never sent is invisible to everyone. Progress counts bytes
+    /// that is never sent is believed to be invisible to everyone `[Verify]`. Progress counts bytes
     /// sent, in `AttachmentProgress.bytesReceived`'s place. Cancellation is
     /// the calling task's.
     ///
