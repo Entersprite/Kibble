@@ -155,12 +155,24 @@ struct ReactionMenu: ViewModifier {
                 ControlGroup {
                     ForEach(QuickReactions.defaults, id: \.self) { emoji in
                         let choice = ReactionChoice(emoji: emoji)
-                        Button(emoji) {
+                        Button {
                             actions.toggle(
                                 message.id,
                                 choice,
                                 QuickReactions.adds(choice, to: message.reactions)
                             )
+                        } label: {
+                            // The palette draws the icon and drops the title,
+                            // so the emoji goes in as a picture; the title
+                            // stays for VoiceOver (`EmojiGlyph`).
+                            Label {
+                                Text(emoji)
+                            } icon: {
+                                if let glyph = EmojiGlyph.image(for: emoji) {
+                                    Image(decorative: glyph, scale: EmojiGlyph.scale)
+                                        .renderingMode(.original)
+                                }
+                            }
                         }
                     }
                 }
