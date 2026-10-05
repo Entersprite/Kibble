@@ -254,7 +254,7 @@ public final class URLSessionTransport: HTTPTransport {
             // `setValue` rather than `addValue`: a request header this package
             // builds is single-valued, and appending would produce a duplicate
             // if a caller passed the same name twice.
-            urlRequest.setValue(field.value, forHTTPHeaderField: field.name)
+            urlRequest.setValue(wireValue(field.value), forHTTPHeaderField: field.name)
         }
         return urlRequest
     }

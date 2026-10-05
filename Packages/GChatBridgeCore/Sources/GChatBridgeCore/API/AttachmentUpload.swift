@@ -272,15 +272,22 @@ public struct AttachmentUpload: Sendable {
         }
     }
 
-    /// A header value cannot carry text outside ASCII, so such a name is
-    /// percent-encoded as UTF-8. Whether the server decodes it is `[Verify]`;
-    /// both references send the name raw and never meet the case.
+    /// The name as Google will show it: precomposed (NFC), because macOS
+    /// hands out decomposed names and `Ó` would otherwise travel as `O` plus a
+    /// combining accent, and with every control character a space, so a
+    /// name can never end the header early.
+    ///
+    /// **Not percent-encoded.** Google stores this header verbatim and never
+    /// decodes it: session 50's first probe sent `caf%C3%A9` and got
+    /// `caf%C3%A9` back as `content_name`, which every recipient then saw
+    /// (`findings.md` §55.4). The text goes as it is, and the transport puts
+    /// it on the wire as UTF-8 (`URLSessionTransport.wireValue(_:)`).
+    /// Whether Google reads those bytes as UTF-8 is `[Verify]`.
     static func headerSafe(_ name: String) -> String {
-        let printable = name.unicodeScalars.allSatisfy { $0.isASCII && $0.value >= 0x20 && $0.value != 0x7F }
-        guard !printable else { return name }
-        var allowed = CharacterSet()
-        allowed.insert(charactersIn: Unicode.Scalar(0x21) ... Unicode.Scalar(0x7E))
-        allowed.remove("%")
-        return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        String(String.UnicodeScalarView(
+            name.precomposedStringWithCanonicalMapping.unicodeScalars.map { scalar in
+                scalar.value < 0x20 || scalar.value == 0x7F ? " " : scalar
+            }
+        ))
     }
 }

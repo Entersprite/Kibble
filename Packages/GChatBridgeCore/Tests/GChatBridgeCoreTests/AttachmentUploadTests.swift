@@ -157,12 +157,33 @@ struct AttachmentUploadTests {
         #expect(put.followsRedirects == false)
     }
 
-    @Test("a name outside ASCII is percent-encoded, since a header value cannot carry it")
+    /// Google stores the header verbatim (`findings.md` §55.4), so a name is
+    /// sent as itself, never percent-encoded.
+    @Test("a name outside ASCII is sent as itself, a percent sign included")
     func nonASCIIName() async throws {
         let transport = try FakeHTTPTransport(responses: [Self.started(), Self.finalized()])
-        _ = try await Self.run(transport, name: "Résumé 1.pdf")
+        _ = try await Self.run(transport, name: "Résumé 100% 9.41\u{202F}PM.pdf")
         let start = try #require(await transport.sent.first)
-        #expect(start.headers["x-goog-upload-file-name"] == "R%C3%A9sum%C3%A9%201.pdf")
+        #expect(start.headers["x-goog-upload-file-name"] == "Résumé 100% 9.41\u{202F}PM.pdf")
+    }
+
+    /// The owner's `Órarend2.pdf` arrived as `O%CC%81rarend2.pdf`: macOS's
+    /// decomposed `O` plus U+0301.
+    @Test("a decomposed name is sent precomposed")
+    func decomposedName() async throws {
+        let transport = try FakeHTTPTransport(responses: [Self.started(), Self.finalized()])
+        _ = try await Self.run(transport, name: "O\u{301}rarend2.pdf")
+        let start = try #require(await transport.sent.first)
+        let sent = try #require(start.headers["x-goog-upload-file-name"])
+        #expect(sent.unicodeScalars.map(\.value) == "\u{D3}rarend2.pdf".unicodeScalars.map(\.value))
+    }
+
+    @Test("a control character cannot end the header early")
+    func controlCharacters() async throws {
+        let transport = try FakeHTTPTransport(responses: [Self.started(), Self.finalized()])
+        _ = try await Self.run(transport, name: "a\r\nX-Evil: 1\t.pdf")
+        let start = try #require(await transport.sent.first)
+        #expect(start.headers["x-goog-upload-file-name"] == "a  X-Evil: 1 .pdf")
     }
 
     // MARK: - The answer
