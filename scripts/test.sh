@@ -121,6 +121,19 @@ scan "Apps" \
   '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(GRDB|SyncEngine|LocalBridgeBackend|FixtureBackend)\b' \
   "the app target imports no store and no backend"
 
+# Sparkle is reached through AppUpdating, and SparkleUpdater.swift is its one
+# importer: everything above it is tested against a fake, and a future iOS app
+# never links an updater.
+importers=$(grep -rlE '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?Sparkle\b' \
+              --include='*.swift' Apps Packages 2>/dev/null \
+            | grep -v '/\.build/' | grep -vx 'Packages/MacHost/Sources/MacHost/SparkleUpdater.swift' || true)
+if [ -n "$importers" ]; then
+    note "Sparkle is imported outside SparkleUpdater.swift"
+    printf '%s\n' "$importers" | sed 's/^/         /' >&2
+else
+    pass "only SparkleUpdater.swift imports Sparkle"
+fi
+
 # Every entry into .needsSignIn must erase the store first, and the way that is
 # structural rather than a convention is that exactly one function constructs
 # the phase. Session 15 §2 found four routes where the brief assumed one; three

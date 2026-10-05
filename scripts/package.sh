@@ -22,6 +22,21 @@ CONFIG=Release ./scripts/build.sh
 app=DerivedData/Build/Products/Release/Kibble.app
 [[ -d "$app" ]] || fail "the build produced no $app"
 
+# Sparkle's helpers arrive signed ad hoc, and `xcodebuild build` re-signs only
+# the framework's top level. Re-sign inside out with our identity, never
+# --deep (Sparkle's "Sandboxing" documentation), then the app with its own
+# entitlements kept.
+sparkle=$app/Contents/Frameworks/Sparkle.framework
+[[ -d "$sparkle" ]] || fail "no Sparkle.framework in the app"
+for item in "$sparkle"/Versions/B/XPCServices/*.xpc "$sparkle"/Versions/B/Autoupdate \
+    "$sparkle"/Versions/B/Updater.app "$sparkle"; do
+    [[ -e "$item" ]] || fail "missing ${item#"$app"/}; Sparkle's layout changed"
+    codesign -f -s "$GCHAT_DEV_IDENTITY" -o runtime --preserve-metadata=entitlements "$item" 2>/dev/null ||
+        fail "could not sign ${item#"$app"/}"
+done
+codesign -f -s "$GCHAT_DEV_IDENTITY" -o runtime --preserve-metadata=entitlements "$app" 2>/dev/null ||
+    fail "could not sign the app"
+
 # Everything a downloaded copy depends on, checked on the bundle itself rather
 # than trusted from the build settings.
 for key in CFBundleShortVersionString CFBundleVersion; do
@@ -43,6 +58,25 @@ grep -qx "Authority=$GCHAT_DEV_IDENTITY" <<<"$signature" ||
 if grep -q get-task-allow <<<"$entitlements"; then
     fail "the app carries get-task-allow"
 fi
+# --- updatable-bundle checks ---
+# A published build that fails these can never update itself again: every
+# install of it is stranded on its version.
+for key in SUFeedURL SUPublicEDKey; do
+    value=$(/usr/libexec/PlistBuddy -c "Print :$key" "$app/Contents/Info.plist" 2>/dev/null || true)
+    [[ -n "$value" ]] || fail "Info.plist has no $key"
+done
+enabled=$(/usr/libexec/PlistBuddy -c 'Print :KibbleUpdatesEnabled' "$app/Contents/Info.plist" 2>/dev/null || true)
+[[ "$enabled" == YES ]] || fail "updates are off in this build"
+# Every nested bundle and every loose executable beside them, found rather
+# than listed, so a helper a future Sparkle adds cannot ship unsigned by us.
+# codesign's output is read whole before matching (pipefail).
+while IFS= read -r -d '' nested; do
+    nested_signature=$(codesign -dvv "$nested" 2>&1 || true)
+    grep -qx "Authority=$GCHAT_DEV_IDENTITY" <<<"$nested_signature" ||
+        fail "${nested#"$app"/} is not signed by $GCHAT_DEV_IDENTITY"
+done < <(find "$app/Contents/Frameworks" \( -name '*.xpc' -o -name '*.app' -o -name '*.framework' \
+    -o \( -type f -perm -u+x ! -path '*/Contents/MacOS/*' ! -path '*/_CodeSignature/*' \) \) -print0)
+# --- end updatable-bundle checks ---
 codesign --verify --deep --strict "$app" || fail "the signature does not verify"
 
 mkdir -p dist

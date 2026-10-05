@@ -14,6 +14,21 @@ that protocol at any time, and when it does, Kibble breaks until it is updated.
 - Xcode 26
 - Homebrew: `brew install xcodegen xcbeautify swiftlint swiftformat swift-protobuf`
 
+## Install
+
+Download the zip from the latest
+[release](https://github.com/Entersprite/Kibble/releases/latest), unzip it, and
+drag Kibble into Applications in Finder. Kibble is self-signed and not
+notarized, so macOS blocks it the first time: open it once, then click
+**Open Anyway** in System Settings → Privacy & Security.
+
+From then on Kibble updates itself through [Sparkle](https://sparkle-project.org):
+by hand from Kibble › Check for Updates…, or on its own at launch, every hour or
+every day (Settings › Updates). After each update, macOS asks once for your
+login password so Kibble can read its saved session; choose **Always Allow**.
+Releases from before updates existed (v2026.41.1 and earlier) have to be
+replaced by hand once.
+
 ## Build
 
 ```bash
