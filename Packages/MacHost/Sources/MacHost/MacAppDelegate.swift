@@ -15,6 +15,10 @@ import Foundation
 @MainActor
 public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     public let environment: AppEnvironment
+    /// Settings › Updates and the updater behind it, for the life of the
+    /// process like everything else here. No updater in a development build
+    /// (`KibbleUpdatesEnabled`), so a dev build never replaces itself.
+    public let updates: UpdateSettingsModel
     private let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
     private var windowObservers: [NSObjectProtocol] = []
@@ -37,6 +41,13 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         )
         self.environment = environment
         mainWindowMinimising = MainWindowMinimising { environment.setWindowMinimized($0) }
+        let info = Bundle.main.infoDictionary ?? [:]
+        updates = UpdateSettingsModel(
+            updater: UpdateSettingsModel
+                .isEnabled(infoValue: info["KibbleUpdatesEnabled"]) ? SparkleUpdater() : nil,
+            defaults: .standard,
+            version: info["CFBundleShortVersionString"] as? String ?? "unknown"
+        )
         super.init()
     }
 
@@ -72,6 +83,8 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
                     MainActor.assumeIsolated { minimising.handle(name, object: window) }
                 }
             }
+
+        updates.start()
     }
 
     /// Closing the window must not quit: notifications only arrive while the

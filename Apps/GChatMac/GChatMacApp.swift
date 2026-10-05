@@ -57,6 +57,10 @@ struct GChatMacApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    appDelegate.updates.checkNow()
+                }
+                .disabled(!appDelegate.updates.canCheck)
                 Divider()
                 Button("Sign Out…") {
                     isConfirmingSignOut = true
@@ -101,6 +105,10 @@ struct GChatMacApp: App {
                         actions: environment.downloadSettingsActions
                     )
                     .frame(width: 560, height: 220)
+                }
+                Tab("Updates", systemImage: "arrow.triangle.2.circlepath", value: "updates") {
+                    UpdateSettingsPane(state: appDelegate.updates.state, actions: appDelegate.updates.actions)
+                        .frame(width: 560, height: 420)
                 }
                 Tab("Account", systemImage: "person.crop.circle", value: "account") {
                     AccountSettingsPane(

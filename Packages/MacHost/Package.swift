@@ -23,7 +23,10 @@ let package = Package(
         .package(path: "../SyncEngine"),
         .package(path: "../DesignSystem"),
         .package(path: "../FixtureBackend"),
-        .package(path: "../LocalBridgeBackend")
+        .package(path: "../LocalBridgeBackend"),
+        // The updater: check, download, EdDSA check, sandboxed install. Imported by
+        // SparkleUpdater.swift alone (scripts/test.sh).
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0")
     ],
     targets: [
         .target(
@@ -34,7 +37,8 @@ let package = Package(
                 "SyncEngine",
                 "DesignSystem",
                 "FixtureBackend",
-                "LocalBridgeBackend"
+                "LocalBridgeBackend",
+                .product(name: "Sparkle", package: "Sparkle")
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

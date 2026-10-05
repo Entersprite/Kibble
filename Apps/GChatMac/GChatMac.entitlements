@@ -20,5 +20,20 @@
 	<!-- Keeps the picked folder across launches, as a security-scoped bookmark. -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
+	<!-- Sparkle's installer and status services, which a sandboxed app reaches
+	     by name. Sparkle's own documentation, "Sandboxing". -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
+	</array>
+	<!-- Sparkle.framework is a library in the bundle. Library validation accepts
+	     only Apple's code or the app's own Team ID, and a self-signed certificate
+	     has none, so without this the hardened runtime refuses Sparkle at launch
+	     (measured: "different Team IDs"). The hardened runtime still blocks
+	     DYLD_INSERT_LIBRARIES. Debug has no hardened runtime, so it changes
+	     nothing there. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>

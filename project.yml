@@ -79,23 +79,29 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: NO
         # Xcode's debug dylib exists to serve SwiftUI Previews, which this
         # project never uses (no Xcode GUI). Turning it off removes
-        # Kibble.debug.dylib and __preview.dylib, so the app loads nothing
-        # dynamically from its own bundle.
+        # Kibble.debug.dylib and __preview.dylib. Sparkle.framework is now the
+        # one library the app loads from its own bundle.
         ENABLE_DEBUG_DYLIB: NO
       configs:
         # Hardened runtime enables library validation, which requires matching
         # Team IDs. A self-signed development certificate has no Team ID, so any
         # dylib the app loads from its own bundle is rejected and the process
         # dies at launch. Hardened runtime is only needed for notarized
-        # distribution, where a real Developer ID supplies a Team ID.
+        # distribution, where a real Developer ID supplies a Team ID. Release
+        # loads Sparkle.framework, so GChatMac.entitlements carries
+        # disable-library-validation (measured, session 49).
         Debug:
           ENABLE_HARDENED_RUNTIME: NO
+          # Info.plist's KibbleUpdatesEnabled: only a Release build starts the
+          # updater, so a development build never replaces itself.
+          KIBBLE_UPDATES_ENABLED: "NO"
         Release:
           ENABLE_HARDENED_RUNTIME: YES
           # Xcode otherwise adds get-task-allow, which lets any process attach a
           # debugger, to every build it signs. A published build must not carry
           # it, and scripts/package.sh refuses one that does.
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+          KIBBLE_UPDATES_ENABLED: "YES"
 
 schemes:
   GChatMac:

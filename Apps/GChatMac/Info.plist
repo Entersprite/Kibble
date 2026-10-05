@@ -22,5 +22,22 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<!-- Updates (Sparkle). YES in Release only, so a development build never
+	     replaces itself with the last release. -->
+	<key>KibbleUpdatesEnabled</key>
+	<string>$(KIBBLE_UPDATES_ENABLED)</string>
+	<!-- The newest non-prerelease GitHub Release's appcast: main only. -->
+	<key>SUFeedURL</key>
+	<string>https://github.com/Entersprite/Kibble/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>vBK8/9xFIk4d33QIzxDRneDl7ego48myeuyL4dtZAN8=</string>
+	<!-- Required for a sandboxed app: the install runs in Sparkle's XPC service. -->
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<!-- On without Sparkle's second-launch prompt; Settings › Updates is where it changes. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 </dict>
 </plist>
