@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Cut a release, versioned vYEAR.WEEK.N: today's ISO 8601 week (2026-10-05 is
 # 2026.41) and N, this week's releases counted from 0. Writes the version to
-# Config/Base.xcconfig, commits it on main and tags it. Pushing is left to you.
+# Config/Base.xcconfig, builds the app into dist/ (scripts/package.sh), then
+# commits on main and tags. Publishing is scripts/publish-release.sh.
 #
 #   ./scripts/release.sh                              # cut the next release
 #   ./scripts/release.sh --dry-run                    # print it, change nothing
@@ -82,8 +83,16 @@ if [[ "$(grep -cxE "(MARKETING_VERSION|CURRENT_PROJECT_VERSION) = $version" "$xc
     exit 1
 fi
 
+# A release always carries the app, so a build that fails leaves no commit and
+# no tag behind.
+if ! ./scripts/package.sh; then
+    git checkout -- "$xcconfig"
+    echo "release: packaging failed; nothing was committed or tagged" >&2
+    exit 1
+fi
+
 git commit -q -m "release: v$version" -- "$xcconfig"
 git tag -a "v$version" -m "Kibble v$version"
 
-echo "Tagged v$version. Publish it with:"
-echo "    git push origin main v$version"
+echo "Tagged v$version with dist/Kibble-$version.zip. Publish it with:"
+echo "    ./scripts/publish-release.sh"

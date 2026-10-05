@@ -10,6 +10,9 @@
 DerivedData/
 *.xcuserdatad/
 
+# Release zips, built by scripts/package.sh and attached to GitHub Releases
+/dist/
+
 # Local build config (signing identity, secrets)
 Config/Local.xcconfig
 
