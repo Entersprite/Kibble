@@ -127,6 +127,10 @@ struct MessageBubble: View {
     var attachmentFiles: AttachmentFileActions?
     var reactions: ReactionActions?
 
+    /// Whether the full emoji picker is open for this message: from either
+    /// menu's "More Emoji…" or the row's "+" (reactions spec §4.1-§4.3).
+    @State private var picking = false
+
     private var parts: AttachmentLayout.Parts {
         AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
     }
@@ -194,11 +198,20 @@ struct MessageBubble: View {
                         toggle: reactions.map { actions in
                             { choice, add in actions.toggle(message.id, choice, add) }
                         },
-                        loadImage: reactions?.customImage
+                        loadImage: reactions?.customImage,
+                        onAdd: reactions == nil || message.isDeleted ? nil : { picking = true }
                     )
                 }
             }
-            .modifier(ReactionMenu(message: message, actions: reactions))
+            .modifier(ReactionMenu(message: message, actions: reactions) { picking = true })
+            .popover(isPresented: $picking, arrowEdge: .bottom) {
+                if let reactions {
+                    EmojiPicker(reactions: message.reactions, actions: reactions) { choice, add in
+                        reactions.toggle(message.id, choice, add)
+                        picking = false
+                    }
+                }
+            }
             if !isMine {
                 Spacer(minLength: 60)
             }
@@ -265,7 +278,8 @@ struct MessageBubble: View {
                         right: 12
                     ),
                     message: message,
-                    actions: reactions
+                    actions: reactions,
+                    onMore: { picking = true }
                 )
                 if message.editedAt != nil {
                     editedLabel

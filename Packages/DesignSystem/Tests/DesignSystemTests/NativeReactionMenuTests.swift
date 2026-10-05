@@ -87,6 +87,22 @@
             ])
         }
 
+        /// Slice 2: "More Emoji…" follows the palette, and opens the picker.
+        @Test func moreEmojiFollowsThePaletteAndCallsBack() throws {
+            var opened = 0
+            let menu = NativeReactionMenu.insertReactions(
+                into: Self.nativeMenu(), message: Self.message(), actions: Self.actions(Toggles()),
+                onMore: { opened += 1 }
+            )
+            let more = menu.items[1]
+            #expect(more.title == "More Emoji…")
+            #expect(more.image != nil)
+            #expect(menu.items[2].isSeparatorItem)
+            let target = try #require(more.target as? NSObject)
+            _ = try target.perform(#require(more.action), with: more)
+            #expect(opened == 1)
+        }
+
         @Test func withoutActionsTheNativeMenuIsUntouched() {
             let menu = NativeReactionMenu.insertReactions(
                 into: Self.nativeMenu(), message: Self.message(), actions: nil

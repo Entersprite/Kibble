@@ -63,8 +63,22 @@ struct QuickReactionItem: Equatable {
 }
 
 enum QuickReactionItems {
-    static func items(for reactions: [Reaction]) -> [QuickReactionItem] {
-        QuickReactions.defaults.map { emoji in
+    static let count = 6
+
+    /// The six most recent unicode reactions, then the defaults not already
+    /// among them (slice 2 plan, ruling 6). A custom recent stays in the
+    /// picker's Recent section: a palette cell needs its picture the moment
+    /// the menu opens, and a custom emoji's arrives later.
+    static func items(for reactions: [Reaction], recents: [ReactionChoice] = []) -> [QuickReactionItem] {
+        var emoji: [String] = []
+        for candidate in recents.filter({ $0.customEmoji == nil }).map(\.emoji) + QuickReactions.defaults
+            where !emoji.contains(candidate) {
+            emoji.append(candidate)
+            if emoji.count == count {
+                break
+            }
+        }
+        return emoji.map { emoji in
             let choice = ReactionChoice(emoji: emoji)
             return QuickReactionItem(
                 emoji: emoji,
@@ -114,6 +128,9 @@ struct ReactionRow: View {
     var toggle: ((ReactionChoice, Bool) -> Void)?
     /// A custom emoji's picture; `nil` shows shortcodes.
     var loadImage: ((CustomEmojiRef) async throws -> Data)?
+    /// Opens the picker from a "+" capsule ending the row (spec §4.1); `nil`
+    /// draws no "+", with no actions to honour it.
+    var onAdd: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 4) {
@@ -131,6 +148,18 @@ struct ReactionRow: View {
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(ReactionDisplay.accessibilityLabel(for: reaction))
                 }
+            }
+            if let onAdd {
+                Button(action: onAdd) {
+                    Label("Add Reaction", systemImage: EmojiPickerModel.addSymbol)
+                        .labelStyle(.iconOnly)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.quinary)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -188,12 +217,17 @@ struct ReactionCapsule: View {
 struct ReactionMenu: ViewModifier {
     let message: Message
     let actions: ReactionActions?
+    /// Opens the full picker ("More Emoji…", spec §4.2).
+    var onMore: () -> Void = {}
 
     func body(content: Content) -> some View {
         if let actions, !message.isDeleted {
             content.contextMenu {
                 ControlGroup {
-                    ForEach(QuickReactionItems.items(for: message.reactions), id: \.emoji) { item in
+                    ForEach(
+                        QuickReactionItems.items(for: message.reactions, recents: actions.recents()),
+                        id: \.emoji
+                    ) { item in
                         Button {
                             actions.toggle(message.id, item.choice, item.adds)
                         } label: {
@@ -212,6 +246,7 @@ struct ReactionMenu: ViewModifier {
                     }
                 }
                 .controlGroupStyle(.palette)
+                Button("More Emoji…", systemImage: EmojiPickerModel.addSymbol, action: onMore)
             }
         } else {
             content

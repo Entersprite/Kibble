@@ -13,22 +13,41 @@
     /// `EmojiGlyph` and keeps its emoji as the title for VoiceOver.
     @MainActor
     enum NativeReactionMenu {
+        /// `onMore` adds "More Emoji…" after the row, which opens the picker
+        /// (reactions spec §4.2); without it there is no such item.
         static func insertReactions(
             into menu: NSMenu,
             message: Message,
-            actions: ReactionActions?
+            actions: ReactionActions?,
+            onMore: (() -> Void)? = nil
         ) -> NSMenu {
             guard let actions, !message.isDeleted else { return menu }
             let palette = NSMenu(title: "React")
             palette.presentationStyle = .palette
-            for item in QuickReactionItems.items(for: message.reactions) {
+            for item in QuickReactionItems.items(for: message.reactions, recents: actions.recents()) {
                 palette.addItem(entry(item, message: message.id, actions: actions))
             }
             let holder = NSMenuItem(title: "React", action: nil, keyEquivalent: "")
             holder.submenu = palette
             menu.insertItem(holder, at: 0)
-            menu.insertItem(.separator(), at: 1)
+            var next = 1
+            if let onMore {
+                menu.insertItem(moreItem(onMore), at: next)
+                next += 1
+            }
+            menu.insertItem(.separator(), at: next)
             return menu
+        }
+
+        private static func moreItem(_ onMore: @escaping () -> Void) -> NSMenuItem {
+            let trampoline = ReactionMenuTrampoline(onMore)
+            let item = NSMenuItem(
+                title: "More Emoji…", action: #selector(ReactionMenuTrampoline.choose(_:)), keyEquivalent: ""
+            )
+            item.target = trampoline
+            item.representedObject = trampoline
+            item.image = NSImage(systemSymbolName: EmojiPickerModel.addSymbol, accessibilityDescription: nil)
+            return item
         }
 
         private static func entry(

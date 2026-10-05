@@ -16,9 +16,11 @@
         let insets: NSEdgeInsets
         let message: Message
         let actions: ReactionActions?
+        /// Opens the picker from the native menu's "More Emoji…".
+        var onMore: (() -> Void)?
 
         func makeCoordinator() -> Coordinator {
-            Coordinator(message: message, actions: actions)
+            Coordinator(message: message, actions: actions, onMore: onMore)
         }
 
         func makeNSView(context: Context) -> BubbleTextView {
@@ -30,7 +32,7 @@
         }
 
         func updateNSView(_ view: BubbleTextView, context: Context) {
-            context.coordinator.update(message: message, actions: actions)
+            context.coordinator.update(message: message, actions: actions, onMore: onMore)
             view.insets = insets
             view.show(text)
         }
@@ -49,20 +51,23 @@
         final class Coordinator: NSObject, NSTextViewDelegate {
             private(set) var message: Message
             private(set) var actions: ReactionActions?
+            private(set) var onMore: (() -> Void)?
 
-            init(message: Message, actions: ReactionActions?) {
+            init(message: Message, actions: ReactionActions?, onMore: (() -> Void)? = nil) {
                 self.message = message
                 self.actions = actions
+                self.onMore = onMore
             }
 
-            func update(message: Message, actions: ReactionActions?) {
+            func update(message: Message, actions: ReactionActions?, onMore: (() -> Void)? = nil) {
                 self.message = message
                 self.actions = actions
+                self.onMore = onMore
             }
 
             func textView(_: NSTextView, menu: NSMenu, for _: NSEvent, at _: Int) -> NSMenu? {
                 NativeReactionMenu.insertReactions(
-                    into: ReadingTextMenu.trimmed(menu), message: message, actions: actions
+                    into: ReadingTextMenu.trimmed(menu), message: message, actions: actions, onMore: onMore
                 )
             }
         }
