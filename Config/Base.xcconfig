@@ -9,8 +9,8 @@ SWIFT_STRICT_CONCURRENCY = complete
 
 // Written by scripts/release.sh, never by hand: vYEAR.WEEK.N, the ISO week and
 // that week's release count from 0. The build number is the same three integers.
-MARKETING_VERSION = 2026.41.0
-CURRENT_PROJECT_VERSION = 2026.41.0
+MARKETING_VERSION = 2026.41.1
+CURRENT_PROJECT_VERSION = 2026.41.1
 
 // Ad-hoc signing by default so the app builds with zero Apple account setup.
 // scripts/create-dev-cert.sh creates a stable self-signed identity; once it
