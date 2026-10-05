@@ -35,7 +35,11 @@
             view.show(text)
         }
 
-        func sizeThatFits(_ proposal: ProposedViewSize, nsView: BubbleTextView, context _: Context) -> CGSize? {
+        func sizeThatFits(
+            _ proposal: ProposedViewSize,
+            nsView: BubbleTextView,
+            context _: Context
+        ) -> CGSize? {
             nsView.fittingSize(forWidth: proposal.width)
         }
 

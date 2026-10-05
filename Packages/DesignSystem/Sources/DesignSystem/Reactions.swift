@@ -49,7 +49,11 @@ enum QuickReactionItems {
     static func items(for reactions: [Reaction]) -> [QuickReactionItem] {
         QuickReactions.defaults.map { emoji in
             let choice = ReactionChoice(emoji: emoji)
-            return QuickReactionItem(emoji: emoji, choice: choice, adds: QuickReactions.adds(choice, to: reactions))
+            return QuickReactionItem(
+                emoji: emoji,
+                choice: choice,
+                adds: QuickReactions.adds(choice, to: reactions)
+            )
         }
     }
 }

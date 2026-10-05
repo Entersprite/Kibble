@@ -13,7 +13,11 @@
     /// `EmojiGlyph` and keeps its emoji as the title for VoiceOver.
     @MainActor
     enum NativeReactionMenu {
-        static func insertReactions(into menu: NSMenu, message: Message, actions: ReactionActions?) -> NSMenu {
+        static func insertReactions(
+            into menu: NSMenu,
+            message: Message,
+            actions: ReactionActions?
+        ) -> NSMenu {
             guard let actions, !message.isDeleted else { return menu }
             let palette = NSMenu(title: "React")
             palette.presentationStyle = .palette
@@ -40,7 +44,10 @@
             // `target` is weak: the item keeps the trampoline alive itself.
             entry.representedObject = trampoline
             if let glyph = EmojiGlyph.image(for: item.emoji) {
-                entry.image = NSImage(cgImage: glyph, size: NSSize(width: EmojiGlyph.side, height: EmojiGlyph.side))
+                entry.image = NSImage(
+                    cgImage: glyph,
+                    size: NSSize(width: EmojiGlyph.side, height: EmojiGlyph.side)
+                )
             }
             return entry
         }

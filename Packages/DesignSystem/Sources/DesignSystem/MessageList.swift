@@ -234,22 +234,59 @@ struct MessageBubble: View {
                         .stroke(.quaternary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 )
         } else {
+            textBubble
+                .background(isMine ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quinary))
+                .foregroundStyle(isMine ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    private var editedLabel: some View {
+        Text("edited")
+            .font(.caption2)
+            .foregroundStyle(isMine ? .white.opacity(0.7) : .secondary)
+    }
+
+    #if os(macOS)
+        /// The text view is the bubble, padding included, so a right-click
+        /// anywhere on it opens the native menu with the reaction row (native
+        /// text menu spec §2). With an "edited" label the label takes the
+        /// bottom padding, and the bubble's size is what it was.
+        private var textBubble: some View {
+            VStack(alignment: .leading, spacing: 2) {
+                MessageTextView(
+                    text: MentionAttributes.attributed(
+                        message.text, mentions: message.mentions, me: state.me, inOwnBubble: isMine
+                    ),
+                    insets: NSEdgeInsets(
+                        top: 7,
+                        left: 12,
+                        bottom: message.editedAt == nil ? 7 : 0,
+                        right: 12
+                    ),
+                    message: message,
+                    actions: reactions
+                )
+                if message.editedAt != nil {
+                    editedLabel
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 7)
+                }
+            }
+        }
+    #else
+        private var textBubble: some View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(MentionHighlight.attributed(
                     message.text, mentions: message.mentions, me: state.me, inOwnBubble: isMine
                 ))
                 .textSelection(.enabled)
                 if message.editedAt != nil {
-                    Text("edited")
-                        .font(.caption2)
-                        .foregroundStyle(isMine ? .white.opacity(0.7) : .secondary)
+                    editedLabel
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(isMine ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quinary))
-            .foregroundStyle(isMine ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
         }
-    }
+    #endif
 }

@@ -10,8 +10,14 @@
     /// both menus are built from.
     @MainActor
     struct NativeReactionMenuTests {
+        private struct Call: Equatable {
+            let message: Message.ID
+            let emoji: String
+            let add: Bool
+        }
+
         private final class Toggles {
-            var calls: [(Message.ID, String, Bool)] = []
+            var calls: [Call] = []
         }
 
         private static func message(reactions: [Reaction] = [], isDeleted: Bool = false) -> Message {
@@ -23,7 +29,11 @@
         }
 
         private static func actions(_ toggles: Toggles) -> ReactionActions {
-            ReactionActions { id, choice, add in toggles.calls.append((id, choice.emoji, add)) }
+            ReactionActions { id, choice, add in toggles.calls.append(Call(
+                message: id,
+                emoji: choice.emoji,
+                add: add
+            )) }
         }
 
         /// What `NSTextView` hands its delegate: a menu with items of its own.
@@ -38,7 +48,7 @@
             let items = QuickReactionItems.items(for: [Reaction(emoji: "👍", count: 2, includesMe: true)])
             #expect(items.map(\.emoji) == QuickReactions.defaults)
             #expect(items.first?.adds == false)
-            let restAdd = items.dropFirst().allSatisfy { $0.adds }
+            let restAdd = items.dropFirst().allSatisfy(\.adds)
             #expect(restAdd)
         }
 
@@ -61,7 +71,8 @@
             let toggles = Toggles()
             let mine = [Reaction(emoji: "👍", count: 1, includesMe: true)]
             let menu = NativeReactionMenu.insertReactions(
-                into: Self.nativeMenu(), message: Self.message(reactions: mine), actions: Self.actions(toggles)
+                into: Self.nativeMenu(), message: Self.message(reactions: mine),
+                actions: Self.actions(toggles)
             )
             let palette = try #require(menu.items.first?.submenu)
             for index in [0, 1] {
@@ -70,9 +81,10 @@
                 let action = try #require(item.action)
                 _ = target.perform(action, with: item)
             }
-            #expect(toggles.calls.map(\.0) == [Message.ID("m-1"), Message.ID("m-1")])
-            #expect(toggles.calls.map(\.1) == ["👍", "❤️"])
-            #expect(toggles.calls.map(\.2) == [false, true])
+            #expect(toggles.calls == [
+                Call(message: Message.ID("m-1"), emoji: "👍", add: false),
+                Call(message: Message.ID("m-1"), emoji: "❤️", add: true)
+            ])
         }
 
         @Test func withoutActionsTheNativeMenuIsUntouched() {
@@ -84,7 +96,8 @@
 
         @Test func aDeletedMessageOffersNoReactions() {
             let menu = NativeReactionMenu.insertReactions(
-                into: Self.nativeMenu(), message: Self.message(isDeleted: true), actions: Self.actions(Toggles())
+                into: Self.nativeMenu(), message: Self.message(isDeleted: true),
+                actions: Self.actions(Toggles())
             )
             #expect(menu.items.map(\.title) == ["Look Up", "Copy"])
         }

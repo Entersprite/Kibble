@@ -65,7 +65,8 @@
         /// A span `MentionHighlight` drops (not starting with `@`) gets nothing.
         @Test func aDroppedSpanStaysPlain() {
             let plain = MentionAttributes.attributed(
-                "hello", mentions: [Mention(target: .user(me), start: 0, length: 3)], me: me, inOwnBubble: false
+                "hello", mentions: [Mention(target: .user(me), start: 0, length: 3)], me: me,
+                inOwnBubble: false
             )
             #expect(plain.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
             #expect((plain.attribute(.font, at: 0, effectiveRange: nil) as? NSFont) == Self.base)

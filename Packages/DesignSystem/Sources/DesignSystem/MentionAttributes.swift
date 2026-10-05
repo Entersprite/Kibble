@@ -26,7 +26,8 @@
                 guard !inOwnBubble else { continue }
                 if isMe {
                     result.addAttribute(
-                        .backgroundColor, value: NSColor.controlAccentColor.withAlphaComponent(0.25), range: span
+                        .backgroundColor, value: NSColor.controlAccentColor.withAlphaComponent(0.25),
+                        range: span
                     )
                 } else {
                     result.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: span)
