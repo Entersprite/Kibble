@@ -92,6 +92,10 @@ targets:
           ENABLE_HARDENED_RUNTIME: NO
         Release:
           ENABLE_HARDENED_RUNTIME: YES
+          # Xcode otherwise adds get-task-allow, which lets any process attach a
+          # debugger, to every build it signs. A published build must not carry
+          # it, and scripts/package.sh refuses one that does.
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 
 schemes:
   GChatMac:
