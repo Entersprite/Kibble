@@ -61,7 +61,7 @@ struct ReactionWiringTests {
         #expect(second.skinTone == .medium)
     }
 
-    /// Slice 2: the actions read the running model's recents, at call time.
+    /// Slice 2: the actions answer with the running model's observed recents.
     /// (Recording on an accepted add is `EmojiRecentsTests`' in SyncEngine;
     /// this fake backend serves no conversations to react in.)
     @Test func theActionsReadTheRunningSessionsRecents() async throws {
