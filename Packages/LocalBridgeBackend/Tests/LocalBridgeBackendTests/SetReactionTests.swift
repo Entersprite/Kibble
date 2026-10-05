@@ -77,7 +77,7 @@ struct SetReactionTests {
             transport: RoutingTransport(shell: shellResponse())
         )
         #expect(backend.capabilities.canReact)
-        #expect(!backend.capabilities.canFetchCustomEmoji)
+        #expect(backend.capabilities.canFetchCustomEmoji)
     }
 
     /// The bytes on the wire are `ReactionRequests.updateReaction`'s own, so an

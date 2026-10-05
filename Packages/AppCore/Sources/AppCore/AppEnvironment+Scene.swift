@@ -165,9 +165,15 @@ public extension AppEnvironment {
             } : nil,
             attachmentFiles: attachmentFileActions,
             reactions: runningModel?.capabilities.canReact == true
-                ? ReactionActions { [weak self] message, choice, add in
-                    self?.runningModel?.react(to: message, with: choice, add: add)
-                }
+                ? ReactionActions(
+                    toggle: { [weak self] message, choice, add in
+                        self?.runningModel?.react(to: message, with: choice, add: add)
+                    },
+                    customImage: canFetchCustomEmoji ? { [weak self] emoji in
+                        guard let self else { throw NoSession() }
+                        return try await loadCustomEmoji(emoji)
+                    } : nil
+                )
                 : nil
         )
     }

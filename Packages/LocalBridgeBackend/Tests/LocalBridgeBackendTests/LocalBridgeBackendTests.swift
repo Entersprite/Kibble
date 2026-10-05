@@ -113,17 +113,23 @@ struct LocalBridgeBackendTests {
     /// `canSendMessages` and `supportsThreads` are both true now, and neither
     /// is conditioned on connection state - `canSendMessages` is a fact about
     /// what `send(_:)` implements (`LocalBridgeBackend+Send.swift`),
-    /// `supportsThreads` about what `WorldMapping` can compute. Everything
-    /// else stays false: the UI reads capabilities to decide what to offer,
-    /// and a bridge that claimed more would give the user a button that
-    /// silently fails. `canFetchAttachments` joined once the fetch worked
-    /// on the live account (`findings.md` §51.2), and `canDownloadFiles`
-    /// once a file download did (§52.10).
+    /// `supportsThreads` about what `WorldMapping` can compute. `canReact`,
+    /// `canMarkRead`, `canFetchAttachments`, `canDownloadFiles` and
+    /// `canFetchCustomEmoji` have since joined them, each only once the
+    /// backend it names actually worked; the capabilities this test still
+    /// leaves `false` are the ones nothing in the backend implements yet.
+    /// The UI reads capabilities to decide what to offer, and a bridge that
+    /// claimed more would give the user a button that silently fails.
+    /// `canFetchAttachments` joined once the fetch worked on the live account
+    /// (`findings.md` §51.2), and `canDownloadFiles` once a file download did
+    /// (§52.10) - both after a live run. `canFetchCustomEmoji` joined
+    /// differently: on a capture of Chat on the web (`findings.md` §54.4),
+    /// before any live run from this client.
     @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
-            canFetchAttachments: true, canDownloadFiles: true
+            canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true
         ))
     }
 

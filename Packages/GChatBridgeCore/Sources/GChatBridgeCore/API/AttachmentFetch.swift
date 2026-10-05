@@ -78,7 +78,7 @@ public struct AttachmentFetch: Sendable {
     static let navigationAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
     let transport: any HTTPTransport
-    private let endpoints: ChatEndpoints
+    let endpoints: ChatEndpoints
     private let credentials: SessionCredentials
     private let xsrfToken: String?
 

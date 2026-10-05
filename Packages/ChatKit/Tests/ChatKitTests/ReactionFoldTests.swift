@@ -74,4 +74,26 @@ struct ReactionFoldTests {
         #expect(parrot.emoji == ":parrot:")
         #expect(Reaction(emoji: ":parrot:", count: 1, customEmoji: parrot.customEmoji).choice == parrot)
     }
+
+    /// Review Focus 1: a reference stored before the token was kept decodes,
+    /// and has none.
+    @Test func aStoredReferenceWithoutATokenDecodesAsNone() throws {
+        let stored = Data(#"{"id":"e-1","shortcode":":parrot:"}"#.utf8)
+        let decoded = try JSONDecoder().decode(CustomEmojiRef.self, from: stored)
+        #expect(decoded.imageToken == nil)
+        #expect(decoded.id == "e-1")
+    }
+
+    /// The token is how to fetch the picture, not which emoji it is: a pick
+    /// with no token still toggles a stored reaction that has one, and the
+    /// stored token survives.
+    @Test func theTokenIsNotPartOfTheKey() {
+        let withToken = CustomEmojiRef(id: "e-1", shortcode: ":parrot:", imageToken: "a")
+        let without = CustomEmojiRef(id: "e-1", shortcode: ":parrot:")
+        #expect(ReactionChoice(customEmoji: withToken).key == ReactionChoice(customEmoji: without).key)
+        let stored = [Reaction(emoji: ":parrot:", count: 2, includesMe: true, customEmoji: withToken)]
+        let after = stored.applying(ReactionChoice(customEmoji: without), add: false)
+        #expect(after.map(\.count) == [1])
+        #expect(after.first?.customEmoji?.imageToken == "a")
+    }
 }

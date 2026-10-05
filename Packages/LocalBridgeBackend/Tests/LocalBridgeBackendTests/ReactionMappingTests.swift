@@ -23,6 +23,12 @@ struct ReactionMappingTests {
         return reaction
     }
 
+    private func custom(uuid: String, shortcode: String, readToken: String) -> GChatBridgeCore.Reaction {
+        var reaction = custom(uuid: uuid, shortcode: shortcode, count: 1)
+        reaction.emoji.customEmoji.readToken = readToken
+        return reaction
+    }
+
     @Test func unicodeReactionsKeepTheServersOrderCountAndMine() {
         let mapped = ReactionMapping.reactions([unicode("👍", count: 2, mine: true), unicode("🎉", count: 1)])
         #expect(mapped == [
@@ -50,6 +56,18 @@ struct ReactionMappingTests {
             unicode("🎉", count: 1)
         ])
         #expect(mapped == [ChatKit.Reaction(emoji: "🎉", count: 1)])
+    }
+
+    /// `findings.md` §54.4: field 9 is what Chat on the web fetches the
+    /// picture with, and history carries it.
+    @Test func aCustomReactionCarriesItsReadTokenAsTheImageToken() {
+        let mapped = ReactionMapping.reactions([custom(uuid: "e-1", shortcode: ":parrot:", readToken: "rt")])
+        #expect(mapped.first?.customEmoji?.imageToken == "rt")
+    }
+
+    @Test func anEmptyReadTokenIsNoToken() {
+        let mapped = ReactionMapping.reactions([custom(uuid: "e-1", shortcode: ":parrot:", readToken: "")])
+        #expect(mapped.first?.customEmoji?.imageToken == nil)
     }
 
     @Test func domainMessageCarriesTheReactions() throws {

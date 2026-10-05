@@ -7,9 +7,11 @@ import Testing
 /// that can react (`CLAUDE.md`: never draw a control the seam cannot honour).
 @MainActor
 struct ReactionWiringTests {
-    private func running(canReact: Bool) async throws -> AppEnvironment {
+    private func running(canReact: Bool, canFetchCustomEmoji: Bool = false) async throws -> AppEnvironment {
         let services = try FakeLaunchServices(
-            backendCapabilities: Capabilities(canSendMessages: true, canReact: canReact)
+            backendCapabilities: Capabilities(
+                canSendMessages: true, canReact: canReact, canFetchCustomEmoji: canFetchCustomEmoji
+            )
         )
         let environment = AppEnvironment(services: services)
         await environment.start()
@@ -28,5 +30,15 @@ struct ReactionWiringTests {
     @Test func withTheCapabilityTheActionIsOffered() async throws {
         let environment = try await running(canReact: true)
         #expect(environment.actions.reactions != nil)
+    }
+
+    @Test func withoutTheImageCapabilityNoImageLoaderIsOffered() async throws {
+        let environment = try await running(canReact: true)
+        #expect(environment.actions.reactions?.customImage == nil)
+    }
+
+    @Test func withTheImageCapabilityTheLoaderIsOffered() async throws {
+        let environment = try await running(canReact: true, canFetchCustomEmoji: true)
+        #expect(environment.actions.reactions?.customImage != nil)
     }
 }
