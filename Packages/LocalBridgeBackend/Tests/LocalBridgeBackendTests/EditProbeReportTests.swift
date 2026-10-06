@@ -19,7 +19,10 @@ private actor ScriptedEditBackend: ChatBackend {
     private let conversations: [Conversation]
     private let historyKeepsThePost: Bool
     private let readyOnConnect: Bool
-    private var postedLocalID: String?
+    private let failsDelete: Bool
+    private let stateOnConnect: ConnectionState?
+    /// What the newest history page holds, kept in step with the commands.
+    private var stored: ChatKit.Message?
     private(set) var commands: [ChatCommand] = []
 
     static let conversation = Conversation(
@@ -30,7 +33,8 @@ private actor ScriptedEditBackend: ChatBackend {
 
     init(
         echoes: Bool = true, failsEdit: Bool = false, conversations: [Conversation] = [conversation],
-        historyKeepsThePost: Bool = false, readyOnConnect: Bool = true
+        historyKeepsThePost: Bool = false, readyOnConnect: Bool = true, failsDelete: Bool = false,
+        stateOnConnect: ConnectionState? = nil
     ) {
         (events, continuation) = AsyncStream.makeStream()
         self.echoes = echoes
@@ -38,6 +42,8 @@ private actor ScriptedEditBackend: ChatBackend {
         self.conversations = conversations
         self.historyKeepsThePost = historyKeepsThePost
         self.readyOnConnect = readyOnConnect
+        self.failsDelete = failsDelete
+        self.stateOnConnect = stateOnConnect
     }
 
     private func message(localID: String? = nil) -> ChatKit.Message {
@@ -51,6 +57,9 @@ private actor ScriptedEditBackend: ChatBackend {
     /// The channel's `SESSION_READY` (type 33), which the bridge routes as
     /// unknown, as the live run saw it.
     func connect() async throws {
+        if let stateOnConnect {
+            continuation.yield(.connectionStateChanged(stateOnConnect))
+        }
         if readyOnConnect {
             continuation.yield(.unknown(type: "googlechat.eventType.33", payload: .null))
         }
@@ -65,20 +74,43 @@ private actor ScriptedEditBackend: ChatBackend {
         in _: Conversation.ID,
         before _: ChatKit.Message.ID?
     ) async throws -> [ChatKit.Message] {
-        historyKeepsThePost ? [message(localID: postedLocalID)] : []
+        stored.map { [$0] } ?? []
     }
 
     func setNotificationSetting(_: NotificationLevel, for _: Conversation.ID) async throws {}
 
     func send(_ command: ChatCommand) async throws {
         commands.append(command)
-        if case let .sendMessage(_, _, _, localID, _, _) = command {
-            postedLocalID = localID
+        try keepHistory(command)
+        if echoes {
+            echo(command)
         }
-        if failsEdit, case .editMessage = command {
-            throw ChatError.unknown("refused")
+    }
+
+    /// What the server keeps, which `loadMessages` answers with.
+    private func keepHistory(_ command: ChatCommand) throws {
+        switch command {
+        case let .sendMessage(_, _, _, localID, _, _) where historyKeepsThePost:
+            stored = message(localID: localID)
+        case .editMessage:
+            if failsEdit {
+                throw ChatError.unknown("refused")
+            }
+            stored?.text = EditProbeReport.editedText
+            stored?.editedAt = Date(timeIntervalSince1970: 1)
+        case .deleteMessage:
+            if failsDelete {
+                throw ChatError.decoding("the /api/ delete_message call: empty body")
+            }
+            stored?.text = ""
+            stored?.isDeleted = true
+        default:
+            break
         }
-        guard echoes else { return }
+    }
+
+    /// What the channel would push back.
+    private func echo(_ command: ChatCommand) {
         var message = ChatKit.Message(
             id: Self.messageID, conversationID: Self.conversation.id,
             threadID: MessageThread.ID("secret-topic"), sender: ChatKit.Member.ID("secret-user"),
@@ -240,6 +272,40 @@ struct EditProbeReportTests {
             Issue.record("expected post, edit, delete; got \(commands)")
             return
         }
+    }
+
+    /// Session 52's second live run: the delete failed and the report said
+    /// only "ChatError". The error's kind and the call it names are what the
+    /// app's banner shows, so the report shows them too.
+    @Test func aFailedDeleteSaysWhy() async {
+        let backend = ScriptedEditBackend(failsDelete: true)
+        let report = await EditProbeReport.run(
+            backend: backend, conversation: .mostRecentDirectMessage, wait: Self.wait
+        )
+        #expect(report.contains("FAILED: decoding: the /api/ delete_message call: empty body"))
+    }
+
+    /// History is read back after each step, so the server's state is known
+    /// even when the channel delivers nothing.
+    @Test func historyIsReadBackAfterEachStep() async {
+        let backend = ScriptedEditBackend(echoes: false, historyKeepsThePost: true)
+        let report = await EditProbeReport.run(
+            backend: backend, conversation: .mostRecentDirectMessage, wait: Self.wait
+        )
+        #expect(report.contains("history: text=edited editedAt=present isDeleted=false"))
+        #expect(report.contains("history: text=empty editedAt=present isDeleted=true"))
+    }
+
+    /// Connection states are reported by kind, never by their detail text.
+    @Test func connectionStatesAreReportedWithoutDetail() async {
+        let backend = ScriptedEditBackend(
+            stateOnConnect: .reconnecting(attempt: 2, issue: nil, detail: "secretdetail")
+        )
+        let report = await EditProbeReport.run(
+            backend: backend, conversation: .mostRecentDirectMessage, wait: Self.wait
+        )
+        #expect(report.contains("connection: reconnecting attempt 2"))
+        #expect(!report.contains("secretdetail"))
     }
 
     /// Guard: no echo, no edit - and the run ends within its wait.

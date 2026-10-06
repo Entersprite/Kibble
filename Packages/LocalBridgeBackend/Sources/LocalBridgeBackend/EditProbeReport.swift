@@ -67,6 +67,7 @@ public enum EditProbeReport {
         }
         await exercise(backend, in: target, log: log, wait: wait, lines: &lines)
         lines.append("")
+        lines += await log.connectionLines()
         await lines.append("unknown event types: " + (log.unknownTally()))
         return lines.joined(separator: "\n")
     }
@@ -144,7 +145,7 @@ public enum EditProbeReport {
             ))
             lines.append("  accepted")
         } catch {
-            lines.append("  FAILED: \(APIProbeReport.safeDescription(of: error))")
+            lines.append("  FAILED: \(failure(error))")
             return
         }
         let (found, report) = await posted(
@@ -162,14 +163,67 @@ public enum EditProbeReport {
                 conversationID: posted.conversationID, threadID: posted.threadID
             ))
         }
+        await lines.append(history(of: posted, backend: backend))
         let deleted = await step("delete", of: posted, log: log, wait: wait) {
             try await backend.send(.deleteMessage(
                 id: posted.id, conversationID: posted.conversationID, threadID: posted.threadID
             ))
         }
         lines += deleted
+        await lines.append(history(of: posted, backend: backend))
         if deleted.contains(where: { $0.contains("FAILED") }) {
             lines.append(mayRemain)
+        }
+    }
+
+    /// The message as the newest history page holds it now: the server's
+    /// state, read without the channel (session 52's second run had none).
+    static func history(of message: ChatKit.Message, backend: any ChatBackend) async -> String {
+        guard let page = try? await backend.loadMessages(in: message.conversationID, before: nil) else {
+            return "  history: could not load"
+        }
+        guard let found = page.first(where: { $0.id == message.id }) else {
+            return "  history: absent from the newest page"
+        }
+        let edited = found.editedAt == nil ? "absent" : "present"
+        return "  history: text=\(textClass(found.text)) editedAt=\(edited) isDeleted=\(found.isDeleted)"
+    }
+
+    /// A failure as the app's banner would name it: the error's kind and the
+    /// call it names, both built by this package from safe parts
+    /// (`chatError(fromAPI:call:)`).
+    static func failure(_ error: any Error) -> String {
+        guard let error = error as? ChatError else { return APIProbeReport.safeDescription(of: error) }
+        return switch error {
+        case let .transport(message): "transport: \(message)"
+        case let .decoding(message): "decoding: \(message)"
+        case let .server(status, message): "server \(status): \(message)"
+        case let .unknown(message): "unknown: \(message)"
+        case let .unsupported(capability): "unsupported: \(capability)"
+        case .notAuthenticated: "not authenticated"
+        case .sessionExpired: "session expired"
+        case .rateLimited: "rate limited"
+        case .signInRequired: "sign-in required"
+        }
+    }
+
+    /// A connection state by kind; a detail string is never printed.
+    static func state(_ state: ConnectionState) -> String {
+        switch state {
+        case .idle: "idle"
+        case .connecting: "connecting"
+        case .connected: "connected"
+        case let .reconnecting(attempt, issue, _): "reconnecting attempt \(attempt)" + issueText(issue)
+        case let .disconnected(_, issue): "disconnected" + issueText(issue)
+        case .unknown: "unknown"
+        }
+    }
+
+    private static func issueText(_ issue: ConnectionIssue?) -> String {
+        switch issue {
+        case nil: ""
+        case .unknown?: " (unknown issue)"
+        case let issue?: " (\(issue))"
         }
     }
 
@@ -218,7 +272,7 @@ public enum EditProbeReport {
             try await perform()
             lines.append("  accepted")
         } catch {
-            lines.append("  FAILED: \(APIProbeReport.safeDescription(of: error))")
+            lines.append("  FAILED: \(failure(error))")
             return lines
         }
         let seen = await log.naming(message.id, after: start, within: wait)
@@ -293,6 +347,17 @@ private actor EventLog {
         guard found != nil else { return [] }
         try? await Task.sleep(for: min(.seconds(2), wait))
         return events.dropFirst(start).filter(relevant)
+    }
+
+    /// Every connection state and backend error, in order, by kind.
+    func connectionLines() -> [String] {
+        events.compactMap { event in
+            switch event {
+            case let .connectionStateChanged(state): "connection: " + EditProbeReport.state(state)
+            case let .backendError(error): "backend error: " + EditProbeReport.failure(error)
+            default: nil
+            }
+        }
     }
 
     /// `googlechat.eventType.N` counted by N, so a `MESSAGE_DELETED` the
