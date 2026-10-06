@@ -1,3 +1,4 @@
+import ChatKit
 import SwiftUI
 
 /// The message field - a floating capsule, the way Messages draws one.
@@ -89,7 +90,7 @@ public struct Composer: View {
         // cannot re-adopt (`ComposerDraft.adopted` remembers) - so this is
         // safe to fire unconditionally on appearance.
         .onChange(of: restoring, initial: true) { _, text in
-            guard draft.adopt(text) else { return }
+            guard draft.adopt(text.map { ComposedMessage(text: $0) }) else { return }
             isFocused = true
             onRestored?()
         }
