@@ -250,9 +250,9 @@ public extension SyncEngine {
         case .markRead, .setTyping:
             true
         case .sendMessage, .editMessage, .deleteMessage, .setReaction,
-             .setNotificationLevel, .watchPresence, .unknown:
-            // `.watchPresence` asks about other people and says nothing
-            // about this one.
+             .setNotificationLevel, .watchPresence, .loadMembers, .unknown:
+            // `.watchPresence` and `.loadMembers` ask about other people and
+            // say nothing about this one.
             false
         }
     }

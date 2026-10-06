@@ -22,9 +22,10 @@ public extension FakeBackend {
     func send(_ command: ChatCommand) async throws {
         try requireConnected()
         switch command {
-        case let .sendMessage(conversationID, threadID, text, localID, attachments):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions):
             try sendMessage(
-                in: conversationID, thread: threadID, text: text, localID: localID, attachments: attachments
+                in: conversationID, thread: threadID, body: ComposedMessage(text: text, mentions: mentions),
+                localID: localID, attachments: attachments
             )
         case let .editMessage(id, text):
             try editMessage(id, text: text)
@@ -44,6 +45,10 @@ public extension FakeBackend {
             // Nothing to do: every fixture member already carries its
             // presence, and a script changes it with `.presence`.
             break
+        case .loadMembers:
+            // Nothing to do: every fixture conversation already lists its
+            // members, which the world load emits.
+            break
         case let .unknown(type, _):
             // A command from a newer client. Naming it back is the whole
             // point: the client learns precisely what could not be honoured
@@ -59,7 +64,7 @@ private extension FakeBackend {
     func sendMessage(
         in conversationID: Conversation.ID,
         thread: MessageThread.ID?,
-        text: String,
+        body: ComposedMessage,
         localID: String?,
         attachments: [Attachment]
     ) throws {
@@ -84,10 +89,11 @@ private extension FakeBackend {
             // in a flat conversation the message simply is its own topic.
             threadID: thread ?? MessageThread.ID(nextIdentifier("fixture-topic")),
             sender: world.me,
-            text: text,
+            text: body.text,
             createdAt: advance(),
             attachments: attachments,
-            localID: localID
+            localID: localID,
+            mentions: body.mentions
         )
         world.messages.append(message)
         emit(.messageReceived(message))

@@ -72,4 +72,12 @@ struct CapabilitiesTests {
         let capabilities = try Wire.decode(Capabilities.self, from: json)
         #expect(capabilities.canReact)
     }
+
+    /// A capability set from before mentions existed must not claim them.
+    @Test func aMissingCanMentionDecodesAsFalse() throws {
+        let json = Data(#"{"canSendMessages":true}"#.utf8)
+        let decoded = try JSONDecoder().decode(Capabilities.self, from: json)
+        #expect(decoded.canMention == false)
+        #expect(decoded.canSendMessages == true)
+    }
 }

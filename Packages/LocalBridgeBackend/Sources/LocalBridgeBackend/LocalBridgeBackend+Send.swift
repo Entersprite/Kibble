@@ -22,7 +22,7 @@ public extension LocalBridgeBackend {
     /// family in this package.
     func send(_ command: ChatCommand) async throws {
         switch command {
-        case let .sendMessage(conversationID, threadID, text, localID, attachments):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments, _):
             try await sendMessage(
                 conversationID: conversationID,
                 threadID: threadID,
@@ -43,7 +43,7 @@ public extension LocalBridgeBackend {
         // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
         // until someone decides whether this backend can honour it.
         case .editMessage, .deleteMessage, .setTyping,
-             .setNotificationLevel, .unknown:
+             .setNotificationLevel, .loadMembers, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }
     }
@@ -152,6 +152,7 @@ public extension LocalBridgeBackend {
         case .markRead: "canMarkRead"
         case .setNotificationLevel: "canSetNotificationLevel"
         case .watchPresence: "watchPresence"
+        case .loadMembers: "canMention"
         case let .unknown(type, _): type
         }
     }

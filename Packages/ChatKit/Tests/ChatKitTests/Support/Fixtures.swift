@@ -257,6 +257,17 @@ extension Fixture {
                 )]
             )
         ),
+        Sample(
+            "command-sendMessage-mentions",
+            .sendMessage(
+                conversationID: spaceID, threadID: nil, text: "@Alice and @all", localID: "draft-45",
+                mentions: [
+                    Mention(target: .user(Member.ID("users/alice")), start: 0, length: 6),
+                    Mention(target: .all, start: 11, length: 4)
+                ]
+            )
+        ),
+        Sample("command-loadMembers", .loadMembers(conversationID: spaceID)),
         Sample("command-editMessage", .editMessage(id: messageID, text: "Corrected.")),
         Sample("command-deleteMessage", .deleteMessage(id: messageID)),
         Sample("command-setReaction", .setReaction(messageID: messageID, emoji: "🛞", add: true)),
