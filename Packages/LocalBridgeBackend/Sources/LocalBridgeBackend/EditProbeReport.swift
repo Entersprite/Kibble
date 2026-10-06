@@ -85,14 +85,35 @@ public enum EditProbeReport {
             return nil
         }
         lines.append("conversation:")
-        guard let index = APIProbeReport.chooseConversationIndex(conversations, choice: choice, lines: &lines)
-        else {
-            lines.append("  no conversation to post into")
+        guard let index = namedIndex(choice, in: conversations) else {
+            lines.append("  refused: --probe-conversation= names no conversation here (an index out of "
+                + "range, dm with no direct message, or an argument this probe cannot read). It never "
+                + "falls back to another conversation.")
             return nil
         }
+        lines.append("  posting into conversation index \(index) of \(conversations.count)")
         lines.append(APIProbeReport.conversationKindLine(conversations[index].kind))
         lines.append("")
         return conversations[index]
+    }
+
+    /// The conversation the owner named, or `nil`: unlike the read-only
+    /// probes' chooser, never a fallback, because this one posts (review
+    /// finding 1). `dm` is the most recently active direct message.
+    static func namedIndex(_ choice: ProbeConversation, in conversations: [Conversation]) -> Int? {
+        switch choice {
+        case let .index(index):
+            conversations.indices.contains(index) ? index : nil
+        case .mostRecentDirectMessage:
+            conversations.indices
+                .filter { conversations[$0].kind == .directMessage }
+                .max {
+                    (conversations[$0].lastActivity ?? .distantPast) <
+                        (conversations[$1].lastActivity ?? .distantPast)
+                }
+        case .mostRecent:
+            nil
+        }
     }
 
     /// Post, edit, delete. A post that echoed is always deleted, whatever the
@@ -122,7 +143,8 @@ public enum EditProbeReport {
             return nil
         }
         guard let posted else {
-            lines.append("  no echo within \(wait); stopping before the edit")
+            lines.append("  no echo within \(wait); not editing")
+            lines += await cleanUp(localID: localID, in: conversation, backend: backend, log: log, wait: wait)
             return
         }
         lines.append("  echo: messageReceived text=\(textClass(posted.text))")
@@ -132,11 +154,44 @@ public enum EditProbeReport {
                 conversationID: posted.conversationID, threadID: posted.threadID
             ))
         }
-        lines += await step("delete", of: posted, log: log, wait: wait) {
+        let deleted = await step("delete", of: posted, log: log, wait: wait) {
             try await backend.send(.deleteMessage(
                 id: posted.id, conversationID: posted.conversationID, threadID: posted.threadID
             ))
         }
+        lines += deleted
+        if deleted.contains(where: { $0.contains("FAILED") }) {
+            lines.append(mayRemain)
+        }
+    }
+
+    static let mayRemain = "WARNING: the test message may remain in that conversation; delete it by hand."
+
+    /// With no echo the post may still have landed: find it in the newest
+    /// history page by its `localID` and delete it, or say that it may remain
+    /// (review finding 2).
+    private static func cleanUp(
+        localID: String,
+        in conversation: Conversation,
+        backend: any ChatBackend,
+        log: EventLog,
+        wait: Duration
+    ) async -> [String] {
+        let page = try? await backend.loadMessages(in: conversation.id, before: nil)
+        guard let found = page?.first(where: { $0.localID == localID }) else {
+            return ["  not found in the newest history page", mayRemain]
+        }
+        var lines = ["  found in history"]
+        let deleted = await step("delete", of: found, log: log, wait: wait) {
+            try await backend.send(.deleteMessage(
+                id: found.id, conversationID: found.conversationID, threadID: found.threadID
+            ))
+        }
+        lines += deleted
+        if deleted.contains(where: { $0.contains("FAILED") }) {
+            lines.append(mayRemain)
+        }
+        return lines
     }
 
     /// One command, then every event naming the message until a quiet moment

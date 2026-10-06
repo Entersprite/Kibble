@@ -16,6 +16,9 @@ private actor ScriptedEditBackend: ChatBackend {
     private let continuation: AsyncStream<ChatEvent>.Continuation
     private let echoes: Bool
     private let failsEdit: Bool
+    private let conversations: [Conversation]
+    private let historyKeepsThePost: Bool
+    private var postedLocalID: String?
     private(set) var commands: [ChatCommand] = []
 
     static let conversation = Conversation(
@@ -24,29 +27,45 @@ private actor ScriptedEditBackend: ChatBackend {
     )
     static let messageID = ChatKit.Message.ID("secret-message-id")
 
-    init(echoes: Bool = true, failsEdit: Bool = false) {
+    init(
+        echoes: Bool = true, failsEdit: Bool = false, conversations: [Conversation] = [conversation],
+        historyKeepsThePost: Bool = false
+    ) {
         (events, continuation) = AsyncStream.makeStream()
         self.echoes = echoes
         self.failsEdit = failsEdit
+        self.conversations = conversations
+        self.historyKeepsThePost = historyKeepsThePost
+    }
+
+    private func message(localID: String? = nil) -> ChatKit.Message {
+        ChatKit.Message(
+            id: Self.messageID, conversationID: Self.conversation.id,
+            threadID: MessageThread.ID("secret-topic"), sender: ChatKit.Member.ID("secret-user"),
+            text: "secretword", createdAt: Date(timeIntervalSince1970: 0), localID: localID
+        )
     }
 
     func connect() async throws {}
     func disconnect() async {}
     func loadConversations() async throws -> [Conversation] {
-        [Self.conversation]
+        conversations
     }
 
     func loadMessages(
         in _: Conversation.ID,
         before _: ChatKit.Message.ID?
     ) async throws -> [ChatKit.Message] {
-        []
+        historyKeepsThePost ? [message(localID: postedLocalID)] : []
     }
 
     func setNotificationSetting(_: NotificationLevel, for _: Conversation.ID) async throws {}
 
     func send(_ command: ChatCommand) async throws {
         commands.append(command)
+        if case let .sendMessage(_, _, _, localID, _, _) = command {
+            postedLocalID = localID
+        }
         if failsEdit, case .editMessage = command {
             throw ChatError.unknown("refused")
         }
@@ -136,6 +155,50 @@ struct EditProbeReportTests {
             Issue.record("expected the post deleted last, got \(String(describing: last))")
             return
         }
+    }
+
+    /// Review finding 1: the probe never posts anywhere the owner did not
+    /// name - no fallback from an index out of range, from `dm` on an account
+    /// with no DM, or from an argument it could not read.
+    @Test(arguments: [ProbeConversation.index(5), .mostRecentDirectMessage, .mostRecent])
+    func anythingButANamedConversationIsRefused(_ choice: ProbeConversation) async {
+        let space = Conversation(
+            id: Conversation.ID("space/secret-space"), kind: .space,
+            lastActivity: Date(timeIntervalSince1970: 0)
+        )
+        let backend = ScriptedEditBackend(conversations: [space])
+        let report = await EditProbeReport.run(backend: backend, conversation: choice, wait: Self.wait)
+        #expect(report.contains("refused"))
+        #expect(await backend.commands.isEmpty)
+    }
+
+    @Test func anIndexInRangeIsUsed() async {
+        let backend = ScriptedEditBackend()
+        _ = await EditProbeReport.run(backend: backend, conversation: .index(0), wait: Self.wait)
+        #expect(await backend.commands.count == 3)
+    }
+
+    /// Review finding 2: with no echo, the post is found in history by its
+    /// `localID` and deleted anyway.
+    @Test func withNoEchoThePostIsFoundInHistoryAndDeleted() async {
+        let backend = ScriptedEditBackend(echoes: false, historyKeepsThePost: true)
+        let report = await EditProbeReport.run(
+            backend: backend, conversation: .mostRecentDirectMessage, wait: Self.wait
+        )
+        #expect(await backend.commands.last == .deleteMessage(
+            id: ScriptedEditBackend.messageID, conversationID: ScriptedEditBackend.conversation.id,
+            threadID: MessageThread.ID("secret-topic")
+        ))
+        #expect(!report.contains("may remain"))
+    }
+
+    /// Review finding 2: when cleanup cannot be confirmed, the report says so.
+    @Test func whenThePostCannotBeFoundTheReportSaysItMayRemain() async {
+        let backend = ScriptedEditBackend(echoes: false)
+        let report = await EditProbeReport.run(
+            backend: backend, conversation: .mostRecentDirectMessage, wait: Self.wait
+        )
+        #expect(report.contains("may remain"))
     }
 
     /// Guard: no echo, no edit - and the run ends within its wait.

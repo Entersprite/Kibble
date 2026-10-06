@@ -119,6 +119,20 @@ struct EditDeleteTests {
         await harness.model.stop()
     }
 
+    /// Review finding 7: the delete's undo is guarded like the edit's. A row
+    /// the server replaced before the refusal arrived stands.
+    @Test func aRefusedDeleteAfterAPushKeepsThePush() async throws {
+        let harness = try await running()
+        await harness.backend.failSubmissions(true)
+        harness.model.delete(harness.message.id)
+        var server = harness.message
+        server.text = "from another device"
+        try harness.store.apply([.upsertMessageKeepingReactions(server)])
+        await settleAutoMarkRead()
+        #expect(try stored(harness).text == "from another device")
+        await harness.model.stop()
+    }
+
     /// Guard: a message still sending has no server id to address.
     @Test func aMessageStillSendingIsNeitherEditedNorDeleted() async throws {
         let harness = try await running()
