@@ -18,18 +18,31 @@ public enum PeopleProbeReport {
     public static let defaultQuery = "a"
 
     /// Every parameter defaults, so `MacHost` names no core type.
+    ///
+    /// `flush` gets the report so far after every step, the Punctual probe's
+    /// way, so a run that hangs leaves a file ending where it hung.
     public static func run(
         store: KeychainCredentialStore = KeychainCredentialStore(),
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
-        query: String = defaultQuery
+        query: String = defaultQuery,
+        flush: @escaping @Sendable (String) -> Void = { _ in }
     ) async -> String {
         var lines = header()
-        guard let cookies = await APIProbeReport.appendCredential(store: store, lines: &lines),
-              let bootstrapped = await APIProbeReport.appendBootstrap(
-                  cookies: cookies, store: store, transport: transport, endpoints: endpoints, lines: &lines
-              )
-        else { return lines.joined(separator: "\n") }
+        func done() -> String {
+            let text = lines.joined(separator: "\n")
+            flush(text)
+            return text
+        }
+        flush(lines.joined(separator: "\n"))
+        guard let cookies = await APIProbeReport.appendCredential(store: store, lines: &lines) else {
+            return done()
+        }
+        flush(lines.joined(separator: "\n"))
+        guard let bootstrapped = await APIProbeReport.appendBootstrap(
+            cookies: cookies, store: store, transport: transport, endpoints: endpoints, lines: &lines
+        ) else { return done() }
+        flush(lines.joined(separator: "\n"))
         let api = ProtoAPIClient(
             transport: transport,
             endpoints: endpoints,
@@ -38,23 +51,25 @@ public enum PeopleProbeReport {
         )
         var selfUserID: String?
         guard await APIProbeReport.appendVerifiedCall(client: api, selfUserID: &selfUserID, lines: &lines)
-        else { return lines.joined(separator: "\n") }
+        else { return done() }
         lines.append("")
+        flush(lines.joined(separator: "\n"))
 
         // Cookies scoped per host, exactly as for Punctual: `PunctualClient`
         // is a plain scoped sender, whatever its name.
         let client = PunctualClient(transport: transport, credentials: bootstrapped.credentials)
         guard let key = await key(bootstrapped.wiz, client: client, endpoints: endpoints, lines: &lines)
         else {
-            return lines.joined(separator: "\n")
+            return done()
         }
         let jar = await bootstrapped.credentials.snapshot?.cookies ?? []
         lines.append(contentsOf: cookieLines(jar))
         lines.append("")
 
         lines.append("ListAutocompletions (query of \(query.count) characters):")
+        flush(lines.joined(separator: "\n"))
         let search = Search(query: query, key: key, endpoints: endpoints)
-        let people = await appendRungs(search, jar: jar, client: client, lines: &lines)
+        let people = await appendRungs(search, jar: jar, client: client, lines: &lines, flush: flush)
         lines.append("")
         lines.append("ids against get_members (up to 5 people from the first rung that returned any):")
         if let people {
@@ -62,7 +77,7 @@ public enum PeopleProbeReport {
         } else {
             lines.append("  no rung returned a person with an id")
         }
-        return lines.joined(separator: "\n")
+        return done()
     }
 
     /// The config row `CLAUDE.md` asks every trace for.
@@ -132,7 +147,8 @@ public enum PeopleProbeReport {
         _ search: Search,
         jar: [SessionCookies.Cookie],
         client: PunctualClient,
-        lines: inout [String]
+        lines: inout [String],
+        flush: (String) -> Void
     ) async -> [(id: String, email: String)]? {
         let (query, key, endpoints) = (search.query, search.key, search.endpoints)
         let input = SAPISIDHash.Input(
@@ -171,6 +187,7 @@ public enum PeopleProbeReport {
             } catch {
                 lines.append("  rung \(name): FAILED \(APIProbeReport.safeDescription(of: error))")
             }
+            flush(lines.joined(separator: "\n"))
         }
         return found
     }

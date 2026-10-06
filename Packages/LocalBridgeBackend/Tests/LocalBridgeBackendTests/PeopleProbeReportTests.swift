@@ -60,4 +60,48 @@ struct PeopleProbeReportTests {
         #expect(PeopleProbeReport.sha1Hex("1700000000 sap-1 https://chat.google.com")
             == "0cdf34bd486e3b4f14ed3eb372ae19228144c08d")
     }
+
+    // MARK: - Written as it goes
+
+    /// A minimal in-memory `SecretStorage`, copied rather than shared, as
+    /// `APIProbeReportTests` explains.
+    private final class EmptySecretStorage: SecretStorage, @unchecked Sendable {
+        func read(account _: String) throws -> Data? {
+            nil
+        }
+
+        func write(_: Data, account _: String) throws {}
+        func delete(account _: String) throws {}
+    }
+
+    private final class Flushes: @unchecked Sendable {
+        private let lock = NSLock()
+        private var texts: [String] = []
+
+        func append(_ text: String) {
+            lock.withLock { texts.append(text) }
+        }
+
+        var all: [String] {
+            lock.withLock { texts }
+        }
+    }
+
+    /// A probe that hangs must leave a file ending at the step that hung, so
+    /// the header is written before the first await and the whole text after
+    /// the last (session 51: a run that showed nothing and wrote nothing).
+    @Test func theReportIsFlushedBeforeTheFirstStepAndAtTheEnd() async throws {
+        let flushes = Flushes()
+        let text = await PeopleProbeReport.run(
+            store: KeychainCredentialStore(storage: EmptySecretStorage(), account: "people-test"),
+            transport: ScriptedTransport([]),
+            endpoints: ChatEndpoints(),
+            flush: { flushes.append($0) }
+        )
+        let first = try #require(flushes.all.first)
+        #expect(first.contains("gchat people probe"))
+        #expect(!first.contains("No session"))
+        #expect(flushes.all.last == text)
+        #expect(text.contains("No session"))
+    }
 }
