@@ -8,6 +8,16 @@ public struct MentionSuggestion: Hashable, Sendable, Identifiable {
     public let name: String
     /// `nil` for `@all`.
     public let member: Member?
+    /// From the directory: not in this conversation (mention non-members
+    /// spec §2). Picking one asks at send time whether to add them.
+    public let outsideConversation: Bool
+
+    public init(target: Mention.Target, name: String, member: Member?, outsideConversation: Bool = false) {
+        self.target = target
+        self.name = name
+        self.member = member
+        self.outsideConversation = outsideConversation
+    }
 
     public var id: String {
         switch target {
@@ -24,10 +34,17 @@ public struct MentionSuggestion: Hashable, Sendable, Identifiable {
 enum MentionSuggestions {
     static let limit = 8
 
+    /// At most this many directory people, after the members.
+    static let directoryLimit = 5
+
+    /// Members first, by the matching rules below; then directory people the
+    /// server matched, not matched again here (a nickname or another field may
+    /// be why it matched), minus anyone already listed.
     static func suggestions(
         for query: String,
         candidates: [Member],
-        includeAll: Bool
+        includeAll: Bool,
+        directory: [Member] = []
     ) -> [MentionSuggestion] {
         let needle = fold(query)
         var results: [MentionSuggestion] = []
@@ -39,6 +56,16 @@ enum MentionSuggestions {
             guard needle.isEmpty || matches(needle, name: name, email: member.email) else { continue }
             results.append(MentionSuggestion(target: .user(member.id), name: name, member: member))
         }
+        let shown = Set(results.compactMap(\.member?.id))
+        results += directory
+            .filter { !shown.contains($0.id) && !($0.displayName ?? "").isEmpty }
+            .prefix(directoryLimit)
+            .map { person in
+                MentionSuggestion(
+                    target: .user(person.id), name: person.displayName ?? "", member: person,
+                    outsideConversation: true
+                )
+            }
         return results
     }
 

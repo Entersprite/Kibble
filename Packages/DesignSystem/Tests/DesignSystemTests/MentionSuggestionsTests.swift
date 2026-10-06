@@ -55,4 +55,49 @@ struct MentionSuggestionsTests {
         #expect(MentionSuggestions.suggestions(for: "", candidates: many, includeAll: true)
             .count == MentionSuggestions.limit)
     }
+
+    // MARK: - The directory section (mention non-members spec §2)
+
+    private func outsiders(_ count: Int) -> [Member] {
+        (0 ..< count).map { person("out-\($0)", "Outsider \($0)") }
+    }
+
+    @Test func directoryPeopleFollowTheMembersMarkedOutside() {
+        let rows = MentionSuggestions.suggestions(
+            for: "", candidates: [person("1", "Jane Doe")], includeAll: false, directory: outsiders(1)
+        )
+        #expect(rows.map(\.name) == ["Jane Doe", "Outsider 0"])
+        #expect(rows.map(\.outsideConversation) == [false, true])
+    }
+
+    @Test func aDirectoryPersonAlreadyAMemberIsShownOnce() {
+        let jane = person("1", "Jane Doe")
+        let rows = MentionSuggestions.suggestions(
+            for: "",
+            candidates: [jane],
+            includeAll: false,
+            directory: [jane]
+        )
+        #expect(rows.count == 1)
+        #expect(rows.first?.outsideConversation == false)
+    }
+
+    @Test func theDirectorySectionIsCappedAtFive() {
+        let rows = MentionSuggestions.suggestions(
+            for: "",
+            candidates: [],
+            includeAll: false,
+            directory: outsiders(8)
+        )
+        #expect(rows.count == MentionSuggestions.directoryLimit)
+    }
+
+    /// The server matched them: a nickname or another field may be why, so
+    /// they are not matched again here.
+    @Test func directoryPeopleAreNotRefilteredLocally() {
+        let rows = MentionSuggestions.suggestions(
+            for: "zz", candidates: [], includeAll: false, directory: [person("9", "Robert Smith")]
+        )
+        #expect(rows.map(\.name) == ["Robert Smith"])
+    }
 }
