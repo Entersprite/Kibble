@@ -125,6 +125,17 @@ public enum EditProbeReport {
         wait: Duration,
         lines: inout [String]
     ) async {
+        // `connect()` starts the long poll without awaiting it, and session
+        // 52's first run posted before the channel was registered: no echo.
+        let ready = await log.first(within: wait) { event -> Bool? in
+            if case let .unknown(type, _) = event, type == ChannelEventMapping.discriminator(for: 33) {
+                return true
+            }
+            return nil
+        }
+        lines.append(ready == nil
+            ? "channel: no SESSION_READY within \(wait); posting anyway"
+            : "channel: ready (SESSION_READY seen)")
         let localID = "kibble-edit-probe-\(UUID().uuidString)"
         lines.append("post:")
         do {
@@ -136,18 +147,15 @@ public enum EditProbeReport {
             lines.append("  FAILED: \(APIProbeReport.safeDescription(of: error))")
             return
         }
-        let posted = await log.first(within: wait) { event -> ChatKit.Message? in
-            if case let .messageReceived(message) = event, message.localID == localID {
-                return message
-            }
-            return nil
-        }
-        guard let posted else {
-            lines.append("  no echo within \(wait); not editing")
-            lines += await cleanUp(localID: localID, in: conversation, backend: backend, log: log, wait: wait)
-            return
-        }
-        lines.append("  echo: messageReceived text=\(textClass(posted.text))")
+        let (found, report) = await posted(
+            localID: localID,
+            in: conversation,
+            backend: backend,
+            log: log,
+            wait: wait
+        )
+        lines += report
+        guard let posted = found else { return }
         lines += await step("edit", of: posted, log: log, wait: wait) {
             try await backend.send(.editMessage(
                 id: posted.id, text: editedText,
@@ -167,31 +175,32 @@ public enum EditProbeReport {
 
     static let mayRemain = "WARNING: the test message may remain in that conversation; delete it by hand."
 
-    /// With no echo the post may still have landed: find it in the newest
-    /// history page by its `localID` and delete it, or say that it may remain
-    /// (review finding 2).
-    private static func cleanUp(
+    /// The post as the channel echoed it, or - with no echo - as the newest
+    /// history page holds it, found by its `localID` (review finding 2). `nil`
+    /// when neither has it, and the report then says it may remain.
+    private static func posted(
         localID: String,
         in conversation: Conversation,
         backend: any ChatBackend,
         log: EventLog,
         wait: Duration
-    ) async -> [String] {
+    ) async -> (ChatKit.Message?, [String]) {
+        let echoed = await log.first(within: wait) { event -> ChatKit.Message? in
+            if case let .messageReceived(message) = event, message.localID == localID {
+                return message
+            }
+            return nil
+        }
+        if let echoed {
+            return (echoed, ["  echo: messageReceived text=\(textClass(echoed.text))"])
+        }
+        var lines = ["  no echo within \(wait)"]
         let page = try? await backend.loadMessages(in: conversation.id, before: nil)
         guard let found = page?.first(where: { $0.localID == localID }) else {
-            return ["  not found in the newest history page", mayRemain]
+            return (nil, lines + ["  not found in the newest history page", mayRemain])
         }
-        var lines = ["  found in history"]
-        let deleted = await step("delete", of: found, log: log, wait: wait) {
-            try await backend.send(.deleteMessage(
-                id: found.id, conversationID: found.conversationID, threadID: found.threadID
-            ))
-        }
-        lines += deleted
-        if deleted.contains(where: { $0.contains("FAILED") }) {
-            lines.append(mayRemain)
-        }
-        return lines
+        lines.append("  found in history: text=\(textClass(found.text))")
+        return (found, lines)
     }
 
     /// One command, then every event naming the message until a quiet moment

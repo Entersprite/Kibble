@@ -18,6 +18,7 @@ private actor ScriptedEditBackend: ChatBackend {
     private let failsEdit: Bool
     private let conversations: [Conversation]
     private let historyKeepsThePost: Bool
+    private let readyOnConnect: Bool
     private var postedLocalID: String?
     private(set) var commands: [ChatCommand] = []
 
@@ -29,13 +30,14 @@ private actor ScriptedEditBackend: ChatBackend {
 
     init(
         echoes: Bool = true, failsEdit: Bool = false, conversations: [Conversation] = [conversation],
-        historyKeepsThePost: Bool = false
+        historyKeepsThePost: Bool = false, readyOnConnect: Bool = true
     ) {
         (events, continuation) = AsyncStream.makeStream()
         self.echoes = echoes
         self.failsEdit = failsEdit
         self.conversations = conversations
         self.historyKeepsThePost = historyKeepsThePost
+        self.readyOnConnect = readyOnConnect
     }
 
     private func message(localID: String? = nil) -> ChatKit.Message {
@@ -46,7 +48,14 @@ private actor ScriptedEditBackend: ChatBackend {
         )
     }
 
-    func connect() async throws {}
+    /// The channel's `SESSION_READY` (type 33), which the bridge routes as
+    /// unknown, as the live run saw it.
+    func connect() async throws {
+        if readyOnConnect {
+            continuation.yield(.unknown(type: "googlechat.eventType.33", payload: .null))
+        }
+    }
+
     func disconnect() async {}
     func loadConversations() async throws -> [Conversation] {
         conversations
@@ -136,7 +145,7 @@ struct EditProbeReportTests {
         )
         #expect(report.contains("messageUpdated editedAt=present text=edited isDeleted=false"))
         #expect(report.contains("isDeleted=true"))
-        #expect(report.contains("unknown event types: 8×1"))
+        #expect(report.contains("8×1"))
         for secret in ["secretword", "secret-message-id", "secret-dm", "secret-topic", "secret-user"] {
             #expect(!report.contains(secret), "\(secret) leaked")
         }
@@ -199,6 +208,38 @@ struct EditProbeReportTests {
             backend: backend, conversation: .mostRecentDirectMessage, wait: Self.wait
         )
         #expect(report.contains("may remain"))
+    }
+
+    /// Session 52's live run: the post went out before the channel was
+    /// registered, and no echo came. The probe now waits for `SESSION_READY`.
+    @Test func itSaysWhetherTheChannelWasReadyBeforePosting() async {
+        let ready = await EditProbeReport.run(
+            backend: ScriptedEditBackend(), conversation: .mostRecentDirectMessage, wait: Self.wait
+        )
+        #expect(ready.contains("channel: ready"))
+        let backend = ScriptedEditBackend(readyOnConnect: false)
+        let notReady = await EditProbeReport.run(
+            backend: backend, conversation: .mostRecentDirectMessage, wait: Self.wait
+        )
+        #expect(notReady.contains("channel: no SESSION_READY"))
+        #expect(await backend.commands.count == 3)
+    }
+
+    /// With no echo, the copy found in history is edited before it is
+    /// deleted, so a missed echo still measures the edit.
+    @Test func withNoEchoTheHistoryCopyIsEditedThenDeleted() async throws {
+        let backend = ScriptedEditBackend(echoes: false, historyKeepsThePost: true)
+        _ = await EditProbeReport.run(
+            backend: backend,
+            conversation: .mostRecentDirectMessage,
+            wait: Self.wait
+        )
+        let commands = await backend.commands
+        try #require(commands.count == 3)
+        guard case .editMessage = commands[1], case .deleteMessage = commands[2] else {
+            Issue.record("expected post, edit, delete; got \(commands)")
+            return
+        }
     }
 
     /// Guard: no echo, no edit - and the run ends within its wait.
