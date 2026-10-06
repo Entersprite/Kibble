@@ -94,6 +94,7 @@ public enum APIProbeReport {
                 ),
                 lines: &lines
             )
+            await appendMemberListSection(client: client, group: probedGroup, lines: &lines)
             lines.append("")
         }
         await appendSelfStatusSummary(client: client, lines: &lines)
