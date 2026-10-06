@@ -230,7 +230,9 @@ struct SendMessageTests {
         ))
         try await backend.connect()
         await #expect(throws: ChatError.self) {
-            try await backend.send(.deleteMessage(id: ChatKit.Message.ID("m-1")))
+            try await backend.send(.setTyping(
+                conversationID: Conversation.ID("space/s-1"), threadID: nil, isTyping: true
+            ))
         }
     }
 

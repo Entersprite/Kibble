@@ -41,11 +41,16 @@ public extension LocalBridgeBackend {
                 messageID: messageID, emoji: emoji, add: add,
                 conversationID: conversationID, threadID: threadID, customEmoji: customEmoji
             )
+        case let .editMessage(id, text, conversationID, threadID, mentions):
+            try await editMessage(
+                id: id, text: text, conversationID: conversationID, threadID: threadID, mentions: mentions
+            )
+        case let .deleteMessage(id, conversationID, threadID):
+            try await deleteMessage(id: id, conversationID: conversationID, threadID: threadID)
         // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
         // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
         // until someone decides whether this backend can honour it.
-        case .editMessage, .deleteMessage, .setTyping,
-             .setNotificationLevel, .unknown:
+        case .setTyping, .setNotificationLevel, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }
     }
@@ -148,7 +153,7 @@ public extension LocalBridgeBackend {
     /// A person whose email it lacks is looked up once, here. A lookup that
     /// fails is not a failed send: the mention goes without `invitee_info`
     /// (mention composer spec §4).
-    private func mentionAnnotations(
+    func mentionAnnotations(
         _ mentions: [ChatKit.Mention],
         using apiClient: ProtoAPIClient
     ) async -> [Annotation] {

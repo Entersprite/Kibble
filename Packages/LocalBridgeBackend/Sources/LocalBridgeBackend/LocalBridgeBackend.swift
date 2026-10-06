@@ -47,8 +47,12 @@ public actor LocalBridgeBackend: ChatBackend {
     /// image call is the one Chat on the web makes, `[Verify]` from here.
     /// `canSendAttachments` is true on both references' agreement
     /// (`LocalBridgeBackend+Uploads.swift`), `[Verify]` until a live upload.
+    /// `canEditMessages` and `canDeleteMessages` are true: `edit_message` and
+    /// `delete_message` (`LocalBridgeBackend+EditDelete.swift`), `[Verify]`
+    /// until `--probe=edit` runs.
     public nonisolated let capabilities = Capabilities(
-        canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
+        canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
+        canMarkRead: true, supportsThreads: true,
         canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
         canSendAttachments: true, canMention: true, canMentionNonMembers: true
     )
