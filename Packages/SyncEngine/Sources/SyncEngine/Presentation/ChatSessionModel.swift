@@ -60,6 +60,10 @@ public final class ChatSessionModel {
     /// (`ChatStore.observeMentionCandidates`), never read during a render
     /// (CLAUDE.md, session 46).
     public internal(set) var mentionCandidates: [Member] = []
+    /// The `@` list's directory section for the active query (`+Directory.swift`).
+    public internal(set) var directoryResults: [Member] = []
+    /// The search task, the membership checks and their timings (`+Directory.swift`).
+    var directorySearch: DirectorySearchState
     /// Whether the sidebar's Mentions row is chosen; `selected` is `nil` then.
     /// `internal(set)` for `+Mentions.swift`.
     public internal(set) var showingMentions = false
@@ -246,8 +250,11 @@ public final class ChatSessionModel {
     public init(
         store: ChatStore, engine: SyncEngine, me: Member.ID? = nil,
         markReadTrace: (any MarkReadTraceSink)? = nil,
-        markReadDebounce: Duration = .seconds(2)
+        markReadDebounce: Duration = .seconds(2),
+        directoryDebounce: Duration = .milliseconds(200),
+        membershipWait: Duration = .seconds(1)
     ) {
+        directorySearch = DirectorySearchState(debounce: directoryDebounce, membershipWait: membershipWait)
         self.store = store
         self.engine = engine
         self.me = me
@@ -288,6 +295,7 @@ public final class ChatSessionModel {
         // return - see `historyTask`'s doc comment.
         historyTask?.cancel()
         historyTask = nil
+        directorySearch.reset()
         // Same reasoning as `historyTask` just above: a mark in flight for an
         // account this call is signing out of must not be left to answer
         // into an erased store.
@@ -341,6 +349,7 @@ public final class ChatSessionModel {
         messages = []
         typing = []
         mentionCandidates = []
+        directoryResults = []
 
         for watcher in conversationWatchers {
             watcher.cancel()
