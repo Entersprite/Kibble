@@ -13,10 +13,54 @@ public struct Mention: Codable, Hashable, Sendable {
     /// See `start`.
     public var length: Int
 
-    public init(target: Target, start: Int, length: Int) {
+    /// How the mention treats someone outside the conversation. Almost always
+    /// `.mention`, which is never written to the wire.
+    public var mode: Mode
+
+    public init(target: Target, start: Int, length: Int, mode: Mode = .mention) {
         self.target = target
         self.start = start
         self.length = length
+        self.mode = mode
+    }
+}
+
+// MARK: - Mode
+
+public extension Mention {
+    /// How the mention treats someone outside the conversation (mention
+    /// non-members spec §1): `.invite` adds them (wire type 1), `.withoutAdding`
+    /// names them without adding (wire type 6). A plain string on the wire,
+    /// like `NotificationLevel`; `.mention` is never written.
+    enum Mode: Hashable, Sendable, Codable {
+        case mention
+        case invite
+        case withoutAdding
+        case unknown(String)
+
+        public init(from decoder: any Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = switch raw {
+            case "mention": .mention
+            case "invite": .invite
+            case "withoutAdding": .withoutAdding
+            default: .unknown(raw)
+            }
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
+
+        var rawValue: String {
+            switch self {
+            case .mention: "mention"
+            case .invite: "invite"
+            case .withoutAdding: "withoutAdding"
+            case let .unknown(raw): raw
+            }
+        }
     }
 }
 
@@ -36,7 +80,7 @@ public extension Mention {
 
 public extension Mention {
     internal enum CodingKeys: String, CodingKey {
-        case target, start, length
+        case target, start, length, mode
     }
 
     init(from decoder: any Decoder) throws {
@@ -44,7 +88,8 @@ public extension Mention {
         try self.init(
             target: container.decode(Target.self, forKey: .target),
             start: container.decode(Int.self, forKey: .start),
-            length: container.decode(Int.self, forKey: .length)
+            length: container.decode(Int.self, forKey: .length),
+            mode: container.decodeIfPresent(Mode.self, forKey: .mode) ?? .mention
         )
     }
 
@@ -53,6 +98,9 @@ public extension Mention {
         try container.encode(target, forKey: .target)
         try container.encode(start, forKey: .start)
         try container.encode(length, forKey: .length)
+        if mode != .mention {
+            try container.encode(mode, forKey: .mode)
+        }
     }
 }
 
