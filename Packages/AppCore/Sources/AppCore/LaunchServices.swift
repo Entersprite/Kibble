@@ -108,7 +108,8 @@ public struct LaunchArguments: Sendable, Equatable {
             probe: arguments.contains("--probe=keychain") ? .keychain
                 : arguments.contains("--probe=api") ? .api
                 : arguments.contains("--probe=punctual") ? .punctual
-                : arguments.contains("--probe=upload") ? .upload : nil,
+                : arguments.contains("--probe=upload") ? .upload
+                : arguments.contains("--probe=people") ? .people : nil,
             runsDiagnostics: arguments.contains("--probe=appnap")
         )
     }
@@ -124,6 +125,10 @@ public enum LaunchProbe: Sendable, Equatable {
     /// Uploads one generated 16×16 PNG into a conversation and posts
     /// nothing, reporting the upload's shape (`UploadProbeReport`).
     case upload
+    /// Searches the directory as Chat on the web does while `@` is typed,
+    /// one read per way of signing it, and reports counts only
+    /// (`PeopleProbeReport`, `findings.md` §57).
+    case people
 }
 
 /// One backend, who we are, and the thing that drives a fake world.

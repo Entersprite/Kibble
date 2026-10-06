@@ -227,11 +227,10 @@ struct StatusStrip: View {
     let actions: ChatSceneActions
 
     var body: some View {
-        // `banner` (a real problem) takes priority over `notice` (a clean
-        // diagnostic run that merely finished) - nothing sets both at once
-        // today, but a warning worth acting on must never be the one that
-        // loses if that ever changes.
-        if let message = banner {
+        // `headline(for:)` decides: an error, then a finished probe's
+        // notice, then the connection. A warning worth acting on never loses
+        // to a notice; "Not connected." always does.
+        if case let .warning(message) = Self.headline(for: state) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -267,7 +266,7 @@ struct StatusStrip: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
             .background(.yellow.opacity(0.22))
-        } else if let notice = state.notice {
+        } else if case let .notice(notice) = Self.headline(for: state) {
             // Neither the triangle nor the yellow wash: this is what closes
             // the finding that a clean `--probe=keychain` run drew exactly
             // like a failure. A different icon and background are the whole
@@ -284,21 +283,32 @@ struct StatusStrip: View {
         }
     }
 
-    private var banner: String? {
-        // A real error outranks a connection state: `lastError` is what a
-        // client can act on (sign in again, retry a send), and a connection
-        // banner under it would be true but beside the point.
+    enum Headline: Equatable {
+        case warning(String)
+        case notice(String)
+    }
+
+    /// One line, by precedence:
+    /// 1. A real error: `lastError` is what a client can act on.
+    /// 2. A notice: a finished `--probe=` run's result. It outranks the
+    ///    connection, because a probe scene is never connected, and `.idle`'s
+    ///    "Not connected." used to hide every probe's result (session 51).
+    /// 3. The connection banner.
+    static func headline(for state: ChatSceneState) -> Headline? {
         if let error = state.lastError {
-            return description(of: error)
+            return .warning(description(of: error))
         }
-        return ConnectionBanner.text(for: state.connection)
+        if let notice = state.notice {
+            return .notice(notice)
+        }
+        return ConnectionBanner.text(for: state.connection).map(Headline.warning)
     }
 
     /// Same precedence as `banner`: a real error's own description already
     /// carries everything relevant (a status code, a capability name), so
     /// there is no separate diagnostic line to add underneath it.
     private var bannerDetail: String? {
-        guard state.lastError == nil else { return nil }
+        guard state.lastError == nil, state.notice == nil else { return nil }
         return ConnectionBanner.detail(for: state.connection)
     }
 
@@ -308,7 +318,7 @@ struct StatusStrip: View {
 
     /// Rendered here rather than stored as a string, because the store keeps
     /// the error typed so a client can tell "sign in again" from a hiccup.
-    private func description(of error: ChatError) -> String {
+    private static func description(of error: ChatError) -> String {
         switch error {
         case .notAuthenticated, .sessionExpired: "Signed out. Sign in again to keep syncing."
         case let .rateLimited(retryAfter):

@@ -59,6 +59,24 @@ enum LaunchProbes {
     /// what it saw. `--probe-minutes=N` changes the ten-minute default, and
     /// `--punctual-server=` the server path, both parsed here for the reason
     /// `--probe-conversation=` is.
+    /// `--probe=people`. `--probe-query=` is what to search for, `a` when
+    /// absent; the report gives its length only.
+    ///
+    /// Rewritten after every step, as `punctualProbe` is, so a run that hangs
+    /// leaves a file ending where it hung.
+    static func peopleProbe() async -> String {
+        let name = "people-probe.txt"
+        guard let directory = try? SystemLaunchServices.supportDirectory() else {
+            return "Could not resolve where to write \(name)."
+        }
+        let url = directory.appendingPathComponent(name)
+        let text = await PeopleProbeReport.run(
+            query: argument("--probe-query=") ?? PeopleProbeReport.defaultQuery,
+            flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
+        )
+        return write(text, to: name)
+    }
+
     static func punctualProbe() async -> String {
         let name = "punctual-probe.txt"
         guard let directory = try? SystemLaunchServices.supportDirectory() else {

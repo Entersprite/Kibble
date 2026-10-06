@@ -133,6 +133,7 @@ public final class SystemLaunchServices: LaunchServices {
         case .api: await LaunchProbes.apiProbe()
         case .punctual: await LaunchProbes.punctualProbe()
         case .upload: await LaunchProbes.uploadProbe()
+        case .people: await LaunchProbes.peopleProbe()
         }
     }
 
