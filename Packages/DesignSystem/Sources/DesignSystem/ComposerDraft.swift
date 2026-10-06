@@ -40,6 +40,15 @@ public struct ComposerDraft: Equatable, Sendable {
     public private(set) var caret = 0
     private var adopted: ComposedMessage?
 
+    /// The message being edited, when the field holds one (edit spec §5).
+    public struct Editing: Equatable, Sendable {
+        public let messageID: Message.ID
+        /// What the field held before the edit began, given back when it ends.
+        let setAside: ComposedMessage
+    }
+
+    public private(set) var editing: Editing?
+
     /// How far back from the caret an `@` may be and still open the list.
     static let maxQueryLength = 40
 
@@ -146,6 +155,36 @@ public struct ComposerDraft: Equatable, Sendable {
         return ComposedMessage(text: trimmed, mentions: mentions)
     }
 
+    /// Puts the field aside and loads `message`, tokens and all, with the
+    /// caret at the end. Beginning again while editing keeps the first
+    /// set-aside draft: the previous edit's text is not the person's draft.
+    public mutating func beginEditing(_ messageID: Message.ID, with message: ComposedMessage) {
+        let setAside = editing?.setAside ?? ComposedMessage(text: text, mentions: untrimmedMentions())
+        text = message.text
+        tokens = Self.tokens(for: message)
+        caret = (text as NSString).length
+        editing = Editing(messageID: messageID, setAside: setAside)
+    }
+
+    /// Ends the edit, saved or cancelled: hands back what the field held,
+    /// and puts the set-aside draft back. `nil` when nothing was being edited.
+    public mutating func endEditing() -> (messageID: Message.ID, message: ComposedMessage)? {
+        guard let editing else { return nil }
+        let edited = composed()
+        self.editing = nil
+        text = editing.setAside.text
+        tokens = Self.tokens(for: editing.setAside)
+        caret = (text as NSString).length
+        return (editing.messageID, edited)
+    }
+
+    /// The tokens as mentions at their own offsets, untrimmed, so a set-aside
+    /// draft comes back exactly as it was typed.
+    private func untrimmedMentions() -> [Mention] {
+        tokens.filter { Self.reads($0, in: text) }
+            .map { Mention(target: $0.target, start: $0.location, length: $0.length) }
+    }
+
     public mutating func clear() {
         text = ""
         tokens = []
@@ -167,6 +206,16 @@ public struct ComposerDraft: Equatable, Sendable {
             return false
         }
         guard restoring != adopted else { return false }
+        if let current = editing {
+            // Never merged into the message being edited: it goes with the
+            // set-aside draft, and is there when the edit ends.
+            editing = Editing(
+                messageID: current.messageID,
+                setAside: Self.merged(restoring, before: current.setAside)
+            )
+            adopted = restoring
+            return true
+        }
         let restored = Self.tokens(for: restoring)
         if text.isEmpty || text == restoring.text {
             text = restoring.text
@@ -183,6 +232,19 @@ public struct ComposerDraft: Equatable, Sendable {
         caret = (text as NSString).length
         adopted = restoring
         return true
+    }
+
+    /// `restoring` first, then what was there on the next line, its mentions
+    /// shifted - `adopt`'s own merge, on values.
+    private static func merged(
+        _ restoring: ComposedMessage,
+        before kept: ComposedMessage
+    ) -> ComposedMessage {
+        guard !kept.text.isEmpty, kept.text != restoring.text else { return restoring }
+        let shift = (restoring.text as NSString).length + 1
+        let moved = kept.mentions
+            .map { Mention(target: $0.target, start: $0.start + shift, length: $0.length) }
+        return ComposedMessage(text: restoring.text + "\n" + kept.text, mentions: restoring.mentions + moved)
     }
 
     private static func tokens(for message: ComposedMessage) -> [Token] {
