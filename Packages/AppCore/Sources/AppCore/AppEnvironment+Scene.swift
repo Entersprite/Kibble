@@ -58,7 +58,8 @@ public extension AppEnvironment {
             unreadMentionCount: model.unreadMentionCount,
             scrollTarget: model.scrollTarget,
             downloads: downloads?.states ?? [:],
-            stagedAttachments: Self.composerAttachments(model.stagedAttachments)
+            stagedAttachments: Self.composerAttachments(model.stagedAttachments),
+            mentionCandidates: model.mentionCandidates
         )
     }
 
@@ -130,9 +131,9 @@ public extension AppEnvironment {
                 guard case let .running(model) = self?.phase else { return }
                 model.select(id)
             },
-            send: { [weak self] text in
+            send: { [weak self] message in
                 guard case let .running(model) = self?.phase else { return }
-                model.send(text)
+                model.send(message)
             },
             // Offered **only** from `.failed`, which is the phase that had no
             // way out. `.needsSignIn` already shows the capture window,

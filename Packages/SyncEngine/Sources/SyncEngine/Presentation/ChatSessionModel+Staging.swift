@@ -125,7 +125,7 @@ public extension ChatSessionModel {
     /// back to the composer the way a refused text send's does
     /// (`failedDraft`). Send again tries them again. The banner is the
     /// engine's, recorded where it failed (`uploadAttachment`, `submit`).
-    internal func sendStaged(_ text: String, in conversation: Conversation.ID) {
+    internal func sendStaged(_ caption: ComposedMessage, in conversation: Conversation.ID) {
         let batch = (composerFiles.staged[conversation] ?? []).filter { !$0.isUploading }
         guard !batch.isEmpty else { return }
         for item in batch {
@@ -133,17 +133,17 @@ public extension ChatSessionModel {
         }
         let key = UUID()
         composerFiles.sends[key] = Task { @MainActor [weak self] in
-            await self?.upload(batch.map(\.attachment), caption: text, in: conversation)
+            await self?.upload(batch.map(\.attachment), caption: caption, in: conversation)
             self?.composerFiles.sends[key] = nil
         }
     }
 
     private func upload(
         _ files: [OutgoingAttachment],
-        caption text: String,
+        caption first: ComposedMessage,
         in conversation: Conversation.ID
     ) async {
-        var caption = text
+        var caption = first
         for (index, file) in files.enumerated() {
             let uploaded: Attachment
             do {
@@ -171,7 +171,7 @@ public extension ChatSessionModel {
                 return
             }
             remove(file.id, from: conversation)
-            caption = ""
+            caption = ComposedMessage(text: "")
         }
     }
 
@@ -179,7 +179,7 @@ public extension ChatSessionModel {
     /// shows a text: a `local/` row, retracted by id if the send is refused.
     private func post(
         _ attachment: Attachment,
-        caption: String,
+        caption: ComposedMessage,
         in conversation: Conversation.ID
     ) async -> Bool {
         let localID = UUID().uuidString
@@ -191,17 +191,18 @@ public extension ChatSessionModel {
                 conversationID: conversation,
                 threadID: MessageThread.ID(""),
                 sender: me,
-                text: caption,
+                text: caption.text,
                 createdAt: Date(),
                 attachments: [attachment],
-                localID: localID
+                localID: localID,
+                mentions: caption.mentions
             ))])
             undo = [.removeMessage(id: optimisticID)]
         }
         return await engine.submit(
             .sendMessage(
-                conversationID: conversation, threadID: nil, text: caption, localID: localID,
-                attachments: [attachment]
+                conversationID: conversation, threadID: nil, text: caption.text, localID: localID,
+                attachments: [attachment], mentions: caption.mentions
             ),
             undoing: undo
         )
@@ -210,14 +211,14 @@ public extension ChatSessionModel {
     private func stopSending(
         _ remaining: ArraySlice<OutgoingAttachment>,
         failed id: String,
-        caption: String,
+        caption: ComposedMessage,
         in conversation: Conversation.ID
     ) {
         for file in remaining {
             setState(file.id == id ? .failed : .ready, of: file.id, in: conversation)
         }
-        if !caption.isEmpty {
-            failed = (conversationID: conversation, text: caption)
+        if !caption.text.isEmpty {
+            failed = (conversationID: conversation, draft: caption)
         }
     }
 

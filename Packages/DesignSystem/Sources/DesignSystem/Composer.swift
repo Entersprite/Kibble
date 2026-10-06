@@ -11,13 +11,25 @@ import SwiftUI
 /// messages yet" text rather than a greyed-out field. When those actions exist
 /// they arrive as optional closures and the buttons appear only where a host
 /// supplies them - the pattern the paperclip and `StatusStrip` follow.
+/// Who the `@` list offers, or `nil` for no list: the backend cannot mention
+/// (`Capabilities.canMention`), or the platform has no text view for tokens.
+public struct ComposerMentions: Equatable {
+    public var candidates: [Member]
+    public var includeAll: Bool
+
+    public init(candidates: [Member], includeAll: Bool) {
+        self.candidates = candidates
+        self.includeAll = includeAll
+    }
+}
+
 public struct Composer: View {
     let placeholder: String
-    let send: (String) -> Void
+    let send: (ComposedMessage) -> Void
 
-    /// Text from a failed send, offered back for this composer to adopt. `nil`
-    /// in every ordinary frame - see `ComposerDraft`.
-    let restoring: String?
+    /// A failed send, mentions and all, offered back for this composer to
+    /// adopt. `nil` in every ordinary frame - see `ComposerDraft`.
+    let restoring: ComposedMessage?
     /// Told once `restoring` has been adopted, so the host can stop offering
     /// it. **Optional, and its absence is the point**: a host with no restore
     /// hook simply gets the old behaviour.
@@ -26,23 +38,27 @@ public struct Composer: View {
     let attachments: [ComposerAttachment]
     /// `nil` draws no paperclip and lets no file be removed.
     let attachmentActions: ComposerAttachmentActions?
+    /// `nil` offers no `@` list.
+    let mentions: ComposerMentions?
 
     @State private var draft = ComposerDraft()
     @FocusState private var isFocused: Bool
 
     public init(
         placeholder: String,
-        restoring: String? = nil,
+        restoring: ComposedMessage? = nil,
         onRestored: (() -> Void)? = nil,
         attachments: [ComposerAttachment] = [],
         attachmentActions: ComposerAttachmentActions? = nil,
-        send: @escaping (String) -> Void
+        mentions: ComposerMentions? = nil,
+        send: @escaping (ComposedMessage) -> Void
     ) {
         self.placeholder = placeholder
         self.restoring = restoring
         self.onRestored = onRestored
         self.attachments = attachments
         self.attachmentActions = attachmentActions
+        self.mentions = mentions
         self.send = send
     }
 
@@ -90,7 +106,7 @@ public struct Composer: View {
         // cannot re-adopt (`ComposerDraft.adopted` remembers) - so this is
         // safe to fire unconditionally on appearance.
         .onChange(of: restoring, initial: true) { _, text in
-            guard draft.adopt(text.map { ComposedMessage(text: $0) }) else { return }
+            guard draft.adopt(text) else { return }
             isFocused = true
             onRestored?()
         }
@@ -136,7 +152,7 @@ public struct Composer: View {
     }
 
     private var trimmed: String {
-        draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.composed().text
     }
 
     /// Text, or a staged file that is not already on its way.
@@ -149,8 +165,8 @@ public struct Composer: View {
     /// app feel like it did something.
     private func submit() {
         guard canSubmit else { return }
-        let text = trimmed
+        let message = draft.composed()
         draft.clear()
-        send(text)
+        send(message)
     }
 }

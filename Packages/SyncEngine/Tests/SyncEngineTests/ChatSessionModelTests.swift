@@ -112,7 +112,7 @@ extension ChatSessionModelTests {
 
         try await model.start()
         model.select(conversation)
-        model.send("hello from the composer")
+        model.send(ComposedMessage(text: "hello from the composer"))
 
         // Synchronous: the optimistic write happens inside `send` itself,
         // before the submitting `Task` is even scheduled.
@@ -160,7 +160,7 @@ extension ChatSessionModelTests {
         let conversation = Conversation.ID("dm:1")
 
         model.select(conversation)
-        model.send("hello before we know who we are")
+        model.send(ComposedMessage(text: "hello before we know who we are"))
 
         // No optimistic row: nothing here knows who "you" are yet.
         let hasOptimisticRow = try store.messages(in: conversation)
@@ -207,7 +207,7 @@ extension ChatSessionModelTests {
         let conversation = Conversation.ID("dm:1")
 
         model.select(conversation)
-        model.send("this one never leaves")
+        model.send(ComposedMessage(text: "this one never leaves"))
 
         // Written synchronously inside `send`, before the submission that
         // fails is even scheduled - so the phantom genuinely exists first.
@@ -263,7 +263,7 @@ extension ChatSessionModelTests {
         let conversation = Conversation.ID("dm:1")
 
         model.select(conversation)
-        model.send("this one really did post")
+        model.send(ComposedMessage(text: "this one really did post"))
 
         let optimistic = try #require(
             try store.messages(in: conversation).first { $0.id.rawValue.hasPrefix("local/") }
@@ -346,7 +346,7 @@ extension ChatSessionModelTests {
 
         try await model.start()
         model.select(conversation)
-        model.send("this should never leave the composer")
+        model.send(ComposedMessage(text: "this should never leave the composer"))
 
         for _ in 0 ..< 50 {
             await Task.yield()

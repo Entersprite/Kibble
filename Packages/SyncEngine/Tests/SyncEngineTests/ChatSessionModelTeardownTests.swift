@@ -117,7 +117,7 @@ struct ChatSessionModelTeardownTests {
         #expect(!model.published.isEmpty)
 
         await backend.failSubmissions(true)
-        model.send("never made it")
+        model.send(ComposedMessage(text: "never made it"))
         for _ in 0 ..< 50 {
             await Task.yield()
         }

@@ -89,10 +89,10 @@ struct OptimisticSendTests {
         await settleAutoMarkRead()
 
         await backend.failSubmissions(true)
-        model.send("the message that did not make it")
+        model.send(ComposedMessage(text: "the message that did not make it"))
         await settleAutoMarkRead()
 
-        #expect(model.failedDraft == "the message that did not make it")
+        #expect(model.failedDraft?.text == "the message that did not make it")
         await model.stop()
     }
 
@@ -114,7 +114,7 @@ struct OptimisticSendTests {
         await settleAutoMarkRead()
 
         await backend.failSubmissions(true)
-        model.send("meant for the first conversation")
+        model.send(ComposedMessage(text: "meant for the first conversation"))
         await settleAutoMarkRead()
         #expect(model.failedDraft != nil)
 
@@ -128,7 +128,7 @@ struct OptimisticSendTests {
         // withheld rather than discarded.
         model.select(first)
         await settleAutoMarkRead()
-        #expect(model.failedDraft == "meant for the first conversation")
+        #expect(model.failedDraft?.text == "meant for the first conversation")
         await model.stop()
     }
 
@@ -146,7 +146,7 @@ struct OptimisticSendTests {
         await settleAutoMarkRead()
 
         await backend.failSubmissions(true)
-        model.send("adopted once")
+        model.send(ComposedMessage(text: "adopted once"))
         await settleAutoMarkRead()
         #expect(model.failedDraft != nil)
 

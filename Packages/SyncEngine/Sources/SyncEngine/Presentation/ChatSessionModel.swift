@@ -158,7 +158,7 @@ public final class ChatSessionModel {
     /// where Swift's same-file `private` visibility does not reach. Same
     /// reasoning as `published` and `markTasks` above, and still invisible
     /// outside this module.
-    var failed: (conversationID: Conversation.ID, text: String)?
+    var failed: (conversationID: Conversation.ID, draft: ComposedMessage)?
     /// Each conversation's staged files, and the sends uploading them (`+Staging.swift`).
     public internal(set) var composerFiles = ComposerFiles()
 
