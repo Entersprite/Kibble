@@ -187,6 +187,12 @@ public extension AppEnvironment {
             memberPicked: { [weak self] member in self?.runningModel?.checkMembership(member) },
             nonMembers: { [weak self] message in
                 await self?.runningModel?.nonMembers(in: message) ?? []
+            },
+            sendTo: { [weak self] message, conversation in
+                self?.runningModel?.send(message, in: conversation)
+            },
+            keepDraft: { [weak self] message, conversation in
+                self?.runningModel?.keepDraft(message, in: conversation)
             }
         )
     }

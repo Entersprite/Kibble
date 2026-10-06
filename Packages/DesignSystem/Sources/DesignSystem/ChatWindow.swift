@@ -89,7 +89,9 @@ public struct ChatWindow: View {
                         // Asked only where outside people can be offered: a
                         // space, on a backend that can mention them.
                         nonMembers: state.capabilities.canMentionNonMembers && conversation.kind == .space
-                            ? actions.nonMembers : nil
+                            ? actions.nonMembers : nil,
+                        sendHere: actions.sendTo.map { sendTo in { sendTo($0, conversation.id) } },
+                        keepHere: actions.keepDraft.map { keep in { keep($0, conversation.id) } }
                     )
                     : nil,
                 send: actions.send

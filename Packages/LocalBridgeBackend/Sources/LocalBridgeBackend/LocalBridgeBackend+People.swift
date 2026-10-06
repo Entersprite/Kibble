@@ -2,6 +2,17 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
+/// The people search's key this session, and the one fetch for it. Cleared
+/// with the directory.
+struct PeopleKeyState {
+    /// `nil` not yet looked for, `.some(nil)` looked for and absent.
+    var key: String??
+    /// The one `/app/home` fetch, shared by every search that needs it.
+    /// Unstructured, so cancelling a search does not cancel it (review
+    /// finding 5).
+    var fetch: Task<String?, Never>?
+}
+
 /// The directory and membership, for mentioning people outside a space
 /// (mention non-members spec §3.3).
 public extension LocalBridgeBackend {
@@ -69,7 +80,7 @@ public extension LocalBridgeBackend {
     /// reported once per session: the cached absence answers every later
     /// search before the report is reached.
     private func peopleSearchKey() async throws -> String {
-        if let cached = peopleKey {
+        if let cached = peopleKey.key {
             if let cached {
                 return cached
             }
@@ -77,17 +88,18 @@ public extension LocalBridgeBackend {
         }
         var found = bootstrapWiz?.punctualKey
         if found == nil {
-            let request = HTTPRequest(
-                url: endpoints.base.appendingPathComponent("app").appendingPathComponent("home"),
-                headers: HTTPHeaders([("User-Agent", endpoints.userAgent)]),
-                traceLabel: "app-home"
-            )
-            let response = try? await PunctualClient(transport: transport, credentials: credentials)
-                .send(request)
-            found = response
-                .flatMap { WizGlobalData(html: String(decoding: $0.body, as: UTF8.self))?.punctualKey }
+            let fetch = peopleKey.fetch ?? Task { [weak self] in await self?.appHomeKey() }
+            peopleKey.fetch = fetch
+            found = await fetch.value
+            // Another search may have settled the key while this one waited.
+            if let cached = peopleKey.key {
+                if let cached {
+                    return cached
+                }
+                throw ChatError.unknown("no people search key this session")
+            }
         }
-        peopleKey = .some(found)
+        peopleKey.key = .some(found)
         guard let found else {
             emit(.backendError(.unknown(
                 "the people search key (Tzliq) was in neither the mole shell nor /app/home"
@@ -95,5 +107,16 @@ public extension LocalBridgeBackend {
             throw ChatError.unknown("no people search key this session")
         }
         return found
+    }
+
+    /// `/app/home`'s WIZ blob's Punctual key, or `nil`.
+    private func appHomeKey() async -> String? {
+        let request = HTTPRequest(
+            url: endpoints.base.appendingPathComponent("app").appendingPathComponent("home"),
+            headers: HTTPHeaders([("User-Agent", endpoints.userAgent)]),
+            traceLabel: "app-home"
+        )
+        let response = try? await PunctualClient(transport: transport, credentials: credentials).send(request)
+        return response.flatMap { WizGlobalData(html: String(decoding: $0.body, as: UTF8.self))?.punctualKey }
     }
 }

@@ -25,6 +25,12 @@ public struct ComposerMentions {
     public var outsidePicked: ((Member.ID) -> Void)?
     /// Who in a message is not in the conversation. `nil` never asks.
     public var nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])?
+    /// Sends into this composer's own conversation, after the check; `nil`
+    /// uses the composer's plain `send` (review finding 2).
+    public var sendHere: ((ComposedMessage) -> Void)?
+    /// Hands an unsent message back to this conversation's draft, when the
+    /// composer goes away mid-check or with the confirmation open.
+    public var keepHere: ((ComposedMessage) -> Void)?
 
     public init(
         candidates: [Member],
@@ -32,7 +38,9 @@ public struct ComposerMentions {
         directory: [Member] = [],
         queryChanged: ((String?) -> Void)? = nil,
         outsidePicked: ((Member.ID) -> Void)? = nil,
-        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil
+        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil,
+        sendHere: ((ComposedMessage) -> Void)? = nil,
+        keepHere: ((ComposedMessage) -> Void)? = nil
     ) {
         self.candidates = candidates
         self.includeAll = includeAll
@@ -40,6 +48,8 @@ public struct ComposerMentions {
         self.queryChanged = queryChanged
         self.outsidePicked = outsidePicked
         self.nonMembers = nonMembers
+        self.sendHere = sendHere
+        self.keepHere = keepHere
     }
 }
 
@@ -78,6 +88,9 @@ public struct Composer: View {
     @State private var anchorX: CGFloat = 0
     @State private var sendGate = ComposerSendGate()
     @State private var pendingInvite: PendingInvite?
+    /// The message whose membership check is out, so a composer torn down
+    /// meanwhile can hand it back.
+    @State private var checking: ComposedMessage?
 
     public init(
         placeholder: String,
@@ -153,6 +166,14 @@ public struct Composer: View {
         // `false`), and a later redraw carrying the same non-nil value still
         // cannot re-adopt (`ComposerDraft.adopted` remembers) - so this is
         // safe to fire unconditionally on appearance.
+        // Torn down with a message unsent (another conversation was opened
+        // mid-check, or with the confirmation up): it goes back to this
+        // conversation's draft rather than being lost (review finding 2).
+        .onDisappear {
+            if let unsent = pendingInvite?.message ?? checking {
+                mentions?.keepHere?(unsent)
+            }
+        }
         .confirmationDialog(
             pendingInvite.map(inviteTitle) ?? "",
             isPresented: Binding(get: { pendingInvite != nil }, set: {
@@ -326,8 +347,12 @@ public struct Composer: View {
             return
         }
         guard sendGate.begin() else { return }
+        checking = message
         Task { @MainActor in
-            defer { sendGate.end() }
+            defer {
+                sendGate.end()
+                checking = nil
+            }
             let outside = await ask(message)
             if outside.isEmpty {
                 finish(message)
@@ -341,7 +366,11 @@ public struct Composer: View {
         if ComposerSendGate.clears(draft: draft.composed(), sent: message) {
             draft.clear()
         }
-        send(message)
+        if let sendHere = mentions?.sendHere {
+            sendHere(message)
+        } else {
+            send(message)
+        }
     }
 
     private func inviteTitle(_ invite: PendingInvite) -> String {

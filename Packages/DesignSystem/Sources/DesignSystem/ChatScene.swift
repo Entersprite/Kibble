@@ -264,6 +264,11 @@ public struct ChatSceneActions {
     public var memberPicked: ((Member.ID) -> Void)?
     /// Who in a message is not in the conversation, asked at Return.
     public var nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])?
+    /// Sends into one conversation only while it is open; otherwise the
+    /// message goes back to its draft (review finding 2).
+    public var sendTo: ((ComposedMessage, Conversation.ID) -> Void)?
+    /// Hands an unsent message back to its conversation's draft.
+    public var keepDraft: ((ComposedMessage, Conversation.ID) -> Void)?
 
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
@@ -285,7 +290,9 @@ public struct ChatSceneActions {
         composerAttachments: ComposerAttachmentActions? = nil,
         directoryQuery: ((String?) -> Void)? = nil,
         memberPicked: ((Member.ID) -> Void)? = nil,
-        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil
+        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil,
+        sendTo: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
+        keepDraft: ((ComposedMessage, Conversation.ID) -> Void)? = nil
     ) {
         self.select = select
         self.send = send
@@ -307,5 +314,7 @@ public struct ChatSceneActions {
         self.directoryQuery = directoryQuery
         self.memberPicked = memberPicked
         self.nonMembers = nonMembers
+        self.sendTo = sendTo
+        self.keepDraft = keepDraft
     }
 }

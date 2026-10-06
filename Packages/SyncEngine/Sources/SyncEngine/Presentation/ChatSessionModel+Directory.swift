@@ -68,11 +68,14 @@ public extension ChatSessionModel {
         guard let selected else { return [] }
         let checks = directorySearch.checks[selected] ?? [:]
         let wait = directorySearch.membershipWait
+        // A member now is a member, whatever an earlier check said: after "Add
+        // and send" they join the members section (review finding 3).
+        let members = Set(mentionCandidates.map(\.id))
         var result: [Member.ID] = []
         for mention in message.mentions {
-            guard case let .user(id) = mention.target, let check = checks[id], !result.contains(id) else {
-                continue
-            }
+            guard case let .user(id) = mention.target, !members.contains(id), let check = checks[id],
+                  !result.contains(id)
+            else { continue }
             if await Self.answer(of: check, within: wait) != .member {
                 result.append(id)
             }

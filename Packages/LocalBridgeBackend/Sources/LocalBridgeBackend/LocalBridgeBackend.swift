@@ -150,10 +150,8 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `disconnect()`.
     var bootstrapWiz: WizGlobalData?
 
-    /// The people search's key this session: `nil` not yet looked for,
-    /// `.some(nil)` looked for and absent (`+People.swift`). Cleared with
-    /// the directory.
-    var peopleKey: String??
+    /// The people search's key and its one fetch (`+People.swift`).
+    var peopleKey = PeopleKeyState()
 
     /// The in-flight `get_self_user_status` call, if any. Same shape as
     /// `memberResolution` and cancelled in `disconnect()` for the same reason:

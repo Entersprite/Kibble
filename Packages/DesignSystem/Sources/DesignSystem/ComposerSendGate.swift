@@ -16,7 +16,18 @@ struct ComposerSendGate {
         busy = false
     }
 
+    /// Compared without modes: the confirmation sends the draft with modes
+    /// set, and it is still the same draft (review finding 1).
     static func clears(draft: ComposedMessage, sent: ComposedMessage) -> Bool {
-        draft == sent
+        func plain(_ message: ComposedMessage) -> ComposedMessage {
+            message.settingMode(.mention, for: message.mentions.compactMap { mention in
+                if case let .user(id) = mention.target {
+                    id
+                } else {
+                    nil
+                }
+            })
+        }
+        return plain(draft) == plain(sent)
     }
 }

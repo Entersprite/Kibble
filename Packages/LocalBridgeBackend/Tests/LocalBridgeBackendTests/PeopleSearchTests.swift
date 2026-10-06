@@ -13,13 +13,18 @@ private actor PeopleTransport: HTTPTransport {
     private let appHome: HTTPResponse
     private let people: HTTPResponse
     private let membership: HTTPResponse
+    private let appHomeDelay: Duration
     private(set) var sent: [HTTPRequest] = []
 
-    init(shell: HTTPResponse, appHome: HTTPResponse, people: HTTPResponse, membership: HTTPResponse) {
+    init(
+        shell: HTTPResponse, appHome: HTTPResponse, people: HTTPResponse, membership: HTTPResponse,
+        appHomeDelay: Duration = .zero
+    ) {
         self.shell = shell
         self.appHome = appHome
         self.people = people
         self.membership = membership
+        self.appHomeDelay = appHomeDelay
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -31,6 +36,9 @@ private actor PeopleTransport: HTTPTransport {
             return shell
         }
         if request.url.path.hasSuffix("/app/home") {
+            if appHomeDelay > .zero {
+                try await Task.sleep(for: appHomeDelay)
+            }
             return appHome
         }
         if request.url.path.contains("/api/get_membership") {
@@ -90,12 +98,13 @@ struct PeopleSearchTests {
     private static func connected(
         shellKey: String? = "key-1",
         appHomeKey: String? = nil,
-        membership: MembershipState? = .memberJoined
+        membership: MembershipState? = .memberJoined,
+        appHomeDelay: Duration = .zero
     ) async throws -> (LocalBridgeBackend, PeopleTransport) {
         let appHome = appHomeKey.map { shell(key: $0) } ?? ok("<html></html>")
         let transport = try PeopleTransport(
             shell: shell(key: shellKey), appHome: appHome, people: ok(answer),
-            membership: membershipAnswer(membership)
+            membership: membershipAnswer(membership), appHomeDelay: appHomeDelay
         )
         let backend = LocalBridgeBackend(cookies: cookies, transport: transport)
         try await backend.connect()
@@ -186,5 +195,30 @@ struct PeopleSearchTests {
         #expect(try await backend
             .membership(of: ChatKit.Member.ID("u-1"), in: Conversation.ID("dm/d-1")) == .unknown)
         #expect(await transport.sent.allSatisfy { !$0.url.path.contains("get_membership") })
+    }
+
+    // MARK: - The key fetch, under concurrency (review finding 5)
+
+    @Test func twoSearchesAtOnceFetchAppHomeOnce() async throws {
+        let (backend, transport) = try await Self.connected(
+            shellKey: nil, appHomeKey: "key-2", appHomeDelay: .milliseconds(100)
+        )
+        async let first = backend.searchPeople("o")
+        async let second = backend.searchPeople("on")
+        _ = try await (first, second)
+        #expect(await transport.sent.filter { $0.url.path.hasSuffix("/app/home") }.count == 1)
+    }
+
+    /// A keystroke cancels the search in flight. That must not cancel the
+    /// key fetch, nor record the key as absent for the session.
+    @Test func aCancelledSearchDoesNotDisableTheNextOne() async throws {
+        let (backend, _) = try await Self.connected(
+            shellKey: nil, appHomeKey: "key-2", appHomeDelay: .milliseconds(100)
+        )
+        let cancelled = Task { try await backend.searchPeople("o") }
+        try await Task.sleep(for: .milliseconds(20))
+        cancelled.cancel()
+        _ = try? await cancelled.value
+        #expect(try await !backend.searchPeople("on").isEmpty)
     }
 }

@@ -100,4 +100,14 @@ struct MentionSuggestionsTests {
         )
         #expect(rows.map(\.name) == ["Robert Smith"])
     }
+
+    /// Review finding 4: a member past the members section's cap, whom the
+    /// server also returns, is a member, never "Not in this space".
+    @Test func aMemberBeyondTheCapIsNeverShownAsOutside() {
+        let members = (0 ..< 10).map { person("m-\($0)", "Member \($0)") }
+        let rows = MentionSuggestions.suggestions(
+            for: "", candidates: members, includeAll: false, directory: [members[9]]
+        )
+        #expect(!rows.contains { $0.outsideConversation })
+    }
 }

@@ -56,9 +56,11 @@ enum MentionSuggestions {
             guard needle.isEmpty || matches(needle, name: name, email: member.email) else { continue }
             results.append(MentionSuggestion(target: .user(member.id), name: name, member: member))
         }
-        let shown = Set(results.compactMap(\.member?.id))
+        // Every candidate, not only the rows shown: a member past the cap is
+        // still a member, never "Not in this space" (review finding 4).
+        let members = Set(candidates.map(\.id))
         results += directory
-            .filter { !shown.contains($0.id) && !($0.displayName ?? "").isEmpty }
+            .filter { !members.contains($0.id) && !($0.displayName ?? "").isEmpty }
             .prefix(directoryLimit)
             .map { person in
                 MentionSuggestion(
