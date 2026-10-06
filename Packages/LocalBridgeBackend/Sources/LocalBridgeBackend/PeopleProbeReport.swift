@@ -1,5 +1,4 @@
 import ChatKit
-import CryptoKit
 import Foundation
 import GChatBridgeCore
 import URLSessionTransport
@@ -157,7 +156,7 @@ public enum PeopleProbeReport {
         )
         var rungs = [Rung(name: "control, no Authorization", authorization: nil, available: true)]
         for variant in SAPISIDHash.Variant.allCases {
-            let header = SAPISIDHash.authorization(variant, for: input, sha1: sha1Hex)
+            let header = SAPISIDHash.authorization(variant, for: input, sha1: SHA1.hex)
             rungs.append(Rung(name: variant.rawValue, authorization: header, available: header != nil))
         }
         var found: [(id: String, email: String)]?
@@ -282,9 +281,5 @@ public enum PeopleProbeReport {
         let plain = !message.contains("@")
             && message.range(of: "^[A-Za-z0-9 .,:;'()/_-]{1,200}$", options: .regularExpression) != nil
         return plain ? "\(code) \(message)" : "\(code) (message withheld, \(message.count) chars)"
-    }
-
-    static func sha1Hex(_ input: String) -> String {
-        Insecure.SHA1.hash(data: Data(input.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }

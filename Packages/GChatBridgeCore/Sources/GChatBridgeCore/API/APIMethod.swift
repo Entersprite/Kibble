@@ -97,6 +97,14 @@ public extension APIMethod where Request == GetUserPresenceRequest, Response == 
     }
 }
 
+public extension APIMethod where Request == GetMembershipRequest, Response == GetMembershipResponse {
+    /// Is one person in one space (`findings.md` §58.3)? **Seen from the web
+    /// client, never yet sent from here**: `[Verify]`.
+    static var getMembership: Self {
+        Self("get_membership")
+    }
+}
+
 public extension APIMethod where Request == ListMembersRequest, Response == ListMembersResponse {
     /// A space's members, by id (`findings.md` §56.1). **Seen from the web
     /// client, never yet sent from here**: `[Verify]` until a probe run.

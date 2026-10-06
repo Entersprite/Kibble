@@ -126,6 +126,16 @@ public protocol ChatBackend: Sendable {
     /// method**, for the reason `attachmentData(_:size:)` gives.
     func customEmojiImage(_ emoji: CustomEmojiRef) async throws -> Data
 
+    /// People in the directory matching `query`, for the `@` list (mention
+    /// non-members spec §3.1). **A requirement, not only an extension
+    /// method**, for the reason `attachmentData(_:size:)` gives.
+    func searchPeople(_ query: String) async throws -> [Member]
+
+    /// Whether `member` is in `conversation` now. A requirement for the same
+    /// reason.
+    func membership(of member: Member.ID, in conversation: Conversation.ID) async throws
+        -> ConversationMembership
+
     /// Uploads a staged file into `conversation` and returns the attachment a
     /// `ChatCommand.sendMessage` then carries. Nothing is posted: an upload
     /// that is never sent is believed to be invisible to everyone `[Verify]`. Progress counts bytes
@@ -174,6 +184,17 @@ public extension ChatBackend {
     /// their shortcodes, the direction `Capabilities` defaults in.
     func customEmojiImage(_: CustomEmojiRef) async throws -> Data {
         throw ChatError.unsupported(capability: "canFetchCustomEmoji")
+    }
+
+    /// Refuses, so a backend that has not thought about the directory offers
+    /// no outside people, the direction `Capabilities` defaults in.
+    func searchPeople(_: String) async throws -> [Member] {
+        throw ChatError.unsupported(capability: "canMentionNonMembers")
+    }
+
+    /// Refuses, for the same reason.
+    func membership(of _: Member.ID, in _: Conversation.ID) async throws -> ConversationMembership {
+        throw ChatError.unsupported(capability: "canMentionNonMembers")
     }
 
     /// Refuses, so a backend that has not thought about uploads offers no way

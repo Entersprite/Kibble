@@ -152,4 +152,20 @@ struct SendMentionTests {
         )
         #expect(LocalBridgeBackend(cookies: Self.cookies, transport: transport).capabilities.canMention)
     }
+
+    /// Mention non-members spec §3.3: `.mention` 3, `.invite` 1,
+    /// `.withoutAdding` 6, each on its own annotation.
+    @Test func eachModeSendsItsWireType() async throws {
+        let (backend, transport) = try await Self.connected(people: Self.people([]))
+        try await backend.send(.sendMessage(
+            conversationID: Conversation.ID("space/s-1"), threadID: nil, text: "@A @B @C", localID: "l-3",
+            mentions: [
+                Mention(target: .user(ChatKit.Member.ID("u-1")), start: 0, length: 2),
+                Mention(target: .user(ChatKit.Member.ID("u-2")), start: 3, length: 2, mode: .invite),
+                Mention(target: .user(ChatKit.Member.ID("u-3")), start: 6, length: 2, mode: .withoutAdding)
+            ]
+        ))
+        let types = try await Self.sentTopic(transport).annotations.map(\.userMentionMetadata.type.rawValue)
+        #expect(types == [3, 1, 6])
+    }
 }

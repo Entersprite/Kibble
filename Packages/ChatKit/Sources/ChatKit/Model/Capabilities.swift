@@ -36,6 +36,10 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// a conversation's members. The composer offers its `@` list only when
     /// this is `true` (mention composer spec §3.1).
     public var canMention: Bool
+    /// `ChatBackend.searchPeople` and `membership(of:in:)` answer, and
+    /// `.sendMessage` honours `Mention.Mode`. Gates the `@` list's directory
+    /// section and the add-or-not confirmation (mention non-members spec §3.1).
+    public var canMentionNonMembers: Bool
 
     /// The escape hatch. A newer backend can advertise a capability this build
     /// has no property for, and a newer client can look for it by name without
@@ -61,6 +65,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canFetchCustomEmoji: Bool = false,
         canSendAttachments: Bool = false,
         canMention: Bool = false,
+        canMentionNonMembers: Bool = false,
         extendedFlags: Set<String> = []
     ) {
         self.canSendMessages = canSendMessages
@@ -79,6 +84,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canFetchCustomEmoji = canFetchCustomEmoji
         self.canSendAttachments = canSendAttachments
         self.canMention = canMention
+        self.canMentionNonMembers = canMentionNonMembers
         self.extendedFlags = extendedFlags
     }
 }
@@ -103,6 +109,7 @@ public extension Capabilities {
         case canFetchCustomEmoji
         case canSendAttachments
         case canMention
+        case canMentionNonMembers
         case extendedFlags
     }
 
@@ -131,6 +138,7 @@ public extension Capabilities {
             canFetchCustomEmoji: flag(.canFetchCustomEmoji),
             canSendAttachments: flag(.canSendAttachments),
             canMention: flag(.canMention),
+            canMentionNonMembers: flag(.canMentionNonMembers),
             extendedFlags: Set(
                 container.decodeIfPresent([String].self, forKey: .extendedFlags) ?? []
             )
@@ -155,6 +163,7 @@ public extension Capabilities {
         try container.encode(canFetchCustomEmoji, forKey: .canFetchCustomEmoji)
         try container.encode(canSendAttachments, forKey: .canSendAttachments)
         try container.encode(canMention, forKey: .canMention)
+        try container.encode(canMentionNonMembers, forKey: .canMentionNonMembers)
         try container.encode(extendedFlags.sorted(), forKey: .extendedFlags)
     }
 }

@@ -208,19 +208,28 @@ public enum ChannelEventMapping {
                   metadata.hasType, annotation.hasStartIndex, annotation.hasLength
             else { return nil }
             let target: ChatKit.Mention.Target
+            var mode = ChatKit.Mention.Mode.mention
             switch metadata.type {
-            case .mention:
+            case .mention, .invite, .mentionWithoutAdding:
                 guard metadata.hasID, !metadata.id.id.isEmpty else { return nil }
                 target = .user(Member.ID(metadata.id.id))
+                // `INVITE` (1) added the person, type 6 named them without
+                // adding (`findings.md` §58): both still mention them.
+                mode = switch metadata.type {
+                case .invite: .invite
+                case .mentionWithoutAdding: .withoutAdding
+                default: .mention
+                }
             case .mentionAll:
                 target = .all
-            case .unspecified, .invite, .uninvite, .failedToAdd:
+            case .unspecified, .uninvite, .failedToAdd:
                 return nil
             }
             return ChatKit.Mention(
                 target: target,
                 start: Int(annotation.startIndex),
-                length: Int(annotation.length)
+                length: Int(annotation.length),
+                mode: mode
             )
         }
     }

@@ -80,4 +80,10 @@ struct CapabilitiesTests {
         #expect(decoded.canMention == false)
         #expect(decoded.canSendMessages == true)
     }
+
+    /// A capability set from before slice 3 must not offer outside people.
+    @Test func aMissingCanMentionNonMembersDecodesAsFalse() throws {
+        let decoded = try JSONDecoder().decode(Capabilities.self, from: Data("{}".utf8))
+        #expect(decoded.canMentionNonMembers == false)
+    }
 }

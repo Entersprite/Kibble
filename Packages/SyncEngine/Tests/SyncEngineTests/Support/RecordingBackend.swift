@@ -43,9 +43,82 @@ actor RecordingBackend: ChatBackend {
     private var holdingUploads = false
     private var heldUploads: [CheckedContinuation<Void, Never>] = []
 
-    init(world: FixtureWorld = .minimal, capabilities: Capabilities = .fixture) {
-        inner = FakeBackend(world: world, capabilities: capabilities)
+    init(world: FixtureWorld = .minimal, capabilities: Capabilities = .fixture, directory: [Member] = []) {
+        inner = FakeBackend(world: world, capabilities: capabilities, directory: directory)
         self.capabilities = capabilities
+    }
+
+    // MARK: - People (mention non-members spec §3.4)
+
+    private(set) var searches: [String] = []
+    private var holdingSearches = false
+    private var heldSearches: [CheckedContinuation<Void, Never>] = []
+    private var failingSearches = false
+    private var echoingQueries = false
+    private(set) var membershipChecks: [Member.ID] = []
+    private var holdingMemberships = false
+    private var heldMemberships: [CheckedContinuation<Void, Never>] = []
+
+    func holdSearches(_ hold: Bool) {
+        holdingSearches = hold
+    }
+
+    func failSearches(_ fail: Bool) {
+        failingSearches = fail
+    }
+
+    /// Answers each search with one person whose id is the query, so a test
+    /// can tell which query's answer was published.
+    func echoQueries(_ echo: Bool) {
+        echoingQueries = echo
+    }
+
+    func holdMemberships(_ hold: Bool) {
+        holdingMemberships = hold
+    }
+
+    var heldSearchCount: Int {
+        heldSearches.count
+    }
+
+    var heldMembershipCount: Int {
+        heldMemberships.count
+    }
+
+    /// Releases the held search at `index` (0 is the oldest).
+    func releaseHeldSearch(at index: Int = 0) {
+        guard heldSearches.indices.contains(index) else { return }
+        heldSearches.remove(at: index).resume()
+    }
+
+    func releaseHeldMembership() {
+        guard !heldMemberships.isEmpty else { return }
+        heldMemberships.removeFirst().resume()
+    }
+
+    func searchPeople(_ query: String) async throws -> [Member] {
+        searches.append(query)
+        if holdingSearches {
+            await withCheckedContinuation { heldSearches.append($0) }
+        }
+        if failingSearches {
+            throw ChatError.server(status: 500, message: "the search failed")
+        }
+        if echoingQueries {
+            return [Member(id: Member.ID(query), kind: .human, displayName: query)]
+        }
+        return try await inner.searchPeople(query)
+    }
+
+    func membership(
+        of member: Member.ID,
+        in conversation: Conversation.ID
+    ) async throws -> ConversationMembership {
+        membershipChecks.append(member)
+        if holdingMemberships {
+            await withCheckedContinuation { heldMemberships.append($0) }
+        }
+        return try await inner.membership(of: member, in: conversation)
     }
 
     /// Makes every later `send(_:)` record the command and then throw, without

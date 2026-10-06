@@ -168,13 +168,24 @@ public extension LocalBridgeBackend {
             switch mention.target {
             case let .user(id):
                 SendRequests.mentionAnnotation(
-                    userID: id.rawValue, email: memberEmails[id], start: mention.start, length: mention.length
+                    userID: id.rawValue, email: memberEmails[id], start: mention.start,
+                    length: mention.length,
+                    type: Self.wireType(mention.mode)
                 )
             case .all:
                 SendRequests.mentionAllAnnotation(start: mention.start, length: mention.length)
             case .unknown:
                 nil
             }
+        }
+    }
+
+    /// `findings.md` §58: 1 adds the person, 6 names them without adding.
+    static func wireType(_ mode: ChatKit.Mention.Mode) -> UserMentionMetadata.TypeEnum {
+        switch mode {
+        case .invite: .invite
+        case .withoutAdding: .mentionWithoutAdding
+        case .mention, .unknown: .mention
         }
     }
 

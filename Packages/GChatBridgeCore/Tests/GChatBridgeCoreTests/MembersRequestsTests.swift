@@ -62,4 +62,22 @@ struct MembersRequestsTests {
         #expect(decoded.nextPageToken.isEmpty)
         #expect(decoded.memberships.map(\.id.memberID.userID.id) == ["u-1", "u-2", "u-3"])
     }
+
+    @Test func getMembershipAsksAboutOnePersonInOneSpace() {
+        let request = MembersRequests.getMembership(member: "u-1", group: space("s-1"))
+        #expect(request.membershipIds.count == 1)
+        #expect(request.membershipIds.first?.memberID.userID.id == "u-1")
+        #expect(request.membershipIds.first?.groupID.spaceID.spaceID == "s-1")
+        #expect(request.hasRequestHeader)
+    }
+
+    /// §58.3's answer for a non-member, every value invented: state 3, role 1.
+    @Test func aNonMembersAnswerDecodes() throws {
+        let json = #"["tag",null,[[[[["u-1"]],null,[["s-1"]]],"1",3,null,1]]]"#
+        let decoded = try PBLiteDecoder.decode(
+            GetMembershipResponse.self, fromJSON: Data(json.utf8), ignoreFirstItem: true
+        ).message
+        #expect(decoded.memberships.first?.membershipState == .memberNotAMember)
+        #expect(decoded.memberships.first?.membershipRole == .roleNone)
+    }
 }

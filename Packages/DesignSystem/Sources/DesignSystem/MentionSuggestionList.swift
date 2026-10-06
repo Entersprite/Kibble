@@ -11,6 +11,9 @@ struct MentionSuggestionList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                if suggestion.outsideConversation, index > 0, !suggestions[index - 1].outsideConversation {
+                    Divider().padding(.vertical, 2)
+                }
                 Button { pick(suggestion) } label: {
                     MentionSuggestionRow(suggestion: suggestion)
                 }
@@ -34,6 +37,14 @@ struct MentionSuggestionRow: View {
 
     let suggestion: MentionSuggestion
 
+    /// The second line: the email; "Not in this space" first for a directory
+    /// person; and what `@all` does.
+    nonisolated static func detail(of suggestion: MentionSuggestion) -> String {
+        guard let member = suggestion.member else { return "Notify everyone in this space" }
+        guard suggestion.outsideConversation else { return member.email ?? "" }
+        return member.email.map { "Not in this space · \($0)" } ?? "Not in this space"
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             if let member = suggestion.member {
@@ -45,7 +56,7 @@ struct MentionSuggestionRow: View {
             }
             VStack(alignment: .leading, spacing: 0) {
                 Text(suggestion.member == nil ? "@all" : suggestion.name).lineLimit(1)
-                Text(suggestion.member?.email ?? "Notify everyone in this space")
+                Text(Self.detail(of: suggestion))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

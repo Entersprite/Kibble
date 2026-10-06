@@ -54,13 +54,6 @@ struct PeopleProbeReportTests {
         #expect(PeopleProbeReport.errorSummary(body) == "403 (message withheld, 34 chars)")
     }
 
-    /// `python3 -c 'import hashlib; print(hashlib.sha1(b"1700000000 sap-1
-    /// https://chat.google.com").hexdigest())'`
-    @Test func sha1MatchesAKnownVector() {
-        #expect(PeopleProbeReport.sha1Hex("1700000000 sap-1 https://chat.google.com")
-            == "0cdf34bd486e3b4f14ed3eb372ae19228144c08d")
-    }
-
     // MARK: - Written as it goes
 
     /// A minimal in-memory `SecretStorage`, copied rather than shared, as

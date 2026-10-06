@@ -104,4 +104,24 @@ public extension ChatSessionModel {
             failed = (conversationID: selected, draft: message)
         }
     }
+
+    /// Sends, but only into `conversation`, and only while it is the one open.
+    /// The composer's confirmation awaits a membership check, and the person
+    /// may open another conversation meanwhile: the message then goes back to
+    /// its own conversation's draft rather than into the one now open (mention
+    /// non-members review finding 2).
+    func send(_ message: ComposedMessage, in conversation: Conversation.ID) {
+        guard conversation == selected else {
+            keepDraft(message, in: conversation)
+            return
+        }
+        send(message)
+    }
+
+    /// Hands `message` back to `conversation`'s composer, the way a refused
+    /// send does: for a composer that went away holding an unsent message.
+    func keepDraft(_ message: ComposedMessage, in conversation: Conversation.ID) {
+        guard !message.text.isEmpty else { return }
+        failed = (conversationID: conversation, draft: message)
+    }
 }

@@ -50,7 +50,7 @@ public actor LocalBridgeBackend: ChatBackend {
     public nonisolated let capabilities = Capabilities(
         canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
         canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
-        canSendAttachments: true, canMention: true
+        canSendAttachments: true, canMention: true, canMentionNonMembers: true
     )
 
     public nonisolated let events: AsyncStream<ChatEvent>
@@ -64,8 +64,10 @@ public actor LocalBridgeBackend: ChatBackend {
 
     private let continuation: AsyncStream<ChatEvent>.Continuation
     private let cookies: SessionCookies
-    private let endpoints: ChatEndpoints
-    private let transport: any HTTPTransport
+    /// `internal`, not `private`: `+People.swift` sends the people search.
+    let endpoints: ChatEndpoints
+    /// `internal` for the same reason.
+    let transport: any HTTPTransport
     private let bootstrap: Bootstrap
     /// Shared with `ChannelSession`, which is the entire reason this exists as
     /// a hoisted actor rather than a value each caller copies: two jars for one
@@ -143,6 +145,13 @@ public actor LocalBridgeBackend: ChatBackend {
     /// the `invitee_info` a sent mention carries (`findings.md` §56.2). Never
     /// sent anywhere else, and cleared with the directory.
     var memberEmails: [ChatKit.Member.ID: String] = [:]
+
+    /// The bootstrap's WIZ blob, for the people search's key. Cleared by
+    /// `disconnect()`.
+    var bootstrapWiz: WizGlobalData?
+
+    /// The people search's key and its one fetch (`+People.swift`).
+    var peopleKey = PeopleKeyState()
 
     /// The in-flight `get_self_user_status` call, if any. Same shape as
     /// `memberResolution` and cancelled in `disconnect()` for the same reason:
@@ -236,6 +245,7 @@ public actor LocalBridgeBackend: ChatBackend {
         emit(.connectionStateChanged(.connecting))
         do {
             let wiz = try await bootstrap.run(cookies: cookies, endpoints: endpoints)
+            bootstrapWiz = wiz
             guard wiz.isSignedIn else {
                 throw ChatError.notAuthenticated
             }
@@ -297,6 +307,7 @@ public actor LocalBridgeBackend: ChatBackend {
     public func disconnect() async {
         guard isConnected else { return }
         isConnected = false
+        bootstrapWiz = nil
         apiClient = nil
         attachmentFetch = nil
         attachmentUpload = nil

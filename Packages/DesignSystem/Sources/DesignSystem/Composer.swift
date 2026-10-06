@@ -13,14 +13,51 @@ import SwiftUI
 /// supplies them - the pattern the paperclip and `StatusStrip` follow.
 /// Who the `@` list offers, or `nil` for no list: the backend cannot mention
 /// (`Capabilities.canMention`), or the platform has no text view for tokens.
-public struct ComposerMentions: Equatable {
+public struct ComposerMentions {
     public var candidates: [Member]
     public var includeAll: Bool
+    /// Directory people for the active query, shown after the members
+    /// (mention non-members spec §2).
+    public var directory: [Member]
+    /// Told the active `@` query, or `nil` when there is none.
+    public var queryChanged: ((String?) -> Void)?
+    /// Told when a directory person is picked, so their membership is checked.
+    public var outsidePicked: ((Member.ID) -> Void)?
+    /// Who in a message is not in the conversation. `nil` never asks.
+    public var nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])?
+    /// Sends into this composer's own conversation, after the check; `nil`
+    /// uses the composer's plain `send` (review finding 2).
+    public var sendHere: ((ComposedMessage) -> Void)?
+    /// Hands an unsent message back to this conversation's draft, when the
+    /// composer goes away mid-check or with the confirmation open.
+    public var keepHere: ((ComposedMessage) -> Void)?
 
-    public init(candidates: [Member], includeAll: Bool) {
+    public init(
+        candidates: [Member],
+        includeAll: Bool,
+        directory: [Member] = [],
+        queryChanged: ((String?) -> Void)? = nil,
+        outsidePicked: ((Member.ID) -> Void)? = nil,
+        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil,
+        sendHere: ((ComposedMessage) -> Void)? = nil,
+        keepHere: ((ComposedMessage) -> Void)? = nil
+    ) {
         self.candidates = candidates
         self.includeAll = includeAll
+        self.directory = directory
+        self.queryChanged = queryChanged
+        self.outsidePicked = outsidePicked
+        self.nonMembers = nonMembers
+        self.sendHere = sendHere
+        self.keepHere = keepHere
     }
+}
+
+/// A send waiting on the confirmation: the message, and who is outside.
+private struct PendingInvite: Identifiable {
+    let id = UUID()
+    let message: ComposedMessage
+    let people: [Member.ID]
 }
 
 public struct Composer: View {
@@ -49,6 +86,11 @@ public struct Composer: View {
     /// The `@` whose list Esc closed, so it stays closed until a new `@`.
     @State private var dismissedAt: Int?
     @State private var anchorX: CGFloat = 0
+    @State private var sendGate = ComposerSendGate()
+    @State private var pendingInvite: PendingInvite?
+    /// The message whose membership check is out, so a composer torn down
+    /// meanwhile can hand it back.
+    @State private var checking: ComposedMessage?
 
     public init(
         placeholder: String,
@@ -100,6 +142,7 @@ public struct Composer: View {
             suggestionList(above: anchor)
         }
         .onChange(of: draft.activeQuery) { _, query in
+            mentions?.queryChanged?(query?.text)
             highlighted = 0
             if query?.location != dismissedAt {
                 dismissedAt = nil
@@ -123,6 +166,32 @@ public struct Composer: View {
         // `false`), and a later redraw carrying the same non-nil value still
         // cannot re-adopt (`ComposerDraft.adopted` remembers) - so this is
         // safe to fire unconditionally on appearance.
+        // Torn down with a message unsent (another conversation was opened
+        // mid-check, or with the confirmation up): it goes back to this
+        // conversation's draft rather than being lost (review finding 2).
+        .onDisappear {
+            if let unsent = pendingInvite?.message ?? checking {
+                mentions?.keepHere?(unsent)
+            }
+        }
+        .confirmationDialog(
+            pendingInvite.map(inviteTitle) ?? "",
+            isPresented: Binding(get: { pendingInvite != nil }, set: {
+                if !$0 {
+                    pendingInvite = nil
+                }
+            }),
+            presenting: pendingInvite
+        ) { invite in
+            Button("Add and send") { finish(invite.message.settingMode(.invite, for: invite.people)) }
+            Button("Send without adding") { finish(invite.message.settingMode(
+                .withoutAdding,
+                for: invite.people
+            )) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Adding them lets them see this message.")
+        }
         .onChange(of: restoring, initial: true) { _, text in
             guard draft.adopt(text) else { return }
             isFocused = true
@@ -208,7 +277,8 @@ public struct Composer: View {
     private var suggestions: [MentionSuggestion] {
         guard let mentions, let query = draft.activeQuery, query.location != dismissedAt else { return [] }
         return MentionSuggestions.suggestions(
-            for: query.text, candidates: mentions.candidates, includeAll: mentions.includeAll
+            for: query.text, candidates: mentions.candidates, includeAll: mentions.includeAll,
+            directory: mentions.directory
         )
     }
 
@@ -247,6 +317,9 @@ public struct Composer: View {
     private func pick(_ suggestion: MentionSuggestion) {
         draft.pick(suggestion.target, name: suggestion.name)
         highlighted = 0
+        if suggestion.outsideConversation, case let .user(id) = suggestion.target {
+            mentions?.outsidePicked?(id)
+        }
     }
 
     private var trimmed: String {
@@ -261,11 +334,48 @@ public struct Composer: View {
     /// Clears optimistically. The message comes back through the event stream
     /// and lands in the store; the field emptying immediately is what makes the
     /// app feel like it did something.
+    /// Without a way to ask who is outside, sends at once. With one, asks;
+    /// anyone outside brings up the confirmation (mention non-members spec
+    /// §2). One Return at a time, and the draft cleared only if it still says
+    /// what was sent (review focus 3 and 4).
     private func submit() {
         guard canSubmit else { return }
         let message = draft.composed()
-        draft.clear()
-        send(message)
+        guard let ask = mentions?.nonMembers else {
+            draft.clear()
+            send(message)
+            return
+        }
+        guard sendGate.begin() else { return }
+        checking = message
+        Task { @MainActor in
+            defer {
+                sendGate.end()
+                checking = nil
+            }
+            let outside = await ask(message)
+            if outside.isEmpty {
+                finish(message)
+            } else {
+                pendingInvite = PendingInvite(message: message, people: outside)
+            }
+        }
+    }
+
+    private func finish(_ message: ComposedMessage) {
+        if ComposerSendGate.clears(draft: draft.composed(), sent: message) {
+            draft.clear()
+        }
+        if let sendHere = mentions?.sendHere {
+            sendHere(message)
+        } else {
+            send(message)
+        }
+    }
+
+    private func inviteTitle(_ invite: PendingInvite) -> String {
+        let names = ListFormatter.localizedString(byJoining: invite.message.names(of: invite.people))
+        return "\(names) " + (invite.people.count == 1 ? "isn't" : "aren't") + " in this space."
     }
 }
 

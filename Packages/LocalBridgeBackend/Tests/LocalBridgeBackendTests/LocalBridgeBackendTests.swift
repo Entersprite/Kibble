@@ -133,7 +133,7 @@ struct LocalBridgeBackendTests {
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
             canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
-            canSendAttachments: true, canMention: true
+            canSendAttachments: true, canMention: true, canMentionNonMembers: true
         ))
     }
 
