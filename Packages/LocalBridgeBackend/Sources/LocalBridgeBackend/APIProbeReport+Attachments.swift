@@ -315,6 +315,7 @@ extension APIProbeReport {
         await appendProjectorConfigSection(upload: shapes.firstFile, fetches: fetches, lines: &lines)
         lines.append("")
         await appendReactionSections(client: client, group: group, fetch: fetches.first?.fetch, lines: &lines)
+        await appendMemberListSection(client: client, group: group, lines: &lines)
     }
 
     private static func outcome(
