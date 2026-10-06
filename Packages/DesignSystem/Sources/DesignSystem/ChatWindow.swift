@@ -82,7 +82,14 @@ public struct ChatWindow: View {
                 mentions: state.capabilities.canMention
                     ? ComposerMentions(
                         candidates: state.mentionCandidates,
-                        includeAll: conversation.kind == .space
+                        includeAll: conversation.kind == .space,
+                        directory: state.directoryResults,
+                        queryChanged: actions.directoryQuery,
+                        outsidePicked: actions.memberPicked,
+                        // Asked only where outside people can be offered: a
+                        // space, on a backend that can mention them.
+                        nonMembers: state.capabilities.canMentionNonMembers && conversation.kind == .space
+                            ? actions.nonMembers : nil
                     )
                     : nil,
                 send: actions.send

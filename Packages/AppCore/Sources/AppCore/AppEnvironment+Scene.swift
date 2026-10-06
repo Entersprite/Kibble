@@ -59,7 +59,8 @@ public extension AppEnvironment {
             scrollTarget: model.scrollTarget,
             downloads: downloads?.states ?? [:],
             stagedAttachments: Self.composerAttachments(model.stagedAttachments),
-            mentionCandidates: model.mentionCandidates
+            mentionCandidates: model.mentionCandidates,
+            directoryResults: model.directoryResults
         )
     }
 
@@ -181,7 +182,12 @@ public extension AppEnvironment {
                     setSkinTone: { [weak self] in self?.setSkinTone($0) }
                 )
                 : nil,
-            composerAttachments: composerAttachmentActions
+            composerAttachments: composerAttachmentActions,
+            directoryQuery: { [weak self] query in self?.runningModel?.directoryQuery(query) },
+            memberPicked: { [weak self] member in self?.runningModel?.checkMembership(member) },
+            nonMembers: { [weak self] message in
+                await self?.runningModel?.nonMembers(in: message) ?? []
+            }
         )
     }
 

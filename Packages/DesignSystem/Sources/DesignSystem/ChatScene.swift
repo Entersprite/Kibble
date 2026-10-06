@@ -85,6 +85,9 @@ public struct ChatSceneState: Sendable, Equatable {
     /// The selected conversation's `@` list, ranked
     /// (`ChatSessionModel.mentionCandidates`).
     public var mentionCandidates: [Member]
+    /// The `@` list's directory section for the active query
+    /// (`ChatSessionModel.directoryResults`).
+    public var directoryResults: [Member]
 
     public init(
         conversations: [Conversation] = [],
@@ -109,7 +112,8 @@ public struct ChatSceneState: Sendable, Equatable {
         scrollTarget: Message.ID? = nil,
         downloads: [String: AttachmentDownloadState] = [:],
         stagedAttachments: [ComposerAttachment] = [],
-        mentionCandidates: [Member] = []
+        mentionCandidates: [Member] = [],
+        directoryResults: [Member] = []
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -134,6 +138,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.downloads = downloads
         self.stagedAttachments = stagedAttachments
         self.mentionCandidates = mentionCandidates
+        self.directoryResults = directoryResults
     }
 
     public var selectedConversation: Conversation? {
@@ -251,6 +256,15 @@ public struct ChatSceneActions {
     /// target.
     public var composerAttachments: ComposerAttachmentActions?
 
+    /// The composer's active `@` query, for the directory section; `nil` when
+    /// none (mention non-members spec §3.4). Optional: a host without it
+    /// shows no directory section.
+    public var directoryQuery: ((String?) -> Void)?
+    /// A directory person was picked, so their membership is checked.
+    public var memberPicked: ((Member.ID) -> Void)?
+    /// Who in a message is not in the conversation, asked at Return.
+    public var nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])?
+
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (ComposedMessage) -> Void = { _ in },
@@ -268,7 +282,10 @@ public struct ChatSceneActions {
         openAttachment: ((Attachment) async throws -> URL)? = nil,
         attachmentFiles: AttachmentFileActions? = nil,
         reactions: ReactionActions? = nil,
-        composerAttachments: ComposerAttachmentActions? = nil
+        composerAttachments: ComposerAttachmentActions? = nil,
+        directoryQuery: ((String?) -> Void)? = nil,
+        memberPicked: ((Member.ID) -> Void)? = nil,
+        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil
     ) {
         self.select = select
         self.send = send
@@ -287,5 +304,8 @@ public struct ChatSceneActions {
         self.attachmentFiles = attachmentFiles
         self.reactions = reactions
         self.composerAttachments = composerAttachments
+        self.directoryQuery = directoryQuery
+        self.memberPicked = memberPicked
+        self.nonMembers = nonMembers
     }
 }

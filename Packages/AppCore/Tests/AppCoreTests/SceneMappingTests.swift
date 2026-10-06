@@ -139,6 +139,21 @@ struct SceneMappingTests {
         #expect(try services.store.messages(in: Conversation.ID("space/1")).isEmpty)
     }
 
+    /// Mention non-members spec §3.4: the composer's three new actions do
+    /// nothing, and answer nobody, without a running session.
+    @Test func thePeopleActionsAreInertWhenNothingIsRunning() async throws {
+        let services = try FakeLaunchServices()
+        services.makeSessionFailure = ChatError.unknown("boom")
+        let environment = AppEnvironment(services: services)
+        await environment.start()
+
+        environment.actions.directoryQuery?("o")
+        environment.actions.memberPicked?(Member.ID("u"))
+        let outside = await environment.actions.nonMembers?(ComposedMessage(text: "x")) ?? []
+        #expect(outside.isEmpty)
+        #expect(environment.sceneState.directoryResults.isEmpty)
+    }
+
     @Test func theUnreadTotalIsZeroBeforeAnythingRuns() throws {
         let services = try FakeLaunchServices()
         #expect(AppEnvironment(services: services).totalUnread == 0)
