@@ -23,11 +23,16 @@ extension LocalBridgeBackend {
         guard case .spaceID = group.id else { return }
         let generation = directoryGeneration
         let (ids, truncated) = try await joinedMemberIDs(of: group, using: apiClient)
-        if truncated {
-            emit(.backendError(.unknown(
-                "list_members answered more than \(Self.memberPageLimit) pages; only the first "
-                    + "\(Self.memberPageLimit) are kept"
-            )))
+        // Last, on every way out: `.membersChanged` supersedes the last error
+        // (`SyncReducer.supersedingStaleError`), so an error emitted before
+        // it was erased at once (CLAUDE.md, session 34; review finding 4).
+        defer {
+            if truncated, generation == directoryGeneration {
+                emit(.backendError(.unknown(
+                    "list_members answered more than \(Self.memberPageLimit) pages; only the first "
+                        + "\(Self.memberPageLimit) are kept"
+                )))
+            }
         }
         guard !ids.isEmpty else { return }
 

@@ -176,6 +176,7 @@ public struct Composer: View {
             ComposerTextView(
                 draft: $draft,
                 anchorX: $anchorX,
+                placeholder: "Message \(placeholder)",
                 listOpen: !suggestions.isEmpty,
                 focusRequest: focusRequest,
                 onKey: handle,

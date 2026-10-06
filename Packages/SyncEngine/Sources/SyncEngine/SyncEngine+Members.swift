@@ -8,6 +8,10 @@ extension SyncEngine {
     /// unmarked when the call is refused, so the next selection retries.
     func loadMembers(in conversation: Conversation.ID) async {
         guard capabilities.canMention, !membersLoaded.contains(conversation) else { return }
+        // Not before the session exists: the backend would refuse, and the
+        // refusal showed as a banner on launch (review finding 6). The
+        // reconnect catch-up asks again on the first `.connected`.
+        guard case .connected = try? store.connectionState() else { return }
         guard let kind = (try? store.conversations())?.first(where: { $0.id == conversation })?.kind,
               kind == .space || kind == .meetChat else { return }
         membersLoaded.insert(conversation)

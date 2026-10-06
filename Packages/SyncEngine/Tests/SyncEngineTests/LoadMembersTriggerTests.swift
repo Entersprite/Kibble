@@ -44,6 +44,23 @@ struct LoadMembersTriggerTests {
         await model.stop()
     }
 
+    /// Review finding 6: a space selected before `connect()` finished asked
+    /// a backend with no session, and the refusal showed as a banner on
+    /// launch. Nothing is asked until the session is connected; the reconnect
+    /// catch-up asks on the first `.connected`.
+    @Test func nothingIsAskedBeforeTheSessionIsConnected() async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let space = Conversation.ID("space:1")
+        try store.apply([.upsertConversation(Conversation(id: space, kind: .space))])
+        let engine = SyncEngine(backend: backend, store: store)
+        await engine.loadMembers(in: space)
+        #expect(await Self.loads(backend).isEmpty)
+        try store.apply([.setConnectionState(.connected)])
+        await engine.loadMembers(in: space)
+        #expect(await Self.loads(backend) == [space])
+    }
+
     @Test func aDirectMessageLoadsNothing() async throws {
         let backend = RecordingBackend()
         let model = try await Self.model(backend)

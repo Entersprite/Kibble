@@ -160,6 +160,35 @@ struct LoadMembersTests {
         #expect(await Self.listCalls(transport).count == LocalBridgeBackend.memberPageLimit)
     }
 
+    /// Review finding 4: `SyncReducer.supersedingStaleError` clears the last
+    /// error on `.membersChanged`, so an error emitted before it was never
+    /// shown (CLAUDE.md, session 34). The clean-up first, the error last.
+    @Test func theCutListErrorComesAfterTheMembers() async throws {
+        let pages = try (0 ..< 12).map { try Self.page(["u-\($0)"], next: "p\($0 + 1)") }
+        let transport = try MembersTransport(
+            shell: Self.shell(), listPages: pages, getMembers: Self.people((0 ..< 10).map { "u-\($0)" })
+        )
+        let backend = try await Self.connected(transport)
+        try await backend.send(.loadMembers(conversationID: Self.space))
+        var iterator = backend.events.makeAsyncIterator()
+        var order: [String] = []
+        for _ in 0 ..< 100 {
+            guard let event = await iterator.next() else { break }
+            switch event {
+            case let .membersChanged(conversation, _) where conversation == Self.space:
+                order.append("members")
+            case let .backendError(error) where String(describing: error).contains("list_members answered"):
+                order.append("error")
+            default:
+                break
+            }
+            if order.count == 2 {
+                break
+            }
+        }
+        #expect(order == ["members", "error"])
+    }
+
     @Test func aDirectMessageAsksNothing() async throws {
         let transport = try MembersTransport(shell: Self.shell(), listPages: [], getMembers: Self.people([]))
         let backend = try await Self.connected(transport)

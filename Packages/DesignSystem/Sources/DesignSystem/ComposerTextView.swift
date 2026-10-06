@@ -17,6 +17,9 @@
         @Binding var draft: ComposerDraft
         /// The `@`'s x position in this view, for aligning the list.
         @Binding var anchorX: CGFloat
+        /// "Message …", for VoiceOver: the visible placeholder is a SwiftUI
+        /// overlay the text view knows nothing about.
+        var placeholder = ""
         let listOpen: Bool
         /// Bumped to take focus: on appearing, and when a draft is restored.
         let focusRequest: Int
@@ -32,12 +35,21 @@
         func makeNSView(context: Context) -> ComposerScrollView {
             let scroll = ComposerScrollView.make()
             scroll.textView.delegate = context.coordinator
+            Self.describe(scroll.textView, placeholder: placeholder)
             context.coordinator.show(draft, in: scroll.textView)
             return scroll
         }
 
+        /// The label and placeholder VoiceOver reads, which the `TextField`
+        /// this replaced carried itself (review finding 9).
+        static func describe(_ view: NSTextView, placeholder: String) {
+            view.setAccessibilityLabel(placeholder)
+            view.setAccessibilityPlaceholderValue(placeholder)
+        }
+
         func updateNSView(_ scroll: ComposerScrollView, context: Context) {
             context.coordinator.parent = self
+            Self.describe(scroll.textView, placeholder: placeholder)
             context.coordinator.show(draft, in: scroll.textView)
             guard context.coordinator.focusRequest != focusRequest else { return }
             context.coordinator.focusRequest = focusRequest
@@ -78,6 +90,13 @@
                 guard view.string != draft.text else { return }
                 applying = true
                 view.string = draft.text
+                // Setting the text outright bypasses undo, so the undo stack
+                // still holds ranges into the old text; undoing one raised an
+                // `NSRangeException` (review finding 1). A send, a restore or a
+                // pick starts the field's undo history afresh.
+                if let storage = view.textStorage {
+                    view.undoManager?.removeAllActions(withTarget: storage)
+                }
                 ComposerStyle.apply(draft.tokens, to: view)
                 view.setSelectedRange(NSRange(location: draft.caret, length: 0))
                 applying = false
@@ -183,7 +202,7 @@
             storage.addLayoutManager(layout)
             let container = NSTextContainer(size: NSSize(width: 1, height: CGFloat.greatestFiniteMagnitude))
             layout.addTextContainer(container)
-            return NSTextView(frame: .zero, textContainer: container)
+            return ComposerNSTextView(frame: .zero, textContainer: container)
         }()
 
         static func make() -> ComposerScrollView {
@@ -198,6 +217,13 @@
             text.drawsBackground = false
             text.isVerticallyResizable = true
             text.isHorizontallyResizable = false
+            // Without these the view never grows past its frame, and a seventh
+            // line cannot be scrolled to (review finding 2).
+            text.minSize = .zero
+            text.maxSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
             text.autoresizingMask = [.width]
             text.textContainer?.widthTracksTextView = true
             text.textContainer?.lineFragmentPadding = 0
@@ -254,6 +280,16 @@
             }
             let line = layout.defaultLineHeight(for: font)
             return min(max(used.height, line), line * CGFloat(maxLines)).rounded(.up)
+        }
+    }
+
+    /// Accepts dragged text only. An editable text view takes file and URL
+    /// drags by default, and AppKit gives a drag to the deepest view that
+    /// registered for it, so a file dropped on the field missed the
+    /// conversation's drop target and was not staged (review finding 3).
+    final class ComposerNSTextView: NSTextView {
+        override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+            [.string]
         }
     }
 #endif
