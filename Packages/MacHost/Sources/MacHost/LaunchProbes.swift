@@ -59,6 +59,15 @@ enum LaunchProbes {
     /// what it saw. `--probe-minutes=N` changes the ten-minute default, and
     /// `--punctual-server=` the server path, both parsed here for the reason
     /// `--probe-conversation=` is.
+    /// `--probe=people`. `--probe-query=` is what to search for, `a` when
+    /// absent; the report gives its length only.
+    static func peopleProbe() async -> String {
+        await write(
+            PeopleProbeReport.run(query: argument("--probe-query=") ?? PeopleProbeReport.defaultQuery),
+            to: "people-probe.txt"
+        )
+    }
+
     static func punctualProbe() async -> String {
         let name = "punctual-probe.txt"
         guard let directory = try? SystemLaunchServices.supportDirectory() else {

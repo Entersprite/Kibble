@@ -129,8 +129,9 @@ public enum PunctualProbeReport {
         return Prepared(client: punctual, key: key, people: people)
     }
 
-    /// `/app/home` is the page the capture found `Tzliq` on.
-    private static func appHomeKey(
+    /// `/app/home` is the page the capture found `Tzliq` on. Not `private`:
+    /// `PeopleProbeReport` needs the same key (`findings.md` §57).
+    static func appHomeKey(
         client: PunctualClient,
         endpoints: ChatEndpoints,
         lines: inout [String]
