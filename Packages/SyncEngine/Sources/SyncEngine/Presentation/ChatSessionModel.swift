@@ -148,6 +148,9 @@ public final class ChatSessionModel {
     var reactionTasks: [UUID: Task<Void, Never>] = [:]
     var reactionChainTail: Task<Void, Never>?
 
+    /// Edit and delete submissions (`+Edit.swift`); `stop()` cancels them.
+    var editTasks: [UUID: Task<Void, Never>] = [:]
+
     /// The text of a send that was not accepted, and the conversation it was
     /// typed in.
     ///
@@ -308,6 +311,10 @@ public final class ChatSessionModel {
         }
         reactionTasks = [:]
         reactionChainTail = nil
+        for task in editTasks.values {
+            task.cancel()
+        }
+        editTasks = [:]
         composerFiles.reset()
         // Unreachable today - a fresh model is built per session - but a
         // stale watermark or a retained draft from the account being signed
