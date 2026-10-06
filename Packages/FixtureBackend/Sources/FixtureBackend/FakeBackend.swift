@@ -55,6 +55,11 @@ public actor FakeBackend {
     let pageSize: Int
 
     var world: FixtureWorld
+
+    /// People outside the world's conversations, for `searchPeople` and an
+    /// invite (mention non-members spec §3.6). Empty unless a host passes
+    /// some, so the world's own output is unchanged.
+    let directory: [Member]
     var now: Date
 
     /// Counts everything yielded, so a test can wait for exactly as many events
@@ -77,9 +82,11 @@ public actor FakeBackend {
         world: FixtureWorld = .minimal,
         capabilities: Capabilities = .fixture,
         tick: Duration = .seconds(1),
-        pageSize: Int = 30
+        pageSize: Int = 30,
+        directory: [Member] = []
     ) {
         self.world = world
+        self.directory = directory
         self.capabilities = capabilities
         self.tick = tick
         self.pageSize = pageSize

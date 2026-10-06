@@ -82,7 +82,7 @@ public final class SystemLaunchServices: LaunchServices {
     /// `hasStoredSession()` already confirmed is in the Keychain.
     public func makeSession() async throws -> SessionSelection {
         guard arguments.usesRealBackend else {
-            let fixture = FakeBackend(world: .acme)
+            let fixture = FakeBackend(world: .acme, directory: FixtureWorld.acmeDirectory)
             // The demo world's dates are literals (2026-08-31), so the mention
             // backfill's window is anchored at the world's own start rather
             // than the wall clock, which would leave it empty.

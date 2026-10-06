@@ -101,6 +101,23 @@ private extension FakeBackend {
         // snapshot goes out. Where a specific event does exist, it is used
         // instead - see deleteMessage and markRead.
         try updateConversation(conversationID) { $0.lastActivity = message.createdAt }
+        try addInvited(body.mentions, to: conversationID)
+    }
+
+    /// An `.invite` mention of a directory person adds them, the way Chat's
+    /// "Add and send" does (`findings.md` §58.1). `.withoutAdding` adds no one.
+    func addInvited(_ mentions: [Mention], to conversationID: Conversation.ID) throws {
+        for mention in mentions where mention.mode == .invite {
+            guard case let .user(id) = mention.target,
+                  let person = directory.first(where: { $0.id == id }),
+                  world.conversation(conversationID)?.members.contains(id) == false
+            else { continue }
+            if world.member(id) == nil {
+                world.members.append(person)
+            }
+            let updated = try updateConversation(conversationID, emitUpdate: false) { $0.members.append(id) }
+            emit(.membersChanged(conversationID: conversationID, members: world.members(in: updated)))
+        }
     }
 
     func editMessage(_ id: Message.ID, text: String) throws {

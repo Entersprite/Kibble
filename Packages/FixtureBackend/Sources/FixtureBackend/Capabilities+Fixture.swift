@@ -27,6 +27,7 @@ public extension Capabilities {
         canFetchAttachments: true,
         canDownloadFiles: true,
         canSendAttachments: true,
-        canMention: true
+        canMention: true,
+        canMentionNonMembers: true
     )
 }
