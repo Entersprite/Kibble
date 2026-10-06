@@ -22,11 +22,11 @@ public extension LocalBridgeBackend {
     /// family in this package.
     func send(_ command: ChatCommand) async throws {
         switch command {
-        case let .sendMessage(conversationID, threadID, text, localID, attachments, _):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions):
             try await sendMessage(
                 conversationID: conversationID,
                 threadID: threadID,
-                text: text,
+                body: ComposedMessage(text: text, mentions: mentions),
                 localID: localID,
                 attachments: attachments
             )
@@ -53,10 +53,11 @@ public extension LocalBridgeBackend {
     private func sendMessage(
         conversationID: Conversation.ID,
         threadID: MessageThread.ID?,
-        text: String,
+        body: ComposedMessage,
         localID: String?,
         attachments: [ChatKit.Attachment]
     ) async throws {
+        let text = body.text
         guard let apiClient else {
             throw ChatError.unknown(
                 "send(_:) requires connect() to succeed first - "
@@ -73,7 +74,8 @@ public extension LocalBridgeBackend {
         // the server echoes this back on the resulting message and it is the
         // only thing that marks the echo as ours.
         let identifier = localID ?? SendRequests.makeLocalID()
-        let annotations = Self.uploadAnnotations(attachments, uploaded: uploadedMetadata)
+        let annotations = await Self.uploadAnnotations(attachments, uploaded: uploadedMetadata)
+            + mentionAnnotations(body.mentions, using: apiClient)
         // `threadID` is never `nil` for a message this backend produced itself
         // (`ChannelEventMapping.swift` always fills it in from the topic a
         // message was posted in), so the emptiness check - not just the
@@ -140,6 +142,40 @@ public extension LocalBridgeBackend {
             "the /api/ \(call) call answered 200 with no \(field), so nothing "
                 + "confirms the message was accepted"
         )
+    }
+
+    /// One annotation per mention, with emails from this session's directory.
+    /// A person whose email it lacks is looked up once, here. A lookup that
+    /// fails is not a failed send: the mention goes without `invitee_info`
+    /// (mention composer spec §4).
+    private func mentionAnnotations(
+        _ mentions: [ChatKit.Mention],
+        using apiClient: ProtoAPIClient
+    ) async -> [Annotation] {
+        let users = mentions.compactMap { mention -> ChatKit.Member.ID? in
+            if case let .user(id) = mention.target {
+                id
+            } else {
+                nil
+            }
+        }
+        let missing = Array(Set(users.filter { memberEmails[$0] == nil }))
+        if !missing.isEmpty,
+           let response = try? await apiClient.call(.getMembers, Self.getMembersRequest(missing)) {
+            remember(emailsOf: MemberMapping.map(response).members)
+        }
+        return mentions.compactMap { mention in
+            switch mention.target {
+            case let .user(id):
+                SendRequests.mentionAnnotation(
+                    userID: id.rawValue, email: memberEmails[id], start: mention.start, length: mention.length
+                )
+            case .all:
+                SendRequests.mentionAllAnnotation(start: mention.start, length: mention.length)
+            case .unknown:
+                nil
+            }
+        }
     }
 
     /// What to call a command that this backend cannot honour, for the
