@@ -73,6 +73,10 @@ public actor SyncEngine {
     /// and `stop()` can cancel it.
     var mentionBackfillTask: Task<Void, Never>?
 
+    /// Conversations whose members this session has asked for
+    /// (`SyncEngine+Members.swift`). Forgotten on failure and on `stop()`.
+    var membersLoaded: Set<Conversation.ID> = []
+
     public init(
         backend: any ChatBackend, store: ChatStore, mentionClock: (@Sendable () -> Date)? = nil
     ) {
@@ -116,6 +120,7 @@ public actor SyncEngine {
         // reason: a fetch that ignores cancellation would hang sign-out with
         // it. `loadMoreMessages`' own check is what keeps a late page out.
         mentionBackfillTask?.cancel()
+        membersLoaded = []
         mentionBackfillTask = nil
         await backend.disconnect()
     }

@@ -56,6 +56,10 @@ public final class ChatSessionModel {
     public private(set) var mentionBackfill = MentionBackfillStatus()
     /// The 24 newest recent reactions, fed by `store.observeRecentReactions`.
     public private(set) var recentReactionChoices: [ReactionChoice] = []
+    /// The `@` list's people for the selected conversation, observed
+    /// (`ChatStore.observeMentionCandidates`), never read during a render
+    /// (CLAUDE.md, session 46).
+    public internal(set) var mentionCandidates: [Member] = []
     /// Whether the sidebar's Mentions row is chosen; `selected` is `nil` then.
     /// `internal(set)` for `+Mentions.swift`.
     public internal(set) var showingMentions = false
@@ -236,7 +240,9 @@ public final class ChatSessionModel {
     /// deliver the same value more than once - it reports the row, not the
     /// transition - and a refetch per delivery would be one `list_topics` per
     /// database write.
-    private var actedOnConnection: ConnectionState?
+    /// `internal`, not `private`: `ChatSessionModel+CatchUp.swift` reads and
+    /// writes it.
+    var actedOnConnection: ConnectionState?
     public init(
         store: ChatStore, engine: SyncEngine, me: Member.ID? = nil,
         markReadTrace: (any MarkReadTraceSink)? = nil,
@@ -334,6 +340,7 @@ public final class ChatSessionModel {
         markReadTrace?.selectionChanged(to: id, in: conversations)
         messages = []
         typing = []
+        mentionCandidates = []
 
         for watcher in conversationWatchers {
             watcher.cancel()
@@ -347,6 +354,9 @@ public final class ChatSessionModel {
         )
         conversationWatchers.append(
             observe(store.observeTypingMembers(in: id)) { [weak self] in self?.typing = $0 }
+        )
+        conversationWatchers.append(
+            observe(store.observeMentionCandidates(in: id)) { [weak self] in self?.mentionCandidates = $0 }
         )
 
         // Not `try?`. A dead channel, a rejected `/api/` call or a timeout
@@ -367,32 +377,8 @@ public final class ChatSessionModel {
         // Untracked: a late one reaches a backend that drops it once
         // disconnected (`LocalBridgeBackend.watchPresence`).
         Task { [engine] in await engine.watchPresence(in: id) }
-    }
-
-    /// Refetches the open conversation's history when the channel comes back.
-    ///
-    /// A reconnect is a fresh registration with `AID` reset, so messages
-    /// delivered during the outage were never seen and no later event will
-    /// replay them. The conversation *list* is handled below the seam by
-    /// `.gap(scope: .everything)`; this is the half that depends on which
-    /// conversation the user has open, which nothing below the seam knows.
-    private func catchUpIfReconnected(_ state: ConnectionState) {
-        defer { actedOnConnection = state }
-        guard case .connected = state else { return }
-        if case .connected = actedOnConnection {
-            return
-        }
-        guard let selected else { return }
-        // The same task the selection path owns, so a selection change
-        // cancels this exactly as it cancels its own fetch - and so that this
-        // refetch cannot outlive a selection change of its own, clobbering a
-        // fresher fetch's result with an older conversation's history.
-        historyTask?.cancel()
-        historyTask = Task { [engine] in
-            await engine.requestMoreMessages(in: selected)
-        }
-        // A watch sent while disconnected was dropped, and a conversation
-        // selected during launch sent one before the session existed.
-        Task { [engine] in await engine.watchPresence(in: selected) }
+        // Untracked, like the presence watch: a late one reaches a backend
+        // that refuses it, and a refusal is forgotten so the next asks again.
+        Task { [engine] in await engine.loadMembers(in: id) }
     }
 }
