@@ -148,6 +148,19 @@ struct CommandTests {
         #expect(message.editedAt != message.createdAt)
     }
 
+    @Test func anEditCarriesItsMentions() async throws {
+        let (backend, collector) = try await connected()
+        let mention = Mention(target: .user(Member.ID("fixture-other")), start: 0, length: 6)
+
+        try await backend.send(.editMessage(id: seed, text: "@Other hi", mentions: [mention]))
+
+        guard case let .messageUpdated(message) = await collector.nextOne() else {
+            Issue.record("expected messageUpdated")
+            return
+        }
+        #expect(message.mentions == [mention])
+    }
+
     /// A deleted message keeps its place. The protocol keeps sending it, and a
     /// client that dropped it would leave a hole in its paging.
     @Test func deletingTombstonesInPlace() async throws {
