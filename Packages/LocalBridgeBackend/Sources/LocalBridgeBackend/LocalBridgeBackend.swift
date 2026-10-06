@@ -139,6 +139,11 @@ public actor LocalBridgeBackend: ChatBackend {
     /// those lookups are many and short.
     var directoryGeneration = 0
 
+    /// Email by member id, from every `get_members` answer this session, for
+    /// the `invitee_info` a sent mention carries (`findings.md` §56.2). Never
+    /// sent anywhere else, and cleared with the directory.
+    var memberEmails: [ChatKit.Member.ID: String] = [:]
+
     /// The in-flight `get_self_user_status` call, if any. Same shape as
     /// `memberResolution` and cancelled in `disconnect()` for the same reason:
     /// a session that has moved on must not have a stale identity land after
