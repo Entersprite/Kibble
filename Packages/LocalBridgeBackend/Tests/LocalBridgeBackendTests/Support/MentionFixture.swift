@@ -96,9 +96,15 @@ enum MentionFixture {
     /// the bytes go to `unknownFields`. Same reasoning as
     /// `WorldItemFixture.withRawGroupType` - setting `unknownFields` by hand
     /// would test the fixture's idea of that behaviour.
-    static func mentionWithRawKind(_ raw: UInt8, start: Int32, length: Int32) throws
+    static func mentionWithRawKind(_ raw: UInt8, start: Int32, length: Int32, user: String? = nil) throws
         -> GChatBridgeCore.Annotation {
-        var metadataBytes: Data = try UserMentionMetadata().serializedBytes()
+        var base = UserMentionMetadata()
+        if let user {
+            var id = UserId()
+            id.id = user
+            base.id = id
+        }
+        var metadataBytes: Data = try base.serializedBytes()
         // Key 0x10 is field 2, wire type 0; `raw` is a one-byte varint (< 128).
         metadataBytes.append(contentsOf: [0x10, raw])
         var annotation = GChatBridgeCore.Annotation()

@@ -136,6 +136,7 @@ extension LocalBridgeBackend {
     func forgetDirectory() {
         requestedMemberIDs = []
         memberEmails = [:]
+        peopleKey = nil
         directoryGeneration += 1
     }
 

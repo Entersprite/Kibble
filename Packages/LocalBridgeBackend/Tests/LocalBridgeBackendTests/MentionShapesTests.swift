@@ -146,7 +146,7 @@ struct MentionShapesTests {
         let counted = APIProbeReport.mentionShapes([
             Fixture.reply(annotations: [
                 Fixture.mention(.mention, user: "u-2", start: 0, length: 5),
-                Fixture.mention(.invite, user: "u-3", start: 0, length: 5),
+                Fixture.mention(.uninvite, user: "u-3", start: 0, length: 5),
                 link
             ]),
             Fixture.reply()
@@ -155,7 +155,7 @@ struct MentionShapesTests {
         #expect(counted.withAnnotations == 1)
         #expect(counted.annotationTypes == [1: 1, 6: 2])
         #expect(counted.userMentions == 2)
-        #expect(counted.mentionKinds == [1: 1, 3: 1])
+        #expect(counted.mentionKinds == [2: 1, 3: 1])
         #expect(counted.mentionKindsAbsent == 0)
         #expect(counted.mapped == 1)
     }

@@ -36,8 +36,10 @@ struct MentionMappingTests {
 
     // MARK: - What is not a mention
 
+    /// `INVITE` (1) and type 6 are mentions now (mention non-members spec
+    /// §2, `findings.md` §58); these three still are not.
     @Test(arguments: [
-        UserMentionMetadata.TypeEnum.invite, .uninvite, .failedToAdd, .unspecified
+        UserMentionMetadata.TypeEnum.uninvite, .failedToAdd, .unspecified
     ])
     func theInviteKindsAreNotMentions(_ kind: UserMentionMetadata.TypeEnum) {
         let mapped = ChannelEventMapping.mentions([
@@ -111,7 +113,7 @@ struct MentionMappingTests {
     @Test func mentionsKeepTheWireOrderAndSkipOnlyTheMalformedOne() {
         let mapped = ChannelEventMapping.mentions([
             Fixture.mention(.mention, user: "u-2", start: 0, length: 5),
-            Fixture.mention(.invite, user: "u-3", start: 6, length: 5),
+            Fixture.mention(.uninvite, user: "u-3", start: 6, length: 5),
             Fixture.mention(.mentionAll, user: nil, start: 12, length: 4)
         ])
         #expect(mapped == [
@@ -139,5 +141,52 @@ struct MentionMappingTests {
     @Test func domainMessageWithoutAnnotationsHasNoMentions() throws {
         let message = try #require(ChannelEventMapping.domainMessage(Fixture.reply()))
         #expect(message.mentions.isEmpty)
+    }
+
+    // MARK: - Mentions of people outside the space (findings.md §58)
+
+    @Test func inviteMapsToAUserMentionWithInviteMode() {
+        let mapped = ChannelEventMapping.mentions([Fixture.mention(
+            .invite,
+            user: "u-2",
+            start: 0,
+            length: 5
+        )])
+        #expect(mapped == [ChatKit.Mention(
+            target: .user(Member.ID("u-2")),
+            start: 0,
+            length: 5,
+            mode: .invite
+        )])
+    }
+
+    @Test func typeSixMapsToWithoutAdding() {
+        let mapped = ChannelEventMapping.mentions([
+            Fixture.mention(.mentionWithoutAdding, user: "u-2", start: 0, length: 5)
+        ])
+        #expect(mapped.first?.mode == .withoutAdding)
+    }
+
+    /// From raw bytes, as the wire sends it: the proto now names 6, so the
+    /// presence bit survives and the mention is kept.
+    @Test func typeSixFromRawBytesMaps() throws {
+        let annotation = try Fixture.mentionWithRawKind(6, start: 0, length: 5, user: "u-2")
+        #expect(annotation.userMentionMetadata.hasType)
+        #expect(ChannelEventMapping.mentions([annotation]).first?.mode == .withoutAdding)
+    }
+
+    @Test func uninviteIsStillIgnored() {
+        #expect(ChannelEventMapping.mentions([Fixture.mention(.uninvite, user: "u-2", start: 0, length: 5)])
+            .isEmpty)
+    }
+
+    @Test func aPlainMentionIsStillModeMention() {
+        let mapped = ChannelEventMapping.mentions([Fixture.mention(
+            .mention,
+            user: "u-2",
+            start: 0,
+            length: 5
+        )])
+        #expect(mapped.first?.mode == .mention)
     }
 }
