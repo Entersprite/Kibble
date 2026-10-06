@@ -97,6 +97,14 @@ public extension APIMethod where Request == GetUserPresenceRequest, Response == 
     }
 }
 
+public extension APIMethod where Request == ListMembersRequest, Response == ListMembersResponse {
+    /// A space's members, by id (`findings.md` §56.1). **Seen from the web
+    /// client, never yet sent from here**: `[Verify]` until a probe run.
+    static var listMembers: Self {
+        Self("list_members")
+    }
+}
+
 public extension APIMethod where Request == GetUserStatusRequest, Response == GetUserStatusResponse {
     /// Other people's `UserStatus`. **Probe only, never yet sent.** purple
     /// declares it (`googlechat_connection.h:88`) and never calls it; the
