@@ -19,4 +19,20 @@ public enum MembersRequests {
         }
         return request
     }
+
+    /// `get_membership`: is one person in one space (`findings.md` §58.3)?
+    /// Chat on the web asks it when a person is picked. `[Verify]` until sent.
+    public static func getMembership(member: String, group: GroupId) -> GetMembershipRequest {
+        var user = UserId()
+        user.id = member
+        var memberID = MemberId()
+        memberID.userID = user
+        var membershipID = MembershipId()
+        membershipID.memberID = memberID
+        membershipID.groupID = group
+        var request = GetMembershipRequest()
+        request.requestHeader = APIRequestHeader.make()
+        request.membershipIds = [membershipID]
+        return request
+    }
 }

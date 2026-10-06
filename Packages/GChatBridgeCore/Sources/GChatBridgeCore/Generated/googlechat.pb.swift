@@ -8058,6 +8058,44 @@ public nonisolated struct ListMembersResponse: Sendable {
   fileprivate var _groupRevision: ReadRevision? = nil
 }
 
+/// get_membership: in no reference. Read from two captures of Chat on the web
+/// (findings.md §56.3, §58.3). The message and field names are ours; the field
+/// numbers are the wire's.
+public nonisolated struct GetMembershipRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var requestHeader: RequestHeader {
+    get {_requestHeader ?? RequestHeader()}
+    set {_requestHeader = newValue}
+  }
+  /// Returns true if `requestHeader` has been explicitly set.
+  public var hasRequestHeader: Bool {self._requestHeader != nil}
+  /// Clears the value of `requestHeader`. Subsequent reads from it will return its default value.
+  public mutating func clearRequestHeader() {self._requestHeader = nil}
+
+  public var membershipIds: [MembershipId] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _requestHeader: RequestHeader? = nil
+}
+
+public nonisolated struct GetMembershipResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var memberships: [Membership] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct ReadReceipt: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -10877,6 +10915,10 @@ public nonisolated struct UserMentionMetadata: Sendable {
     case mention = 3
     case mentionAll = 4
     case failedToAdd = 5
+
+    /// Not in either reference: seen on a mention sent with "don't add"
+    /// (findings.md §58.2). The name is ours.
+    case mentionWithoutAdding = 6
 
     public init() {
       self = .unspecified
@@ -22538,6 +22580,75 @@ nonisolated extension ListMembersResponse: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
+nonisolated extension GetMembershipRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "GetMembershipRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{2}membership_ids\0\u{4}b\u{1}request_header\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.membershipIds) }()
+      case 100: try { try decoder.decodeSingularMessageField(value: &self._requestHeader) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.membershipIds.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.membershipIds, fieldNumber: 2)
+    }
+    try { if let v = self._requestHeader {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 100)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: GetMembershipRequest, rhs: GetMembershipRequest) -> Bool {
+    if lhs._requestHeader != rhs._requestHeader {return false}
+    if lhs.membershipIds != rhs.membershipIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension GetMembershipResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "GetMembershipResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}memberships\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.memberships) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.memberships.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.memberships, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: GetMembershipResponse, rhs: GetMembershipResponse) -> Bool {
+    if lhs.memberships != rhs.memberships {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension ReadReceipt: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ReadReceipt"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{2}read_time_micros\0\u{1}user\0")
@@ -25659,7 +25770,7 @@ nonisolated extension UserMentionMetadata: SwiftProtobuf.Message, SwiftProtobuf.
 }
 
 nonisolated extension UserMentionMetadata.TypeEnum: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0TYPE_UNSPECIFIED\0\u{1}INVITE\0\u{1}UNINVITE\0\u{1}MENTION\0\u{1}MENTION_ALL\0\u{1}FAILED_TO_ADD\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0TYPE_UNSPECIFIED\0\u{1}INVITE\0\u{1}UNINVITE\0\u{1}MENTION\0\u{1}MENTION_ALL\0\u{1}FAILED_TO_ADD\0\u{1}MENTION_WITHOUT_ADDING\0")
 }
 
 nonisolated extension SlashCommandMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {

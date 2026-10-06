@@ -66,4 +66,40 @@ public enum PeopleRequests {
         }
         return "0"
     }
+
+    /// One `PERSON` from a `ListAutocompletions` answer (`findings.md` §57.3).
+    public struct Person: Hashable, Sendable {
+        public let id: String
+        public let name: String
+        public let email: String
+        public let photoURL: URL?
+    }
+
+    /// The answer's people: `PERSON` results with a 21-digit id and a name.
+    /// Mailing lists and contact groups are not people a mention can name.
+    /// The name's position is `[Verify]` (§57.3).
+    public static func people(from body: Data) -> [Person] {
+        var text = String(decoding: body, as: UTF8.self)
+        if text.hasPrefix(")]}'") {
+            text = String(text.dropFirst(4))
+        }
+        guard let top = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Any],
+              let results = top.first as? [Any] else { return [] }
+        return results.compactMap { item in
+            guard let result = item as? [Any], result.count > 3, result[2] as? String == "PERSON",
+                  let person = result[3] as? [Any],
+                  let id = person.first as? String, id.count == 21, id.allSatisfy(\.isNumber),
+                  let name = nested(person, 2, 0, 1) as? String, !name.isEmpty
+            else { return nil }
+            let photo = (nested(person, 3, 0, 1) as? String).flatMap(URL.init(string:))
+            return Person(id: id, name: name, email: result.first as? String ?? "", photoURL: photo)
+        }
+    }
+
+    private static func nested(_ value: Any, _ path: Int...) -> Any? {
+        path.reduce(Optional(value)) { current, index in
+            guard let array = current as? [Any], array.indices.contains(index) else { return nil }
+            return array[index]
+        }
+    }
 }

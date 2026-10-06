@@ -1413,6 +1413,18 @@ message ListMembersResponse {
 	repeated MemberId invited_member_ids = 6;
 }
 
+// get_membership: in no reference. Read from two captures of Chat on the web
+// (findings.md §56.3, §58.3). The message and field names are ours; the field
+// numbers are the wire's.
+message GetMembershipRequest {
+	optional RequestHeader request_header = 100;
+	repeated MembershipId membership_ids = 2;
+}
+
+message GetMembershipResponse {
+	repeated Membership memberships = 2;
+}
+
 message ReadReceipt {
 	optional int64 read_time_micros = 2;
 	optional User user = 3;
@@ -2083,6 +2095,9 @@ message UserMentionMetadata {
 		MENTION = 3;
 		MENTION_ALL = 4;
 		FAILED_TO_ADD = 5;
+		// Not in either reference: seen on a mention sent with "don't add"
+		// (findings.md §58.2). The name is ours.
+		MENTION_WITHOUT_ADDING = 6;
 	}
 	optional UserId id = 1;
 	optional InviteeInfo invitee_info = 3;

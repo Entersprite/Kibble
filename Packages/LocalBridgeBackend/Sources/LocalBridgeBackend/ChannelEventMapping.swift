@@ -214,7 +214,8 @@ public enum ChannelEventMapping {
                 target = .user(Member.ID(metadata.id.id))
             case .mentionAll:
                 target = .all
-            case .unspecified, .invite, .uninvite, .failedToAdd:
+            case .unspecified, .invite, .uninvite, .failedToAdd, .mentionWithoutAdding:
+                // Task 3 of the non-members plan maps `.invite` and `.mentionWithoutAdding`.
                 return nil
             }
             return ChatKit.Mention(

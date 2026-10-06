@@ -37,4 +37,21 @@ struct SendRequestsMentionTests {
         #expect(annotation.startIndex == 0)
         #expect(annotation.length == 4)
     }
+
+    @Test func eachTypeIsOnTheWire() {
+        let invite = SendRequests.mentionAnnotation(
+            userID: "u-1",
+            email: nil,
+            start: 0,
+            length: 4,
+            type: .invite
+        )
+        let without = SendRequests.mentionAnnotation(
+            userID: "u-1", email: nil, start: 0, length: 4, type: .mentionWithoutAdding
+        )
+        #expect(invite.userMentionMetadata.type.rawValue == 1)
+        #expect(without.userMentionMetadata.type.rawValue == 6)
+        #expect(SendRequests.mentionAnnotation(userID: "u-1", email: nil, start: 0, length: 4)
+            .userMentionMetadata.type == .mention)
+    }
 }

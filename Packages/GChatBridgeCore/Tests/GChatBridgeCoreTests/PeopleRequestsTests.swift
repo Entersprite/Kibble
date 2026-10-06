@@ -99,4 +99,28 @@ struct PeopleRequestsTests {
     @Test func theOriginIsTheChatHostWithoutTheAccountPath() {
         #expect(PeopleRequests.origin(of: ChatEndpoints()) == "https://chat.google.com")
     }
+
+    static let answer = #"""
+    [[["one@example.invalid",null,"PERSON",["123456789012345678901",[null],\#
+    [[[null],"One Person",null,"One"]],[[[null],"https://example.invalid/one.png"]]]],\#
+    ["group@example.invalid",null,"GOOGLE_GROUP",null,["987654321098765432109"]],\#
+    ["nameless@example.invalid",null,"PERSON",["123456789012345678902",[null],[],[]]],\#
+    ["noid@example.invalid",null,"PERSON",[null]]]]
+    """#
+
+    @Test func onlyNamedPeopleWithIDsAreKept() {
+        let people = PeopleRequests.people(from: Data(Self.answer.utf8))
+        #expect(people == [PeopleRequests.Person(
+            id: "123456789012345678901", name: "One Person", email: "one@example.invalid",
+            photoURL: URL(string: "https://example.invalid/one.png")
+        )])
+    }
+
+    @Test func anXSSIPrefixIsTolerated() {
+        #expect(PeopleRequests.people(from: Data((")]}'\n" + Self.answer).utf8)).count == 1)
+    }
+
+    @Test func somethingElseIsNobody() {
+        #expect(PeopleRequests.people(from: Data("<html>".utf8)).isEmpty)
+    }
 }

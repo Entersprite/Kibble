@@ -99,18 +99,21 @@ public enum SendRequests {
     /// id, and `invitee_info` repeating the id with their email. No
     /// `display_name` and no `chip_render_type`: the server adds
     /// `DO_NOT_RENDER` itself. An unknown `email` omits `invitee_info`, which
-    /// the web client never does `[Verify]`.
+    /// the web client never does `[Verify]`. `type` is `.mention` (3) unless
+    /// the person is outside the space: `.invite` (1) adds them,
+    /// `.mentionWithoutAdding` (6) does not (§58).
     public static func mentionAnnotation(
         userID: String,
         email: String?,
         start: Int,
-        length: Int
+        length: Int,
+        type: UserMentionMetadata.TypeEnum = .mention
     ) -> Annotation {
         var user = UserId()
         user.id = userID
         var metadata = UserMentionMetadata()
         metadata.id = user
-        metadata.type = .mention
+        metadata.type = type
         if let email, !email.isEmpty {
             var invitee = InviteeInfo()
             invitee.userID = user
