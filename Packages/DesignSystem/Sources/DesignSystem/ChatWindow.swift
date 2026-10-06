@@ -10,6 +10,13 @@ public struct ChatWindow: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
 
+    /// The edit a menu asked for, the message being edited, and the message
+    /// whose deletion awaits confirmation (edit spec §5). Not `private`:
+    /// `ChatWindow+Editing.swift` reads and writes them.
+    @State var editRequest: ComposerEditRequest?
+    @State var editingMessage: Message.ID?
+    @State var pendingDelete: Message?
+
     public init(state: ChatSceneState, actions: ChatSceneActions) {
         self.state = state
         self.actions = actions
@@ -45,6 +52,7 @@ public struct ChatWindow: View {
                         attachmentFiles: actions.attachmentFiles,
                         reactions: actions.reactions
                     )
+                    .ownMessages(ownHandlers)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {
                             TypingStrip(state: state)
@@ -64,6 +72,11 @@ public struct ChatWindow: View {
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
         }
+        .onChange(of: state.selectedConversation?.id) {
+            editRequest = nil
+            editingMessage = nil
+        }
+        .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
     }
 
     /// The bar's content: the field, or why there isn't one.
@@ -94,6 +107,7 @@ public struct ChatWindow: View {
                         keepHere: actions.keepDraft.map { keep in { keep($0, conversation.id) } }
                     )
                     : nil,
+                editing: composerEditing(),
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without
@@ -117,7 +131,8 @@ public struct ChatWindow: View {
     /// Where a drop goes, if anywhere: only where the composer is drawn and
     /// the host can stage files.
     private var dropStage: (([URL]) -> Void)? {
-        guard state.capabilities.canSendMessages else { return nil }
+        // Not while editing: an edit never carries files (edit spec §5).
+        guard state.capabilities.canSendMessages, editingMessage == nil else { return nil }
         return actions.composerAttachments?.stage
     }
 
