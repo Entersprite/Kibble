@@ -43,6 +43,12 @@ public struct Composer: View {
 
     @State private var draft = ComposerDraft()
     @FocusState private var isFocused: Bool
+    /// Bumped to put the caret in the macOS field (`ComposerTextView`).
+    @State private var focusRequest = 0
+    @State private var highlighted = 0
+    /// The `@` whose list Esc closed, so it stays closed until a new `@`.
+    @State private var dismissedAt: Int?
+    @State private var anchorX: CGFloat = 0
 
     public init(
         placeholder: String,
@@ -90,7 +96,19 @@ public struct Composer: View {
         .padding(.bottom, 11)
         .animation(.snappy(duration: 0.15), value: canSubmit)
         .animation(.snappy(duration: 0.15), value: attachments.map(\.id))
-        .onAppear { isFocused = true }
+        .overlayPreferenceValue(ComposerFieldAnchor.self) { anchor in
+            suggestionList(above: anchor)
+        }
+        .onChange(of: draft.activeQuery) { _, query in
+            highlighted = 0
+            if query?.location != dismissedAt {
+                dismissedAt = nil
+            }
+        }
+        .onAppear {
+            isFocused = true
+            focusRequest += 1
+        }
         // **`initial: true` is load-bearing, not decoration.** `ChatWindow`
         // keys this view `.id(conversation.id)`, so returning to a
         // conversation after a failed send tears down the old `Composer` and
@@ -108,6 +126,7 @@ public struct Composer: View {
         .onChange(of: restoring, initial: true) { _, text in
             guard draft.adopt(text) else { return }
             isFocused = true
+            focusRequest += 1
             onRestored?()
         }
     }
@@ -125,15 +144,8 @@ public struct Composer: View {
                 .buttonStyle(.plain)
                 .help("Attach Files…")
             }
-            TextField(
-                "Message \(placeholder)",
-                text: Binding(get: { draft.text }, set: { draft.edit($0) }),
-                axis: .vertical
-            )
-            .textFieldStyle(.plain)
-            .lineLimit(1 ... 6)
-            .focused($isFocused)
-            .onSubmit(submit)
+            text
+                .anchorPreference(key: ComposerFieldAnchor.self, value: .bounds) { $0 }
             // Present only when there is something to send, which is how
             // Messages behaves - and it means the `.return` shortcut exists
             // exactly when it would do something.
@@ -145,10 +157,95 @@ public struct Composer: View {
                         .foregroundStyle(.white, Color.accentColor)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: [])
-                .transition(.scale.combined(with: .opacity))
+                #if !os(macOS)
+                    // Not on macOS: a key equivalent is checked before the
+                    // first responder, so it would send while the `@` list is
+                    // open and Return should pick. The text view handles
+                    // Return there (`ComposerTextView`).
+                    .keyboardShortcut(.return, modifiers: [])
+                #endif
+                    .transition(.scale.combined(with: .opacity))
             }
         }
+    }
+
+    /// The field: an `NSTextView` on macOS, for tokens and a caret the `@`
+    /// list can follow; a `TextField` elsewhere, with no mentions.
+    @ViewBuilder private var text: some View {
+        #if os(macOS)
+            ComposerTextView(
+                draft: $draft,
+                anchorX: $anchorX,
+                listOpen: !suggestions.isEmpty,
+                focusRequest: focusRequest,
+                onKey: handle,
+                onSubmit: submit
+            )
+            .overlay(alignment: .topLeading) {
+                if draft.text.isEmpty {
+                    Text("Message \(placeholder)")
+                        .foregroundStyle(.tertiary)
+                        .allowsHitTesting(false)
+                }
+            }
+        #else
+            TextField(
+                "Message \(placeholder)",
+                text: Binding(get: { draft.text }, set: { draft.edit($0) }),
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .lineLimit(1 ... 6)
+            .focused($isFocused)
+            .onSubmit(submit)
+        #endif
+    }
+
+    /// A pure filter over observed candidates, so computing it per render
+    /// reads no store (CLAUDE.md, session 46). Empty hides the list: no
+    /// match, no `@`, Esc, or a backend that cannot mention.
+    private var suggestions: [MentionSuggestion] {
+        guard let mentions, let query = draft.activeQuery, query.location != dismissedAt else { return [] }
+        return MentionSuggestions.suggestions(
+            for: query.text, candidates: mentions.candidates, includeAll: mentions.includeAll
+        )
+    }
+
+    /// Bottom-aligned in a frame that ends 8pt above the field, so the list
+    /// grows upwards over the transcript, starting at the `@`.
+    private func suggestionList(above anchor: Anchor<CGRect>?) -> some View {
+        GeometryReader { proxy in
+            let rows = suggestions
+            if let anchor, !rows.isEmpty {
+                let field = proxy[anchor]
+                ZStack(alignment: .bottomLeading) {
+                    MentionSuggestionList(
+                        suggestions: rows, highlighted: min(highlighted, rows.count - 1), pick: pick
+                    )
+                    .padding(.leading, min(field.minX + anchorX, max(0, proxy.size.width - 288)))
+                }
+                .frame(width: proxy.size.width, height: max(0, field.minY - 8), alignment: .bottomLeading)
+            }
+        }
+    }
+
+    #if os(macOS)
+        private func handle(_ key: ComposerKey) {
+            let rows = suggestions
+            switch key {
+            case .up: highlighted = max(0, highlighted - 1)
+            case .down: highlighted = min(rows.count - 1, highlighted + 1)
+            case .pick: if rows.indices.contains(highlighted) {
+                    pick(rows[highlighted])
+                }
+            case .dismiss: dismissedAt = draft.activeQuery?.location
+            }
+        }
+    #endif
+
+    private func pick(_ suggestion: MentionSuggestion) {
+        draft.pick(suggestion.target, name: suggestion.name)
+        highlighted = 0
     }
 
     private var trimmed: String {
@@ -168,5 +265,14 @@ public struct Composer: View {
         let message = draft.composed()
         draft.clear()
         send(message)
+    }
+}
+
+/// Where the field is, for placing the `@` list above it.
+private struct ComposerFieldAnchor: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
     }
 }
