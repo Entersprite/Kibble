@@ -243,7 +243,7 @@ struct AutoMarkReadTraceTests {
 
         harness.model.select(conversation)
         await settle()
-        harness.model.send("a reply of my own")
+        harness.model.send(ComposedMessage(text: "a reply of my own"))
         await settle()
 
         // Not a fixed count: `select(_:)`'s empty-then-real observation and

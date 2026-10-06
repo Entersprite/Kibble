@@ -1,0 +1,1 @@
+{"conversationID":"space:AAAA1111","localID":"draft-45","mentions":[{"length":6,"start":0,"target":{"id":"users/alice","type":"user"}},{"length":4,"start":11,"target":{"type":"all"}}],"text":"@Alice and @all","type":"sendMessage"}

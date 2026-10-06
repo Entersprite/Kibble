@@ -162,7 +162,15 @@ actor RecordingBackend: ChatBackend {
             return
         }
         commands.append(command)
-        if holding {
+        // A member load is recorded and can be failed, but never held: the
+        // holds sequence marks and sends, and selecting a space now also
+        // submits `.loadMembers`, which would take a held slot a test counts.
+        let holdable = if case .loadMembers = command {
+            false
+        } else {
+            true
+        }
+        if holding, holdable {
             await withCheckedContinuation { heldSubmissions.append($0) }
         }
         if failing {

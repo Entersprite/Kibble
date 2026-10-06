@@ -52,12 +52,12 @@ struct StagedSendTests {
         model.stage([Self.file("a")])
         #expect(model.stagedAttachments.map(\.id) == ["a"])
 
-        model.send("caption")
+        model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the staged file has gone") { model.stagedAttachments.isEmpty }
 
         #expect(await backend.uploads.map(\.id) == ["a"])
         let sent = await Self.sends(backend)
-        guard case let .sendMessage(sentTo, _, text, _, attachments)? = sent.first else {
+        guard case let .sendMessage(sentTo, _, text, _, attachments, _)? = sent.first else {
             Issue.record("expected one sendMessage")
             return
         }
@@ -75,12 +75,12 @@ struct StagedSendTests {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
         model.stage([Self.file("a"), Self.file("b")])
-        model.send("hello")
+        model.send(ComposedMessage(text: "hello"))
         await settleAutoMarkRead(until: "both sent") { model.stagedAttachments.isEmpty }
 
         let sent = await Self.sends(backend)
         let shapes = sent.compactMap { command -> String? in
-            guard case let .sendMessage(_, _, text, _, attachments) = command else { return nil }
+            guard case let .sendMessage(_, _, text, _, attachments, _) = command else { return nil }
             return "\(text)|\(attachments.map(\.name).joined())"
         }
         #expect(shapes == ["hello|a.png", "|b.png"])
@@ -116,19 +116,19 @@ struct StagedSendTests {
         let (model, _) = try await Self.model(backend)
         model.stage([Self.file("a"), Self.file("b")])
         await backend.failUploads(true)
-        model.send("caption")
+        model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the send stopped") {
             model.stagedAttachments.allSatisfy { !$0.isUploading }
         }
 
         #expect(model.stagedAttachments.map(\.state) == [.failed, .ready])
         #expect(await Self.sends(backend).isEmpty)
-        #expect(model.failedDraft == "caption")
+        #expect(model.failedDraft?.text == "caption")
         #expect(model.lastError != nil)
 
         // Send tries the failed one again.
         await backend.failUploads(false)
-        model.send("")
+        model.send(ComposedMessage(text: ""))
         await settleAutoMarkRead(until: "both sent") { model.stagedAttachments.isEmpty }
         #expect(await Self.sends(backend).count == 2)
         await model.stop()
@@ -143,7 +143,7 @@ struct StagedSendTests {
         model.stage([Self.file("a")])
         await backend.failSubmissions(true)
         await backend.holdSubmissions(true)
-        model.send("caption")
+        model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the post is held") { await backend.heldSubmissionCount == 1 }
         // Positive control: the row this test says is retracted exists.
         let during = try model.store.messages(in: conversation)
@@ -154,7 +154,7 @@ struct StagedSendTests {
             model.stagedAttachments.allSatisfy { !$0.isUploading }
         }
         #expect(model.stagedAttachments.map(\.state) == [.failed])
-        #expect(model.failedDraft == "caption")
+        #expect(model.failedDraft?.text == "caption")
         let rows = try model.store.messages(in: conversation)
         #expect(!rows.contains { $0.id.rawValue.hasPrefix("local/") })
         await model.stop()
@@ -166,7 +166,7 @@ struct StagedSendTests {
         let (model, conversation) = try await Self.model(backend)
         let before = try model.store.messages(in: conversation).count
         model.stage([Self.file("a")])
-        model.send("caption")
+        model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "sent") { model.stagedAttachments.isEmpty }
         await settleAutoMarkRead(until: "the echo replaced the row") {
             (try? model.store.messages(in: conversation))?
@@ -192,7 +192,7 @@ struct StagedSendTests {
         await settleAutoMarkRead()
 
         model.stage([Self.file("a"), Self.file("b")])
-        model.send("caption")
+        model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the send stopped") {
             model.stagedAttachments.map(\.state) == [.failed]
         }
@@ -209,7 +209,7 @@ struct StagedSendTests {
         #expect(model.stagedAttachments.map(\.id) == ["a"])
 
         await backend.holdSubmissions(true)
-        model.send("")
+        model.send(ComposedMessage(text: ""))
         await settleAutoMarkRead(until: "the message is held") { await backend.heldSubmissionCount == 1 }
         model.unstage("a")
         #expect(model.stagedAttachments.map(\.id) == ["a"])
@@ -226,7 +226,7 @@ struct StagedSendTests {
         var told: [String] = []
         model.didUpload = { attachment, file in told.append("\(file.id)>\(attachment.name)") }
         model.stage([Self.file("a")])
-        model.send("")
+        model.send(ComposedMessage(text: ""))
         await settleAutoMarkRead(until: "sent") { model.stagedAttachments.isEmpty }
         #expect(told == ["a>a.png"])
         await model.stop()
@@ -241,7 +241,7 @@ struct StagedSendTests {
         model.stage([Self.file("a"), Self.file("b")])
         await backend.holdSubmissions(true)
         await backend.acceptWithoutForwarding(true)
-        model.send("caption")
+        model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the first message is held") { await backend.heldSubmissionCount == 1
         }
         #expect(model.composerFiles.sends.count == 1)
@@ -261,7 +261,7 @@ struct StagedSendTests {
         model.stage([Self.file("a")])
         await backend.holdUploads(true)
         await backend.failUploads(true)
-        model.send("caption")
+        model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the upload is held") { await backend.heldUploadCount == 1 }
         await model.stop()
         await backend.releaseHeldUpload()
@@ -280,7 +280,7 @@ struct StagedSendTests {
         model.stage([Self.file("a")])
         await backend.holdUploads(true)
         await backend.acceptWithoutForwarding(true)
-        model.send("caption")
+        model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the upload is held") { await backend.heldUploadCount == 1 }
         await model.stop()
         await backend.releaseHeldUpload()

@@ -1393,8 +1393,12 @@ message ListMembersRequest {
 	optional RequestHeader request_header = 100;
 	optional SpaceId space_id = 1;
 	optional GroupId group_id = 5;
-	// repeated FetchOptions fetch_options = 2;
-	// optional Filter filter = 7;
+	// purple comments these out as `repeated FetchOptions fetch_options = 2`
+	// and `optional Filter filter = 7`. Chat on the web sends `[4, 5]` and
+	// `1` (findings.md §56.1): varints, so plain integers here. Copied, not
+	// understood [Verify].
+	repeated int32 fetch_options = 2;
+	optional int32 filter = 7;
 	optional int32 page_size = 3;
 	optional string page_token = 4;
 	optional ReferenceRevision not_older_than = 6;

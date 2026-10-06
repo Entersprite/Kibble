@@ -303,7 +303,16 @@ public extension ChatStore {
             ).map(StoredDate.date)
         }
         try row.upsert(db)
-        try setMembership(conversation.id, conversation.members, in: db)
+        // A snapshot that lists nobody says nothing about membership, the same
+        // reasoning as `lastReadAt` above. A space's world item never lists
+        // its members (`findings.md` §43.1); `list_members` does (§56.1), and
+        // a later world load or `conversationUpdated` must not erase that.
+        // Nobody is never the true answer: the signed-in account is always a
+        // member of a conversation it can see. `.setMembership` still replaces
+        // outright.
+        if !conversation.members.isEmpty {
+            try setMembership(conversation.id, conversation.members, in: db)
+        }
     }
 
     private static func setMembership(

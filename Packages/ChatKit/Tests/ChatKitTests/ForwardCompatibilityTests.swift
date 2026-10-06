@@ -175,4 +175,23 @@ struct ForwardCompatibilityTests {
         let deliberate = Fixture.connectionStates.first { $0.name == "state-disconnected-deliberate" }
         #expect(try !(Wire.json(#require(deliberate).value)).contains("null"))
     }
+
+    /// A send from before mentions existed still decodes, with none.
+    @Test func aSendWithoutMentionsDecodesWithNone() throws {
+        let json = #"{"type":"sendMessage","conversationID":"space:AAAA1111","text":"hi"}"#
+        let command = try JSONDecoder().decode(ChatCommand.self, from: Data(json.utf8))
+        guard case let .sendMessage(_, _, _, _, _, mentions) = command else {
+            Issue.record("expected sendMessage")
+            return
+        }
+        #expect(mentions.isEmpty)
+    }
+
+    /// Absent mentions are omitted, so frames from before mentions are byte-identical.
+    @Test func aSendWithNoMentionsEncodesNoMentionsKey() throws {
+        let data = try JSONEncoder().encode(ChatCommand.sendMessage(
+            conversationID: Conversation.ID("space:1"), threadID: nil, text: "hi", localID: nil
+        ))
+        #expect(!String(decoding: data, as: UTF8.self).contains("mentions"))
+    }
 }

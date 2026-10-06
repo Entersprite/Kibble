@@ -26,6 +26,7 @@ public extension Capabilities {
         supportsHistoryCatchUp: true,
         canFetchAttachments: true,
         canDownloadFiles: true,
-        canSendAttachments: true
+        canSendAttachments: true,
+        canMention: true
     )
 }

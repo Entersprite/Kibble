@@ -47,6 +47,7 @@ extension LocalBridgeBackend {
         }
 
         let mapped = MemberMapping.map(response)
+        remember(emailsOf: mapped.members)
         if mapped.skipped > 0 {
             emit(.backendError(.unknown(
                 "\(mapped.skipped) member(s) could not be mapped and were skipped"
@@ -117,6 +118,7 @@ extension LocalBridgeBackend {
         // and a stale session's names must not land in the next one.
         guard generation == directoryGeneration else { return }
         let mapped = MemberMapping.map(response)
+        remember(emailsOf: mapped.members)
         if mapped.skipped > 0 {
             emit(.backendError(.unknown(
                 "\(mapped.skipped) member(s) could not be mapped and were skipped"
@@ -133,6 +135,7 @@ extension LocalBridgeBackend {
     /// wherever a session ends - `disconnect()` and a channel that stopped.
     func forgetDirectory() {
         requestedMemberIDs = []
+        memberEmails = [:]
         directoryGeneration += 1
     }
 

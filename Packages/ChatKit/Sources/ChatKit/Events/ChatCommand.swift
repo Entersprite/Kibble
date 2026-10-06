@@ -31,12 +31,17 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// existed means exactly what it meant then. A backend whose
     /// `Capabilities.canSendAttachments` is `false` refuses a send carrying
     /// any rather than posting the text alone.
+    ///
+    /// `mentions` are spans of `text` (UTF-16, `Mention`), encoded only when
+    /// there are some, exactly like `attachments`. A backend whose
+    /// `Capabilities.canMention` is `false` posts the text without them.
     case sendMessage(
         conversationID: Conversation.ID,
         threadID: MessageThread.ID?,
         text: String,
         localID: String?,
-        attachments: [Attachment] = []
+        attachments: [Attachment] = [],
+        mentions: [Mention] = []
     )
 
     case editMessage(id: Message.ID, text: String)
@@ -83,6 +88,11 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// backend only learns of the senders on pages it fetched this session.
     case watchPresence(members: [Member.ID])
 
+    /// "List this conversation's members." The answer arrives as
+    /// `.membersChanged`. A backend that already knows them, or cannot list
+    /// them, accepts it and does nothing (mention composer spec §3.1).
+    case loadMembers(conversationID: Conversation.ID)
+
     /// A command from a newer client, kept whole so that a backend can report
     /// precisely what it was asked and could not do.
     case unknown(type: String, payload: JSONValue)
@@ -107,6 +117,7 @@ extension ChatCommand {
         case level
         case members
         case attachments
+        case mentions
     }
 
     enum Tag: String {
@@ -118,6 +129,7 @@ extension ChatCommand {
         case markRead
         case setNotificationLevel
         case watchPresence
+        case loadMembers
         case unknown
     }
 
@@ -145,7 +157,8 @@ extension ChatCommand {
                 ),
                 text: container.decode(String.self, forKey: .text),
                 localID: container.decodeIfPresent(String.self, forKey: .localID),
-                attachments: container.decodeIfPresent([Attachment].self, forKey: .attachments) ?? []
+                attachments: container.decodeIfPresent([Attachment].self, forKey: .attachments) ?? [],
+                mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? []
             )
         case Tag.editMessage.rawValue:
             try .editMessage(
@@ -199,6 +212,8 @@ extension ChatCommand {
             )
         case Tag.watchPresence.rawValue:
             try .watchPresence(members: container.decode([Member.ID].self, forKey: .members))
+        case Tag.loadMembers.rawValue:
+            try .loadMembers(conversationID: container.decode(Conversation.ID.self, forKey: .conversationID))
         default:
             nil
         }
@@ -221,7 +236,7 @@ extension ChatCommand {
         into container: inout KeyedEncodingContainer<CodingKeys>
     ) throws -> Bool {
         switch self {
-        case let .sendMessage(conversationID, threadID, text, localID, attachments):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions):
             try container.encode(Tag.sendMessage.rawValue, forKey: .type)
             try container.encode(conversationID, forKey: .conversationID)
             try container.encodeIfPresent(threadID, forKey: .threadID)
@@ -229,6 +244,9 @@ extension ChatCommand {
             try container.encodeIfPresent(localID, forKey: .localID)
             if !attachments.isEmpty {
                 try container.encode(attachments, forKey: .attachments)
+            }
+            if !mentions.isEmpty {
+                try container.encode(mentions, forKey: .mentions)
             }
         case let .editMessage(id, text):
             try container.encode(Tag.editMessage.rawValue, forKey: .type)
@@ -271,6 +289,9 @@ extension ChatCommand {
         case let .watchPresence(members):
             try container.encode(Tag.watchPresence.rawValue, forKey: .type)
             try container.encode(members, forKey: .members)
+        case let .loadMembers(conversationID):
+            try container.encode(Tag.loadMembers.rawValue, forKey: .type)
+            try container.encode(conversationID, forKey: .conversationID)
         default:
             return false
         }

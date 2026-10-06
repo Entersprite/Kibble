@@ -26,7 +26,8 @@ import Foundation
 /// a client replace an optimistic copy instead of showing the message twice.
 ///
 /// `annotations` is empty on both unless the message carries an upload
-/// (`uploadAnnotation(_:)`). The reference also passes formatting annotations
+/// (`uploadAnnotation(_:)`) or a mention (`mentionAnnotation`,
+/// `mentionAllAnnotation`). The reference also passes formatting annotations
 /// through from Matrix; there is no formatting in this client's composer yet,
 /// and sending an empty repeated field is identical on the wire to not
 /// sending one.
@@ -90,6 +91,49 @@ public enum SendRequests {
         annotation.type = .uploadMetadata
         annotation.uploadMetadata = metadata
         annotation.chipRenderType = .render
+        return annotation
+    }
+
+    /// A mention of one person, as Chat on the web sends it (`findings.md`
+    /// §56.2): the span in UTF-16 units over `@Name` in the text, the user's
+    /// id, and `invitee_info` repeating the id with their email. No
+    /// `display_name` and no `chip_render_type`: the server adds
+    /// `DO_NOT_RENDER` itself. An unknown `email` omits `invitee_info`, which
+    /// the web client never does `[Verify]`.
+    public static func mentionAnnotation(
+        userID: String,
+        email: String?,
+        start: Int,
+        length: Int
+    ) -> Annotation {
+        var user = UserId()
+        user.id = userID
+        var metadata = UserMentionMetadata()
+        metadata.id = user
+        metadata.type = .mention
+        if let email, !email.isEmpty {
+            var invitee = InviteeInfo()
+            invitee.userID = user
+            invitee.email = email
+            metadata.inviteeInfo = invitee
+        }
+        return mention(metadata, start: start, length: length)
+    }
+
+    /// `@all`: `MENTION_ALL` with no id, as mautrix sends it. The web client's
+    /// own `@all` is unseen `[Verify]`.
+    public static func mentionAllAnnotation(start: Int, length: Int) -> Annotation {
+        var metadata = UserMentionMetadata()
+        metadata.type = .mentionAll
+        return mention(metadata, start: start, length: length)
+    }
+
+    private static func mention(_ metadata: UserMentionMetadata, start: Int, length: Int) -> Annotation {
+        var annotation = Annotation()
+        annotation.type = .userMention
+        annotation.startIndex = Int32(start)
+        annotation.length = Int32(length)
+        annotation.userMentionMetadata = metadata
         return annotation
     }
 

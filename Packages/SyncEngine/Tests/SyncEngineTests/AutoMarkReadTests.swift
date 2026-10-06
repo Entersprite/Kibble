@@ -57,7 +57,7 @@ struct AutoMarkReadTests {
         await settle()
         #expect(await backend.markReadCount == 1)
 
-        model.send("a reply of my own")
+        model.send(ComposedMessage(text: "a reply of my own"))
         await settle()
 
         #expect(await backend.markReadCount == 2)
@@ -335,7 +335,7 @@ struct AutoMarkReadTests {
         // the exact window in which a wall-clock-stamped optimistic row
         // would wrongly be seen as a newer read position.
         await backend.holdSubmissions(true)
-        model.send("a reply of my own")
+        model.send(ComposedMessage(text: "a reply of my own"))
         await settle()
 
         // No second `.markRead` was even attempted from the optimistic row

@@ -41,9 +41,9 @@ public struct ChatSceneState: Sendable, Equatable {
     /// it.
     public var capabilities: Capabilities
 
-    /// Text from a send that was not accepted, for the composer to adopt.
-    /// `nil` in every ordinary frame.
-    public var failedDraft: String?
+    /// A send that was not accepted, mentions and all, for the composer to
+    /// adopt. `nil` in every ordinary frame.
+    public var failedDraft: ComposedMessage?
 
     /// Conversations whose rule hides the unread indicator - drawn read in the
     /// sidebar whatever `hasUnread` says (spec §3). The flag itself is untouched:
@@ -82,6 +82,9 @@ public struct ChatSceneState: Sendable, Equatable {
 
     /// The selected conversation's staged files, for the composer.
     public var stagedAttachments: [ComposerAttachment]
+    /// The selected conversation's `@` list, ranked
+    /// (`ChatSessionModel.mentionCandidates`).
+    public var mentionCandidates: [Member]
 
     public init(
         conversations: [Conversation] = [],
@@ -94,7 +97,7 @@ public struct ChatSceneState: Sendable, Equatable {
         lastError: ChatError? = nil,
         notice: String? = nil,
         capabilities: Capabilities = Capabilities(),
-        failedDraft: String? = nil,
+        failedDraft: ComposedMessage? = nil,
         unreadHidden: Set<Conversation.ID> = [],
         dimmed: Set<Conversation.ID> = [],
         muted: Set<Conversation.ID> = [],
@@ -105,7 +108,8 @@ public struct ChatSceneState: Sendable, Equatable {
         unreadMentionCount: Int = 0,
         scrollTarget: Message.ID? = nil,
         downloads: [String: AttachmentDownloadState] = [:],
-        stagedAttachments: [ComposerAttachment] = []
+        stagedAttachments: [ComposerAttachment] = [],
+        mentionCandidates: [Member] = []
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -129,6 +133,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.scrollTarget = scrollTarget
         self.downloads = downloads
         self.stagedAttachments = stagedAttachments
+        self.mentionCandidates = mentionCandidates
     }
 
     public var selectedConversation: Conversation? {
@@ -145,7 +150,7 @@ public struct ChatSceneState: Sendable, Equatable {
 @MainActor
 public struct ChatSceneActions {
     public var select: (Conversation.ID) -> Void
-    public var send: (String) -> Void
+    public var send: (ComposedMessage) -> Void
 
     /// Take the person back to sign-in. **Optional, and its absence is the
     /// point**: `nil` means the host has no sign-in to offer here, so no
@@ -248,7 +253,7 @@ public struct ChatSceneActions {
 
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
-        send: @escaping (String) -> Void = { _ in },
+        send: @escaping (ComposedMessage) -> Void = { _ in },
         signIn: (() -> Void)? = nil,
         signOut: (() -> Void)? = nil,
         reconnect: (() -> Void)? = nil,

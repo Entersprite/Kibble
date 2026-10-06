@@ -134,7 +134,7 @@ struct SceneMappingTests {
 
         // Must not trap or write anything. There is no model to ask.
         environment.actions.select(Conversation.ID("space/1"))
-        environment.actions.send("hello")
+        environment.actions.send(ComposedMessage(text: "hello"))
 
         #expect(try services.store.messages(in: Conversation.ID("space/1")).isEmpty)
     }

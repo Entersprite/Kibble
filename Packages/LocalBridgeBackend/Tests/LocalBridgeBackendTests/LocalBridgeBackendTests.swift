@@ -126,13 +126,14 @@ struct LocalBridgeBackendTests {
     /// differently: on a capture of Chat on the web (`findings.md` §54.4),
     /// before any live run from this client. `canSendAttachments` joined on
     /// the two references' agreement, also before a live run: session 50's
-    /// `--probe=upload` is what settles it.
+    /// `--probe=upload` is what settles it. `canMention` joined on the web
+    /// client's capture (`findings.md` §56), before any live run.
     @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canReact: true, canMarkRead: true, supportsThreads: true,
             canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
-            canSendAttachments: true
+            canSendAttachments: true, canMention: true
         ))
     }
 

@@ -27,10 +27,11 @@ public extension ChatSessionModel {
         engine.capabilities
     }
 
-    /// The failed text, but only while its own conversation is open.
-    var failedDraft: String? {
+    /// The failed message, mentions and all, but only while its own
+    /// conversation is open.
+    var failedDraft: ComposedMessage? {
         guard let failed, failed.conversationID == selected else { return nil }
-        return failed.text
+        return failed.draft
     }
 
     /// Called by the host once it has put the text back, so it is not offered
@@ -52,13 +53,16 @@ public extension ChatSessionModel {
     /// a message that never leaves.
     ///
     /// With files staged, the text goes with the first of them instead
-    /// (`sendStaged(_:in:)`).
-    func send(_ text: String) {
+    /// (`sendStaged(_:in:)`). Mentions ride on the optimistic row too, so the
+    /// bubble highlights at once, and on a refused draft, so a resend still
+    /// mentions (mention composer spec §2).
+    func send(_ message: ComposedMessage) {
         guard let selected, capabilities.canSendMessages else { return }
         if stagedAttachments.contains(where: { !$0.isUploading }) {
-            sendStaged(text, in: selected)
+            sendStaged(message, in: selected)
             return
         }
+        let text = message.text
         // Only a staged file makes an empty send mean something. A composer
         // one frame behind its staged files must not post an empty message.
         guard !text.isEmpty else { return }
@@ -76,7 +80,8 @@ public extension ChatSessionModel {
                 sender: me,
                 text: text,
                 createdAt: Date(),
-                localID: localID
+                localID: localID,
+                mentions: message.mentions
             ))])
             // Only what was actually written. With no `me` there is no
             // optimistic row and nothing to take back.
@@ -85,7 +90,8 @@ public extension ChatSessionModel {
         Task { @MainActor [weak self, engine] in
             let accepted = await engine.submit(
                 .sendMessage(
-                    conversationID: selected, threadID: nil, text: text, localID: localID
+                    conversationID: selected, threadID: nil, text: text, localID: localID,
+                    mentions: message.mentions
                 ),
                 // By id, not by `localID`. The server echoes `localID` back on
                 // the delivered message, so a `localID` retraction would
@@ -95,7 +101,7 @@ public extension ChatSessionModel {
                 undoing: undo
             )
             guard let self, !accepted else { return }
-            failed = (conversationID: selected, text: text)
+            failed = (conversationID: selected, draft: message)
         }
     }
 }

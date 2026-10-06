@@ -79,6 +79,12 @@ public struct ChatWindow: View {
                 onRestored: actions.draftRestored,
                 attachments: state.stagedAttachments,
                 attachmentActions: actions.composerAttachments,
+                mentions: state.capabilities.canMention
+                    ? ComposerMentions(
+                        candidates: state.mentionCandidates,
+                        includeAll: conversation.kind == .space
+                    )
+                    : nil,
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without
