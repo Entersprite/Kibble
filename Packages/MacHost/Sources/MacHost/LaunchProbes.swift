@@ -54,6 +54,14 @@ enum LaunchProbes {
         )
     }
 
+    /// `--probe=edit`: posts one message, edits it, deletes it, and reports
+    /// what came back. `--probe-conversation=` is **required**: a post is
+    /// visible to the conversation's members (edit spec §3).
+    static func editProbe() async -> String {
+        let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
+        return await write(EditProbeReport.run(conversation: choice), to: "edit-probe.txt")
+    }
+
     /// `--probe=punctual`. Long-running, so the report is rewritten after
     /// every line rather than once at the end: a run that is quit early keeps
     /// what it saw. `--probe-minutes=N` changes the ten-minute default, and

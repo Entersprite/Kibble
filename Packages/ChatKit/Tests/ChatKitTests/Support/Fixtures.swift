@@ -270,6 +270,18 @@ extension Fixture {
         Sample("command-loadMembers", .loadMembers(conversationID: spaceID)),
         Sample("command-editMessage", .editMessage(id: messageID, text: "Corrected.")),
         Sample("command-deleteMessage", .deleteMessage(id: messageID)),
+        Sample(
+            "command-editMessage-addressed",
+            .editMessage(
+                id: messageID, text: "@Alice corrected.",
+                conversationID: spaceID, threadID: threadID,
+                mentions: [Mention(target: .user(Member.ID("users/alice")), start: 0, length: 6)]
+            )
+        ),
+        Sample(
+            "command-deleteMessage-addressed",
+            .deleteMessage(id: messageID, conversationID: spaceID, threadID: threadID)
+        ),
         Sample("command-setReaction", .setReaction(messageID: messageID, emoji: "🛞", add: true)),
         Sample(
             "command-setReaction-addressed",

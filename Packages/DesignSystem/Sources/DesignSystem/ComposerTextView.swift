@@ -5,7 +5,7 @@
 
     /// What the field hands to the `@` list while it is open.
     enum ComposerKey: Equatable {
-        case up, down, pick, dismiss
+        case up, down, pick, dismiss, editNewest, cancelEdit
     }
 
     /// The composer's text on macOS: an `NSTextView`, because a SwiftUI
@@ -25,6 +25,11 @@
         let focusRequest: Int
         let onKey: (ComposerKey) -> Void
         let onSubmit: () -> Void
+        /// Up edits the newest message, and Esc cancels an edit, only when the
+        /// composer says so (`ComposerEditKeys`); otherwise both are the text
+        /// view's own (edit spec §5).
+        var upEdits = false
+        var escCancels = false
 
         static let maxLines = 6
 
@@ -131,24 +136,16 @@
             }
 
             func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
-                let open = parent.listOpen
+                if let key = listKey(selector) ?? editKey(selector) {
+                    parent.onKey(key)
+                    return true
+                }
                 switch selector {
-                case #selector(NSResponder.moveUp(_:)) where open:
-                    parent.onKey(.up)
-                case #selector(NSResponder.moveDown(_:)) where open:
-                    parent.onKey(.down)
-                case #selector(NSResponder.insertTab(_:)) where open:
-                    parent.onKey(.pick)
-                case #selector(NSResponder.cancelOperation(_:)) where open:
-                    parent.onKey(.dismiss)
                 case #selector(NSResponder.insertNewline(_:)):
-                    if open {
-                        parent.onKey(.pick)
-                    } else if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+                    if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
                         return false
-                    } else {
-                        parent.onSubmit()
                     }
+                    parent.onSubmit()
                 case #selector(NSResponder.insertTab(_:)):
                     view.window?.selectNextKeyView(nil)
                 case #selector(NSResponder.deleteBackward(_:)):
@@ -157,6 +154,28 @@
                     return false
                 }
                 return true
+            }
+
+            /// The open `@` list takes the keys that move and pick in it.
+            private func listKey(_ selector: Selector) -> ComposerKey? {
+                guard parent.listOpen else { return nil }
+                switch selector {
+                case #selector(NSResponder.moveUp(_:)): return .up
+                case #selector(NSResponder.moveDown(_:)): return .down
+                case #selector(NSResponder.insertTab(_:)),
+                     #selector(NSResponder.insertNewline(_:)): return .pick
+                case #selector(NSResponder.cancelOperation(_:)): return .dismiss
+                default: return nil
+                }
+            }
+
+            /// Up and Esc in edit mode, when the composer says so.
+            private func editKey(_ selector: Selector) -> ComposerKey? {
+                switch selector {
+                case #selector(NSResponder.moveUp(_:)) where parent.upEdits: .editNewest
+                case #selector(NSResponder.cancelOperation(_:)) where parent.escCancels: .cancelEdit
+                default: nil
+                }
             }
 
             /// Backspace at a token's end removes the whole token, through

@@ -27,9 +27,9 @@ public extension FakeBackend {
                 in: conversationID, thread: threadID, body: ComposedMessage(text: text, mentions: mentions),
                 localID: localID, attachments: attachments
             )
-        case let .editMessage(id, text):
-            try editMessage(id, text: text)
-        case let .deleteMessage(id):
+        case let .editMessage(id, text, _, _, mentions):
+            try editMessage(id, text: text, mentions: mentions)
+        case let .deleteMessage(id, _, _):
             try deleteMessage(id)
         case let .setReaction(messageID, emoji, add, _, _, customEmoji):
             let choice = customEmoji.map(ReactionChoice.init(customEmoji:)) ?? ReactionChoice(emoji: emoji)
@@ -120,10 +120,11 @@ private extension FakeBackend {
         }
     }
 
-    func editMessage(_ id: Message.ID, text: String) throws {
+    func editMessage(_ id: Message.ID, text: String, mentions: [Mention] = []) throws {
         try require(capabilities.canEditMessages, "canEditMessages")
         let edited = try updateMessage(id) {
             $0.text = text
+            $0.mentions = mentions
             $0.editedAt = advance()
         }
         emit(.messageUpdated(edited))

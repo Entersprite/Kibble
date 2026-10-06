@@ -11,55 +11,6 @@ import SwiftUI
 /// messages yet" text rather than a greyed-out field. When those actions exist
 /// they arrive as optional closures and the buttons appear only where a host
 /// supplies them - the pattern the paperclip and `StatusStrip` follow.
-/// Who the `@` list offers, or `nil` for no list: the backend cannot mention
-/// (`Capabilities.canMention`), or the platform has no text view for tokens.
-public struct ComposerMentions {
-    public var candidates: [Member]
-    public var includeAll: Bool
-    /// Directory people for the active query, shown after the members
-    /// (mention non-members spec §2).
-    public var directory: [Member]
-    /// Told the active `@` query, or `nil` when there is none.
-    public var queryChanged: ((String?) -> Void)?
-    /// Told when a directory person is picked, so their membership is checked.
-    public var outsidePicked: ((Member.ID) -> Void)?
-    /// Who in a message is not in the conversation. `nil` never asks.
-    public var nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])?
-    /// Sends into this composer's own conversation, after the check; `nil`
-    /// uses the composer's plain `send` (review finding 2).
-    public var sendHere: ((ComposedMessage) -> Void)?
-    /// Hands an unsent message back to this conversation's draft, when the
-    /// composer goes away mid-check or with the confirmation open.
-    public var keepHere: ((ComposedMessage) -> Void)?
-
-    public init(
-        candidates: [Member],
-        includeAll: Bool,
-        directory: [Member] = [],
-        queryChanged: ((String?) -> Void)? = nil,
-        outsidePicked: ((Member.ID) -> Void)? = nil,
-        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil,
-        sendHere: ((ComposedMessage) -> Void)? = nil,
-        keepHere: ((ComposedMessage) -> Void)? = nil
-    ) {
-        self.candidates = candidates
-        self.includeAll = includeAll
-        self.directory = directory
-        self.queryChanged = queryChanged
-        self.outsidePicked = outsidePicked
-        self.nonMembers = nonMembers
-        self.sendHere = sendHere
-        self.keepHere = keepHere
-    }
-}
-
-/// A send waiting on the confirmation: the message, and who is outside.
-private struct PendingInvite: Identifiable {
-    let id = UUID()
-    let message: ComposedMessage
-    let people: [Member.ID]
-}
-
 public struct Composer: View {
     let placeholder: String
     let send: (ComposedMessage) -> Void
@@ -77,6 +28,8 @@ public struct Composer: View {
     let attachmentActions: ComposerAttachmentActions?
     /// `nil` offers no `@` list.
     let mentions: ComposerMentions?
+    /// `nil` offers no edit mode (edit spec §5).
+    let editing: ComposerEditing?
 
     @State private var draft = ComposerDraft()
     @FocusState private var isFocused: Bool
@@ -99,6 +52,7 @@ public struct Composer: View {
         attachments: [ComposerAttachment] = [],
         attachmentActions: ComposerAttachmentActions? = nil,
         mentions: ComposerMentions? = nil,
+        editing: ComposerEditing? = nil,
         send: @escaping (ComposedMessage) -> Void
     ) {
         self.placeholder = placeholder
@@ -107,17 +61,22 @@ public struct Composer: View {
         self.attachments = attachments
         self.attachmentActions = attachmentActions
         self.mentions = mentions
+        self.editing = editing
         self.send = send
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !attachments.isEmpty {
+            // While editing, the bar replaces the staged files: they stay
+            // staged, and are never sent with the edit (edit spec §5).
+            if draft.editing != nil {
+                ComposerEditBar(cancel: cancelEdit)
+            } else if !attachments.isEmpty {
                 ComposerAttachmentStrip(attachments: attachments) { attachmentActions?.remove($0) }
             }
             field
         }
-        .padding(.leading, attachmentActions == nil ? 14 : 8)
+        .padding(.leading, showsPaperclip ? 8 : 14)
         .padding(.trailing, 5)
         // 7.5 above and below a ~16pt line box lands the capsule at 31pt - the
         // measured 30, plus the one point asked for. Half-points are fine: this
@@ -131,12 +90,13 @@ public struct Composer: View {
         // edge for the chips to sit on.
         .glassEffect(
             .regular.interactive(),
-            in: attachments.isEmpty ? AnyShape(.capsule) : AnyShape(.rect(cornerRadius: 18))
+            in: attachments.isEmpty && draft
+                .editing == nil ? AnyShape(.capsule) : AnyShape(.rect(cornerRadius: 18))
         )
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 11)
-        .animation(.snappy(duration: 0.15), value: canSubmit)
+        .animation(.snappy(duration: 0.15), value: canAct)
         .animation(.snappy(duration: 0.15), value: attachments.map(\.id))
         .overlayPreferenceValue(ComposerFieldAnchor.self) { anchor in
             suggestionList(above: anchor)
@@ -192,6 +152,9 @@ public struct Composer: View {
         } message: { _ in
             Text("Adding them lets them see this message.")
         }
+        .onChange(of: editing?.request, initial: true) { _, request in
+            begin(request)
+        }
         .onChange(of: restoring, initial: true) { _, text in
             guard draft.adopt(text) else { return }
             isFocused = true
@@ -202,7 +165,7 @@ public struct Composer: View {
 
     private var field: some View {
         HStack(spacing: 6) {
-            if let attachmentActions {
+            if let attachmentActions, draft.editing == nil {
                 // A label rather than a bare image, so VoiceOver reads the words.
                 Button(action: attachmentActions.choose) {
                     Label("Attach Files…", systemImage: "paperclip")
@@ -218,7 +181,7 @@ public struct Composer: View {
             // Present only when there is something to send, which is how
             // Messages behaves - and it means the `.return` shortcut exists
             // exactly when it would do something.
-            if canSubmit {
+            if canAct {
                 Button(action: submit) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title3)
@@ -249,7 +212,12 @@ public struct Composer: View {
                 listOpen: !suggestions.isEmpty,
                 focusRequest: focusRequest,
                 onKey: handle,
-                onSubmit: submit
+                onSubmit: submit,
+                upEdits: ComposerEditKeys.upEdits(
+                    draft: draft, stagedCount: attachments.count, listOpen: !suggestions.isEmpty,
+                    newest: editing?.newest
+                ),
+                escCancels: ComposerEditKeys.escCancels(draft: draft, listOpen: !suggestions.isEmpty)
             )
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
@@ -278,7 +246,8 @@ public struct Composer: View {
         guard let mentions, let query = draft.activeQuery, query.location != dismissedAt else { return [] }
         return MentionSuggestions.suggestions(
             for: query.text, candidates: mentions.candidates, includeAll: mentions.includeAll,
-            directory: mentions.directory
+            // Members only while editing: an edit never adds anyone.
+            directory: draft.editing == nil ? mentions.directory : []
         )
     }
 
@@ -310,6 +279,14 @@ public struct Composer: View {
                     pick(rows[highlighted])
                 }
             case .dismiss: dismissedAt = draft.activeQuery?.location
+            case .editNewest:
+                if let newest = editing?.newest {
+                    begin(ComposerEditRequest(
+                        messageID: newest.id,
+                        message: ComposedMessage(text: newest.text, mentions: newest.mentions)
+                    ))
+                }
+            case .cancelEdit: cancelEdit()
             }
         }
     #endif
@@ -339,7 +316,18 @@ public struct Composer: View {
     /// §2). One Return at a time, and the draft cleared only if it still says
     /// what was sent (review focus 3 and 4).
     private func submit() {
-        guard canSubmit else { return }
+        switch ComposerEditKeys.submitAction(draft: draft, canSend: canSubmit) {
+        case .nothing:
+            return
+        case .save:
+            if let ended = draft.endEditing() {
+                editing?.save(ended.messageID, ended.message)
+                editing?.ended()
+            }
+            return
+        case .send:
+            break
+        }
         let message = draft.composed()
         guard let ask = mentions?.nonMembers else {
             draft.clear()
@@ -362,6 +350,28 @@ public struct Composer: View {
         }
     }
 
+    /// Return does something: sends, or saves an edit.
+    private var canAct: Bool {
+        ComposerEditKeys.submitAction(draft: draft, canSend: canSubmit) != .nothing
+    }
+
+    private var showsPaperclip: Bool {
+        attachmentActions != nil && draft.editing == nil
+    }
+
+    private func begin(_ request: ComposerEditRequest?) {
+        guard let request, let editing else { return }
+        draft.beginEditing(request.messageID, with: request.message)
+        editing.began(request.messageID)
+        isFocused = true
+        focusRequest += 1
+    }
+
+    private func cancelEdit() {
+        guard draft.endEditing() != nil else { return }
+        editing?.ended()
+    }
+
     private func finish(_ message: ComposedMessage) {
         if ComposerSendGate.clears(draft: draft.composed(), sent: message) {
             draft.clear()
@@ -376,14 +386,5 @@ public struct Composer: View {
     private func inviteTitle(_ invite: PendingInvite) -> String {
         let names = ListFormatter.localizedString(byJoining: invite.message.names(of: invite.people))
         return "\(names) " + (invite.people.count == 1 ? "isn't" : "aren't") + " in this space."
-    }
-}
-
-/// Where the field is, for placing the `@` list above it.
-private struct ComposerFieldAnchor: PreferenceKey {
-    static let defaultValue: Anchor<CGRect>? = nil
-
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = value ?? nextValue()
     }
 }

@@ -169,3 +169,21 @@ public extension APIMethod where Request == UpdateReactionRequest, Response == U
         Self("update_reaction")
     }
 }
+
+public extension APIMethod where Request == EditMessageRequest, Response == EditMessageResponse {
+    /// Editing one of the person's own messages - `MessageEditRequests`.
+    /// `purple` declares it (`googlechat_connection.h:115`); `maugclib` calls
+    /// it (`client.py:769-773`). `[Verify]` until `--probe=edit` runs.
+    static var editMessage: Self {
+        Self("edit_message")
+    }
+}
+
+public extension APIMethod where Request == DeleteMessageRequest, Response == DeleteMessageResponse {
+    /// Deleting one of the person's own messages. `maugclib` calls it
+    /// (`client.py:762-766`); a capture saw Chat on the web send it
+    /// (`findings.md` §58.4). `[Verify]` until `--probe=edit` runs.
+    static var deleteMessage: Self {
+        Self("delete_message")
+    }
+}

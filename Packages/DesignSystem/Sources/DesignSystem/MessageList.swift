@@ -50,6 +50,10 @@ public struct MessageList: View {
     /// a read-only row and no context menu (`CLAUDE.md`: never draw a
     /// control the seam cannot honour).
     let reactions: ReactionActions?
+    /// Edit… and Delete… on the person's own messages; `nil` offers neither
+    /// (edit spec §5). Set by `ChatWindow` through `ownMessages(_:)`: the
+    /// handlers are the window's, and internal.
+    private var own: OwnMessageHandlers?
 
     /// The last target this list scrolled to, so that it is honoured once.
     /// `@State` is enough: opening a mention always passes through the
@@ -73,6 +77,12 @@ public struct MessageList: View {
         self.reactions = reactions
     }
 
+    func ownMessages(_ handlers: OwnMessageHandlers?) -> MessageList {
+        var list = self
+        list.own = handlers
+        return list
+    }
+
     public var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -82,7 +92,7 @@ public struct MessageList: View {
                             message: message, state: state,
                             loadAttachment: loadAttachment, openAttachment: openAttachment,
                             downloads: downloads, attachmentFiles: attachmentFiles,
-                            reactions: reactions
+                            reactions: reactions, own: own
                         )
                         .id(message.id)
                     }
@@ -126,6 +136,7 @@ struct MessageBubble: View {
     var downloads: [String: AttachmentDownloadState] = [:]
     var attachmentFiles: AttachmentFileActions?
     var reactions: ReactionActions?
+    var own: OwnMessageHandlers?
 
     /// Whether the full emoji picker is open for this message: from either
     /// menu's "More Emoji…" or the row's "+" (reactions spec §4.1-§4.3).
@@ -133,6 +144,10 @@ struct MessageBubble: View {
 
     private var parts: AttachmentLayout.Parts {
         AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
+    }
+
+    private var ownItems: OwnMessageMenuItems? {
+        own?.items(for: message)
     }
 
     private var isMine: Bool {
@@ -203,7 +218,7 @@ struct MessageBubble: View {
                     )
                 }
             }
-            .modifier(ReactionMenu(message: message, actions: reactions) { picking = true })
+            .modifier(ReactionMenu(message: message, actions: reactions, own: ownItems) { picking = true })
             .popover(isPresented: $picking, arrowEdge: .bottom) {
                 if let reactions {
                     EmojiPicker(reactions: message.reactions, actions: reactions) { choice, add in
@@ -279,7 +294,8 @@ struct MessageBubble: View {
                     ),
                     message: message,
                     actions: reactions,
-                    onMore: { picking = true }
+                    onMore: { picking = true },
+                    own: ownItems
                 )
                 if message.editedAt != nil {
                     editedLabel

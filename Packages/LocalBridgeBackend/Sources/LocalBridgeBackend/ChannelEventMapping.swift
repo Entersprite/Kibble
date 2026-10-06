@@ -49,6 +49,8 @@ public enum ChannelEventMapping {
             message(in: body).map(ChatEvent.messageUpdated) ?? routed(body)
         case .groupViewed:
             readState(in: body) ?? routed(body)
+        case .messageDeleted:
+            deletion(in: body) ?? routed(body)
         default:
             routed(body)
         }
@@ -78,6 +80,21 @@ public enum ChannelEventMapping {
         // the body alone would call every edit a new message.
         guard case let .messagePosted(event)? = decoded.message.type else { return nil }
         return domainMessage(event.message)
+    }
+
+    /// Decodes a `MESSAGE_DELETED` body (type 8, body field 18). Whether
+    /// Google sends this or only a `MESSAGE_UPDATED` with `delete_time` is
+    /// `[Verify]` (edit spec §1); both end as a tombstone. `nil` without a
+    /// message id or an addressable group, for `message(in:)`'s reason.
+    private static func deletion(in body: ChannelEventBody) -> ChatEvent? {
+        guard body.type == .messageDeleted else { return nil }
+        let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
+        guard case let .messageDeleted(event)? = decoded.message.type else { return nil }
+        let identifier = event.messageID.messageID
+        guard !identifier.isEmpty,
+              let conversationID = conversationID(event.messageID.parentID.topicID.groupID)
+        else { return nil }
+        return .messageDeleted(id: ChatKit.Message.ID(identifier), in: conversationID)
     }
 
     /// Decodes the read state out of a `GROUP_VIEWED` body.

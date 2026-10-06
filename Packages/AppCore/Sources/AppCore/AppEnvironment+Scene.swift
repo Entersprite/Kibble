@@ -193,7 +193,17 @@ public extension AppEnvironment {
             },
             keepDraft: { [weak self] message, conversation in
                 self?.runningModel?.keepDraft(message, in: conversation)
-            }
+            },
+            // One struct for both: `ChatWindow` draws each item only for its
+            // own capability (edit spec §5).
+            messages: runningModel
+                .map { $0.capabilities.canEditMessages || $0.capabilities.canDeleteMessages }
+                == true
+                ? MessageActions(
+                    save: { [weak self] id, message in self?.runningModel?.edit(id, to: message) },
+                    delete: { [weak self] id in self?.runningModel?.delete(id) }
+                )
+                : nil
         )
     }
 

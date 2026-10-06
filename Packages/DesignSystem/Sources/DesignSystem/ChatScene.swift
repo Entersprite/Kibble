@@ -269,6 +269,9 @@ public struct ChatSceneActions {
     public var sendTo: ((ComposedMessage, Conversation.ID) -> Void)?
     /// Hands an unsent message back to its conversation's draft.
     public var keepDraft: ((ComposedMessage, Conversation.ID) -> Void)?
+    /// Save an edit and delete a message, on the person's own messages.
+    /// **Optional, and `nil` is the point** (edit spec §5).
+    public var messages: MessageActions?
 
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
@@ -292,7 +295,8 @@ public struct ChatSceneActions {
         memberPicked: ((Member.ID) -> Void)? = nil,
         nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil,
         sendTo: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
-        keepDraft: ((ComposedMessage, Conversation.ID) -> Void)? = nil
+        keepDraft: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
+        messages: MessageActions? = nil
     ) {
         self.select = select
         self.send = send
@@ -316,5 +320,6 @@ public struct ChatSceneActions {
         self.nonMembers = nonMembers
         self.sendTo = sendTo
         self.keepDraft = keepDraft
+        self.messages = messages
     }
 }

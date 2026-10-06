@@ -44,8 +44,28 @@ public enum ChatCommand: Codable, Hashable, Sendable {
         mentions: [Mention] = []
     )
 
-    case editMessage(id: Message.ID, text: String)
-    case deleteMessage(id: Message.ID)
+    /// The person's own message, with new text and the mentions in it.
+    ///
+    /// `conversationID` and `threadID` address the message, for the reason
+    /// `setReaction` gives: Google names a message by group, topic and id, and
+    /// a backend holds no store. Optional on the wire, so a frame from before
+    /// they existed decodes; a backend that needs them and is not given them
+    /// refuses the command. `mentions` are spans of `text`, encoded only when
+    /// there are some, as on `sendMessage` (edit spec §2).
+    case editMessage(
+        id: Message.ID,
+        text: String,
+        conversationID: Conversation.ID? = nil,
+        threadID: MessageThread.ID? = nil,
+        mentions: [Mention] = []
+    )
+
+    /// Addressed the way `editMessage` is, for the same reason.
+    case deleteMessage(
+        id: Message.ID,
+        conversationID: Conversation.ID? = nil,
+        threadID: MessageThread.ID? = nil
+    )
 
     /// `add: false` removes the reaction. One command rather than two because
     /// the backend call is one call, and a client toggling a button should not
@@ -163,10 +183,17 @@ extension ChatCommand {
         case Tag.editMessage.rawValue:
             try .editMessage(
                 id: container.decode(Message.ID.self, forKey: .id),
-                text: container.decode(String.self, forKey: .text)
+                text: container.decode(String.self, forKey: .text),
+                conversationID: container.decodeIfPresent(Conversation.ID.self, forKey: .conversationID),
+                threadID: container.decodeIfPresent(MessageThread.ID.self, forKey: .threadID),
+                mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? []
             )
         case Tag.deleteMessage.rawValue:
-            try .deleteMessage(id: container.decode(Message.ID.self, forKey: .id))
+            try .deleteMessage(
+                id: container.decode(Message.ID.self, forKey: .id),
+                conversationID: container.decodeIfPresent(Conversation.ID.self, forKey: .conversationID),
+                threadID: container.decodeIfPresent(MessageThread.ID.self, forKey: .threadID)
+            )
         case Tag.setReaction.rawValue:
             try .setReaction(
                 messageID: container.decode(Message.ID.self, forKey: .messageID),
@@ -248,13 +275,20 @@ extension ChatCommand {
             if !mentions.isEmpty {
                 try container.encode(mentions, forKey: .mentions)
             }
-        case let .editMessage(id, text):
+        case let .editMessage(id, text, conversationID, threadID, mentions):
             try container.encode(Tag.editMessage.rawValue, forKey: .type)
             try container.encode(id, forKey: .id)
             try container.encode(text, forKey: .text)
-        case let .deleteMessage(id):
+            try container.encodeIfPresent(conversationID, forKey: .conversationID)
+            try container.encodeIfPresent(threadID, forKey: .threadID)
+            if !mentions.isEmpty {
+                try container.encode(mentions, forKey: .mentions)
+            }
+        case let .deleteMessage(id, conversationID, threadID):
             try container.encode(Tag.deleteMessage.rawValue, forKey: .type)
             try container.encode(id, forKey: .id)
+            try container.encodeIfPresent(conversationID, forKey: .conversationID)
+            try container.encodeIfPresent(threadID, forKey: .threadID)
         case let .setReaction(messageID, emoji, add, conversationID, threadID, customEmoji):
             try container.encode(Tag.setReaction.rawValue, forKey: .type)
             try container.encode(messageID, forKey: .messageID)
