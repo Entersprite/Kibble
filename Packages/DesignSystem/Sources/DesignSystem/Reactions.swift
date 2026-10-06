@@ -214,47 +214,66 @@ struct ReactionCapsule: View {
 }
 
 /// The bubble's context menu: the quick set as one palette row
-/// (`ControlGroup` + `.palette`, macOS 14+). Nothing at all when there are no
-/// actions or the message is deleted.
+/// (`ControlGroup` + `.palette`, macOS 14+), then Edit… and Delete… on the
+/// person's own message (edit spec §5). Nothing at all when there is nothing
+/// to offer or the message is deleted.
 struct ReactionMenu: ViewModifier {
     let message: Message
     let actions: ReactionActions?
+    var own: OwnMessageMenuItems?
     /// Opens the full picker ("More Emoji…", spec §4.2); `nil` draws no such
     /// item (`CLAUDE.md`: never draw a control the seam cannot honour).
     var onMore: (() -> Void)?
 
     func body(content: Content) -> some View {
-        if let actions, !message.isDeleted {
+        if actions != nil || own != nil, !message.isDeleted {
             content.contextMenu {
-                ControlGroup {
-                    ForEach(
-                        QuickReactionItems.items(for: message.reactions, recents: actions.recents()),
-                        id: \.emoji
-                    ) { item in
-                        Button {
-                            actions.toggle(message.id, item.choice, item.adds)
-                        } label: {
-                            // The palette draws the icon and drops the title,
-                            // so the emoji goes in as a picture; the title
-                            // stays for VoiceOver (`EmojiGlyph`).
-                            Label {
-                                Text(item.emoji)
-                            } icon: {
-                                if let glyph = EmojiGlyph.image(for: item.emoji) {
-                                    Image(decorative: glyph, scale: EmojiGlyph.scale)
-                                        .renderingMode(.original)
-                                }
-                            }
-                        }
-                    }
+                if let actions {
+                    reactions(actions)
                 }
-                .controlGroupStyle(.palette)
-                if let onMore {
-                    Button("More Emoji…", systemImage: EmojiPickerModel.addSymbol, action: onMore)
+                if let own {
+                    if actions != nil {
+                        Divider()
+                    }
+                    if let edit = own.edit {
+                        Button("Edit…", systemImage: "pencil", action: edit)
+                    }
+                    if let delete = own.delete {
+                        Button("Delete…", systemImage: "trash", role: .destructive, action: delete)
+                    }
                 }
             }
         } else {
             content
+        }
+    }
+
+    @ViewBuilder private func reactions(_ actions: ReactionActions) -> some View {
+        ControlGroup {
+            ForEach(
+                QuickReactionItems.items(for: message.reactions, recents: actions.recents()),
+                id: \.emoji
+            ) { item in
+                Button {
+                    actions.toggle(message.id, item.choice, item.adds)
+                } label: {
+                    // The palette draws the icon and drops the title,
+                    // so the emoji goes in as a picture; the title
+                    // stays for VoiceOver (`EmojiGlyph`).
+                    Label {
+                        Text(item.emoji)
+                    } icon: {
+                        if let glyph = EmojiGlyph.image(for: item.emoji) {
+                            Image(decorative: glyph, scale: EmojiGlyph.scale)
+                                .renderingMode(.original)
+                        }
+                    }
+                }
+            }
+        }
+        .controlGroupStyle(.palette)
+        if let onMore {
+            Button("More Emoji…", systemImage: EmojiPickerModel.addSymbol, action: onMore)
         }
     }
 }

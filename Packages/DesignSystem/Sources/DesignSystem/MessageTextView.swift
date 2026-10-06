@@ -18,9 +18,11 @@
         let actions: ReactionActions?
         /// Opens the picker from the native menu's "More Emoji…".
         var onMore: (() -> Void)?
+        /// Edit… and Delete… for the person's own message (edit spec §5).
+        var own: OwnMessageMenuItems?
 
         func makeCoordinator() -> Coordinator {
-            Coordinator(message: message, actions: actions, onMore: onMore)
+            Coordinator(message: message, actions: actions, onMore: onMore, own: own)
         }
 
         func makeNSView(context: Context) -> BubbleTextView {
@@ -32,7 +34,7 @@
         }
 
         func updateNSView(_ view: BubbleTextView, context: Context) {
-            context.coordinator.update(message: message, actions: actions, onMore: onMore)
+            context.coordinator.update(message: message, actions: actions, onMore: onMore, own: own)
             view.insets = insets
             view.show(text)
         }
@@ -52,22 +54,34 @@
             private(set) var message: Message
             private(set) var actions: ReactionActions?
             private(set) var onMore: (() -> Void)?
+            private(set) var own: OwnMessageMenuItems?
 
-            init(message: Message, actions: ReactionActions?, onMore: (() -> Void)? = nil) {
+            init(
+                message: Message, actions: ReactionActions?, onMore: (() -> Void)? = nil,
+                own: OwnMessageMenuItems? = nil
+            ) {
                 self.message = message
                 self.actions = actions
                 self.onMore = onMore
+                self.own = own
             }
 
-            func update(message: Message, actions: ReactionActions?, onMore: (() -> Void)? = nil) {
+            func update(
+                message: Message, actions: ReactionActions?, onMore: (() -> Void)? = nil,
+                own: OwnMessageMenuItems? = nil
+            ) {
                 self.message = message
                 self.actions = actions
                 self.onMore = onMore
+                self.own = own
             }
 
+            /// Reactions, then Edit… and Delete…, then the text's own items.
             func textView(_: NSTextView, menu: NSMenu, for _: NSEvent, at _: Int) -> NSMenu? {
-                NativeReactionMenu.insertReactions(
-                    into: ReadingTextMenu.trimmed(menu), message: message, actions: actions, onMore: onMore
+                let own = message.isDeleted ? nil : own
+                return NativeReactionMenu.insertReactions(
+                    into: NativeOwnMessageMenu.insert(own, into: ReadingTextMenu.trimmed(menu)),
+                    message: message, actions: actions, onMore: onMore
                 )
             }
         }
