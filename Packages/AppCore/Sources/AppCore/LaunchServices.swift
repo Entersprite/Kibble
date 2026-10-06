@@ -109,7 +109,8 @@ public struct LaunchArguments: Sendable, Equatable {
                 : arguments.contains("--probe=api") ? .api
                 : arguments.contains("--probe=punctual") ? .punctual
                 : arguments.contains("--probe=upload") ? .upload
-                : arguments.contains("--probe=people") ? .people : nil,
+                : arguments.contains("--probe=people") ? .people
+                : arguments.contains("--probe=edit") ? .edit : nil,
             runsDiagnostics: arguments.contains("--probe=appnap")
         )
     }
@@ -129,6 +130,10 @@ public enum LaunchProbe: Sendable, Equatable {
     /// one read per way of signing it, and reports counts only
     /// (`PeopleProbeReport`, `findings.md` §57).
     case people
+    /// Posts one message into the conversation `--probe-conversation=` names,
+    /// edits it and deletes it, reporting what came back as kinds and flags
+    /// (`EditProbeReport`, edit spec §3).
+    case edit
 }
 
 /// One backend, who we are, and the thing that drives a fake world.
