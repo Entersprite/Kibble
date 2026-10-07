@@ -169,7 +169,8 @@ public enum ChannelEventMapping {
             attachments: attachments(message.annotations),
             localID: message.hasLocalID ? message.localID : nil,
             mentions: mentions(message.annotations),
-            links: links(message.annotations, text: message.textBody)
+            links: links(message.annotations, text: message.textBody),
+            cards: CardMapping.cards(message.attachments)
         )
     }
 
