@@ -123,4 +123,62 @@ struct AttachmentLayoutTests {
         #expect(AttachmentLayout.label(for: unnamed) == "Attachment")
         #expect(AttachmentLayout.label(for: pdf) == "b.pdf")
     }
+
+    // MARK: - Link and app cards (links spec §7.3, §7.5)
+
+    private static func linked(text: String, links: [MessageLink] = [], cards: [AppCard] = []) -> Message {
+        Message(
+            id: Message.ID("m"), conversationID: Conversation.ID("space/s"), threadID: MessageThread.ID("t"),
+            sender: Member.ID("u"), text: text, createdAt: Date(timeIntervalSince1970: 0), links: links,
+            cards: cards
+        )
+    }
+
+    private static let specs = URL(string: "https://acme.example/specs")!
+    private static let preview = LinkPreview(title: "Specs")
+
+    @Test func aPreviewOnlyMessageHasNoEmptyBubble() {
+        let parts = AttachmentLayout.parts(
+            of: Self.linked(text: " ", links: [MessageLink(url: Self.specs, preview: Self.preview)]),
+            canLoadImages: true
+        )
+        #expect(!parts.showsText)
+        #expect(parts.previews.count == 1)
+    }
+
+    /// Review Focus 1: an unanchored link with no title still gets a card,
+    /// and the message still gets no empty bubble.
+    @Test func anUnanchoredLinkWithoutAPreviewStillGetsACard() throws {
+        let gif = try MessageLink(url: #require(URL(string: "https://media.acme.example/party.gif")))
+        let parts = AttachmentLayout.parts(of: Self.linked(text: "", links: [gif]), canLoadImages: true)
+        #expect(parts.previews == [gif])
+        #expect(!parts.showsText)
+    }
+
+    @Test func anAnchoredLinkWithoutAPreviewIsOnlyAnInlineLink() {
+        let parts = AttachmentLayout.parts(
+            of: Self.linked(text: "read the doc", links: [MessageLink(url: Self.specs, start: 9, length: 3)]),
+            canLoadImages: true
+        )
+        #expect(parts.previews.isEmpty)
+        #expect(parts.showsText)
+    }
+
+    @Test func oneCardPerURL() {
+        let links = [
+            MessageLink(url: Self.specs, start: 0, length: 5, preview: Self.preview),
+            MessageLink(url: Self.specs, start: 9, length: 5, preview: Self.preview)
+        ]
+        let parts = AttachmentLayout.parts(
+            of: Self.linked(text: "specs or specs", links: links),
+            canLoadImages: true
+        )
+        #expect(parts.previews.count == 1)
+    }
+
+    @Test func aCardOnlyMessageHasNoEmptyBubbleAndAnEmptyCardIsStillDrawn() {
+        let parts = AttachmentLayout.parts(of: Self.linked(text: "", cards: [AppCard()]), canLoadImages: true)
+        #expect(!parts.showsText)
+        #expect(parts.cards == [AppCard()])
+    }
 }

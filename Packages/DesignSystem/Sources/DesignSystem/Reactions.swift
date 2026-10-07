@@ -224,9 +224,14 @@ struct ReactionMenu: ViewModifier {
     /// Opens the full picker ("More Emoji…", spec §4.2); `nil` draws no such
     /// item (`CLAUDE.md`: never draw a control the seam cannot honour).
     var onMore: (() -> Void)?
+    /// A link card's URL: adds Open Link and Copy Link. A `.contextMenu`
+    /// nested inside the row's replaces it, so a card's menu carries the row's
+    /// items as well as its own (links spec §7.3).
+    var link: URL?
+    @Environment(\.openURL) private var openURL
 
     func body(content: Content) -> some View {
-        if actions != nil || own != nil, !message.isDeleted {
+        if actions != nil || own != nil || link != nil, !message.isDeleted {
             content.contextMenu {
                 if let actions {
                     reactions(actions)
@@ -241,6 +246,13 @@ struct ReactionMenu: ViewModifier {
                     if let delete = own.delete {
                         Button("Delete…", systemImage: "trash", role: .destructive, action: delete)
                     }
+                }
+                if let link {
+                    if actions != nil || own != nil {
+                        Divider()
+                    }
+                    Button("Open Link", systemImage: "safari") { openURL(link) }
+                    Button("Copy Link", systemImage: "link") { LinkPasteboard.copy(link) }
                 }
             }
         } else {

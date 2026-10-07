@@ -217,6 +217,15 @@ struct MessageBubble: View {
                             actions: attachmentFiles
                         )
                     }
+                    // Link cards, each with the row's menu plus Open and Copy Link
+                    // (links spec §7.3, §7.5).
+                    ForEach(parts.previews, id: \.url) { link in
+                        LinkPreviewCard(link: link, load: loadRemoteImage)
+                            .modifier(ReactionMenu(
+                                message: message, actions: reactions, own: ownItems,
+                                onMore: { picking = true }, link: link.url
+                            ))
+                    }
                 }
                 if !message.reactions.isEmpty {
                     ReactionRow(
