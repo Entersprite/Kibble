@@ -81,9 +81,6 @@ git log --first-parent --format='%s' "$range" | grep -v '^release: ' >"$changes"
     echo "Kibble is signed with a Developer ID and notarized by Apple, so it opens like any other app."
     echo
     echo "Kibble then updates itself (Settings → Updates). Updating from an older Kibble that was not yet notarized? macOS asks once for your login password so Kibble can bring its saved session along: choose **Always Allow**."
-    # One release only (v2026.41.4, the move to com.entersprite.kibble): remove in the next.
-    echo
-    echo "This update moves Kibble to a new identity. You stay signed in, but notification rules and settings reset to their defaults, and a chosen download folder needs picking again."
 } >"$notes"
 
 # The appcast: one item, signed, uploaded beside the zip.
