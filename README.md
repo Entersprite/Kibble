@@ -46,3 +46,18 @@ replaced by hand once.
 Kibble was written with [Claude Code](https://claude.com/claude-code), Anthropic's
 AI coding agent, working with its owner. Most commits carry a
 `Co-Authored-By: Claude` trailer saying so.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Kibble includes Sparkle, GRDB.swift and
+SwiftProtobuf, and their licenses are in
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) and in About Kibble.
+
+## Disclaimer
+
+Kibble is provided as is, without warranty of any kind. In no event will its
+authors be held liable for any damages arising from its use, including to your
+Google account. Google has not approved Kibble, and you use it at your own risk.
+
+Google Chat is a trademark of Google LLC. Kibble is not affiliated with or
+endorsed by Google.
