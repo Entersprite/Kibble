@@ -162,6 +162,56 @@ struct LinkCardShapesTests {
         #expect(APIProbeReport.linkCardShapesLines(counted).joined().contains("unknown widget fields: 23×1"))
     }
 
+    /// Before merge (owner, after the first run): the mapping's own output is
+    /// counted beside the wire's, as `mapped to mentions` is, so an empty
+    /// `url.url` or a dropped widget shows as a gap instead of nothing.
+    @Test func theMappingIsCountedBesideTheWire() {
+        var empty = link(start: 0, length: 3, url: "")
+        empty.urlMetadata.title = "x"
+        var hidden = link(start: nil, length: nil)
+        hidden.urlMetadata.shouldNotRender = true
+        var paragraph = JAddOnsWidget()
+        var element = JAddOnsFormattedText.FormattedTextElement()
+        element.styledText.text = "shipped"
+        paragraph.textParagraph.text.formattedTextElements = [element]
+        var open = JAddOnsWidget.Button()
+        open.textButton.text.formattedTextElements = [element]
+        open.textButton.onClick.openLink.url = "https://acme.example/pr/1"
+        var callback = JAddOnsWidget.Button()
+        callback.textButton.text.formattedTextElements = [element]
+        callback.textButton.onClick.action = JAddOnsFormAction()
+        var row = JAddOnsWidget()
+        row.buttons = [open, callback]
+        var section = JAddOnsCardItem.CardItemSection()
+        section.widgets = [paragraph, row]
+        var card = JAddOnsCardItem()
+        card.sections = [section]
+        var attachment = GChatBridgeCore.Attachment()
+        attachment.cardAddOnData = card
+        var unmappable = GChatBridgeCore.Attachment()
+        unmappable.cardAddOnData = JAddOnsCardItem()
+
+        let counted = shapes([
+            message(
+                "see https://acme.example/a now",
+                annotations: [link(start: 4, length: 22), empty, hidden]
+            ),
+            message("", attachments: [attachment, unmappable])
+        ])
+        #expect(counted.urlWeb == 2)
+        #expect(counted.mappedLinks == 1)
+        #expect(counted.mappedAnchored == 1)
+        #expect(counted.mappedPreviews == 1)
+        #expect(counted.mappedCards == 2)
+        #expect(counted.mappedEmptyCards == 1)
+        #expect(counted.mappedWidgets["text"] == 1)
+        #expect(counted.mappedWidgets["buttons"] == 1)
+        #expect(counted.mappedLinkButtons == 1)
+        let report = APIProbeReport.linkCardShapesLines(counted).joined(separator: "\n")
+        #expect(report.contains("mapped links: 1 of 3 (web url.url 2)"))
+        #expect(report.contains("mapped cards: 2 (empty 1"))
+    }
+
     @Test func ownSendsWithAURLAreCountedWithAndWithoutAnAnnotation() {
         let counted = shapes([
             message("mine https://acme.example/a", creator: "users/me"),

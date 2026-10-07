@@ -44,6 +44,16 @@ struct LinkCardShapes: Equatable {
     var cardImageHosts: [String: Int] = [:]
     var ownWithURL = 0
     var ownWithURLAnnotated = 0
+    /// What the mapping made of the same messages, beside what the wire held.
+    var urlWeb = 0
+    var mappedLinks = 0
+    var mappedAnchored = 0
+    var mappedPreviews = 0
+    var mappedCards = 0
+    var mappedEmptyCards = 0
+    var mappedHeaders = 0
+    var mappedWidgets: [String: Int] = [:]
+    var mappedLinkButtons = 0
 }
 
 extension APIProbeReport {
@@ -101,6 +111,7 @@ extension APIProbeReport {
                 shapes.linkMessagesWithoutURLInText += 1
             }
             countCards(message.attachments, into: &shapes)
+            countMapped(message, into: &shapes)
             if let selfUserID, message.creator.userID.id == selfUserID, textHasURL {
                 shapes.ownWithURL += 1
                 if hasLink {
@@ -139,6 +150,13 @@ extension APIProbeReport {
             "  card text: formatted elements \(shapes.textElements), original_text only "
                 + "\(shapes.textOriginalOnly) (with markup \(shapes.textOriginalWithMarkup)); "
                 + "card image hosts: \(named(shapes.cardImageHosts))",
+            "  mapped links: \(shapes.mappedLinks) of \(shapes.urlMetadata) (web url.url \(shapes.urlWeb)); "
+                + "anchored \(shapes.mappedAnchored), "
+                + "unanchored \(shapes.mappedLinks - shapes.mappedAnchored), "
+                + "with a preview \(shapes.mappedPreviews)",
+            "  mapped cards: \(shapes.mappedCards) (empty \(shapes.mappedEmptyCards), "
+                + "with header \(shapes.mappedHeaders)); widgets: \(named(shapes.mappedWidgets)); "
+                + "link buttons \(shapes.mappedLinkButtons)",
             own
         ]
     }
@@ -169,6 +187,9 @@ extension APIProbeReport {
         }
         guard case let .urlMetadata(metadata)? = annotation.metadata else { return }
         shapes.urlMetadata += 1
+        if ChannelEventMapping.webURL(metadata.url.url) != nil {
+            shapes.urlWeb += 1
+        }
         if metadata.hasURLSource {
             shapes.urlSources[String(metadata.urlSource.rawValue), default: 0] += 1
         } else {
@@ -337,6 +358,40 @@ extension APIProbeReport {
             if text.originalText.contains("<") {
                 shapes.textOriginalWithMarkup += 1
             }
+        }
+    }
+}
+
+// MARK: - What the mapping made of it
+
+extension APIProbeReport {
+    /// The mapping's own output for one message, counted the way the wire is
+    /// (owner, before merge): a gap between the two is a mapping that drops
+    /// what the wire holds, which no shape count can show.
+    static func countMapped(_ message: GChatBridgeCore.Message, into shapes: inout LinkCardShapes) {
+        let links = ChannelEventMapping.links(message.annotations, text: message.textBody)
+        shapes.mappedLinks += links.count
+        shapes.mappedAnchored += links.count { $0.start != nil }
+        shapes.mappedPreviews += links.count { $0.preview != nil }
+        let cards = CardMapping.cards(message.attachments)
+        shapes.mappedCards += cards.count
+        shapes.mappedEmptyCards += cards.count(where: \.isEmpty)
+        shapes.mappedHeaders += cards.count { $0.header != nil }
+        for widget in cards.flatMap({ $0.sections.flatMap(\.widgets) }) {
+            let (kind, buttons) = mappedKind(widget)
+            shapes.mappedWidgets[kind, default: 0] += 1
+            shapes.mappedLinkButtons += buttons
+        }
+    }
+
+    private static func mappedKind(_ widget: AppCard.Widget) -> (String, Int) {
+        switch widget {
+        case .text: ("text", 0)
+        case let .decorated(row): ("decorated", row.button == nil ? 0 : 1)
+        case .image: ("image", 0)
+        case let .buttons(buttons): ("buttons", buttons.count)
+        case .divider: ("divider", 0)
+        case .unknown: ("unknown", 0)
         }
     }
 }
