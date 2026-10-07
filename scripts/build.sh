@@ -9,8 +9,8 @@ source "$(dirname "$0")/dev-identity.sh"
 DEV_IDENTITY="$GCHAT_DEV_IDENTITY"
 
 args=(
-    -project GChat.xcodeproj
-    -scheme GChatMac
+    -project Kibble.xcodeproj
+    -scheme KibbleMac
     -configuration "$CONFIG"
     -destination "platform=macOS"
     -derivedDataPath DerivedData

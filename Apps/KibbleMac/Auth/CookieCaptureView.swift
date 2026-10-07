@@ -29,7 +29,7 @@ struct CookieCaptureView: View {
     /// `autoSaveAllowed` defaults to `false` - the safe behaviour, not the
     /// convenient one - so guard 2 is structural: a call site that forgets to
     /// opt in gets the manual button, never a silent auto-save, and it is
-    /// `GChatMacApp` alone that passes `true`, because `.needsSignIn` is the
+    /// `KibbleMacApp` alone that passes `true`, because `.needsSignIn` is the
     /// one place there is nothing yet in the Keychain to overwrite. See
     /// `CookieCaptureModel.autoSaveAllowed`.
     init(reason: String?, autoSaveAllowed: Bool = false, onSaved: @escaping () async -> Void) {

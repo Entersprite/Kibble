@@ -34,7 +34,7 @@ replaced by hand once.
 ```bash
 ./scripts/bootstrap.sh       # checks the toolchain; changes nothing
 ./scripts/create-dev-cert.sh # once: a stable signing identity, so Keychain access survives rebuilds
-./scripts/generate.sh        # generates GChat.xcodeproj from project.yml
+./scripts/generate.sh        # generates Kibble.xcodeproj from project.yml
 ./scripts/build.sh           # builds the app (--fast skips signing)
 ```
 
