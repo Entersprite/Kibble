@@ -255,7 +255,7 @@
     }
 
     /// The field's type and token style. Tokens use the accent style
-    /// `MentionAttributes` gives someone else's mention in a bubble.
+    /// `MessageTextAttributes` gives someone else's mention in a bubble.
     enum ComposerStyle {
         static var font: NSFont {
             .preferredFont(forTextStyle: .body)
