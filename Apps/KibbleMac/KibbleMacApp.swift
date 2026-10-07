@@ -55,6 +55,13 @@ struct KibbleMacApp: App {
         }
         .defaultSize(width: 1100, height: 720)
         .commands {
+            // The standard panel, with the disclaimer and the license texts as
+            // its credits (`AboutPanel`).
+            CommandGroup(replacing: .appInfo) {
+                Button("About Kibble") {
+                    AboutPanel.show()
+                }
+            }
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
