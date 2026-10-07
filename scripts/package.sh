@@ -67,6 +67,23 @@ signed_by_us "$signature" || fail "the app is not signed with the Developer ID, 
 if grep -q get-task-allow <<<"$entitlements"; then
     fail "the app carries get-task-allow"
 fi
+# The licenses of what Kibble bundles require their notices in every copy, and
+# Help › Acknowledgments shows them. Byte for byte, so a stale copy cannot
+# ship either.
+for notice in LICENSE THIRD_PARTY_NOTICES.txt; do
+    cmp -s "$notice" "$app/Contents/Resources/$notice" ||
+        fail "the app's $notice is missing or differs from the repository's"
+done
+# And they must be the notices of what this build linked. Xcode resolves the
+# whole graph into the project's own lockfile, which is not committed and
+# follows the open version ranges, so a fresh clone can link newer releases
+# than the packages' lockfiles that test.sh checks.
+resolved=Kibble.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+[[ -f "$resolved" ]] || fail "no $resolved, so the linked versions cannot be checked"
+notices_out=$(./scripts/check-notices.sh "$resolved" 2>&1) ||
+    fail "THIRD_PARTY_NOTICES.txt has no heading for what this build linked: $(tr '\n' ' ' <<<"$notices_out")"
+copyright=$(/usr/libexec/PlistBuddy -c 'Print :NSHumanReadableCopyright' "$app/Contents/Info.plist" 2>/dev/null || true)
+[[ -n "$copyright" ]] || fail "Info.plist has no NSHumanReadableCopyright"
 # --- updatable-bundle checks ---
 # A published build that fails these can never update itself again: every
 # install of it is stranded on its version.

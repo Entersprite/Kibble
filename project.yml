@@ -51,6 +51,14 @@ targets:
     platform: macOS
     sources:
       - path: Apps/KibbleMac
+      # Shipped inside the app, because the licenses of what Kibble bundles
+      # require their notices in every copy. The Help menu shows both
+      # (MacHost's HelpWindows), and scripts/package.sh refuses a release
+      # whose copies differ from these.
+      - path: LICENSE
+        buildPhase: resources
+      - path: THIRD_PARTY_NOTICES.txt
+        buildPhase: resources
     dependencies:
       - package: AppCore
         product: AppCore
