@@ -41,6 +41,8 @@ public struct RemoteImageFetch: Sendable {
             let response: HTTPResponse
             do {
                 response = try await transport.send(Self.request(for: next))
+            } catch is HTTPBodyTooLarge {
+                throw .tooLarge
             } catch {
                 throw .transport
             }
@@ -66,7 +68,9 @@ public struct RemoteImageFetch: Sendable {
             headers: HTTPHeaders([("Accept", "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8")]),
             timeout: timeout,
             traceLabel: "remote_image",
-            followsRedirects: false
+            followsRedirects: false,
+            // The transport stops reading past it (review finding 3).
+            maxBodyBytes: maxBytes
         )
     }
 

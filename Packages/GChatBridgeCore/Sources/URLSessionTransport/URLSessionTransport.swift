@@ -26,7 +26,7 @@ public final class URLSessionTransport: HTTPTransport {
     /// asked for it - see `ChannelTraceFileSink`'s own doc comment for why the
     /// conformance lives in this target rather than in `MacHost`. A `nil` sink
     /// costs `stream()` one pointer check per byte and nothing else.
-    private let channelTrace: (any ChannelTraceSink)?
+    let channelTrace: (any ChannelTraceSink)?
 
     /// Injectable so tests can hand in a `StubURLProtocol`-backed session, and
     /// so a host that must share a session can.
@@ -67,6 +67,9 @@ public final class URLSessionTransport: HTTPTransport {
     // MARK: - Unary
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if let limit = request.maxBodyBytes {
+            return try await send(request, limit: limit)
+        }
         let startedAt = ContinuousClock.now
         let data: Data
         let response: URLResponse
@@ -233,7 +236,7 @@ public final class URLSessionTransport: HTTPTransport {
     /// the only two shapes left to name are a `ClassifiedTransportFailure`
     /// and a plain `CancellationError` from `stop()` tearing down the stream's
     /// task - anything else prints as `"unclassified"` rather than risk it.
-    private static func safeTraceDescription(_ error: any Error) -> String {
+    static func safeTraceDescription(_ error: any Error) -> String {
         if let classified = error as? ClassifiedTransportFailure {
             return classified.reason.safeDescription
         }
@@ -302,18 +305,6 @@ public final class URLSessionTransport: HTTPTransport {
         }
         return ClassifiedTransportFailure(reason)
     }
-
-    /// Rebuilds the headers, restoring the repeated `Set-Cookie` fields
-    /// Foundation collapsed into one comma-joined value. The splitting itself
-    /// lives in the portable core, where it can be tested without a socket.
-    static func headers(of response: HTTPURLResponse) -> HTTPHeaders {
-        var collapsed: [String: String] = [:]
-        for (key, value) in response.allHeaderFields {
-            guard let name = key as? String else { continue }
-            collapsed[name] = String(describing: value)
-        }
-        return HTTPHeaders(collapsed: collapsed)
-    }
 }
 
 /// Reports one `send(_:)`/`fireAndForget(_:)` call to `sink`, or does
@@ -326,7 +317,7 @@ public final class URLSessionTransport: HTTPTransport {
 /// makes `ChannelTraceSink.unaryCallCompleted(...)`'s own `responseByteCount`/
 /// `responseBodyShape` report `nil` too - the body genuinely was never read,
 /// not merely empty.
-private func traceUnaryCall(
+func traceUnaryCall(
     _ sink: (any ChannelTraceSink)?,
     _ request: HTTPRequest,
     _ startedAt: ContinuousClock.Instant,

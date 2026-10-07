@@ -23,6 +23,19 @@ private actor TableTransport: HTTPTransport {
     }
 }
 
+/// Refuses every request the way a transport refuses an oversized body.
+private struct OversizeTransport: HTTPTransport {
+    struct NoStream: Error {}
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        throw HTTPBodyTooLarge(limit: request.maxBodyBytes ?? 0)
+    }
+
+    func stream(_: HTTPRequest) async throws -> HTTPStream {
+        throw NoStream()
+    }
+}
+
 /// `RemoteImageFetch` (links spec §4.4): no credentials on any hop, `https`
 /// only, an image only, and a size cap.
 @Suite(.timeLimit(.minutes(1)))
@@ -96,6 +109,18 @@ struct RemoteImageFetchTests {
         ]))
         await #expect(throws: RemoteImageFetch.Failure.tooLarge) {
             _ = try await undeclared.image(at: #require(URL(string: "https://acme.example/big.png")))
+        }
+    }
+
+    /// Review finding 3: the cap goes to the transport, which stops reading
+    /// past it, and its refusal is `.tooLarge`.
+    @Test func theCapTravelsWithTheRequestAndARefusalIsTooLarge() async throws {
+        #expect(try RemoteImageFetch.request(for: #require(URL(string: "https://acme.example/a.png")))
+            .maxBodyBytes
+            == RemoteImageFetch.maxBytes)
+        await #expect(throws: RemoteImageFetch.Failure.tooLarge) {
+            _ = try await RemoteImageFetch(transport: OversizeTransport())
+                .image(at: #require(URL(string: "https://acme.example/huge.png")))
         }
     }
 

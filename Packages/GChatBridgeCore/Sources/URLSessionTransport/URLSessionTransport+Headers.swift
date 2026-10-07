@@ -1,4 +1,5 @@
 import Foundation
+import GChatBridgeCore
 
 extension URLSessionTransport {
     /// A header value as its UTF-8 bytes on the wire.
@@ -14,5 +15,17 @@ extension URLSessionTransport {
     static func wireValue(_ value: String) -> String {
         guard !value.utf8.allSatisfy({ $0 < 0x80 }) else { return value }
         return String(decoding: value.utf8.map { UInt16($0) }, as: UTF16.self)
+    }
+
+    /// Rebuilds the headers, restoring the repeated `Set-Cookie` fields
+    /// Foundation collapsed into one comma-joined value. The splitting itself
+    /// lives in the portable core, where it can be tested without a socket.
+    static func headers(of response: HTTPURLResponse) -> HTTPHeaders {
+        var collapsed: [String: String] = [:]
+        for (key, value) in response.allHeaderFields {
+            guard let name = key as? String else { continue }
+            collapsed[name] = String(describing: value)
+        }
+        return HTTPHeaders(collapsed: collapsed)
     }
 }
