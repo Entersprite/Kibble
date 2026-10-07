@@ -239,6 +239,11 @@ public struct ChatSceneActions {
     /// not clickable.
     public var openAttachment: ((Attachment) async throws -> URL)?
 
+    /// A link preview's or app card's picture. **Optional, and `nil` draws
+    /// cards without pictures** (`CLAUDE.md`: never draw a control the seam
+    /// cannot honour).
+    public var loadRemoteImage: ((URL) async throws -> Data)?
+
     /// Download, cancel, open, reveal and Save As for a non-image file chip.
     /// **Optional, and `nil` is the point** - `CLAUDE.md`: never draw a
     /// control the seam cannot honour, so a backend that cannot download
@@ -288,6 +293,7 @@ public struct ChatSceneActions {
         openMention: ((Conversation.ID, Message.ID) -> Void)? = nil,
         loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
         openAttachment: ((Attachment) async throws -> URL)? = nil,
+        loadRemoteImage: ((URL) async throws -> Data)? = nil,
         attachmentFiles: AttachmentFileActions? = nil,
         reactions: ReactionActions? = nil,
         composerAttachments: ComposerAttachmentActions? = nil,
@@ -312,6 +318,7 @@ public struct ChatSceneActions {
         self.openMention = openMention
         self.loadAttachment = loadAttachment
         self.openAttachment = openAttachment
+        self.loadRemoteImage = loadRemoteImage
         self.attachmentFiles = attachmentFiles
         self.reactions = reactions
         self.composerAttachments = composerAttachments

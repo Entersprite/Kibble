@@ -40,6 +40,8 @@ public struct MessageList: View {
     /// each bubble. `nil` draws images as their names.
     let loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
     let openAttachment: ((Attachment) async throws -> URL)?
+    /// `ChatSceneActions.loadRemoteImage`, for link and app cards.
+    let loadRemoteImage: ((URL) async throws -> Data)?
     /// `ChatSceneState.downloads` and `ChatSceneActions.attachmentFiles`,
     /// handed down to each bubble's file chips the same way. `nil` actions
     /// draw a plain label (`CLAUDE.md`: never draw a control the seam cannot
@@ -65,6 +67,7 @@ public struct MessageList: View {
         state: ChatSceneState,
         loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
         openAttachment: ((Attachment) async throws -> URL)? = nil,
+        loadRemoteImage: ((URL) async throws -> Data)? = nil,
         downloads: [String: AttachmentDownloadState] = [:],
         attachmentFiles: AttachmentFileActions? = nil,
         reactions: ReactionActions? = nil
@@ -72,6 +75,7 @@ public struct MessageList: View {
         self.state = state
         self.loadAttachment = loadAttachment
         self.openAttachment = openAttachment
+        self.loadRemoteImage = loadRemoteImage
         self.downloads = downloads
         self.attachmentFiles = attachmentFiles
         self.reactions = reactions
@@ -91,6 +95,7 @@ public struct MessageList: View {
                         MessageBubble(
                             message: message, state: state,
                             loadAttachment: loadAttachment, openAttachment: openAttachment,
+                            loadRemoteImage: loadRemoteImage,
                             downloads: downloads, attachmentFiles: attachmentFiles,
                             reactions: reactions, own: own
                         )
@@ -135,6 +140,7 @@ struct MessageBubble: View {
     let state: ChatSceneState
     var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
     var openAttachment: ((Attachment) async throws -> URL)?
+    var loadRemoteImage: ((URL) async throws -> Data)?
     var downloads: [String: AttachmentDownloadState] = [:]
     var attachmentFiles: AttachmentFileActions?
     var reactions: ReactionActions?

@@ -32,6 +32,9 @@ public actor AttachmentCache {
     /// A custom emoji's picture, by its reference (reactions spec §3).
     public typealias CustomEmojiFetch = @Sendable (CustomEmojiRef) async throws -> Data
 
+    /// A link preview's or app card's picture, by its URL (links spec §6).
+    public typealias RemoteFetch = @Sendable (URL) async throws -> Data
+
     /// `originalFile(for:)` without a directory: there is nowhere to put a file.
     public struct NoDirectory: Error {}
 
@@ -44,9 +47,13 @@ public actor AttachmentCache {
     /// `customEmojiData(for:)` on a cache built without a way to fetch one.
     public struct NoCustomEmojiFetch: Error {}
 
+    /// `remoteImageData(for:)` on a cache built without a way to fetch one.
+    public struct NoRemoteFetch: Error {}
+
     private let directory: URL?
     private let capacity: Int
     private let customEmojiFetch: CustomEmojiFetch?
+    private let remoteFetch: RemoteFetch?
     private let fetch: Fetch
     private let memory = NSCache<NSString, NSData>()
     private var inFlight: [String: Task<Data, any Error>] = [:]
@@ -66,11 +73,13 @@ public actor AttachmentCache {
         directory: URL?,
         capacity: Int = 200 * 1_048_576,
         customEmojiFetch: CustomEmojiFetch? = nil,
+        remoteFetch: RemoteFetch? = nil,
         fetch: @escaping Fetch
     ) {
         self.directory = directory
         self.capacity = capacity
         self.customEmojiFetch = customEmojiFetch
+        self.remoteFetch = remoteFetch
         self.fetch = fetch
         memory.totalCostLimit = 64 * 1_048_576
     }
@@ -95,6 +104,16 @@ public actor AttachmentCache {
             flight: "\(Self.key(emoji))|\(emoji.imageToken ?? "")"
         ) {
             try await customEmojiFetch(emoji)
+        }
+    }
+
+    /// A link preview's or app card's picture, under the same custody as an
+    /// attachment: memory, then disk, then one fetch shared by every caller,
+    /// and gone on `erase()`. Keyed by the URL, which is all that names it.
+    public func remoteImageData(for url: URL) async throws -> Data {
+        guard let remoteFetch else { throw NoRemoteFetch() }
+        return try await cached(Self.key(url), name: "remote-image") {
+            try await remoteFetch(url)
         }
     }
 
@@ -187,6 +206,11 @@ public actor AttachmentCache {
     /// size's raw value.
     static func key(_ emoji: CustomEmojiRef) -> String {
         digest("emoji|\(emoji.id)")
+    }
+
+    /// `remote|` cannot collide with an attachment's or an emoji's key.
+    static func key(_ url: URL) -> String {
+        digest("remote|\(url.absoluteString)")
     }
 
     private static func digest(_ string: String) -> String {

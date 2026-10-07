@@ -12,6 +12,8 @@ extension AppEnvironment {
     func makeAttachmentCache(in directory: URL?, engine: SyncEngine) -> AttachmentCache {
         AttachmentCache(directory: directory, customEmojiFetch: { [engine] emoji in
             try await engine.customEmojiImage(emoji)
+        }, remoteFetch: { [engine] url in
+            try await engine.remoteImage(url)
         }, fetch: { [engine] attachment, size in
             try await engine.attachmentData(attachment, size: size)
         })
@@ -25,10 +27,20 @@ extension AppEnvironment {
         runningModel?.capabilities.canFetchCustomEmoji == true
     }
 
+    var canFetchRemoteImages: Bool {
+        runningModel?.capabilities.canFetchRemoteImages == true
+    }
+
     /// Read through `self` at call time, for `loadAttachment(_:size:)`'s reason.
     func loadCustomEmoji(_ emoji: CustomEmojiRef) async throws -> Data {
         guard let attachments else { throw NoSession() }
         return try await attachments.customEmojiData(for: emoji)
+    }
+
+    /// Read through `self` at call time, for `loadAttachment(_:size:)`'s reason.
+    func loadRemoteImage(_ url: URL) async throws -> Data {
+        guard let attachments else { throw NoSession() }
+        return try await attachments.remoteImageData(for: url)
     }
 
     /// Read through `self` at call time, never captured: a view still on
