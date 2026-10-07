@@ -15,7 +15,7 @@
             let view = BubbleTextView.make()
             view.insets = insets
             view.textStorage?.setAttributedString(
-                MentionAttributes.attributed(text, mentions: [], me: nil, inOwnBubble: false)
+                MessageTextAttributes.attributed(text, mentions: [], links: [], me: nil, inOwnBubble: false)
             )
             return view
         }
@@ -93,8 +93,9 @@
         @Test func changedTextAtTheSameWidthIsMeasuredAgain() {
             let view = Self.view("hello")
             let before = view.fittingSize(forWidth: 400)
-            view.show(MentionAttributes.attributed(
-                String(repeating: "much longer text ", count: 10), mentions: [], me: nil, inOwnBubble: false
+            view.show(MessageTextAttributes.attributed(
+                String(repeating: "much longer text ", count: 10), mentions: [], links: [], me: nil,
+                inOwnBubble: false
             ))
             let after = view.fittingSize(forWidth: 400)
             #expect(after.height > before.height)
@@ -179,10 +180,49 @@
         @Test func theSameTextAgainKeepsTheSelection() {
             let view = Self.view("hello there")
             view.setSelectedRange(NSRange(location: 0, length: 5))
-            view.show(MentionAttributes.attributed("hello there", mentions: [], me: nil, inOwnBubble: false))
+            view.show(MessageTextAttributes.attributed(
+                "hello there",
+                mentions: [],
+                links: [],
+                me: nil,
+                inOwnBubble: false
+            ))
             #expect(view.selectedRange() == NSRange(location: 0, length: 5))
-            view.show(MentionAttributes.attributed("changed", mentions: [], me: nil, inOwnBubble: false))
+            view.show(MessageTextAttributes.attributed(
+                "changed",
+                mentions: [],
+                links: [],
+                me: nil,
+                inOwnBubble: false
+            ))
             #expect(view.string == "changed")
+        }
+
+        /// Review Focus 3: a refused scheme opens nothing and is still consumed,
+        /// so AppKit never opens it either.
+        @Test func aClickOpensOnlyWhatThePolicyAllows() throws {
+            var opened: [URL] = []
+            let coordinator = MessageTextView.Coordinator(
+                message: Self.message(), actions: nil, open: { opened.append($0) }
+            )
+            let view = NSTextView()
+            #expect(try coordinator.textView(
+                view,
+                clickedOnLink: #require(URL(string: "javascript:alert(1)")),
+                at: 0
+            ))
+            #expect(try coordinator.textView(
+                view,
+                clickedOnLink: #require(URL(string: "file:///etc/hosts")),
+                at: 0
+            ))
+            #expect(opened.isEmpty)
+            #expect(try coordinator.textView(
+                view,
+                clickedOnLink: #require(URL(string: "https://acme.example")),
+                at: 0
+            ))
+            #expect(try opened == [#require(URL(string: "https://acme.example"))])
         }
     }
 #endif

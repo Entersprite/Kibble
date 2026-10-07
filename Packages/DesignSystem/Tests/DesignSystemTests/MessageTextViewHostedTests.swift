@@ -19,10 +19,10 @@
                     LazyVStack(alignment: .leading) {
                         HStack {
                             MessageTextView(
-                                text: MentionAttributes.attributed(
+                                text: MessageTextAttributes.attributed(
                                     text,
                                     mentions: [],
-                                    me: nil,
+                                    links: [], me: nil,
                                     inOwnBubble: false
                                 ),
                                 insets: NSEdgeInsets(top: 7, left: 12, bottom: 7, right: 12),

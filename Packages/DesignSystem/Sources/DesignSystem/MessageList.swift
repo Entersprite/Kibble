@@ -99,6 +99,8 @@ public struct MessageList: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                // Every link under the transcript opens through one rule (links spec §7.1).
+                .environment(\.openURL, LinkPolicy.openURLAction)
             }
             .onChange(of: TranscriptScroll.Trigger(state), initial: true) {
                 switch TranscriptScroll.destination(
@@ -141,6 +143,9 @@ struct MessageBubble: View {
     /// Whether the full emoji picker is open for this message: from either
     /// menu's "More Emoji…" or the row's "+" (reactions spec §4.1-§4.3).
     @State private var picking = false
+
+    /// The transcript's, which `MessageList` sets to `LinkPolicy.openURLAction`.
+    @Environment(\.openURL) private var openURL
 
     private var parts: AttachmentLayout.Parts {
         AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
@@ -283,8 +288,9 @@ struct MessageBubble: View {
         private var textBubble: some View {
             VStack(alignment: .leading, spacing: 2) {
                 MessageTextView(
-                    text: MentionAttributes.attributed(
-                        message.text, mentions: message.mentions, me: state.me, inOwnBubble: isMine
+                    text: MessageTextAttributes.attributed(
+                        message.text, mentions: message.mentions, links: message.links, me: state.me,
+                        inOwnBubble: isMine
                     ),
                     insets: NSEdgeInsets(
                         top: 7,
@@ -295,7 +301,9 @@ struct MessageBubble: View {
                     message: message,
                     actions: reactions,
                     onMore: { picking = true },
-                    own: ownItems
+                    own: ownItems,
+                    inOwnBubble: isMine,
+                    open: { openURL($0) }
                 )
                 if message.editedAt != nil {
                     editedLabel
@@ -308,7 +316,8 @@ struct MessageBubble: View {
         private var textBubble: some View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(MentionHighlight.attributed(
-                    message.text, mentions: message.mentions, me: state.me, inOwnBubble: isMine
+                    message.text, mentions: message.mentions, links: message.links, me: state.me,
+                    inOwnBubble: isMine
                 ))
                 .textSelection(.enabled)
                 if message.editedAt != nil {
