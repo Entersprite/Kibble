@@ -60,12 +60,12 @@ targets:
         product: MacHost
     settings:
       base:
-        # The app is Kibble; the identifier is still gchat on purpose. It names
-        # the sandbox container holding the store, settings and notification
-        # permission, so changing it starts every install over. It moves in the
-        # repository-wide rename (docs/superpowers/plans/2026-10-01-kibble-rename.md).
+        # The identifier names the sandbox container (store, settings), the
+        # notification permission and Sparkle's mach-lookup services. It moved
+        # from com.entersprite.gchat in session 53; scripts/migrate-container.sh
+        # carries an install's data across.
         PRODUCT_NAME: Kibble
-        PRODUCT_BUNDLE_IDENTIFIER: com.entersprite.gchat
+        PRODUCT_BUNDLE_IDENTIFIER: com.entersprite.kibble
         INFOPLIST_FILE: Apps/KibbleMac/Info.plist
         # Apps/KibbleMac/AppIcon.icon, an Icon Composer document: Xcode compiles
         # its layers into the Liquid Glass icon and the pre-26 fallbacks, so

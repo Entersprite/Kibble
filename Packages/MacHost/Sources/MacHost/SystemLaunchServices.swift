@@ -67,7 +67,7 @@ public final class SystemLaunchServices: LaunchServices {
             appropriateFor: nil,
             create: true
         )
-        .appending(path: "GChat", directoryHint: .isDirectory)
+        .appending(path: "Kibble", directoryHint: .isDirectory)
         .appending(path: Self.attachmentDirectoryName(for: arguments), directoryHint: .isDirectory)
     }
 
@@ -234,10 +234,9 @@ public final class SystemLaunchServices: LaunchServices {
     /// Not `private`: the probes write their report files beside the same
     /// database, and this is the one place that path is computed.
     ///
-    /// Still named `GChat` after the app became Kibble, on purpose: it holds
-    /// the store an existing install already has, and renaming it would start
-    /// that install over. It moves with the bundle identifier, in the
-    /// repository-wide rename (`docs/superpowers/plans/2026-10-01-kibble-rename.md`).
+    /// `Application Support/Kibble` inside the sandbox container. Until
+    /// session 53 it was `GChat`, in the `com.entersprite.gchat` container;
+    /// `scripts/migrate-container.sh` copies an install's data across.
     public static func supportDirectory() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,
@@ -245,7 +244,7 @@ public final class SystemLaunchServices: LaunchServices {
             appropriateFor: nil,
             create: true
         )
-        .appendingPathComponent("GChat", isDirectory: true)
+        .appendingPathComponent("Kibble", isDirectory: true)
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base
     }
