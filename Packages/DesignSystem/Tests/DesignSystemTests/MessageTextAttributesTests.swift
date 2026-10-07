@@ -4,10 +4,10 @@
     import Testing
     @testable import DesignSystem
 
-    /// `MentionAttributes`: `MentionHighlight`'s rules, for AppKit. The spans
+    /// `MessageTextAttributes`: `MentionHighlight`'s rules, for AppKit. The spans
     /// come from `MentionHighlight.ranges`; only the attributes are new.
     @MainActor
-    struct MentionAttributesTests {
+    struct MessageTextAttributesTests {
         private let me = Member.ID("me")
         private let text = "@Me and @Ann hi"
         private var mentions: [Mention] {
@@ -22,8 +22,14 @@
         private func attribute(
             _ key: NSAttributedString.Key, at index: Int, inOwnBubble: Bool = false
         ) -> Any? {
-            MentionAttributes.attributed(text, mentions: mentions, me: me, inOwnBubble: inOwnBubble)
-                .attribute(key, at: index, effectiveRange: nil)
+            MessageTextAttributes.attributed(
+                text,
+                mentions: mentions,
+                links: [],
+                me: me,
+                inOwnBubble: inOwnBubble
+            )
+            .attribute(key, at: index, effectiveRange: nil)
         }
 
         private func weight(at index: Int, inOwnBubble: Bool = false) -> CGFloat? {
@@ -64,12 +70,24 @@
 
         /// A span `MentionHighlight` drops (not starting with `@`) gets nothing.
         @Test func aDroppedSpanStaysPlain() {
-            let plain = MentionAttributes.attributed(
-                "hello", mentions: [Mention(target: .user(me), start: 0, length: 3)], me: me,
+            let plain = MessageTextAttributes.attributed(
+                "hello", mentions: [Mention(target: .user(me), start: 0, length: 3)], links: [], me: me,
                 inOwnBubble: false
             )
             #expect(plain.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
             #expect((plain.attribute(.font, at: 0, effectiveRange: nil) as? NSFont) == Self.base)
+        }
+
+        @Test func aLinkCarriesItsTargetAndATooltipOfTheFullURL() throws {
+            let doc = try #require(URL(string: "https://acme.example/doc"))
+            let text = MessageTextAttributes.attributed(
+                "read the doc", mentions: [], links: [MessageLink(url: doc, start: 9, length: 3)],
+                me: nil, inOwnBubble: false
+            )
+            #expect(text.attribute(.link, at: 10, effectiveRange: nil) as? URL == doc)
+            #expect(text
+                .attribute(.toolTip, at: 10, effectiveRange: nil) as? String == "https://acme.example/doc")
+            #expect(text.attribute(.link, at: 2, effectiveRange: nil) == nil)
         }
     }
 #endif

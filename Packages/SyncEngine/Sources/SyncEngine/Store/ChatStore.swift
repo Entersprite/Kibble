@@ -200,10 +200,12 @@ public extension ChatStore {
             // break paging. A message the store never held is simply not here -
             // it holds pages, not all of history - so this is a no-op then.
             // Its mentions go with its text: a tombstone mentions nobody. And
-            // its reactions: a tombstone offers no toggles.
+            // its reactions: a tombstone offers no toggles. Its links and cards
+            // go too: a tombstone points nowhere (links spec §5).
             try db.execute(
                 sql: """
-                UPDATE message SET isDeleted = 1, text = '', mentions = '[]', reactions = '[]'
+                UPDATE message SET isDeleted = 1, text = '', mentions = '[]', reactions = '[]',
+                                   links = '[]', cards = '[]'
                 WHERE id = ?
                 """,
                 arguments: [id.rawValue]

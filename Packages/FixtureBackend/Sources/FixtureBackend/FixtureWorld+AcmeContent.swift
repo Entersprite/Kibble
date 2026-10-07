@@ -23,6 +23,8 @@ extension Acme {
         var reactions: [Reaction] = []
         var mentions: [Mention] = []
         var attachments: [Attachment] = []
+        var links: [MessageLink] = []
+        var cards: [AppCard] = []
 
         var message: Message {
             Message(
@@ -34,7 +36,9 @@ extension Acme {
                 createdAt: at(minute),
                 reactions: reactions,
                 attachments: attachments,
-                mentions: mentions
+                mentions: mentions,
+                links: links,
+                cards: cards
             )
         }
     }
@@ -140,6 +144,47 @@ extension Acme {
             minute: -1420
         ),
         Line(
+            id: "msg:fd-3", conversation: catalog, thread: "topic:import", sender: alex,
+            text: "Spring catalog specs: https://acme.example/specs/spring",
+            minute: -1400,
+            links: [MessageLink(
+                url: URL(string: "https://acme.example/specs/spring")!, start: 22, length: 33,
+                preview: LinkPreview(
+                    title: "Spring catalog specs", snippet: "Every size, one sheet.",
+                    imageURL: URL(string: "https://media.acme.example/specs.png"),
+                    imageWidth: 320, imageHeight: 200, domain: "acme.example"
+                )
+            )]
+        ),
+        Line(
+            id: "msg:fd-4", conversation: catalog, thread: "topic:import", sender: tom,
+            text: "The import runbook is in the wiki.",
+            minute: -1398,
+            links: [MessageLink(
+                url: URL(string: "https://wiki.acme.example/import-runbook")!,
+                start: 11,
+                length: 7
+            )]
+        ),
+        Line(
+            id: "msg:fd-5", conversation: catalog, thread: "topic:import", sender: alex,
+            text: "For whoever finishes the trim mapping:",
+            minute: -1396,
+            links: [MessageLink(
+                url: URL(string: "https://media.acme.example/party.gif")!,
+                preview: LinkPreview(
+                    title: "Party parrot", imageURL: URL(string: "https://media.acme.example/party.png"),
+                    imageWidth: 320, imageHeight: 200, domain: "media.acme.example"
+                )
+            )]
+        ),
+        Line(
+            id: "msg:fd-6", conversation: catalog, thread: "topic:import", sender: deployBot,
+            text: "",
+            minute: -1390,
+            cards: [deployCard]
+        ),
+        Line(
             id: "msg:st-1", conversation: standup, thread: "topic:meet-standup", sender: maya,
             text: "Starting in 3 - the variance list is on screen when you join.",
             minute: 57
@@ -218,4 +263,33 @@ public extension FixtureScript {
         .presence(member: Acme.priya, presence: .active),
         .delay(.seconds(10))
     ])
+}
+
+// MARK: - The demo world's app card
+
+extension Acme {
+    /// What a deploy app posts (links spec §7.6): a header, bold text with a
+    /// link, a decorated row and a link button. Only what `AppCard` can hold:
+    /// a button that calls back into the app never reaches it.
+    static let deployCard = AppCard(
+        header: AppCard.Header(
+            title: RichText("Deploy finished"), subtitle: RichText("catalog-import #412"),
+            imageURL: URL(string: "https://media.acme.example/deploy.png"), circularImage: true
+        ),
+        sections: [AppCard.Section(widgets: [
+            .text(RichText(runs: [
+                RichText.Run(text: "Shipped", bold: true),
+                RichText.Run(text: " to production in 4 minutes. "),
+                RichText.Run(text: "Logs", link: URL(string: "https://deploy.acme.example/logs/412"))
+            ])),
+            .decorated(AppCard.Decorated(
+                top: RichText("Environment"), content: RichText("production"),
+                link: URL(string: "https://deploy.acme.example/env/production")
+            )),
+            .buttons([LinkButton(
+                label: "Open PR",
+                url: URL(string: "https://code.acme.example/catalog/pull/412")!
+            )])
+        ])]
+    )
 }

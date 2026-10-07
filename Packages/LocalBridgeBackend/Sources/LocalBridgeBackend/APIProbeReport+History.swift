@@ -182,6 +182,11 @@ extension APIProbeReport {
             worldItems: mapping.worldItems,
             lines: &lines
         )
+        // Links and cards (links spec §2), over the 20 most recent conversations
+        // rather than this one alone. Runs only when a conversation was probed.
+        await appendLinkCardSection(
+            client: client, conversations: conversations, selfUserID: selfUserID, lines: &lines
+        )
         return group
     }
 

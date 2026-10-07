@@ -4490,6 +4490,26 @@ public nonisolated struct Attachment: @unchecked Sendable {
   /// Clears the value of `appUser`. Subsequent reads from it will return its default value.
   public mutating func clearAppUser() {_uniqueStorage()._appUser = nil}
 
+  /// purple names both (links spec §2). An app card - a Chat app's
+  /// cardsV2 - arrives here, outside the oneof above.
+  public var cardAddOnData: JAddOnsCardItem {
+    get {_storage._cardAddOnData ?? JAddOnsCardItem()}
+    set {_uniqueStorage()._cardAddOnData = newValue}
+  }
+  /// Returns true if `cardAddOnData` has been explicitly set.
+  public var hasCardAddOnData: Bool {_storage._cardAddOnData != nil}
+  /// Clears the value of `cardAddOnData`. Subsequent reads from it will return its default value.
+  public mutating func clearCardAddOnData() {_uniqueStorage()._cardAddOnData = nil}
+
+  public var attachmentID: String {
+    get {_storage._attachmentID ?? String()}
+    set {_uniqueStorage()._attachmentID = newValue}
+  }
+  /// Returns true if `attachmentID` has been explicitly set.
+  public var hasAttachmentID: Bool {_storage._attachmentID != nil}
+  /// Clears the value of `attachmentID`. Subsequent reads from it will return its default value.
+  public mutating func clearAttachmentID() {_uniqueStorage()._attachmentID = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Type: Equatable, Sendable {
@@ -5335,7 +5355,39 @@ public nonisolated struct UrlMetadata: Sendable {
   /// Clears the value of `mimeType`. Subsequent reads from it will return its default value.
   public mutating func clearMimeType() {self._mimeType = nil}
 
+  public var urlSource: UrlMetadata.UrlSource {
+    get {_urlSource ?? .unknown}
+    set {_urlSource = newValue}
+  }
+  /// Returns true if `urlSource` has been explicitly set.
+  public var hasURLSource: Bool {self._urlSource != nil}
+  /// Clears the value of `urlSource`. Subsequent reads from it will return its default value.
+  public mutating func clearURLSource() {self._urlSource = nil}
+
+  public var faviconURL: String {
+    get {_faviconURL ?? String()}
+    set {_faviconURL = newValue}
+  }
+  /// Returns true if `faviconURL` has been explicitly set.
+  public var hasFaviconURL: Bool {self._faviconURL != nil}
+  /// Clears the value of `faviconURL`. Subsequent reads from it will return its default value.
+  public mutating func clearFaviconURL() {self._faviconURL = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  /// From reference/purple-googlechat-master/googlechat.proto, which is newer
+  /// (findings.md §37.1). Read by the link probe (links spec §2).
+  public nonisolated enum UrlSource: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
+    case unknown = 0
+    case serverSuppliedPolicyViolation = 2
+    case autoDetectedPlainText = 3
+    case richText = 4
+
+    public init() {
+      self = .unknown
+    }
+
+  }
 
   public init() {}
 
@@ -5353,6 +5405,8 @@ public nonisolated struct UrlMetadata: Sendable {
   fileprivate var _intImageHeight: Int32? = nil
   fileprivate var _intImageWidth: Int32? = nil
   fileprivate var _mimeType: String? = nil
+  fileprivate var _urlSource: UrlMetadata.UrlSource? = nil
+  fileprivate var _faviconURL: String? = nil
 }
 
 /// From reference/purple-googlechat-master/googlechat.proto, which is newer
@@ -18129,12 +18183,14 @@ nonisolated extension HtmlAttachment: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 nonisolated extension Attachment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "Attachment"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}html\0\u{3}add_on_data\0\u{4}\u{3}app_id\0\u{3}app_user\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}html\0\u{3}add_on_data\0\u{4}\u{3}app_id\0\u{3}app_user\0\u{3}card_add_on_data\0\u{3}attachment_id\0")
 
   fileprivate class _StorageClass {
     var _type: Attachment.OneOf_Type?
     var _appID: UserId? = nil
     var _appUser: User? = nil
+    var _cardAddOnData: JAddOnsCardItem? = nil
+    var _attachmentID: String? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -18148,6 +18204,8 @@ nonisolated extension Attachment: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       _type = source._type
       _appID = source._appID
       _appUser = source._appUser
+      _cardAddOnData = source._cardAddOnData
+      _attachmentID = source._attachmentID
     }
   }
 
@@ -18194,6 +18252,8 @@ nonisolated extension Attachment: SwiftProtobuf.Message, SwiftProtobuf._MessageI
         }()
         case 5: try { try decoder.decodeSingularMessageField(value: &_storage._appID) }()
         case 6: try { try decoder.decodeSingularMessageField(value: &_storage._appUser) }()
+        case 7: try { try decoder.decodeSingularMessageField(value: &_storage._cardAddOnData) }()
+        case 8: try { try decoder.decodeSingularStringField(value: &_storage._attachmentID) }()
         default: break
         }
       }
@@ -18223,6 +18283,12 @@ nonisolated extension Attachment: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       try { if let v = _storage._appUser {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
       } }()
+      try { if let v = _storage._cardAddOnData {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+      } }()
+      try { if let v = _storage._attachmentID {
+        try visitor.visitSingularStringField(value: v, fieldNumber: 8)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -18235,6 +18301,8 @@ nonisolated extension Attachment: SwiftProtobuf.Message, SwiftProtobuf._MessageI
         if _storage._type != rhs_storage._type {return false}
         if _storage._appID != rhs_storage._appID {return false}
         if _storage._appUser != rhs_storage._appUser {return false}
+        if _storage._cardAddOnData != rhs_storage._cardAddOnData {return false}
+        if _storage._attachmentID != rhs_storage._attachmentID {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -19103,7 +19171,7 @@ nonisolated extension YoutubeMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mes
 
 nonisolated extension UrlMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "UrlMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}title\0\u{1}snippet\0\u{3}image_url\0\u{3}image_height\0\u{3}image_width\0\u{2}\u{2}url\0\u{1}domain\0\u{3}should_not_render\0\u{3}int_image_height\0\u{3}int_image_width\0\u{3}mime_type\0\u{3}gws_url\0\u{3}redirect_url\0\u{3}gws_url_expiration_timestamp\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}title\0\u{1}snippet\0\u{3}image_url\0\u{3}image_height\0\u{3}image_width\0\u{2}\u{2}url\0\u{1}domain\0\u{3}should_not_render\0\u{3}int_image_height\0\u{3}int_image_width\0\u{3}mime_type\0\u{3}gws_url\0\u{3}redirect_url\0\u{3}gws_url_expiration_timestamp\0\u{3}url_source\0\u{4}\u{2}favicon_url\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -19125,6 +19193,8 @@ nonisolated extension UrlMetadata: SwiftProtobuf.Message, SwiftProtobuf._Message
       case 13: try { try decoder.decodeSingularMessageField(value: &self._gwsURL) }()
       case 14: try { try decoder.decodeSingularMessageField(value: &self._redirectURL) }()
       case 15: try { try decoder.decodeSingularInt64Field(value: &self._gwsURLExpirationTimestamp) }()
+      case 16: try { try decoder.decodeSingularEnumField(value: &self._urlSource) }()
+      case 18: try { try decoder.decodeSingularStringField(value: &self._faviconURL) }()
       default: break
       }
     }
@@ -19177,6 +19247,12 @@ nonisolated extension UrlMetadata: SwiftProtobuf.Message, SwiftProtobuf._Message
     try { if let v = self._gwsURLExpirationTimestamp {
       try visitor.visitSingularInt64Field(value: v, fieldNumber: 15)
     } }()
+    try { if let v = self._urlSource {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 16)
+    } }()
+    try { if let v = self._faviconURL {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 18)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -19195,9 +19271,15 @@ nonisolated extension UrlMetadata: SwiftProtobuf.Message, SwiftProtobuf._Message
     if lhs._intImageHeight != rhs._intImageHeight {return false}
     if lhs._intImageWidth != rhs._intImageWidth {return false}
     if lhs._mimeType != rhs._mimeType {return false}
+    if lhs._urlSource != rhs._urlSource {return false}
+    if lhs._faviconURL != rhs._faviconURL {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
+}
+
+nonisolated extension UrlMetadata.UrlSource: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0URL_SOURCE_UNKNOWN\0\u{2}\u{2}SERVER_SUPPLIED_POLICY_VIOLATION\0\u{1}AUTO_DETECTED_PLAIN_TEXT\0\u{1}RICH_TEXT\0")
 }
 
 nonisolated extension Dimension: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {

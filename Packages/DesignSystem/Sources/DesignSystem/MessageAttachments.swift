@@ -14,6 +14,10 @@ enum AttachmentLayout {
         var files: [Attachment]
         /// Whether the text bubble draws at all.
         var showsText: Bool
+        /// Link cards, in wire order, one per URL (links spec §7.3).
+        var previews: [MessageLink] = []
+        /// App cards, in order; an empty one is drawn as a note.
+        var cards: [AppCard] = []
     }
 
     /// The bubble's widest and tallest side, in points.
@@ -29,8 +33,23 @@ enum AttachmentLayout {
     static func parts(of message: Message, canLoadImages: Bool) -> Parts {
         let images = canLoadImages ? message.attachments.filter(drawsAsPicture) : []
         let files = message.attachments.filter { !canLoadImages || !drawsAsPicture($0) }
+        let previews = previewLinks(message.links)
         let hasText = !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return Parts(images: images, files: files, showsText: hasText || message.attachments.isEmpty)
+        let hasOther = !message.attachments.isEmpty || !previews.isEmpty || !message.cards.isEmpty
+        return Parts(
+            images: images, files: files, showsText: hasText || !hasOther,
+            previews: previews, cards: message.cards
+        )
+    }
+
+    /// A card for every link with a preview, and for every unanchored link
+    /// even without one: an unanchored link has no other place to be seen or
+    /// clicked (Review Focus 1). One per URL, first wins.
+    static func previewLinks(_ links: [MessageLink]) -> [MessageLink] {
+        var seen: Set<URL> = []
+        return links.filter { link in
+            (link.preview != nil || link.start == nil) && seen.insert(link.url).inserted
+        }
     }
 
     /// Only the types ImageIO decodes. Any other `image/` type (SVG, an icon,

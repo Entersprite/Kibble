@@ -130,13 +130,15 @@ struct LocalBridgeBackendTests {
     /// client's capture (`findings.md` §56), before any live run.
     /// `canEditMessages` and `canDeleteMessages` joined on the references
     /// (edit spec §1); `--probe=edit` is what settles them.
+    /// `canFetchRemoteImages` joined with `RemoteImageFetch` (links spec §4.4).
     @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
             canMarkRead: true, supportsThreads: true,
             canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
-            canSendAttachments: true, canMention: true, canMentionNonMembers: true
+            canSendAttachments: true, canMention: true, canMentionNonMembers: true,
+            canFetchRemoteImages: true
         ))
     }
 

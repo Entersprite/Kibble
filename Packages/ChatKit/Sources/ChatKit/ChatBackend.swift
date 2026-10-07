@@ -126,6 +126,11 @@ public protocol ChatBackend: Sendable {
     /// method**, for the reason `attachmentData(_:size:)` gives.
     func customEmojiImage(_ emoji: CustomEmojiRef) async throws -> Data
 
+    /// A picture a message points at - a link preview's or an app card's
+    /// (links spec §3.3) - from a URL Google gave. **A requirement, not only
+    /// an extension method**, for the reason `attachmentData(_:size:)` gives.
+    func remoteImage(_ url: URL) async throws -> Data
+
     /// People in the directory matching `query`, for the `@` list (mention
     /// non-members spec §3.1). **A requirement, not only an extension
     /// method**, for the reason `attachmentData(_:size:)` gives.
@@ -184,6 +189,12 @@ public extension ChatBackend {
     /// their shortcodes, the direction `Capabilities` defaults in.
     func customEmojiImage(_: CustomEmojiRef) async throws -> Data {
         throw ChatError.unsupported(capability: "canFetchCustomEmoji")
+    }
+
+    /// Refuses, so a backend that has not thought about remote images draws
+    /// cards without pictures, the direction `Capabilities` defaults in.
+    func remoteImage(_: URL) async throws -> Data {
+        throw ChatError.unsupported(capability: "canFetchRemoteImages")
     }
 
     /// Refuses, so a backend that has not thought about the directory offers

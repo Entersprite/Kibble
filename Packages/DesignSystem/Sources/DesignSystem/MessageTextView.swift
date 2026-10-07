@@ -20,22 +20,34 @@
         var onMore: (() -> Void)?
         /// Edit… and Delete… for the person's own message (edit spec §5).
         var own: OwnMessageMenuItems?
+        /// Your own bubble draws links white; anyone else's, accent.
+        var inOwnBubble = false
+        /// Opens a clicked link that `LinkPolicy` allows (links spec §7.2).
+        var open: (URL) -> Void = { _ in }
 
         func makeCoordinator() -> Coordinator {
-            Coordinator(message: message, actions: actions, onMore: onMore, own: own)
+            Coordinator(message: message, actions: actions, onMore: onMore, own: own, open: open)
         }
 
         func makeNSView(context: Context) -> BubbleTextView {
             let view = BubbleTextView.make()
             view.delegate = context.coordinator
             view.insets = insets
+            view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
             view.show(text)
             return view
         }
 
         func updateNSView(_ view: BubbleTextView, context: Context) {
-            context.coordinator.update(message: message, actions: actions, onMore: onMore, own: own)
+            context.coordinator.update(
+                message: message,
+                actions: actions,
+                onMore: onMore,
+                own: own,
+                open: open
+            )
             view.insets = insets
+            view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
             view.show(text)
         }
 
@@ -55,25 +67,38 @@
             private(set) var actions: ReactionActions?
             private(set) var onMore: (() -> Void)?
             private(set) var own: OwnMessageMenuItems?
+            private(set) var open: (URL) -> Void
 
             init(
                 message: Message, actions: ReactionActions?, onMore: (() -> Void)? = nil,
-                own: OwnMessageMenuItems? = nil
+                own: OwnMessageMenuItems? = nil, open: @escaping (URL) -> Void = { _ in }
             ) {
                 self.message = message
                 self.actions = actions
                 self.onMore = onMore
                 self.own = own
+                self.open = open
             }
 
             func update(
                 message: Message, actions: ReactionActions?, onMore: (() -> Void)? = nil,
-                own: OwnMessageMenuItems? = nil
+                own: OwnMessageMenuItems? = nil, open: @escaping (URL) -> Void = { _ in }
             ) {
                 self.message = message
                 self.actions = actions
                 self.onMore = onMore
                 self.own = own
+                self.open = open
+            }
+
+            /// Opens through `LinkPolicy`, and always answers `true`: a refused
+            /// scheme is consumed here, so AppKit never opens it either.
+            func textView(_: NSTextView, clickedOnLink link: Any, at _: Int) -> Bool {
+                let url = (link as? URL) ?? (link as? String).flatMap { URL(string: $0) }
+                if let url, LinkPolicy.canOpen(url) {
+                    open(url)
+                }
+                return true
             }
 
             /// Reactions, then Edit… and Delete…, then the text's own items.

@@ -76,6 +76,15 @@ public extension FakeBackend {
         }
         return FixtureImage.png
     }
+
+    /// The fixture's one picture, for `acme.example` URLs only, so a demo card
+    /// never reaches the network and a stray URL fails loudly (links spec §7.6).
+    func remoteImage(_ url: URL) async throws -> Data {
+        try require(capabilities.canFetchRemoteImages, "canFetchRemoteImages")
+        guard let host = url.host()?.lowercased(), host == "acme.example" || host.hasSuffix(".acme.example")
+        else { throw ChatError.unknown("the fixture serves no image from this host") }
+        return FixtureImage.png
+    }
 }
 
 // MARK: - Mutation helpers

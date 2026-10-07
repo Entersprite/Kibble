@@ -19,6 +19,7 @@ enum Schema {
         migrator.registerMigration("v7", migrate: addMentionBackfillStatus)
         migrator.registerMigration("v8", migrate: addMemberStatus)
         migrator.registerMigration("v9", migrate: addEmojiRecents)
+        migrator.registerMigration("v10", migrate: addLinksAndCards)
         return migrator
     }
 
@@ -103,6 +104,16 @@ enum Schema {
     private static func addHasUnread(_ db: Database) throws {
         try db.alter(table: "conversation") { table in
             table.add(column: "hasUnread", .boolean).notNull().defaults(to: false)
+        }
+    }
+
+    /// Links and app cards (links spec §5). `[]` defaults, so a row written
+    /// before v10 reads as having none until history reloads it - which is
+    /// expected, not a bug.
+    private static func addLinksAndCards(_ db: Database) throws {
+        try db.alter(table: "message") { table in
+            table.add(column: "links", .text).notNull().defaults(to: "[]")
+            table.add(column: "cards", .text).notNull().defaults(to: "[]")
         }
     }
 

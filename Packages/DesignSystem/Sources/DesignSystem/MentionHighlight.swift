@@ -41,7 +41,7 @@ public enum MentionHighlight {
     /// here by construction. A conversion that fails anyway is dropped - no
     /// highlight, never a wrong one.
     public static func attributed(
-        _ text: String, mentions: [Mention], me: Member.ID?, inOwnBubble: Bool
+        _ text: String, mentions: [Mention], links: [MessageLink] = [], me: Member.ID?, inOwnBubble: Bool
     ) -> AttributedString {
         var attributed = AttributedString(text)
         for (range, isMe) in ranges(in: text, mentions: mentions, me: me) {
@@ -53,6 +53,14 @@ public enum MentionHighlight {
             } else {
                 attributed[span].foregroundColor = .accentColor
             }
+        }
+        // Links where `MessageLinks` puts them (links spec §7.2), never over a
+        // mention.
+        let mentionRanges = ranges(in: text, mentions: mentions, me: me).map { NSRange($0.range, in: text) }
+        for span in MessageLinks.spans(in: text, links: links, avoiding: mentionRanges) {
+            guard let range = Range(span.range, in: text),
+                  let target = Range(range, in: attributed) else { continue }
+            attributed[target].link = span.url
         }
         return attributed
     }

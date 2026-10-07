@@ -48,6 +48,7 @@ public struct ChatWindow: View {
                         state: state,
                         loadAttachment: actions.loadAttachment,
                         openAttachment: actions.openAttachment,
+                        loadRemoteImage: actions.loadRemoteImage,
                         downloads: state.downloads,
                         attachmentFiles: actions.attachmentFiles,
                         reactions: actions.reactions

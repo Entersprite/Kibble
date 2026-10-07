@@ -48,4 +48,10 @@ public extension SyncEngine {
     func customEmojiImage(_ emoji: CustomEmojiRef) async throws -> Data {
         try await backend.customEmojiImage(emoji)
     }
+
+    /// Forwarded, never recorded, for `attachmentData(_:size:)`'s reason: a
+    /// card that cannot load its picture draws without it.
+    func remoteImage(_ url: URL) async throws -> Data {
+        try await backend.remoteImage(url)
+    }
 }

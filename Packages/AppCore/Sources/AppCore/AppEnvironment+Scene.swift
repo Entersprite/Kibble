@@ -166,6 +166,10 @@ public extension AppEnvironment {
                 guard let self else { throw NoSession() }
                 return try await openAttachment(attachment)
             } : nil,
+            loadRemoteImage: canFetchRemoteImages ? { [weak self] url in
+                guard let self else { throw NoSession() }
+                return try await loadRemoteImage(url)
+            } : nil,
             attachmentFiles: attachmentFileActions,
             reactions: runningModel?.capabilities.canReact == true
                 ? ReactionActions(

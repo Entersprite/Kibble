@@ -40,6 +40,8 @@ public struct MessageList: View {
     /// each bubble. `nil` draws images as their names.
     let loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
     let openAttachment: ((Attachment) async throws -> URL)?
+    /// `ChatSceneActions.loadRemoteImage`, for link and app cards.
+    let loadRemoteImage: ((URL) async throws -> Data)?
     /// `ChatSceneState.downloads` and `ChatSceneActions.attachmentFiles`,
     /// handed down to each bubble's file chips the same way. `nil` actions
     /// draw a plain label (`CLAUDE.md`: never draw a control the seam cannot
@@ -65,6 +67,7 @@ public struct MessageList: View {
         state: ChatSceneState,
         loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)? = nil,
         openAttachment: ((Attachment) async throws -> URL)? = nil,
+        loadRemoteImage: ((URL) async throws -> Data)? = nil,
         downloads: [String: AttachmentDownloadState] = [:],
         attachmentFiles: AttachmentFileActions? = nil,
         reactions: ReactionActions? = nil
@@ -72,6 +75,7 @@ public struct MessageList: View {
         self.state = state
         self.loadAttachment = loadAttachment
         self.openAttachment = openAttachment
+        self.loadRemoteImage = loadRemoteImage
         self.downloads = downloads
         self.attachmentFiles = attachmentFiles
         self.reactions = reactions
@@ -91,6 +95,7 @@ public struct MessageList: View {
                         MessageBubble(
                             message: message, state: state,
                             loadAttachment: loadAttachment, openAttachment: openAttachment,
+                            loadRemoteImage: loadRemoteImage,
                             downloads: downloads, attachmentFiles: attachmentFiles,
                             reactions: reactions, own: own
                         )
@@ -99,6 +104,8 @@ public struct MessageList: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                // Every link under the transcript opens through one rule (links spec §7.1).
+                .environment(\.openURL, LinkPolicy.openURLAction)
             }
             .onChange(of: TranscriptScroll.Trigger(state), initial: true) {
                 switch TranscriptScroll.destination(
@@ -133,6 +140,7 @@ struct MessageBubble: View {
     let state: ChatSceneState
     var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
     var openAttachment: ((Attachment) async throws -> URL)?
+    var loadRemoteImage: ((URL) async throws -> Data)?
     var downloads: [String: AttachmentDownloadState] = [:]
     var attachmentFiles: AttachmentFileActions?
     var reactions: ReactionActions?
@@ -141,6 +149,9 @@ struct MessageBubble: View {
     /// Whether the full emoji picker is open for this message: from either
     /// menu's "More Emoji…" or the row's "+" (reactions spec §4.1-§4.3).
     @State private var picking = false
+
+    /// The transcript's, which `MessageList` sets to `LinkPolicy.openURLAction`.
+    @Environment(\.openURL) private var openURL
 
     private var parts: AttachmentLayout.Parts {
         AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
@@ -205,6 +216,18 @@ struct MessageBubble: View {
                             state: downloads[$0.id] ?? .idle,
                             actions: attachmentFiles
                         )
+                    }
+                    // Link cards, each with the row's menu plus Open and Copy Link
+                    // (links spec §7.3, §7.5).
+                    ForEach(parts.previews, id: \.url) { link in
+                        LinkPreviewCard(link: link, load: loadRemoteImage)
+                            .modifier(ReactionMenu(
+                                message: message, actions: reactions, own: ownItems,
+                                onMore: { picking = true }, link: link.url
+                            ))
+                    }
+                    ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
+                        AppCardView(card: card, load: loadRemoteImage)
                     }
                 }
                 if !message.reactions.isEmpty {
@@ -283,8 +306,9 @@ struct MessageBubble: View {
         private var textBubble: some View {
             VStack(alignment: .leading, spacing: 2) {
                 MessageTextView(
-                    text: MentionAttributes.attributed(
-                        message.text, mentions: message.mentions, me: state.me, inOwnBubble: isMine
+                    text: MessageTextAttributes.attributed(
+                        message.text, mentions: message.mentions, links: message.links, me: state.me,
+                        inOwnBubble: isMine
                     ),
                     insets: NSEdgeInsets(
                         top: 7,
@@ -295,7 +319,9 @@ struct MessageBubble: View {
                     message: message,
                     actions: reactions,
                     onMore: { picking = true },
-                    own: ownItems
+                    own: ownItems,
+                    inOwnBubble: isMine,
+                    open: { openURL($0) }
                 )
                 if message.editedAt != nil {
                     editedLabel
@@ -308,7 +334,8 @@ struct MessageBubble: View {
         private var textBubble: some View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(MentionHighlight.attributed(
-                    message.text, mentions: message.mentions, me: state.me, inOwnBubble: isMine
+                    message.text, mentions: message.mentions, links: message.links, me: state.me,
+                    inOwnBubble: isMine
                 ))
                 .textSelection(.enabled)
                 if message.editedAt != nil {

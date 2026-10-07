@@ -29,6 +29,9 @@ public extension ChatSessionModel {
         var edited = original
         edited.text = message.text
         edited.mentions = message.mentions
+        // Spans into the old text would land on whatever the new text holds
+        // there; the server's version brings the real ones (review finding 1).
+        edited.links = original.links.filter { $0.start == nil }
         edited.editedAt = Date()
         try? store.apply([.upsertMessageKeepingReactions(edited)])
         submitEdit(
