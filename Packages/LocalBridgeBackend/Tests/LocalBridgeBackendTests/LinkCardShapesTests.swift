@@ -144,6 +144,24 @@ struct LinkCardShapesTests {
         #expect(!report.contains("shipped"))
     }
 
+    /// Review finding (minor 12, re-graded): a widget kind the vendored proto
+    /// lacks is named by its field number, so one run says which is missing.
+    @Test func anUnknownWidgetIsNamedByItsFieldNumber() throws {
+        // Field 23, wire type 2 (length-delimited), empty: tag 0xBA 0x01, length 0.
+        var widget = JAddOnsWidget()
+        try widget.merge(serializedBytes: Data([0xBA, 0x01, 0x00]))
+        var section = JAddOnsCardItem.CardItemSection()
+        section.widgets = [widget]
+        var card = JAddOnsCardItem()
+        card.sections = [section]
+        var attachment = GChatBridgeCore.Attachment()
+        attachment.cardAddOnData = card
+        let counted = shapes([message("", attachments: [attachment])])
+        #expect(counted.widgetKinds["empty"] == 1)
+        #expect(counted.unknownWidgetFields["23"] == 1)
+        #expect(APIProbeReport.linkCardShapesLines(counted).joined().contains("unknown widget fields: 23×1"))
+    }
+
     @Test func ownSendsWithAURLAreCountedWithAndWithoutAnAnnotation() {
         let counted = shapes([
             message("mine https://acme.example/a", creator: "users/me"),

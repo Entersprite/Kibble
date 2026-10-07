@@ -34,6 +34,9 @@ struct LinkCardShapes: Equatable {
     var cardsWithHeader = 0
     var sections = 0
     var widgetKinds: [String: Int] = [:]
+    /// Field numbers in a widget's `unknownFields`: a widget kind the vendored
+    /// proto does not name. Numbers only, never a payload.
+    var unknownWidgetFields: [String: Int] = [:]
     var clickKinds: [String: Int] = [:]
     var textElements = 0
     var textOriginalOnly = 0
@@ -130,7 +133,8 @@ extension APIProbeReport {
             "  cards: messages with field 15 \(shapes.withAttachmentsField); decoded \(shapes.cardsDecoded), "
                 + "field-7 byte scan \(shapes.cardsByteScan); with header \(shapes.cardsWithHeader); "
                 + "sections \(shapes.sections)",
-            "  widget kinds: \(named(shapes.widgetKinds))",
+            "  widget kinds: \(named(shapes.widgetKinds)); "
+                + "unknown widget fields: \(named(shapes.unknownWidgetFields))",
             "  click kinds: \(named(shapes.clickKinds))",
             "  card text: formatted elements \(shapes.textElements), original_text only "
                 + "\(shapes.textOriginalOnly) (with markup \(shapes.textOriginalWithMarkup)); "
@@ -265,6 +269,9 @@ extension APIProbeReport {
         }
         if widget.data == nil, widget.buttons.isEmpty {
             shapes.widgetKinds["empty", default: 0] += 1
+        }
+        for field in ProtoFieldScan.fields(in: widget.unknownFields.data).fields {
+            shapes.unknownWidgetFields[String(field.number), default: 0] += 1
         }
     }
 
