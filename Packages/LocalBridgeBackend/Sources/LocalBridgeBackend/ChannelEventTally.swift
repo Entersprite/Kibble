@@ -96,7 +96,7 @@ struct ChannelEventTally {
     /// times, so a run can be lined up against when a meeting started.
     func report(startedAt: Date, writtenAt: Date, build: String) -> String {
         var lines = [
-            "gchat channel event tally - format 1, shape depth \(Self.depth), build \(build)",
+            "kibble channel event tally - format 1, shape depth \(Self.depth), build \(build)",
             "started \(Self.clock(startedAt)), written \(Self.clock(writtenAt))",
             ""
         ]

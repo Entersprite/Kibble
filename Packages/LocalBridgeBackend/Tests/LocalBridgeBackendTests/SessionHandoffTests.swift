@@ -195,7 +195,7 @@ struct SessionHandoffTests {
         let store = store()
         _ = try await capture([cookie("COMPASS"), cookie("OSID")]).save(to: store)
         let traceFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gchat-channel-trace-test-\(UUID().uuidString).csv")
+            .appendingPathComponent("kibble-channel-trace-test-\(UUID().uuidString).csv")
         defer { try? FileManager.default.removeItem(at: traceFile) }
         #expect(try await LocalBridgeBackend.using(
             store,

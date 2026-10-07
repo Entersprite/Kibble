@@ -9,36 +9,36 @@ import Testing
 /// `fromCommandLine()` is the one-line caller that supplies the real list.
 struct LaunchArgumentsTests {
     @Test func theDefaultIsTheRealBackendAndNoProbe() {
-        let arguments = LaunchArguments.parsing(["GChat"])
+        let arguments = LaunchArguments.parsing(["Kibble"])
         #expect(arguments.usesRealBackend)
         #expect(arguments.probe == nil)
         #expect(!arguments.runsDiagnostics)
     }
 
     @Test func theFixtureIsOptedIntoByName() {
-        #expect(!LaunchArguments.parsing(["GChat", "--backend=fixture"]).usesRealBackend)
+        #expect(!LaunchArguments.parsing(["Kibble", "--backend=fixture"]).usesRealBackend)
     }
 
     /// Inverted from `--backend=local` on purpose: what a person gets by
     /// double-clicking the app is the real bridge.
     @Test func anUnrecognisedBackendFlagStillMeansTheRealBackend() {
-        #expect(LaunchArguments.parsing(["GChat", "--backend=wat"]).usesRealBackend)
+        #expect(LaunchArguments.parsing(["Kibble", "--backend=wat"]).usesRealBackend)
     }
 
     @Test func eachProbeIsRecognised() {
-        #expect(LaunchArguments.parsing(["GChat", "--probe=keychain"]).probe == .keychain)
-        #expect(LaunchArguments.parsing(["GChat", "--probe=api"]).probe == .api)
-        #expect(LaunchArguments.parsing(["GChat", "--probe=punctual"]).probe == .punctual)
-        #expect(LaunchArguments.parsing(["GChat", "--probe=upload"]).probe == .upload)
-        #expect(LaunchArguments.parsing(["GChat", "--probe=people"]).probe == .people)
-        #expect(LaunchArguments.parsing(["GChat", "--probe=edit"]).probe == .edit)
+        #expect(LaunchArguments.parsing(["Kibble", "--probe=keychain"]).probe == .keychain)
+        #expect(LaunchArguments.parsing(["Kibble", "--probe=api"]).probe == .api)
+        #expect(LaunchArguments.parsing(["Kibble", "--probe=punctual"]).probe == .punctual)
+        #expect(LaunchArguments.parsing(["Kibble", "--probe=upload"]).probe == .upload)
+        #expect(LaunchArguments.parsing(["Kibble", "--probe=people"]).probe == .people)
+        #expect(LaunchArguments.parsing(["Kibble", "--probe=edit"]).probe == .edit)
     }
 
     /// `--probe=appnap` is a different kind of flag: it does not short-circuit
     /// the launch into `.report`, it instruments a launch that proceeds
     /// normally. Conflating the two would stop the app ever starting under it.
     @Test func appNapIsDiagnosticsAndNotAReportProbe() {
-        let arguments = LaunchArguments.parsing(["GChat", "--probe=appnap"])
+        let arguments = LaunchArguments.parsing(["Kibble", "--probe=appnap"])
         #expect(arguments.probe == nil)
         #expect(arguments.runsDiagnostics)
     }

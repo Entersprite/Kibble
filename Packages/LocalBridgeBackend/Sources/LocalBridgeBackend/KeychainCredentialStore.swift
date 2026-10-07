@@ -23,11 +23,12 @@ protocol SecretStorage: Sendable {
 /// and was never the product.
 public actor KeychainCredentialStore: CredentialStore {
     /// The default Keychain service. One per app, not per account.
-    ///
-    /// Still `gchat` after the app became Kibble, on purpose: renaming it
-    /// loses the saved session. It moves with a migration, in the
-    /// repository-wide rename (`docs/superpowers/plans/2026-10-01-kibble-rename.md`).
-    public static let defaultService = "com.entersprite.gchat.session"
+    public static let defaultService = "com.entersprite.kibble.session"
+
+    /// The service the session lived under while the app was GChat. Read only
+    /// when `defaultService` holds nothing, and emptied by `invalidate()`
+    /// (`docs/superpowers/specs/2026-10-07-developer-id-and-kibble-identity-design.md` §3).
+    static let legacyService = "com.entersprite.gchat.session"
 
     /// The default account name.
     ///
@@ -39,24 +40,53 @@ public actor KeychainCredentialStore: CredentialStore {
     public static let defaultAccount = "primary"
 
     private let storage: any SecretStorage
+    private let legacyStorage: (any SecretStorage)?
     private let account: String
 
     public init(
         service: String = KeychainCredentialStore.defaultService,
         account: String = KeychainCredentialStore.defaultAccount
     ) {
-        self.init(storage: KeychainSecretStorage(service: service), account: account)
+        self.init(
+            storage: KeychainSecretStorage(service: service),
+            legacyStorage: service == Self.defaultService
+                ? KeychainSecretStorage(service: Self.legacyService) : nil,
+            account: account
+        )
     }
 
-    init(storage: any SecretStorage, account: String) {
+    init(storage: any SecretStorage, legacyStorage: (any SecretStorage)? = nil, account: String) {
         self.storage = storage
+        self.legacyStorage = legacyStorage
         self.account = account
     }
 
     public func currentSession() async throws -> StoredSession? {
-        guard let data = try storage.read(account: account) else { return nil }
+        if let data = try storage.read(account: account) {
+            return try Self.decode(data)
+        }
+        return try migrateLegacySession()
+    }
+
+    /// The session saved before the rename, moved under `defaultService`.
+    ///
+    /// A refused read throws like any refused read: the launch fails and offers
+    /// Sign In, and the old item stays where it was. The old item is deleted
+    /// only after the new one is written; a refused delete leaves a copy the
+    /// new service now shadows, which `invalidate()` still removes.
+    private func migrateLegacySession() throws -> StoredSession? {
+        guard let legacyStorage, let data = try legacyStorage.read(account: account) else {
+            return nil
+        }
+        let session = try Self.decode(data)
+        try storage.write(data, account: account)
+        try? legacyStorage.delete(account: account)
+        return session
+    }
+
+    private static func decode(_ data: Data) throws -> StoredSession {
         do {
-            return try Self.decoder.decode(StoredSession.self, from: data)
+            return try decoder.decode(StoredSession.self, from: data)
         } catch {
             // Deliberately not `nil`. Something is stored; we simply cannot use
             // it. Saying "no session" here would hide a broken storage format
@@ -69,7 +99,10 @@ public actor KeychainCredentialStore: CredentialStore {
         try storage.write(Self.encoder.encode(session), account: account)
     }
 
+    /// The old service first: a session left there would come back through
+    /// `currentSession()`'s migration on the next launch.
     public func invalidate() async throws {
+        try legacyStorage?.delete(account: account)
         try storage.delete(account: account)
     }
 

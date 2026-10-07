@@ -17,7 +17,7 @@ public enum SystemNotificationSettings {
 
 /// The Dock tile's number.
 ///
-/// **Shown only if badges are allowed for GChat** in System Settings ›
+/// **Shown only if badges are allowed for Kibble** in System Settings ›
 /// Notifications. Once an app registers with Notification Center, macOS gates
 /// `badgeLabel` on that per-app setting, which is why
 /// `UserNotificationDelivery.requestAuthorization()` asks for `.badge`.

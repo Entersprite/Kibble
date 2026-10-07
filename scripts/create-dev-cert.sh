@@ -14,7 +14,7 @@ set -euo pipefail
 
 # shellcheck source=dev-identity.sh
 source "$(dirname "$0")/dev-identity.sh"
-NAME="$GCHAT_DEV_IDENTITY"
+NAME="$KIBBLE_DEV_IDENTITY"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if security find-identity -v -p codesigning | grep -q "$NAME"; then

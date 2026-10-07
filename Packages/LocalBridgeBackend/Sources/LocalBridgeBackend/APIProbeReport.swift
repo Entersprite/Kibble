@@ -46,7 +46,7 @@ public enum APIProbeReport {
         // `swiftlint`'s `function_body_length` is a real signal here: this
         // function reads top to bottom as the sequence itself, and a stage
         // that grows a paragraph belongs in its own function anyway.
-        var lines = ["gchat /api/ probe", ""]
+        var lines = ["kibble /api/ probe", ""]
 
         guard let cookies = await appendCredential(store: store, lines: &lines) else {
             return lines.joined(separator: "\n")

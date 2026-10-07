@@ -34,7 +34,12 @@ struct KeychainCredentialStoreTests {
             items[account] = data
         }
 
+        var deleteError: (any Error)?
+
         func delete(account: String) throws {
+            if let deleteError {
+                throw deleteError
+            }
             items[account] = nil
         }
     }
@@ -53,6 +58,108 @@ struct KeychainCredentialStoreTests {
 
     private func store(_ storage: FakeStorage) -> KeychainCredentialStore {
         KeychainCredentialStore(storage: storage, account: "test")
+    }
+
+    private func migrating(_ current: FakeStorage, from legacy: FakeStorage) -> KeychainCredentialStore {
+        KeychainCredentialStore(storage: current, legacyStorage: legacy, account: "test")
+    }
+
+    // MARK: - The session saved before the rename (spec §3)
+
+    @Test func theServicesAreKibblesAndTheOldOneIsGChats() {
+        #expect(KeychainCredentialStore.defaultService == "com.entersprite.kibble.session")
+        #expect(KeychainCredentialStore.legacyService == "com.entersprite.gchat.session")
+    }
+
+    @Test func aSessionUnderTheOldServiceMovesToTheNewOne() async throws {
+        let current = FakeStorage()
+        let legacy = FakeStorage()
+        let original = session(["COMPASS", "OSID"])
+        try await store(legacy).store(original)
+        #expect(try await migrating(current, from: legacy).currentSession() == original)
+        #expect(current.items["test"] != nil)
+        #expect(legacy.items["test"] == nil)
+    }
+
+    @Test func theNewServiceWinsAndTheOldOneIsNotRead() async throws {
+        let current = FakeStorage()
+        let legacy = FakeStorage()
+        try await store(current).store(session(["NEW"]))
+        legacy.readError = Boom()
+        let loaded = try await migrating(current, from: legacy).currentSession()
+        #expect(loaded?.credential.cookies.map(\.name) == ["NEW"])
+    }
+
+    /// CLAUDE.md: "no credential" never means "could not look".
+    @Test func aRefusedReadOfTheOldServiceIsReportedAndLeavesIt() async throws {
+        let current = FakeStorage()
+        let legacy = FakeStorage()
+        try await store(legacy).store(session())
+        legacy.readError = Boom()
+        await #expect(throws: (any Error).self) {
+            try await migrating(current, from: legacy).currentSession()
+        }
+        #expect(legacy.items["test"] != nil)
+        #expect(current.items.isEmpty)
+    }
+
+    @Test func aFailedWriteLeavesTheOldSessionWhereItWas() async throws {
+        let current = FakeStorage()
+        let legacy = FakeStorage()
+        try await store(legacy).store(session())
+        current.writeError = Boom()
+        await #expect(throws: (any Error).self) {
+            try await migrating(current, from: legacy).currentSession()
+        }
+        #expect(legacy.items["test"] != nil)
+    }
+
+    @Test func anUnreadableOldBlobIsReportedAndNotMoved() async throws {
+        let current = FakeStorage()
+        let legacy = FakeStorage()
+        legacy.items["test"] = Data("not a session".utf8)
+        await #expect(throws: (any Error).self) {
+            try await migrating(current, from: legacy).currentSession()
+        }
+        #expect(current.items.isEmpty)
+        #expect(legacy.items["test"] != nil)
+    }
+
+    @Test func aRefusedDeleteOfTheOldServiceStillSignsIn() async throws {
+        let current = FakeStorage()
+        let legacy = FakeStorage()
+        let original = session()
+        try await store(legacy).store(original)
+        legacy.deleteError = Boom()
+        #expect(try await migrating(current, from: legacy).currentSession() == original)
+        #expect(current.items["test"] != nil)
+    }
+
+    /// Review Focus 1: without this, a refused delete would let the next
+    /// launch's migration bring back a session the person signed out of.
+    @Test func signingOutAlsoRemovesTheOldService() async throws {
+        let current = FakeStorage()
+        let legacy = FakeStorage()
+        try await store(current).store(session(["NEW"]))
+        try await store(legacy).store(session(["OLD"]))
+        let subject = migrating(current, from: legacy)
+        try await subject.invalidate()
+        #expect(legacy.items.isEmpty)
+        #expect(try await subject.currentSession() == nil)
+    }
+
+    @Test func aRefusedDeleteOfTheOldServiceFailsTheSignOut() async throws {
+        let current = FakeStorage()
+        let legacy = FakeStorage()
+        try await store(current).store(session(["NEW"]))
+        try await store(legacy).store(session(["OLD"]))
+        legacy.deleteError = Boom()
+        await #expect(throws: (any Error).self) {
+            try await migrating(current, from: legacy).invalidate()
+        }
+        // The old service goes first: had the new one gone already, the next
+        // launch would migrate the signed-out session back.
+        #expect(current.items["test"] != nil)
     }
 
     // MARK: - The ordinary path

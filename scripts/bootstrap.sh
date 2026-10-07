@@ -34,7 +34,7 @@ echo "Project:"
 check "generated protobuf present" \
     "test -f Packages/GChatBridgeCore/Sources/GChatBridgeCore/Generated/googlechat.pb.swift"
 check "stable dev signing identity" \
-    "security find-identity -v -p codesigning | grep -q '$GCHAT_DEV_IDENTITY'"
+    "security find-identity -v -p codesigning | grep -q '$KIBBLE_DEV_IDENTITY'"
 
 echo
 echo "$ok ok, $fail missing"

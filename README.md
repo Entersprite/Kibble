@@ -18,14 +18,14 @@ that protocol at any time, and when it does, Kibble breaks until it is updated.
 
 Download the zip from the latest
 [release](https://github.com/Entersprite/Kibble/releases/latest), unzip it, and
-drag Kibble into Applications in Finder. Kibble is self-signed and not
-notarized, so macOS blocks it the first time: open it once, then click
-**Open Anyway** in System Settings → Privacy & Security.
+drag Kibble into Applications in Finder. Kibble is signed with a Developer ID
+and notarized by Apple.
 
 From then on Kibble updates itself through [Sparkle](https://sparkle-project.org):
 by hand from Kibble › Check for Updates…, or on its own at launch, every hour or
-every day (Settings › Updates). After each update, macOS asks once for your
-login password so Kibble can read its saved session; choose **Always Allow**.
+every day (Settings › Updates). Updating from an older Kibble that was not yet
+notarized, macOS asks once for your login password so Kibble can bring its saved
+session along; choose **Always Allow**.
 Releases from before updates existed (v2026.41.1 and earlier) have to be
 replaced by hand once.
 
@@ -34,15 +34,12 @@ replaced by hand once.
 ```bash
 ./scripts/bootstrap.sh       # checks the toolchain; changes nothing
 ./scripts/create-dev-cert.sh # once: a stable signing identity, so Keychain access survives rebuilds
-./scripts/generate.sh        # generates GChat.xcodeproj from project.yml
+./scripts/generate.sh        # generates Kibble.xcodeproj from project.yml
 ./scripts/build.sh           # builds the app (--fast skips signing)
 ```
 
 `./scripts/test.sh` runs the architecture checks and every package's tests, and
 `./scripts/lint.sh` runs SwiftLint. Both must pass.
-
-The repository, packages and bundle ID still use the project's earlier name,
-GChat.
 
 ## How it was made
 

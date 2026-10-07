@@ -12,22 +12,24 @@ SWIFT_STRICT_CONCURRENCY = complete
 MARKETING_VERSION = 2026.41.3
 CURRENT_PROJECT_VERSION = 2026.41.3
 
-// Ad-hoc signing by default so the app builds with zero Apple account setup.
-// scripts/create-dev-cert.sh creates a stable self-signed identity; once it
-// exists, scripts/build.sh picks it up automatically. A stable identity matters
-// because ad-hoc signatures change the binary hash on every build, which makes
-// macOS re-prompt for Keychain access every single time.
+// Ad hoc signing by default, so the app builds with no Apple account. build.sh
+// prefers the owner's Developer ID, found in the Keychain at run time (no name
+// or Team ID is written into the repository), then the self-signed identity
+// scripts/create-dev-cert.sh creates. A stable identity matters because ad hoc
+// signatures change with every build, and macOS then re-prompts for Keychain
+// access every single time.
 CODE_SIGN_STYLE = Manual
 DEVELOPMENT_TEAM =
 
-// Project-wide default. Must stay ad-hoc: SwiftPM dependency targets inherit
-// this, and a named identity makes Xcode demand a development team for their
-// resource bundles.
+// Project-wide default. Must stay ad hoc: SwiftPM dependency targets inherit
+// this, and a named identity on their resource bundles makes Xcode demand a
+// development team for them.
 CODE_SIGN_IDENTITY = -
 
-// Applied to the GChat target only. scripts/build.sh overrides this with the
-// "GChat Dev" identity when it exists.
-GCHAT_SIGN_IDENTITY = -
+// Applied to the KibbleMac target only (project.yml). scripts/build.sh sets
+// both from the Keychain when it finds an identity.
+KIBBLE_SIGN_IDENTITY = -
+KIBBLE_TEAM =
 
 // Placeholders — override in Local.xcconfig once the GCP OAuth client exists.
 // Google requires the secret in the token exchange for Desktop-app clients, even

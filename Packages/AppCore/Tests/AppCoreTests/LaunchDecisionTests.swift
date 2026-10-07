@@ -6,7 +6,7 @@ import Testing
 /// Spec §6.1 - the nine launch paths, one test each.
 ///
 /// These are characterization tests over behaviour that already shipped in
-/// `Apps/GChatMac`, where nothing could reach it. They are expected to pass on
+/// `Apps/KibbleMac`, where nothing could reach it. They are expected to pass on
 /// the first run; a failure here is a real bug that has been live, and it
 /// should be reported rather than quietly fixed.
 @MainActor

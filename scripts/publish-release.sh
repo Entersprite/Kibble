@@ -29,6 +29,14 @@ zipped=$(unzip -p "$zip" Kibble.app/Contents/Info.plist |
     plutil -extract CFBundleShortVersionString raw -) || fail "$zip holds no Kibble.app"
 [[ "$zipped" == "$version" ]] || fail "$zip holds $zipped, not $version"
 
+# Only a notarized, stapled app opens without Open Anyway. A zip packaged
+# before Developer ID signing, or by hand, must not be published.
+stapled=$(mktemp -d)
+unzip -q "$zip" -d "$stapled"
+xcrun stapler validate "$stapled/Kibble.app" >/dev/null 2>&1 ||
+    { rm -rf "$stapled"; fail "$zip is not notarized and stapled; run scripts/package.sh"; }
+rm -rf "$stapled"
+
 # Sparkle's tools come with its Swift package, which the app's build fetched.
 # The private key is in the owner's login Keychain (CLAUDE.md, "Publishing").
 bin=DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin
@@ -70,9 +78,9 @@ git log --first-parent --format='%s' "$range" | grep -v '^release: ' >"$changes"
     echo "Requires macOS 26. Unzip, and drag Kibble into Applications in Finder."
     echo
     # One line per paragraph: GitHub can render a newline in release notes as a break.
-    echo "Kibble is signed with a self-signed certificate and is not notarized, so macOS blocks it the first time. Open it once, then go to System Settings → Privacy & Security, click **Open Anyway**, and confirm with **Open**."
+    echo "Kibble is signed with a Developer ID and notarized by Apple, so it opens like any other app."
     echo
-    echo "Kibble then updates itself (Settings → Updates). After each update, macOS asks once for your login password so Kibble can read its saved session: choose **Always Allow**."
+    echo "Kibble then updates itself (Settings → Updates). Updating from an older Kibble that was not yet notarized? macOS asks once for your login password so Kibble can bring its saved session along: choose **Always Allow**."
 } >"$notes"
 
 # The appcast: one item, signed, uploaded beside the zip.

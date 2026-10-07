@@ -15,7 +15,7 @@ import SwiftUI
 /// it starts at launch and keeps running with the window closed, which is what
 /// lets notifications arrive. See that type's doc comment for why.
 @main
-struct GChatMacApp: App {
+struct KibbleMacApp: App {
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingSignOutFromSettings = false

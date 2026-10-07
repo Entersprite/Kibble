@@ -126,8 +126,7 @@ public struct UpdateSettingsPane: View {
                 ))
                 .disabled(!state.offersAutomaticOptions)
             } footer: {
-                Text("An update downloaded automatically is installed when you quit Kibble. "
-                    + "After an update, macOS asks once for your login password: choose Always Allow.")
+                Text("An update downloaded automatically is installed when you quit Kibble.")
             }
             if let notice = state.shownNotice {
                 Text(notice).foregroundStyle(.secondary).font(.callout)

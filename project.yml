@@ -1,4 +1,4 @@
-name: GChat
+name: Kibble
 
 options:
   bundleIdPrefix: com.entersprite
@@ -46,11 +46,11 @@ packages:
     path: Packages/MacHost
 
 targets:
-  GChatMac:
+  KibbleMac:
     type: application
     platform: macOS
     sources:
-      - path: Apps/GChatMac
+      - path: Apps/KibbleMac
     dependencies:
       - package: AppCore
         product: AppCore
@@ -60,19 +60,20 @@ targets:
         product: MacHost
     settings:
       base:
-        # The app is Kibble; the identifier is still gchat on purpose. It names
-        # the sandbox container holding the store, settings and notification
-        # permission, so changing it starts every install over. It moves in the
-        # repository-wide rename (docs/superpowers/plans/2026-10-01-kibble-rename.md).
+        # The identifier names the sandbox container (store, settings), the
+        # notification permission and Sparkle's mach-lookup services. It moved
+        # from com.entersprite.gchat in session 53; scripts/migrate-container.sh
+        # carries an install's data across.
         PRODUCT_NAME: Kibble
-        PRODUCT_BUNDLE_IDENTIFIER: com.entersprite.gchat
-        INFOPLIST_FILE: Apps/GChatMac/Info.plist
-        # Apps/GChatMac/AppIcon.icon, an Icon Composer document: Xcode compiles
+        PRODUCT_BUNDLE_IDENTIFIER: com.entersprite.kibble
+        INFOPLIST_FILE: Apps/KibbleMac/Info.plist
+        # Apps/KibbleMac/AppIcon.icon, an Icon Composer document: Xcode compiles
         # its layers into the Liquid Glass icon and the pre-26 fallbacks, so
         # there is no asset catalog. Edit it in Icon Composer, never by hand.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        CODE_SIGN_ENTITLEMENTS: Apps/GChatMac/GChatMac.entitlements
-        CODE_SIGN_IDENTITY: $(GCHAT_SIGN_IDENTITY)
+        CODE_SIGN_ENTITLEMENTS: Apps/KibbleMac/KibbleMac.entitlements
+        CODE_SIGN_IDENTITY: $(KIBBLE_SIGN_IDENTITY)
+        DEVELOPMENT_TEAM: $(KIBBLE_TEAM)
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         DEAD_CODE_STRIPPING: YES
         COMBINE_HIDPI_IMAGES: YES
@@ -83,13 +84,11 @@ targets:
         # one library the app loads from its own bundle.
         ENABLE_DEBUG_DYLIB: NO
       configs:
-        # Hardened runtime enables library validation, which requires matching
-        # Team IDs. A self-signed development certificate has no Team ID, so any
-        # dylib the app loads from its own bundle is rejected and the process
-        # dies at launch. Hardened runtime is only needed for notarized
-        # distribution, where a real Developer ID supplies a Team ID. Release
-        # loads Sparkle.framework, so GChatMac.entitlements carries
-        # disable-library-validation (measured, session 49).
+        # Hardened runtime enables library validation: the app loads only
+        # Apple's code or code signed with its own Team ID. Release is signed
+        # with the owner's Developer ID, and so is Sparkle.framework
+        # (scripts/package.sh), so no exception is needed. Debug runs without
+        # hardened runtime.
         Debug:
           ENABLE_HARDENED_RUNTIME: NO
           # Info.plist's KibbleUpdatesEnabled: only a Release build starts the
@@ -104,10 +103,10 @@ targets:
           KIBBLE_UPDATES_ENABLED: "YES"
 
 schemes:
-  GChatMac:
+  KibbleMac:
     build:
       targets:
-        GChatMac: all
+        KibbleMac: all
     run:
       config: Debug
     archive:
