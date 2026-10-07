@@ -68,7 +68,8 @@ if grep -q get-task-allow <<<"$entitlements"; then
     fail "the app carries get-task-allow"
 fi
 # The licenses of what Kibble bundles require their notices in every copy, and
-# About Kibble shows them. Byte for byte, so a stale copy cannot ship either.
+# Help › Acknowledgments shows them. Byte for byte, so a stale copy cannot
+# ship either.
 for notice in LICENSE THIRD_PARTY_NOTICES.txt; do
     cmp -s "$notice" "$app/Contents/Resources/$notice" ||
         fail "the app's $notice is missing or differs from the repository's"

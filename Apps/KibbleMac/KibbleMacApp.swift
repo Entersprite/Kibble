@@ -55,11 +55,28 @@ struct KibbleMacApp: App {
         }
         .defaultSize(width: 1100, height: 720)
         .commands {
-            // The standard panel, with the disclaimer and the license texts as
-            // its credits (`AboutPanel`).
+            // The standard panel, with three short lines about the license as its
+            // credits (`AboutPanel`).
             CommandGroup(replacing: .appInfo) {
                 Button("About Kibble") {
                     AboutPanel.show()
+                }
+            }
+            // Kibble has no help book, so the Help menu holds the source link and
+            // the legal texts (`HelpWindows`).
+            CommandGroup(replacing: .help) {
+                Button("Kibble on GitHub") {
+                    HelpWindows.openSource()
+                }
+                Divider()
+                Button("Disclaimer") {
+                    HelpWindows.show(.disclaimer)
+                }
+                Button("License") {
+                    HelpWindows.show(.license)
+                }
+                Button("Acknowledgments") {
+                    HelpWindows.show(.acknowledgments)
                 }
             }
             CommandGroup(replacing: .newItem) {}

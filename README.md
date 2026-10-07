@@ -51,7 +51,8 @@ AI coding agent, working with its owner. Most commits carry a
 
 MIT. See [LICENSE](LICENSE). Kibble includes Sparkle, GRDB.swift and
 SwiftProtobuf, and their licenses are in
-[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) and in About Kibble.
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) and in Help ›
+Acknowledgments.
 
 ## Disclaimer
 
