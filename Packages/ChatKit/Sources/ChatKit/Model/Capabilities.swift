@@ -40,6 +40,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// `.sendMessage` honours `Mention.Mode`. Gates the `@` list's directory
     /// section and the add-or-not confirmation (mention non-members spec §3.1).
     public var canMentionNonMembers: Bool
+    /// `ChatBackend.remoteImage(_:)` returns bytes rather than refusing
+    /// (links spec §3.3).
+    public var canFetchRemoteImages: Bool
 
     /// The escape hatch. A newer backend can advertise a capability this build
     /// has no property for, and a newer client can look for it by name without
@@ -66,6 +69,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canSendAttachments: Bool = false,
         canMention: Bool = false,
         canMentionNonMembers: Bool = false,
+        canFetchRemoteImages: Bool = false,
         extendedFlags: Set<String> = []
     ) {
         self.canSendMessages = canSendMessages
@@ -85,6 +89,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canSendAttachments = canSendAttachments
         self.canMention = canMention
         self.canMentionNonMembers = canMentionNonMembers
+        self.canFetchRemoteImages = canFetchRemoteImages
         self.extendedFlags = extendedFlags
     }
 }
@@ -110,6 +115,7 @@ public extension Capabilities {
         case canSendAttachments
         case canMention
         case canMentionNonMembers
+        case canFetchRemoteImages
         case extendedFlags
     }
 
@@ -139,6 +145,7 @@ public extension Capabilities {
             canSendAttachments: flag(.canSendAttachments),
             canMention: flag(.canMention),
             canMentionNonMembers: flag(.canMentionNonMembers),
+            canFetchRemoteImages: flag(.canFetchRemoteImages),
             extendedFlags: Set(
                 container.decodeIfPresent([String].self, forKey: .extendedFlags) ?? []
             )
@@ -164,6 +171,7 @@ public extension Capabilities {
         try container.encode(canSendAttachments, forKey: .canSendAttachments)
         try container.encode(canMention, forKey: .canMention)
         try container.encode(canMentionNonMembers, forKey: .canMentionNonMembers)
+        try container.encode(canFetchRemoteImages, forKey: .canFetchRemoteImages)
         try container.encode(extendedFlags.sorted(), forKey: .extendedFlags)
     }
 }
