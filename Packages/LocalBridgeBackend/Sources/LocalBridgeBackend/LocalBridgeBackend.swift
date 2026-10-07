@@ -54,7 +54,7 @@ public actor LocalBridgeBackend: ChatBackend {
         canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
         canMarkRead: true, supportsThreads: true,
         canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
-        canSendAttachments: true, canMention: true, canMentionNonMembers: true
+        canSendAttachments: true, canMention: true, canMentionNonMembers: true, canFetchRemoteImages: true
     )
 
     public nonisolated let events: AsyncStream<ChatEvent>
