@@ -261,6 +261,19 @@ for m in Packages/*/Package.swift; do
 done
 [ "$ran" = 1 ] || echo "  (no SwiftPM packages yet)"
 
+echo "Third-party notices (every linked dependency's license ships with the app):"
+# Sparkle, GRDB and swift-protobuf are linked into the app, and their licenses
+# require their notices in every copy. scripts/check-notices.sh holds
+# THIRD_PARTY_NOTICES.txt to every pin at its version. After the unit suites,
+# because `swift test` is what refreshes a lockfile after a manifest change.
+notices_out=$(./scripts/check-notices.sh Packages/*/Package.resolved 2>&1)
+case $? in
+    0) pass "THIRD_PARTY_NOTICES.txt names all $notices_out resolved dependencies at their versions" ;;
+    1) note "THIRD_PARTY_NOTICES.txt has no heading for every resolved dependency at its version"
+       printf '%s\n' "$notices_out" | sed 's/^/         missing: /' >&2 ;;
+    *) note "the third-party notices check could not run"
+       printf '%s\n' "$notices_out" | sed 's/^/         /' >&2 ;;
+esac
 echo
 if [ "$fail" = 0 ]; then echo "all checks passed"; else echo "FAILURES ABOVE" >&2; fi
 exit "$fail"
