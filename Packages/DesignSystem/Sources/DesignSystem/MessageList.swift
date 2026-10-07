@@ -226,6 +226,9 @@ struct MessageBubble: View {
                                 onMore: { picking = true }, link: link.url
                             ))
                     }
+                    ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
+                        AppCardView(card: card, load: loadRemoteImage)
+                    }
                 }
                 if !message.reactions.isEmpty {
                     ReactionRow(

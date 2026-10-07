@@ -16,8 +16,11 @@ enum LinkCardLayout {
         link.preview?.title ?? link.url.host() ?? link.url.absoluteString
     }
 
-    static func domain(for link: MessageLink) -> String {
-        if let domain = link.preview?.domain {
+    /// `nil` without a preview: the title is already the host then, and a
+    /// second line would only repeat it.
+    static func domain(for link: MessageLink) -> String? {
+        guard let preview = link.preview else { return nil }
+        if let domain = preview.domain {
             return domain
         }
         let host = link.url.host() ?? ""
@@ -50,10 +53,12 @@ struct LinkPreviewCard: View {
                         .font(.callout.weight(.semibold))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                    Text(LinkCardLayout.domain(for: link))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if let domain = LinkCardLayout.domain(for: link) {
+                        Text(domain)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)

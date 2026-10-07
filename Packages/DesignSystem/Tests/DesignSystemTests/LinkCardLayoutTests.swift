@@ -16,7 +16,14 @@ struct LinkCardLayoutTests {
     @Test func theDomainIsThePreviewsElseTheHostWithoutWWW() {
         let named = MessageLink(url: Self.url, preview: LinkPreview(title: "x", domain: "acme.example"))
         #expect(LinkCardLayout.domain(for: named) == "acme.example")
-        #expect(LinkCardLayout.domain(for: MessageLink(url: Self.url)) == "acme.example")
+        let unnamed = MessageLink(url: Self.url, preview: LinkPreview(title: "x"))
+        #expect(LinkCardLayout.domain(for: unnamed) == "acme.example")
+    }
+
+    /// Without a preview the title is already the host, so a second line
+    /// would only repeat it (seen in the Task 13 render).
+    @Test func aLinkWithoutAPreviewHasNoDomainLine() {
+        #expect(LinkCardLayout.domain(for: MessageLink(url: Self.url)) == nil)
     }
 
     @Test func theImageKeepsItsAspectWithinBounds() {
