@@ -84,13 +84,11 @@ targets:
         # one library the app loads from its own bundle.
         ENABLE_DEBUG_DYLIB: NO
       configs:
-        # Hardened runtime enables library validation, which requires matching
-        # Team IDs. A self-signed development certificate has no Team ID, so any
-        # dylib the app loads from its own bundle is rejected and the process
-        # dies at launch. Hardened runtime is only needed for notarized
-        # distribution, where a real Developer ID supplies a Team ID. Release
-        # loads Sparkle.framework, so KibbleMac.entitlements carries
-        # disable-library-validation (measured, session 49).
+        # Hardened runtime enables library validation: the app loads only
+        # Apple's code or code signed with its own Team ID. Release is signed
+        # with the owner's Developer ID, and so is Sparkle.framework
+        # (scripts/package.sh), so no exception is needed. Debug runs without
+        # hardened runtime.
         Debug:
           ENABLE_HARDENED_RUNTIME: NO
           # Info.plist's KibbleUpdatesEnabled: only a Release build starts the

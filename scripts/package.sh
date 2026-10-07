@@ -13,6 +13,12 @@ fail() {
     exit 1
 }
 
+developer_id=$(developer_id_identity)
+[[ -n "$developer_id" ]] ||
+    fail "no Developer ID Application identity in the Keychain; a release must be notarized"
+team=$(team_of_identity "$developer_id")
+profile=${KIBBLE_NOTARY_PROFILE:-kibble-notary}
+
 version=$(sed -nE 's/^MARKETING_VERSION = (.+)$/\1/p' Config/Base.xcconfig)
 [[ -n "$version" ]] || fail "no MARKETING_VERSION in Config/Base.xcconfig"
 
@@ -31,10 +37,10 @@ sparkle=$app/Contents/Frameworks/Sparkle.framework
 for item in "$sparkle"/Versions/B/XPCServices/*.xpc "$sparkle"/Versions/B/Autoupdate \
     "$sparkle"/Versions/B/Updater.app "$sparkle"; do
     [[ -e "$item" ]] || fail "missing ${item#"$app"/}; Sparkle's layout changed"
-    codesign -f -s "$KIBBLE_DEV_IDENTITY" -o runtime --preserve-metadata=entitlements "$item" 2>/dev/null ||
+    codesign -f -s "$developer_id" -o runtime --timestamp --preserve-metadata=entitlements "$item" 2>/dev/null ||
         fail "could not sign ${item#"$app"/}"
 done
-codesign -f -s "$KIBBLE_DEV_IDENTITY" -o runtime --preserve-metadata=entitlements "$app" 2>/dev/null ||
+codesign -f -s "$developer_id" -o runtime --timestamp --preserve-metadata=entitlements "$app" 2>/dev/null ||
     fail "could not sign the app"
 
 # Everything a downloaded copy depends on, checked on the bundle itself rather
@@ -48,11 +54,14 @@ done
 # a closed pipe, which turns a match into a miss.
 signature=$(codesign -dvv "$app" 2>&1)
 entitlements=$(codesign -d --entitlements - --xml "$app" 2>/dev/null)
-# build.sh falls back to ad-hoc signing when the identity is missing. A
-# release must not: every build would then be a new signer, and macOS would
-# ask for the Keychain password again after each update.
-grep -qx "Authority=$KIBBLE_DEV_IDENTITY" <<<"$signature" ||
-    fail "not signed by $KIBBLE_DEV_IDENTITY; run scripts/create-dev-cert.sh"
+# A release signed any other way puts the per-update Keychain prompt back for
+# everyone, and cannot be notarized.
+signed_by_us() {
+    grep -q "^Authority=Developer ID Application: " <<<"$1" &&
+        grep -qx "TeamIdentifier=$team" <<<"$1" &&
+        grep -q "^Timestamp=" <<<"$1"
+}
+signed_by_us "$signature" || fail "the app is not signed with the Developer ID, its team and a secure timestamp"
 # get-task-allow lets any process attach a debugger. Xcode adds it unless the
 # build turns that off, which project.yml does for Release.
 if grep -q get-task-allow <<<"$entitlements"; then
@@ -72,8 +81,8 @@ enabled=$(/usr/libexec/PlistBuddy -c 'Print :KibbleUpdatesEnabled' "$app/Content
 # codesign's output is read whole before matching (pipefail).
 while IFS= read -r -d '' nested; do
     nested_signature=$(codesign -dvv "$nested" 2>&1 || true)
-    grep -qx "Authority=$KIBBLE_DEV_IDENTITY" <<<"$nested_signature" ||
-        fail "${nested#"$app"/} is not signed by $KIBBLE_DEV_IDENTITY"
+    signed_by_us "$nested_signature" ||
+        fail "${nested#"$app"/} is not signed with the Developer ID, its team and a secure timestamp"
 done < <(find "$app/Contents/Frameworks" \( -name '*.xpc' -o -name '*.app' -o -name '*.framework' \
     -o \( -type f -perm -u+x ! -path '*/Contents/MacOS/*' ! -path '*/_CodeSignature/*' \) \) -print0)
 # --- end updatable-bundle checks ---
@@ -85,5 +94,30 @@ rm -f "$zip"
 # ditto, not zip: it keeps the bundle's extended attributes and signature intact.
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 
-echo "Packaged $zip ($(du -h "$zip" | cut -f1 | tr -d ' '))"
+# Apple's notary service scans this exact build. Anything but Accepted stops
+# here, so release.sh commits and tags nothing. notarytool's exit status is not
+# trusted either way: the JSON's status decides, and an Invalid build still
+# prints its log.
+echo "Notarizing $zip (this takes a few minutes)…"
+submission=$(xcrun notarytool submit "$zip" --keychain-profile "$profile" --wait --output-format json) || true
+status=$(jq -r '.status // empty' <<<"$submission" 2>/dev/null || true)
+[[ -n "$status" ]] || { rm -f "$zip"; fail "notarytool could not submit $zip"; }
+if [[ "$status" != Accepted ]]; then
+    id=$(jq -r .id <<<"$submission")
+    xcrun notarytool log "$id" --keychain-profile "$profile" >&2 || true
+    rm -f "$zip"
+    fail "notarization ended $status"
+fi
+
+# A zip cannot be stapled; the app inside it can, and is zipped again.
+xcrun stapler staple "$app" >/dev/null || fail "could not staple the app"
+xcrun stapler validate "$app" >/dev/null || fail "the stapled ticket does not validate"
+rm -f "$zip"
+ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+
+assessment=$(spctl --assess --type execute -vv "$app" 2>&1) || fail "Gatekeeper rejects the app: $assessment"
+grep -qx "source=Notarized Developer ID" <<<"$assessment" ||
+    fail "Gatekeeper does not see a notarized Developer ID app"
+
+echo "Packaged $zip ($(du -h "$zip" | cut -f1 | tr -d ' ')), notarized and stapled"
 shasum -a 256 "$zip"
