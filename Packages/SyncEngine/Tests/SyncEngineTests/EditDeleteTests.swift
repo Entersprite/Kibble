@@ -53,6 +53,24 @@ struct EditDeleteTests {
         await harness.model.stop()
     }
 
+    /// Review finding 1: an edit's spans point into the old text, so the
+    /// optimistic copy drops every anchored link and keeps the unanchored
+    /// previews, until the server's version says otherwise.
+    @Test func anEditDropsLinksAnchoredInTheOldText() async throws {
+        let harness = try await running()
+        let gif = try MessageLink(url: #require(URL(string: "https://media.acme.example/party.gif")))
+        var linked = harness.message
+        linked.links = try [
+            MessageLink(url: #require(URL(string: "https://acme.example/doc")), start: 0, length: 2),
+            gif
+        ]
+        try harness.store.apply([.upsertMessage(linked)])
+        harness.model.edit(harness.message.id, to: ComposedMessage(text: "a much longer text than before"))
+        // Before any settle: the fixture's own push could correct a bad write.
+        #expect(try stored(harness).links == [gif])
+        await harness.model.stop()
+    }
+
     /// Guard: unchanged text and mentions send nothing.
     @Test func anUnchangedEditSendsNothing() async throws {
         let harness = try await running()
