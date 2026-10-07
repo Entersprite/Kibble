@@ -31,10 +31,10 @@ sparkle=$app/Contents/Frameworks/Sparkle.framework
 for item in "$sparkle"/Versions/B/XPCServices/*.xpc "$sparkle"/Versions/B/Autoupdate \
     "$sparkle"/Versions/B/Updater.app "$sparkle"; do
     [[ -e "$item" ]] || fail "missing ${item#"$app"/}; Sparkle's layout changed"
-    codesign -f -s "$GCHAT_DEV_IDENTITY" -o runtime --preserve-metadata=entitlements "$item" 2>/dev/null ||
+    codesign -f -s "$KIBBLE_DEV_IDENTITY" -o runtime --preserve-metadata=entitlements "$item" 2>/dev/null ||
         fail "could not sign ${item#"$app"/}"
 done
-codesign -f -s "$GCHAT_DEV_IDENTITY" -o runtime --preserve-metadata=entitlements "$app" 2>/dev/null ||
+codesign -f -s "$KIBBLE_DEV_IDENTITY" -o runtime --preserve-metadata=entitlements "$app" 2>/dev/null ||
     fail "could not sign the app"
 
 # Everything a downloaded copy depends on, checked on the bundle itself rather
@@ -51,8 +51,8 @@ entitlements=$(codesign -d --entitlements - --xml "$app" 2>/dev/null)
 # build.sh falls back to ad-hoc signing when the identity is missing. A
 # release must not: every build would then be a new signer, and macOS would
 # ask for the Keychain password again after each update.
-grep -qx "Authority=$GCHAT_DEV_IDENTITY" <<<"$signature" ||
-    fail "not signed by $GCHAT_DEV_IDENTITY; run scripts/create-dev-cert.sh"
+grep -qx "Authority=$KIBBLE_DEV_IDENTITY" <<<"$signature" ||
+    fail "not signed by $KIBBLE_DEV_IDENTITY; run scripts/create-dev-cert.sh"
 # get-task-allow lets any process attach a debugger. Xcode adds it unless the
 # build turns that off, which project.yml does for Release.
 if grep -q get-task-allow <<<"$entitlements"; then
@@ -72,8 +72,8 @@ enabled=$(/usr/libexec/PlistBuddy -c 'Print :KibbleUpdatesEnabled' "$app/Content
 # codesign's output is read whole before matching (pipefail).
 while IFS= read -r -d '' nested; do
     nested_signature=$(codesign -dvv "$nested" 2>&1 || true)
-    grep -qx "Authority=$GCHAT_DEV_IDENTITY" <<<"$nested_signature" ||
-        fail "${nested#"$app"/} is not signed by $GCHAT_DEV_IDENTITY"
+    grep -qx "Authority=$KIBBLE_DEV_IDENTITY" <<<"$nested_signature" ||
+        fail "${nested#"$app"/} is not signed by $KIBBLE_DEV_IDENTITY"
 done < <(find "$app/Contents/Frameworks" \( -name '*.xpc' -o -name '*.app' -o -name '*.framework' \
     -o \( -type f -perm -u+x ! -path '*/Contents/MacOS/*' ! -path '*/_CodeSignature/*' \) \) -print0)
 # --- end updatable-bundle checks ---

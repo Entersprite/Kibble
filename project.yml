@@ -72,7 +72,8 @@ targets:
         # there is no asset catalog. Edit it in Icon Composer, never by hand.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: Apps/KibbleMac/KibbleMac.entitlements
-        CODE_SIGN_IDENTITY: $(GCHAT_SIGN_IDENTITY)
+        CODE_SIGN_IDENTITY: $(KIBBLE_SIGN_IDENTITY)
+        DEVELOPMENT_TEAM: $(KIBBLE_TEAM)
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         DEAD_CODE_STRIPPING: YES
         COMBINE_HIDPI_IMAGES: YES

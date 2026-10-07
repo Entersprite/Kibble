@@ -26,7 +26,7 @@ public enum KeychainDiagnosis {
             the Keychain refused this app (errSecMissingEntitlement, -34018). \
             This is a code-signing problem, not a credentials one: a sandboxed \
             app needs a signing identity that grants it a Keychain access \
-            group. Check GCHAT_SIGN_IDENTITY and the app's entitlements.
+            group. Check KIBBLE_SIGN_IDENTITY and the app's entitlements.
             """
         case errSecInteractionNotAllowed:
             "the Keychain is locked and cannot be read without interaction (-25308)."
