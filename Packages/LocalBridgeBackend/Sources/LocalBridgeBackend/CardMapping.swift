@@ -75,8 +75,10 @@ enum CardMapping {
             image(picture.fifeImageURL).map { url in
                 .image(AppCard.Picture(
                     url: url,
-                    aspectRatio: picture.hasAspectRatio && picture.aspectRatio > 0 ? picture
-                        .aspectRatio : nil,
+                    // Finite only: the store's JSON encoder throws on infinity or NaN.
+                    aspectRatio: picture.hasAspectRatio && picture.aspectRatio.isFinite && picture
+                        .aspectRatio > 0
+                        ? picture.aspectRatio : nil,
                     altText: picture.altText.isEmpty ? nil : picture.altText,
                     link: picture.hasOnClick ? link(picture.onClick) : nil
                 ))

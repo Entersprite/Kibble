@@ -126,6 +126,18 @@ struct CardMappingTests {
         #expect(CardMapping.widgets(divider) == [.divider])
     }
 
+    /// Review finding (minor 5, re-graded): a non-finite ratio would make the
+    /// store's JSON encoder throw and fail the whole history page it came in.
+    @Test(arguments: [Double.infinity, -Double.infinity, Double.nan, 0, -1])
+    func aRatioThatIsNotAPositiveFiniteNumberIsDropped(_ ratio: Double) throws {
+        var image = JAddOnsWidget()
+        image.image.fifeImageURL = "https://acme.example/graph.png"
+        image.image.aspectRatio = ratio
+        #expect(try CardMapping
+            .widgets(image) ==
+            [.image(AppCard.Picture(url: #require(URL(string: "https://acme.example/graph.png"))))])
+    }
+
     @Test func formInputsAreNotMappedAndAnUnmappableCardIsEmpty() {
         var field = JAddOnsWidget()
         field.textField.name = "reason"
