@@ -11,7 +11,7 @@ public enum MarkReadOrigin: Sendable, Equatable {
 
     /// The sidebar's or a menu's item. The newest stored message can be stale
     /// here: launch reloads conversations only, so messages that arrived while
-    /// GChat was quit are not stored until the conversation is opened, and a
+    /// Kibble was quit are not stored until the conversation is opened, and a
     /// row migrated from the millisecond store can sit up to half a
     /// millisecond below its message (`findings.md` §42.1). A mark short of
     /// Google's head is accepted, clears the dot, and comes back unread on the
@@ -82,7 +82,7 @@ extension ChatSessionModel {
         if newest == nil || origin == .conversationList {
             // From the sidebar, a conversation unread since before launch may
             // never have been opened: none of its messages are stored, or
-            // only those from before GChat last quit. Its newest page first,
+            // only those from before Kibble last quit. Its newest page first,
             // or this would publish nothing, or a position short of Google's
             // head. A failed fetch leaves the store as it was, so what is
             // stored is marked, and the failure is recorded where the window

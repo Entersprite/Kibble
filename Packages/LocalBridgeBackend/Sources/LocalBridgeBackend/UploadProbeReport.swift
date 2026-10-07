@@ -64,7 +64,7 @@ public enum UploadProbeReport {
         endpoints: ChatEndpoints = ChatEndpoints(),
         conversation: ProbeConversation = .mostRecentDirectMessage
     ) async -> String {
-        var lines = ["gchat upload probe (one upload per rung until one works; no message is posted)", ""]
+        var lines = ["kibble upload probe (one upload per rung until one works; no message is posted)", ""]
         guard let cookies = await APIProbeReport.appendCredential(store: store, lines: &lines),
               let bootstrapped = await APIProbeReport.appendBootstrap(
                   cookies: cookies, store: store, transport: transport, endpoints: endpoints, lines: &lines

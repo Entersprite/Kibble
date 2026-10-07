@@ -18,7 +18,7 @@ public enum EditProbeReport {
     public static let probeText = "Kibble edit probe"
     public static let editedText = "Kibble edit probe (edited)"
 
-    static let title = "gchat edit probe (posts one message, edits it, deletes it)"
+    static let title = "kibble edit probe (posts one message, edits it, deletes it)"
 
     static let refusal = [
         title, "",

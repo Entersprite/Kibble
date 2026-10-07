@@ -38,7 +38,7 @@ struct ChannelEventTallyTests: SenderResolutionFixtures {
         #expect(report.contains("9 bodies"))
         #expect(report.contains("  other shapes: 1"))
         #expect(report.contains("type -1 (untagged): 1 bodies"))
-        #expect(report.hasPrefix("gchat channel event tally - format 1"))
+        #expect(report.hasPrefix("kibble channel event tally - format 1"))
     }
 
     /// A channel event reaches the file. Deleting the hook in `deliver(_:)`

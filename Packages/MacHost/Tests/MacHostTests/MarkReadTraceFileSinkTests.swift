@@ -31,7 +31,7 @@ struct MarkReadTraceFileSinkConcurrencyTests {
 
     private func makeSink() -> SinkFixture {
         let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gchat-markread-trace-race-\(UUID().uuidString).csv")
+            .appendingPathComponent("kibble-markread-trace-race-\(UUID().uuidString).csv")
         return SinkFixture(sink: MarkReadTraceFileSink(writingTo: file), file: file)
     }
 
@@ -134,7 +134,7 @@ struct MarkReadTraceFileSinkConcurrencyTests {
 struct MarkReadTraceFileSinkFormattingTests {
     private func writeOne(_ write: (MarkReadTraceFileSink) -> Void) throws -> [String] {
         let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gchat-markread-trace-format-\(UUID().uuidString).csv")
+            .appendingPathComponent("kibble-markread-trace-format-\(UUID().uuidString).csv")
         defer { try? FileManager.default.removeItem(at: file) }
         let sink = MarkReadTraceFileSink(writingTo: file)
         write(sink)
@@ -152,7 +152,7 @@ struct MarkReadTraceFileSinkFormattingTests {
     @Test("init writes a self-identifying config row naming the read-position offset, before any other row")
     func initWritesTheConfigRow() throws {
         let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gchat-markread-trace-config-\(UUID().uuidString).csv")
+            .appendingPathComponent("kibble-markread-trace-config-\(UUID().uuidString).csv")
         defer { try? FileManager.default.removeItem(at: file) }
         _ = MarkReadTraceFileSink(writingTo: file, readPositionOffsetMicroseconds: 1)
 

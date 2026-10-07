@@ -122,7 +122,7 @@ public struct CookieCaptureReport: Sendable, Hashable {
     /// the app the first time a real login reached this line.
     public var text: String {
         var lines = [
-            "GChat cookie capture report",
+            "Kibble cookie capture report",
             "captured: \(capturedAt.formatted(.iso8601))",
             "page:     \(pageURL)",
             "title:    \(pageTitle)",

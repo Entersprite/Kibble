@@ -10,7 +10,7 @@ struct FileNotificationSettingsStoreTests {
 
     private func directory() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(
-            "gchat-settings-\(UUID())",
+            "kibble-settings-\(UUID())",
             isDirectory: true
         )
     }

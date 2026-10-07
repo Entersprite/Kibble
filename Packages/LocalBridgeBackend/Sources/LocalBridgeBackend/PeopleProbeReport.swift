@@ -85,7 +85,7 @@ public enum PeopleProbeReport {
         let version = info?["CFBundleShortVersionString"] as? String ?? "-"
         let build = info?["CFBundleVersion"] as? String ?? "-"
         return [
-            "gchat people probe",
+            "kibble people probe",
             "config: build \(version) (\(build)), variants "
                 + SAPISIDHash.Variant.allCases.map(\.rawValue).joined(separator: ","),
             ""

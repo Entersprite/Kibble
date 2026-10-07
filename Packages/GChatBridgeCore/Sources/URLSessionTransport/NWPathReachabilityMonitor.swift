@@ -173,7 +173,7 @@ public final class NWPathReachabilityMonitor: ReachabilityMonitor, Sendable {
                 broadcaster.broadcast()
             }
         }
-        monitor.start(queue: DispatchQueue(label: "com.entersprite.gchat.reachability"))
+        monitor.start(queue: DispatchQueue(label: "com.entersprite.kibble.reachability"))
     }
 
     deinit { monitor.cancel() }

@@ -92,7 +92,7 @@ struct PeopleProbeReportTests {
             flush: { flushes.append($0) }
         )
         let first = try #require(flushes.all.first)
-        #expect(first.contains("gchat people probe"))
+        #expect(first.contains("kibble people probe"))
         #expect(!first.contains("No session"))
         #expect(flushes.all.last == text)
         #expect(text.contains("No session"))

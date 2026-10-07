@@ -66,7 +66,7 @@ public enum PunctualProbeReport {
         let version = info?["CFBundleShortVersionString"] as? String ?? "-"
         let build = info?["CFBundleVersion"] as? String ?? "-"
         return [
-            "gchat Punctual probe",
+            "kibble Punctual probe",
             "config: build \(version) (\(build)), server path \(server), "
                 + "choose server topic: availability, duration \(duration.components.seconds)s, "
                 + "started \(ISO8601DateFormatter().string(from: Date()))",
