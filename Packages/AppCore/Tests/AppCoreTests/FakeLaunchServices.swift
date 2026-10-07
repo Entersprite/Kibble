@@ -338,8 +338,16 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
         }
     }
 
+    /// Holds `disconnect()` after it is counted, so a test can see the escape
+    /// from `.failed` take longer than any fixed wait (it took over 100 ms
+    /// under the full suite's load, against 2.5 ms alone).
+    var disconnectDelay: Duration?
+
     func disconnect() async {
         disconnectCount += 1
+        if let disconnectDelay {
+            try? await Task.sleep(for: disconnectDelay)
+        }
         continuation.finish()
     }
 

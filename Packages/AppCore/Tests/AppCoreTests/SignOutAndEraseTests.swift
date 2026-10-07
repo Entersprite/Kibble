@@ -89,12 +89,23 @@ struct SignOutAndEraseTests {
         #expect(reason == "Your Google session stopped working. Sign in again.")
     }
 
+    /// Waits, bounded, for `requestSignIn()`'s hand-off to leave the `.failed`
+    /// it started from. A fixed 50 ms wait lost that race about one run in
+    /// twelve under the full suite's load, where the escape took over 100 ms
+    /// against 2.5 ms alone (session 53).
+    private func waitForEscape(from failure: String, in environment: AppEnvironment) async throws {
+        for _ in 0 ..< 2000 {
+            guard case let .failed(message) = environment.phase, message == failure else { return }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
     @Test func theEscapeFromAFailedLaunchAlsoErases() async throws {
         let services = try FakeLaunchServices()
         services.makeSessionFailure = ChatError.unknown("no session in the Keychain")
         let environment = AppEnvironment(services: services)
         await environment.start()
-        guard case .failed = environment.phase else {
+        guard case let .failed(failure) = environment.phase else {
             Issue.record("expected .failed to set the test up")
             return
         }
@@ -102,9 +113,8 @@ struct SignOutAndEraseTests {
 
         environment.requestSignIn()
         // `requestSignIn()` is synchronous because SwiftUI's Button needs it
-        // to be, and hands off to a Task. Give that Task a turn.
-        await Task.yield()
-        try await Task.sleep(for: .milliseconds(50))
+        // to be, and hands off to a Task. Wait for that Task to finish.
+        try await waitForEscape(from: failure, in: environment)
 
         #expect(try services.store.conversations().isEmpty)
         guard case let .needsSignIn(reason) = environment.phase else {
@@ -188,11 +198,13 @@ struct SignOutAndEraseTests {
             arguments: LaunchArguments(runsDiagnostics: true)
         )
         services.startDiagnosticsFailure = ChatError.unknown("the App Nap probe refused")
+        // Longer than the old fixed 50 ms wait, as the full suite's load can make it.
+        services.backend.disconnectDelay = .milliseconds(150)
         let environment = AppEnvironment(services: services)
 
         await environment.start()
 
-        guard case .failed = environment.phase else {
+        guard case let .failed(failure) = environment.phase else {
             Issue.record("a diagnostic that would not start must land on .failed")
             return
         }
@@ -205,9 +217,8 @@ struct SignOutAndEraseTests {
 
         environment.requestSignIn()
         // `requestSignIn()` is synchronous because SwiftUI's Button needs it
-        // to be, and hands off to a Task. Give that Task a turn.
-        await Task.yield()
-        try await Task.sleep(for: .milliseconds(50))
+        // to be, and hands off to a Task. Wait for that Task to finish.
+        try await waitForEscape(from: failure, in: environment)
 
         #expect(try services.store.conversations().isEmpty)
         #expect(services.backend.disconnectCount == 1)
