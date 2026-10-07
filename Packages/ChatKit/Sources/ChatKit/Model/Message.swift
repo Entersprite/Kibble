@@ -42,6 +42,10 @@ public struct Message: Codable, Hashable, Sendable {
     /// Empty for the overwhelming majority of messages.
     public var mentions: [Mention]
 
+    /// Links in `text`, and previews of links outside it (links spec §3.1).
+    /// Empty for most messages.
+    public var links: [MessageLink]
+
     public init(
         id: ID,
         conversationID: Conversation.ID,
@@ -54,7 +58,8 @@ public struct Message: Codable, Hashable, Sendable {
         reactions: [Reaction] = [],
         attachments: [Attachment] = [],
         localID: String? = nil,
-        mentions: [Mention] = []
+        mentions: [Mention] = [],
+        links: [MessageLink] = []
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -68,6 +73,7 @@ public struct Message: Codable, Hashable, Sendable {
         self.attachments = attachments
         self.localID = localID
         self.mentions = mentions
+        self.links = links
     }
 }
 
@@ -132,6 +138,7 @@ public extension Message {
         case attachments
         case localID
         case mentions
+        case links
     }
 
     init(from decoder: any Decoder) throws {
@@ -150,7 +157,8 @@ public extension Message {
                 [Attachment].self, forKey: .attachments
             ) ?? [],
             localID: container.decodeIfPresent(String.self, forKey: .localID),
-            mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? []
+            mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? [],
+            links: container.decodeIfPresent([MessageLink].self, forKey: .links) ?? []
         )
     }
 
@@ -169,6 +177,9 @@ public extension Message {
         try container.encodeIfPresent(localID, forKey: .localID)
         if !mentions.isEmpty {
             try container.encode(mentions, forKey: .mentions)
+        }
+        if !links.isEmpty {
+            try container.encode(links, forKey: .links)
         }
     }
 }
