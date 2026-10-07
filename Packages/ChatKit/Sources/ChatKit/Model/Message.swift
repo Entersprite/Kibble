@@ -46,6 +46,9 @@ public struct Message: Codable, Hashable, Sendable {
     /// Empty for most messages.
     public var links: [MessageLink]
 
+    /// Chat app cards under the text (links spec §3.2). Empty for most messages.
+    public var cards: [AppCard]
+
     public init(
         id: ID,
         conversationID: Conversation.ID,
@@ -59,7 +62,8 @@ public struct Message: Codable, Hashable, Sendable {
         attachments: [Attachment] = [],
         localID: String? = nil,
         mentions: [Mention] = [],
-        links: [MessageLink] = []
+        links: [MessageLink] = [],
+        cards: [AppCard] = []
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -74,6 +78,7 @@ public struct Message: Codable, Hashable, Sendable {
         self.localID = localID
         self.mentions = mentions
         self.links = links
+        self.cards = cards
     }
 }
 
@@ -139,6 +144,7 @@ public extension Message {
         case localID
         case mentions
         case links
+        case cards
     }
 
     init(from decoder: any Decoder) throws {
@@ -158,7 +164,8 @@ public extension Message {
             ) ?? [],
             localID: container.decodeIfPresent(String.self, forKey: .localID),
             mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? [],
-            links: container.decodeIfPresent([MessageLink].self, forKey: .links) ?? []
+            links: container.decodeIfPresent([MessageLink].self, forKey: .links) ?? [],
+            cards: container.decodeIfPresent([AppCard].self, forKey: .cards) ?? []
         )
     }
 
@@ -180,6 +187,9 @@ public extension Message {
         }
         if !links.isEmpty {
             try container.encode(links, forKey: .links)
+        }
+        if !cards.isEmpty {
+            try container.encode(cards, forKey: .cards)
         }
     }
 }
