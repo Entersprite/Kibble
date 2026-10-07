@@ -750,6 +750,10 @@ message Attachment {
 	}
 	optional UserId app_id = 5;
 	optional User app_user = 6;
+	// purple names both (links spec §2). An app card - a Chat app's
+	// cardsV2 - arrives here, outside the oneof above.
+	optional JAddOnsCardItem card_add_on_data = 7;
+	optional string attachment_id = 8;
 }
 
 message Reaction {
@@ -888,6 +892,16 @@ message UrlMetadata {
 	optional int32 int_image_height = 10;
 	optional int32 int_image_width = 11;
 	optional string mime_type = 12;
+	// From reference/purple-googlechat-master/googlechat.proto, which is newer
+	// (findings.md §37.1). Read by the link probe (links spec §2).
+	enum UrlSource {
+		URL_SOURCE_UNKNOWN = 0;
+		SERVER_SUPPLIED_POLICY_VIOLATION = 2;
+		AUTO_DETECTED_PLAIN_TEXT = 3;
+		RICH_TEXT = 4;
+	}
+	optional UrlSource url_source = 16;
+	optional string favicon_url = 18;
 }
 
 // From reference/purple-googlechat-master/googlechat.proto, which is newer
