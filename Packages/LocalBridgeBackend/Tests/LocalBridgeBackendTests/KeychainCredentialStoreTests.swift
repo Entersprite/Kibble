@@ -157,6 +157,9 @@ struct KeychainCredentialStoreTests {
         await #expect(throws: (any Error).self) {
             try await migrating(current, from: legacy).invalidate()
         }
+        // The old service goes first: had the new one gone already, the next
+        // launch would migrate the signed-out session back.
+        #expect(current.items["test"] != nil)
     }
 
     // MARK: - The ordinary path

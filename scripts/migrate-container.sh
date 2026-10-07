@@ -26,14 +26,22 @@ fi
 [[ -d "$new" ]] || fail "no Kibble container yet: launch the renamed Kibble once, quit it, then run this again"
 
 # The new install's own folder is moved aside, never copied over: a store's
-# -wal journal left beside an older database would be replayed onto it.
+# -wal journal left beside an older database would be replayed onto it. The
+# copy lands in a staging folder first, so a copy that fails (macOS refusing
+# Terminal another app's data, say) leaves the new install as it was, rather
+# than holding part of the old one.
 stamp=$(date +%Y%m%d%H%M%S)
 target="$new/Application Support/Kibble"
+staging="$target.migrating-$stamp"
+mkdir -p "$new/Application Support"
+if ! ditto "$old/Application Support/GChat" "$staging"; then
+    rm -rf "$staging"
+    fail "could not copy $old/Application Support/GChat; nothing was changed"
+fi
 if [[ -e "$target" ]]; then
     mv "$target" "$target.before-migration-$stamp"
 fi
-mkdir -p "$new/Application Support"
-ditto "$old/Application Support/GChat" "$target"
+mv "$staging" "$target"
 
 # Preferences are copied as a file, then cfprefsd is restarted so it drops any
 # cached copy of the new domain. Not `defaults export | import`: given a path
