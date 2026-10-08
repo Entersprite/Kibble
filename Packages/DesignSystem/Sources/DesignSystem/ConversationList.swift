@@ -164,6 +164,9 @@ struct ConversationRow: View {
                 // the wire (`findings.md` §37.8), so weighting on it meant no
                 // conversation was ever bold.
                 .fontWeight(showsUnread ? .semibold : .regular)
+            Spacer(minLength: 4)
+            // After the spacer, so the marks sit at the trailing edge, beside
+            // the mute bell and the unread dot, rather than after the name.
             if let marks = PersonMarks(
                 status: Display.status(
                     of: conversation, directory: state.directory, me: state.me, connection: state.connection,
@@ -177,7 +180,6 @@ struct ConversationRow: View {
             ) {
                 marks
             }
-            Spacer(minLength: 4)
             // Google's own mute (`Conversation.isMuted`, only the fixture
             // sets it) or this account's local record (decision 1).
             if conversation.isMuted || state.muted.contains(conversation.id) {
@@ -316,6 +318,7 @@ struct SidebarFooter: View {
                 HStack(spacing: 10) {
                     identity
                     Spacer(minLength: 8)
+                    ownMarks
                     // Icon-only, but built from a `Label` rather than a bare
                     // `Image`: `.iconOnly` hides the text visually and keeps it as
                     // the accessibility label, so VoiceOver still says "Sign Out"
@@ -349,13 +352,14 @@ struct SidebarFooter: View {
             .font(.callout)
             .lineLimit(1)
             .foregroundStyle(.primary)
-        // The one place your own marks are drawn (spec §6.2).
+    }
+
+    /// Your own status and calendar marks, the one place they are drawn
+    /// (spec §6.2): at the trailing edge, beside Sign Out, as a DM row's are.
+    @ViewBuilder private var ownMarks: some View {
         if let marks = PersonMarks(
             status: Display.ownStatus(
-                directory: state.directory,
-                me: state.me,
-                connection: state.connection,
-                now: .now
+                directory: state.directory, me: state.me, connection: state.connection, now: .now
             ),
             calendar: Display.ownCalendar(
                 directory: state.directory, me: state.me, connection: state.connection, now: .now
