@@ -72,6 +72,12 @@ struct FrameCodingTests {
         )
     }
 
+    /// Clearing your status is the same command with its payload omitted.
+    @Test("a cleared status command matches its golden file")
+    func clearedStatusCommand() throws {
+        try expectWireStable(ChatCommand.setStatus(nil), golden: "command-setStatus-cleared")
+    }
+
     @Test("a reconnecting state carrying an issue and a detail matches its golden file")
     func reconnectingWithIssueAndDetail() throws {
         try expectWireStable(
@@ -141,6 +147,7 @@ struct FrameCodingTests {
             "presenceChanged",
             "statusChanged",
             "calendarChanged",
+            "availabilityChanged",
             "gap",
             "backendError",
             "somethingNewer" // the `.unknown` sample keeps its own discriminator
@@ -161,6 +168,8 @@ struct FrameCodingTests {
             "setNotificationLevel",
             "watchPresence",
             "loadMembers",
+            "setStatus",
+            "setAvailability",
             "somethingNewer"
         ]
         #expect(try Set(Fixture.commands.map { try discriminator(of: $0.value) }) == expected)

@@ -245,6 +245,7 @@ extension Fixture {
         Sample("event-presenceChanged", .presenceChanged(member: botID, presence: .doNotDisturb)),
         Sample("event-statusChanged", .statusChanged(member: humanID, status: status)),
         Sample("event-calendarChanged", .calendarChanged(member: humanID, schedule: calendar)),
+        Sample("event-availabilityChanged", .availabilityChanged(.away)),
         Sample("event-gap", .gap(scope: .conversation(spaceID), reason: "event buffer overflow")),
         Sample("event-backendError", .backendError(.rateLimited(retryAfter: .milliseconds(1500)))),
         Sample("event-unknown", .unknown(type: "somethingNewer", payload: unknownPayload))
@@ -314,6 +315,8 @@ extension Fixture {
             .setTyping(conversationID: spaceID, threadID: threadID, isTyping: false)
         ),
         Sample("command-markRead", .markRead(conversationID: spaceID, upTo: readAt)),
+        Sample("command-setStatus", .setStatus(status)),
+        Sample("command-setAvailability", .setAvailability(.doNotDisturb(until: readAt))),
         Sample(
             "command-setNotificationLevel",
             .setNotificationLevel(conversationID: spaceID, level: .never)

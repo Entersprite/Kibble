@@ -117,6 +117,10 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// loses only the calendar.
     case calendarChanged(member: Member.ID, schedule: CalendarSchedule?)
 
+    /// Your own availability: at connect, and after you set it. About the
+    /// local user only. An older client decodes it as `.unknown`.
+    case availabilityChanged(Availability)
+
     /// **Continuity was lost.** Whatever the client believes about `scope` may
     /// be wrong, and the only correct response is to reconcile from scratch for
     /// that scope — not to patch, not to assume the next event will fix it.

@@ -41,14 +41,14 @@ public extension FakeBackend {
         case let .setNotificationLevel(conversationID, level):
             try require(capabilities.canSetNotificationLevel, "canSetNotificationLevel")
             try updateConversation(conversationID) { $0.notificationLevel = level }
-        case .watchPresence:
+        case .watchPresence, .loadMembers:
             // Nothing to do: every fixture member already carries its
-            // presence, and a script changes it with `.presence`.
+            // presence, and a script changes it with `.presence`; every
+            // fixture conversation already lists its members, which the
+            // world load emits. One case for both, for `cyclomatic_complexity`.
             break
-        case .loadMembers:
-            // Nothing to do: every fixture conversation already lists its
-            // members, which the world load emits.
-            break
+        case .setStatus, .setAvailability:
+            throw ChatError.unsupported(capability: "canSetStatus")
         case let .unknown(type, _):
             // A command from a newer client. Naming it back is the whole
             // point: the client learns precisely what could not be honoured

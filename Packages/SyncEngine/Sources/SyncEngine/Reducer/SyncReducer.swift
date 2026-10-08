@@ -27,7 +27,7 @@ public enum SyncReducer {
         case .conversationsChanged, .conversationUpdated, .membersChanged, .membersResolved,
              .readStateChanged, .typingChanged, .presenceChanged, .statusChanged, .calendarChanged:
             supersedingStaleError(reduceConversationEvent(event))
-        case .selfIdentified:
+        case .selfIdentified, .availabilityChanged:
             supersedingStaleError(reduceSessionEvent(event))
         case .connectionStateChanged, .backendError, .gap, .unknown:
             reduceSessionEvent(event)
@@ -145,6 +145,8 @@ public enum SyncReducer {
                 .setLocalMember(member.id),
                 .upsertMembers([member])
             ])
+        case let .availabilityChanged(availability):
+            Reduction(writes: [.setAvailability(availability)])
         case let .backendError(error):
             Reduction(writes: [.setLastError(error)])
         case let .gap(scope, _):

@@ -82,6 +82,7 @@ enum EventSamples {
             name: "calendarChanged",
             event: .calendarChanged(member: member, schedule: CalendarSchedule(entries: [], validUntil: nil))
         ),
+        Sample(name: "availabilityChanged", event: .availabilityChanged(.away)),
         Sample(name: "gap", event: .gap(scope: .everything, reason: "buffer overflowed")),
         Sample(name: "backendError", event: .backendError(.sessionExpired)),
         Sample(

@@ -103,6 +103,10 @@ public enum StoreWrite: Sendable, Equatable {
     /// this is deliberately not among what `clearEphemeralState` drops.
     case setLocalMember(Member.ID)
 
+    /// Your own availability: a claim about now, dropped by
+    /// `clearEphemeralState` and learned again at connect.
+    case setAvailability(Availability)
+
     /// The last thing that went wrong, kept **typed** rather than rendered: a
     /// client must be able to tell "sign in again" from "the network hiccuped",
     /// and a string cannot be switched on. `nil` clears it.

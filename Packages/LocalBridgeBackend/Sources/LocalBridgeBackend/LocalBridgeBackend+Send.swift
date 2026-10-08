@@ -50,7 +50,7 @@ public extension LocalBridgeBackend {
         // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
         // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
         // until someone decides whether this backend can honour it.
-        case .setTyping, .setNotificationLevel, .unknown:
+        case .setTyping, .setNotificationLevel, .setStatus, .setAvailability, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }
     }
@@ -198,16 +198,25 @@ public extension LocalBridgeBackend {
     /// `unsupported(capability:)` it throws.
     private static func commandName(_ command: ChatCommand) -> String {
         switch command {
-        case .sendMessage: "canSendMessages"
-        case .editMessage: "canEditMessages"
-        case .deleteMessage: "canDeleteMessages"
-        case .setReaction: "canReact"
+        case .sendMessage, .editMessage, .deleteMessage, .setReaction: messageCommandName(command)
         case .setTyping: "canSendTypingState"
         case .markRead: "canMarkRead"
         case .setNotificationLevel: "canSetNotificationLevel"
         case .watchPresence: "watchPresence"
         case .loadMembers: "canMention"
+        case .setStatus, .setAvailability: "canSetStatus"
         case let .unknown(type, _): type
+        }
+    }
+
+    /// `commandName(_:)`'s message commands, split off for
+    /// `cyclomatic_complexity`; only those four reach it.
+    private static func messageCommandName(_ command: ChatCommand) -> String {
+        switch command {
+        case .editMessage: "canEditMessages"
+        case .deleteMessage: "canDeleteMessages"
+        case .setReaction: "canReact"
+        default: "canSendMessages"
         }
     }
 }

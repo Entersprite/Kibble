@@ -70,6 +70,11 @@ public extension ChatStore {
         try database.read(Self.fetchMe)
     }
 
+    /// Your own availability, or `nil` before connect has said.
+    func availability() throws -> Availability? {
+        try database.read(Self.fetchAvailability)
+    }
+
     /// The read position of one conversation: `Conversation.readPosition`,
     /// the same column, read without building the whole list.
     func lastReadAt(_ conversation: Conversation.ID) throws -> Date? {
@@ -118,6 +123,11 @@ public extension ChatStore {
     /// other store-fed property rather than taking it once at init.
     func observeMe() -> AsyncValueObservation<Member.ID?> {
         ValueObservation.tracking(Self.fetchMe).values(in: database)
+    }
+
+    /// For `ChatSessionModel.availability`, the menu's checkmark.
+    func observeAvailability() -> AsyncValueObservation<Availability?> {
+        ValueObservation.tracking(Self.fetchAvailability).values(in: database)
     }
 
     /// For the error banner, and it is the half that was missing.
@@ -200,5 +210,11 @@ extension ChatStore {
         try String
             .fetchOne(db, sql: "SELECT localMemberID FROM syncState WHERE id = 1")
             .map { Member.ID($0) }
+    }
+
+    static func fetchAvailability(_ db: Database) throws -> Availability? {
+        try String
+            .fetchOne(db, sql: "SELECT availability FROM syncState WHERE id = 1")
+            .map { try Wire.value(Availability.self, from: $0) }
     }
 }
