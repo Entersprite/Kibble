@@ -139,6 +139,23 @@ struct ConversationRow: View {
     }
 
     var body: some View {
+        // Redrawn exactly at the DM partner's boundaries (spec §6.3). `.now`,
+        // not the timeline's date, so a redraw for any other reason draws now.
+        TimelineView(.explicit(Display.redrawDates(for: partner, now: .now))) { _ in
+            row(now: .now)
+        }
+        .padding(.vertical, 1)
+        // Dimmed whenever the resolved delivery is Off (spec §2.5).
+        // `[Verify]` the value against the selection highlight in the
+        // running app.
+        .opacity(state.dimmed.contains(conversation.id) ? 0.55 : 1)
+    }
+
+    private var partner: Member? {
+        Display.dmPartner(of: conversation, directory: state.directory, me: state.me)
+    }
+
+    private func row(now: Date) -> some View {
         HStack(spacing: 8) {
             icon
             Text(Display.title(of: conversation, directory: state.directory, me: state.me))
@@ -147,28 +164,18 @@ struct ConversationRow: View {
                 // the wire (`findings.md` §37.8), so weighting on it meant no
                 // conversation was ever bold.
                 .fontWeight(showsUnread ? .semibold : .regular)
-            PersonMarks(member: Display.dmPartner(
-                of: conversation,
-                directory: state.directory,
-                me: state.me
-            )) {
-                let (directory, me, connection) = (state.directory, state.me, state.connection)
-                return (
-                    Display.status(
-                        of: conversation,
-                        directory: directory,
-                        me: me,
-                        connection: connection,
-                        now: $0
-                    ),
-                    Display.calendar(
-                        of: conversation,
-                        directory: directory,
-                        me: me,
-                        connection: connection,
-                        now: $0
-                    )
-                )
+            if let marks = PersonMarks(
+                status: Display.status(
+                    of: conversation, directory: state.directory, me: state.me, connection: state.connection,
+                    now: now
+                ),
+                calendar: Display.calendar(
+                    of: conversation, directory: state.directory, me: state.me, connection: state.connection,
+                    now: now
+                ),
+                now: now
+            ) {
+                marks
             }
             Spacer(minLength: 4)
             // Google's own mute (`Conversation.isMuted`, only the fixture
@@ -180,11 +187,6 @@ struct ConversationRow: View {
             }
             unreadMarker
         }
-        .padding(.vertical, 1)
-        // Dimmed whenever the resolved delivery is Off (spec §2.5).
-        // `[Verify]` the value against the selection highlight in the
-        // running app.
-        .opacity(state.dimmed.contains(conversation.id) ? 0.55 : 1)
     }
 
     /// A number when the backend can count, a dot when it can only say
@@ -306,22 +308,28 @@ struct SidebarFooter: View {
             // No `Divider()` and no tinted background: both existed to fake a
             // separation `safeAreaBar` now provides, and keeping them would
             // draw it twice.
-            HStack(spacing: 10) {
-                identity
-                Spacer(minLength: 8)
-                // Icon-only, but built from a `Label` rather than a bare
-                // `Image`: `.iconOnly` hides the text visually and keeps it as
-                // the accessibility label, so VoiceOver still says "Sign Out"
-                // instead of reading a symbol name. `.help` gives the same
-                // words back as a tooltip on macOS.
-                Button(action: signOut) {
-                    Label("Sign Out…", systemImage: "rectangle.portrait.and.arrow.right")
-                        .labelStyle(.iconOnly)
-                        .font(.body)
+            // Redrawn at your own boundaries, like a DM row (spec §6.3).
+            TimelineView(.explicit(Display.redrawDates(
+                for: state.me.flatMap { state.directory[$0] },
+                now: .now
+            ))) { _ in
+                HStack(spacing: 10) {
+                    identity
+                    Spacer(minLength: 8)
+                    // Icon-only, but built from a `Label` rather than a bare
+                    // `Image`: `.iconOnly` hides the text visually and keeps it as
+                    // the accessibility label, so VoiceOver still says "Sign Out"
+                    // instead of reading a symbol name. `.help` gives the same
+                    // words back as a tooltip on macOS.
+                    Button(action: signOut) {
+                        Label("Sign Out…", systemImage: "rectangle.portrait.and.arrow.right")
+                            .labelStyle(.iconOnly)
+                            .font(.body)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Sign Out…")
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Sign Out…")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -342,12 +350,19 @@ struct SidebarFooter: View {
             .lineLimit(1)
             .foregroundStyle(.primary)
         // The one place your own marks are drawn (spec §6.2).
-        PersonMarks(member: state.me.flatMap { state.directory[$0] }) {
-            let (directory, me, connection) = (state.directory, state.me, state.connection)
-            return (
-                Display.ownStatus(directory: directory, me: me, connection: connection, now: $0),
-                Display.ownCalendar(directory: directory, me: me, connection: connection, now: $0)
-            )
+        if let marks = PersonMarks(
+            status: Display.ownStatus(
+                directory: state.directory,
+                me: state.me,
+                connection: state.connection,
+                now: .now
+            ),
+            calendar: Display.ownCalendar(
+                directory: state.directory, me: state.me, connection: state.connection, now: .now
+            ),
+            now: .now
+        ) {
+            marks
         }
     }
 }
