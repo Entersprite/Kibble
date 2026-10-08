@@ -126,9 +126,16 @@ actor CalendarTransport: HTTPTransport {
         """
     }
 
-    /// One DM with `u-me` per partner.
+    /// One DM with `u-me` per partner; with none, one space, because an
+    /// empty answer is an empty body, which `ProtoAPIClient` rejects.
     private static func world(_ partners: [String]) -> PaginatedWorldResponse {
         var response = PaginatedWorldResponse()
+        guard !partners.isEmpty else {
+            var item = WorldItemLite()
+            item.groupID.spaceID.spaceID = "s-1"
+            response.worldItems = [item]
+            return response
+        }
         response.worldItems = partners.enumerated().map { index, partner in
             var item = WorldItemLite()
             item.groupID.dmID.dmID = "d-\(index)"

@@ -109,6 +109,23 @@ struct CalendarPollTests {
         await backend.disconnect()
     }
 
+    /// With no one-to-one DM, nothing else creates the local user's row: the
+    /// first run waits for their own lookup, held here (review finding 2).
+    @Test func withNoDMTheFirstRunWaitsForTheLocalUsersLookup() async throws {
+        let transport = CalendarTransport(partners: [], answers: [.json(answer(["u-me"]))], heldLookups: 1)
+        let backend = await backend(transport, interval: .milliseconds(20))
+        try await backend.connect()
+
+        _ = try await backend.loadConversations()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await transport.calendarRequests.isEmpty)
+        await transport.release()
+        try await awaitCalendarRequests(1, on: transport)
+        let body = await transport.calendarRequests.first.map { String(decoding: $0.body ?? Data(), as: UTF8.self) }
+        #expect(body == #"[[1,"1"],[[[[2,"u-me"]],[1]]]]"#)
+        await backend.disconnect()
+    }
+
     /// A poll that learns nothing new emits nothing; a change emits once.
     @Test func onlyChangesAreEmitted() async throws {
         let transport = CalendarTransport(answers: [
