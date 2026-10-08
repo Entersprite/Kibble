@@ -42,8 +42,12 @@ struct DeviceActivityState: Equatable, Sendable {
 /// each with its own observers and state, broadcast like `AppActivityMonitor`'s
 /// (`findings.md` §25.10).
 ///
-/// The lock notifications are distributed ones; whether a sandboxed app
-/// receives them is `[Verify]` on the owner's first lock.
+/// The lock notifications are distributed ones, registered to arrive at once:
+/// observed through the block API, they are held while the app is inactive,
+/// which is where Kibble usually is (review finding 2; Apple's "Registering
+/// for a Notification"). Whether a sandboxed app receives them, and whether
+/// the immediate delivery holds on macOS 26, is `[Verify]` on the owner's
+/// first lock with another app in front.
 @MainActor
 public final class DeviceActivityMonitor {
     nonisolated static let signals: [Notification.Name: DeviceActivityState.Signal] = [
@@ -81,21 +85,57 @@ public final class DeviceActivityMonitor {
         let distributed = distributed
         return AsyncStream { continuation in
             let state = StateBox()
-            let tokens = Self.signals.map { name, signal in
-                let center = name == Self.screenIsLocked || name == Self
-                    .screenIsUnlocked ? distributed : workspace
-                let token = center.addObserver(forName: name, object: nil, queue: .main) { _ in
+            let tokens = Self.signals.map { name, signal -> (NotificationCenter, NSObjectProtocol) in
+                let deliver: @Sendable () -> Void = {
                     MainActor.assumeIsolated {
                         if let inUse = state.apply(signal) {
                             continuation.yield(inUse)
                         }
                     }
                 }
-                return (center, token)
+                guard name == Self.screenIsLocked || name == Self.screenIsUnlocked else {
+                    return (
+                        workspace,
+                        workspace.addObserver(forName: name, object: nil, queue: .main) { _ in deliver() }
+                    )
+                }
+                return (distributed, LockReceiver.observe(name, on: distributed, deliver))
             }
             let observers = Observers(tokens)
             continuation.onTermination = { _ in observers.removeAll() }
         }
+    }
+}
+
+/// Receives a lock notification by selector, which is what lets it be
+/// registered with `.deliverImmediately` on the distributed center. A plain
+/// center (the tests') takes the same path without the suspension argument.
+private final class LockReceiver: NSObject {
+    private let deliver: @Sendable () -> Void
+
+    private init(_ deliver: @escaping @Sendable () -> Void) {
+        self.deliver = deliver
+    }
+
+    /// The receiver is the token: `Observers` keeps it alive, because a center
+    /// does not retain a selector-based observer.
+    static func observe(
+        _ name: Notification.Name, on center: NotificationCenter, _ deliver: @escaping @Sendable () -> Void
+    ) -> NSObjectProtocol {
+        let receiver = LockReceiver(deliver)
+        let selector = #selector(received(_:))
+        if let distributed = center as? DistributedNotificationCenter {
+            distributed.addObserver(
+                receiver, selector: selector, name: name, object: nil, suspensionBehavior: .deliverImmediately
+            )
+        } else {
+            center.addObserver(receiver, selector: selector, name: name, object: nil)
+        }
+        return receiver
+    }
+
+    @objc private func received(_: Notification) {
+        deliver()
     }
 }
 
