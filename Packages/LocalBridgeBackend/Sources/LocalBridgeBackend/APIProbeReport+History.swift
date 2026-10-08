@@ -187,6 +187,8 @@ extension APIProbeReport {
         await appendLinkCardSection(
             client: client, conversations: conversations, selfUserID: selfUserID, lines: &lines
         )
+        // Threads (threads spike), over the same 20 most recent conversations.
+        await appendThreadSection(client: client, mapping: mapping, lines: &lines)
         return group
     }
 
