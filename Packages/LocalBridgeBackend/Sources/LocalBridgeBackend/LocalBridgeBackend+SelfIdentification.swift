@@ -39,6 +39,9 @@ extension LocalBridgeBackend {
         // The account's own name. The world lists it only as a member of a
         // DM or group chat, so an account with neither showed its raw id in
         // the sidebar footer.
-        resolveUnknownMembers([ChatKit.Member.ID(id)])
+        calendarPoll.me = ChatKit.Member.ID(id)
+        // Awaited, so the calendar poll, which waits for this task, never
+        // writes to a row that does not exist yet.
+        await lookUpUnknownMembers([ChatKit.Member.ID(id)])
     }
 }

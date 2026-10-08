@@ -78,8 +78,9 @@ public extension LocalBridgeBackend {
     /// The Punctual key: the mole shell's, else `/app/home`'s, fetched once
     /// per session (§57.1). A key that cannot be found throws, and is
     /// reported once per session: the cached absence answers every later
-    /// search before the report is reached.
-    private func peopleSearchKey() async throws -> String {
+    /// search before the report is reached. Shared with the calendar poll
+    /// (meeting indicator spec §3.1).
+    internal func peopleSearchKey() async throws -> String {
         if let cached = peopleKey.key {
             if let cached {
                 return cached
