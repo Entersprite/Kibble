@@ -14,6 +14,7 @@ extension APIProbeReport {
             countQuotes(topic, into: &shapes)
             // `sorted(by:)` is stable, so equal times keep the listed order.
             let ordered = topic.replies.sorted { $0.createTime < $1.createTime }
+            countReadState(topic, ordered: ordered, into: &shapes)
             if ordered.count > 1 {
                 countThread(topic, ordered: ordered, into: &shapes)
                 continue

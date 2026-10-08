@@ -64,6 +64,22 @@ struct ThreadShapes: Equatable {
     var rungTwo: [String: Int] = [:]
     /// Of those, topics still marked by `thread_created_usec > 0`.
     var rungTwoMarkedAsThread = 0
+    /// Topic field 11, `TopicReadState`, by field number, counted once per topic (§64.4).
+    var readStateSingleFields: [Int: Int] = [:]
+    var readStateThreadFields: [Int: Int] = [:]
+    /// Its sub-message 13, the reply summary. On threads, whether field 1 (total) equals the
+    /// replies listed (`equal`), differs (`other`), or the summary is missing (`absent`); on
+    /// single-message topics, `absent`, `zero` or `other`.
+    var summaryTotal: [String: Int] = [:]
+    var summarySingles: [String: Int] = [:]
+    /// On threads: field 2 (unread) by value, field 3 (mention kinds) by value, and every summary's
+    /// field numbers.
+    var summaryUnread: [Int: Int] = [:]
+    var summaryMentionKinds: [Int: Int] = [:]
+    var summaryFields: [Int: Int] = [:]
+    /// On threads, field 4's user ids against the senders: the replies' (`replySenders`), every
+    /// message's (`allSenders`), neither (`other`), or no field 4 (`absent`). Never an id.
+    var summaryRepliers: [String: Int] = [:]
     /// World field 27 (`flat_threads_enabled`), by conversation kind, over
     /// every conversation.
     var flatThreads: [String: Int] = [:]
@@ -101,6 +117,10 @@ extension APIProbeReport {
         lines.append(contentsOf: threadShapesLines(shapes))
         lines.append("")
         await appendThreadListMessagesCheck(client: client, target: shapes.largest, lines: &lines)
+        lines.append("")
+        await appendTopicMetadataCheck(client: client, target: shapes.largest, lines: &lines)
+        lines.append("")
+        await appendFollowedThreadsSection(client: client, lines: &lines)
     }
 
     /// One `list_topics` call with replies requested and, when it found a
@@ -191,7 +211,8 @@ extension APIProbeReport {
         let returned = response.messages.map(\.id.messageID)
         return "  page_size \(pageSize): \(returned.count) returned, "
             + "\(pageClassification(returned: returned, ordered: ordered)); "
-            + "response fields: \(numbered(responseFields)); message fields: \(numbered(messageFields))"
+            + "response fields: \(threadNumbered(responseFields)); "
+            + "message fields: \(threadNumbered(messageFields))"
     }
 
     // MARK: - World field 27
@@ -232,8 +253,8 @@ extension APIProbeReport {
         var lines = [
             "  conversations scanned: \(shapes.conversations), failed: \(shapes.failedConversations); "
                 + "topics: \(shapes.topics), messages: \(shapes.messages)",
-            "  messages per topic: \(numbered(shapes.messagesPerTopic))",
-            "  world field 27 (flat_threads_enabled) by kind: \(named(shapes.flatThreads))",
+            "  messages per topic: \(threadNumbered(shapes.messagesPerTopic))",
+            "  world field 27 (flat_threads_enabled) by kind: \(threadNamed(shapes.flatThreads))",
             "  single-message topics named after their message: \(shapes.singleTopicIDIsMessageID) "
                 + "of \(singles); with thread_created_usec: \(shapes.threadCreatedSingles)",
             "  threads (topics with 2+ messages): \(shapes.threads)"
@@ -246,18 +267,18 @@ extension APIProbeReport {
         lines.append("  conversations with a thread: \(shapes.conversationRows.count)")
         lines.append(contentsOf: shapes.conversationRows)
         lines.append(contentsOf: [
-            "  thread topic id is the message id of: \(named(shapes.topicID))",
+            "  thread topic id is the message id of: \(threadNamed(shapes.topicID))",
             "  topic create_time_usec is the first message's create_time: "
                 + "\(shapes.topicCreateTimeIsFirstMessage) of \(shapes.threads)",
-            "  topic sort_time is the create_time of: \(named(shapes.sortTime))",
-            "  replies listed: \(named(shapes.order)); messages filed under another topic: "
+            "  topic sort_time is the create_time of: \(threadNamed(shapes.sortTime))",
+            "  replies listed: \(threadNamed(shapes.order)); messages filed under another topic: "
                 + "\(shapes.foreignTopicMessages)",
-            "  contains_more_unread_replies: \(named(shapes.containsMoreUnreadReplies)); "
+            "  contains_more_unread_replies: \(threadNamed(shapes.containsMoreUnreadReplies)); "
                 + "with thread_created_usec: \(shapes.threadCreatedThreads)",
-            "  id lengths: topic \(numbered(shapes.threadTopicIDLengths)); "
-                + "first message \(numbered(shapes.firstMessageIDLengths)); "
-                + "replies \(numbered(shapes.replyIDLengths))",
-            "  without page_size_for_replies, the same threads carry: \(named(shapes.rungTwo)); "
+            "  id lengths: topic \(threadNumbered(shapes.threadTopicIDLengths)); "
+                + "first message \(threadNumbered(shapes.firstMessageIDLengths)); "
+                + "replies \(threadNumbered(shapes.replyIDLengths))",
+            "  without page_size_for_replies, the same threads carry: \(threadNamed(shapes.rungTwo)); "
                 + "still with thread_created_usec: \(shapes.rungTwoMarkedAsThread)"
         ])
         lines.append(contentsOf: fieldLines(shapes))
@@ -266,22 +287,22 @@ extension APIProbeReport {
 
     private static func fieldLines(_ shapes: ThreadShapes) -> [String] {
         [
-            "  topic fields, single: \(numbered(shapes.singleTopicFields)); "
-                + "thread: \(numbered(shapes.threadTopicFields))",
-            "  message fields, single: \(numbered(shapes.singleMessageFields))",
-            "  message fields, first in a thread: \(numbered(shapes.firstMessageFields))",
-            "  message fields, replies: \(numbered(shapes.replyFields))",
+            "  topic fields, single: \(threadNumbered(shapes.singleTopicFields)); "
+                + "thread: \(threadNumbered(shapes.threadTopicFields))",
+            "  message fields, single: \(threadNumbered(shapes.singleMessageFields))",
+            "  message fields, first in a thread: \(threadNumbered(shapes.firstMessageFields))",
+            "  message fields, replies: \(threadNumbered(shapes.replyFields))",
             "  quote replies (field 37): \(shapes.quoting) of \(shapes.messages) messages, "
                 + "quoting their own topic: \(shapes.quotingOwnTopic)"
-        ]
+        ] + readStateLines(shapes)
     }
 
-    private static func numbered(_ counts: [Int: Int]) -> String {
+    static func threadNumbered(_ counts: [Int: Int]) -> String {
         guard !counts.isEmpty else { return "none" }
         return counts.sorted { $0.key < $1.key }.map { "\($0.key)×\($0.value)" }.joined(separator: " ")
     }
 
-    private static func named(_ counts: [String: Int]) -> String {
+    static func threadNamed(_ counts: [String: Int]) -> String {
         guard !counts.isEmpty else { return "none" }
         return counts.sorted { $0.key < $1.key }.map { "\($0.key)×\($0.value)" }.joined(separator: " ")
     }

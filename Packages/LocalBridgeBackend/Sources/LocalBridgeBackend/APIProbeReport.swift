@@ -35,11 +35,13 @@ public enum APIProbeReport {
     /// reading no `CommandLine` state and the containment lint's shape is
     /// undisturbed. The default is the most recently active conversation,
     /// per `APIProbeReport+History.swift`'s own doc comment.
+    /// `threadWrites` is `--probe-thread-writes` (`APIProbeReport+ThreadWrites.swift`).
     public static func run(
         store: KeychainCredentialStore = KeychainCredentialStore(),
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
-        conversation: ProbeConversation = .mostRecent
+        conversation: ProbeConversation = .mostRecent,
+        threadWrites: Bool = false
     ) async -> String {
         // Broken into one append-or-stop step per stage of the connect
         // sequence, each a function of its own, rather than one long body -
@@ -95,6 +97,11 @@ public enum APIProbeReport {
                 lines: &lines
             )
             lines.append("")
+        }
+        if threadWrites {
+            await appendThreadWriteRoundTrips(
+                client: client, group: probedGroup, conversation: conversation, lines: &lines
+            )
         }
         await appendSelfStatusSummary(client: client, lines: &lines)
         return lines.joined(separator: "\n")
@@ -256,29 +263,6 @@ public enum APIProbeReport {
             conversation: conversation,
             lines: &lines
         )
-    }
-
-    /// §20.4's `[Verify]`: the ladder's own scan is top-level only, so which
-    /// `WorldItemLite` fields are actually populated has never been observed.
-    /// Field numbers, wire types and byte counts - the same vocabulary the
-    /// top-level report already uses, never a value.
-    private static func appendNestedItemShapes(_ results: [WorldRungResult], lines: inout [String]) {
-        lines.append("world_item nested shape (field numbers inside each field-4 entry):")
-        var any = false
-        for result in results {
-            guard !result.worldItemFields.isEmpty else { continue }
-            any = true
-            lines.append("  \(result.label):")
-            for (index, fields) in result.worldItemFields.enumerated() {
-                let rendered = fields
-                    .map { "\($0.number):w\($0.wireType)=\($0.byteCount)B" }
-                    .joined(separator: " ")
-                lines.append("    item \(index + 1): \(rendered.isEmpty ? "(none)" : rendered)")
-            }
-        }
-        if !any {
-            lines.append("  no world_items in any rung")
-        }
     }
 
     /// Runs `WorldMapping` over rung 2 - the shape `findings.md` §20.1 proved
