@@ -41,11 +41,12 @@ public extension FakeBackend {
         case let .setNotificationLevel(conversationID, level):
             try require(capabilities.canSetNotificationLevel, "canSetNotificationLevel")
             try updateConversation(conversationID) { $0.notificationLevel = level }
-        case .watchPresence, .loadMembers:
+        case .watchPresence, .loadMembers, .reportActivity:
             // Nothing to do: every fixture member already carries its
             // presence, and a script changes it with `.presence`; every
             // fixture conversation already lists its members, which the
-            // world load emits. One case for both, for `cyclomatic_complexity`.
+            // world load emits; and the fixture has no presence to keep active.
+            // One case for all three, for `cyclomatic_complexity`.
             break
         case .setStatus, .setAvailability:
             try applyOwnStatus(command)

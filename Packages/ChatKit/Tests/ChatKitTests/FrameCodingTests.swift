@@ -170,6 +170,7 @@ struct FrameCodingTests {
             "loadMembers",
             "setStatus",
             "setAvailability",
+            "reportActivity",
             "somethingNewer"
         ]
         #expect(try Set(Fixture.commands.map { try discriminator(of: $0.value) }) == expected)

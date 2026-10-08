@@ -252,7 +252,8 @@ public extension SyncEngine {
     /// silently let through.
     private func ghostSuppresses(_ command: ChatCommand) -> Bool {
         switch command {
-        case .markRead, .setTyping:
+        case .markRead, .setTyping, .reportActivity:
+            // Activity is presence, which is exactly what ghosting withholds.
             true
         case .sendMessage, .editMessage, .deleteMessage, .setReaction,
              .setNotificationLevel, .watchPresence, .loadMembers, .setStatus, .setAvailability, .unknown:

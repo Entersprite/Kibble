@@ -57,6 +57,18 @@ struct GhostModeTests {
         #expect(await backend.commands.isEmpty)
     }
 
+    /// Reporting activity publishes presence, which is what ghosting withholds
+    /// (active-presence spec §2).
+    @Test func ghostModeSuppressesActivity() async throws {
+        let (engine, backend) = try await harness()
+        await engine.setGhostMode(true)
+
+        let submitted = await engine.submit(.reportActivity(active: true))
+
+        #expect(submitted == false)
+        #expect(await backend.commands.isEmpty)
+    }
+
     /// Ghosting hides what you have read, not what you have said.
     @Test func ghostModeDoesNotSuppressSending() async throws {
         let (engine, backend) = try await harness()
