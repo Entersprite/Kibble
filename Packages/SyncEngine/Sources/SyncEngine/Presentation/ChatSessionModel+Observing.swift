@@ -18,6 +18,13 @@ extension ChatSessionModel {
         )
     }
 
+    /// Who the local user is, and their own availability (set-your-status
+    /// spec §4): both session values about you, observed together.
+    func watchSelf() {
+        watch(store.observeMe()) { [weak self] in self?.me = $0 }
+        watch(store.observeAvailability()) { [weak self] in self?.availability = $0 }
+    }
+
     func watch<Value>(
         _ observation: AsyncValueObservation<Value>,
         _ apply: @escaping @MainActor (Value) -> Void

@@ -38,6 +38,7 @@ public extension AppEnvironment {
             conversations: model.conversations,
             directory: model.directory,
             me: model.me,
+            availability: model.availability,
             selected: model.selected,
             messages: model.messages,
             typing: model.typing,
@@ -207,7 +208,11 @@ public extension AppEnvironment {
                     save: { [weak self] id, message in self?.runningModel?.edit(id, to: message) },
                     delete: { [weak self] id in self?.runningModel?.delete(id) }
                 )
-                : nil
+                : nil,
+            setStatus: runningModel?.capabilities.canSetStatus == true
+                ? { [weak self] in self?.runningModel?.setStatus($0) } : nil,
+            setAvailability: runningModel?.capabilities.canSetStatus == true
+                ? { [weak self] in self?.runningModel?.setAvailability($0) } : nil
         )
     }
 

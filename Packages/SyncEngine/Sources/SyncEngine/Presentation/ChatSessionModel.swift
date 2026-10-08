@@ -37,15 +37,15 @@ public final class ChatSessionModel {
     public internal(set) var selected: Conversation.ID? // set from +Mentions.swift
 
     /// Who the local user is.
-    ///
-    /// Fed by `store.observeMe()` in `start()`, the same way `conversations`
+    /// Fed by `store.observeMe()` in `watchSelf()`, the same way `conversations`
     /// and `connectionState` are - `ChatEvent.selfIdentified` is what makes
     /// that possible, where once no event said "this one is you" and the host
     /// had to supply it. `init`'s `me:` parameter is still a starting value,
     /// not deleted: `FakeBackend` already knows its fixture's local user
     /// before `start()` ever reaches the store, and a value the store later
     /// confirms should replace it, not race it to draw first.
-    public private(set) var me: Member.ID?
+    public internal(set) var me: Member.ID? // set from +Observing.swift
+    public internal(set) var availability: Availability? // your own setting, set from +Observing.swift
 
     /// The Mentions list, newest first, fed by `store.observeMentionsOfMe()`
     /// (the mentions-list spec §3).
@@ -273,7 +273,7 @@ public final class ChatSessionModel {
             self?.connectionState = $0
             self?.catchUpIfReconnected($0)
         }
-        watch(store.observeMe()) { [weak self] in self?.me = $0 }
+        watchSelf()
         watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
         watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
         watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
