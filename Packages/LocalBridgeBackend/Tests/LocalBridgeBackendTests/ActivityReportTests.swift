@@ -13,10 +13,25 @@ private actor ActivityTransport: HTTPTransport {
     private let selfStatus: UserStatus
     private let refusesHeartbeat: Bool
     private(set) var sent: [HTTPRequest] = []
+    /// Holds `get_self_user_status` until `releaseSelfStatus()`: the network
+    /// round trip the app's real order runs into.
+    private var heldSelfStatus: CheckedContinuation<Void, Never>?
+    private var holdsSelfStatus: Bool
 
-    init(selfStatus: UserStatus = UserStatus(), refusesHeartbeat: Bool = false) {
+    init(
+        selfStatus: UserStatus = UserStatus(),
+        refusesHeartbeat: Bool = false,
+        holdsSelfStatus: Bool = false
+    ) {
         self.selfStatus = selfStatus
         self.refusesHeartbeat = refusesHeartbeat
+        self.holdsSelfStatus = holdsSelfStatus
+    }
+
+    func releaseSelfStatus() {
+        holdsSelfStatus = false
+        heldSelfStatus?.resume()
+        heldSelfStatus = nil
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -26,6 +41,9 @@ private actor ActivityTransport: HTTPTransport {
             return ok(Data(LocalBridgeBackendTests.shell(app: "DynamiteWebUi").utf8))
         }
         if path.contains("/api/get_self_user_status") {
+            if holdsSelfStatus {
+                await withCheckedContinuation { heldSelfStatus = $0 }
+            }
             var response = GetSelfUserStatusResponse()
             response.userStatus = selfStatus
             response.userStatus.userID.id = "u-me"
@@ -95,9 +113,17 @@ struct ActivityReportTests {
         -> LocalBridgeBackend {
         let backend = backend(transport, interval: interval)
         try await backend.connect()
-        // `resolveAndEmitSelf` runs behind `connect()`; let it land.
-        try await Task.sleep(for: .milliseconds(150))
+        try await waitForSelf(backend)
         return backend
+    }
+
+    /// `resolveAndEmitSelf` runs behind `connect()`: wait for it by the state
+    /// it leaves, never by a fixed sleep (`CLAUDE.md`, Testing).
+    private func waitForSelf(_ backend: LocalBridgeBackend) async throws {
+        for _ in 0 ..< 400 where await !backend.presencePoll.selfResolved {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await backend.presencePoll.selfResolved)
     }
 
     @Test func inUseReportsActiveAtOnceAndAgainEachInterval() async throws {
@@ -165,6 +191,26 @@ struct ActivityReportTests {
         try await backend.connect()
 
         #expect(try await waitFor(transport) { $0.count > atDisconnect }.count > atDisconnect)
+        await backend.disconnect()
+    }
+
+    /// Review finding 1, the app's real order: the report arrives right after
+    /// `connect()`, before your availability does. Away still wins.
+    @Test func awayWinsBeforeYourAvailabilityIsKnown() async throws {
+        var away = UserStatus()
+        away.presenceShared = false
+        let transport = ActivityTransport(selfStatus: away, holdsSelfStatus: true)
+        let backend = backend(transport)
+        try await backend.connect()
+        try await backend.send(.reportActivity(active: true))
+        try await Task.sleep(for: Self.tick * 4)
+        #expect(try await transport.heartbeats().isEmpty)
+
+        await transport.releaseSelfStatus()
+        try await waitForSelf(backend)
+        try await Task.sleep(for: Self.tick * 4)
+
+        #expect(try await transport.heartbeats().isEmpty)
         await backend.disconnect()
     }
 

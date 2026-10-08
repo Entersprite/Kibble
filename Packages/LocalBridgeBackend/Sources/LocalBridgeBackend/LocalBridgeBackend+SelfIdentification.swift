@@ -24,7 +24,10 @@ extension LocalBridgeBackend {
         guard let apiClient else { return }
         // On every path out, once your availability is known if it can be:
         // reporting activity starts with the session (active-presence spec §3).
-        defer { startActivityReports() }
+        defer {
+            presencePoll.selfResolved = true
+            startActivityReports()
+        }
         let response: GetSelfUserStatusResponse
         do {
             response = try await apiClient.call(.getSelfUserStatus, GetSelfUserStatusRequest())

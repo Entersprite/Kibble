@@ -25,11 +25,14 @@ extension LocalBridgeBackend {
         }
     }
 
-    /// Only while connected and in use, and only once. `resolveAndEmitSelf`
-    /// calls it at every connect, so a report made before the session was up,
-    /// or one kept across a stopped channel, starts with the session.
+    /// Only while connected and in use, only once, and only after this
+    /// connect's self-identification, so your availability is known before
+    /// the first report. `resolveAndEmitSelf` calls it when that finishes, so a
+    /// report made before then, or kept across a stopped channel, starts there.
     func startActivityReports() {
-        guard presencePoll.deviceInUse, presencePoll.activityTask == nil, apiClient != nil else { return }
+        guard presencePoll.deviceInUse, presencePoll.selfResolved, presencePoll.activityTask == nil,
+              apiClient != nil
+        else { return }
         let interval = presencePollInterval
         presencePoll.activityTask = Task { [weak self] in
             while !Task.isCancelled {
