@@ -113,6 +113,14 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// them, accepts it and does nothing (mention composer spec §3.1).
     case loadMembers(conversationID: Conversation.ID)
 
+    /// Your own custom status: emoji, text and when it clears; `nil` clears it
+    /// (set-your-status spec §2). A backend sends the Unicode emoji only, never
+    /// a custom emoji's shortcode. The answer arrives as `.statusChanged` for you.
+    case setStatus(MemberStatus?)
+
+    /// Your own availability. The answer arrives as `.availabilityChanged`.
+    case setAvailability(Availability)
+
     /// A command from a newer client, kept whole so that a backend can report
     /// precisely what it was asked and could not do.
     case unknown(type: String, payload: JSONValue)
@@ -138,6 +146,8 @@ extension ChatCommand {
         case members
         case attachments
         case mentions
+        case status
+        case availability
     }
 
     enum Tag: String {
@@ -150,6 +160,8 @@ extension ChatCommand {
         case setNotificationLevel
         case watchPresence
         case loadMembers
+        case setStatus
+        case setAvailability
         case unknown
     }
 
@@ -241,6 +253,10 @@ extension ChatCommand {
             try .watchPresence(members: container.decode([Member.ID].self, forKey: .members))
         case Tag.loadMembers.rawValue:
             try .loadMembers(conversationID: container.decode(Conversation.ID.self, forKey: .conversationID))
+        case Tag.setStatus.rawValue:
+            try .setStatus(container.decodeIfPresent(MemberStatus.self, forKey: .status))
+        case Tag.setAvailability.rawValue:
+            try .setAvailability(container.decode(Availability.self, forKey: .availability))
         default:
             nil
         }
@@ -326,6 +342,12 @@ extension ChatCommand {
         case let .loadMembers(conversationID):
             try container.encode(Tag.loadMembers.rawValue, forKey: .type)
             try container.encode(conversationID, forKey: .conversationID)
+        case let .setStatus(status):
+            try container.encode(Tag.setStatus.rawValue, forKey: .type)
+            try container.encodeIfPresent(status, forKey: .status)
+        case let .setAvailability(availability):
+            try container.encode(Tag.setAvailability.rawValue, forKey: .type)
+            try container.encode(availability, forKey: .availability)
         default:
             return false
         }

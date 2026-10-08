@@ -52,7 +52,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// until `--probe=edit` runs.
     public nonisolated let capabilities = Capabilities(
         canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
-        canMarkRead: true, supportsThreads: true,
+        canSetStatus: true, canMarkRead: true, supportsThreads: true,
         canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
         canSendAttachments: true, canMention: true, canMentionNonMembers: true, canFetchRemoteImages: true
     )

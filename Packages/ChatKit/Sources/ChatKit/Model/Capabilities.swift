@@ -18,6 +18,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     public var receivesTypingState: Bool
     public var receivesReadReceipts: Bool
     public var canSetNotificationLevel: Bool
+    /// `ChatCommand.setStatus` and `.setAvailability` are honoured: the menu on
+    /// your name appears only when this is `true` (set-your-status spec §2).
+    public var canSetStatus: Bool
     public var canMarkRead: Bool
     public var supportsThreads: Bool
     public var supportsHistoryCatchUp: Bool
@@ -60,6 +63,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         receivesTypingState: Bool = false,
         receivesReadReceipts: Bool = false,
         canSetNotificationLevel: Bool = false,
+        canSetStatus: Bool = false,
         canMarkRead: Bool = false,
         supportsThreads: Bool = false,
         supportsHistoryCatchUp: Bool = false,
@@ -80,6 +84,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.receivesTypingState = receivesTypingState
         self.receivesReadReceipts = receivesReadReceipts
         self.canSetNotificationLevel = canSetNotificationLevel
+        self.canSetStatus = canSetStatus
         self.canMarkRead = canMarkRead
         self.supportsThreads = supportsThreads
         self.supportsHistoryCatchUp = supportsHistoryCatchUp
@@ -106,6 +111,7 @@ public extension Capabilities {
         case receivesTypingState
         case receivesReadReceipts
         case canSetNotificationLevel
+        case canSetStatus
         case canMarkRead
         case supportsThreads
         case supportsHistoryCatchUp
@@ -136,6 +142,7 @@ public extension Capabilities {
             receivesTypingState: flag(.receivesTypingState),
             receivesReadReceipts: flag(.receivesReadReceipts),
             canSetNotificationLevel: flag(.canSetNotificationLevel),
+            canSetStatus: flag(.canSetStatus),
             canMarkRead: flag(.canMarkRead),
             supportsThreads: flag(.supportsThreads),
             supportsHistoryCatchUp: flag(.supportsHistoryCatchUp),
@@ -162,6 +169,7 @@ public extension Capabilities {
         try container.encode(receivesTypingState, forKey: .receivesTypingState)
         try container.encode(receivesReadReceipts, forKey: .receivesReadReceipts)
         try container.encode(canSetNotificationLevel, forKey: .canSetNotificationLevel)
+        try container.encode(canSetStatus, forKey: .canSetStatus)
         try container.encode(canMarkRead, forKey: .canMarkRead)
         try container.encode(supportsThreads, forKey: .supportsThreads)
         try container.encode(supportsHistoryCatchUp, forKey: .supportsHistoryCatchUp)

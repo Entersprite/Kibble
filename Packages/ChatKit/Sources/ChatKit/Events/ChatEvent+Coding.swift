@@ -28,6 +28,7 @@ extension ChatEvent {
         case presence
         case status
         case schedule
+        case availability
         case scope
         case reason
         case error
@@ -51,6 +52,7 @@ extension ChatEvent {
         case presenceChanged
         case statusChanged
         case calendarChanged
+        case availabilityChanged
         case gap
         case backendError
         case unknown
@@ -76,6 +78,8 @@ extension ChatEvent {
             try .connectionStateChanged(container.decode(ConnectionState.self, forKey: .state))
         case Tag.selfIdentified.rawValue:
             try .selfIdentified(container.decode(Member.self, forKey: .member))
+        case Tag.availabilityChanged.rawValue:
+            try .availabilityChanged(container.decode(Availability.self, forKey: .availability))
         case Tag.gap.rawValue:
             try .gap(
                 scope: container.decode(GapScope.self, forKey: .scope),
@@ -201,6 +205,9 @@ extension ChatEvent {
         case let .selfIdentified(member):
             try container.encode(Tag.selfIdentified.rawValue, forKey: .type)
             try container.encode(member, forKey: .member)
+        case let .availabilityChanged(availability):
+            try container.encode(Tag.availabilityChanged.rawValue, forKey: .type)
+            try container.encode(availability, forKey: .availability)
         case let .gap(scope, reason):
             try container.encode(Tag.gap.rawValue, forKey: .type)
             try container.encode(scope, forKey: .scope)

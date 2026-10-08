@@ -55,7 +55,7 @@ public extension ChatStore {
              .setReactions:
             try performMessageWrite(write, in: db)
         case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
-             .clearEphemeralState:
+             .setAvailability, .clearEphemeralState:
             try performSessionWrite(write, in: db)
         }
     }
@@ -277,6 +277,11 @@ public extension ChatStore {
                 sql: "UPDATE syncState SET localMemberID = ? WHERE id = 1",
                 arguments: [id.rawValue]
             )
+        case let .setAvailability(availability):
+            try db.execute(
+                sql: "UPDATE syncState SET availability = ? WHERE id = 1",
+                arguments: [Wire.json(availability)]
+            )
         case let .setMentionBackfill(status):
             try db.execute(
                 sql: """
@@ -288,8 +293,8 @@ public extension ChatStore {
         case .clearEphemeralState:
             try db.execute(sql: "DELETE FROM typing")
             try db.execute(sql: "UPDATE member SET presence = NULL, status = NULL, calendar = NULL")
-            // The connection state, the last error and the Mentions backfill's
-            // status are claims about now too. A fresh process that has not
+            // The connection state, the last error, your availability and the
+            // Mentions backfill's status are claims about now too. A fresh process that has not
             // connected must not inherit "connected" from whatever the last
             // one wrote, and has not started a backfill run.
             //
@@ -297,7 +302,7 @@ public extension ChatStore {
             // above, who the local user is stays true across a relaunch.
             try db.execute(
                 sql: """
-                UPDATE syncState SET connectionState = ?, lastError = NULL,
+                UPDATE syncState SET connectionState = ?, lastError = NULL, availability = NULL,
                     mentionBackfillRunning = 0, mentionBackfillFailed = 0
                 WHERE id = 1
                 """,

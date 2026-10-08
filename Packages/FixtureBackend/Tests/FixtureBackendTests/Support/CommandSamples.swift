@@ -63,6 +63,16 @@ enum CommandSamples {
             capability: "canSetNotificationLevel"
         ),
         Sample(
+            name: "setStatus",
+            command: .setStatus(MemberStatus(text: "x")),
+            capability: "canSetStatus"
+        ),
+        Sample(
+            name: "setAvailability",
+            command: .setAvailability(.away),
+            capability: "canSetStatus"
+        ),
+        Sample(
             name: "unknown",
             command: .unknown(type: "someFutureCommand", payload: .object([:])),
             capability: "someFutureCommand"

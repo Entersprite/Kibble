@@ -21,6 +21,7 @@ enum Schema {
         migrator.registerMigration("v9", migrate: addEmojiRecents)
         migrator.registerMigration("v10", migrate: addLinksAndCards)
         migrator.registerMigration("v11", migrate: addMemberCalendar)
+        migrator.registerMigration("v12", migrate: addAvailability)
         return migrator
     }
 
@@ -77,6 +78,14 @@ enum Schema {
     private static func addMemberCalendar(_ db: Database) throws {
         try db.alter(table: "member") { table in
             table.add(column: "calendar", .text)
+        }
+    }
+
+    /// Your own availability (set-your-status spec §4), the wire JSON.
+    /// Nullable: nothing is known until connect says.
+    private static func addAvailability(_ db: Database) throws {
+        try db.alter(table: "syncState") { table in
+            table.add(column: "availability", .text)
         }
     }
 

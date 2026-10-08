@@ -255,9 +255,9 @@ public extension SyncEngine {
         case .markRead, .setTyping:
             true
         case .sendMessage, .editMessage, .deleteMessage, .setReaction,
-             .setNotificationLevel, .watchPresence, .loadMembers, .unknown:
+             .setNotificationLevel, .watchPresence, .loadMembers, .setStatus, .setAvailability, .unknown:
             // `.watchPresence` and `.loadMembers` ask about other people and
-            // say nothing about this one.
+            // say nothing about this one. Setting your own status is an act.
             false
         }
     }

@@ -19,6 +19,8 @@ public struct ChatSceneState: Sendable, Equatable {
     public var conversations: [Conversation]
     public var directory: [Member.ID: Member]
     public var me: Member.ID?
+    /// Your own availability, for the status menu's checkmark.
+    public var availability: Availability?
     public var selected: Conversation.ID?
     public var messages: [Message]
     public var typing: [Member.ID]
@@ -93,6 +95,7 @@ public struct ChatSceneState: Sendable, Equatable {
         conversations: [Conversation] = [],
         directory: [Member.ID: Member] = [:],
         me: Member.ID? = nil,
+        availability: Availability? = nil,
         selected: Conversation.ID? = nil,
         messages: [Message] = [],
         typing: [Member.ID] = [],
@@ -118,6 +121,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.conversations = conversations
         self.directory = directory
         self.me = me
+        self.availability = availability
         self.selected = selected
         self.messages = messages
         self.typing = typing
@@ -277,6 +281,12 @@ public struct ChatSceneActions {
     /// Save an edit and delete a message, on the person's own messages.
     /// **Optional, and `nil` is the point** (edit spec §5).
     public var messages: MessageActions?
+    /// Sets or clears your custom status. **Optional, and `nil` hides the
+    /// status menu**, with `setAvailability`: a backend that cannot set status
+    /// gets a plain name in the footer.
+    public var setStatus: ((MemberStatus?) -> Void)?
+    /// Sets your availability.
+    public var setAvailability: ((Availability) -> Void)?
 
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
@@ -302,7 +312,9 @@ public struct ChatSceneActions {
         nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil,
         sendTo: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
         keepDraft: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
-        messages: MessageActions? = nil
+        messages: MessageActions? = nil,
+        setStatus: ((MemberStatus?) -> Void)? = nil,
+        setAvailability: ((Availability) -> Void)? = nil
     ) {
         self.select = select
         self.send = send
@@ -328,5 +340,7 @@ public struct ChatSceneActions {
         self.sendTo = sendTo
         self.keepDraft = keepDraft
         self.messages = messages
+        self.setStatus = setStatus
+        self.setAvailability = setAvailability
     }
 }

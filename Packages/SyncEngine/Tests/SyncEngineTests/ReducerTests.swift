@@ -199,6 +199,13 @@ struct ReducerTests {
             == [.setCalendar(member: member, schedule: nil), .setLastError(nil)])
     }
 
+    /// Your availability, and like every event that proves the session is
+    /// alive, it supersedes a stale error.
+    @Test func anAvailabilityChangeSetsIt() {
+        #expect(SyncReducer.reduce(.availabilityChanged(.away)).writes
+            == [.setAvailability(.away), .setLastError(nil)])
+    }
+
     @Test func presenceLandsOnTheMemberRecord() {
         #expect(SyncReducer.reduce(.presenceChanged(member: member, presence: .doNotDisturb)).writes
             == [.setPresence(member: member, presence: .doNotDisturb), .setLastError(nil)])
@@ -291,7 +298,7 @@ struct ReducerTests {
     /// derived list would start passing the moment a case was added, which is
     /// the one moment it must fail.
     @Test func everyEventCaseIsCovered() {
-        #expect(EventSamples.all.count == 18)
+        #expect(EventSamples.all.count == 19)
         for sample in EventSamples.all {
             let reduction = SyncReducer.reduce(sample.event)
             #expect(

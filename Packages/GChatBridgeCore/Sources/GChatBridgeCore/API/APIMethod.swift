@@ -187,3 +187,25 @@ public extension APIMethod where Request == DeleteMessageRequest, Response == De
         Self("delete_message")
     }
 }
+
+public extension APIMethod where Request == SetCustomStatusRequest, Response == SetCustomStatusResponse {
+    /// Your own custom status (set-your-status spec §1). Named in Chat on the
+    /// web's bundle and called by purple. `[Verify]` until a live run.
+    static var setCustomStatus: Self {
+        Self("set_custom_status")
+    }
+}
+
+public extension APIMethod where Request == SetDndDurationRequest, Response == SetDndDurationResponse {
+    /// Do not disturb, on until a time or off (spec §1). `[Verify]`.
+    static var setDndDuration: Self {
+        Self("set_dnd_duration")
+    }
+}
+
+public extension APIMethod where Request == SetPresenceSharedRequest, Response == SetPresenceSharedResponse {
+    /// Shown as available (`true`) or away (`false`) (spec §1). `[Verify]`.
+    static var setPresenceShared: Self {
+        Self("set_presence_shared")
+    }
+}
