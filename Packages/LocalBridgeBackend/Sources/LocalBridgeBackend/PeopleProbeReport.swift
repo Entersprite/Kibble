@@ -57,8 +57,8 @@ public enum PeopleProbeReport {
         // Cookies scoped per host, exactly as for Punctual: `PunctualClient`
         // is a plain scoped sender, whatever its name.
         let client = PunctualClient(transport: transport, credentials: bootstrapped.credentials)
-        guard let key = await key(bootstrapped.wiz, client: client, endpoints: endpoints, lines: &lines)
-        else {
+        let (found, page) = await key(bootstrapped.wiz, client: client, endpoints: endpoints, lines: &lines)
+        guard let key = found else {
             return done()
         }
         let jar = await bootstrapped.credentials.snapshot?.cookies ?? []
@@ -69,14 +69,57 @@ public enum PeopleProbeReport {
         flush(lines.joined(separator: "\n"))
         let search = Search(query: query, key: key, endpoints: endpoints)
         let people = await appendRungs(search, jar: jar, client: client, lines: &lines, flush: flush)
-        lines.append("")
-        lines.append("ids against get_members (up to 5 people from the first rung that returned any):")
-        if let people {
-            await appendMappingCheck(people, api: api, lines: &lines)
-        } else {
-            lines.append("  no rung returned a person with an id")
-        }
+        await appendMappingCheck(people, api: api, lines: &lines)
+        let calendar = CalendarSection(
+            people: CalendarProbePeople(me: nil, partners: []), tzliq: key, page: page,
+            credentials: bootstrapped.credentials, transport: transport, endpoints: endpoints, now: Date()
+        )
+        await appendCalendarSection(calendar, api: api, selfUserID: selfUserID, lines: &lines, flush: flush)
         return done()
+    }
+
+    /// The calendar section (§62), asking about the people `calendarPeople`
+    /// finds; `section.people` is replaced.
+    private static func appendCalendarSection(
+        _ section: CalendarSection,
+        api: ProtoAPIClient,
+        selfUserID: String?,
+        lines: inout [String],
+        flush: (String) -> Void
+    ) async {
+        lines.append("")
+        lines.append("calendar status (GetAssistiveFeatures, findings.md §62):")
+        flush(lines.joined(separator: "\n"))
+        var asking = section
+        asking.people = await calendarPeople(api: api, selfUserID: selfUserID, lines: &lines)
+        await appendCalendarStatus(asking, lines: &lines, flush: flush)
+    }
+
+    /// The world load's DMs and `get_members`' emails, the way the Punctual
+    /// probe finds its people. Counts only.
+    private static func calendarPeople(
+        api: ProtoAPIClient,
+        selfUserID: String?,
+        lines: inout [String]
+    ) async -> CalendarProbePeople {
+        let world: PaginatedWorldResponse
+        do {
+            world = try await api.call(.paginatedWorld, WorldRequestLadder.minimumViable.request)
+        } catch {
+            lines.append("  paginated_world failed: \(APIProbeReport.safeDescription(of: error))")
+            return CalendarProbePeople(me: nil, partners: [])
+        }
+        let conversations = WorldMapping.map(world).conversations
+        let members = await APIProbeReport.appendMemberResolutionSummary(
+            conversations: conversations, client: api, lines: &lines
+        )
+        let people = calendarPeople(
+            conversations: conversations, members: members, selfUserID: selfUserID, limit: 10
+        )
+        lines.append("  asking: self \(people.me == nil ? "no" : "yes") "
+            + "(email \(people.me?.email == nil ? "no" : "yes")), \(people.partners.count) DM partners "
+            + "(\(people.partners.count(where: { $0.email != nil })) with an email)")
+        return people
     }
 
     /// The config row `CLAUDE.md` asks every trace for.
@@ -87,33 +130,33 @@ public enum PeopleProbeReport {
         return [
             "kibble people probe",
             "config: build \(version) (\(build)), variants "
-                + SAPISIDHash.Variant.allCases.map(\.rawValue).joined(separator: ","),
+                + SAPISIDHash.Variant.allCases.map(\.rawValue).joined(separator: ",")
+                + ", peoplestack module \(PeopleStackKey.configModule)",
             ""
         ]
     }
 
     /// The Punctual key: `/app/home` first, where the capture found it, then
-    /// the mole shell. The directory's key was the same one (§57).
+    /// the mole shell. The directory's key was the same one (§57). The page
+    /// comes back too: the calendar section reads the bundle's address off
+    /// it (§62.4).
     private static func key(
         _ wiz: WizGlobalData,
         client: PunctualClient,
         endpoints: ChatEndpoints,
         lines: inout [String]
-    ) async -> String? {
-        if let home = await PunctualProbeReport.appHomeKey(
-            client: client,
-            endpoints: endpoints,
-            lines: &lines
-        ) {
-            lines.append("key: app/home, \(home.count) chars")
-            return home
+    ) async -> (key: String?, page: String?) {
+        let home = await PunctualProbeReport.appHome(client: client, endpoints: endpoints, lines: &lines)
+        if let key = home.key {
+            lines.append("key: app/home, \(key.count) chars")
+            return (key, home.page)
         }
         if let mole = wiz.punctualKey {
             lines.append("key: mole shell, \(mole.count) chars")
-            return mole
+            return (mole, home.page)
         }
         lines.append("Stopping: no key (Tzliq) in /app/home or the mole shell.")
-        return nil
+        return (nil, home.page)
     }
 
     /// Which hashed cookies this session holds for the people host: names
@@ -194,10 +237,16 @@ public enum PeopleProbeReport {
     /// Whether the directory's ids are Chat user ids: `get_members` should
     /// name them, with the same email.
     private static func appendMappingCheck(
-        _ people: [(id: String, email: String)],
+        _ people: [(id: String, email: String)]?,
         api: ProtoAPIClient,
         lines: inout [String]
     ) async {
+        lines.append("")
+        lines.append("ids against get_members (up to 5 people from the first rung that returned any):")
+        guard let people else {
+            lines.append("  no rung returned a person with an id")
+            return
+        }
         let sample = Array(people.prefix(5))
         do {
             let response = try await api.call(
