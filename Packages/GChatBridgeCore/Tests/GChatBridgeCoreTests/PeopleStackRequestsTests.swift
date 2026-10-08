@@ -133,6 +133,15 @@ struct PeopleStackRequestsTests {
         ])
     }
 
+    /// The report prints every time relative to the run, and an infinite or
+    /// absurd one would trap there.
+    @Test func aTimeThatIsNotAPlausibleNumberIsNoTime() {
+        for seconds in ["inf", "nan", "1e400", "123456789012345678901234"] {
+            #expect(PeopleStackAnswer.date([seconds]) == nil, "\(seconds)")
+        }
+        #expect(PeopleStackAnswer.date(["1759690000"]) == time(1_759_690_000))
+    }
+
     @Test func anXSSIPrefixIsTolerated() {
         #expect(PeopleStackAnswer(Data((")]}'\n" + Self.answer).utf8))?.calendar.count == 2)
     }
@@ -162,9 +171,9 @@ struct PeopleStackRequestsTests {
         #expect(PeopleStackKey.configKey(inBundle: #"b="\#(Self.otherKey)";"#) == nil)
     }
 
-    @Test func aLongerRunIsNotAKey() {
-        let bundle = #"x="\#(Self.prodKey)Z";"#
-        #expect(PeopleStackKey.candidates(inBundle: bundle).isEmpty)
+    @Test func aKeyInsideALongerRunIsNotAKey() {
+        #expect(PeopleStackKey.candidates(inBundle: #"x="\#(Self.prodKey)Z";"#).isEmpty)
+        #expect(PeopleStackKey.candidates(inBundle: #"x="Z\#(Self.prodKey)";"#).isEmpty)
     }
 
     @Test func theModuleAddressReplacesThePagesModuleList() throws {
@@ -181,6 +190,24 @@ struct PeopleStackRequestsTests {
         let url = try #require(PeopleStackKey.moduleURL(inPage: page, module: "F41ord", origin: Self.origin))
         #expect(url.absoluteString
             == "https://chat.google.com/_/scs/mss-static/_/js/k=boq-dynamite.X.O/m=F41ord")
+    }
+
+    /// The fetch carries no cookie, but it still tells a host this machine's
+    /// address: Google's own hosts only, and only over TLS.
+    @Test func aBundleAddressOffGoogleOrWithoutTLSIsRefused() {
+        for host in [
+            "https://elsewhere.example",
+            "http://chat.google.com",
+            "https://chat.google.com.example"
+        ] {
+            let page = #"<script src="\#(host)/_/scs/mss-static/_/js/k=boq-dynamite.X.O/m=a"></script>"#
+            let url = PeopleStackKey.moduleURL(inPage: page, module: "F41ord", origin: Self.origin)
+            #expect(url == nil, "\(host)")
+        }
+        let page = #"<script src="https://www.gstatic.com/_/mss/boq-dynamite/_/js/k=boq-dynamite.X.O/m=a">"#
+        let url = PeopleStackKey.moduleURL(inPage: page, module: "F41ord", origin: Self.origin)
+        #expect(url?
+            .absoluteString == "https://www.gstatic.com/_/mss/boq-dynamite/_/js/k=boq-dynamite.X.O/m=F41ord")
     }
 
     @Test func aPageWithNoBundleAddressHasNoModuleURL() {

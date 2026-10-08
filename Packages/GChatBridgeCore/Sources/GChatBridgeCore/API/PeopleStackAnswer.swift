@@ -70,7 +70,9 @@ public struct PeopleStackAnswer: Sendable, Equatable {
         case let number as NSNumber: number.doubleValue
         default: nil
         }
-        guard let seconds else { return nil }
+        // Finite and before the year 5138: anything else is not a time, and
+        // would trap whatever prints it.
+        guard let seconds, seconds.isFinite, abs(seconds) < 1e11 else { return nil }
         let nanos = (element(parts, 1) as? NSNumber)?.doubleValue ?? 0
         return Date(timeIntervalSince1970: seconds + nanos / 1_000_000_000)
     }

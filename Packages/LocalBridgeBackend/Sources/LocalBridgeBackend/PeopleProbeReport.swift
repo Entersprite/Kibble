@@ -326,9 +326,52 @@ public enum PeopleProbeReport {
         } else {
             nil
         }
-        guard let (code, message) = pair else { return nil }
+        guard let (code, raw) = pair else { return nil }
+        let message = redacted(raw)
         let plain = !message.contains("@")
-            && message.range(of: "^[A-Za-z0-9 .,:;'()/_-]{1,200}$", options: .regularExpression) != nil
-        return plain ? "\(code) \(message)" : "\(code) (message withheld, \(message.count) chars)"
+            && message.range(of: "^[A-Za-z0-9 .,:;'()<>/_-]{1,200}$", options: .regularExpression) != nil
+        let text = plain ? "\(code) \(message)" : "\(code) (message withheld, \(raw.count) chars)"
+        let reasons = reasonCodes(in: object)
+        return reasons.isEmpty ? text : text + " (\(reasons.joined(separator: ", ")))"
+    }
+}
+
+/// The error printer's redaction and reason codes (`errorSummary`).
+extension PeopleProbeReport {
+    /// A message with every run that could be a key, a token or an id
+    /// replaced by its length: 16 or more key characters first, so a digit
+    /// run inside a key cannot split it, then 6 or more digits.
+    static func redacted(_ message: String) -> String {
+        var text = message
+        for (pattern, unit) in [("[A-Za-z0-9_-]{16,}", "chars"), ("[0-9]{6,}", "digits")] {
+            while let range = text.range(of: pattern, options: .regularExpression) {
+                text.replaceSubrange(range, with: "<\(text[range].count) \(unit)>")
+            }
+        }
+        return text
+    }
+
+    /// Google's reason codes anywhere in an error body, in order, each once:
+    /// uppercase words joined by underscores (`API_KEY_SERVICE_BLOCKED`),
+    /// which no key, id or name looks like.
+    static func reasonCodes(in object: Any?) -> [String] {
+        var found: [String] = []
+        func walk(_ value: Any?) {
+            switch value {
+            case let array as [Any]:
+                array.forEach(walk)
+            case let dictionary as [String: Any]:
+                dictionary.sorted { $0.key < $1.key }.forEach { walk($0.value) }
+            case let string as String:
+                if string.count <= 64, !found.contains(string),
+                   string.range(of: "^[A-Z]+(_[A-Z]+)+$", options: .regularExpression) != nil {
+                    found.append(string)
+                }
+            default:
+                break
+            }
+        }
+        walk(object)
+        return found
     }
 }

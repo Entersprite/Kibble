@@ -86,14 +86,16 @@ struct PeopleProbeCalendarTests {
     [[5,"1"],[2,"123456789012345678902"]]],\#
     null,null,\#
     [[[null,"1"],[2,"123456789012345678901"],[["123456789012345678901"],1]],\#
-    [[null,"1"],[2,"999999999999999999999"],[["999999999999999999999"],3]]],\#
+    [[null,"1"],[2,"999999999999999999999"],[["999999999999999999999"],150]]],\#
     [[[null,"1"],[2,"123456789012345678901"],\#
     [["123456789012345678901"],[[1,"1","x"],null,"1759800000000000"]]],\#
     [[null,"1"],[2,"123456789012345678902"],[["123456789012345678902"],[]]]]]
     """#.utf8)
 
+    /// The local user's email in mixed case, as `get_members` may give it:
+    /// the wire wants it lowercased (§62.5).
     private static let people = CalendarProbePeople(
-        me: .init(id: "self-id", email: "me@example.invalid", label: "self"),
+        me: .init(id: "self-id", email: "Me@Example.invalid", label: "self"),
         partners: [
             .init(id: "123456789012345678901", email: "first@example.invalid", label: "person 1"),
             .init(id: "123456789012345678902", email: nil, label: "person 2")
@@ -107,7 +109,7 @@ struct PeopleProbeCalendarTests {
                 + "f5 now+43m}, valid until now+24h, rows 2, context 14 chars",
             "calendar person 2 (id): status 5, no payload",
             "presence person 1 (id): 1",
-            "presence unlisted (id): 3",
+            "presence unlisted (id): n3",
             "custom status person 1 (id): set",
             "custom status person 2 (id): none"
         ])
@@ -116,96 +118,161 @@ struct PeopleProbeCalendarTests {
     // MARK: - The section, end to end
 
     /// Built at run time, so no literal in this file looks like a Google API
-    /// key to a secret scanner. Lowercase and mixed, which the shape printer
-    /// would mask anyway: the sentinel is for every other line.
+    /// key to a secret scanner. Both are 39 characters, like the real ones,
+    /// and lowercase, which the error printer's sentence check lets through:
+    /// only the redaction of long runs stands between them and the report.
     private static let bundleKey = "AI" + "za" + "secretkey" + String(repeating: "q", count: 26)
+    private static let tzliq = "tzliqsecret" + String(repeating: "t", count: 28)
+    private static let otherKey = "AI" + "za" + "otherkey" + String(repeating: "o", count: 27)
 
     private static func response(_ status: Int, _ body: String) -> Result<HTTPResponse, any Error> {
         .success(HTTPResponse(status: status, headers: HTTPHeaders([]), body: Data(body.utf8)))
     }
 
-    private static func credentials() throws -> SessionCredentials {
-        let cookies = ["SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"].map { name in
+    private static let unauthenticated = response(
+        401,
+        #"[401,"Request is missing required authentication."]"#
+    )
+    private static let denied = response(403, #"[403,"The caller does not have permission"]"#)
+    private static let answered = response(200, String(decoding: answer, as: UTF8.self))
+
+    /// A refusal that names the consumer, the way Google's do.
+    private static func naming(_ key: String) -> Result<HTTPResponse, any Error> {
+        response(403, #"[403,"Consumer 'api_key:\#(key)' for 123456789012345678901 is blocked."]"#)
+    }
+
+    private static func module(_ keys: [String]) -> Result<HTTPResponse, any Error> {
+        let others = keys.dropFirst().map { #"b="\#($0)";"# }.joined()
+        return response(
+            200,
+            #"x=[1,[true,135],false,[null,null,"\#(String(repeating: "d", count: 39))","#
+                + #""\#(keys[0])"]];"# + others
+        )
+    }
+
+    private static func credentials(_ names: [String]) throws -> SessionCredentials {
+        let cookies = names.map { name in
             SessionCookies.Cookie(name: name, value: "cookie-secret", domain: ".google.com", path: "/")
         }
         return try SessionCredentials(#require(SessionCookies(cookies: cookies)))
     }
 
+    private static let allThree = ["SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"]
+
     private static let page = #"<script src="/_/scs/mss-static/_/js/k=boq-dynamite.T.O/d=1/m=_b"></script>"#
 
-    @Test func aRefusedTzliqFallsBackToTheBundlesKeyAndThenAsksEveryVariant() async throws {
-        let module = #"x=[1,[true,135],false,[null,null,"\#(String(repeating: "d", count: 39))","#
-            + #""\#(Self.bundleKey)"]];"#
-        let answer = String(decoding: Self.answer, as: UTF8.self)
-        let transport = ScriptedTransport([
-            Self.response(401, #"[401,"Request is missing required authentication credential."]"#),
-            Self.response(403, #"[403,"The caller does not have permission"]"#),
-            Self.response(403, #"[403,"The caller does not have permission"]"#),
-            Self.response(200, module),
-            Self.response(200, answer),
-            Self.response(200, answer), Self.response(200, answer), Self.response(200, answer),
-            Self.response(200, answer), Self.response(200, answer)
-        ])
+    private func run(
+        _ responses: [Result<HTTPResponse, any Error>],
+        tzliq: String = Self.tzliq,
+        cookies: [String] = Self.allThree
+    ) async throws -> (text: String, sent: [HTTPRequest]) {
+        let transport = ScriptedTransport(responses)
         var lines: [String] = []
-        let credentials = try Self.credentials()
-        let section = PeopleProbeReport.CalendarSection(
-            people: Self.people, tzliq: "tzliq-value", page: Self.page, credentials: credentials,
+        let section = try PeopleProbeReport.CalendarSection(
+            people: Self.people, tzliq: tzliq, page: Self.page, credentials: Self.credentials(cookies),
             transport: transport, endpoints: ChatEndpoints(), now: Self.now
         )
         await PeopleProbeReport.appendCalendarStatus(section, lines: &lines, flush: { _ in })
-        let sent = await transport.sent
-        let text = lines.joined(separator: "\n")
+        return await (lines.joined(separator: "\n"), transport.sent)
+    }
 
-        try #require(sent.count == 10)
-        #expect(sent[0].headers.all("Authorization").isEmpty)
-        #expect(sent[0].headers.all("X-Goog-Api-Key") == ["tzliq-value"])
-        #expect(sent[3].url
-            .absoluteString ==
-            "https://chat.google.com/_/scs/mss-static/_/js/k=boq-dynamite.T.O/d=1/m=F41ord")
+    private func key(_ request: HTTPRequest) -> String? {
+        request.headers.all("X-Goog-Api-Key").first
+    }
+
+    private func signature(_ request: HTTPRequest) -> String? {
+        request.headers.all("Authorization").first
+    }
+
+    @Test func aRefusedTzliqFallsBackToTheBundlesKeyAndThenAsksEveryVariant() async throws {
+        let (text, sent) = try await run([
+            Self.unauthenticated, Self.naming(Self.tzliq), Self.denied,
+            Self.module([Self.bundleKey]),
+            Self.naming(Self.bundleKey), Self.answered,
+            Self.answered, Self.answered, Self.answered, Self.answered, Self.answered
+        ])
+        try #require(sent.count == 11)
+        #expect(signature(sent[0]) == nil)
+        #expect(key(sent[0]) == Self.tzliq)
+        #expect(String(decoding: sent[0].body ?? Data(), as: UTF8.self)
+            .contains(#"[1,"me@example.invalid"]"#))
+        #expect(sent[3].url.absoluteString
+            == "https://chat.google.com/_/scs/mss-static/_/js/k=boq-dynamite.T.O/d=1/m=F41ord")
         #expect(sent[3].headers.all("Cookie").isEmpty)
-        #expect(sent[4].headers.all("X-Goog-Api-Key") == [Self.bundleKey])
-        #expect(sent[4].headers.all("Authorization").first?.hasPrefix("SAPISIDHASH ") == true)
-        // Every request after the winner keeps its key and signature.
-        #expect(sent[5...].allSatisfy { $0.headers.all("X-Goog-Api-Key") == [Self.bundleKey] })
-        #expect(sent[5...]
-            .allSatisfy { $0.headers.all("Authorization") == sent[4].headers.all("Authorization") })
+        #expect(sent[5...].allSatisfy { key($0) == Self.bundleKey })
+        let winner = try #require(signature(sent[5]))
+        #expect(winner.hasPrefix("SAPISIDHASH ") && winner.contains("SAPISID3PHASH "))
+        // Every question after the winner keeps its key and signature.
+        #expect(sent[6...].allSatisfy { signature($0) == winner })
 
-        #expect(text.contains("rung Tzliq (11 chars), control without Authorization: status 401"))
+        #expect(text.contains("rung Tzliq (39 chars), control without Authorization: status 401"))
+        #expect(text.contains("error 403 Consumer 'api_key:<39 chars>' for <21 chars> is blocked."))
         #expect(text.contains("bundle: module F41ord, status 200"))
         #expect(text.contains("1 key literal, config literal yes"))
-        #expect(text.contains("rung bundle key 1 (39 chars), sapisidOnly: status 200"))
+        #expect(text.contains("rung bundle key 1 (39 chars), firstAndThirdParty: status 200"))
         #expect(text.contains("calendar self (email): ok, 3 intervals [5 2 3]"))
+        // A colleague's day is summarised, never printed whole: shapes for self only.
+        #expect(text.components(separatedBy: "shape: ").count - 1 == 2)
+        let printed = text.lowercased()
         for secret in [
             Self.bundleKey,
-            "tzliq-value",
+            Self.tzliq,
             "cookie-secret",
-            "me@example",
-            "first@example",
+            "example.invalid",
             "123456789012345678901",
-            "Area/Some_City"
+            "area/some_city",
+            String(winner.dropFirst("SAPISIDHASH ".count).prefix(30))
         ] {
-            #expect(!text.contains(secret), "printed \(secret)")
+            #expect(!printed.contains(secret.lowercased()), "printed \(secret)")
         }
     }
 
     @Test func anAcceptedTzliqNeverFetchesTheBundle() async throws {
-        let answer = String(decoding: Self.answer, as: UTF8.self)
-        let transport = ScriptedTransport([
-            Self.response(401, #"[401,"Request is missing required authentication credential."]"#),
-            Self.response(200, answer),
-            Self.response(200, answer), Self.response(200, answer), Self.response(200, answer),
-            Self.response(200, answer), Self.response(200, answer)
+        let (_, sent) = try await run([
+            Self.unauthenticated, Self.answered,
+            Self.answered, Self.answered, Self.answered, Self.answered, Self.answered
         ])
-        var lines: [String] = []
-        let credentials = try Self.credentials()
-        let section = PeopleProbeReport.CalendarSection(
-            people: Self.people, tzliq: "tzliq-value", page: Self.page, credentials: credentials,
-            transport: transport, endpoints: ChatEndpoints(), now: Self.now
-        )
-        await PeopleProbeReport.appendCalendarStatus(section, lines: &lines, flush: { _ in })
-        let sent = await transport.sent
         try #require(sent.count == 7)
         #expect(!sent.contains { $0.url.path.contains("/_/js/") })
-        #expect(sent.allSatisfy { $0.headers.all("X-Goog-Api-Key") == ["tzliq-value"] })
+        #expect(sent.allSatisfy { key($0) == Self.tzliq })
+    }
+
+    /// An unsigned call that is answered is recorded, never chosen: Google
+    /// may answer an anonymous caller with "not found" for everyone, and
+    /// every later question would then go unsigned.
+    @Test func theUnsignedControlNeverWins() async throws {
+        let (text, sent) = try await run([
+            Self.answered, Self.response(200, "[null]"), Self.answered,
+            Self.answered, Self.answered, Self.answered, Self.answered, Self.answered
+        ])
+        try #require(sent.count == 8)
+        #expect(sent[1...].allSatisfy { signature($0) != nil })
+        #expect(text.contains("sapisidOnly: status 200, 6 bytes, not an answer, shape [null]"))
+        #expect(text.contains("with Tzliq (39 chars), firstAndThirdParty:"))
+    }
+
+    /// A signature whose cookie is absent is not sent unsigned under its name.
+    @Test func aVariantWhoseCookieIsAbsentIsSkipped() async throws {
+        let (text, sent) = try await run([
+            Self.unauthenticated, Self.denied,
+            Self.module([Self.bundleKey]), Self.answered,
+            Self.answered, Self.answered, Self.answered, Self.answered, Self.answered
+        ], cookies: ["SAPISID"])
+        try #require(sent.count == 9)
+        #expect(text
+            .contains("rung Tzliq (39 chars), firstAndThirdParty: skipped, a cookie it hashes is absent"))
+        #expect(sent.enumerated().allSatisfy { index, request in
+            index == 0 || request.url.path.contains("/_/js/") || signature(request) != nil
+        })
+    }
+
+    @Test func aBundleKeyEqualToTzliqIsNotTriedAgain() async throws {
+        let (_, sent) = try await run([
+            Self.unauthenticated, Self.denied, Self.denied,
+            Self.module([Self.otherKey, Self.bundleKey]), Self.answered,
+            Self.answered, Self.answered, Self.answered, Self.answered, Self.answered
+        ], tzliq: Self.otherKey)
+        try #require(sent.count == 10)
+        #expect(key(sent[4]) == Self.bundleKey)
     }
 }

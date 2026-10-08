@@ -9,7 +9,7 @@ public enum PeopleStackKey {
 
     /// The address of one module of the page's own build: the page's bundle
     /// address with its module lists replaced. `nil` when the page names no
-    /// bundle.
+    /// bundle, or names one off Google's hosts or without TLS.
     ///
     /// The address is read out to its delimiters whether it sits in an
     /// attribute or, JSON-escaped, in a script.
@@ -33,12 +33,18 @@ public enum PeopleStackKey {
         } else if address.hasPrefix("/") {
             address = origin + address
         }
-        guard address.hasPrefix("https://"), let split = address.range(of: "/_/js/") else { return nil }
+        guard address.hasPrefix("https://"), let host = URL(string: address)?.host?.lowercased(),
+              allowedHosts.contains(host) || host.hasSuffix(".gstatic.com"),
+              let split = address.range(of: "/_/js/")
+        else { return nil }
         let kept = address[split.upperBound...].split(separator: "/").filter { segment in
             !["m=", "exm=", "excm="].contains { segment.hasPrefix($0) }
         }
         return URL(string: address[..<split.upperBound] + (kept + ["m=\(module)"]).joined(separator: "/"))
     }
+
+    /// Where Chat's bundle is served from, besides `*.gstatic.com`.
+    private static let allowedHosts: Set<String> = ["chat.google.com", "gstatic.com"]
 
     /// Every distinct Google API key literal in `bundle`, the one in the
     /// config's `[null,null,<dev key>,<key>]` first.

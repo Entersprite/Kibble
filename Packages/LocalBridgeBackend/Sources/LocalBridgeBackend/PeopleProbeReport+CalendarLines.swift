@@ -72,7 +72,7 @@ extension PeopleProbeReport {
         }
         func head(_ entry: PeopleStackAnswer.Entry<some Any>) -> String? {
             guard entry.payload == nil || entry.status != nil else { return nil }
-            return entry.status.map { "status \($0)" } ?? "ok"
+            return entry.status.map { "status \(small($0))" } ?? "ok"
         }
         var lines: [String] = []
         for entry in answer.calendar {
@@ -80,19 +80,25 @@ extension PeopleProbeReport {
                 lines.append("calendar \(who(entry.key)): \(head(entry) ?? "ok"), no payload")
                 continue
             }
-            let status = entry.status.map { "status \($0)" } ?? "ok"
+            let status = entry.status.map { "status \(small($0))" } ?? "ok"
             lines.append("calendar \(who(entry.key)): \(status), " + calendarSummary(calendar, now: now))
         }
         for entry in answer.presence {
             lines
                 .append("presence \(who(entry.key)): " +
-                    (entry.payload.map(String.init) ?? head(entry) ?? "-"))
+                    (entry.payload.map(small) ?? head(entry) ?? "-"))
         }
         for entry in answer.userStatus {
             let value = entry.payload.map { $0 ? "set" : "none" } ?? head(entry) ?? "-"
             lines.append("custom status \(who(entry.key)): " + value)
         }
         return lines
+    }
+
+    /// An enum value or a code as itself; anything larger, which could be
+    /// anything, by its digit count.
+    private static func small(_ value: Int) -> String {
+        (0 ... 99).contains(value) ? String(value) : "n\(String(value).count)"
     }
 
     private static func calendarSummary(_ calendar: PeopleStackCalendarStatus, now: Date) -> String {

@@ -27,6 +27,9 @@ extension PeopleProbeReport {
         let name: String
         let queries: [PeopleStackRequests.Query]
         let client: Int
+        /// Whether the answer's whole shape prints. Only the local user's: a
+        /// colleague's day is summarised, never laid out interval by interval.
+        var printsShape = false
     }
 
     /// A key and a signature to try. `variant` `nil` is the unsigned control.
@@ -77,7 +80,7 @@ extension PeopleProbeReport {
         if winner == nil {
             let keys = await bundleKeys(
                 page: section.page, transport: section.transport, endpoints: endpoints, lines: &lines
-            )
+            ).filter { $0 != tzliq }
             let bundleRungs = keys.enumerated().flatMap { index, key in
                 signedRungs(keyName: "bundle key \(index + 1) (\(key.count) chars)", key: key)
             }
@@ -110,16 +113,18 @@ extension PeopleProbeReport {
             if let email = me.email {
                 questions.append(Question(
                     name: "self by email, client 3",
-                    queries: [.init(keys: [.email(email)], features: calendar)], client: 3
+                    queries: [.init(keys: [.email(email.lowercased())], features: calendar)], client: 3,
+                    printsShape: true
                 ))
             }
             questions.append(Question(
                 name: "self by id, client 1",
-                queries: [.init(keys: [.personID(me.id)], features: calendar)], client: 1
+                queries: [.init(keys: [.personID(me.id)], features: calendar)], client: 1, printsShape: true
             ))
         }
         let ids = people.partners.map { PeopleStackRequests.Key.personID($0.id) }
-        let emails = people.partners.compactMap { $0.email.map(PeopleStackRequests.Key.email) }
+        let emails = people.partners
+            .compactMap { $0.email.map { PeopleStackRequests.Key.email($0.lowercased()) } }
         guard !ids.isEmpty else { return questions }
         questions.append(Question(
             name: "partners by id, client 1", queries: [.init(keys: ids, features: calendar)], client: 1
@@ -170,7 +175,9 @@ extension PeopleProbeReport {
                 prefix: "  rung \(rung.keyName), \(signature): "
             )
             flush(lines.joined(separator: "\n"))
-            if accepted {
+            // An answered control is recorded, never chosen: an anonymous
+            // caller may be told "not found" for everyone.
+            if accepted, rung.variant != nil {
                 return rung
             }
         }
@@ -208,14 +215,23 @@ extension PeopleProbeReport {
             let response = try await context.client.send(request)
             var line = prefix + "status \(response.status), \(response.body.count) bytes"
             guard response.status == 200, let answer = PeopleStackAnswer(response.body) else {
-                line += ", " + (errorSummary(response.body).map { "error \($0)" } ?? "not an answer")
+                if let error = errorSummary(response.body) {
+                    line += ", error \(error)"
+                } else {
+                    line += ", not an answer"
+                        +
+                        (response
+                            .status == 200 ? ", shape " + maskedShape(response.body, now: context.now) : "")
+                }
                 lines.append(line)
                 return false
             }
             lines.append(line)
             let indent = "    "
             lines += answerLines(answer, people: context.people, now: context.now).map { indent + $0 }
-            lines.append(indent + "shape: " + maskedShape(response.body, now: context.now))
+            if question.printsShape {
+                lines.append(indent + "shape: " + maskedShape(response.body, now: context.now))
+            }
             return true
         } catch {
             lines.append(prefix + "FAILED \(APIProbeReport.safeDescription(of: error))")
