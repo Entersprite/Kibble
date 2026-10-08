@@ -42,7 +42,8 @@ struct CalendarPollTests {
         let stop = Date(timeIntervalSince1970: TimeInterval(now + end))
         return CalendarSchedule(
             entries: [.init(
-                start: Date(timeIntervalSince1970: TimeInterval(now - 600)), end: stop, kind: .inMeeting, until: stop
+                start: Date(timeIntervalSince1970: TimeInterval(now - 600)), end: stop, kind: .inMeeting,
+                until: stop
             )],
             validUntil: Date(timeIntervalSince1970: TimeInterval(now + 43200))
         )
@@ -88,7 +89,8 @@ struct CalendarPollTests {
             == #"[[1,"1"],[[[[2,"u-1"],[2,"u-me"]],[1]]]]"#)
         #expect(request.headers.all("X-Goog-Api-Key") == ["tzliq-key"])
         let authorization = try #require(request.headers.all("Authorization").first)
-        #expect(authorization.range(of: #"^SAPISIDHASH \d+_[0-9a-f]{40}$"#, options: .regularExpression) != nil)
+        #expect(authorization
+            .range(of: #"^SAPISIDHASH \d+_[0-9a-f]{40}$"#, options: .regularExpression) != nil)
         #expect(calendars(in: events) == [ada: [meeting()], me: [meeting()]])
         await backend.disconnect()
     }
@@ -168,7 +170,8 @@ struct CalendarPollTests {
         _ = try await backend.loadConversations()
         try await awaitCalendarRequests(2, on: transport)
 
-        let bodies = await transport.calendarRequests.map { String(decoding: $0.body ?? Data(), as: UTF8.self) }
+        let bodies = await transport.calendarRequests
+            .map { String(decoding: $0.body ?? Data(), as: UTF8.self) }
         #expect(bodies.map { $0.components(separatedBy: "[2,").count - 1 } == [25, 6])
         await backend.disconnect()
     }

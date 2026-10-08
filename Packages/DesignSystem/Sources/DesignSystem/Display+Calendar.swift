@@ -31,7 +31,11 @@ public extension Display {
     }
 
     /// A one-to-one DM's other person, when the directory knows them.
-    static func dmPartner(of conversation: Conversation, directory: [Member.ID: Member], me: Member.ID?) -> Member? {
+    static func dmPartner(
+        of conversation: Conversation,
+        directory: [Member.ID: Member],
+        me: Member.ID?
+    ) -> Member? {
         guard conversation.kind == .directMessage, let me,
               let other = conversation.members.first(where: { $0 != me })
         else { return nil }

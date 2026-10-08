@@ -24,11 +24,20 @@ struct CalendarDisplayTests {
         .init(start: after(-10), end: after(50), kind: kind, until: until)
     }
 
-    private func directory(_ entry: CalendarSchedule.Entry?, status: MemberStatus? = nil) -> [Member.ID: Member] {
+    private func directory(
+        _ entry: CalendarSchedule.Entry?,
+        status: MemberStatus? = nil
+    ) -> [Member.ID: Member] {
         let schedule = entry.map { CalendarSchedule(entries: [$0], validUntil: nil) }
         return [
             ada: Member(id: ada, kind: .human, displayName: "Ada", status: status, calendar: schedule),
-            me: Member(id: me, kind: .human, displayName: "Me", status: MemberStatus(emoji: "🏠"), calendar: schedule)
+            me: Member(
+                id: me,
+                kind: .human,
+                displayName: "Me",
+                status: MemberStatus(emoji: "🏠"),
+                calendar: schedule
+            )
         ]
     }
 
@@ -76,9 +85,12 @@ struct CalendarDisplayTests {
     @Test func anotherPersonsEntryIsShownWhileConnectedOnly() {
         let shown = entry(.inMeeting, until: after(60))
         let people = directory(shown)
-        #expect(Display.calendar(of: ada, directory: people, me: me, connection: .connected, now: now) == shown)
-        #expect(Display.calendar(of: ada, directory: people, me: me, connection: .connecting, now: now) == nil)
-        #expect(Display.calendar(of: ada, directory: people, me: nil, connection: .connected, now: now) == nil)
+        #expect(Display
+            .calendar(of: ada, directory: people, me: me, connection: .connected, now: now) == shown)
+        #expect(Display
+            .calendar(of: ada, directory: people, me: me, connection: .connecting, now: now) == nil)
+        #expect(Display
+            .calendar(of: ada, directory: people, me: nil, connection: .connected, now: now) == nil)
     }
 
     /// The local user's marks are drawn only in the footer, through its own
@@ -113,8 +125,12 @@ struct CalendarDisplayTests {
 
     @Test func theHeaderReadsPresenceThenCalendarThenStatus() {
         #expect(Display.headerSubtitle(
-            presence: .inactive, calendar: "In a meeting until 15:00", status: MemberStatus(emoji: "🌴", text: "Away")
+            presence: .inactive, calendar: "In a meeting until 15:00", status: MemberStatus(
+                emoji: "🌴",
+                text: "Away"
+            )
         ) == "Away · In a meeting until 15:00 · 🌴 Away")
-        #expect(Display.headerSubtitle(presence: nil, calendar: "Busy until 15:00", status: nil) == "Busy until 15:00")
+        #expect(Display
+            .headerSubtitle(presence: nil, calendar: "Busy until 15:00", status: nil) == "Busy until 15:00")
     }
 }

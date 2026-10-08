@@ -147,11 +147,27 @@ struct ConversationRow: View {
                 // the wire (`findings.md` §37.8), so weighting on it meant no
                 // conversation was ever bold.
                 .fontWeight(showsUnread ? .semibold : .regular)
-            PersonMarks(member: Display.dmPartner(of: conversation, directory: state.directory, me: state.me)) {
+            PersonMarks(member: Display.dmPartner(
+                of: conversation,
+                directory: state.directory,
+                me: state.me
+            )) {
                 let (directory, me, connection) = (state.directory, state.me, state.connection)
                 return (
-                    Display.status(of: conversation, directory: directory, me: me, connection: connection, now: $0),
-                    Display.calendar(of: conversation, directory: directory, me: me, connection: connection, now: $0)
+                    Display.status(
+                        of: conversation,
+                        directory: directory,
+                        me: me,
+                        connection: connection,
+                        now: $0
+                    ),
+                    Display.calendar(
+                        of: conversation,
+                        directory: directory,
+                        me: me,
+                        connection: connection,
+                        now: $0
+                    )
                 )
             }
             Spacer(minLength: 4)

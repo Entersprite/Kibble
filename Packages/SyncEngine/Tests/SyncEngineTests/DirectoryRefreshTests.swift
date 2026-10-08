@@ -11,8 +11,15 @@ import Testing
 struct DirectoryRefreshTests {
     private let alice = Member.ID("people/alice")
 
+    /// A named bundle: swiftlint's `large_tuple` caps tuples at two.
+    private struct Started {
+        let model: ChatSessionModel
+        let backend: FailingBackend
+        let store: ChatStore
+    }
+
     @MainActor
-    private func started() async throws -> (ChatSessionModel, FailingBackend, ChatStore) {
+    private func started() async throws -> Started {
         let backend = FailingBackend()
         let store = try ChatStore.inMemory()
         try store.apply([.upsertMembers([Member(id: alice, kind: .human, displayName: "Alice")])])
@@ -24,12 +31,13 @@ struct DirectoryRefreshTests {
             await Task.yield()
         }
         try #require(model.directory[alice] != nil)
-        return (model, backend, store)
+        return Started(model: model, backend: backend, store: store)
     }
 
     @MainActor
     @Test func aCalendarChangeAloneReachesTheDirectory() async throws {
-        let (model, backend, store) = try await started()
+        let started = try await started()
+        let (model, backend, store) = (started.model, started.backend, started.store)
         let schedule = CalendarSchedule(entries: [], validUntil: Date(timeIntervalSince1970: 1_790_000_000))
         await backend.emit(.calendarChanged(member: alice, schedule: schedule))
         for _ in 0 ..< 500 where (try? store.members().first?.calendar) == nil {
@@ -46,7 +54,8 @@ struct DirectoryRefreshTests {
     /// Session 34's custom status rides the same path, and nothing tested it.
     @MainActor
     @Test func aStatusChangeAloneReachesTheDirectory() async throws {
-        let (model, backend, store) = try await started()
+        let started = try await started()
+        let (model, backend, store) = (started.model, started.backend, started.store)
         let status = MemberStatus(emoji: "🌴")
         await backend.emit(.statusChanged(member: alice, status: status))
         for _ in 0 ..< 500 where (try? store.members().first?.status) == nil {

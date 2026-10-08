@@ -69,7 +69,8 @@ public enum Acme {
             // fixture's start, so the demo shows both marks with no clock.
             calendar: CalendarSchedule(
                 entries: [.init(
-                    start: start, end: start.addingTimeInterval(10 * 365 * 86400), kind: .inMeeting, until: nil
+                    start: start, end: start.addingTimeInterval(10 * 365 * 86400), kind: .inMeeting,
+                    until: nil
                 )],
                 validUntil: nil
             )

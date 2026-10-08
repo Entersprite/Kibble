@@ -34,7 +34,8 @@ struct CalendarMappingTests {
     [[5,"1"],[2,"u-2"]]]]
     """#
 
-    private func entry(_ json: String, _ index: Int = 0) throws -> PeopleStackAnswer.Entry<PeopleStackCalendarStatus> {
+    private func entry(_ json: String, _ index: Int = 0) throws -> PeopleStackAnswer
+        .Entry<PeopleStackCalendarStatus> {
         try #require(PeopleStackAnswer(Data(json.utf8))?.calendar[index])
     }
 
@@ -45,11 +46,36 @@ struct CalendarMappingTests {
 
     @Test func labelledIntervalsBecomeEntriesWithTheirUntil() throws {
         #expect(try schedule(Self.day) == CalendarSchedule(entries: [
-            .init(start: time(1_800_000_600), end: time(1_800_001_200), kind: .inMeeting, until: time(1_800_003_600)),
-            .init(start: time(1_800_001_200), end: time(1_800_003_600), kind: .inMeeting, until: time(1_800_003_600)),
-            .init(start: time(1_800_007_200), end: time(1_800_010_800), kind: .focusTime, until: time(1_800_010_800)),
-            .init(start: time(1_800_010_800), end: time(1_800_014_400), kind: .busy, until: time(1_800_014_400)),
-            .init(start: time(1_800_014_400), end: time(1_800_043_200), kind: .outOfOffice, until: time(1_800_090_000))
+            .init(
+                start: time(1_800_000_600),
+                end: time(1_800_001_200),
+                kind: .inMeeting,
+                until: time(1_800_003_600)
+            ),
+            .init(
+                start: time(1_800_001_200),
+                end: time(1_800_003_600),
+                kind: .inMeeting,
+                until: time(1_800_003_600)
+            ),
+            .init(
+                start: time(1_800_007_200),
+                end: time(1_800_010_800),
+                kind: .focusTime,
+                until: time(1_800_010_800)
+            ),
+            .init(
+                start: time(1_800_010_800),
+                end: time(1_800_014_400),
+                kind: .busy,
+                until: time(1_800_014_400)
+            ),
+            .init(
+                start: time(1_800_014_400),
+                end: time(1_800_043_200),
+                kind: .outOfOffice,
+                until: time(1_800_090_000)
+            )
         ], validUntil: time(1_800_043_200)))
     }
 
@@ -67,7 +93,8 @@ struct CalendarMappingTests {
 
     /// A day with nothing labelled is an empty schedule, not "not found".
     @Test func aFreeDayIsAnEmptySchedule() throws {
-        let free = #"["1",[[[null,"1"],[2,"u-1"],[[[[["1800000000"],["1800043200"]],[null,[]]]],["1800043200"]]]]]"#
+        let free = #"["1",[[[null,"1"],[2,"u-1"],[[[[["1800000000"],["1800043200"]],"#
+            + #"[null,[]]]],["1800043200"]]]]]"#
         #expect(try schedule(free) == CalendarSchedule(entries: [], validUntil: time(1_800_043_200)))
     }
 

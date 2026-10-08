@@ -52,7 +52,11 @@ public extension Display {
     /// The DM header's subtitle: "Away · In a meeting until 15:00 · 🌴 On
     /// vacation", any part alone, or `nil` for nothing. `calendar` is already
     /// in words (`calendarSummary`).
-    static func headerSubtitle(presence: Presence?, calendar: String? = nil, status: MemberStatus?) -> String? {
+    static func headerSubtitle(
+        presence: Presence?,
+        calendar: String? = nil,
+        status: MemberStatus?
+    ) -> String? {
         let parts = [presence.flatMap(presenceLabel), calendar, status.map(statusSummary)].compactMap(\.self)
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
