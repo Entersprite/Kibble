@@ -355,7 +355,13 @@ struct SidebarFooter: View {
     /// draw an avatar or a neutral stand-in for the same gap.
     @ViewBuilder private var identity: some View {
         if let me = state.me {
-            Avatar(member: me, directory: state.directory, size: 28)
+            Avatar(
+                member: me, directory: state.directory, size: 28,
+                presence: Display.ownPresence(
+                    availability: state.availability, directory: state.directory, me: me,
+                    connection: state.connection, now: .now
+                )
+            )
         } else {
             UnknownPersonGlyph(size: 28)
         }

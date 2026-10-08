@@ -2,8 +2,8 @@ import ChatKit
 import Foundation
 
 /// Presence on screen: the other person in a one-to-one DM, and the sender
-/// beside a message - never the local user, and only while the session is
-/// live.
+/// beside a message - never the local user there - and your own on the
+/// sidebar footer's avatar (`ownPresence`). Only while the session is live.
 public extension Display {
     /// The presence worth drawing for `conversation`, or `nil` for nothing.
     ///
@@ -44,6 +44,30 @@ public extension Display {
               presenceLabel(presence) != nil
         else { return nil }
         return presence
+    }
+
+    /// The dot on your own avatar in the sidebar footer. Your setting where
+    /// it decides - Do not disturb until a time still ahead, or Away - and
+    /// otherwise what the presence poll says others see, idle included: on
+    /// Automatic, Google decides (the owner's choice). By the same rules as
+    /// everyone else's: connected, `me` known, a state this build can name.
+    static func ownPresence(
+        availability: Availability?,
+        directory: [Member.ID: Member],
+        me: Member.ID?,
+        connection: ConnectionState,
+        now: Date
+    ) -> Presence? {
+        guard connection == .connected, let me else { return nil }
+        switch availability {
+        case let .doNotDisturb(until) where until > now:
+            return .doNotDisturb
+        case .away:
+            return .inactive
+        case .doNotDisturb, .automatic, .unknown, nil:
+            guard let polled = directory[me]?.presence, presenceLabel(polled) != nil else { return nil }
+            return polled
+        }
     }
 
     /// The header's words for a presence, and the badge's accessibility label.
