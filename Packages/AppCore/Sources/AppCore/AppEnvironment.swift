@@ -68,6 +68,8 @@ public final class AppEnvironment {
     /// Applied at construction, right beside `beginSettingsSession(engine:)` in
     /// `start()`, which is the one place a model is actually built.
     var pendingActive: Bool?
+    /// Whether the Mac is in use (`AppEnvironment+DeviceActivity.swift`).
+    var deviceInUse = true
 
     /// The other two inputs to the viewing gate, beside `pendingActive`'s
     /// frontmost. Written from `AppEnvironment+Viewing.swift`; see
@@ -185,6 +187,7 @@ public final class AppEnvironment {
             // Only now: a launching "Mark as Read" submitted mid-connect is lost.
             notifications?.replayPending(for: model)
             phase = .running(model)
+            model.reportActivity(deviceInUse)
             notifications?.requestAuthorizationOnce()
 
             if services.arguments.runsDiagnostics {
