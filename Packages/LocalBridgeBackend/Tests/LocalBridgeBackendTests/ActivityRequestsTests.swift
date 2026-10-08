@@ -22,4 +22,22 @@ struct ActivityRequestsTests {
     @Test func darkLaunchIsLeftUnset() {
         #expect(!ActivityRequests.heartbeat(active: true).presenceUpdateRequest.hasDarkLaunch)
     }
+
+    /// Your setting wins (active-presence spec §3): Away, and Do not disturb
+    /// with an end ahead, report nothing active; anything else does.
+    @Test func onlyAutomaticReportsActive() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(!ActivityRequests.reportsActive(under: .away, now: now))
+        #expect(!ActivityRequests.reportsActive(
+            under: .doNotDisturb(until: now.addingTimeInterval(60)),
+            now: now
+        ))
+        #expect(ActivityRequests.reportsActive(
+            under: .doNotDisturb(until: now.addingTimeInterval(-60)),
+            now: now
+        ))
+        #expect(ActivityRequests.reportsActive(under: .automatic, now: now))
+        #expect(ActivityRequests.reportsActive(under: nil, now: now))
+        #expect(ActivityRequests.reportsActive(under: .unknown("x"), now: now))
+    }
 }

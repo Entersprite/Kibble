@@ -22,6 +22,9 @@ extension LocalBridgeBackend {
     /// `connect()` down with it.
     func resolveAndEmitSelf() async {
         guard let apiClient else { return }
+        // On every path out, once your availability is known if it can be:
+        // reporting activity starts with the session (active-presence spec §3).
+        defer { startActivityReports() }
         let response: GetSelfUserStatusResponse
         do {
             response = try await apiClient.call(.getSelfUserStatus, GetSelfUserStatusRequest())
@@ -38,7 +41,9 @@ extension LocalBridgeBackend {
         }
         emit(.selfIdentified(ChatKit.Member(id: ChatKit.Member.ID(id), kind: .human)))
         // Your availability, from the same answer (set-your-status spec §3).
-        emit(.availabilityChanged(AvailabilityMapping.availability(of: response.userStatus, now: Date())))
+        let availability = AvailabilityMapping.availability(of: response.userStatus, now: Date())
+        presencePoll.ownAvailability = availability
+        emit(.availabilityChanged(availability))
         // The account's own name. The world lists it only as a member of a
         // DM or group chat, so an account with neither showed its raw id in
         // the sidebar footer.

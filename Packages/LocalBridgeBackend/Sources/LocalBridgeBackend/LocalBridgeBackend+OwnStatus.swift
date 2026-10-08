@@ -57,6 +57,10 @@ extension LocalBridgeBackend {
         case let .unknown(raw):
             throw ChatError.unsupported(capability: raw)
         }
+        // Back on Automatic shows green now, not at the next tick.
+        if presencePoll.deviceInUse {
+            await sendActivity(active: true)
+        }
     }
 
     /// One `/api/` call, its failure named for the banner.
@@ -86,13 +90,15 @@ extension LocalBridgeBackend {
         emit(.statusChanged(member: id, status: status))
     }
 
-    /// Your availability after a set call, never your custom status.
+    /// Your availability after a set call, never your custom status: the
+    /// answer's when it carries both parts that decide it; otherwise, a
+    /// partial answer or none at all, what was just accepted. Kept for the
+    /// activity gate too (active-presence spec §3).
     private func emitAvailability(_ answer: UserStatus?, requested: Availability) {
-        guard let answer else { return }
-        emit(.availabilityChanged(AvailabilityMapping.availability(
-            answering: requested,
-            with: answer,
-            now: Date()
-        )))
+        let availability = answer.map {
+            AvailabilityMapping.availability(answering: requested, with: $0, now: Date())
+        } ?? requested
+        presencePoll.ownAvailability = availability
+        emit(.availabilityChanged(availability))
     }
 }
