@@ -20,7 +20,7 @@ extension APIProbeReport {
                 continue
             }
             threadTally(threadFieldNumbers(of: topic), into: &shapes.singleTopicFields)
-            if topic.topicReadState.threadCreatedUsec > 0 {
+            if topic.topicReadState.lastReadTime > 0 {
                 shapes.threadCreatedSingles += 1
             }
             if let only = ordered.first {
@@ -65,7 +65,7 @@ extension APIProbeReport {
         shapes.foreignTopicMessages += topic.replies.count { $0.id.parentID.topicID.topicID != topicID }
         let more = topic.hasContainsMoreUnreadReplies ? String(topic.containsMoreUnreadReplies) : "absent"
         shapes.containsMoreUnreadReplies[more, default: 0] += 1
-        if topic.topicReadState.threadCreatedUsec > 0 {
+        if topic.topicReadState.lastReadTime > 0 {
             shapes.threadCreatedThreads += 1
         }
         shapes.threadTopicIDLengths[topicID.utf8.count, default: 0] += 1
@@ -119,7 +119,7 @@ extension APIProbeReport {
                 shapes.rungTwo["missing", default: 0] += 1
                 continue
             }
-            if match.topicReadState.threadCreatedUsec > 0 {
+            if match.topicReadState.lastReadTime > 0 {
                 shapes.rungTwoMarkedAsThread += 1
             }
             let ordered = thread.replies.sorted { $0.createTime < $1.createTime }.map(\.id.messageID)

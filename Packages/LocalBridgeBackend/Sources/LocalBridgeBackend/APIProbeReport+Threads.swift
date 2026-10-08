@@ -41,8 +41,8 @@ struct ThreadShapes: Equatable {
     /// Messages whose own parent names a topic other than the one they came in.
     var foreignTopicMessages = 0
     var containsMoreUnreadReplies: [String: Int] = [:]
-    /// Topics with `topic_read_state.thread_created_usec > 0`, which is when
-    /// mautrix asks for a topic's replies.
+    /// Topics with read state 2 above 0: `last_read_time`, which mautrix reads as
+    /// `thread_created_usec` and asks for a topic's replies on (`findings.md` §63.6).
     var threadCreatedSingles = 0
     var threadCreatedThreads = 0
     var threadTopicIDLengths: [Int: Int] = [:]
@@ -62,7 +62,7 @@ struct ThreadShapes: Equatable {
     /// carries for each thread: `all`, `firstOnly`, `newestOnly`, `other`,
     /// `missing` or `failed`.
     var rungTwo: [String: Int] = [:]
-    /// Of those, topics still marked by `thread_created_usec > 0`.
+    /// Of those, topics with read state 2 (`last_read_time`) above 0.
     var rungTwoMarkedAsThread = 0
     /// Topic field 11, `TopicReadState`, by field number, counted once per topic (§64.4).
     var readStateSingleFields: [Int: Int] = [:]
@@ -82,7 +82,7 @@ struct ThreadShapes: Equatable {
     var summaryRepliers: [String: Int] = [:]
     /// Read state fields 4, 5, 10 and 11 as categories (`APIProbeReport+ThreadCounts.swift`).
     var readStateCounts = ReadStateCounts()
-    /// World field 27 (`flat_threads_enabled`), by conversation kind, over
+    /// World field 27 (`inline_threading_enabled`), by conversation kind, over
     /// every conversation.
     var flatThreads: [String: Int] = [:]
     var conversationRows: [String] = []
@@ -247,7 +247,7 @@ extension APIProbeReport {
 
     private static func flatThreadsValue(_ item: WorldItemLite?) -> String {
         guard let item else { return "unmatched" }
-        return item.hasFlatThreadsEnabled ? String(item.flatThreadsEnabled) : "absent"
+        return item.hasInlineThreadingEnabled ? String(item.inlineThreadingEnabled) : "absent"
     }
 
     private static func worldItem(
@@ -265,9 +265,9 @@ extension APIProbeReport {
             "  conversations scanned: \(shapes.conversations), failed: \(shapes.failedConversations); "
                 + "topics: \(shapes.topics), messages: \(shapes.messages)",
             "  messages per topic: \(threadNumbered(shapes.messagesPerTopic))",
-            "  world field 27 (flat_threads_enabled) by kind: \(threadNamed(shapes.flatThreads))",
+            "  world field 27 (inline_threading_enabled) by kind: \(threadNamed(shapes.flatThreads))",
             "  single-message topics named after their message: \(shapes.singleTopicIDIsMessageID) "
-                + "of \(singles); with thread_created_usec: \(shapes.threadCreatedSingles)",
+                + "of \(singles); with last_read_time: \(shapes.threadCreatedSingles)",
             "  threads (topics with 2+ messages): \(shapes.threads)"
         ]
         guard shapes.threads > 0 else {
@@ -285,12 +285,12 @@ extension APIProbeReport {
             "  replies listed: \(threadNamed(shapes.order)); messages filed under another topic: "
                 + "\(shapes.foreignTopicMessages)",
             "  contains_more_unread_replies: \(threadNamed(shapes.containsMoreUnreadReplies)); "
-                + "with thread_created_usec: \(shapes.threadCreatedThreads)",
+                + "with last_read_time: \(shapes.threadCreatedThreads)",
             "  id lengths: topic \(threadNumbered(shapes.threadTopicIDLengths)); "
                 + "first message \(threadNumbered(shapes.firstMessageIDLengths)); "
                 + "replies \(threadNumbered(shapes.replyIDLengths))",
             "  without page_size_for_replies, the same threads carry: \(threadNamed(shapes.rungTwo)); "
-                + "still with thread_created_usec: \(shapes.rungTwoMarkedAsThread)"
+                + "still with last_read_time: \(shapes.rungTwoMarkedAsThread)"
         ])
         lines.append(contentsOf: fieldLines(shapes))
         return lines

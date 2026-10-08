@@ -2,8 +2,9 @@ import Foundation
 import GChatBridgeCore
 import SwiftProtobuf
 
-/// The thread calls Chat on the web makes and no vendored proto names (`findings.md` §64), as bytes
-/// for `ProtoAPIClient.callRaw`, and the readers for what comes back. Every layout here was read
+/// The thread calls Chat on the web makes, as the bytes the probe proved (`findings.md` §64.7), for
+/// `ProtoAPIClient.callRaw`, and the readers for what comes back. `ThreadCallRequests` in the core is
+/// the typed twin, pinned to these bytes by `ThreadCallBytesTests`. Every layout here was read
 /// out of the web client's code and is `[Verify]` until a probe run sends it.
 enum ThreadRequests {
     static let metadataMethod = "get_user_topic_metadata"
@@ -115,37 +116,39 @@ enum ThreadRequests {
         ProtoFieldScan.payloads(ofField: 13, in: readState(of: topic)).first
     }
 
-    /// `TopicReadState` 2, `last_read_time` (the vendored proto's `thread_created_usec`).
+    /// `TopicReadState` 2, `last_read_time` (the vendored proto called it `thread_created_usec`).
     static func lastRead(of topic: GChatBridgeCore.Topic) -> Int64? {
-        ProtoFieldScan.varintValues(ofField: 2, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+        let state = topic.topicReadState
+        return state.hasLastReadTime ? state.lastReadTime : nil
     }
 
-    /// `TopicReadState` 14, `mark_topic_as_unread_time`, which neither proto names.
+    /// `TopicReadState` 14, `mark_topic_as_unread_time` (§64.7).
     static func markedUnread(of topic: GChatBridgeCore.Topic) -> Int64? {
-        ProtoFieldScan.varintValues(ofField: 14, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+        let state = topic.topicReadState
+        return state.hasMarkTopicAsUnreadTime ? state.markTopicAsUnreadTime : nil
     }
 
-    /// `TopicReadState` 4, purple's `unread_message_count`, undecoded until §64.9 [Verify].
+    /// `TopicReadState` 4, `unread_message_count`. What it counts is §64.9's question.
     static func unreadCount(of topic: GChatBridgeCore.Topic) -> Int64? {
-        ProtoFieldScan.varintValues(ofField: 4, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+        let state = topic.topicReadState
+        return state.hasUnreadMessageCount ? state.unreadMessageCount : nil
     }
 
-    /// `TopicReadState` 5, purple's `read_message_count`.
+    /// `TopicReadState` 5, `read_message_count`.
     static func readCount(of topic: GChatBridgeCore.Topic) -> Int64? {
-        ProtoFieldScan.varintValues(ofField: 5, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+        let state = topic.topicReadState
+        return state.hasReadMessageCount ? state.readMessageCount : nil
     }
 
-    /// `TopicReadState` 10, purple's `total_message_count`, absent on every topic of §64.7's run.
+    /// `TopicReadState` 10, `total_message_count`, absent on every topic of §64.7's run.
     static func totalCount(of topic: GChatBridgeCore.Topic) -> Int64? {
-        ProtoFieldScan.varintValues(ofField: 10, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+        let state = topic.topicReadState
+        return state.hasTotalMessageCount ? Int64(state.totalMessageCount) : nil
     }
 
-    /// `TopicReadState` 11's labels, purple's `TopicLabelId`: each one's type (its field 1), -1 when
-    /// it has none. Its field 2, a string key, is never read.
+    /// `TopicReadState` 11's labels: each one's type, -1 when it has none. The key is never read.
     static func labelTypes(of topic: GChatBridgeCore.Topic) -> [Int] {
-        ProtoFieldScan.payloads(ofField: 11, in: readState(of: topic)).map { label in
-            ProtoFieldScan.varintValues(ofField: 1, in: label).first.map { Int(clamping: $0) } ?? -1
-        }
+        topic.topicReadState.topicLabelID.map { $0.hasTopicLabelType ? Int($0.topicLabelType) : -1 }
     }
 
     /// The summary's field 2, unread replies.

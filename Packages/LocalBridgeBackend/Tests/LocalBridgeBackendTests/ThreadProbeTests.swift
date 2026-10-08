@@ -85,15 +85,15 @@ struct ThreadProbeTests {
         #expect(shapes.foreignTopicMessages == 1)
     }
 
-    /// mautrix asks for a topic's replies when `thread_created_usec > 0`
+    /// mautrix asks for a topic's replies when read state 2 (its `thread_created_usec`) is above 0
     /// (`APIMethod.listMessages`' doc comment): counted on threads and on
     /// single-message topics apart, since a thread whose replies were not
     /// requested looks like a single one.
     @Test func aThreadCreatedTimeIsCountedOnThreadsAndSinglesApart() {
         var pageWithTimes = page
-        pageWithTimes[1].topicReadState.threadCreatedUsec = 20
-        pageWithTimes[2].topicReadState.threadCreatedUsec = 30
-        pageWithTimes[3].topicReadState.threadCreatedUsec = 0
+        pageWithTimes[1].topicReadState.lastReadTime = 20
+        pageWithTimes[2].topicReadState.lastReadTime = 30
+        pageWithTimes[3].topicReadState.lastReadTime = 0
         var shapes = ThreadShapes()
         APIProbeReport.countThreadShapes(pageWithTimes, into: &shapes)
         #expect(shapes.threadCreatedSingles == 1)
@@ -184,7 +184,7 @@ struct ThreadProbeTests {
             thread("e", ["e", "e-2"]),
             thread("f", ["f-9"])
         ]
-        rungTwo[0].topicReadState.threadCreatedUsec = 1
+        rungTwo[0].topicReadState.lastReadTime = 1
         var shapes = ThreadShapes()
         APIProbeReport.countRungTwo(rungTwo, against: threads, into: &shapes)
         #expect(shapes.rungTwo == ["firstOnly": 1, "newestOnly": 1, "all": 1, "other": 1, "missing": 1])
@@ -233,9 +233,9 @@ struct ThreadProbeTests {
 
     @Test func fieldTwentySevenIsTalliedByKindAndPresence() {
         var on = WorldItemLite()
-        on.flatThreadsEnabled = true
+        on.inlineThreadingEnabled = true
         var off = WorldItemLite()
-        off.flatThreadsEnabled = false
+        off.inlineThreadingEnabled = false
         let tally = APIProbeReport.flatThreadsTally([
             (kind: .directMessage, item: on),
             (kind: .directMessage, item: on),
@@ -254,7 +254,7 @@ struct ThreadProbeTests {
             title: "secret title", isThreaded: false
         )
         var item = WorldItemLite()
-        item.flatThreadsEnabled = true
+        item.inlineThreadingEnabled = true
         let row = APIProbeReport.threadConversationRow(
             index: 4, conversation: conversation, item: item, threads: 2, topics: 50
         )
