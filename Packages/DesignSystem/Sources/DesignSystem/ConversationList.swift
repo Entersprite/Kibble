@@ -147,11 +147,12 @@ struct ConversationRow: View {
                 // the wire (`findings.md` §37.8), so weighting on it meant no
                 // conversation was ever bold.
                 .fontWeight(showsUnread ? .semibold : .regular)
-            if let status = Display.status(
-                of: conversation, directory: state.directory, me: state.me, connection: state.connection,
-                now: .now
-            ) {
-                StatusMark(status: status)
+            PersonMarks(member: Display.dmPartner(of: conversation, directory: state.directory, me: state.me)) {
+                let (directory, me, connection) = (state.directory, state.me, state.connection)
+                return (
+                    Display.status(of: conversation, directory: directory, me: me, connection: connection, now: $0),
+                    Display.calendar(of: conversation, directory: directory, me: me, connection: connection, now: $0)
+                )
             }
             Spacer(minLength: 4)
             // Google's own mute (`Conversation.isMuted`, only the fixture
@@ -324,5 +325,13 @@ struct SidebarFooter: View {
             .font(.callout)
             .lineLimit(1)
             .foregroundStyle(.primary)
+        // The one place your own marks are drawn (spec §6.2).
+        PersonMarks(member: state.me.flatMap { state.directory[$0] }) {
+            let (directory, me, connection) = (state.directory, state.me, state.connection)
+            return (
+                Display.ownStatus(directory: directory, me: me, connection: connection, now: $0),
+                Display.ownCalendar(directory: directory, me: me, connection: connection, now: $0)
+            )
+        }
     }
 }
