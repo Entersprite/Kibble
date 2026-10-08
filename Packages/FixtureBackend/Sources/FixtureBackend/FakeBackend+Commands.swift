@@ -48,7 +48,7 @@ public extension FakeBackend {
             // world load emits. One case for both, for `cyclomatic_complexity`.
             break
         case .setStatus, .setAvailability:
-            throw ChatError.unsupported(capability: "canSetStatus")
+            try applyOwnStatus(command)
         case let .unknown(type, _):
             // A command from a newer client. Naming it back is the whole
             // point: the client learns precisely what could not be honoured
@@ -189,5 +189,25 @@ extension FakeBackend {
         to reactions: inout [Reaction]
     ) {
         reactions = reactions.applying(ReactionChoice(emoji: emoji), add: add, isLocalUser: isLocalUser)
+    }
+}
+
+extension FakeBackend {
+    /// Your status and availability, applied to the world and reported back
+    /// the way the bridge reports its server's answer (set-your-status spec
+    /// §3). Availability is not kept: nothing in the world reads it.
+    func applyOwnStatus(_ command: ChatCommand) throws {
+        try require(capabilities.canSetStatus, "canSetStatus")
+        switch command {
+        case let .setStatus(status):
+            if let index = world.members.firstIndex(where: { $0.id == world.me }) {
+                world.members[index].status = status
+            }
+            emit(.statusChanged(member: world.me, status: status))
+        case let .setAvailability(availability):
+            emit(.availabilityChanged(availability))
+        default:
+            break
+        }
     }
 }

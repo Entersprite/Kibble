@@ -21,6 +21,7 @@ public extension Capabilities {
         receivesTypingState: true,
         receivesReadReceipts: true,
         canSetNotificationLevel: true,
+        canSetStatus: true,
         canMarkRead: true,
         supportsThreads: true,
         supportsHistoryCatchUp: true,

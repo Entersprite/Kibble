@@ -312,7 +312,45 @@ struct CommandTests {
     /// this asserts the *tests* saw one of each too, and the hand-written count
     /// is what fails when someone adds a case and forgets a sample.
     @Test func everyCommandCaseHasASample() {
-        #expect(CommandSamples.all.count == 8)
+        #expect(CommandSamples.all.count == 10)
         #expect(Set(CommandSamples.all.map(\.name)).count == CommandSamples.all.count)
+    }
+
+    /// The Debug app's status menu works offline (set-your-status spec §3):
+    /// your status lands in the world and comes back as an event.
+    @Test func settingYourStatusUpdatesYouAndSaysSo() async throws {
+        let (backend, collector) = try await connected()
+        let me = FixtureWorld.minimal.me
+        let status = MemberStatus(emoji: "🏠", text: "Working remotely")
+
+        try await backend.send(.setStatus(status))
+
+        #expect(await collector.nextOne() == .statusChanged(member: me, status: status))
+        #expect(await backend.world.member(me)?.status == status)
+    }
+
+    @Test func clearingYourStatusSaysSo() async throws {
+        let (backend, collector) = try await connected()
+        let me = FixtureWorld.minimal.me
+        try await backend.send(.setStatus(MemberStatus(text: "Busy")))
+        _ = await collector.nextOne()
+
+        try await backend.send(.setStatus(nil))
+
+        #expect(await collector.nextOne() == .statusChanged(member: me, status: nil))
+        #expect(await backend.world.member(me)?.status == nil)
+    }
+
+    @Test func settingYourAvailabilityComesBack() async throws {
+        let (backend, collector) = try await connected()
+        try await backend.send(.setAvailability(.away))
+        #expect(await collector.nextOne() == .availabilityChanged(.away))
+    }
+
+    @Test func withoutTheCapabilityYourStatusIsRefused() async throws {
+        let (backend, _) = try await connected(capabilities: Capabilities())
+        await #expect(throws: ChatError.unsupported(capability: "canSetStatus")) {
+            try await backend.send(.setAvailability(.away))
+        }
     }
 }
