@@ -121,6 +121,12 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// Your own availability. The answer arrives as `.availabilityChanged`.
     case setAvailability(Availability)
 
+    /// "This device is in use" (awake and unlocked) or not, so a backend can
+    /// keep the person shown as active while it is (active-presence spec §2).
+    /// A hint, like `watchPresence`: a backend that cannot honour it ignores it,
+    /// so no capability gates it.
+    case reportActivity(active: Bool)
+
     /// A command from a newer client, kept whole so that a backend can report
     /// precisely what it was asked and could not do.
     case unknown(type: String, payload: JSONValue)
@@ -148,6 +154,7 @@ extension ChatCommand {
         case mentions
         case status
         case availability
+        case active
     }
 
     enum Tag: String {
@@ -162,6 +169,7 @@ extension ChatCommand {
         case loadMembers
         case setStatus
         case setAvailability
+        case reportActivity
         case unknown
     }
 
@@ -257,6 +265,8 @@ extension ChatCommand {
             try .setStatus(container.decodeIfPresent(MemberStatus.self, forKey: .status))
         case Tag.setAvailability.rawValue:
             try .setAvailability(container.decode(Availability.self, forKey: .availability))
+        case Tag.reportActivity.rawValue:
+            try .reportActivity(active: container.decode(Bool.self, forKey: .active))
         default:
             nil
         }
@@ -348,6 +358,9 @@ extension ChatCommand {
         case let .setAvailability(availability):
             try container.encode(Tag.setAvailability.rawValue, forKey: .type)
             try container.encode(availability, forKey: .availability)
+        case let .reportActivity(active):
+            try container.encode(Tag.reportActivity.rawValue, forKey: .type)
+            try container.encode(active, forKey: .active)
         default:
             return false
         }

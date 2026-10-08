@@ -68,18 +68,18 @@ public actor ChannelSession {
     public private(set) var failure: ChannelFailure?
 
     private let continuation: AsyncStream<ChannelArray>.Continuation
-    private let transport: any HTTPTransport
-    private let requests: ChannelRequests
-    private let credentials: SessionCredentials
+    let transport: any HTTPTransport // read from +ActivityPing.swift, as are the five below
+    let requests: ChannelRequests
+    let credentials: SessionCredentials
 
-    private var state = ChannelState()
+    var state = ChannelState()
     private var pending: [QueuedEffect] = []
     private var task: Task<Void, Never>?
-    private var requestIdentifier: Int
+    var requestIdentifier: Int
     /// The reference's `self._ofs` (`channel.py:326,336`) - reset then
     /// incremented in `.sendInitialPing`, independent of `requestIdentifier`,
     /// which the ping's `RID` shares with the handshake and never resets.
-    private var streamEventOfs = 0
+    var streamEventOfs = 0
     private var generator = SystemRandomNumberGenerator()
     /// The backoff between reconnect attempts.
     ///

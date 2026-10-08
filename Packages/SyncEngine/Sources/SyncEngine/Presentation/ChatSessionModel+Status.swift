@@ -17,4 +17,12 @@ public extension ChatSessionModel {
             _ = await engine.submit(.setAvailability(availability))
         }
     }
+
+    /// Whether this device is in use (active-presence spec §5). A hint: a
+    /// backend that cannot keep you active ignores it.
+    func reportActivity(_ active: Bool) {
+        Task { [engine] in
+            _ = await engine.submit(.reportActivity(active: active))
+        }
+    }
 }

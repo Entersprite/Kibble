@@ -317,6 +317,7 @@ extension Fixture {
         Sample("command-markRead", .markRead(conversationID: spaceID, upTo: readAt)),
         Sample("command-setStatus", .setStatus(status)),
         Sample("command-setAvailability", .setAvailability(.doNotDisturb(until: readAt))),
+        Sample("command-reportActivity", .reportActivity(active: true)),
         Sample(
             "command-setNotificationLevel",
             .setNotificationLevel(conversationID: spaceID, level: .never)

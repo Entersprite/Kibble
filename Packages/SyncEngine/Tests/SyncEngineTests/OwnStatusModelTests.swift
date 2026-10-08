@@ -36,12 +36,14 @@ struct OwnStatusModelTests {
         let status = MemberStatus(emoji: "🏠", text: "Working remotely")
         model.setStatus(status)
         model.setAvailability(.away)
-        for _ in 0 ..< 500 where await backend.commands.count < 2 {
+        model.reportActivity(false)
+        for _ in 0 ..< 500 where await backend.commands.count < 3 {
             await Task.yield()
         }
         let commands = await backend.commands
         #expect(commands.contains(.setStatus(status)))
         #expect(commands.contains(.setAvailability(.away)))
+        #expect(commands.contains(.reportActivity(active: false)))
         await model.stop()
     }
 }

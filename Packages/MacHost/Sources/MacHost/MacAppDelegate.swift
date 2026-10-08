@@ -21,6 +21,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     public let updates: UpdateSettingsModel
     private let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
+    private var deviceTask: Task<Void, Never>?
     private var windowObservers: [NSObjectProtocol] = []
     /// Filters the minimise observers to the main window, which the shell's
     /// `reportsMainWindow(to:)` names.
@@ -68,6 +69,15 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         activityTask = Task {
             for await active in changes {
                 environment.setActive(active)
+            }
+        }
+
+        // Green while this Mac is in use (active-presence spec §5). In use at
+        // launch, which `AppEnvironment` already assumes, so only changes go.
+        let deviceChanges = DeviceActivityMonitor().changes
+        deviceTask = Task {
+            for await inUse in deviceChanges {
+                environment.setDeviceActive(inUse)
             }
         }
 

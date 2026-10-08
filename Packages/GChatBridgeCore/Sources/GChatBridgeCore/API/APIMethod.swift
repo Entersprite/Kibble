@@ -209,3 +209,12 @@ public extension APIMethod where Request == SetPresenceSharedRequest, Response =
         Self("set_presence_shared")
     }
 }
+
+public extension APIMethod where Request == HeartbeatRequest, Response == HeartbeatResponse {
+    /// "This person is active", or not (active-presence spec §1). purple calls
+    /// it every 120 seconds (`googlechat_connection.c:813-829`); Chat on the
+    /// web called it in a capture (`findings.md` §44). `[Verify]` from Kibble.
+    static var heartbeat: Self {
+        Self("heartbeat")
+    }
+}

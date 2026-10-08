@@ -39,6 +39,19 @@ extension LocalBridgeBackend {
         /// failing every two minutes raises one error rather than one per
         /// attempt. Reset by the next success.
         var failureReported = false
+        /// The client's last `reportActivity`. **Kept by `stopPresencePoll`**,
+        /// so the next connect resumes reporting without being told again.
+        var deviceInUse = false
+        /// The activity loop (`+Activity.swift`), stopped with the poll.
+        var activityTask: Task<Void, Never>?
+        /// The availability this backend last reported, which decides whether
+        /// activity is reported at all; learned again at connect.
+        var ownAvailability: Availability?
+        /// Whether this connect's self-identification has finished, so
+        /// `ownAvailability` is known if it can be. Reporting waits for it, or
+        /// Away would lose to the app's report racing `get_self_user_status`
+        /// (review finding 1). Reset with the poll.
+        var selfResolved = false
     }
 
     /// purple's interval (`googlechat_auth.c`, `poll_buddy_status_timeout`).
@@ -148,7 +161,8 @@ extension LocalBridgeBackend {
 
     func stopPresencePoll() {
         presencePoll.task?.cancel()
-        presencePoll = PresencePoll()
+        presencePoll.activityTask?.cancel()
+        presencePoll = PresencePoll(deviceInUse: presencePoll.deviceInUse)
     }
 
     /// One `get_user_presence` call, and a `.presenceChanged` for each person

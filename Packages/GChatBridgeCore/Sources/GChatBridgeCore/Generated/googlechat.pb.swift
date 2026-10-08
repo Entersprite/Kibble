@@ -13319,6 +13319,90 @@ public nonisolated struct ReferenceRevision: Sendable {
   fileprivate var _timestamp: Int64? = nil
 }
 
+/// From purple's googlechat.proto (3611-3626), for /api/heartbeat (active-presence spec §1).
+public nonisolated struct HeartbeatRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var requestHeader: RequestHeader {
+    get {_requestHeader ?? RequestHeader()}
+    set {_requestHeader = newValue}
+  }
+  /// Returns true if `requestHeader` has been explicitly set.
+  public var hasRequestHeader: Bool {self._requestHeader != nil}
+  /// Clears the value of `requestHeader`. Subsequent reads from it will return its default value.
+  public mutating func clearRequestHeader() {self._requestHeader = nil}
+
+  public var presenceUpdateRequest: HeartbeatRequest.PresenceUpdateRequest {
+    get {_presenceUpdateRequest ?? HeartbeatRequest.PresenceUpdateRequest()}
+    set {_presenceUpdateRequest = newValue}
+  }
+  /// Returns true if `presenceUpdateRequest` has been explicitly set.
+  public var hasPresenceUpdateRequest: Bool {self._presenceUpdateRequest != nil}
+  /// Clears the value of `presenceUpdateRequest`. Subsequent reads from it will return its default value.
+  public mutating func clearPresenceUpdateRequest() {self._presenceUpdateRequest = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated struct PresenceUpdateRequest: Sendable {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var userState: HeartbeatRequest.PresenceUpdateRequest.UserState {
+      get {_userState ?? .userPresenceStateUnspecified}
+      set {_userState = newValue}
+    }
+    /// Returns true if `userState` has been explicitly set.
+    public var hasUserState: Bool {self._userState != nil}
+    /// Clears the value of `userState`. Subsequent reads from it will return its default value.
+    public mutating func clearUserState() {self._userState = nil}
+
+    public var darkLaunch: Bool {
+      get {_darkLaunch ?? false}
+      set {_darkLaunch = newValue}
+    }
+    /// Returns true if `darkLaunch` has been explicitly set.
+    public var hasDarkLaunch: Bool {self._darkLaunch != nil}
+    /// Clears the value of `darkLaunch`. Subsequent reads from it will return its default value.
+    public mutating func clearDarkLaunch() {self._darkLaunch = nil}
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public nonisolated enum UserState: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
+      case userPresenceStateUnspecified = 0
+      case active = 1
+      case inactive = 2
+
+      public init() {
+        self = .userPresenceStateUnspecified
+      }
+
+    }
+
+    public init() {}
+
+    fileprivate var _userState: HeartbeatRequest.PresenceUpdateRequest.UserState? = nil
+    fileprivate var _darkLaunch: Bool? = nil
+  }
+
+  public init() {}
+
+  fileprivate var _requestHeader: RequestHeader? = nil
+  fileprivate var _presenceUpdateRequest: HeartbeatRequest.PresenceUpdateRequest? = nil
+}
+
+public nonisolated struct HeartbeatResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 nonisolated extension UserType: SwiftProtobuf._ProtoNameProviding {
@@ -28365,6 +28449,107 @@ nonisolated extension ReferenceRevision: SwiftProtobuf.Message, SwiftProtobuf._M
 
   public static func ==(lhs: ReferenceRevision, rhs: ReferenceRevision) -> Bool {
     if lhs._timestamp != rhs._timestamp {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension HeartbeatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "HeartbeatRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_header\0\u{3}presence_update_request\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._requestHeader) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._presenceUpdateRequest) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._requestHeader {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._presenceUpdateRequest {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: HeartbeatRequest, rhs: HeartbeatRequest) -> Bool {
+    if lhs._requestHeader != rhs._requestHeader {return false}
+    if lhs._presenceUpdateRequest != rhs._presenceUpdateRequest {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension HeartbeatRequest.PresenceUpdateRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = HeartbeatRequest.protoMessageName + ".PresenceUpdateRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_state\0\u{3}dark_launch\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self._userState) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self._darkLaunch) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._userState {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._darkLaunch {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: HeartbeatRequest.PresenceUpdateRequest, rhs: HeartbeatRequest.PresenceUpdateRequest) -> Bool {
+    if lhs._userState != rhs._userState {return false}
+    if lhs._darkLaunch != rhs._darkLaunch {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension HeartbeatRequest.PresenceUpdateRequest.UserState: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0USER_PRESENCE_STATE_UNSPECIFIED\0\u{1}ACTIVE\0\u{1}INACTIVE\0")
+}
+
+nonisolated extension HeartbeatResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "HeartbeatResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: HeartbeatResponse, rhs: HeartbeatResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

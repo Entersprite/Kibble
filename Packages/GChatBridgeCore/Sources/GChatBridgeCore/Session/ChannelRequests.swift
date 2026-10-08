@@ -121,11 +121,14 @@ public struct ChannelRequests: Sendable {
     /// encode is not. `ChannelSession.handle(_:)`'s `.sendInitialPing` arm
     /// treats `nil` as "nothing to send" and the channel continues exactly
     /// as if this ping had simply been dropped on the wire.
-    public func ping(sid: String, aid: Int, rid: Int, ofs: Int) -> HTTPRequest? {
+    ///
+    /// `active: false` is the same ping saying the person has gone: inactive,
+    /// in the background, hidden (active-presence spec §1, `[Verify]`).
+    public func ping(sid: String, aid: Int, rid: Int, ofs: Int, active: Bool = true) -> HTTPRequest? {
         var event = PingEvent()
-        event.state = .active
-        event.applicationFocusState = .focusStateForeground
-        event.clientInteractiveState = .interactive
+        event.state = active ? .active : .inactive
+        event.applicationFocusState = active ? .focusStateForeground : .focusStateBackground
+        event.clientInteractiveState = active ? .interactive : .hidden
         event.clientNotificationsEnabled = true
 
         var streamEvent = StreamEventsRequest()

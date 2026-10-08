@@ -34,6 +34,8 @@ public extension LocalBridgeBackend {
             try await markRead(conversationID, upTo: upTo)
         case let .watchPresence(members):
             watchPresence(members)
+        case let .reportActivity(active):
+            reportActivity(active)
         case let .loadMembers(conversationID):
             try await loadMembers(conversationID)
         case let .setReaction(messageID, emoji, add, conversationID, threadID, customEmoji):
@@ -205,6 +207,7 @@ public extension LocalBridgeBackend {
         case .markRead: "canMarkRead"
         case .setNotificationLevel: "canSetNotificationLevel"
         case .watchPresence: "watchPresence"
+        case .reportActivity: "reportActivity"
         case .loadMembers: "canMention"
         case .setStatus, .setAvailability: "canSetStatus"
         case let .unknown(type, _): type
