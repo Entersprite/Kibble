@@ -42,7 +42,8 @@ struct CalendarPollTests {
         let (stop, valid) = (now + end, start + window)
         let meeting = "[null,null,null,null,[null,[\"\(stop)\"],[\"\(stop)\"],[\"\(stop)\"],[\"\(stop)\"]]]"
         let found = ids.map { id in
-            #"[[null,"1"],[2,"\#(id)"],[[[[["\#(start)",123456789],["\#(stop)"]],\#(meeting)]],["\#(valid)"]]]"#
+            #"[[null,"1"],[2,"\#(id)"],[[[[["\#(start)",123456789],["\#(stop)"]],"#
+                + #"\#(meeting)]],["\#(valid)"]]]"#
         }
         let missing = notFound.map { #"[[5,"1"],[2,"\#($0)"]]"# }
         return #"["1",[\#((found + missing).joined(separator: ","))]]"#
@@ -132,7 +133,10 @@ struct CalendarPollTests {
         #expect(await transport.calendarRequests.isEmpty)
         await transport.release()
         try await awaitCalendarRequests(1, on: transport)
-        let body = await transport.calendarRequests.first.map { String(decoding: $0.body ?? Data(), as: UTF8.self) }
+        let body = await transport.calendarRequests.first.map { String(
+            decoding: $0.body ?? Data(),
+            as: UTF8.self
+        ) }
         #expect(body == #"[[1,"1"],[[[[2,"u-me"]],[1]]]]"#)
         await backend.disconnect()
     }

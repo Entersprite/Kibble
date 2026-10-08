@@ -134,7 +134,11 @@ extension LocalBridgeBackend {
     }
 
     /// The entries that can still draw, cut to `[now, horizon)`.
-    private static func drawn(_ schedule: CalendarSchedule, now: Date, horizon: Date) -> [CalendarSchedule.Entry] {
+    private static func drawn(
+        _ schedule: CalendarSchedule,
+        now: Date,
+        horizon: Date
+    ) -> [CalendarSchedule.Entry] {
         schedule.entries.filter { $0.end > now && $0.start < horizon }.map { entry in
             var entry = entry
             entry.start = max(entry.start, now)
