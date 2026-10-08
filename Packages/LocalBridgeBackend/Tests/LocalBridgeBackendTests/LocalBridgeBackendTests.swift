@@ -131,11 +131,13 @@ struct LocalBridgeBackendTests {
     /// `canEditMessages` and `canDeleteMessages` joined on the references
     /// (edit spec §1); `--probe=edit` is what settles them.
     /// `canFetchRemoteImages` joined with `RemoteImageFetch` (links spec §4.4).
+    /// `canSetStatus` joined on Chat on the web's bundle and purple
+    /// (set-your-status spec §1), before any live run.
     @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
-            canMarkRead: true, supportsThreads: true,
+            canSetStatus: true, canMarkRead: true, supportsThreads: true,
             canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
             canSendAttachments: true, canMention: true, canMentionNonMembers: true,
             canFetchRemoteImages: true

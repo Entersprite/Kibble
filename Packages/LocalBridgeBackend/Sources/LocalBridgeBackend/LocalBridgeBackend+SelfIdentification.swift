@@ -1,4 +1,5 @@
 import ChatKit
+import Foundation
 import GChatBridgeCore
 
 /// `resolveAndEmitSelf()`, split out of `LocalBridgeBackend.swift` once it
@@ -36,6 +37,8 @@ extension LocalBridgeBackend {
             return
         }
         emit(.selfIdentified(ChatKit.Member(id: ChatKit.Member.ID(id), kind: .human)))
+        // Your availability, from the same answer (set-your-status spec §3).
+        emit(.availabilityChanged(AvailabilityMapping.availability(of: response.userStatus, now: Date())))
         // The account's own name. The world lists it only as a member of a
         // DM or group chat, so an account with neither showed its raw id in
         // the sidebar footer.

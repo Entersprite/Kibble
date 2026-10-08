@@ -47,10 +47,12 @@ public extension LocalBridgeBackend {
             )
         case let .deleteMessage(id, conversationID, threadID):
             try await deleteMessage(id: id, conversationID: conversationID, threadID: threadID)
+        case .setStatus, .setAvailability:
+            try await setOwnStatus(command)
         // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
         // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
         // until someone decides whether this backend can honour it.
-        case .setTyping, .setNotificationLevel, .setStatus, .setAvailability, .unknown:
+        case .setTyping, .setNotificationLevel, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }
     }
