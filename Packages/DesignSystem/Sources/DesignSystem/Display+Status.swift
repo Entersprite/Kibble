@@ -49,10 +49,15 @@ public extension Display {
             .joined(separator: " ")
     }
 
-    /// The DM header's subtitle: "Away · 🌴 On vacation", either half alone,
-    /// or `nil` for nothing.
-    static func headerSubtitle(presence: Presence?, status: MemberStatus?) -> String? {
-        let parts = [presence.flatMap(presenceLabel), status.map(statusSummary)].compactMap(\.self)
+    /// The DM header's subtitle: "Away · In a meeting until 15:00 · 🌴 On
+    /// vacation", any part alone, or `nil` for nothing. `calendar` is already
+    /// in words (`calendarSummary`).
+    static func headerSubtitle(
+        presence: Presence?,
+        calendar: String? = nil,
+        status: MemberStatus?
+    ) -> String? {
+        let parts = [presence.flatMap(presenceLabel), calendar, status.map(statusSummary)].compactMap(\.self)
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

@@ -24,6 +24,12 @@ public struct Member: Codable, Hashable, Sendable {
     /// status that has been cleared arrives as `.statusChanged` with `nil`.
     public var status: MemberStatus?
 
+    /// The calendar ahead (`CalendarSchedule`): a claim about the near
+    /// future, `nil` for "nobody told us". Kept apart from `status` because a
+    /// different poll writes it, and two writers of one field overwrite each
+    /// other's halves.
+    public var calendar: CalendarSchedule?
+
     public init(
         id: ID,
         kind: Kind,
@@ -31,7 +37,8 @@ public struct Member: Codable, Hashable, Sendable {
         email: String? = nil,
         avatarURL: URL? = nil,
         presence: Presence? = nil,
-        status: MemberStatus? = nil
+        status: MemberStatus? = nil,
+        calendar: CalendarSchedule? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -40,6 +47,7 @@ public struct Member: Codable, Hashable, Sendable {
         self.avatarURL = avatarURL
         self.presence = presence
         self.status = status
+        self.calendar = calendar
     }
 }
 
@@ -120,6 +128,7 @@ public extension Member {
         case avatarURL
         case presence
         case status
+        case calendar
     }
 
     /// Hand-written for the same reason as `Conversation`: `id` and `kind` are
@@ -133,7 +142,8 @@ public extension Member {
             email: container.decodeIfPresent(String.self, forKey: .email),
             avatarURL: container.decodeIfPresent(URL.self, forKey: .avatarURL),
             presence: container.decodeIfPresent(Presence.self, forKey: .presence),
-            status: container.decodeIfPresent(MemberStatus.self, forKey: .status)
+            status: container.decodeIfPresent(MemberStatus.self, forKey: .status),
+            calendar: container.decodeIfPresent(CalendarSchedule.self, forKey: .calendar)
         )
     }
 
@@ -146,5 +156,6 @@ public extension Member {
         try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
         try container.encodeIfPresent(presence, forKey: .presence)
         try container.encodeIfPresent(status, forKey: .status)
+        try container.encodeIfPresent(calendar, forKey: .calendar)
     }
 }

@@ -100,6 +100,17 @@ extension LocalBridgeBackend {
         }
     }
 
+    /// `resolveUnknownMembers`, awaited: for a caller that writes to the rows
+    /// the lookup creates and must not run ahead of them (the calendar poll's
+    /// UPDATE). Someone already asked about returns at once.
+    func lookUpUnknownMembers(_ candidates: [ChatKit.Member.ID]) async {
+        guard let apiClient else { return }
+        let unknown = Set(candidates.filter { !$0.rawValue.isEmpty }).subtracting(requestedMemberIDs)
+        guard !unknown.isEmpty else { return }
+        requestedMemberIDs.formUnion(unknown)
+        await lookUpMembers(Array(unknown), using: apiClient, generation: directoryGeneration)
+    }
+
     private func lookUpMembers(
         _ ids: [ChatKit.Member.ID],
         using apiClient: ProtoAPIClient,

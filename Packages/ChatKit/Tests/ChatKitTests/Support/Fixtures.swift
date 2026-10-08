@@ -61,6 +61,23 @@ enum Fixture {
         expiresAt: readAt
     )
 
+    /// A meeting with its "until", then focus time without one: every key of
+    /// an entry, and an absent one omitted.
+    static let calendar = CalendarSchedule(
+        entries: [
+            .init(start: createdAt, end: editedAt, kind: .inMeeting, until: readAt),
+            .init(start: editedAt, end: readAt, kind: .focusTime, until: nil)
+        ],
+        validUntil: readAt
+    )
+
+    static let humanWithCalendar = Member(
+        id: humanID,
+        kind: .human,
+        displayName: "Ada Lovelace",
+        calendar: calendar
+    )
+
     /// What `get_self_user_status` actually returns: an id and a kind, never a
     /// name. Deliberately not `human` above, which carries a full profile - a
     /// `selfIdentified` sample that looked like every other member fixture
@@ -227,6 +244,7 @@ extension Fixture {
         Sample("event-membersResolved", .membersResolved([human, bot])),
         Sample("event-presenceChanged", .presenceChanged(member: botID, presence: .doNotDisturb)),
         Sample("event-statusChanged", .statusChanged(member: humanID, status: status)),
+        Sample("event-calendarChanged", .calendarChanged(member: humanID, schedule: calendar)),
         Sample("event-gap", .gap(scope: .conversation(spaceID), reason: "event buffer overflow")),
         Sample("event-backendError", .backendError(.rateLimited(retryAfter: .milliseconds(1500)))),
         Sample("event-unknown", .unknown(type: "somethingNewer", payload: unknownPayload))

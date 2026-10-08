@@ -136,6 +136,16 @@ public enum PunctualProbeReport {
         endpoints: ChatEndpoints,
         lines: inout [String]
     ) async -> String? {
+        await appHome(client: client, endpoints: endpoints, lines: &lines).key
+    }
+
+    /// `/app/home`'s key, and the page itself, which names the build's
+    /// bundle (`findings.md` §62.4). The page is never printed.
+    static func appHome(
+        client: PunctualClient,
+        endpoints: ChatEndpoints,
+        lines: inout [String]
+    ) async -> (key: String?, page: String?) {
         let request = HTTPRequest(
             url: endpoints.base.appendingPathComponent("app").appendingPathComponent("home"),
             headers: HTTPHeaders([("User-Agent", endpoints.userAgent)]),
@@ -143,13 +153,14 @@ public enum PunctualProbeReport {
         )
         do {
             let response = try await client.send(request)
-            let wiz = WizGlobalData(html: String(decoding: response.body, as: UTF8.self))
+            let page = String(decoding: response.body, as: UTF8.self)
+            let wiz = WizGlobalData(html: page)
             lines.append("app/home: status \(response.status), \(response.body.count) bytes, "
                 + (wiz.map { "\($0)" } ?? "no WIZ blob"))
-            return wiz?.punctualKey
+            return (wiz?.punctualKey, page)
         } catch {
             lines.append("app/home failed: \(APIProbeReport.safeDescription(of: error))")
-            return nil
+            return (nil, nil)
         }
     }
 

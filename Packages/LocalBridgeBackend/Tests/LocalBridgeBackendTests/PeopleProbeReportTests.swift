@@ -54,6 +54,34 @@ struct PeopleProbeReportTests {
         #expect(PeopleProbeReport.errorSummary(body) == "403 (message withheld, 34 chars)")
     }
 
+    /// Google names the consumer in some refusals. A key, an id or a project
+    /// number is redacted by length before the sentence check, longest runs
+    /// first, so a digit run inside a key cannot split it.
+    @Test func aKeyOrANumberInAnErrorMessageIsRedacted() {
+        let key = "AI" + "za" + "lowercase" + String(repeating: "k", count: 26)
+        let named = Data(#"[403,"Permission denied: Consumer 'api_key:\#(key)' has been suspended.",[]]"#
+            .utf8)
+        #expect(PeopleProbeReport.errorSummary(named)
+            == "403 Permission denied: Consumer 'api_key:<39 chars>' has been suspended.")
+        let numbers = Data(#"[404,"not found: 12345678 and 123456789012345678901"]"#.utf8)
+        #expect(PeopleProbeReport.errorSummary(numbers) == "404 not found: <8 digits> and <21 chars>")
+    }
+
+    /// Google's reason codes are the useful part of a refusal, and are
+    /// printed: uppercase words joined by underscores, nothing else.
+    @Test func anErrorsReasonCodesArePrinted() {
+        let info = #"["type.googleapis.com/google.rpc.ErrorInfo","#
+            + #"["API_KEY_HTTP_REFERRER_BLOCKED","googleapis.com"]]"#
+        let array = Data((#"[403,"Requests from referer <empty> are blocked.",["# + info + "]]").utf8)
+        #expect(PeopleProbeReport.errorSummary(array)
+            == "403 Requests from referer <empty> are blocked. (API_KEY_HTTP_REFERRER_BLOCKED)")
+        let object = Data((#"{"error":{"code":403,"message":"The caller does not have permission","#
+                + #""status":"PERMISSION_DENIED","details":[{"reason":"SERVICE_DISABLED","who":"SECRET"}]}}"#)
+            .utf8)
+        #expect(PeopleProbeReport.errorSummary(object)
+            == "403 The caller does not have permission (SERVICE_DISABLED, PERMISSION_DENIED)")
+    }
+
     // MARK: - Written as it goes
 
     /// A minimal in-memory `SecretStorage`, copied rather than shared, as

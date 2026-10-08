@@ -161,11 +161,13 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `memberResolution` and cancelled in `disconnect()` for the same reason:
     /// a session that has moved on must not have a stale identity land after
     /// it.
-    private var selfIdentification: Task<Void, Never>?
+    var selfIdentification: Task<Void, Never>?
 
     /// The presence poll's state (`LocalBridgeBackend+Presence.swift`), and
     /// how often it asks: `defaultPresencePollInterval` outside tests.
     var presencePoll = PresencePoll()
+    /// The calendar poll's state (`LocalBridgeBackend+Calendar.swift`).
+    var calendarPoll = CalendarPoll()
     /// `--probe=events`' tally (`LocalBridgeBackend+EventTally.swift`); `nil` otherwise.
     var eventTally: EventTallyFile?
     let presencePollInterval: Duration
@@ -322,7 +324,7 @@ public actor LocalBridgeBackend: ChatBackend {
         forgetReactionRefetches()
         selfIdentification?.cancel()
         selfIdentification = nil
-        stopPresencePoll()
+        stopPolls()
         await stopChannel()
         emit(.connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }

@@ -60,7 +60,9 @@ public enum PeopleRequests {
         return "\(scheme)://\(host)"
     }
 
-    private static func authUser(of endpoints: ChatEndpoints) -> String {
+    /// `X-Goog-AuthUser`: the account index, `0` without one. Shared with
+    /// `PeopleStackRequests`.
+    static func authUser(of endpoints: ChatEndpoints) -> String {
         if case let .index(index) = endpoints.account {
             return String(index)
         }

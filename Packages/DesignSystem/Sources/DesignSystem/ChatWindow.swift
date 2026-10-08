@@ -16,6 +16,10 @@ public struct ChatWindow: View {
     @State var editRequest: ComposerEditRequest?
     @State var editingMessage: Message.ID?
     @State var pendingDelete: Message?
+    /// Moved on at the selected DM partner's next boundary, so the header's
+    /// words change on time (spec §6.3). Read by `subtitle` as a floor for
+    /// `now`, which is what makes SwiftUI redraw it.
+    @State var headerClock = Date.now
 
     public init(state: ChatSceneState, actions: ChatSceneActions) {
         self.state = state
@@ -72,6 +76,7 @@ public struct ChatWindow: View {
             }
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
+            .task(id: nextHeaderRedraw) { await waitForHeaderRedraw() }
         }
         .onChange(of: state.selectedConversation?.id) {
             editRequest = nil
@@ -143,25 +148,6 @@ public struct ChatWindow: View {
         }
         guard let conversation = state.selectedConversation else { return "Kibble" }
         return Display.title(of: conversation, directory: state.directory, me: state.me)
-    }
-
-    private var subtitle: String {
-        // An empty subtitle draws nothing, which is the answer when there is
-        // no count worth showing.
-        guard !state.showingMentions, let conversation = state.selectedConversation else { return "" }
-        // A DM has no count to show, so its subtitle is the other person's
-        // presence and status - `Display` decides whether there is either.
-        if conversation.kind == .directMessage {
-            let presence = Display.presence(
-                of: conversation, directory: state.directory, me: state.me, connection: state.connection
-            )
-            let status = Display.status(
-                of: conversation, directory: state.directory, me: state.me, connection: state.connection,
-                now: .now
-            )
-            return Display.headerSubtitle(presence: presence, status: status) ?? ""
-        }
-        return Display.memberCountLabel(of: conversation) ?? ""
     }
 }
 

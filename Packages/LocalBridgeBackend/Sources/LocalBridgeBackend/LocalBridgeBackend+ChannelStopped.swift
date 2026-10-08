@@ -86,7 +86,7 @@ extension LocalBridgeBackend {
         // The same reason, and one more: `disconnect()` returns early once
         // `isConnected` is false, so nothing else would ever stop the poll,
         // and it would call Google every interval until relaunch.
-        stopPresencePoll()
+        stopPolls()
         // Fix round 1, Finding 1: `forgetDirectory()` alone bumps
         // `directoryGeneration`, which only stops a refetch from *emitting* -
         // it does not clear `phases`. Without this, a message stuck in

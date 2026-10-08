@@ -59,6 +59,8 @@ public extension LocalBridgeBackend {
             // Started, not awaited, for the same reasons. Its first request
             // waits for the name lookup above - `startPresencePoll` says why.
             startPresencePoll(using: apiClient, after: memberResolution)
+            // The same, and it also waits for the local user's own lookup.
+            startCalendarPoll(for: mapped.conversations, after: [memberResolution, selfIdentification])
             return mapped.conversations
         } catch {
             throw Self.chatError(fromAPI: error)

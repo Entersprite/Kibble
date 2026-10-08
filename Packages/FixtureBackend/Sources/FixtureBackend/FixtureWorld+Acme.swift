@@ -64,7 +64,16 @@ public enum Acme {
             email: "maya@example.invalid", presence: .active,
             // A status with an emoji, and one with text alone (Dan's), so
             // both of the sidebar's marks show in the Debug app.
-            status: MemberStatus(emoji: "🎧", text: "Heads down until 3")
+            status: MemberStatus(emoji: "🎧", text: "Heads down until 3"),
+            // In a meeting with no "until", over fixed dates from the
+            // fixture's start, so the demo shows both marks with no clock.
+            calendar: CalendarSchedule(
+                entries: [.init(
+                    start: start, end: start.addingTimeInterval(10 * 365 * 86400), kind: .inMeeting,
+                    until: nil
+                )],
+                validUntil: nil
+            )
         ),
         Member(
             id: dan, kind: .human, displayName: "Dan Reyes",

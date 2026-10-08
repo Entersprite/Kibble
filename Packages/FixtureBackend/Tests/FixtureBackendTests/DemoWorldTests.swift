@@ -12,6 +12,17 @@ struct DemoWorldTests {
         #expect(FixtureWorld.acme.inconsistencies().isEmpty)
     }
 
+    /// Maya has a custom status and a meeting, so the Debug app shows both
+    /// marks on one row. Fixed dates, no clock: the meeting covers any day the
+    /// app is likely to be run on.
+    @Test func mayaIsInAMeetingBesideHerStatus() throws {
+        let maya = try #require(FixtureWorld.acme.members.first { $0.id == Acme.maya })
+        #expect(maya.status?.emoji == "🎧")
+        let someDay = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(maya.calendar?.current(at: someDay)?.kind == .inMeeting)
+        #expect(maya.calendar?.current(at: someDay)?.until == nil)
+    }
+
     @Test func theDemoWorldHasOneOfEachKindWorthRendering() {
         let kinds = Set(FixtureWorld.acme.conversations.map(\.kind))
         #expect(kinds.contains(.directMessage))
