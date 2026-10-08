@@ -6,7 +6,21 @@ import Foundation
 struct StatusMenuModel: Equatable {
     struct DoNotDisturbChoice: Hashable {
         let title: String
-        let until: Date
+        /// `nil` is 9:00 the next morning.
+        let minutes: Double?
+
+        /// When it ends if chosen at `now`. Counted from the click, never
+        /// from when the menu was built: a menu's content is built with the
+        /// view, and the footer may not have redrawn for hours (review
+        /// finding 2).
+        func until(now: Date, calendar: Calendar) -> Date? {
+            if let minutes {
+                return now.addingTimeInterval(minutes * 60)
+            }
+            guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))
+            else { return nil }
+            return calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow)
+        }
     }
 
     private(set) var isAutomatic = false
@@ -38,7 +52,7 @@ struct StatusMenuModel: Equatable {
         case .unknown, nil:
             break
         }
-        doNotDisturbChoices = Self.choices(now: now, calendar: calendar)
+        doNotDisturbChoices = Self.choices
         statusLine = status.flatMap { current in
             guard !current.isEmpty else { return nil }
             let until = current.expiresAt.map { end in
@@ -48,21 +62,15 @@ struct StatusMenuModel: Equatable {
         }
     }
 
-    /// 30 minutes to 8 hours, and 9:00 the next morning in `calendar`.
-    private static func choices(now: Date, calendar: Calendar) -> [DoNotDisturbChoice] {
-        let spans: [(minutes: Double, title: String)] = [
-            (30, "For 30 minutes"), (60, "For 1 hour"), (120, "For 2 hours"),
-            (240, "For 4 hours"), (480, "For 8 hours")
-        ]
-        var choices = spans.map { span in
-            DoNotDisturbChoice(title: span.title, until: now.addingTimeInterval(span.minutes * 60))
-        }
-        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
-           let nine = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) {
-            choices.append(DoNotDisturbChoice(title: "Until tomorrow", until: nine))
-        }
-        return choices
-    }
+    /// 30 minutes to 8 hours, and 9:00 the next morning.
+    private static let choices = [
+        DoNotDisturbChoice(title: "For 30 minutes", minutes: 30),
+        DoNotDisturbChoice(title: "For 1 hour", minutes: 60),
+        DoNotDisturbChoice(title: "For 2 hours", minutes: 120),
+        DoNotDisturbChoice(title: "For 4 hours", minutes: 240),
+        DoNotDisturbChoice(title: "For 8 hours", minutes: 480),
+        DoNotDisturbChoice(title: "Until tomorrow", minutes: nil)
+    ]
 }
 
 extension Display {

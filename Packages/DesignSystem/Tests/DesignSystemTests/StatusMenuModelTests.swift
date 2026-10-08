@@ -56,8 +56,30 @@ struct StatusMenuModelTests {
                 "For 8 hours",
                 "Until tomorrow"
             ])
-        #expect(choices.first?.until == now.addingTimeInterval(1800))
-        #expect(choices.last?.until == Date(timeIntervalSince1970: 1_791_450_000))
+        #expect(choices.first?.until(now: now, calendar: utc) == now.addingTimeInterval(1800))
+        #expect(choices.last?.until(now: now, calendar: utc) == Date(timeIntervalSince1970: 1_791_450_000))
+    }
+
+    /// Review finding 2: the end is counted from the click, not from when
+    /// the menu was built, which can be hours earlier.
+    @Test func aDoNotDisturbEndIsCountedFromTheClick() {
+        let choices = model(.automatic).doNotDisturbChoices
+        let click = now.addingTimeInterval(12 * 3600) // Thursday 02:30 UTC
+        #expect(choices.first?.until(now: click, calendar: utc) == click.addingTimeInterval(1800))
+        #expect(choices.last?.until(now: click, calendar: utc) == Date(timeIntervalSince1970: 1_791_536_400))
+    }
+
+    /// Review finding 3: choosing a checked row still acts, so a checkmark
+    /// that is wrong (ruling 4, or a change made elsewhere) can be corrected.
+    @MainActor
+    @Test func aCheckedRowStillActsWhenChosen() {
+        let count = ActionCount()
+        let checked = MenuCheck.binding(isOn: true) { count.value += 1 }
+        checked.wrappedValue = false
+        let unchecked = MenuCheck.binding(isOn: false) { count.value += 1 }
+        unchecked.wrappedValue = true
+        #expect(checked.wrappedValue)
+        #expect(count.value == 2)
     }
 
     @Test func aStatusIsShownWithItsUntil() {
@@ -82,4 +104,9 @@ struct StatusMenuModelTests {
         #expect(Display.ownRedrawDates(for: nil, availability: .doNotDisturb(until: now), now: now).isEmpty)
         #expect(Display.ownRedrawDates(for: nil, availability: .away, now: now).isEmpty)
     }
+}
+
+@MainActor
+private final class ActionCount {
+    var value = 0
 }

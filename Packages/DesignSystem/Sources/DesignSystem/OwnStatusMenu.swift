@@ -20,14 +20,21 @@ struct OwnStatusMenu<Label: View>: View {
     var body: some View {
         let model = StatusMenuModel(availability: state.availability, status: status, now: .now)
         Menu {
-            Toggle("Automatic", isOn: choosing(model.isAutomatic) { setAvailability(.automatic) })
+            Toggle(
+                "Automatic",
+                isOn: MenuCheck.binding(isOn: model.isAutomatic) { setAvailability(.automatic) }
+            )
             // Ruling 3: a submenu cannot be checked, so its title says until when.
             Menu(model.doNotDisturbTitle) {
                 ForEach(model.doNotDisturbChoices, id: \.self) { choice in
-                    Button(choice.title) { setAvailability(.doNotDisturb(until: choice.until)) }
+                    Button(choice.title) {
+                        if let until = choice.until(now: .now, calendar: .current) {
+                            setAvailability(.doNotDisturb(until: until))
+                        }
+                    }
                 }
             }
-            Toggle("Set as away", isOn: choosing(model.isAway) { setAvailability(.away) })
+            Toggle("Set as away", isOn: MenuCheck.binding(isOn: model.isAway) { setAvailability(.away) })
             Divider()
             if let line = model.statusLine {
                 Text(line)
@@ -47,13 +54,15 @@ struct OwnStatusMenu<Label: View>: View {
             SetStatusSheet(current: status, reactions: reactions, save: setStatus)
         }
     }
+}
 
-    /// A checkmark row: checked when `isOn`; choosing it while unchecked acts.
-    private func choosing(_ isOn: Bool, _ act: @escaping () -> Void) -> Binding<Bool> {
-        Binding(get: { isOn }, set: {
-            if $0 {
-                act()
-            }
-        })
+/// A checkmark row in a menu.
+enum MenuCheck {
+    /// Checked when `isOn`, and choosing it acts whether it was checked or
+    /// not: a checkmark can be wrong (ruling 4, or a change made on another
+    /// device), and the row a person picks to correct it is the checked one
+    /// (review finding 3). Sending the same availability again is harmless.
+    static func binding(isOn: Bool, act: @escaping () -> Void) -> Binding<Bool> {
+        Binding(get: { isOn }, set: { _ in act() })
     }
 }
