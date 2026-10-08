@@ -20,6 +20,7 @@ enum Schema {
         migrator.registerMigration("v8", migrate: addMemberStatus)
         migrator.registerMigration("v9", migrate: addEmojiRecents)
         migrator.registerMigration("v10", migrate: addLinksAndCards)
+        migrator.registerMigration("v11", migrate: addMemberCalendar)
         return migrator
     }
 
@@ -67,6 +68,15 @@ enum Schema {
     private static func addMemberStatus(_ db: Database) throws {
         try db.alter(table: "member") { table in
             table.add(column: "status", .text)
+        }
+    }
+
+    /// `Member.calendar`, as JSON (meeting indicator spec §4). Nullable with
+    /// no default, as `status` is: a row from before v11 has none, and the
+    /// next poll fills it in.
+    private static func addMemberCalendar(_ db: Database) throws {
+        try db.alter(table: "member") { table in
+            table.add(column: "calendar", .text)
         }
     }
 

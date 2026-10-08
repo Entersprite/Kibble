@@ -244,6 +244,7 @@ extension Fixture {
         Sample("event-membersResolved", .membersResolved([human, bot])),
         Sample("event-presenceChanged", .presenceChanged(member: botID, presence: .doNotDisturb)),
         Sample("event-statusChanged", .statusChanged(member: humanID, status: status)),
+        Sample("event-calendarChanged", .calendarChanged(member: humanID, schedule: calendar)),
         Sample("event-gap", .gap(scope: .conversation(spaceID), reason: "event buffer overflow")),
         Sample("event-backendError", .backendError(.rateLimited(retryAfter: .milliseconds(1500)))),
         Sample("event-unknown", .unknown(type: "somethingNewer", payload: unknownPayload))

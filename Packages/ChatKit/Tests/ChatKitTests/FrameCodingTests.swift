@@ -63,6 +63,15 @@ struct FrameCodingTests {
         )
     }
 
+    /// A withdrawn schedule is the same case with its payload omitted.
+    @Test("a cleared calendar matches its golden file")
+    func clearedCalendar() throws {
+        try expectWireStable(
+            ChatEvent.calendarChanged(member: Fixture.humanID, schedule: nil),
+            golden: "event-calendarChanged-cleared"
+        )
+    }
+
     @Test("a reconnecting state carrying an issue and a detail matches its golden file")
     func reconnectingWithIssueAndDetail() throws {
         try expectWireStable(
@@ -131,6 +140,7 @@ struct FrameCodingTests {
             "membersResolved",
             "presenceChanged",
             "statusChanged",
+            "calendarChanged",
             "gap",
             "backendError",
             "somethingNewer" // the `.unknown` sample keeps its own discriminator

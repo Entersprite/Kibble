@@ -84,6 +84,8 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
     var presence: String?
     /// JSON (`MemberStatus`), or `NULL` for none.
     var status: String?
+    /// JSON (`CalendarSchedule`), or `NULL` for none.
+    var calendar: String?
 
     init(_ member: Member) throws {
         id = member.id.rawValue
@@ -93,6 +95,7 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
         avatarURL = member.avatarURL?.absoluteString
         presence = try member.presence.map(Wire.string)
         status = try member.status.map(Wire.json)
+        calendar = try member.calendar.map(Wire.json)
     }
 
     var member: Member {
@@ -106,7 +109,8 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
                 // nil and .unknown mean different things: nobody has told us,
                 // versus we were told something this build does not know.
                 presence: presence.map { try Wire.fromString(Presence.self, $0) },
-                status: status.map { try Wire.value(MemberStatus.self, from: $0) }
+                status: status.map { try Wire.value(MemberStatus.self, from: $0) },
+                calendar: calendar.map { try Wire.value(CalendarSchedule.self, from: $0) }
             )
         }
     }

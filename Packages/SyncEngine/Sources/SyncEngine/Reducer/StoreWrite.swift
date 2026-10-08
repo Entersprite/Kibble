@@ -95,6 +95,8 @@ public enum StoreWrite: Sendable, Equatable {
     case setPresence(member: Member.ID, presence: Presence)
     /// `nil` clears it. A claim about now, dropped by `clearEphemeralState`.
     case setStatus(member: Member.ID, status: MemberStatus?)
+    /// `nil` clears it. Dropped by `clearEphemeralState`, like `setStatus`.
+    case setCalendar(member: Member.ID, schedule: CalendarSchedule?)
 
     /// Who the local user is. Durable, unlike the rest of this file's session
     /// writes: an account signing in stays who it is on the next launch, so

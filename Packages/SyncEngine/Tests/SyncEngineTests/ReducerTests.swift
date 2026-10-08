@@ -189,6 +189,16 @@ struct ReducerTests {
             == [.setStatus(member: member, status: nil), .setLastError(nil)])
     }
 
+    /// Both directions, and like every member event it supersedes a stale
+    /// error (meeting indicator spec §4).
+    @Test func aCalendarChangeSetsTheSchedule() {
+        let schedule = CalendarSchedule(entries: [], validUntil: nil)
+        #expect(SyncReducer.reduce(.calendarChanged(member: member, schedule: schedule)).writes
+            == [.setCalendar(member: member, schedule: schedule), .setLastError(nil)])
+        #expect(SyncReducer.reduce(.calendarChanged(member: member, schedule: nil)).writes
+            == [.setCalendar(member: member, schedule: nil), .setLastError(nil)])
+    }
+
     @Test func presenceLandsOnTheMemberRecord() {
         #expect(SyncReducer.reduce(.presenceChanged(member: member, presence: .doNotDisturb)).writes
             == [.setPresence(member: member, presence: .doNotDisturb), .setLastError(nil)])
@@ -281,7 +291,7 @@ struct ReducerTests {
     /// derived list would start passing the moment a case was added, which is
     /// the one moment it must fail.
     @Test func everyEventCaseIsCovered() {
-        #expect(EventSamples.all.count == 17)
+        #expect(EventSamples.all.count == 18)
         for sample in EventSamples.all {
             let reduction = SyncReducer.reduce(sample.event)
             #expect(
