@@ -188,7 +188,7 @@ extension APIProbeReport {
             client: client, conversations: conversations, selfUserID: selfUserID, lines: &lines
         )
         // Threads (threads spike), over the same 20 most recent conversations.
-        await appendThreadSection(client: client, mapping: mapping, lines: &lines)
+        await appendThreadSection(client: client, mapping: mapping, group: group, lines: &lines)
         return group
     }
 

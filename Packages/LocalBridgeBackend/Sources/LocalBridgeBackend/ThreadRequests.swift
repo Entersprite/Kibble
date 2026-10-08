@@ -49,7 +49,8 @@ enum ThreadRequests {
     }
 
     /// `paginated_world` as Home's Threads chip sends it (§64.6): followed threads, no
-    /// conversations, newest first, one reply each.
+    /// conversations, newest first, one reply each. Plus `fetch_from_user_spaces` (5), which Home's
+    /// request had no need of and §64.7's empty answer lacked: Kibble's own world load sends it.
     static func followedThreads(header: RequestHeader = APIRequestHeader.make()) -> Data {
         var writer = ProbeProtoWriter()
         writer.bytes(1, bytes(of: header))
@@ -73,6 +74,7 @@ enum ThreadRequests {
         for option in followedFetchOptions {
             writer.varint(4, option)
         }
+        writer.bool(5, true)
         return writer.data
     }
 
@@ -121,6 +123,29 @@ enum ThreadRequests {
     /// `TopicReadState` 14, `mark_topic_as_unread_time`, which neither proto names.
     static func markedUnread(of topic: GChatBridgeCore.Topic) -> Int64? {
         ProtoFieldScan.varintValues(ofField: 14, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+    }
+
+    /// `TopicReadState` 4, purple's `unread_message_count`, undecoded until §64.9 [Verify].
+    static func unreadCount(of topic: GChatBridgeCore.Topic) -> Int64? {
+        ProtoFieldScan.varintValues(ofField: 4, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+    }
+
+    /// `TopicReadState` 5, purple's `read_message_count`.
+    static func readCount(of topic: GChatBridgeCore.Topic) -> Int64? {
+        ProtoFieldScan.varintValues(ofField: 5, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+    }
+
+    /// `TopicReadState` 10, purple's `total_message_count`, absent on every topic of §64.7's run.
+    static func totalCount(of topic: GChatBridgeCore.Topic) -> Int64? {
+        ProtoFieldScan.varintValues(ofField: 10, in: readState(of: topic)).first.map { Int64(bitPattern: $0) }
+    }
+
+    /// `TopicReadState` 11's labels, purple's `TopicLabelId`: each one's type (its field 1), -1 when
+    /// it has none. Its field 2, a string key, is never read.
+    static func labelTypes(of topic: GChatBridgeCore.Topic) -> [Int] {
+        ProtoFieldScan.payloads(ofField: 11, in: readState(of: topic)).map { label in
+            ProtoFieldScan.varintValues(ofField: 1, in: label).first.map { Int(clamping: $0) } ?? -1
+        }
     }
 
     /// The summary's field 2, unread replies.

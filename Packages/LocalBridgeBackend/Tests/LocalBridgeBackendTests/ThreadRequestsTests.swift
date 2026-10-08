@@ -53,10 +53,12 @@ struct ThreadRequestsTests {
         #expect(ProtoFieldScan.varintValues(ofField: 2, in: cleared) == [0])
     }
 
+    /// Home's request, plus `fetch_from_user_spaces` (5) last (`findings.md` §64.7).
     @Test func theFollowedThreadsRequestIsHomesThreadsChip() throws {
         let body = ThreadRequests.followedThreads()
-        #expect(ProtoFieldScan.fields(in: body).fields.map(\.number) == [1, 2, 4, 4, 4, 4, 4, 4])
+        #expect(ProtoFieldScan.fields(in: body).fields.map(\.number) == [1, 2, 4, 4, 4, 4, 4, 4, 5])
         #expect(ProtoFieldScan.varintValues(ofField: 4, in: body) == [4, 2, 5, 6, 7, 3])
+        #expect(ProtoFieldScan.varintValues(ofField: 5, in: body) == [1])
         let section = try #require(ProtoFieldScan.payloads(ofField: 2, in: body).first)
         #expect(ProtoFieldScan.fields(in: section).fields.map(\.number) == [1, 4, 9, 10, 11, 15])
         #expect(ProtoFieldScan.varintValues(ofField: 1, in: section) == [30])

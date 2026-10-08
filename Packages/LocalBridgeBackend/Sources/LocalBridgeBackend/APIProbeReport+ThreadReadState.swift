@@ -11,6 +11,7 @@ extension APIProbeReport {
         into shapes: inout ThreadShapes
     ) {
         let isThread = ordered.count > 1
+        shapes.readStateCounts.count(topic, ordered: ordered)
         let fields = threadFieldNumbers(in: ThreadRequests.readState(of: topic))
         if isThread {
             threadTally(fields, into: &shapes.readStateThreadFields)
@@ -71,6 +72,6 @@ extension APIProbeReport {
                 + "unread \(threadNumbered(shapes.summaryUnread)); "
                 + "mention kinds \(threadNumbered(shapes.summaryMentionKinds)); "
                 + "user ids vs senders \(threadNamed(shapes.summaryRepliers))"
-        ]
+        ] + readStateCountLines(shapes.readStateCounts)
     }
 }

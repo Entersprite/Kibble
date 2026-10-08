@@ -80,6 +80,8 @@ struct ThreadShapes: Equatable {
     /// On threads, field 4's user ids against the senders: the replies' (`replySenders`), every
     /// message's (`allSenders`), neither (`other`), or no field 4 (`absent`). Never an id.
     var summaryRepliers: [String: Int] = [:]
+    /// Read state fields 4, 5, 10 and 11 as categories (`APIProbeReport+ThreadCounts.swift`).
+    var readStateCounts = ReadStateCounts()
     /// World field 27 (`flat_threads_enabled`), by conversation kind, over
     /// every conversation.
     var flatThreads: [String: Int] = [:]
@@ -92,9 +94,11 @@ extension APIProbeReport {
     static let threadConversationLimit = 20
     static let threadRepliesPageSize: Int32 = 50
 
+    /// `group` is the probed conversation's, for the rung 4 check.
     static func appendThreadSection(
         client: ProtoAPIClient,
         mapping: (conversations: [Conversation], worldItems: [WorldItemLite]),
+        group: GroupId,
         lines: inout [String]
     ) async {
         lines.append("")
@@ -115,6 +119,8 @@ extension APIProbeReport {
             await scanThreads(index: index, mapping: mapping, client: client, into: &shapes)
         }
         lines.append(contentsOf: threadShapesLines(shapes))
+        lines.append("")
+        await appendRungFourCountCheck(client: client, group: group, lines: &lines)
         lines.append("")
         await appendThreadListMessagesCheck(client: client, target: shapes.largest, lines: &lines)
         lines.append("")
@@ -165,8 +171,8 @@ extension APIProbeReport {
         }
     }
 
-    /// `list_messages` on the largest thread found, at a page that should hold
-    /// all of it and at a page of two, to see which end a short page keeps.
+    /// `list_messages` on the largest thread found, at the page the bridge will ask for (500, the
+    /// thread limit) and at a page of two, to see which end a short page keeps.
     private static func appendThreadListMessagesCheck(
         client: ProtoAPIClient,
         target: ThreadShapes.ThreadTarget?,
@@ -178,7 +184,7 @@ extension APIProbeReport {
             return
         }
         lines.append("  list_topics carried \(target.orderedIDs.count) messages for it")
-        for pageSize: Int32 in [threadRepliesPageSize, 2] {
+        for pageSize: Int32 in [threadMessagesPageSize, 2] {
             var request = ListMessagesRequest()
             request.requestHeader = APIRequestHeader.make()
             request.parentID = target.parent
@@ -188,6 +194,11 @@ extension APIProbeReport {
                 lines.append(listMessagesLine(
                     pageSize: pageSize, response: response, ordered: target.orderedIDs
                 ))
+                if pageSize == threadMessagesPageSize {
+                    lines.append(pageAgainstListedLine(
+                        returned: response.messages.count, listed: target.orderedIDs.count
+                    ))
+                }
             } catch {
                 lines.append("  page_size \(pageSize): FAILED: \(safeDescription(of: error))")
             }

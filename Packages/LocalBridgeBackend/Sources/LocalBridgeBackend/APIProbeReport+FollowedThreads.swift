@@ -33,7 +33,8 @@ extension APIProbeReport {
     }
 
     static func appendFollowedThreadsSection(client: ProtoAPIClient, lines: inout [String]) async {
-        lines.append("followed threads (paginated_world as Home's Threads chip sends it):")
+        lines.append("followed threads (paginated_world as Home's Threads chip sends it, "
+            + "plus fetch_from_user_spaces):")
         do {
             let raw = try await client.callRaw(
                 APIMethod.paginatedWorld.name,
