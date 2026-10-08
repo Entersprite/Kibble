@@ -88,6 +88,17 @@ struct OwnStatusTests {
     private static let cookies = SessionCookies(header: "SID=a; COMPASS=b; OSID=c")!
     private let me = ChatKit.Member.ID("u-me")
 
+    /// Your status and availability events only: the channel, which this
+    /// transport never opens, keeps reporting its reconnects in between.
+    private func own(_ events: [ChatEvent]) -> [ChatEvent] {
+        events.filter { event in
+            switch event {
+            case .statusChanged, .availabilityChanged: true
+            default: false
+            }
+        }
+    }
+
     private func requests(_ transport: StatusTransport, _ call: String) async -> [HTTPRequest] {
         await transport.sent.filter { $0.url.path.contains("/api/\(call)") }
     }
@@ -138,8 +149,65 @@ struct OwnStatusTests {
         let request = try #require(await requests(transport, "set_custom_status").first)
         let decoded = try SetCustomStatusRequest(serializedBytes: request.body ?? Data())
         #expect(decoded.customStatus.statusText == "Working remotely")
-        #expect(events.contains(.statusChanged(member: me, status: status)))
-        #expect(events.contains(.availabilityChanged(.automatic)))
+        #expect(own(events) == [.statusChanged(member: me, status: status)])
+        #expect(await backend.presencePoll.statuses[me] == status)
+    }
+
+    /// Review finding 1: an answer that leaves out your custom status says
+    /// nothing about it, so the status just accepted is shown, and the poll
+    /// remembers it, or a poll agreeing with the old value would never
+    /// correct it. Your availability is not touched.
+    @Test func aStatusAnswerWithoutTheStatusShowsWhatWasSet() async throws {
+        let (backend, log) = try await connected(StatusTransport())
+        let mark = await log.events.count
+        let status = MemberStatus(emoji: "🏠", text: "Working remotely")
+
+        try await backend.send(.setStatus(status))
+
+        #expect(await own(log.settle(since: mark)) == [.statusChanged(member: me, status: status)])
+        #expect(await backend.presencePoll.statuses[me] == status)
+    }
+
+    @Test func clearingIsShownAndForgotten() async throws {
+        let (backend, log) = try await connected(StatusTransport())
+        try await backend.send(.setStatus(MemberStatus(text: "Busy")))
+        let mark = await log.settle().count
+
+        try await backend.send(.setStatus(nil))
+
+        #expect(await own(log.settle(since: mark)) == [.statusChanged(member: me, status: nil)])
+        #expect(await backend.presencePoll.statuses[me] == nil)
+    }
+
+    /// Review finding 1: answers that carry neither Do not disturb nor
+    /// presence sharing show what was asked for, once per call, and never
+    /// touch your custom status.
+    @Test func awayIsShownAndYourStatusIsLeftAlone() async throws {
+        let (backend, log) = try await connected(StatusTransport())
+        let mark = await log.events.count
+
+        try await backend.send(.setAvailability(.away))
+
+        #expect(await own(log.settle(since: mark)) == [
+            .availabilityChanged(.away),
+            .availabilityChanged(.away)
+        ])
+    }
+
+    /// An answer that carries both parts is believed over the request.
+    @Test func anAnswerThatSaysBothPartsIsBelieved() async throws {
+        let serverEnd = Date(timeIntervalSince1970: 1_900_000_060)
+        var answer = UserStatus()
+        answer.dndSettings.dndState = .dnd
+        answer.dndSettings.dndExpiryTimeUsec = 1_900_000_060_000_000
+        answer.presenceShared = true
+        let (backend, log) = try await connected(StatusTransport(answer: answer))
+        let mark = await log.events.count
+
+        try await backend
+            .send(.setAvailability(.doNotDisturb(until: Date(timeIntervalSince1970: 1_900_000_000))))
+
+        #expect(await own(log.settle(since: mark)) == [.availabilityChanged(.doNotDisturb(until: serverEnd))])
     }
 
     /// Away: presence not shared, then Do not disturb off, in that order.

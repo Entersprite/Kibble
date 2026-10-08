@@ -17,6 +17,18 @@ enum AvailabilityMapping {
         return .automatic
     }
 
+    /// After a set call: the answer's availability when it carries both
+    /// parts that decide it, Do not disturb and presence sharing; otherwise
+    /// `requested`, which the server has just accepted (review finding 1).
+    static func availability(
+        answering requested: Availability,
+        with status: UserStatus,
+        now: Date
+    ) -> Availability {
+        let decides = status.hasDndSettings && status.dndSettings.hasDndState && status.hasPresenceShared
+        return decides ? availability(of: status, now: now) : requested
+    }
+
     private static func doNotDisturbEnd(_ dnd: DndSettings, now: Date) -> Date? {
         guard dnd.hasDndState, dnd.dndState == .dnd else { return nil }
         if dnd.hasDndExpiryTimeUsec, dnd.dndExpiryTimeUsec > 0 {
@@ -55,6 +67,13 @@ enum OwnStatusRequests {
             request.customStatusExpiryTimestampUsec = microseconds(expiresAt)
         }
         return request
+    }
+
+    /// What `setCustomStatus(_:)` sends, as a status: Unicode emoji and text
+    /// with the end, never a shortcode; `nil` for a clear.
+    static func sent(_ status: MemberStatus?) -> MemberStatus? {
+        guard let status, status.emoji != nil || status.text != nil else { return nil }
+        return MemberStatus(emoji: status.emoji, text: status.text, expiresAt: status.expiresAt)
     }
 
     static func setPresenceShared(_ shared: Bool) -> SetPresenceSharedRequest {
