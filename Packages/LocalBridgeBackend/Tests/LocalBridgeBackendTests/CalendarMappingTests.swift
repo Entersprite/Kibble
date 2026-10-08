@@ -57,6 +57,14 @@ struct CalendarMappingTests {
         #expect(try schedule(Self.day, 1) == nil)
     }
 
+    /// An entry the server marks other than ok draws nothing, even if it
+    /// carries a day: the status decides, not the payload's presence.
+    @Test func aNotFoundEntryWithADayIsStillNoSchedule() throws {
+        let marked = #"["1",[[[5,"1"],[2,"u-1"],[[[[["1800000000"],["1800003600"]],"#
+            + #"[null,null,null,null,[null,null,null,null,["1800003600"]]]]],["1800043200"]]]]]"#
+        #expect(try schedule(marked) == nil)
+    }
+
     /// A day with nothing labelled is an empty schedule, not "not found".
     @Test func aFreeDayIsAnEmptySchedule() throws {
         let free = #"["1",[[[null,"1"],[2,"u-1"],[[[[["1800000000"],["1800043200"]],[null,[]]]],["1800043200"]]]]]"#
