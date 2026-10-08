@@ -310,13 +310,24 @@ struct SidebarFooter: View {
             // No `Divider()` and no tinted background: both existed to fake a
             // separation `safeAreaBar` now provides, and keeping them would
             // draw it twice.
-            // Redrawn at your own boundaries, like a DM row (spec §6.3).
-            TimelineView(.explicit(Display.redrawDates(
+            // Redrawn at your own boundaries, like a DM row (spec §6.3), and when Do not disturb ends.
+            TimelineView(.explicit(Display.ownRedrawDates(
                 for: state.me.flatMap { state.directory[$0] },
+                availability: state.availability,
                 now: .now
             ))) { _ in
                 HStack(spacing: 10) {
-                    identity
+                    if state.capabilities.canSetStatus, let setStatus = actions.setStatus,
+                       let setAvailability = actions.setAvailability {
+                        OwnStatusMenu(
+                            state: state, setStatus: setStatus, setAvailability: setAvailability,
+                            reactions: actions.reactions
+                        ) {
+                            HStack(spacing: 10) { identity }
+                        }
+                    } else {
+                        identity
+                    }
                     Spacer(minLength: 8)
                     ownMarks
                     // Icon-only, but built from a `Label` rather than a bare
