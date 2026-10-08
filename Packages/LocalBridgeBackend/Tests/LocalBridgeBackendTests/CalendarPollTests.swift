@@ -26,26 +26,37 @@ struct CalendarPollTests {
         return backend
     }
 
-    /// A meeting from 10 minutes ago to `end` seconds from now, for each id;
-    /// "not found" for each id in `notFound`.
-    private func answer(_ ids: [String], end: Int = 3600, notFound: [String] = []) -> String {
-        let (start, stop, valid) = (now - 600, now + end, now + 43200)
+    /// Each id in a meeting until `end` seconds from now, answered the way the
+    /// server does (§62.10): the first interval starts at the server's clock,
+    /// nanoseconds included, and `validUntil` is that clock plus `window`.
+    /// A later poll is a later `serverNow`; every one is in the past, so no
+    /// start is near enough to the poll's arrival to be moved.
+    private func answer(
+        _ ids: [String],
+        serverNow: Int? = nil,
+        end: Int = 3600,
+        window: Int = 43200,
+        notFound: [String] = []
+    ) -> String {
+        let start = serverNow ?? now - 600
+        let (stop, valid) = (now + end, start + window)
         let meeting = "[null,null,null,null,[null,[\"\(stop)\"],[\"\(stop)\"],[\"\(stop)\"],[\"\(stop)\"]]]"
         let found = ids.map { id in
-            #"[[null,"1"],[2,"\#(id)"],[[[[["\#(start)"],["\#(stop)"]],\#(meeting)]],["\#(valid)"]]]"#
+            #"[[null,"1"],[2,"\#(id)"],[[[[["\#(start)",123456789],["\#(stop)"]],\#(meeting)]],["\#(valid)"]]]"#
         }
         let missing = notFound.map { #"[[5,"1"],[2,"\#($0)"]]"# }
         return #"["1",[\#((found + missing).joined(separator: ","))]]"#
     }
 
-    private func meeting(end: Int = 3600) -> CalendarSchedule {
+    private func meeting(serverNow: Int? = nil, end: Int = 3600, window: Int = 43200) -> CalendarSchedule {
+        let start = serverNow ?? now - 600
         let stop = Date(timeIntervalSince1970: TimeInterval(now + end))
         return CalendarSchedule(
             entries: [.init(
-                start: Date(timeIntervalSince1970: TimeInterval(now - 600)), end: stop, kind: .inMeeting,
-                until: stop
+                start: Date(timeIntervalSince1970: TimeInterval(start) + 123_456_789 / 1_000_000_000),
+                end: stop, kind: .inMeeting, until: stop
             )],
-            validUntil: Date(timeIntervalSince1970: TimeInterval(now + 43200))
+            validUntil: Date(timeIntervalSince1970: TimeInterval(start + window))
         )
     }
 
@@ -126,10 +137,15 @@ struct CalendarPollTests {
         await backend.disconnect()
     }
 
-    /// A poll that learns nothing new emits nothing; a change emits once.
-    @Test func onlyChangesAreEmitted() async throws {
+    /// Every answer moves its first start and `validUntil` with the server's
+    /// clock, so only what draws counts as a change: the same meeting answered
+    /// later emits nothing, a meeting that now ends later emits once (review
+    /// finding 1; a frozen clock here once hid that every poll emitted).
+    @Test func onlyWhatDrawsChangedIsEmitted() async throws {
         let transport = CalendarTransport(answers: [
-            .json(answer(["u-1"])), .json(answer(["u-1"])), .json(answer(["u-1"], end: 7200))
+            .json(answer(["u-1"], serverNow: now - 1800)),
+            .json(answer(["u-1"], serverNow: now - 1200)),
+            .json(answer(["u-1"], serverNow: now - 600, end: 7200))
         ])
         let backend = await backend(transport, interval: .milliseconds(20))
         let log = SenderEventLog(backend)
@@ -139,7 +155,47 @@ struct CalendarPollTests {
         try await awaitCalendarRequests(4, on: transport)
         let events = await log.settle()
 
-        #expect(calendars(in: events)[ada] == [meeting(), meeting(end: 7200)])
+        #expect(calendars(in: events)[ada]
+            == [meeting(serverNow: now - 1800), meeting(serverNow: now - 600, end: 7200)])
+        await backend.disconnect()
+    }
+
+    /// A day that has not changed is sent again when the stored answer's
+    /// window is about to run out, so it is not cut off at `validUntil`.
+    @Test func aScheduleIsSentAgainBeforeItsWindowRunsOut() async throws {
+        let transport = CalendarTransport(answers: [
+            .json(answer(["u-1"], serverNow: now - 1800, window: 3600)),
+            .json(answer(["u-1"], serverNow: now - 1200)),
+            .json(answer(["u-1"], serverNow: now - 1200))
+        ])
+        let backend = await backend(transport, interval: .milliseconds(20))
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+
+        _ = try await backend.loadConversations()
+        try await awaitCalendarRequests(4, on: transport)
+        let events = await log.settle()
+
+        #expect(calendars(in: events)[ada]
+            == [meeting(serverNow: now - 1800, window: 3600), meeting(serverNow: now - 1200)])
+        await backend.disconnect()
+    }
+
+    /// A world load sends everyone's schedule again once, so a write dropped
+    /// because the person had no row yet is healed by the next load.
+    @Test func aWorldReloadSendsEveryScheduleAgain() async throws {
+        let transport = CalendarTransport(answers: [.json(answer(["u-1"]))])
+        let backend = await backend(transport)
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+
+        _ = try await backend.loadConversations()
+        try await awaitCalendarRequests(1, on: transport)
+        _ = try await backend.loadConversations()
+        try await awaitCalendarRequests(2, on: transport)
+        let events = await log.settle()
+
+        #expect(calendars(in: events)[ada] == [meeting(), meeting()])
         await backend.disconnect()
     }
 

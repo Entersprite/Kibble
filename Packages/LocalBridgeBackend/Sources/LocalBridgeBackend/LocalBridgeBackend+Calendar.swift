@@ -37,6 +37,10 @@ extension LocalBridgeBackend {
     /// `[Verify]`.
     static let calendarBatchSize = 25
 
+    /// A stored schedule is sent again this long before its `validUntil`, so
+    /// a day that has not changed is not cut off when the window runs out.
+    static let calendarRefreshMargin: TimeInterval = 2 * 3600
+
     /// Tests only.
     func setCalendarPollInterval(_ interval: Duration) {
         calendarPoll.interval = interval
@@ -53,6 +57,9 @@ extension LocalBridgeBackend {
     func startCalendarPoll(for conversations: [Conversation], after lookups: [Task<Void, Never>?]) {
         calendarPoll.task?.cancel()
         calendarPoll.people = Self.calendarTargets(from: conversations)
+        // Everyone is sent once more: a write dropped because the person had
+        // no row yet (a failed lookup) is healed by the next world load.
+        calendarPoll.emitted = [:]
         let generation = directoryGeneration
         calendarPoll.task = Task { [weak self] in
             for lookup in lookups {
@@ -100,11 +107,40 @@ extension LocalBridgeBackend {
             answered.merge(schedules) { _, new in new }
         }
         calendarPoll.failureReported = false
+        let now = Date()
         for id in people {
             let next = answered[id]
-            guard next != calendarPoll.emitted[id] else { continue }
+            guard !Self.drawsTheSame(calendarPoll.emitted[id], next, now: now) else { continue }
             calendarPoll.emitted[id] = next
             emit(.calendarChanged(member: id, schedule: next))
+        }
+    }
+
+    /// Whether `next` draws the same as `emitted` from `now` on.
+    ///
+    /// Every answer moves its first start and its `validUntil` with the
+    /// server's clock (§62.10), so comparing values emitted for everyone on
+    /// every poll (whole-branch review, finding 1). What draws is each entry's
+    /// kind, end and "until", and a start still ahead, up to the horizon both
+    /// answers cover. A stored schedule near its own `validUntil` never draws
+    /// the same, so it is renewed before it runs out.
+    static func drawsTheSame(_ emitted: CalendarSchedule?, _ next: CalendarSchedule?, now: Date) -> Bool {
+        guard let emitted, let next else { return emitted == nil && next == nil }
+        if let end = emitted.validUntil, end.timeIntervalSince(now) < calendarRefreshMargin {
+            return false
+        }
+        let horizon = min(emitted.validUntil ?? .distantFuture, next.validUntil ?? .distantFuture)
+        return drawn(emitted, now: now, horizon: horizon) == drawn(next, now: now, horizon: horizon)
+    }
+
+    /// The entries that can still draw, cut to `[now, horizon)`.
+    private static func drawn(_ schedule: CalendarSchedule, now: Date, horizon: Date) -> [CalendarSchedule.Entry] {
+        schedule.entries.filter { $0.end > now && $0.start < horizon }.map { entry in
+            var entry = entry
+            entry.start = max(entry.start, now)
+            entry.end = min(entry.end, horizon)
+            entry.until = entry.until.map { min($0, horizon) }
+            return entry
         }
     }
 
