@@ -59,6 +59,56 @@ struct ThreadAutoMarkReadTests {
         await harness.model.stop()
     }
 
+    /// The server's read position for the fixture thread.
+    private func read(upTo position: Date) -> StoreWrite {
+        .applyThreadChange(
+            thread: ThreadFixture.thread, conversation: ThreadFixture.conversation,
+            change: .read(upTo: position)
+        )
+    }
+
+    /// Already read on the server: Chat on the web skips the call when the
+    /// newest message is not later than the read time it holds (`findings.md`
+    /// §64.2), and so does the panel (session 58). Equality is read (§42.2).
+    @Test func aThreadTheServerHasReadIsNotMarkedAgain() async throws {
+        let harness = try await makeThreadHarness()
+        try openStoredThread(messages, with: [read(upTo: newest)], in: harness)
+        // The positive control: the panel holds the thread, so only the
+        // stored position can keep the mark out.
+        await settleAutoMarkRead(until: "the panel holds the thread") {
+            harness.model.threads.messages.count == messages.count
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await threadCommands(from: harness.backend).isEmpty)
+        // The watermark holds the server's position, so the next trigger
+        // stops at it instead of waiting and reading the store again.
+        #expect(harness.model.threads.work.published[ThreadFixture.key] == newest)
+        let newer = ThreadFixture.messages(replies: 3)[3]
+        try harness.store.apply([.upsertMessage(newer)])
+        await sent(harness.backend, count: 1)
+        #expect(await threadCommands(from: harness.backend) == [ThreadFixture.read(upTo: newer.createdAt)])
+        await harness.model.stop()
+    }
+
+    @Test func aThreadReadShortOfItsNewestReplyIsMarked() async throws {
+        let harness = try await makeThreadHarness()
+        try openStoredThread(messages, with: [read(upTo: messages[1].createdAt)], in: harness)
+        await sent(harness.backend, count: 1)
+        #expect(await threadCommands(from: harness.backend) == [ThreadFixture.read(upTo: newest)])
+        await harness.model.stop()
+    }
+
+    /// A Mark as Unread is cleared whatever the position says.
+    @Test func aThreadMarkedUnreadIsMarkedThoughItsPositionCoversIt() async throws {
+        let harness = try await makeThreadHarness()
+        try openStoredThread(messages, with: [read(upTo: newest), markedUnread], in: harness)
+        await sent(harness.backend, count: 2)
+        #expect(await threadCommands(from: harness.backend) == [
+            ThreadFixture.unreadMark(at: nil), ThreadFixture.read(upTo: newest)
+        ])
+        await harness.model.stop()
+    }
+
     /// "Reply in Thread" on a plain message opens a panel with nothing to mark.
     @Test func aThreadWithNoRepliesIsNotMarkedUntilOneArrives() async throws {
         let harness = try await makeThreadHarness()
