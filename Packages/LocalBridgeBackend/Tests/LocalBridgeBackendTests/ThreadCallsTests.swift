@@ -124,6 +124,56 @@ struct ThreadCallsTests {
         #expect(await log.threadChanges().isEmpty)
     }
 
+    /// Asked together: both calls are in flight at once, so opening a thread
+    /// costs one round trip, not two (session 58). Both are held, so no
+    /// sequential order, either way round, can have both sent.
+    @Test func theFollowStateIsAskedWhileThePageLoads() async throws {
+        let (backend, transport) = try await connected(
+            [:], holding: ["list_messages", "get_user_topic_metadata"]
+        )
+        let log = ThreadEventLog(backend)
+        let load = Task { try await backend.loadThread(thread, in: conversation) }
+        var both = false
+        for _ in 0 ..< 400 {
+            let page = await transport.bodies(of: "list_messages").count
+            let metadata = await transport.bodies(of: "get_user_topic_metadata").count
+            if page == 1, metadata == 1 {
+                both = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(both)
+        await transport.answer("get_user_topic_metadata", with: metadata(muted: false))
+        try await transport.answer("list_messages", with: listMessages(["t-1", "r-1"]))
+        let page = try await load.value
+        #expect(page.count == 2)
+        let followed = await log.first {
+            if case .threadChanged(_, _, .followed) = $0 {
+                true
+            } else {
+                false
+            }
+        }
+        #expect(followed == .threadChanged(
+            threadID: thread,
+            conversationID: conversation,
+            change: .followed(true)
+        ))
+    }
+
+    /// A refused page throws, and says nothing about following, as before the
+    /// two calls went out together.
+    @Test func aRefusedPageSaysNothingAboutFollowing() async throws {
+        let (backend, _) = try await connected(["get_user_topic_metadata": metadata(muted: false)])
+        let log = ThreadEventLog(backend)
+        await #expect(throws: (any Error).self) {
+            _ = try await backend.loadThread(thread, in: conversation)
+        }
+        try await Task.sleep(for: .milliseconds(100)) // asserting that nothing happens
+        #expect(await log.threadChanges().isEmpty)
+    }
+
     // MARK: - Follow
 
     @Test func followingSendsMuteFalseAndSaysSoOnceAccepted() async throws {
