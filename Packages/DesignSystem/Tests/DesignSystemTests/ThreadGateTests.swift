@@ -79,16 +79,14 @@ struct ThreadGateTests {
     }
 
     /// The split draws the conversation's title only where it knows where to
-    /// put it (session 63): beside a presented panel, in the toolbar's band,
-    /// with the sidebar shown. Without the band the title would sit over the
-    /// transcript under the status strip; collapsed, AppKit's title starts
-    /// past the window's buttons. Whether the hand-over is invisible is a
-    /// render's question; this pins only when it happens.
-    @Test func theSplitDrawsTheTitleOnlyBesideAPanelInTheBandWithTheSidebarShown() {
-        #expect(split(space, panel: true).ownsTitle(band: 52))
-        #expect(!split(space, panel: true).ownsTitle(band: 0))
-        #expect(!split(space, panel: false).ownsTitle(band: 52))
-        #expect(!split(meet, panel: true).ownsTitle(band: 52))
-        #expect(!split(space, panel: true, sidebarShown: false).ownsTitle(band: 52))
+    /// put it (session 63): beside a presented panel, with the sidebar shown.
+    /// Collapsed, AppKit's title starts past the window's buttons. Whether
+    /// the hand-over is invisible is a render's question; this pins only when
+    /// it happens.
+    @Test func theSplitDrawsTheTitleOnlyBesideAPanelWithTheSidebarShown() {
+        #expect(split(space, panel: true).ownsTitle)
+        #expect(!split(space, panel: false).ownsTitle)
+        #expect(!split(meet, panel: true).ownsTitle)
+        #expect(!split(space, panel: true, sidebarShown: false).ownsTitle)
     }
 }
