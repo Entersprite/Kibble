@@ -54,7 +54,7 @@ enum ThreadEditRouting {
 /// The thread on the right (threads spec §5.2): the first message and its
 /// replies drawn by the transcript's own bubble, and a composer of its own.
 /// Its title sits in the window toolbar's band, as the conversation's does,
-/// and its Follow and Close are toolbar items (`ThreadPanelButtons`).
+/// and its Follow and Close are toolbar items (`ThreadFollowButton`).
 struct ThreadPanel: View {
     let panel: ThreadPanelState
     let state: ChatSceneState
@@ -78,10 +78,13 @@ struct ThreadPanel: View {
                 ColumnTitle(title: "Thread", subtitle: panel.conversationTitle)
                     .padding(.leading, ColumnTitle.inset)
                     // In the band, clear of Follow and Close above it.
-                    .padding(.trailing, band > 0 ? ThreadPanelButtons.reserve : ColumnTitle.inset)
+                    .padding(.trailing, band > 0 ? ThreadFollowButton.reserve : ColumnTitle.inset)
                     .padding(.vertical, band > 0 ? 0 : 8)
                     .frame(maxWidth: .infinity, minHeight: band, alignment: .leading)
             }
+            // Soft, as the toolbar's own: a bar's automatic style here is the
+            // hard one, a nearly opaque band (session 63, the owner's eyes).
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 composer
                     .background(alignment: .bottom) { ComposerScrim() }
@@ -125,39 +128,31 @@ struct ThreadPanel: View {
     }
 }
 
-/// Follow and Close, as a toolbar item at the window's trailing edge, which
-/// is always over the panel. **At its own size:** an item sized to the
-/// panel was not laid out again when the panel's width changed (past the
-/// window's edge after one resize, gone after the next), and a flexible one
-/// was held at its minimum (session 63).
-struct ThreadPanelButtons: View {
+/// Follow, as a toolbar item at the window's trailing edge, which is always
+/// over the panel. **Each item at its own size:** an item sized to the panel
+/// was not laid out again when the panel's width changed (past the window's
+/// edge after one resize, gone after the next), and a flexible one was held
+/// at its minimum (session 63). Close is its own item, apart from this one
+/// (`ThreadSplit`), as the composer's buttons are.
+struct ThreadFollowButton: View {
     let panel: ThreadPanelState
     let threads: ThreadActions
 
-    /// How far the panel's title keeps from the window's trailing edge: the
-    /// item at its widest ("Following", 142 pt), the toolbar's 8-pt margin,
-    /// and 8 pt between (measured, session 63).
+    /// How far the panel's title keeps from the window's trailing edge: both
+    /// items at their widest ("Following"), the space between them, the
+    /// toolbar's margin, and 8 pt (measured, session 63).
     static let reserve: CGFloat = 158
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button {
-                threads.setFollowed(!isFollowed)
-            } label: {
-                Label(ThreadsPresentation.followTitle(isFollowed: isFollowed), systemImage: followSymbol)
-                    // A toolbar draws icons alone, and a bare + reads as "new".
-                    .labelStyle(.titleAndIcon)
-            }
-            // The toggle changes only once the server agreed (spec §3).
-            .disabled(panel.followPending)
-            Button {
-                threads.close()
-            } label: {
-                Label("Close Thread", systemImage: ThreadsPresentation.closeSymbol)
-                    .labelStyle(.iconOnly)
-            }
-            .help("Close Thread")
+        Button {
+            threads.setFollowed(!isFollowed)
+        } label: {
+            Label(ThreadsPresentation.followTitle(isFollowed: isFollowed), systemImage: followSymbol)
+                // A toolbar draws icons alone, and a bare + reads as "new".
+                .labelStyle(.titleAndIcon)
         }
+        // The toggle changes only once the server agreed (spec §3).
+        .disabled(panel.followPending)
     }
 
     private var isFollowed: Bool {
@@ -166,6 +161,20 @@ struct ThreadPanelButtons: View {
 
     private var followSymbol: String {
         isFollowed ? ThreadsPresentation.followingSymbol : ThreadsPresentation.followSymbol
+    }
+}
+
+struct ThreadCloseButton: View {
+    let threads: ThreadActions
+
+    var body: some View {
+        Button {
+            threads.close()
+        } label: {
+            Label("Close Thread", systemImage: ThreadsPresentation.closeSymbol)
+                .labelStyle(.iconOnly)
+        }
+        .help("Close Thread")
     }
 }
 

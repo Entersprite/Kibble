@@ -83,20 +83,27 @@ struct ThreadSplit: ViewModifier {
         GeometryReader { proxy in
             let layout = ThreadSplitLayout(total: proxy.size.width, share: share)
             let band = proxy.safeAreaInsets.top
+            let ownsTitle = ownsTitle(band: band)
             HStack(spacing: 0) {
+                // A bar, as the panel's title is, raised into the band. Text
+                // laid over the transcript instead had the messages scroll
+                // through it, unblurred: the toolbar's blur went with AppKit's
+                // title (session 63, the owner's screenshot). Always applied,
+                // with only its contents and edges changing, so the transcript
+                // keeps its identity.
                 content
-                    .frame(width: isPresented ? layout.transcript : proxy.size.width)
-                    // Always applied, so the transcript keeps its identity.
-                    .overlay(alignment: .topLeading) {
-                        if ownsTitle(band: band) {
+                    .safeAreaBar(edge: .top, spacing: 0) {
+                        if ownsTitle {
                             ColumnTitle(title: title, subtitle: subtitle)
-                                .padding(.leading, ColumnTitle.inset)
-                                .padding(.trailing, 12)
-                                .frame(width: layout.transcript, height: band, alignment: .leading)
-                                .offset(y: -band)
-                                .allowsHitTesting(false)
+                                .padding(.horizontal, ColumnTitle.inset)
+                                .frame(maxWidth: .infinity, minHeight: band, alignment: .leading)
                         }
                     }
+                    .ignoresSafeArea(.container, edges: ownsTitle ? .top : [])
+                    // Soft under its own bar, as under the toolbar's title;
+                    // automatic, the toolbar's own, otherwise.
+                    .scrollEdgeEffectStyle(ownsTitle ? .soft : .automatic, for: .top)
+                    .frame(width: isPresented ? layout.transcript : proxy.size.width)
                 if let threads, let panel = state.threads.panel {
                     ThreadSplitDivider(share: $share, total: proxy.size.width, position: layout.transcript)
                         // Through the toolbar's band too, between the two titles.
@@ -110,16 +117,22 @@ struct ThreadSplit: ViewModifier {
                     .frame(width: layout.panel)
                 }
             }
-            .toolbar(removing: ownsTitle(band: band) ? .title : nil)
+            .toolbar(removing: ownsTitle ? .title : nil)
             .toolbar {
                 // AppKit's title is what pushed the buttons to the trailing
                 // edge; without it they sat beside the sidebar button.
-                if ownsTitle(band: band) {
+                if ownsTitle {
                     ToolbarSpacer(.flexible, placement: .primaryAction)
                 }
                 if let threads, let panel = state.threads.panel {
                     ToolbarItem(placement: .primaryAction) {
-                        ThreadPanelButtons(panel: panel, threads: threads)
+                        ThreadFollowButton(panel: panel, threads: threads)
+                    }
+                    // Apart, as the composer's buttons are: neighbors share
+                    // one glass capsule unless a spacer separates them.
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ToolbarItem(placement: .primaryAction) {
+                        ThreadCloseButton(threads: threads)
                     }
                 }
             }
