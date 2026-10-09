@@ -48,12 +48,13 @@ extension ChatSessionModel {
         )
     }
 
-    /// The Threads list and its badge, for the whole session (threads spec §4.3).
+    /// The Threads list, its badge and the sidebar's dots, for the whole
+    /// session (threads spec §4.3).
     func watchThreads() {
         watch(store.observeFollowedThreads(limit: ThreadSessionState.listLimit)) { [weak self] in
             self?.threads.followed = $0
         }
-        watch(store.observeUnreadThreadCount()) { [weak self] in self?.threads.unreadCount = $0 }
+        watch(store.observeUnreadThreads()) { [weak self] in self?.threads.setUnread($0) }
     }
 
     func watch<Value>(

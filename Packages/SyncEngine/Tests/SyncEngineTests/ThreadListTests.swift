@@ -47,6 +47,7 @@ struct ThreadListTests {
         await model.stop()
     }
 
+    /// The badge and the sidebar's dots move together, from one read.
     @Test func theListAndItsBadgeFollowTheStore() async throws {
         let harness = try await harness()
         let model = harness.model
@@ -61,12 +62,14 @@ struct ThreadListTests {
             model.threads.followed.map(\.thread.id) == [thread] && model.threads.unreadCount == 1
         }
         #expect(model.threads.followed.first?.root.id == messages[0].id)
+        #expect(model.threads.unreadConversations == [conversation])
         try harness.store.apply([
             .applyThreadChange(
                 thread: thread, conversation: conversation, change: .counted(messages: 3, unread: 0)
             )
         ])
         await settleAutoMarkRead(until: "the read thread leaves the badge") { model.threads.unreadCount == 0 }
+        #expect(model.threads.unreadConversations.isEmpty)
         await model.stop()
     }
 

@@ -23,6 +23,9 @@ public struct ThreadSessionState: Sendable, Equatable {
     public internal(set) var followed: [FollowedThread] = []
     /// The Threads row's badge: followed threads that are unread.
     public internal(set) var unreadCount = 0
+    /// Where those threads are: the sidebar shows these conversations' dots
+    /// (session 58).
+    public internal(set) var unreadConversations: Set<Conversation.ID> = []
     /// Whether the sidebar's Threads row is chosen. No conversation is selected then.
     public internal(set) var showingList = false
     /// The reply the panel scrolls to when a mention or a notification of a
@@ -38,6 +41,13 @@ public struct ThreadSessionState: Sendable, Equatable {
     var work = ThreadWork()
 
     public init() {}
+
+    /// The badge and the dots in one mutation, so nothing observing `threads`
+    /// sees one without the other.
+    mutating func setUnread(_ unread: UnreadThreads) {
+        unreadCount = unread.count
+        unreadConversations = unread.conversations
+    }
 
     /// For `ChatSessionModel.stop()`: cancels every task the panel and the
     /// list started, a mark superseded on the wire included

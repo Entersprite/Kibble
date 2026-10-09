@@ -141,7 +141,10 @@ struct ConversationRow: View {
     let state: ChatSceneState
 
     private var showsUnread: Bool {
-        conversation.hasUnread && !state.unreadHidden.contains(conversation.id)
+        ThreadsPresentation.showsUnread(
+            conversation, hidden: state.unreadHidden.contains(conversation.id),
+            unreadThreads: state.threads.unreadConversations
+        )
     }
 
     var body: some View {
@@ -198,8 +201,8 @@ struct ConversationRow: View {
     }
 
     /// A number when the backend can count, a dot when it can only say
-    /// "something", the thread symbol when only threads are unread (threads
-    /// spec §5.3), and nothing when there is nothing.
+    /// "something" (a followed thread's activity included, session 58), and
+    /// nothing when there is nothing.
     ///
     /// Both cases exist because the two facts arrive separately and Chat
     /// currently supplies only the second: `unread_message_count` is sent as
@@ -228,13 +231,6 @@ struct ConversationRow: View {
                 .fill(.tint)
                 .frame(width: 7, height: 7)
                 .accessibilityLabel("Unread")
-        } else if ThreadsPresentation.showsThreadSymbol(
-            conversation, hidden: state.unreadHidden.contains(conversation.id)
-        ) {
-            Image(systemName: ThreadsPresentation.unreadSymbol)
-                .font(.caption2)
-                .foregroundStyle(.tint)
-                .accessibilityLabel("Unread threads")
         }
     }
 

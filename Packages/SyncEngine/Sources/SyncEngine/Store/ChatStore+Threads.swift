@@ -14,6 +14,19 @@ public struct FollowedThread: Sendable, Equatable {
     }
 }
 
+/// The unread threads the Threads list would show: how many, for the
+/// Threads row's badge, and in which conversations, for the sidebar's dots
+/// (session 58). One read, so a dot never disagrees with the badge.
+public struct UnreadThreads: Sendable, Equatable {
+    public var count: Int
+    public var conversations: Set<Conversation.ID>
+
+    public init(count: Int = 0, conversations: Set<Conversation.ID> = []) {
+        self.count = count
+        self.conversations = conversations
+    }
+}
+
 /// One thread's address. A topic id is unique only inside its conversation,
 /// which is why the `thread` table is keyed by the pair. Also the model's key
 /// for its per-thread bookkeeping (Task 8), hence `Sendable`.
@@ -86,12 +99,17 @@ public extension ChatStore {
     /// The Threads row's badge: every unread thread the list would show, not
     /// only the `limit` it shows.
     func unreadThreadCount() throws -> Int {
-        try database.read(Self.fetchUnreadThreadCount)
+        try database.read(Self.fetchUnreadThreads).count
+    }
+
+    /// The badge and the sidebar's dots (`UnreadThreads`).
+    func unreadThreads() throws -> UnreadThreads {
+        try database.read(Self.fetchUnreadThreads)
     }
 
     /// Duplicates dropped, for `observeFollowedThreads(limit:)`'s reason.
-    func observeUnreadThreadCount() -> AsyncValueObservation<Int> {
-        ValueObservation.tracking(Self.fetchUnreadThreadCount).removeDuplicates().values(in: database)
+    func observeUnreadThreads() -> AsyncValueObservation<UnreadThreads> {
+        ValueObservation.tracking(Self.fetchUnreadThreads).removeDuplicates().values(in: database)
     }
 }
 
@@ -111,7 +129,7 @@ extension ChatStore {
 
     /// Roots are each followed thread's oldest message that is not a reply.
     /// A thread whose summary counts no reply is dropped before the limit, so
-    /// the badge (`fetchUnreadThreadCount`) drops it too.
+    /// the badge and the dots (`fetchUnreadThreads`) drop it too.
     /// The summaries are one read for every followed thread at once
     /// (`fetchFollowedThreadSummaries`), never one per conversation or per
     /// thread. A conversation the store no longer lists is left out, as the
@@ -146,8 +164,9 @@ extension ChatStore {
         return limit.map { Array(items.prefix($0)) } ?? items
     }
 
-    static func fetchUnreadThreadCount(_ db: Database) throws -> Int {
-        try fetchFollowedThreads(limit: nil, db).count(where: \.thread.hasUnread)
+    static func fetchUnreadThreads(_ db: Database) throws -> UnreadThreads {
+        let unread = try fetchFollowedThreads(limit: nil, db).filter(\.thread.hasUnread)
+        return UnreadThreads(count: unread.count, conversations: Set(unread.map(\.thread.conversationID)))
     }
 
     /// Every stored thread read position, for the Mentions reads: a mention in

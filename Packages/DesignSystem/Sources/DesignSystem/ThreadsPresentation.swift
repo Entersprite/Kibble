@@ -6,18 +6,16 @@ public enum ThreadsPresentation {
     public static let title = "Threads"
     public static let emptyText = "No followed threads"
 
-    /// The Threads row's symbol, the sidebar's unread-threads symbol, the
-    /// follow states, the panel's close button and the two menu items.
-    /// `ThreadSymbolTests` checks each one exists.
+    /// The Threads row's symbol, the follow states, the panel's close button
+    /// and the two menu items. `ThreadSymbolTests` checks each one exists.
     static let rowSymbol = "bubble.left.and.text.bubble.right"
-    static let unreadSymbol = "bubble.left.and.bubble.right.fill"
     static let followingSymbol = "checkmark"
     static let followSymbol = "plus"
     static let closeSymbol = "xmark"
     static let replySymbol = "arrowshape.turn.up.left"
     static let markUnreadSymbol = "envelope.badge"
     static let symbols = [
-        rowSymbol, unreadSymbol, followingSymbol, followSymbol, closeSymbol, replySymbol, markUnreadSymbol
+        rowSymbol, followingSymbol, followSymbol, closeSymbol, replySymbol, markUnreadSymbol
     ]
 
     /// Whether a thread has a reply: `replyCount` counts the first message.
@@ -32,11 +30,16 @@ public enum ThreadsPresentation {
         unread > 0 ? "\(unread)" : nil
     }
 
-    /// The sidebar's thread symbol: unread threads and nothing else unread.
-    /// The dot keeps meaning top-level messages (spec §5.3), and a rule that
-    /// hides unread hides this too.
-    static func showsThreadSymbol(_ conversation: Conversation, hidden: Bool) -> Bool {
-        !hidden && conversation.hasUnreadThread && !conversation.hasUnread
+    /// The sidebar's dot and bold name: a top-level unread, or activity in a
+    /// followed thread (owner, session 58, replacing spec §5.3's thread
+    /// symbol). `unreadThreads` is `ThreadSceneState.unreadConversations`, the
+    /// badge's own read. **`hasUnreadThread` is not read**: the server's flag
+    /// may cover unfollowed threads (`[Verify]`, `findings.md` §64). A rule
+    /// that hides unread hides both.
+    static func showsUnread(
+        _ conversation: Conversation, hidden: Bool, unreadThreads: Set<Conversation.ID>
+    ) -> Bool {
+        !hidden && (conversation.hasUnread || unreadThreads.contains(conversation.id))
     }
 
     static func followTitle(isFollowed: Bool) -> String {

@@ -15,19 +15,24 @@ public struct ThreadSceneState: Sendable, Equatable {
     public var showingList: Bool
     /// The Threads row's badge: followed threads with something unread.
     public var unreadCount: Int
+    /// Where those threads are: each of these conversations shows the unread
+    /// dot, as a top-level unread does (session 58).
+    public var unreadConversations: Set<Conversation.ID>
 
     public init(
         summaries: [MessageThread.ID: MessageThread] = [:],
         panel: ThreadPanelState? = nil,
         items: [ThreadListItem] = [],
         showingList: Bool = false,
-        unreadCount: Int = 0
+        unreadCount: Int = 0,
+        unreadConversations: Set<Conversation.ID> = []
     ) {
         self.summaries = summaries
         self.panel = panel
         self.items = items
         self.showingList = showingList
         self.unreadCount = unreadCount
+        self.unreadConversations = unreadConversations
     }
 }
 

@@ -24,7 +24,8 @@ extension AppEnvironment {
                 }
             },
             showingList: threads.showingList,
-            unreadCount: threads.unreadCount
+            unreadCount: threads.unreadCount,
+            unreadConversations: threads.unreadConversations
         )
     }
 

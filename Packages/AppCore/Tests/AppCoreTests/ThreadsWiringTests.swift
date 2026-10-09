@@ -137,6 +137,7 @@ struct ThreadsWiringTests {
         #expect(state.items.first?.conversationTitle == "Design")
         #expect(state.items.first?.senderName == "Alice")
         #expect(state.unreadCount == 1)
+        #expect(state.unreadConversations == [space.id])
         withExtendedLifetime(environment) {}
     }
 

@@ -162,6 +162,23 @@ struct StoreFollowedThreadsTests {
         #expect(try store.unreadThreadCount() == 1)
     }
 
+    /// The sidebar's dots (session 58): the conversations of the threads the
+    /// badge counts, from the same read, so a dot never disagrees with it. An
+    /// unread thread nobody follows leaves its conversation without one.
+    @Test func theDotsAreTheConversationsOfTheThreadsTheBadgeCounts() throws {
+        let store = try threeThreads()
+        try store.apply([
+            change("topic:a", in: space, .counted(messages: 2, unread: 1)),
+            change("topic:b", in: dm, .counted(messages: 2, unread: 1)),
+            change("topic:c", in: space, .counted(messages: 2, unread: 1))
+        ])
+        #expect(try store.unreadThreads() == UnreadThreads(count: 2, conversations: [space, dm]))
+        // The space keeps its unfollowed unread thread, and loses its dot.
+        try store.apply([change("topic:a", in: space, .counted(messages: 2, unread: 0))])
+        #expect(try store.thread(MessageThread.ID("topic:c"), in: space)?.hasUnread == true)
+        #expect(try store.unreadThreads() == UnreadThreads(count: 1, conversations: [dm]))
+    }
+
     @Test func theBadgeIsObserved() async throws {
         let store = try store(
             thread("topic:a", in: space, minute: 0, replyMinute: 10) + [
@@ -169,10 +186,10 @@ struct StoreFollowedThreadsTests {
                 change("topic:a", in: space, .counted(messages: 2, unread: 1))
             ]
         )
-        var iterator = store.observeUnreadThreadCount().makeAsyncIterator()
-        #expect(try await iterator.next() == 1)
+        var iterator = store.observeUnreadThreads().makeAsyncIterator()
+        #expect(try await iterator.next() == UnreadThreads(count: 1, conversations: [space]))
         try store.apply([change("topic:a", in: space, .counted(messages: 2, unread: 0))])
-        #expect(try await iterator.next() == 0)
+        #expect(try await iterator.next() == UnreadThreads(count: 0, conversations: []))
     }
 
     /// Both reads re-run on every write to `message` or `thread`; a write
@@ -185,14 +202,14 @@ struct StoreFollowedThreadsTests {
                 change("topic:a", in: space, .counted(messages: 2, unread: 1))
             ]
         )
-        var badge = store.observeUnreadThreadCount().makeAsyncIterator()
+        var badge = store.observeUnreadThreads().makeAsyncIterator()
         var list = store.observeFollowedThreads(limit: 50).makeAsyncIterator()
-        #expect(try await badge.next() == 1)
+        #expect(try await badge.next() == UnreadThreads(count: 1, conversations: [space]))
         #expect(try await list.next()?.first?.thread.hasUnread == true)
         // A thread nobody follows: both reads re-run, and neither changes.
         try store.apply(thread("topic:z", in: dm, minute: 2, replyMinute: 3))
         try store.apply([change("topic:a", in: space, .counted(messages: 2, unread: 0))])
-        #expect(try await badge.next() == 0)
+        #expect(try await badge.next() == UnreadThreads())
         #expect(try await list.next()?.first?.thread.hasUnread == false)
     }
 }
