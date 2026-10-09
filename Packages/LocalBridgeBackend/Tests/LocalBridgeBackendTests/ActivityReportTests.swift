@@ -126,6 +126,16 @@ struct ActivityReportTests {
         #expect(await backend.presencePoll.selfResolved)
     }
 
+    /// The activity loop's first round has run. Under Away it sends nothing,
+    /// so only its count shows it (`CLAUDE.md`: wait for a hand-off by the
+    /// state it produces).
+    private func waitForActivityRound(_ backend: LocalBridgeBackend) async throws {
+        for _ in 0 ..< 400 where await backend.presencePoll.activityRounds == 0 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await backend.presencePoll.activityRounds >= 1)
+    }
+
     @Test func inUseReportsActiveAtOnceAndAgainEachInterval() async throws {
         let transport = ActivityTransport()
         let backend = try await connected(transport)
@@ -227,12 +237,20 @@ struct ActivityReportTests {
     }
 
     /// Back to Automatic shows green at once, not at the next tick.
+    ///
+    /// The loop's first round must have run before the switch (session 58).
+    /// Unwaited, it could run during `setAvailability`'s calls, after
+    /// Automatic was applied, and send a second heartbeat: `[true, true]` in
+    /// most full-suite runs. The `isEmpty` check also passed then without the
+    /// round having run.
     @Test func automaticAfterAwayReportsAtOnce() async throws {
         var away = UserStatus()
         away.presenceShared = false
         let transport = ActivityTransport(selfStatus: away)
         let backend = try await connected(transport, interval: .seconds(60))
         try await backend.send(.reportActivity(active: true))
+        // Its first round ran under Away, and sent nothing.
+        try await waitForActivityRound(backend)
         #expect(try await transport.heartbeats().isEmpty)
 
         try await backend.send(.setAvailability(.automatic))

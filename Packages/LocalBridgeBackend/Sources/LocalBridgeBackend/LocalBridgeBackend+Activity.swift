@@ -37,13 +37,23 @@ extension LocalBridgeBackend {
         presencePoll.activityTask = Task { [weak self] in
             while !Task.isCancelled {
                 // `nil` once the backend has gone, which ends the loop.
-                guard await self?.sendActivity(active: true) != nil else { return }
+                guard await self?.reportActivityRound() != nil else { return }
                 do {
                     try await Task.sleep(for: interval)
                 } catch {
                     return
                 }
             }
+        }
+    }
+
+    /// One round of the loop: a report, then the count tests wait on. A
+    /// round canceled while it reported is not counted, so a stopped loop
+    /// cannot count into the next connect's poll.
+    private func reportActivityRound() async {
+        await sendActivity(active: true)
+        if !Task.isCancelled {
+            presencePoll.activityRounds += 1
         }
     }
 
