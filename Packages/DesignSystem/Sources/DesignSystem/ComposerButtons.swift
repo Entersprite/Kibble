@@ -27,9 +27,11 @@ struct ComposerRoundButton: View {
 /// composer does not build.
 struct ComposerEmojiButton: View {
     let reactions: ReactionActions
+    /// The field takes focus back through the insertion. Closed without a
+    /// pick, nothing refocuses it: the button never took first responder, so
+    /// the field still has it, and a click that closed the picker may have
+    /// given it to another field (review finding 1).
     let pick: (String) -> Void
-    /// The picker closed, picked from or not.
-    let closed: () -> Void
 
     @State private var picking = false
 
@@ -41,11 +43,6 @@ struct ComposerEmojiButton: View {
             EmojiPicker(reactions: [], actions: reactions, offersCustom: false) { choice, _ in
                 picking = false
                 pick(choice.emoji)
-            }
-        }
-        .onChange(of: picking) { _, open in
-            if !open {
-                closed()
             }
         }
     }

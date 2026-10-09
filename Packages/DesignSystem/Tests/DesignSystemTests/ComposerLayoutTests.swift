@@ -105,6 +105,8 @@
             let line = CGRect(x: 0, y: 0, width: 300, height: 31)
             let path = ComposerLayout.fieldShape.path(in: line)
             #expect(!path.contains(CGPoint(x: 2, y: 2)))
+            // Inside an 8 or 10pt corner, outside a capsule's (review finding 4).
+            #expect(!path.contains(CGPoint(x: 3, y: 5)))
             #expect(path.contains(CGPoint(x: 2, y: 15.5)))
         }
     }

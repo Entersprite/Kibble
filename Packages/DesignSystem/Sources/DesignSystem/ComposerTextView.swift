@@ -64,15 +64,13 @@
             // Both after this update, because both write the draft's binding,
             // which an update must not; and the field takes focus first, since
             // the picker's popover or the waveform's click had it.
-            if let insertion, insertion.id != coordinator.insertion {
-                coordinator.insertion = insertion.id
+            if let insertion = coordinator.takeInsertion(insertion) {
                 DispatchQueue.main.async {
                     scroll.window?.makeFirstResponder(scroll.textView)
                     coordinator.insert(insertion.text, in: scroll.textView)
                 }
             }
-            if dictationRequest != coordinator.dictationRequest {
-                coordinator.dictationRequest = dictationRequest
+            if coordinator.takeDictationRequest(dictationRequest) {
                 DispatchQueue.main.async { ComposerDictation.start(in: scroll.textView) }
             }
             guard context.coordinator.focusRequest != focusRequest else { return }
@@ -101,14 +99,16 @@
             var parent: ComposerTextView
             var focusRequest = -1
             /// The last insertion and dictation request acted on.
-            var insertion: UUID?
-            var dictationRequest: Int
+            private var insertion: UUID?
+            private var dictationRequest: Int
             /// Set while this class writes into the view, so the delegate
             /// callbacks it causes are not read as the person's edits.
             private var applying = false
 
             init(_ parent: ComposerTextView) {
                 self.parent = parent
+                // What the view already held is not new (review finding 2).
+                insertion = parent.insertion?.id
                 dictationRequest = parent.dictationRequest
             }
 
@@ -131,12 +131,38 @@
                 reportAnchor(in: view)
             }
 
+            /// The insertion to act on, once. `updateNSView` runs again for
+            /// every change an insertion causes, so without this the same
+            /// emoji went in over and over (review finding 3).
+            func takeInsertion(_ new: ComposerInsertion?) -> ComposerInsertion? {
+                guard let new, new.id != insertion else { return nil }
+                insertion = new.id
+                return new
+            }
+
+            /// Whether to start dictation: once per request.
+            func takeDictationRequest(_ request: Int) -> Bool {
+                guard request != dictationRequest else { return false }
+                dictationRequest = request
+                return true
+            }
+
             /// Text from outside the keyboard (the emoji picker), over the
             /// selection. Through the view, never by setting the draft: the
             /// edit reaches the draft by the delegate route above, so tokens
             /// after it move, and it is one step Cmd-Z can take back.
+            ///
+            /// Mid-composition (an input method's marked text), the
+            /// composition is kept as typed and the text goes after it, rather
+            /// than splitting it (review finding 5).
             func insert(_ text: String, in view: NSTextView) {
-                view.insertText(text, replacementRange: view.selectedRange())
+                var range = view.selectedRange()
+                if view.hasMarkedText() {
+                    range = NSRange(location: NSMaxRange(view.markedRange()), length: 0)
+                    view.unmarkText()
+                    view.inputContext?.discardMarkedText()
+                }
+                view.insertText(text, replacementRange: range)
             }
 
             func textView(

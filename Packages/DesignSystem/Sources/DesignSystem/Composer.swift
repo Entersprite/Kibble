@@ -23,7 +23,7 @@ public struct Composer: View {
     let onRestored: (() -> Void)?
     /// The files staged in this conversation, drawn above the field.
     let attachments: [ComposerAttachment]
-    /// `nil` draws no paperclip and lets no file be removed.
+    /// `nil` draws no + and lets no file be removed.
     let attachmentActions: ComposerAttachmentActions?
     /// `nil` offers no `@` list.
     let mentions: ComposerMentions?
@@ -88,8 +88,7 @@ public struct Composer: View {
                 }
                 box
                 if let emoji {
-                    // Closed by a pick or not, the caret goes back to the field.
-                    ComposerEmojiButton(reactions: emoji, pick: insert) { focusRequest += 1 }
+                    ComposerEmojiButton(reactions: emoji, pick: insert)
                 }
             }
         }
@@ -205,8 +204,9 @@ public struct Composer: View {
         }
     }
 
-    /// At the caret. On macOS through the text view, so it can be undone and
-    /// mentions after it move (`ComposerTextView.Coordinator.insert`).
+    /// On macOS at the caret, through the text view, so it can be undone and
+    /// mentions after it move (`ComposerTextView.Coordinator.insert`). The
+    /// `TextField` elsewhere reports no caret, so `draft.caret` is the end.
     private func insert(_ text: String) {
         #if os(macOS)
             insertion = ComposerInsertion(text: text)

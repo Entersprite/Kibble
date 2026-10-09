@@ -192,6 +192,61 @@
             withExtendedLifetime(harness.window) {}
         }
 
+        /// `updateNSView` acts on an insertion once. It runs again for every
+        /// change the insertion causes, and without this the same emoji went in
+        /// over and over (review finding 3).
+        @Test func anInsertionIsTakenOnce() {
+            let (coordinator, _) = make(Box(), listOpen: false)
+            let smile = ComposerInsertion(text: "😀")
+            #expect(coordinator.takeInsertion(smile) == smile)
+            #expect(coordinator.takeInsertion(smile) == nil)
+            #expect(coordinator.takeInsertion(ComposerInsertion(text: "😀")) != nil)
+            #expect(coordinator.takeInsertion(nil) == nil)
+        }
+
+        /// A dictation request starts dictation once, and a new coordinator
+        /// acts on nothing its view already held: no insertion replayed, no
+        /// dictation started on its own (review findings 2 and 3).
+        @Test func aNewCoordinatorActsOnNothingItsViewAlreadyHeld() {
+            let box = Box()
+            let smile = ComposerInsertion(text: "😀")
+            let coordinator = ComposerTextView(
+                draft: Binding(get: { box.draft }, set: { box.draft = $0 }),
+                anchorX: .constant(0),
+                listOpen: false,
+                focusRequest: 0,
+                onKey: { _ in },
+                onSubmit: {},
+                insertion: smile,
+                dictationRequest: 3
+            ).makeCoordinator()
+            #expect(coordinator.takeInsertion(smile) == nil)
+            #expect(!coordinator.takeDictationRequest(3))
+            #expect(coordinator.takeDictationRequest(4))
+            #expect(!coordinator.takeDictationRequest(4))
+        }
+
+        /// An emoji picked mid-composition goes after it, and the composition
+        /// is kept as typed rather than split around the emoji (review
+        /// finding 5).
+        @Test func anEmojiPickedMidCompositionGoesAfterIt() {
+            let box = Box()
+            let harness = windowed(box)
+            type("ab", into: harness.view, undo: harness.undo)
+            harness.undo.beginUndoGrouping()
+            harness.view.setMarkedText(
+                "にほん",
+                selectedRange: NSRange(location: 1, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            harness.coordinator.insert("😀", in: harness.view)
+            harness.undo.endUndoGrouping()
+            #expect(harness.view.string == "abにほん😀")
+            #expect(!harness.view.hasMarkedText())
+            #expect(box.draft.text == "abにほん😀")
+            withExtendedLifetime(harness.window) {}
+        }
+
         @Test func aDraftChangedElsewhereIsShown() {
             let box = Box()
             let (coordinator, view) = make(box, listOpen: false)
