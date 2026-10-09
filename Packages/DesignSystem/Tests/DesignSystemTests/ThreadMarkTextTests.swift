@@ -59,6 +59,48 @@ struct ThreadMarkTextTests {
         #expect(text == "Last reply just now")
     }
 
+    /// Each band's edge, from both sides.
+    @Test func theBandsChangeExactlyAtTheirEdges() {
+        let text = { (seconds: TimeInterval) in
+            ThreadMarkText.lastReply(
+                at: now.addingTimeInterval(-seconds), now: now, calendar: calendar, locale: locale
+            )
+        }
+        let week: TimeInterval = 7 * 86400
+        let stamp = Display.timestamp(
+            of: now.addingTimeInterval(-week), now: now, calendar: calendar, locale: locale
+        )
+        #expect(text(59) == "Last reply just now")
+        #expect(text(60) == "Last reply 1m ago")
+        #expect(text(3599) == "Last reply 59m ago")
+        #expect(text(3600) == "Last reply 1h ago")
+        #expect(text(86399) == "Last reply 23h ago")
+        #expect(text(86400) == "Last reply 1d ago")
+        #expect(text(week - 1) == "Last reply 6d ago")
+        #expect(text(week) == "Last reply " + stamp)
+    }
+
+    /// VoiceOver hears the same bands with the units spelled out, and from a
+    /// week on the same stamp the mark shows, never "400 days ago" beside a date.
+    @Test func voiceOverUsesTheSameBandsAndTheStamp() {
+        let spoken = { (seconds: TimeInterval) in
+            ThreadMarkText.spoken(
+                thread(messages: 2, lastActivity: now.addingTimeInterval(-seconds)),
+                now: now, calendar: calendar, locale: locale
+            )
+        }
+        let day: TimeInterval = 86400
+        let week = 7 * day
+        let old = 400 * day
+        let stamp = Display.timestamp(
+            of: now.addingTimeInterval(-old), now: now, calendar: calendar, locale: locale
+        )
+        #expect(spoken(59) == "1 reply, last reply just now")
+        #expect(spoken(day) == "1 reply, last reply 1 day ago")
+        #expect(spoken(week - 1) == "1 reply, last reply 6 days ago")
+        #expect(spoken(old) == "1 reply, last reply " + stamp)
+    }
+
     @Test func voiceOverHearsTheCountTheTimeAndUnread() {
         let read = thread(messages: 5, lastActivity: now.addingTimeInterval(-2 * 3600))
         #expect(ThreadMarkText.spoken(read, now: now) == "4 replies, last reply 2 hours ago")

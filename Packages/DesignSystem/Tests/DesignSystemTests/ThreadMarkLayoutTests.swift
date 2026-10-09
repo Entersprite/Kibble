@@ -65,6 +65,25 @@ struct ThreadMarkLayoutTests {
         #expect(withNone == bare)
     }
 
+    /// The server's count can say replies the store holds none of. With no
+    /// repliers the label is its words alone: no room kept for avatars.
+    @Test func aThreadWithNoRepliersKeepsNoRoomForAvatars() {
+        let unseen = MessageThread(
+            id: MessageThread.ID("t-1"), conversationID: Conversation.ID("space/s-1"), replyCount: 3
+        )
+        let label = NSHostingView(rootView: ThreadMarkLabel(thread: unseen, directory: [:], now: now))
+        let words = NSHostingView(rootView: Text(ThreadMarkText.count(unseen))
+            .font(.caption.weight(.regular)))
+        #expect(label.fittingSize.width == words.fittingSize.width)
+        // Positive control: with repliers the label is wider than its words.
+        let seen = NSHostingView(rootView: ThreadMarkLabel(
+            thread: thread(messages: 3),
+            directory: [:],
+            now: now
+        ))
+        #expect(seen.fittingSize.width > words.fittingSize.width)
+    }
+
     @Test func aMessageWithRepliesIsTaller() {
         let bare = height(VStack(spacing: 2) { Text("hello") })
         let marked = height(VStack(spacing: 2) {

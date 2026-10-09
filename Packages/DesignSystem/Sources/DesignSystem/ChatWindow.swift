@@ -56,7 +56,7 @@ public struct ChatWindow: View {
                         downloads: state.downloads,
                         attachmentFiles: actions.attachmentFiles,
                         reactions: actions.reactions,
-                        threads: actions.threads
+                        threads: offeredThreadActions
                     )
                     .ownMessages(ownHandlers)
                     .safeAreaInset(edge: .bottom, spacing: 0) {

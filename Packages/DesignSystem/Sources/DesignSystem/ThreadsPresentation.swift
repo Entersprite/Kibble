@@ -20,6 +20,13 @@ public enum ThreadsPresentation {
         rowSymbol, unreadSymbol, followingSymbol, followSymbol, closeSymbol, replySymbol, markUnreadSymbol
     ]
 
+    /// Whether a thread has a reply: `replyCount` counts the first message.
+    /// The mark asks this, and so does "Reply in Thread", which a thread with
+    /// replies does not offer because its mark opens them.
+    static func hasReplies(_ thread: MessageThread?) -> Bool {
+        (thread?.replyCount ?? 0) > 1
+    }
+
     /// The plain count, and no badge at zero, as the Mentions row.
     public static func badge(unread: Int) -> String? {
         unread > 0 ? "\(unread)" : nil

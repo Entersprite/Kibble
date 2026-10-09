@@ -39,7 +39,7 @@ struct OwnMessageHandlers {
         let delete = delete.flatMap { delete in
             OwnMessageRule.canDelete(message, me: me) ? { delete(message) } : nil
         }
-        let addressable = !message.isDeleted && !message.id.rawValue.hasPrefix("local/")
+        let addressable = OwnMessageRule.isAddressable(message)
         let reply = replyInThread.flatMap { reply in
             addressable && !message.isReply && !hasReplies(message) ? { reply(message) } : nil
         }

@@ -52,12 +52,13 @@ public struct MessageList: View {
     /// a read-only row and no context menu (`CLAUDE.md`: never draw a
     /// control the seam cannot honour).
     let reactions: ReactionActions?
-    /// `ChatSceneActions.threads`: a bubble's mark opens its thread; `nil`
-    /// draws no mark.
+    /// The thread actions where the conversation has replies
+    /// (`ChatWindow.offeredThreadActions`): a bubble's mark opens its thread;
+    /// `nil` draws no mark.
     let threads: ThreadActions?
-    /// Edit… and Delete… on the person's own messages; `nil` offers neither
-    /// (edit spec §5). Set by `ChatWindow` through `ownMessages(_:)`: the
-    /// handlers are the window's, and internal.
+    /// Reply in Thread, Mark as Unread, Edit… and Delete…; `nil` offers none
+    /// (edit spec §5, threads spec §5). Set by `ChatWindow` through
+    /// `ownMessages(_:)`: the handlers are the window's, and internal.
     private var own: OwnMessageHandlers?
 
     /// The last target this list scrolled to, so that it is honoured once.
