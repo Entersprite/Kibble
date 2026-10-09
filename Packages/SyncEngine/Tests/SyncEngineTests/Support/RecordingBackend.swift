@@ -35,6 +35,10 @@ actor RecordingBackend: ChatBackend {
     /// `send(_:)` calls can be in flight and held one after another in the
     /// same test, so this must be able to hold more than one at a time.
     private var heldSubmissions: [CheckedContinuation<Void, Never>] = []
+    /// `holdSubmissions`, but torn down by the caller's cancellation, as a
+    /// request on the wire is (`AbortableHold`).
+    nonisolated let abortableSubmissions = AbortableHold()
+    private var holdingAbortably = false
 
     private(set) var loadMessagesCalls = 0
     /// Every `uploadAttachment` call, in order, failed ones included.
@@ -136,6 +140,11 @@ actor RecordingBackend: ChatBackend {
     /// the test can still read `commands`/`markReadCount` while it is held.
     func holdSubmissions(_ shouldHold: Bool) {
         holding = shouldHold
+    }
+
+    /// Holds every later `send(_:)` in `abortableSubmissions`.
+    func holdSubmissionsAbortably(_ shouldHold: Bool) {
+        holdingAbortably = shouldHold
     }
 
     /// Makes every later `send(_:)` record the command and succeed **without**
@@ -245,6 +254,9 @@ actor RecordingBackend: ChatBackend {
         }
         if holding, holdable {
             await withCheckedContinuation { heldSubmissions.append($0) }
+        }
+        if holdingAbortably, holdable {
+            try await abortableSubmissions.wait()
         }
         if failing {
             throw ChatError.notAuthenticated

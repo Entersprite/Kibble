@@ -194,6 +194,38 @@ struct ThreadPanelTests {
         await harness.model.stop()
     }
 
+    /// `stop()`'s own reason, for every thread call the model starts: the
+    /// list's fetch, the panel's and a Follow, each held across `stop()`,
+    /// answer into a store that must not take them (`ThreadWork.cancelAll()`).
+    @Test func stopKeepsHeldThreadCallsOutOfTheStore() async throws {
+        let harness = try await makeThreadHarness()
+        let model = harness.model
+        let backend = harness.backend
+        await settleAutoMarkRead(until: "the world load has fetched the list") {
+            await backend.followedThreadLoads == 1
+        }
+        let page = ThreadFixture.messages(replies: 2)
+        let list = ThreadFixture.messages(in: ThreadFixture.otherThread, replies: 1, offset: 600)
+        await backend.answerThread(thread, with: page)
+        await backend.answerFollowedThreads(with: list)
+        await backend.holdThreadCalls(true)
+        model.showThreads()
+        try openStoredThread([page[0]], in: harness)
+        model.setFollowed(true)
+        await settleAutoMarkRead(until: "the list, the page and the follow are asked") {
+            await backend.heldThreadCallCount == 3
+        }
+        await model.stop()
+        for _ in 0 ..< 3 {
+            await backend.releaseHeldThreadCall()
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(try harness.store.message(list[1].id) == nil)
+        #expect(try harness.store.message(page[1].id) == nil)
+        #expect(try harness.store.thread(thread, in: ThreadFixture.conversation)?.isFollowed != true)
+        #expect(try harness.store.lastError() == nil)
+    }
+
     @Test func withoutThreadsNoPanelOpensAndNoListShows() async throws {
         var capabilities = ThreadFixture.capabilities
         capabilities.supportsThreads = false

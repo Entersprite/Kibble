@@ -86,9 +86,12 @@ extension SyncEngine {
     /// loop's, for `startMentionBackfill()`'s reason.
     ///
     /// **A failure is recorded**, like every request a view makes. The request
-    /// is `[Verify]` (spec §3); if the real server refuses it, each world load
-    /// shows a banner until the next message clears it, and this should count
-    /// failures instead, as the Mentions backfill does.
+    /// is `[Verify]` (spec §3). If the real server refuses it, each world load
+    /// records the error, and the events that follow a world load (a thread's
+    /// state, presence, members, a status) clear it again
+    /// (`SyncReducer.supersedingStaleError`), so the banner likely flashes and
+    /// vanishes `[Verify]`. Count failures instead, as the Mentions backfill
+    /// does, if that happens.
     func startFollowedThreadsLoad() {
         guard capabilities.supportsThreads, !Task.isCancelled else { return }
         followedThreadsTask?.cancel()

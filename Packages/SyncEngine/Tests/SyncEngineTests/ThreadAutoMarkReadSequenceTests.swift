@@ -123,6 +123,48 @@ struct ThreadAutoMarkReadSequenceTests {
         await model.stop()
     }
 
+    /// A mark answering after the panel moved re-checks only its own thread
+    /// (review M6). Seen through the newly shown thread's refused read, which
+    /// only that thread's own triggers may try again.
+    @Test func aMarkAnsweringAfterASwitchReArmsNothingForTheNewThread() async throws {
+        let harness = try await makeThreadHarness()
+        let model = harness.model
+        let backend = harness.backend
+        let other = ThreadFixture.messages(in: ThreadFixture.otherThread, replies: 3, offset: 600)
+        try harness.store.apply(other.map { .upsertMessage($0) })
+        await backend.holdSubmissions(true)
+        try openStoredThread(messages, in: harness)
+        // The history page, so no later message write redelivers a panel.
+        await settleAutoMarkRead(until: "the conversation's page and the first read are in") {
+            let held = await backend.heldSubmissionCount
+            return held == 1 && model.messages.contains { $0.id == FixtureWorld.minimal.messages[0].id }
+        }
+        await backend.holdSubmissions(false)
+        await backend.holdSubmissionsAbortably(true)
+        model.openThread(ThreadFixture.otherThread)
+        await settleAutoMarkRead(until: "the other thread's read is on the wire") {
+            await backend.abortableSubmissions.count == 1
+        }
+        let otherKey = ThreadKey(conversation: ThreadFixture.conversation, thread: ThreadFixture.otherThread)
+        await backend.failSubmissions(true)
+        await backend.abortableSubmissions.release()
+        await settleAutoMarkRead(until: "the other thread's read is refused") {
+            model.threads.work.markTasks[otherKey] == nil
+        }
+        await backend.failSubmissions(false)
+        await backend.holdSubmissionsAbortably(false)
+        await backend.releaseHeldSubmission()
+        await settleAutoMarkRead(until: "the first thread's read answers") {
+            model.threads.work.markTasks[ThreadFixture.key] == nil
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await threadCommands(from: backend) == [
+            ThreadFixture.read(upTo: ThreadFixture.newest(replies: 2)),
+            ThreadFixture.read(ThreadFixture.otherThread, upTo: ThreadFixture.newest(replies: 3, offset: 600))
+        ])
+        await model.stop()
+    }
+
     @Test func stopCancelsAWaitingThreadMark() async throws {
         let harness = try await makeThreadHarness(markReadDebounce: markReadSequenceInterval)
         let model = harness.model

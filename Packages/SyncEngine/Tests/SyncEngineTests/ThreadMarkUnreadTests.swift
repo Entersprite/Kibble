@@ -100,25 +100,78 @@ struct ThreadMarkUnreadTests {
         await model.stop()
     }
 
-    /// The server sees the two in the order the person acted.
+    /// The server sees the two in the order the person acted: the read on the
+    /// wire is left to answer, never torn down (`AbortableHold`), and the
+    /// unread mark is sent only after it.
     @Test func anUnreadMarkWaitsForAReadAlreadyInFlight() async throws {
         let harness = try await makeThreadHarness()
-        let backend = harness.backend
-        await backend.holdSubmissions(true)
+        let hold = harness.backend.abortableSubmissions
+        await harness.backend.holdSubmissionsAbortably(true)
         try openStoredThread(messages, in: harness)
-        await settleAutoMarkRead(until: "the read is in flight") { await backend.heldSubmissionCount == 1 }
+        await settleAutoMarkRead(until: "the read is on the wire") { await hold.count == 1 }
         harness.model.markThreadUnread(from: messages[1])
         try await Task.sleep(for: .milliseconds(150))
-        #expect(await threadCommands(from: backend) == [ThreadFixture.read(upTo: newest)])
-        await backend.releaseHeldSubmission()
+        #expect(await hold.aborted == 0)
+        #expect(await threadCommands(from: harness.backend) == [ThreadFixture.read(upTo: newest)])
+        await hold.release()
         await settleAutoMarkRead(until: "the unread mark follows the read") {
-            await threadCommands(from: backend).count == 2
+            await threadCommands(from: harness.backend).count == 2
         }
-        await backend.releaseHeldSubmission()
-        #expect(await threadCommands(from: backend) == [
+        await hold.release()
+        #expect(await hold.aborted == 0)
+        #expect(await threadCommands(from: harness.backend) == [
             ThreadFixture.read(upTo: newest), ThreadFixture.unreadMark(at: messages[1].createdAt)
         ])
         await harness.model.stop()
+    }
+
+    /// A second Mark as Unread waits for the first one on the wire, as the
+    /// first waits for a read.
+    @Test func aSecondUnreadMarkWaitsForTheFirstOnTheWire() async throws {
+        let harness = try await openedAndRead()
+        let hold = harness.backend.abortableSubmissions
+        await harness.backend.holdSubmissionsAbortably(true)
+        harness.model.markThreadUnread(from: messages[1])
+        await settleAutoMarkRead(until: "the first unread mark is on the wire") { await hold.count == 1 }
+        harness.model.markThreadUnread(from: messages[2])
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await hold.aborted == 0)
+        #expect(await threadCommands(from: harness.backend).count == 2)
+        await hold.release()
+        await settleAutoMarkRead(until: "the second unread mark follows the first") {
+            await threadCommands(from: harness.backend).count == 3
+        }
+        await hold.release()
+        #expect(await threadCommands(from: harness.backend) == [
+            ThreadFixture.read(upTo: newest), ThreadFixture.unreadMark(at: messages[1].createdAt),
+            ThreadFixture.unreadMark(at: messages[2].createdAt)
+        ])
+        await harness.model.stop()
+    }
+
+    /// A read that answers after Mark as Unread superseded it writes no
+    /// watermark, so the reopened thread is marked read again.
+    @Test func aReadSupersededOnTheWireLeavesNoWatermark() async throws {
+        let harness = try await makeThreadHarness()
+        let model = harness.model
+        let hold = harness.backend.abortableSubmissions
+        await harness.backend.holdSubmissionsAbortably(true)
+        try openStoredThread(messages, in: harness)
+        await settleAutoMarkRead(until: "the read is on the wire") { await hold.count == 1 }
+        model.markThreadUnread(from: messages[1])
+        await harness.backend.holdSubmissionsAbortably(false)
+        await hold.release()
+        await unreadMarkDone(harness, sent: 2)
+        model.closeThread()
+        model.openThread(ThreadFixture.thread)
+        await settleAutoMarkRead(until: "the reopened thread is read again") {
+            await threadCommands(from: harness.backend).count == 3
+        }
+        #expect(await threadCommands(from: harness.backend) == [
+            ThreadFixture.read(upTo: newest), ThreadFixture.unreadMark(at: messages[1].createdAt),
+            ThreadFixture.read(upTo: newest)
+        ])
+        await model.stop()
     }
 
     @Test func withoutThreadsNothingIsMarkedUnread() async throws {

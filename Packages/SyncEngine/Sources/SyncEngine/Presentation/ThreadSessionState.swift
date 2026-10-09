@@ -69,6 +69,10 @@ struct ThreadWork: Sendable, Equatable {
     var published: [ThreadKey: Date] = [:]
     var markTasks: [ThreadKey: Task<Void, Never>] = [:]
     var markGeneration: [ThreadKey: Int] = [:]
+    /// The generation whose mark has reached `engine.submit`, per thread. From
+    /// then on the mark is on the wire, and `markThreadUnread(from:)` lets it
+    /// answer rather than cancel it, which would abort the request.
+    var submittedGeneration: [ThreadKey: Int] = [:]
     /// The thread a manual Mark as Unread turned auto-mark-read off for, until
     /// the panel closes or shows another thread (spec §4.3).
     var disarmed: ThreadKey?
@@ -83,6 +87,7 @@ struct ThreadWork: Sendable, Equatable {
         followTask = nil
         listTask = nil
         published = [:]
+        submittedGeneration = [:]
         disarmed = nil
     }
 }

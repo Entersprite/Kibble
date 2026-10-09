@@ -124,10 +124,11 @@ public extension ChatSessionModel {
 
 extension ChatSessionModel {
     /// The thread's first message, for the transcript to scroll to. Read from
-    /// the store at the click, because the transcript's observation has not
-    /// delivered the conversation yet; `nil` when it is not stored.
+    /// the store at the click, one thread's messages and not the whole
+    /// transcript, because the transcript's observation has not delivered the
+    /// conversation yet; `nil` when it is not stored.
     func firstMessage(of thread: MessageThread.ID, in conversation: Conversation.ID) -> Message.ID? {
-        let stored = (try? store.messages(in: conversation)) ?? []
-        return stored.first { $0.threadID == thread && !$0.isReply }?.id
+        let stored = (try? store.threadMessages(thread, in: conversation)) ?? []
+        return stored.first { !$0.isReply }?.id
     }
 }

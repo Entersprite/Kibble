@@ -20,7 +20,8 @@ import Foundation
 ///
 /// One difference: there is no watermark check after the wait. The in-flight
 /// guard keeps any other mark for the thread from publishing during it, and
-/// `markThreadUnread(from:)` cancels the waiting one instead.
+/// `markThreadUnread(from:)` cancels the waiting one instead, or supersedes
+/// one already on the wire, whose answer then writes nothing.
 ///
 /// It reads the newest *reply*, so a thread with nothing but its first
 /// message has nothing to mark. Not traced by `--probe=markread`, for
@@ -67,9 +68,11 @@ extension ChatSessionModel {
         // Recomputed only while the panel still shows this thread. After a
         // switch, `threads.messages` is another thread's, and its newest must
         // never be published against this one's id.
-        let showing = selected == key.conversation && threads.openThread == key.thread
-        let recomputed = showing ? Self.newestServerReply(in: threads.messages) : nil
+        let recomputed = panelShows(key) ? Self.newestServerReply(in: threads.messages) : nil
         let position = max(scheduledAt, recomputed ?? scheduledAt)
+        // From here the mark is on the wire: a Mark as Unread now waits for
+        // its answer instead of canceling it (`markThreadUnread(from:)`).
+        threads.work.submittedGeneration[key] = generation
         if (try? store.thread(key.thread, in: key.conversation))?.markedUnreadAt != nil {
             // Whether a read also clears a mark as unread on the server is
             // `[Verify]` (spec §3), so the clear goes first, and only when a
@@ -84,17 +87,29 @@ extension ChatSessionModel {
             conversationID: key.conversation, threadID: key.thread, upTo: position
         ))
         guard !Task.isCancelled else { return }
+        // Superseded on the wire by a Mark as Unread, which waits for this
+        // answer: it writes no watermark, so a reopened thread is marked read
+        // again, and it re-checks nothing.
+        guard threads.work.markGeneration[key] == generation else { return }
         if accepted {
             threads.work.published[key] = position
         }
         // Cleared before the re-check, and through the generation, for the
         // conversation trigger's two reasons (`publishReadPosition`). The
         // re-check reads the same function the position came from, so an
-        // unsent reply cannot make it loop.
+        // unsent reply cannot make it loop, and only while the panel still
+        // shows this thread: after a switch, `threads.messages` is another's.
         clearThreadMarkTask(for: key, ifStillGeneration: generation)
-        if let freshest = Self.newestServerReply(in: threads.messages), freshest > position {
+        if panelShows(key), let freshest = Self.newestServerReply(in: threads.messages),
+           freshest > position {
             markOpenThreadReadIfNeeded()
         }
+    }
+
+    /// Whether the panel shows `key`'s thread now. After a switch,
+    /// `threads.messages` is another thread's.
+    private func panelShows(_ key: ThreadKey) -> Bool {
+        selected == key.conversation && threads.openThread == key.thread
     }
 
     /// `clearMarkTask(for:ifStillGeneration:)`, per thread.
@@ -123,9 +138,17 @@ public extension ChatSessionModel {
     ///   with the thread read again;
     /// - the watermark forgets the thread, so reopening it marks it read
     ///   again rather than finding the position already published;
-    /// - the unread mark waits for a read already in flight, so the server
-    ///   sees the two in the order the person acted. It takes that read's
+    /// - the unread mark waits for a mark already on the wire, so the server
+    ///   sees the two in the order the person acted. It takes that mark's
     ///   place in `markTasks`, so no new read starts while it is in flight.
+    ///
+    /// **A mark on the wire is never canceled** (`submittedGeneration`).
+    /// `URLSessionTransport` aborts a canceled task's request, so the wait
+    /// would end when the client gave up, not when the server answered: this
+    /// mark could reach the server first, and the aborted read would never be
+    /// reported. Superseded instead, its answer writes nothing
+    /// (`publishThreadReadPosition`). The same holds for an earlier unread
+    /// mark still on the wire.
     ///
     /// `at` is the message's own time; the backend owns the wire's offset.
     /// Nothing for a message still sending (`local/`), which has no server time.
@@ -133,7 +156,9 @@ public extension ChatSessionModel {
         guard capabilities.supportsThreads, !message.id.rawValue.hasPrefix("local/") else { return }
         let key = ThreadKey(conversation: message.conversationID, thread: message.threadID)
         let previous = threads.work.markTasks[key]
-        previous?.cancel()
+        if threads.work.submittedGeneration[key] != threads.work.markGeneration[key] {
+            previous?.cancel()
+        }
         threads.work.published[key] = nil
         if selected == key.conversation, threads.openThread == key.thread {
             threads.work.disarmed = key
@@ -147,6 +172,7 @@ public extension ChatSessionModel {
             defer { self?.clearThreadMarkTask(for: key, ifStillGeneration: generation) }
             await previous?.value
             guard let self, !Task.isCancelled else { return }
+            threads.work.submittedGeneration[key] = generation
             await engine.submit(command)
             guard !Task.isCancelled else { return }
             // Before the re-check, which reads this entry: a panel reopened

@@ -89,6 +89,25 @@ struct ThreadEngineTests {
         #expect(try store.lastError() == nil)
     }
 
+    /// The same rule for a follow. After a sign-out the bridge answers a late
+    /// follow normally (its generation is stale), so the cancellation check is
+    /// all that keeps the write out of the erased store.
+    @Test func aFollowAnsweringAfterItsCallerStoppedWritesNothing() async throws {
+        let backend = RecordingBackend()
+        await backend.holdThreadCalls(true)
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let follow = Task { [conversation, thread] in
+            await engine.requestThreadFollowed(true, thread: thread, in: conversation)
+        }
+        #expect(await eventually { await backend.heldThreadCallCount == 1 })
+        follow.cancel()
+        await backend.releaseHeldThreadCall()
+        await follow.value
+        #expect(try store.thread(thread, in: conversation) == nil)
+        #expect(try store.lastError() == nil)
+    }
+
     /// The badge's number before the pane is ever opened (spec §4.3).
     @Test func aWorldLoadFetchesAndFilesTheThreadsList() async throws {
         let backend = RecordingBackend()
