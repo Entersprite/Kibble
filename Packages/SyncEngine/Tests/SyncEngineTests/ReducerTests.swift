@@ -298,7 +298,7 @@ struct ReducerTests {
     /// derived list would start passing the moment a case was added, which is
     /// the one moment it must fail.
     @Test func everyEventCaseIsCovered() {
-        #expect(EventSamples.all.count == 19)
+        #expect(EventSamples.all.count == 21)
         for sample in EventSamples.all {
             let reduction = SyncReducer.reduce(sample.event)
             #expect(

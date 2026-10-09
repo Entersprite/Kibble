@@ -255,4 +255,28 @@ extension APIProbeReport {
         }
         return shape
     }
+
+    /// §20.4's `[Verify]`: the ladder's own scan is top-level only, so which
+    /// `WorldItemLite` fields are actually populated has never been observed.
+    /// Field numbers, wire types and byte counts - the same vocabulary the
+    /// top-level report already uses, never a value.
+    /// Moved here from `APIProbeReport.swift` for `file_length`, unchanged.
+    static func appendNestedItemShapes(_ results: [WorldRungResult], lines: inout [String]) {
+        lines.append("world_item nested shape (field numbers inside each field-4 entry):")
+        var any = false
+        for result in results {
+            guard !result.worldItemFields.isEmpty else { continue }
+            any = true
+            lines.append("  \(result.label):")
+            for (index, fields) in result.worldItemFields.enumerated() {
+                let rendered = fields
+                    .map { "\($0.number):w\($0.wireType)=\($0.byteCount)B" }
+                    .joined(separator: " ")
+                lines.append("    item \(index + 1): \(rendered.isEmpty ? "(none)" : rendered)")
+            }
+        }
+        if !any {
+            lines.append("  no world_items in any rung")
+        }
+    }
 }

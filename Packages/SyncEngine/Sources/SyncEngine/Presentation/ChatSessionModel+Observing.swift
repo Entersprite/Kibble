@@ -25,6 +25,38 @@ extension ChatSessionModel {
         watch(store.observeAvailability()) { [weak self] in self?.availability = $0 }
     }
 
+    /// The rest of what `select(_:)` swaps once it has canceled the last
+    /// conversation's watchers: who is typing, the `@` list's people, and the
+    /// thread summaries the marks read. Moved out of `select(_:)` for
+    /// `ChatSessionModel.swift`'s `file_length`.
+    ///
+    /// **It also closes the thread panel and leaves the Threads list.** A panel
+    /// belongs to the conversation it was opened in (threads spec §4.3,
+    /// "switching conversation closes the panel").
+    func selectionMoved(to id: Conversation.ID) {
+        closeThread()
+        threads.showingList = false
+        threads.summaries = [:]
+        conversationWatchers.append(
+            observe(store.observeTypingMembers(in: id)) { [weak self] in self?.typing = $0 }
+        )
+        conversationWatchers.append(
+            observe(store.observeMentionCandidates(in: id)) { [weak self] in self?.mentionCandidates = $0 }
+        )
+        conversationWatchers.append(
+            observe(store.observeThreadSummaries(in: id)) { [weak self] in self?.threads.summaries = $0 }
+        )
+    }
+
+    /// The Threads list, its badge and the sidebar's dots, for the whole
+    /// session (threads spec §4.3).
+    func watchThreads() {
+        watch(store.observeFollowedThreads(limit: ThreadSessionState.listLimit)) { [weak self] in
+            self?.threads.followed = $0
+        }
+        watch(store.observeUnreadThreads()) { [weak self] in self?.threads.setUnread($0) }
+    }
+
     func watch<Value>(
         _ observation: AsyncValueObservation<Value>,
         _ apply: @escaping @MainActor (Value) -> Void
@@ -39,6 +71,12 @@ extension ChatSessionModel {
         Task { @MainActor [weak self] in
             do {
                 for try await value in observation {
+                    // A watcher canceled while a value was already on its way
+                    // to the main actor applies nothing. Cancellation ends the
+                    // stream only once the loop next asks for a value, and the
+                    // stream still hands over what it buffered meanwhile: a
+                    // closed thread panel showed a reply written after it closed.
+                    guard !Task.isCancelled else { return }
                     apply(value)
                     self?.refreshDirectory()
                 }

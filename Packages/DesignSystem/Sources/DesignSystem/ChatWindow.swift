@@ -20,6 +20,9 @@ public struct ChatWindow: View {
     /// words change on time (spec §6.3). Read by `subtitle` as a floor for
     /// `now`, which is what makes SwiftUI redraw it.
     @State var headerClock = Date.now
+    /// The thread panel's share of the width (`ThreadSplit`), kept while the
+    /// window is open.
+    @State var threadShare = ThreadSplitLayout.initialShare
 
     public init(state: ChatSceneState, actions: ChatSceneActions) {
         self.state = state
@@ -36,6 +39,10 @@ public struct ChatWindow: View {
                 if state.showingMentions {
                     MentionsPane(items: state.mentions, status: state.mentionsStatus, me: state.me) {
                         actions.openMention?($0, $1)
+                    }
+                } else if state.threads.showingList, let threads = actions.threads {
+                    ThreadsPane(items: state.threads.items, me: state.me, directory: state.directory) {
+                        threads.openItem($0, $1)
                     }
                 } else if let conversation = state.selectedConversation {
                     // `safeAreaInset`, so the transcript scrolls under the
@@ -55,9 +62,10 @@ public struct ChatWindow: View {
                         loadRemoteImage: actions.loadRemoteImage,
                         downloads: state.downloads,
                         attachmentFiles: actions.attachmentFiles,
-                        reactions: actions.reactions
+                        reactions: actions.reactions,
+                        threads: offeredThreadActions
                     )
-                    .ownMessages(ownHandlers)
+                    .ownMessages(transcriptHandlers)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {
                             TypingStrip(state: state)
@@ -66,6 +74,10 @@ public struct ChatWindow: View {
                         .background(alignment: .bottom) { ComposerScrim() }
                     }
                     .modifier(FileDropTarget(stage: dropStage))
+                    .modifier(ThreadSplit(
+                        state: state, actions: actions, threads: offeredThreadActions,
+                        own: { panelHandlers(for: $0) }, editing: panelEditing(), share: $threadShare
+                    ))
                 } else {
                     ContentUnavailableView(
                         "Pick a conversation",
@@ -82,6 +94,7 @@ public struct ChatWindow: View {
             editRequest = nil
             editingMessage = nil
         }
+        .onChange(of: state.threads.panel?.thread.id) { forgetPanelEdit() }
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
     }
 
@@ -137,14 +150,18 @@ public struct ChatWindow: View {
     /// Where a drop goes, if anywhere: only where the composer is drawn and
     /// the host can stage files.
     private var dropStage: (([URL]) -> Void)? {
-        // Not while editing: an edit never carries files (edit spec §5).
-        guard state.capabilities.canSendMessages, editingMessage == nil else { return nil }
+        // Not while this composer edits: an edit never carries files (edit
+        // spec §5). The panel's edit leaves this composer free.
+        guard state.capabilities.canSendMessages, editingMessage == nil || panelIsEditing else { return nil }
         return actions.composerAttachments?.stage
     }
 
     private var title: String {
         if state.showingMentions {
             return "Mentions"
+        }
+        if state.threads.showingList {
+            return ThreadsPresentation.title
         }
         guard let conversation = state.selectedConversation else { return "Kibble" }
         return Display.title(of: conversation, directory: state.directory, me: state.me)

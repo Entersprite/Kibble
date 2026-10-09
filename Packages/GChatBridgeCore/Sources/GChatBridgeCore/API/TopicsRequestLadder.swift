@@ -78,11 +78,11 @@ public struct TopicsRungResult: Sendable, Hashable {
 ///    `initial_nonthread_limit` from its own config, so 50 is this ladder's
 ///    stand-in for "some positive page size", not a literal taken from the
 ///    reference.
-/// 3. **+ `page_size_for_replies: 50`** - matters only for a threaded group;
-///    harmless on a flat one. `findings.md` §20.4 found every conversation on
-///    this account is flat, so this rung is what a threaded space would need
-///    if this account ever has one, not something today's account can prove
-///    changes anything.
+/// 3. **+ `page_size_for_replies: 50`** - what brings a thread's replies with
+///    its first message. §20.4 once read every conversation as flat;
+///    `findings.md` §63.5 has since sent this rung live against threads and
+///    measured what it adds over rung 2, and history sends it
+///    (`history(for:)`).
 /// 4. **+ `fetch_options: [USER, TOTAL_MESSAGE_COUNTS, READ_RECEIPTS]`** - the
 ///    vendored proto's own enum for this request, used by neither reference.
 ///    Added to see whether it changes anything, the same role
@@ -128,17 +128,25 @@ public enum TopicsRequestLadder {
         ]
     }
 
-    /// The shape this ladder sends until a live run says otherwise - the
-    /// reference's own request (`rungs(for:)[1]`), the same conservative
-    /// choice `WorldRequestLadder`'s rung 2 turned out to be right about.
+    /// The reference's own request (`rungs(for:)[1]`), which the probes keep
+    /// as their baseline.
     ///
-    /// `[Verify]`: unlike `WorldRequestLadder.minimumViable`, **no rung of
-    /// this ladder has ever been sent against live traffic.** This is a guess
-    /// informed by the one worked example this project has, not a confirmed
-    /// shape - `findings.md` has no §20.1-equivalent entry for `list_topics`
-    /// yet.
+    /// Rung 2 was history's request from session 12 until the threads work,
+    /// and the probes still compare against it; history now sends
+    /// `history(for:)` (rung 3). Rungs 2 and 3 have both been sent live
+    /// (`findings.md` §63.5).
     public static func minimumViable(for group: GroupId) -> Rung {
         rungs(for: group)[1]
+    }
+
+    /// What history sends since the threads work (threads spec §2.2): rung 3,
+    /// the reference's request plus `page_size_for_replies: 50`, so a thread's
+    /// replies arrive with its first message (`findings.md` §63.5, about 2.4
+    /// times rung 2's bytes on the probed space). Rung 4 instead, if the
+    /// owner's §64.9 run shows its `TOTAL_MESSAGE_COUNTS` brings
+    /// `TopicReadState` field 10.
+    public static func history(for group: GroupId) -> Rung {
+        rungs(for: group)[2]
     }
 
     private static func control(_ group: GroupId) -> ListTopicsRequest {

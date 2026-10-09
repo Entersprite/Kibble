@@ -96,23 +96,26 @@ public enum Acme {
     ]
 
     /// Conversations without `lastActivity`; `world` fills that in from the
-    /// messages so the two can never disagree.
+    /// messages so the two can never disagree. Replies are on everywhere but
+    /// the Meet chat, as on the wire (`findings.md` §63.2); `price-engine`
+    /// has an unread thread, `topic:variance`.
     static let baseConversations: [Conversation] = [
         Conversation(
             id: priceEngine, kind: .space, title: "price-engine",
-            members: [alex, maya, dan, priya, deployBot], isThreaded: true
+            members: [alex, maya, dan, priya, deployBot], isThreaded: true,
+            repliesEnabled: true, hasUnreadThread: true
         ),
         Conversation(
             id: storefront, kind: .space, title: "storefront-web",
-            unreadCount: 5, members: [alex, priya, tom]
+            unreadCount: 5, members: [alex, priya, tom], repliesEnabled: true
         ),
         Conversation(
             id: catalog, kind: .space, title: "catalog-data",
-            notificationLevel: .less, members: [alex, tom]
+            notificationLevel: .less, members: [alex, tom], repliesEnabled: true
         ),
         Conversation(
             id: launchTeam, kind: .groupDirectMessage, title: "Wheel launch team",
-            unreadCount: 2, members: [alex, maya, dan, priya]
+            unreadCount: 2, members: [alex, maya, dan, priya], repliesEnabled: true
         ),
         Conversation(
             id: standup, kind: .unknown("meetCall"), title: "Pricing standup",
@@ -122,11 +125,11 @@ public enum Acme {
         // derives one from its members.
         Conversation(
             id: mayaDM, kind: .directMessage, title: nil,
-            unreadCount: 1, members: [alex, maya]
+            unreadCount: 1, members: [alex, maya], repliesEnabled: true
         ),
         Conversation(
             id: danDM, kind: .directMessage, title: nil,
-            isMuted: true, members: [alex, dan]
+            isMuted: true, members: [alex, dan], repliesEnabled: true
         )
     ] + filler.map(\.conversation)
 
@@ -134,7 +137,7 @@ public enum Acme {
         let messages = allMessages()
         let latest = Dictionary(grouping: messages, by: \.conversationID)
             .compactMapValues { $0.map(\.createdAt).max() }
-        return FixtureWorld(
+        var world = FixtureWorld(
             me: alex,
             members: members,
             conversations: baseConversations.map { conversation in
@@ -145,5 +148,7 @@ public enum Acme {
             messages: messages,
             startedAt: messages.map(\.createdAt).max() ?? start
         )
+        world.threadStates = threadStates
+        return world
     }()
 }

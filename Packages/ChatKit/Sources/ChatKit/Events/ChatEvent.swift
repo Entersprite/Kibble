@@ -121,6 +121,17 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// local user only. An older client decodes it as `.unknown`.
     case availabilityChanged(Availability)
 
+    /// One fact about one thread: its counts, how far you have read it, a
+    /// mark as unread, or whether you follow it (threads spec §1). Each
+    /// source knows one fact and says one; a store folds them into
+    /// `MessageThread`. An older client decodes it as `.unknown`.
+    case threadChanged(threadID: MessageThread.ID, conversationID: Conversation.ID, change: ThreadChange)
+
+    /// Whether a conversation has an unread thread, as the server says: the
+    /// second source for `Conversation.hasUnreadThread`, after the world
+    /// load (threads spec §1). An older client decodes it as `.unknown`.
+    case unreadThreadsChanged(conversationID: Conversation.ID, hasUnread: Bool)
+
     /// **Continuity was lost.** Whatever the client believes about `scope` may
     /// be wrong, and the only correct response is to reconcile from scratch for
     /// that scope — not to patch, not to assume the next event will fix it.

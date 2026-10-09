@@ -83,6 +83,16 @@ enum EventSamples {
             event: .calendarChanged(member: member, schedule: CalendarSchedule(entries: [], validUntil: nil))
         ),
         Sample(name: "availabilityChanged", event: .availabilityChanged(.away)),
+        Sample(
+            name: "threadChanged",
+            event: .threadChanged(
+                threadID: MessageThread.ID("topic:1"), conversationID: conversation, change: .followed(true)
+            )
+        ),
+        Sample(
+            name: "unreadThreadsChanged",
+            event: .unreadThreadsChanged(conversationID: conversation, hasUnread: true)
+        ),
         Sample(name: "gap", event: .gap(scope: .everything, reason: "buffer overflowed")),
         Sample(name: "backendError", event: .backendError(.sessionExpired)),
         Sample(

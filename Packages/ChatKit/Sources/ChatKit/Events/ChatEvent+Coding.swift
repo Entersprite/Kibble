@@ -32,6 +32,9 @@ extension ChatEvent {
         case scope
         case reason
         case error
+        case threadID
+        case change
+        case hasUnread
     }
 
     /// The discriminators, in one place, so the encoder and decoder cannot
@@ -53,6 +56,8 @@ extension ChatEvent {
         case statusChanged
         case calendarChanged
         case availabilityChanged
+        case threadChanged
+        case unreadThreadsChanged
         case gap
         case backendError
         case unknown
@@ -66,6 +71,7 @@ extension ChatEvent {
                 ?? Self.decodeConversationEvent(raw, from: container)
                 ?? Self.decodeMessageEvent(raw, from: container)
                 ?? Self.decodeStateEvent(raw, from: container)
+                ?? Self.decodeThreadEvent(raw, from: container)
         self = try decoded ?? .unknown(type: raw, payload: UnknownFrame.payload(from: decoder))
     }
 
@@ -180,6 +186,27 @@ extension ChatEvent {
         }
     }
 
+    private static func decodeThreadEvent(
+        _ tag: String,
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> ChatEvent? {
+        switch tag {
+        case Tag.threadChanged.rawValue:
+            try .threadChanged(
+                threadID: container.decode(MessageThread.ID.self, forKey: .threadID),
+                conversationID: container.decode(Conversation.ID.self, forKey: .conversationID),
+                change: container.decode(ThreadChange.self, forKey: .change)
+            )
+        case Tag.unreadThreadsChanged.rawValue:
+            try .unreadThreadsChanged(
+                conversationID: container.decode(Conversation.ID.self, forKey: .conversationID),
+                hasUnread: container.decode(Bool.self, forKey: .hasUnread)
+            )
+        default:
+            nil
+        }
+    }
+
     public func encode(to encoder: any Encoder) throws {
         if case let .unknown(type, payload) = self {
             try UnknownFrame.encode(type: type, payload: payload, to: encoder)
@@ -190,6 +217,7 @@ extension ChatEvent {
             || encodeConversationEvent(into: &container)
             || encodeMessageEvent(into: &container)
             || encodeStateEvent(into: &container)
+            || encodeThreadEvent(into: &container)
         guard handled else {
             throw WireEncoding.unhandled(self, path: container.codingPath)
         }
@@ -294,6 +322,25 @@ extension ChatEvent {
             try container.encode(Tag.calendarChanged.rawValue, forKey: .type)
             try container.encode(member, forKey: .member)
             try container.encodeIfPresent(schedule, forKey: .schedule)
+        default:
+            return false
+        }
+        return true
+    }
+
+    private func encodeThreadEvent(
+        into container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws -> Bool {
+        switch self {
+        case let .threadChanged(threadID, conversationID, change):
+            try container.encode(Tag.threadChanged.rawValue, forKey: .type)
+            try container.encode(threadID, forKey: .threadID)
+            try container.encode(conversationID, forKey: .conversationID)
+            try container.encode(change, forKey: .change)
+        case let .unreadThreadsChanged(conversationID, hasUnread):
+            try container.encode(Tag.unreadThreadsChanged.rawValue, forKey: .type)
+            try container.encode(conversationID, forKey: .conversationID)
+            try container.encode(hasUnread, forKey: .hasUnread)
         default:
             return false
         }

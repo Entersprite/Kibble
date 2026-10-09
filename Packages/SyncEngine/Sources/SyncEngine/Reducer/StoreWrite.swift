@@ -91,6 +91,20 @@ public enum StoreWrite: Sendable, Equatable {
     /// reads as the dot flickering on the row you are typing in.
     case markUnread(conversation: Conversation.ID, sender: Member.ID)
 
+    /// One fact about one thread (threads spec §4.1). **An upsert**: the
+    /// `thread` row is created by whichever fact arrives first, because a
+    /// thread's facts come from history, pushes and calls in any order, and
+    /// an UPDATE would drop the first. Never carries `.unknown`: the reducer
+    /// writes nothing for a change it does not know.
+    case applyThreadChange(thread: MessageThread.ID, conversation: Conversation.ID, change: ThreadChange)
+
+    /// The conversation's own "has unread threads" flag: world field 25 and
+    /// push 53. An UPDATE, for `.setPresence`'s reason: a conversation the
+    /// store has never listed is not invented, and the next world load
+    /// carries the flag anyway. `ChatStore.conversations()` ORs it with the
+    /// stored threads.
+    case setUnreadThreads(conversation: Conversation.ID, hasUnread: Bool)
+
     case setTyping(conversation: Conversation.ID, member: Member.ID, isTyping: Bool)
     case setPresence(member: Member.ID, presence: Presence)
     /// `nil` clears it. A claim about now, dropped by `clearEphemeralState`.

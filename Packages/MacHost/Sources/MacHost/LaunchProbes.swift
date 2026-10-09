@@ -36,9 +36,14 @@ enum LaunchProbes {
     /// receipts section probes, the same sub-flag shape `AppNapProbe`'s
     /// `--probe-activity`/`--probe-close-window` already use. Omitted, the
     /// report defaults to the most recently active conversation.
+    /// `--probe-thread-writes` adds the thread follow, unread and read round trips on that
+    /// conversation's newest thread, which the report refuses unless `--probe-conversation=` named it.
     static func apiProbe() async -> String {
         await write(
-            APIProbeReport.run(conversation: probeConversation()),
+            APIProbeReport.run(
+                conversation: probeConversation(),
+                threadWrites: CommandLine.arguments.contains("--probe-thread-writes")
+            ),
             to: "api-probe.txt"
         )
     }

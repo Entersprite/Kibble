@@ -58,12 +58,11 @@ public extension APIMethod where Request == ListTopicsRequest, Response == ListT
 }
 
 public extension APIMethod where Request == ListMessagesRequest, Response == ListMessagesResponse {
-    /// The threaded-reply follow-up `portal.py:428-436` sends per topic, only
-    /// when a group is threaded or `topic.topic_read_state.thread_created_usec
-    /// > 0`. **Declared and never sent.** `findings.md` §20.4 observed
-    /// `flat_group` on all four of this account's conversations and
-    /// `threaded_group` on none, so exercising this call would be untestable
-    /// guesswork against an account that cannot reach the threaded branch.
+    /// One thread's messages, oldest first, addressed by its first message's
+    /// parent: the reaction refetch's call (`findings.md` §53.2), and a
+    /// thread's (§63.7: no cursor; a short page keeps the oldest end). mautrix
+    /// sends it when read state 2 (`last_read_time`, its `thread_created_usec`)
+    /// is above 0, which marks nothing (§63.6).
     static var listMessages: Self {
         Self("list_messages")
     }
@@ -216,5 +215,42 @@ public extension APIMethod where Request == HeartbeatRequest, Response == Heartb
     /// web called it in a capture (`findings.md` §44). `[Verify]` from Kibble.
     static var heartbeat: Self {
         Self("heartbeat")
+    }
+}
+
+public extension APIMethod where Request == GetUserTopicMetadataRequest,
+    Response == GetUserTopicMetadataResponse {
+    /// Whether a thread is muted, which the web client reads as not followed (`findings.md` §64.1).
+    /// No request header. Sent by the probe (§64.7); `hasIsMuted` is the answer.
+    static var getUserTopicMetadata: Self {
+        Self("get_user_topic_metadata")
+    }
+}
+
+public extension APIMethod where Request == MarkTopicMuteStateRequest,
+    Response == MarkTopicMuteStateResponse {
+    /// Follow (`mute: false`) and Unfollow (`mute: true`), §64.1. The capital T is the web client's
+    /// spelling and the one §64.7 sent; the lowercase one was never tried. Accepted when the answer
+    /// carries field 1: `ThreadCallRequests.answer(_:carries:)`.
+    static var markTopicMuteState: Self {
+        Self("mark_Topic_mute_state")
+    }
+}
+
+public extension APIMethod where Request == MarkTopicReadStateRequest,
+    Response == MarkTopicReadStateResponse {
+    /// A thread's read position (§64.2, §64.7). Accepted when the answer carries `user_revision`
+    /// (field 2), the field the web client checks.
+    static var markTopicReadState: Self {
+        Self("mark_topic_readstate")
+    }
+}
+
+public extension APIMethod where Request == SetTopicUnreadTimestampRequest,
+    Response == SetTopicUnreadTimestampResponse {
+    /// A thread's mark-as-unread time; 0 clears it (§64.3, §64.7). Accepted when the answer carries
+    /// field 1: `ThreadCallRequests.answer(_:carries:)`.
+    static var setTopicUnreadTimestamp: Self {
+        Self("set_topic_unread_timestamp")
     }
 }

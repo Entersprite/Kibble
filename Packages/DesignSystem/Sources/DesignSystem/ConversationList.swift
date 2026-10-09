@@ -36,6 +36,10 @@ public struct ConversationList: View {
                 MentionsSidebarRow(unread: state.unreadMentionCount)
                     .tag(SidebarSelection.mentions)
             }
+            if actions.threads != nil {
+                ThreadsSidebarRow(unread: state.threads.unreadCount)
+                    .tag(SidebarSelection.threads)
+            }
             ForEach(SidebarSections.build(state.conversations)) { section in
                 Section(section.title, isExpanded: expansion(of: section.id)) {
                     ForEach(section.conversations, id: \.id) { conversation in
@@ -97,6 +101,8 @@ public struct ConversationList: View {
                     actions.select(id)
                 case .mentions?:
                     actions.showMentions?()
+                case .threads?:
+                    actions.threads?.showList()
                 case nil:
                     break
                 }
@@ -135,7 +141,10 @@ struct ConversationRow: View {
     let state: ChatSceneState
 
     private var showsUnread: Bool {
-        conversation.hasUnread && !state.unreadHidden.contains(conversation.id)
+        ThreadsPresentation.showsUnread(
+            conversation, hidden: state.unreadHidden.contains(conversation.id),
+            unreadThreads: state.threads.unreadConversations
+        )
     }
 
     var body: some View {
@@ -192,7 +201,8 @@ struct ConversationRow: View {
     }
 
     /// A number when the backend can count, a dot when it can only say
-    /// "something", and nothing when there is nothing.
+    /// "something" (a followed thread's activity included, session 58), and
+    /// nothing when there is nothing.
     ///
     /// Both cases exist because the two facts arrive separately and Chat
     /// currently supplies only the second: `unread_message_count` is sent as
@@ -264,32 +274,6 @@ struct ConversationRow: View {
         case .unknown:
             Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
         }
-    }
-}
-
-/// The Mentions row (the mentions-list spec §4): an `at` symbol, verified
-/// present with `NSImage(systemSymbolName:accessibilityDescription:)`, and a
-/// badge of unread mentions. It has no context menu and no rules.
-struct MentionsSidebarRow: View {
-    let unread: Int
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "at")
-                .frame(width: 20)
-                .foregroundStyle(.secondary)
-            Text("Mentions")
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            if let badge = MentionsPresentation.badge(unread: unread) {
-                Text(badge)
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(badge) unread")
-            }
-        }
-        .padding(.vertical, 1)
     }
 }
 

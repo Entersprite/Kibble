@@ -12,8 +12,11 @@ import Foundation
 /// Steps do not consult the client's connection state, because a server does
 /// not know or care whether the client thinks it is connected.
 public enum FixtureStep: Sendable, Hashable {
-    /// A message from someone. `thread` is `nil` to start a new topic, which in
-    /// a flat conversation is the only case there is.
+    /// A message from someone. `thread` is `nil` to start a new topic, which
+    /// in a flat conversation is the only case there is. A thread names a
+    /// topic the world already holds, and the message arrives as a reply
+    /// (`Message.isReply`), counted against its thread rather than its
+    /// conversation (threads spec §4.3).
     case incomingMessage(
         conversation: Conversation.ID,
         from: Member.ID,

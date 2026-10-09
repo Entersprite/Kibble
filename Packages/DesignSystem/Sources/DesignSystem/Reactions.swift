@@ -214,9 +214,10 @@ struct ReactionCapsule: View {
 }
 
 /// The bubble's context menu: the quick set as one palette row
-/// (`ControlGroup` + `.palette`, macOS 14+), then Edit… and Delete… on the
-/// person's own message (edit spec §5). Nothing at all when there is nothing
-/// to offer or the message is deleted.
+/// (`ControlGroup` + `.palette`, macOS 14+), then Reply in Thread or Mark as
+/// Unread (threads spec §5), then Edit… and Delete… on the person's own
+/// message (edit spec §5). Nothing at all when there is nothing to offer or
+/// the message is deleted.
 struct ReactionMenu: ViewModifier {
     let message: Message
     let actions: ReactionActions?
@@ -239,6 +240,16 @@ struct ReactionMenu: ViewModifier {
                 if let own {
                     if actions != nil {
                         Divider()
+                    }
+                    if let reply = own.replyInThread {
+                        Button("Reply in Thread", systemImage: ThreadsPresentation.replySymbol, action: reply)
+                    }
+                    if let markUnread = own.markUnread {
+                        Button(
+                            "Mark as Unread",
+                            systemImage: ThreadsPresentation.markUnreadSymbol,
+                            action: markUnread
+                        )
                     }
                     if let edit = own.edit {
                         Button("Edit…", systemImage: "pencil", action: edit)

@@ -5,12 +5,13 @@ import GChatBridgeCore
 /// `ListTopicsResponse` becoming `[ChatKit.Message]`.
 ///
 /// The protocol model, from the reference (`mautrix_googlechat/portal.py:406-446`):
-/// a group has topics, each `Topic` carries `replies` (repeated `Message`),
-/// and **in a flat group every message is its own topic** - `findings.md`
-/// §20.4 observed `flat_group` on all four of this account's conversations
-/// and `threaded_group` on none, so `list_topics` alone should carry the
-/// whole history for this account without the threaded-reply `list_messages`
-/// follow-up (`APIMethod.listMessages`, declared and never sent).
+/// a group has topics, and each `Topic` carries `replies` (repeated
+/// `Message`): its first message, then its replies, which come only because
+/// history asks for them (`findings.md` §63.5). §20.4's reading that every
+/// conversation here is flat did not hold: threads exist in spaces and DMs
+/// alike (§63). History sends no per-topic `list_messages`; that call is
+/// sent elsewhere (the reaction refetch), and on a thread it was measured in
+/// §63.7.
 ///
 /// ## Reuse, not a second translation
 ///

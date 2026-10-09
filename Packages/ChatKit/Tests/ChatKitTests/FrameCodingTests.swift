@@ -148,6 +148,8 @@ struct FrameCodingTests {
             "statusChanged",
             "calendarChanged",
             "availabilityChanged",
+            "threadChanged",
+            "unreadThreadsChanged",
             "gap",
             "backendError",
             "somethingNewer" // the `.unknown` sample keeps its own discriminator
@@ -171,6 +173,8 @@ struct FrameCodingTests {
             "setStatus",
             "setAvailability",
             "reportActivity",
+            "markThreadRead",
+            "setThreadUnreadMark",
             "somethingNewer"
         ]
         #expect(try Set(Fixture.commands.map { try discriminator(of: $0.value) }) == expected)

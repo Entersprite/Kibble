@@ -87,6 +87,16 @@ struct TopicsRequestLadderTests {
         #expect(viaAccessor == viaIndex)
     }
 
+    /// History's rung since the threads work: rung 3, replies included
+    /// (`findings.md` §63.5).
+    @Test func historyIsRungThreeWithReplies() throws {
+        let history = TopicsRequestLadder.history(for: group("s-1"))
+        #expect(history.request.pageSizeForReplies == 50)
+        let viaAccessor: Data = try history.request.serializedBytes()
+        let viaLadder: Data = try TopicsRequestLadder.rungs(for: group("s-1"))[2].request.serializedBytes()
+        #expect(viaAccessor == viaLadder)
+    }
+
     @Test func aRunReportsTheFieldNumbersThatCameBack() async throws {
         // A minimal ListTopicsResponse: field 4 (contains_first_topic), varint 1.
         let body = Data([0x20, 0x01])

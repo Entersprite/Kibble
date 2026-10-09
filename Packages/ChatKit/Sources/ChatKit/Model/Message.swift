@@ -49,6 +49,11 @@ public struct Message: Codable, Hashable, Sendable {
     /// Chat app cards under the text (links spec §3.2). Empty for most messages.
     public var cards: [AppCard]
 
+    /// A reply in a thread, not the message that started one (threads spec
+    /// §1). Set by the backend, which knows; nothing above the seam works it
+    /// out from ids. A client groups a thread by `threadID` equality.
+    public var isReply: Bool
+
     public init(
         id: ID,
         conversationID: Conversation.ID,
@@ -63,7 +68,8 @@ public struct Message: Codable, Hashable, Sendable {
         localID: String? = nil,
         mentions: [Mention] = [],
         links: [MessageLink] = [],
-        cards: [AppCard] = []
+        cards: [AppCard] = [],
+        isReply: Bool = false
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -79,6 +85,7 @@ public struct Message: Codable, Hashable, Sendable {
         self.mentions = mentions
         self.links = links
         self.cards = cards
+        self.isReply = isReply
     }
 }
 
@@ -145,6 +152,7 @@ public extension Message {
         case mentions
         case links
         case cards
+        case isReply
     }
 
     init(from decoder: any Decoder) throws {
@@ -165,7 +173,8 @@ public extension Message {
             localID: container.decodeIfPresent(String.self, forKey: .localID),
             mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? [],
             links: container.decodeIfPresent([MessageLink].self, forKey: .links) ?? [],
-            cards: container.decodeIfPresent([AppCard].self, forKey: .cards) ?? []
+            cards: container.decodeIfPresent([AppCard].self, forKey: .cards) ?? [],
+            isReply: container.decodeIfPresent(Bool.self, forKey: .isReply) ?? false
         )
     }
 
@@ -190,6 +199,11 @@ public extension Message {
         }
         if !cards.isEmpty {
             try container.encode(cards, forKey: .cards)
+        }
+        // Only when true, like `mentions`, so every message golden recorded
+        // before replies existed stays byte-identical.
+        if isReply {
+            try container.encode(isReply, forKey: .isReply)
         }
     }
 }

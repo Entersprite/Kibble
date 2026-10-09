@@ -18,7 +18,8 @@
         let actions: ReactionActions?
         /// Opens the picker from the native menu's "More Emoji…".
         var onMore: (() -> Void)?
-        /// Edit… and Delete… for the person's own message (edit spec §5).
+        /// Reply in Thread or Mark as Unread (threads spec §5), and Edit…
+        /// and Delete… for the person's own message (edit spec §5).
         var own: OwnMessageMenuItems?
         /// Your own bubble draws links white; anyone else's, accent.
         var inOwnBubble = false
@@ -101,7 +102,8 @@
                 return true
             }
 
-            /// Reactions, then Edit… and Delete…, then the text's own items.
+            /// Reactions, then the thread items, Edit… and Delete…, then the
+            /// text's own items.
             func textView(_: NSTextView, menu: NSMenu, for _: NSEvent, at _: Int) -> NSMenu? {
                 let own = message.isDeleted ? nil : own
                 return NativeReactionMenu.insertReactions(

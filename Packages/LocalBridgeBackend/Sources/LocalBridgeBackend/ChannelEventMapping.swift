@@ -52,7 +52,7 @@ public enum ChannelEventMapping {
         case .messageDeleted:
             deletion(in: body) ?? routed(body)
         default:
-            routed(body)
+            threadEvent(in: body) ?? routed(body)
         }
     }
 
@@ -170,7 +170,8 @@ public enum ChannelEventMapping {
             localID: message.hasLocalID ? message.localID : nil,
             mentions: mentions(message.annotations),
             links: links(message.annotations, text: message.textBody),
-            cards: CardMapping.cards(message.attachments)
+            cards: CardMapping.cards(message.attachments),
+            isReply: ThreadMapping.isReply(message)
         )
     }
 

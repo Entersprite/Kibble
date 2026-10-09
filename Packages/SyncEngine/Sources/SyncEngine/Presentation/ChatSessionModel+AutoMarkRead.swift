@@ -22,20 +22,28 @@ extension ChatSessionModel {
     /// This is why `conversations` is `internal(set)` rather than
     /// `private(set)`, same as `isActive`.
     func conversationsObserved(_ conversations: [Conversation]) {
+        let panelWasShown = isThreadPanelShown
         self.conversations = conversations
         markReadTrace?.conversationsChanged(conversations)
+        // The world load that turns replies on draws a panel held until now:
+        // the thread it shows is marked read then (session 58).
+        if !panelWasShown, isThreadPanelShown {
+            markOpenThreadReadIfNeeded()
+        }
     }
 
     /// Told by the app shell whether the app is frontmost.
     ///
-    /// Becoming frontmost marks the open conversation, because otherwise
-    /// everything that arrived while the user was away stays unread until a
-    /// *new* message happens to arrive and trigger it.
+    /// Becoming frontmost marks the open conversation, and the thread the
+    /// panel shows, because otherwise everything that arrived while the user
+    /// was away stays unread until a *new* message happens to arrive and
+    /// trigger it.
     public func setActive(_ active: Bool) {
         guard active != isActive else { return }
         isActive = active
         if active {
             markSelectedReadIfNeeded()
+            markOpenThreadReadIfNeeded()
         }
     }
 

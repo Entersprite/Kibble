@@ -39,7 +39,8 @@ extension Acme {
                 title: title,
                 unreadCount: unread,
                 isMuted: muted,
-                members: [alex] + others
+                members: [alex] + others,
+                repliesEnabled: true
             )
         }
 

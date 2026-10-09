@@ -22,6 +22,12 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// your name appears only when this is `true` (set-your-status spec §2).
     public var canSetStatus: Bool
     public var canMarkRead: Bool
+    /// Threads, as one gate (threads spec §1): the thread panel and replies
+    /// (`ChatCommand.sendMessage` with a `threadID`, `Message.isReply`),
+    /// following (`ChatBackend.setThreadFollowed`), thread read state
+    /// (`.markThreadRead`, `.setThreadUnreadMark`, `ChatEvent.threadChanged`)
+    /// and the Threads list (`ChatBackend.loadFollowedThreads`). Per
+    /// conversation, `Conversation.repliesEnabled` is the second gate.
     public var supportsThreads: Bool
     public var supportsHistoryCatchUp: Bool
     /// `ChatBackend.attachmentData(_:size:)` returns bytes rather than

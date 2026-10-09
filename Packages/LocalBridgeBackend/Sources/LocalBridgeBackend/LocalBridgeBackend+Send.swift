@@ -30,8 +30,8 @@ public extension LocalBridgeBackend {
                 localID: localID,
                 attachments: attachments
             )
-        case let .markRead(conversationID, upTo):
-            try await markRead(conversationID, upTo: upTo)
+        case .markRead, .markThreadRead, .setThreadUnreadMark:
+            try await markReadState(command)
         case let .watchPresence(members):
             watchPresence(members)
         case let .reportActivity(active):
@@ -210,6 +210,7 @@ public extension LocalBridgeBackend {
         case .reportActivity: "reportActivity"
         case .loadMembers: "canMention"
         case .setStatus, .setAvailability: "canSetStatus"
+        case .markThreadRead, .setThreadUnreadMark: "supportsThreads"
         case let .unknown(type, _): type
         }
     }

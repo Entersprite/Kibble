@@ -71,9 +71,10 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// in both directions until the next world load (`findings.md` §43.2).
     public var memberCount: Int?
 
-    /// Whether replies form threads. Chat calls the other case a "flat" group,
-    /// and the difference is structural, not cosmetic: in a flat group every
-    /// message is its own topic.
+    /// The legacy room type: whether Chat calls this a threaded room rather
+    /// than a "flat" group, mapped from the world's room type. **Not the gate
+    /// for replies**, which is `repliesEnabled` (threads spec §1); the store
+    /// keeps it and no view reads it.
     public var isThreaded: Bool
 
     /// Google's read position for this conversation, `GroupReadState
@@ -94,6 +95,18 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// today. A server that sends one must widen that format first.
     public var readPosition: Date?
 
+    /// Whether people can reply in threads here: true on spaces, DMs, group
+    /// DMs and app DMs, false on Meet chats (`findings.md` §63.2). The
+    /// per-conversation gate for the thread panel, beside
+    /// `Capabilities.supportsThreads` (threads spec §1). Absent means `false`.
+    public var repliesEnabled: Bool
+
+    /// Whether a thread here is unread, as the server says (threads spec §1).
+    /// The world load sets it and `ChatEvent.unreadThreadsChanged` moves it;
+    /// a store may also derive it from the threads it holds. Absent means
+    /// `false`.
+    public var hasUnreadThread: Bool
+
     public init(
         id: ID,
         kind: Kind,
@@ -107,7 +120,9 @@ public struct Conversation: Codable, Hashable, Sendable {
         members: [Member.ID] = [],
         memberCount: Int? = nil,
         isThreaded: Bool = false,
-        readPosition: Date? = nil
+        readPosition: Date? = nil,
+        repliesEnabled: Bool = false,
+        hasUnreadThread: Bool = false
     ) {
         self.id = id
         self.kind = kind
@@ -122,6 +137,8 @@ public struct Conversation: Codable, Hashable, Sendable {
         self.memberCount = memberCount
         self.isThreaded = isThreaded
         self.readPosition = readPosition
+        self.repliesEnabled = repliesEnabled
+        self.hasUnreadThread = hasUnreadThread
     }
 }
 
@@ -245,6 +262,8 @@ public extension Conversation {
         case memberCount
         case isThreaded
         case readPosition
+        case repliesEnabled
+        case hasUnreadThread
     }
 
     /// `id` and `kind` are required; everything else falls back to the same
@@ -253,7 +272,8 @@ public extension Conversation {
     /// The encoder always writes those fields, so absence means the frame came
     /// from a peer that did not have them — and in every case the default is
     /// the assumption that claims least: no title, no activity, nothing unread,
-    /// not muted, no members, no count, not threaded, no read position.
+    /// not muted, no members, no count, not threaded, no read position, no
+    /// replies, no unread thread.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
@@ -271,7 +291,9 @@ public extension Conversation {
             members: container.decodeIfPresent([Member.ID].self, forKey: .members) ?? [],
             memberCount: container.decodeIfPresent(Int.self, forKey: .memberCount),
             isThreaded: container.decodeIfPresent(Bool.self, forKey: .isThreaded) ?? false,
-            readPosition: container.decodeWireIfPresent(Date.self, forKey: .readPosition)
+            readPosition: container.decodeWireIfPresent(Date.self, forKey: .readPosition),
+            repliesEnabled: container.decodeIfPresent(Bool.self, forKey: .repliesEnabled) ?? false,
+            hasUnreadThread: container.decodeIfPresent(Bool.self, forKey: .hasUnreadThread) ?? false
         )
     }
 
@@ -290,5 +312,13 @@ public extension Conversation {
         try container.encodeIfPresent(memberCount, forKey: .memberCount)
         try container.encode(isThreaded, forKey: .isThreaded)
         try container.encodeWireIfPresent(readPosition, forKey: .readPosition)
+        // Only when true, so every conversation golden recorded before threads
+        // stays byte-identical.
+        if repliesEnabled {
+            try container.encode(repliesEnabled, forKey: .repliesEnabled)
+        }
+        if hasUnreadThread {
+            try container.encode(hasUnreadThread, forKey: .hasUnreadThread)
+        }
     }
 }

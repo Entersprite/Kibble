@@ -61,7 +61,8 @@ public extension AppEnvironment {
             downloads: downloads?.states ?? [:],
             stagedAttachments: Self.composerAttachments(model.stagedAttachments),
             mentionCandidates: model.mentionCandidates,
-            directoryResults: model.directoryResults
+            directoryResults: model.directoryResults,
+            threads: threadScene(of: model)
         )
     }
 
@@ -212,7 +213,8 @@ public extension AppEnvironment {
             setStatus: runningModel?.capabilities.canSetStatus == true
                 ? { [weak self] in self?.runningModel?.setStatus($0) } : nil,
             setAvailability: runningModel?.capabilities.canSetStatus == true
-                ? { [weak self] in self?.runningModel?.setAvailability($0) } : nil
+                ? { [weak self] in self?.runningModel?.setAvailability($0) } : nil,
+            threads: threadActions
         )
     }
 

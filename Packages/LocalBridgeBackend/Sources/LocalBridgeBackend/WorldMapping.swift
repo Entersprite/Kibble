@@ -67,7 +67,10 @@ public enum WorldMapping {
             members: memberIDs(for: item),
             memberCount: memberCount(for: item),
             isThreaded: isThreaded(item),
-            readPosition: readPosition(item)
+            readPosition: readPosition(item),
+            // Field 27, the per-conversation gate (§63.2); read state 25 (§64.4).
+            repliesEnabled: item.hasInlineThreadingEnabled && item.inlineThreadingEnabled,
+            hasUnreadThread: item.readState.hasHasUnreadThread_p && item.readState.hasUnreadThread_p
         )
     }
 
@@ -111,11 +114,10 @@ public enum WorldMapping {
     /// here can tell those apart, and the timestamp pair makes the answer
     /// unnecessary rather than merely deferred.
     ///
-    /// `[Verify]` - `has_unread_thread` (field 25) also arrives on all 220 and
-    /// is **not** read. Purple names it; its values were never measured, and
-    /// "thread" suggests threaded replies rather than general unread - every
-    /// conversation on this account is flat. It is the first thing to try if
-    /// the comparison below turns out to disagree with Chat's own UI.
+    /// `has_unread_thread` (field 25) also arrives on every item and is
+    /// **not** read here: it says whether a thread has unread replies, as
+    /// read out of the web client's code (`findings.md` §64.4, `[Verify]`),
+    /// and is `Conversation.hasUnreadThread` instead.
     private static func hasUnread(_ item: WorldItemLite) -> Bool {
         let state = item.readState
         guard state.hasLastHeadMessageCreateTimeUsec, state.hasLastReadTime else {

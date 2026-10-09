@@ -70,6 +70,7 @@ public final class ChatSessionModel {
     /// The message `open(conversation:message:)` asked the transcript to
     /// scroll to, until the next selection. `internal(set)` for `+Mentions.swift`.
     public internal(set) var scrollTarget: Message.ID?
+    public internal(set) var threads = ThreadSessionState() // the panel and the list, +Threads.swift
 
     /// Whether the app is frontmost. Fed by the app shell; `true` by default
     /// so every existing construction site and test keeps its behaviour.
@@ -223,7 +224,7 @@ public final class ChatSessionModel {
     /// Cancelled and replaced whenever the selection changes, so only the open
     /// conversation is observed rather than every conversation ever opened.
     ///
-    /// Not `private`: `showMentions()` in `ChatSessionModel+Mentions.swift` cancels them.
+    /// Not `private`: `clearSelection()` in `ChatSessionModel+Mentions.swift` cancels them.
     var conversationWatchers: [Task<Void, Never>] = []
 
     /// The one history fetch `select(_:)` has in flight, if any.
@@ -239,7 +240,7 @@ public final class ChatSessionModel {
     /// again right before it writes; this task is only the signal that
     /// makes that check see `true`.
     ///
-    /// Not `private`: `showMentions()` in `ChatSessionModel+Mentions.swift` cancels it.
+    /// Not `private`: `clearSelection()` in `ChatSessionModel+Mentions.swift` cancels it.
     var historyTask: Task<Void, Never>?
 
     /// The last connection state this model acted on, so that a repeated
@@ -274,6 +275,7 @@ public final class ChatSessionModel {
             self?.catchUpIfReconnected($0)
         }
         watchSelf()
+        watchThreads()
         watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
         watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
         watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
@@ -316,6 +318,7 @@ public final class ChatSessionModel {
         }
         editTasks = [:]
         composerFiles.reset()
+        threads.stop()
         // Unreachable today - a fresh model is built per session - but a
         // stale watermark or a retained draft from the account being signed
         // out of must not survive into a model reused for the next sign-in.
@@ -368,12 +371,7 @@ public final class ChatSessionModel {
                 self?.markSelectedReadIfNeeded()
             }
         )
-        conversationWatchers.append(
-            observe(store.observeTypingMembers(in: id)) { [weak self] in self?.typing = $0 }
-        )
-        conversationWatchers.append(
-            observe(store.observeMentionCandidates(in: id)) { [weak self] in self?.mentionCandidates = $0 }
-        )
+        selectionMoved(to: id)
 
         // Not `try?`. A dead channel, a rejected `/api/` call or a timeout
         // used to leave the transcript reading "No messages" - nothing

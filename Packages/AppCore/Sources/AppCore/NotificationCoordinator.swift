@@ -191,15 +191,18 @@ final class NotificationCoordinator {
                 viewing: model.isActive ? model.selected : nil,
                 alreadyAnnounced: recentSet.contains(message.id),
                 paused: isPaused?() ?? false,
-                mentionsMe: message.mentionsMe(model.me)
+                mentionsMe: message.mentionsMe(model.me),
+                thread: Self.threadContext(of: message, in: model)
             ))
             guard case let .post(presentation) = decision else { return }
             remember(message.id)
             await delivery.post(Self.notification(
                 for: message, in: conversation, directory: model.directory, me: model.me,
                 presentation: presentation,
-                // "Mark as Read" would be refused at `SyncEngine.submit` here.
-                offersMarkRead: rule.readReceipts
+                // "Mark as Read" would be refused at `SyncEngine.submit` here,
+                // and on a reply it would mark the conversation, which does not
+                // read the thread (ruling 16).
+                offersMarkRead: rule.readReceipts && !message.isReply
             ))
         case let .read(conversation, upTo):
             await delivery.withdraw(in: conversation, coveredBy: upTo)
@@ -213,7 +216,7 @@ final class NotificationCoordinator {
             if model != nil || holdsLaunchingClick {
                 pending.append(response)
             }
-            if case .open = response {
+            if response.bringsWindowForward {
                 onShowWindow?()
             }
             return
@@ -221,6 +224,11 @@ final class NotificationCoordinator {
         switch response {
         case let .open(conversation):
             model.select(conversation)
+            onShowWindow?()
+        case let .openMessage(conversation, message):
+            // A reply is not in the transcript: opening it opens its thread's
+            // panel at it (`ChatSessionModel.open(conversation:message:)`).
+            model.open(conversation: conversation, message: message)
             onShowWindow?()
         case let .markRead(conversation):
             model.markRead(conversation, from: .notification)
@@ -272,7 +280,8 @@ final class NotificationCoordinator {
             createdAt: message.createdAt,
             isPassive: presentation.isPassive,
             playsSound: presentation.playsSound,
-            offersMarkRead: offersMarkRead
+            offersMarkRead: offersMarkRead,
+            isReply: message.isReply
         )
     }
 
@@ -281,6 +290,27 @@ final class NotificationCoordinator {
             return "Sent an image"
         }
         return message.attachments.isEmpty ? "New message" : "Sent a file"
+    }
+
+    /// What the policy needs about a reply's thread, or `nil` for a top-level
+    /// message (threads spec §4.3).
+    ///
+    /// - Followed is the store's answer, which already falls back to "you
+    ///   posted in it" (`ThreadUnreadRule.isFollowed`). A thread the store
+    ///   cannot read counts as not followed: a mention still gets through.
+    /// - On screen is the thread's panel as the window draws it
+    ///   (`isThreadPanelShown`), in the selected conversation, behind the same
+    ///   viewing gate a conversation uses (`isActive`).
+    static func threadContext(
+        of message: Message, in model: ChatSessionModel
+    ) -> NotificationPolicy.ThreadContext? {
+        guard message.isReply else { return nil }
+        let stored = model.storedThread(message.threadID, in: message.conversationID)
+        return NotificationPolicy.ThreadContext(
+            isFollowed: stored?.isFollowed ?? false,
+            isOnScreen: model.isActive && model.isThreadPanelShown
+                && model.selected == message.conversationID && model.threads.openThread == message.threadID
+        )
     }
 
     private func remember(_ id: Message.ID) {

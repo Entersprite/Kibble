@@ -108,4 +108,39 @@ struct DeterminismTests {
         #expect(ids == ["fixture-msg-1", "fixture-msg-3", "fixture-msg-5"])
         #expect(Set(ids).count == ids.count)
     }
+
+    /// The thread calls, a reply and the reply script, encoded twice. This
+    /// catches a clock or a counter; it cannot catch a dictionary's order,
+    /// whose hash seed is the same for both runs in one process, which is
+    /// why the fixture never iterates `threadStates`.
+    @Test func threadTrafficIsByteIdenticalToo() async throws {
+        let first = try await encodedThreadRun()
+        let second = try await encodedThreadRun()
+        #expect(first == second)
+    }
+
+    private func encodedThreadRun() async throws -> Data {
+        let backend = FakeBackend(world: .acme)
+        let collector = EventCollector(backend.events)
+        let sync = MessageThread.ID("topic:sync")
+        let variance = MessageThread.ID("topic:variance")
+
+        try await backend.connect()
+        _ = try await backend.loadMessages(in: Acme.priceEngine, before: nil)
+        _ = try await backend.loadThread(variance, in: Acme.priceEngine)
+        try await backend.setThreadFollowed(true, thread: sync, in: Acme.priceEngine)
+        try await backend.send(
+            .sendMessage(conversationID: Acme.priceEngine, threadID: sync, text: "On it.", localID: "r-1")
+        )
+        try await backend.send(
+            .markThreadRead(conversationID: Acme.priceEngine, threadID: variance, upTo: Acme.at(44))
+        )
+        try await backend.play(.acmeReplyArrives)
+        _ = try await backend.loadFollowedThreads()
+
+        let events = await collector.next(backend.emittedCount)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(events)
+    }
 }

@@ -35,6 +35,10 @@ actor RecordingBackend: ChatBackend {
     /// `send(_:)` calls can be in flight and held one after another in the
     /// same test, so this must be able to hold more than one at a time.
     private var heldSubmissions: [CheckedContinuation<Void, Never>] = []
+    /// `holdSubmissions`, but torn down by the caller's cancellation, as a
+    /// request on the wire is (`AbortableHold`).
+    nonisolated let abortableSubmissions = AbortableHold()
+    private var holdingAbortably = false
 
     private(set) var loadMessagesCalls = 0
     /// Every `uploadAttachment` call, in order, failed ones included.
@@ -136,6 +140,11 @@ actor RecordingBackend: ChatBackend {
     /// the test can still read `commands`/`markReadCount` while it is held.
     func holdSubmissions(_ shouldHold: Bool) {
         holding = shouldHold
+    }
+
+    /// Holds every later `send(_:)` in `abortableSubmissions`.
+    func holdSubmissionsAbortably(_ shouldHold: Bool) {
+        holdingAbortably = shouldHold
     }
 
     /// Makes every later `send(_:)` record the command and succeed **without**
@@ -246,6 +255,9 @@ actor RecordingBackend: ChatBackend {
         if holding, holdable {
             await withCheckedContinuation { heldSubmissions.append($0) }
         }
+        if holdingAbortably, holdable {
+            try await abortableSubmissions.wait()
+        }
         if failing {
             throw ChatError.notAuthenticated
         }
@@ -297,5 +309,78 @@ actor RecordingBackend: ChatBackend {
         for conversation: Conversation.ID
     ) async throws {
         try await inner.setNotificationSetting(level, for: conversation)
+    }
+
+    // MARK: - Threads (threads spec §4.3)
+
+    /// Every `loadThread` call's thread, in order.
+    private(set) var threadLoads: [MessageThread.ID] = []
+    /// Every `setThreadFollowed` call's value, in order.
+    private(set) var followRequests: [Bool] = []
+    private(set) var followedThreadLoads = 0
+    /// Scripted per test and never forwarded: the fixture's own threads are
+    /// FixtureBackend's subject, and these suites must say exactly what a
+    /// page holds.
+    private var threadPages: [MessageThread.ID: [Message]] = [:]
+    private var followedAnswer: [Message] = []
+    private var failingThreadCalls = false
+    private var holdingThreadCalls = false
+    private var heldThreadCalls: [CheckedContinuation<Void, Never>] = []
+
+    func answerThread(_ thread: MessageThread.ID, with page: [Message]) {
+        threadPages[thread] = page
+    }
+
+    func answerFollowedThreads(with messages: [Message]) {
+        followedAnswer = messages
+    }
+
+    /// Makes every later thread request record itself and then throw.
+    func failThreadCalls(_ fail: Bool) {
+        failingThreadCalls = fail
+    }
+
+    /// Makes every later thread request record itself, then wait for
+    /// `releaseHeldThreadCall()`: a request asked and not yet answered.
+    func holdThreadCalls(_ hold: Bool) {
+        holdingThreadCalls = hold
+    }
+
+    var heldThreadCallCount: Int {
+        heldThreadCalls.count
+    }
+
+    /// Releases the oldest held thread request, if any.
+    func releaseHeldThreadCall() {
+        guard !heldThreadCalls.isEmpty else { return }
+        heldThreadCalls.removeFirst().resume()
+    }
+
+    func loadThread(_ thread: MessageThread.ID, in _: Conversation.ID) async throws -> [Message] {
+        threadLoads.append(thread)
+        try await threadCallGate()
+        return threadPages[thread] ?? []
+    }
+
+    func setThreadFollowed(_ followed: Bool, thread _: MessageThread.ID, in _: Conversation.ID) async throws {
+        followRequests.append(followed)
+        try await threadCallGate()
+    }
+
+    func loadFollowedThreads() async throws -> [Message] {
+        followedThreadLoads += 1
+        try await threadCallGate()
+        return followedAnswer
+    }
+
+    /// Recording happens before this, in the same actor turn, so a test that
+    /// saw the call recorded knows it has already passed the hold check.
+    private func threadCallGate() async throws {
+        if holdingThreadCalls {
+            await withCheckedContinuation { heldThreadCalls.append($0) }
+        }
+        if failingThreadCalls {
+            throw ChatError.server(status: 500, message: "the thread call failed")
+        }
     }
 }

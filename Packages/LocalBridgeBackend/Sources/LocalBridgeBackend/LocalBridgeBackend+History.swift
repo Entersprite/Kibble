@@ -9,17 +9,14 @@ import GChatBridgeCore
 /// are: `swiftlint`'s `file_length`, and this is a coherent concern of its
 /// own rather than an arbitrary cut.
 public extension LocalBridgeBackend {
-    /// A page of history, via `TopicsRequestLadder.minimumViable(for:)` -
-    /// `request_header` + `group_id` + `page_size_for_topics: 50`, the
-    /// reference's own shape (`mautrix_googlechat/portal.py:408-416`).
-    ///
-    /// **`[Verify]`: no rung of `TopicsRequestLadder` has ever been sent
-    /// against live traffic.** `list_topics` has never been sent by anything
-    /// in this project, in any language - `findings.md` has no §20.1-style
-    /// live-run entry for it yet, the same posture `WorldMapping` correctly
-    /// held toward `WorldItemLite` before that section's run. Read
-    /// `TopicsRequestLadder.minimumViable(for:)`'s own doc comment before
-    /// trusting this shape.
+    /// A page of history, via `TopicsRequestLadder.history(for:)`: the
+    /// reference's `page_size_for_topics: 50` plus `page_size_for_replies:
+    /// 50`, so a thread's replies arrive with its first message (`findings.md`
+    /// §63.5), and each thread's read state is emitted as `.threadChanged`
+    /// (threads spec §2.2). A topic listing as many messages as the reply
+    /// cap may be a longer thread cut short, so only field 10 counts it,
+    /// because a count replaces the stored one; its read state is a snapshot
+    /// all the same, and clears a stale mark.
     ///
     /// **`before:` is ignored, and pagination is unimplemented.** The
     /// vendored `ListTopicsRequest` has no cursor or offset field - only
@@ -30,12 +27,9 @@ public extension LocalBridgeBackend {
     /// cursor out of a revision nobody has verified would be worse than
     /// admitting there is not one yet, so this always returns the first page.
     ///
-    /// **The threaded-reply follow-up is not attempted.** The reference sends
-    /// a `list_messages` call per topic when a group is threaded or
-    /// `topic.topic_read_state.thread_created_usec > 0`
-    /// (`portal.py:428-436`); `findings.md` §20.4 observed every conversation
-    /// on this account is flat, so exercising that path would be untestable
-    /// guesswork. `APIMethod.listMessages` is declared and never sent.
+    /// **No per-topic `list_messages` follow-up.** Replies come with the page;
+    /// a thread longer than 50 replies is read whole by `loadThread(_:in:)`
+    /// when its panel opens.
     ///
     /// This is the one package that imports both the domain and the
     /// generated protobuf, and the protobuf has a `Message` of its own -
@@ -57,10 +51,20 @@ public extension LocalBridgeBackend {
                     + "this backend produces, so no list_topics request can be built for it"
             )
         }
-        let rung = TopicsRequestLadder.minimumViable(for: group)
+        let rung = TopicsRequestLadder.history(for: group)
         do {
             let response = try await apiClient.call(.listTopics, rung.request)
             let mapped = HistoryMapping.map(response)
+            // Each thread's count, read position and mark, before the page
+            // is returned, so the store has both when the transcript draws.
+            // A listing that reaches the reply cap may be cut short, and
+            // `.counted` replaces the stored count, so it counts only under
+            // the cap; its read state is still a snapshot.
+            let cap = Int(rung.request.pageSizeForReplies)
+            for topic in response.topics {
+                let listing = ThreadMapping.Listing.history(countIsComplete: topic.replies.count < cap)
+                ThreadMapping.events(for: topic, in: conversationID, listing: listing).forEach(emit)
+            }
             // Same rule `loadConversations()` follows for `WorldMapping.Result.skipped`:
             // a count, never an id or message text, rather than a silently
             // shorter array.

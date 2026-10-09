@@ -130,4 +130,48 @@ struct UserNotificationDeliveryTests {
             .response(to: UNNotificationDefaultActionIdentifier, in: dm) == .open(dm))
         #expect(UserNotificationDelivery.response(to: UNNotificationDismissActionIdentifier, in: dm) == nil)
     }
+
+    // MARK: - Replies
+
+    private func notification(isReply: Bool) -> MessageNotification {
+        MessageNotification(
+            id: "m:reply", conversationID: Conversation.ID("space/1"), title: "Design", subtitle: nil,
+            body: "on it", createdAt: Date(timeIntervalSince1970: 1_790_000_000), isReply: isReply
+        )
+    }
+
+    /// A reply carries its message to the click; a top-level message carries
+    /// none, so its click stays `.open`.
+    @Test func onlyAReplyCarriesItsMessageToTheClick() {
+        let reply = UserNotificationDelivery.userInfo(for: notification(isReply: true))
+        #expect(UserNotificationDelivery.reply(in: reply) == Message.ID("m:reply"))
+        let topLevel = UserNotificationDelivery.userInfo(for: notification(isReply: false))
+        #expect(UserNotificationDelivery.reply(in: topLevel) == nil)
+        #expect(topLevel[UserNotificationDelivery.conversationKey] as? String == "space/1")
+    }
+
+    /// A reply's banner opens the reply; its buttons act on the conversation
+    /// as before.
+    @Test func theBannerOfAReplyOpensTheReplyAndItsButtonsAreUnchanged() {
+        let dm = Conversation.ID("dm/1")
+        let reply = Message.ID("m:reply")
+        #expect(UserNotificationDelivery.response(
+            to: UNNotificationDefaultActionIdentifier,
+            in: dm,
+            reply: reply
+        )
+            == .openMessage(dm, reply))
+        #expect(UserNotificationDelivery.response(
+            to: UserNotificationDelivery.markReadActionID,
+            in: dm,
+            reply: reply
+        )
+            == .markRead(dm))
+        #expect(UserNotificationDelivery.response(
+            to: UserNotificationDelivery.muteActionID,
+            in: dm,
+            reply: reply
+        )
+            == .mute(dm))
+    }
 }

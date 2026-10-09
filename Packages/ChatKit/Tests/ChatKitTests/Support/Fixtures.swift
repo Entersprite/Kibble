@@ -246,6 +246,15 @@ extension Fixture {
         Sample("event-statusChanged", .statusChanged(member: humanID, status: status)),
         Sample("event-calendarChanged", .calendarChanged(member: humanID, schedule: calendar)),
         Sample("event-availabilityChanged", .availabilityChanged(.away)),
+        Sample(
+            "event-threadChanged-counted",
+            .threadChanged(
+                threadID: threadID, conversationID: spaceID, change: .counted(messages: 5, unread: 1)
+            )
+        ),
+        Sample(
+            "event-unreadThreadsChanged", .unreadThreadsChanged(conversationID: spaceID, hasUnread: true)
+        ),
         Sample("event-gap", .gap(scope: .conversation(spaceID), reason: "event buffer overflow")),
         Sample("event-backendError", .backendError(.rateLimited(retryAfter: .milliseconds(1500)))),
         Sample("event-unknown", .unknown(type: "somethingNewer", payload: unknownPayload))
@@ -318,6 +327,14 @@ extension Fixture {
         Sample("command-setStatus", .setStatus(status)),
         Sample("command-setAvailability", .setAvailability(.doNotDisturb(until: readAt))),
         Sample("command-reportActivity", .reportActivity(active: true)),
+        Sample(
+            "command-markThreadRead",
+            .markThreadRead(conversationID: spaceID, threadID: threadID, upTo: readAt)
+        ),
+        Sample(
+            "command-setThreadUnreadMark",
+            .setThreadUnreadMark(conversationID: spaceID, threadID: threadID, at: createdAt)
+        ),
         Sample(
             "command-setNotificationLevel",
             .setNotificationLevel(conversationID: spaceID, level: .never)

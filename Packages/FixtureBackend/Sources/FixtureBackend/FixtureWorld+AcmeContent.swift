@@ -26,6 +26,10 @@ extension Acme {
         var links: [MessageLink] = []
         var cards: [AppCard] = []
 
+        /// A reply in `thread`, which an earlier line started. Said here,
+        /// never worked out from the ids (threads spec §1).
+        var isReply = false
+
         var message: Message {
             Message(
                 id: Message.ID(id),
@@ -38,19 +42,23 @@ extension Acme {
                 attachments: attachments,
                 mentions: mentions,
                 links: links,
-                cards: cards
+                cards: cards,
+                isReply: isReply
             )
         }
     }
 
     static func allMessages() -> [Message] {
-        ((priceEngineLines + otherSpaceLines + directLines).map(\.message)
+        ((priceEngineLines + otherSpaceLines + directLines + trimLines).map(\.message)
             + filler.map(\.message))
             .sorted { $0.createdAt < $1.createdAt }
     }
 
-    /// The threaded space, including one topic with four replies - the shape a
-    /// flat conversation cannot produce and the thread panel exists to render.
+    /// The threaded space: `topic:sync` with one reply and `topic:variance`
+    /// with four - the shape a flat conversation cannot produce and the
+    /// thread panel exists to render. Everywhere in this world a topic is
+    /// named after its first message and only replies share it, as on the
+    /// wire (`findings.md` §63.3).
     static let priceEngineLines: [Line] = [
         Line(
             id: "msg:pe-1", conversation: priceEngine, thread: "topic:sync", sender: maya,
@@ -61,7 +69,8 @@ extension Acme {
         Line(
             id: "msg:pe-2", conversation: priceEngine, thread: "topic:sync", sender: dan,
             text: "Nice. Are the flagged ones mostly the winter promo overlap again?",
-            minute: 22
+            minute: 22,
+            isReply: true
         ),
         Line(
             id: "msg:pe-3", conversation: priceEngine, thread: "topic:variance", sender: maya,
@@ -73,12 +82,14 @@ extension Acme {
         Line(
             id: "msg:pe-4", conversation: priceEngine, thread: "topic:variance", sender: priya,
             text: "The distributor ones are probably the MAP update from Tuesday.",
-            minute: 34
+            minute: 34,
+            isReply: true
         ),
         Line(
             id: "msg:pe-5", conversation: priceEngine, thread: "topic:variance", sender: dan,
             text: "Confirmed - the new MAP file is in the feed. Want me to auto-approve those?",
-            minute: 36
+            minute: 36,
+            isReply: true
         ),
         Line(
             id: "msg:pe-6", conversation: priceEngine, thread: "topic:variance", sender: maya,
@@ -88,13 +99,15 @@ extension Acme {
             attachments: [Attachment(
                 id: "fixture-upload:map-file", name: "MAP update - Tuesday.pdf",
                 contentType: "application/pdf"
-            )]
+            )],
+            isReply: true
         ),
         Line(
             id: "msg:pe-mention", conversation: priceEngine, thread: "topic:variance", sender: maya,
             text: "@Alex Carter can you sign off on the approval rule before standup?",
             minute: 44,
-            mentions: [Mention(target: .user(alex), start: 0, length: 12)]
+            mentions: [Mention(target: .user(alex), start: 0, length: 12)],
+            isReply: true
         ),
         Line(
             id: "msg:pe-7", conversation: priceEngine, thread: "topic:standup", sender: alex,
@@ -116,7 +129,7 @@ extension Acme {
             )]
         ),
         Line(
-            id: "msg:sw-2", conversation: storefront, thread: "topic:checkout", sender: tom,
+            id: "msg:sw-2", conversation: storefront, thread: "topic:sw-2", sender: tom,
             text: "That tracks with the session recordings - people were abandoning at "
                 + "the shipping step.",
             minute: -5
@@ -128,7 +141,7 @@ extension Acme {
             mentions: [Mention(target: .all, start: 0, length: 4)]
         ),
         Line(
-            id: "msg:sw-3", conversation: storefront, thread: "topic:rollout", sender: priya,
+            id: "msg:sw-3", conversation: storefront, thread: "topic:sw-3", sender: priya,
             text: "Proposing we roll it to 100% on Thursday. Objections before I write it up?",
             minute: 2
         ),
@@ -139,12 +152,12 @@ extension Acme {
             minute: -1440
         ),
         Line(
-            id: "msg:fd-2", conversation: catalog, thread: "topic:import", sender: alex,
+            id: "msg:fd-2", conversation: catalog, thread: "topic:fd-2", sender: alex,
             text: "Any conflicts with the existing entries? Those were messy last time.",
             minute: -1420
         ),
         Line(
-            id: "msg:fd-3", conversation: catalog, thread: "topic:import", sender: alex,
+            id: "msg:fd-3", conversation: catalog, thread: "topic:fd-3", sender: alex,
             text: "Spring catalog specs: https://acme.example/specs/spring",
             minute: -1400,
             links: [MessageLink(
@@ -157,7 +170,7 @@ extension Acme {
             )]
         ),
         Line(
-            id: "msg:fd-4", conversation: catalog, thread: "topic:import", sender: tom,
+            id: "msg:fd-4", conversation: catalog, thread: "topic:fd-4", sender: tom,
             text: "The import runbook is in the wiki.",
             minute: -1398,
             links: [MessageLink(
@@ -167,7 +180,7 @@ extension Acme {
             )]
         ),
         Line(
-            id: "msg:fd-5", conversation: catalog, thread: "topic:import", sender: alex,
+            id: "msg:fd-5", conversation: catalog, thread: "topic:fd-5", sender: alex,
             text: "For whoever finishes the trim mapping:",
             minute: -1396,
             links: [MessageLink(
@@ -179,7 +192,7 @@ extension Acme {
             )]
         ),
         Line(
-            id: "msg:fd-6", conversation: catalog, thread: "topic:import", sender: deployBot,
+            id: "msg:fd-6", conversation: catalog, thread: "topic:fd-6", sender: deployBot,
             text: "",
             minute: -1390,
             cards: [deployCard]
@@ -190,7 +203,7 @@ extension Acme {
             minute: 57
         ),
         Line(
-            id: "msg:st-2", conversation: standup, thread: "topic:meet-standup", sender: dan,
+            id: "msg:st-2", conversation: standup, thread: "topic:st-2", sender: dan,
             text: "Joining a minute late, wrapping up a deploy.",
             minute: 59
         )
@@ -203,12 +216,12 @@ extension Acme {
             minute: 58
         ),
         Line(
-            id: "msg:lt-2", conversation: launchTeam, thread: "topic:launch", sender: priya,
+            id: "msg:lt-2", conversation: launchTeam, thread: "topic:lt-2", sender: priya,
             text: "Copy drafts land today. Dan, can you own the redirect table?",
             minute: 64
         ),
         Line(
-            id: "msg:lt-3", conversation: launchTeam, thread: "topic:launch", sender: dan,
+            id: "msg:lt-3", conversation: launchTeam, thread: "topic:lt-3", sender: dan,
             text: "On it. Redirects done by end of day.",
             minute: 66
         ),
@@ -217,6 +230,7 @@ extension Acme {
             text: "Can you review the variance list before standup?",
             minute: 55
         ),
+        // A DM thread: Alex's message, Dan's reply, Alex's reply.
         Line(
             id: "msg:dd-1", conversation: danDM, thread: "topic:dm-dan", sender: alex,
             text: "Feed parser fix looks good, shipped it.",
@@ -225,7 +239,14 @@ extension Acme {
         Line(
             id: "msg:dd-2", conversation: danDM, thread: "topic:dm-dan", sender: dan,
             text: "Thanks - I will close out the incident doc today.",
-            minute: -1390
+            minute: -1390,
+            isReply: true
+        ),
+        Line(
+            id: "msg:dd-3", conversation: danDM, thread: "topic:dm-dan", sender: alex,
+            text: "Ping me if the doc needs a timeline.",
+            minute: -1385,
+            isReply: true
         )
     ]
 }
@@ -233,13 +254,19 @@ extension Acme {
 // MARK: - The demo script
 
 public extension FixtureScript {
-    /// What the demo world does while you watch it.
+    /// What the demo world does while you watch it, ending with replies
+    /// arriving in followed threads (`acmeReplyArrives`).
     ///
-    /// Paced for a human: `FixtureDemoDriver` honours these delays, while a
+    /// Paced for a human: `FixtureDemoDriver` honors these delays, while a
     /// test playing the same script sees every event instantly. Every
     /// identifier here is checked against `FixtureWorld.acme` by a test,
     /// because a script naming a missing person throws mid-demo.
-    static let acmeDemo = FixtureScript(steps: [
+    static let acmeDemo = FixtureScript(steps: acmeDemoSteps + acmeReplyArrives.steps)
+
+    /// Maya's DM is a new topic (`thread: nil`), so it makes the DM unread,
+    /// which is what her typing leads into. Priya's message is a reply in
+    /// `topic:variance`.
+    private static let acmeDemoSteps: [FixtureStep] = [
         .delay(.seconds(4)),
         .typing(conversation: Acme.mayaDM, member: Acme.maya, isTyping: true),
         .delay(.seconds(3)),
@@ -248,7 +275,7 @@ public extension FixtureScript {
             conversation: Acme.mayaDM,
             from: Acme.maya,
             text: "Also - the approval rule is ready to ship whenever you are.",
-            thread: MessageThread.ID("topic:dm-maya")
+            thread: nil
         ),
         .delay(.seconds(6)),
         .reaction(messageID: Message.ID("msg:pe-7"), emoji: "🎉", by: Acme.dan, add: true),
@@ -262,7 +289,7 @@ public extension FixtureScript {
         .delay(.seconds(8)),
         .presence(member: Acme.priya, presence: .active),
         .delay(.seconds(10))
-    ])
+    ]
 }
 
 // MARK: - The demo world's app card

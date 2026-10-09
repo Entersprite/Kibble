@@ -32,6 +32,10 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     /// §42.2) - a rounding error there is the difference between a banner
     /// withdrawn and one left up.
     static let createdAtKey = "createdAtMicros"
+    /// A reply's message id, so its click opens the reply rather than only
+    /// its conversation (threads spec §4.3). Absent on a top-level message,
+    /// whose click stays `.open`.
+    static let replyKey = "replyMessageID"
 
     override public init() {
         // Buffered so a click that launches the app is still there when the
@@ -72,14 +76,33 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
 
     static func response(
         to actionIdentifier: String,
-        in conversation: Conversation.ID
+        in conversation: Conversation.ID,
+        reply: Message.ID? = nil
     ) -> NotificationResponse? {
         switch actionIdentifier {
         case markReadActionID: .markRead(conversation)
         case muteActionID: .mute(conversation)
-        case UNNotificationDefaultActionIdentifier: .open(conversation)
+        case UNNotificationDefaultActionIdentifier:
+            reply.map { NotificationResponse.openMessage(conversation, $0) } ?? .open(conversation)
         default: nil
         }
+    }
+
+    /// What a posted notification carries back to its click and its withdraw.
+    static func userInfo(for notification: MessageNotification) -> [AnyHashable: Any] {
+        var userInfo: [AnyHashable: Any] = [
+            conversationKey: notification.conversationID.rawValue,
+            createdAtKey: micros(notification.createdAt)
+        ]
+        if notification.isReply {
+            userInfo[replyKey] = notification.id
+        }
+        return userInfo
+    }
+
+    /// The reply a clicked notification names, or `nil` for a top-level message.
+    static func reply(in userInfo: [AnyHashable: Any]) -> Message.ID? {
+        (userInfo[replyKey] as? String).map { Message.ID($0) }
     }
 
     /// `.badge` as well as alerts and sounds: once an app registers with
@@ -103,10 +126,7 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
         // `withdraw` filters on.
         content.threadIdentifier = notification.conversationID.rawValue
         content.categoryIdentifier = Self.category(for: notification)
-        content.userInfo = [
-            Self.conversationKey: notification.conversationID.rawValue,
-            Self.createdAtKey: Self.micros(notification.createdAt)
-        ]
+        content.userInfo = Self.userInfo(for: notification)
         let request = UNNotificationRequest(identifier: notification.id, content: content, trigger: nil)
         try? await center.add(request)
     }
@@ -197,7 +217,9 @@ extension UserNotificationDelivery: UNUserNotificationCenterDelegate {
         let userInfo = response.notification.request.content.userInfo
         guard let raw = userInfo[Self.conversationKey] as? String else { return }
         let conversation = Conversation.ID(raw)
-        if let response = Self.response(to: response.actionIdentifier, in: conversation) {
+        if let response = Self.response(
+            to: response.actionIdentifier, in: conversation, reply: Self.reply(in: userInfo)
+        ) {
             continuation.yield(response)
         }
     }
