@@ -47,19 +47,23 @@ public struct ThreadPanelState: Sendable, Equatable {
     public var scrollTarget: Message.ID?
     /// A Follow or Unfollow is on its way: the toggle waits for it.
     public var followPending: Bool
+    /// The files staged in this thread's composer (session 60).
+    public var stagedAttachments: [ComposerAttachment]
 
     public init(
         thread: MessageThread,
         conversationTitle: String,
         messages: [Message] = [],
         scrollTarget: Message.ID? = nil,
-        followPending: Bool = false
+        followPending: Bool = false,
+        stagedAttachments: [ComposerAttachment] = []
     ) {
         self.thread = thread
         self.conversationTitle = conversationTitle
         self.messages = messages
         self.scrollTarget = scrollTarget
         self.followPending = followPending
+        self.stagedAttachments = stagedAttachments
     }
 
     /// The message that started the thread, when the store has it.
@@ -120,6 +124,9 @@ public struct ThreadActions {
     public var markUnread: (Message) -> Void
     public var showList: () -> Void
     public var openItem: (Conversation.ID, MessageThread.ID) -> Void
+    /// The open thread's files: the +, its chips and drops on the panel.
+    /// `nil` draws no + there and takes no drop (session 60).
+    public var attachments: ComposerAttachmentActions?
 
     public init(
         open: @escaping (MessageThread.ID) -> Void,
@@ -128,7 +135,8 @@ public struct ThreadActions {
         setFollowed: @escaping (Bool) -> Void,
         markUnread: @escaping (Message) -> Void,
         showList: @escaping () -> Void,
-        openItem: @escaping (Conversation.ID, MessageThread.ID) -> Void
+        openItem: @escaping (Conversation.ID, MessageThread.ID) -> Void,
+        attachments: ComposerAttachmentActions? = nil
     ) {
         self.open = open
         self.close = close
@@ -137,5 +145,6 @@ public struct ThreadActions {
         self.markUnread = markUnread
         self.showList = showList
         self.openItem = openItem
+        self.attachments = attachments
     }
 }

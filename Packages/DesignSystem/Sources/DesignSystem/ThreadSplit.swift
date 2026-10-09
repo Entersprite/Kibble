@@ -54,6 +54,8 @@ struct ThreadSplit: ViewModifier {
     let threads: ThreadActions?
     let own: (Message) -> OwnMessageHandlers?
     let editing: ComposerEditing?
+    /// Where a drop on the panel goes (`ChatWindow.panelDropStage`).
+    let dropStage: (([URL]) -> Void)?
     /// The panel's share, the window's for as long as it is open.
     @Binding var share: CGFloat
 
@@ -74,7 +76,7 @@ struct ThreadSplit: ViewModifier {
                         .zIndex(1)
                     ThreadPanel(
                         panel: panel, state: state, actions: actions, threads: threads,
-                        own: own, editing: editing
+                        own: own, editing: editing, dropStage: dropStage
                     )
                     .frame(width: layout.panel)
                 }

@@ -271,9 +271,9 @@ public struct ChatSceneActions {
     /// row and no menu.
     public var reactions: ReactionActions?
 
-    /// Stage files to send: the composer's paperclip, files dropped on the
+    /// Stage files to send: the composer's +, files dropped on the
     /// conversation, and removing one. **Optional, and `nil` is the point**:
-    /// a backend that cannot upload gets neither the paperclip nor a drop
+    /// a backend that cannot upload gets neither the + nor a drop
     /// target.
     public var composerAttachments: ComposerAttachmentActions?
 

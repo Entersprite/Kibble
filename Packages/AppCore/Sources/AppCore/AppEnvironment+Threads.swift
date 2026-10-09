@@ -43,7 +43,8 @@ extension AppEnvironment {
             conversationTitle: Display.title(of: conversation, directory: model.directory, me: model.me),
             messages: model.threads.messages,
             scrollTarget: model.threads.scrollTarget,
-            followPending: model.threads.followPending
+            followPending: model.threads.followPending,
+            stagedAttachments: Self.composerAttachments(model.threadStagedAttachments)
         )
     }
 
@@ -59,7 +60,8 @@ extension AppEnvironment {
             showList: { [weak self] in self?.runningModel?.showThreads() },
             openItem: { [weak self] conversation, thread in
                 self?.runningModel?.openThreadItem(thread, in: conversation)
-            }
+            },
+            attachments: composerAttachmentActions(in: .openThread)
         )
     }
 }

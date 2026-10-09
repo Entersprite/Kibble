@@ -32,6 +32,16 @@ enum ThreadEditRouting {
         editing == nil || composer == editing
     }
 
+    /// Whether a composer takes dropped files: only while it is not editing,
+    /// since an edit never carries files (edit spec §5). The other
+    /// composer's edit leaves it free. An edit neither list holds (its
+    /// message deleted meanwhile) still has its composer in edit mode, and
+    /// which one is unknown, so neither takes files then.
+    static func takesDrops(in composer: Owner, editing: Owner?, anyEdit: Bool) -> Bool {
+        guard anyEdit else { return true }
+        return editing != nil && editing != composer
+    }
+
     /// Whether an edit outlives the panel changing thread or closing: only
     /// the transcript's. The panel's composer goes with its thread without
     /// ending its edit, so the window forgets that edit, or reopening the
@@ -52,6 +62,8 @@ struct ThreadPanel: View {
     /// Each bubble's menus (`ChatWindow.panelHandlers(for:)`).
     let own: (Message) -> OwnMessageHandlers?
     let editing: ComposerEditing?
+    /// Where a drop on the panel goes (`ChatWindow.panelDropStage`).
+    let dropStage: (([URL]) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -62,6 +74,9 @@ struct ThreadPanel: View {
                     composer
                         .background(alignment: .bottom) { ComposerScrim() }
                 }
+                // Its own target: the conversation's covers the transcript
+                // only, so a file dropped here goes to the thread.
+                .modifier(FileDropTarget(stage: dropStage))
         }
         #if os(macOS)
         // Esc closes the panel only when nothing inside used it (ruling 5).
@@ -115,6 +130,8 @@ struct ThreadPanel: View {
         if state.capabilities.canSendMessages, let conversation = state.selectedConversation {
             Composer(
                 placeholder: "the thread",
+                attachments: panel.stagedAttachments,
+                attachmentActions: threads.attachments,
                 mentions: state.capabilities.canMention
                     ? ComposerMentions(
                         candidates: state.mentionCandidates,

@@ -76,7 +76,8 @@ public struct ChatWindow: View {
                     .modifier(FileDropTarget(stage: dropStage))
                     .modifier(ThreadSplit(
                         state: state, actions: actions, threads: offeredThreadActions,
-                        own: { panelHandlers(for: $0) }, editing: panelEditing(), share: $threadShare
+                        own: { panelHandlers(for: $0) }, editing: panelEditing(), dropStage: panelDropStage,
+                        share: $threadShare
                     ))
                 } else {
                     ContentUnavailableView(
@@ -151,9 +152,13 @@ public struct ChatWindow: View {
     /// Where a drop goes, if anywhere: only where the composer is drawn and
     /// the host can stage files.
     private var dropStage: (([URL]) -> Void)? {
-        // Not while this composer edits: an edit never carries files (edit
-        // spec §5). The panel's edit leaves this composer free.
-        guard state.capabilities.canSendMessages, editingMessage == nil || panelIsEditing else { return nil }
+        guard state.capabilities.canSendMessages,
+              ThreadEditRouting.takesDrops(
+                  in: .transcript,
+                  editing: editOwner,
+                  anyEdit: editingMessage != nil
+              )
+        else { return nil }
         return actions.composerAttachments?.stage
     }
 
@@ -176,30 +181,33 @@ struct FileDropTarget: ViewModifier {
     let stage: (([URL]) -> Void)?
     @State private var isTargeted = false
 
+    /// Always attached, refusing when there is nowhere to stage. Drawing
+    /// `content` bare in a second branch gave it a new identity whenever
+    /// drops turned off, which they do when an edit begins, so the composer
+    /// under it was rebuilt mid-edit and Up arrow's edit was lost (session 60
+    /// review, Important 1). A refused drag shows no tint; what the cursor
+    /// shows over it is `[Verify]`.
     func body(content: Content) -> some View {
-        if let stage {
-            content
-                .dropDestination(for: URL.self) { urls, _ in
-                    let files = urls.filter(\.isFileURL)
-                    guard !files.isEmpty else { return false }
-                    stage(files)
-                    return true
-                } isTargeted: { isTargeted = $0 }
-                .overlay {
-                    if isTargeted {
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.accentColor, lineWidth: 2)
-                            .background(
-                                Color.accentColor.opacity(0.08),
-                                in: RoundedRectangle(cornerRadius: 12)
-                            )
-                            .padding(6)
-                            .allowsHitTesting(false)
-                    }
+        content
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let stage else { return false }
+                let files = urls.filter(\.isFileURL)
+                guard !files.isEmpty else { return false }
+                stage(files)
+                return true
+            } isTargeted: { isTargeted = $0 }
+            .overlay {
+                if isTargeted, stage != nil {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .background(
+                            Color.accentColor.opacity(0.08),
+                            in: RoundedRectangle(cornerRadius: 12)
+                        )
+                        .padding(6)
+                        .allowsHitTesting(false)
                 }
-        } else {
-            content
-        }
+            }
     }
 }
 

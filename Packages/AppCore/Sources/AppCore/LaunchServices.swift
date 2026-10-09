@@ -70,7 +70,7 @@ public protocol LaunchServices: AnyObject {
 
     /// Asks which files to send, and answers the files chosen, or none when
     /// the person cancelled. A requirement with a default, so a host with no
-    /// picker answers none and the composer's paperclip does nothing worse
+    /// picker answers none and the composer's + does nothing worse
     /// than nothing.
     func chooseFilesToSend() -> [URL]
 }
