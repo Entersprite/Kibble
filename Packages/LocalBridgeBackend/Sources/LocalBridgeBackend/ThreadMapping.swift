@@ -6,11 +6,14 @@ import GChatBridgeCore
 /// what a topic's read state says about its thread. The one place these are
 /// decided, for history, pushes and `list_messages` alike.
 enum ThreadMapping {
-    /// `[Verify]` until the owner's §64.9 run: whether `TopicReadState` field 4
-    /// is the thread's unread count. A conversation's own field 4 is always
-    /// zero (`findings.md` §37.8), so it is not trusted until measured. While
-    /// `false`, history's `.counted` says nothing about unread, and the
-    /// store's fallback rule decides (Task 5).
+    /// Whether `TopicReadState` field 4 is taken as the thread's unread count.
+    /// The owner's run measured it (`findings.md` §64.9): on 68 of 68 threads
+    /// it is the number of messages newer than the read time, **the first
+    /// message included** when it is newer too. That differs from the reply
+    /// count on 55 threads, all read before they began, so by the plan's own
+    /// table it stays `false`: field 4 would call those 55 unread, and the
+    /// store's fallback rule (Task 5) calls a thread with no read position
+    /// read. While `false`, history's `.counted` says nothing about unread.
     static let unreadCountIsField4 = false
 
     /// Field 34 when present (217 of 217 replies, §63.3); without it, a reply

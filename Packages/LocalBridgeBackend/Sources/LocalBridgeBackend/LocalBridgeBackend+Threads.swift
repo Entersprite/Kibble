@@ -8,7 +8,9 @@ import GChatBridgeCore
 public extension LocalBridgeBackend {
     /// `list_messages`' page for a thread, here and in the reaction refetch: a
     /// thread is capped at 500 replies (§63.7, `[Verify]`), and the call has no
-    /// cursor and answers the oldest end, so one page is the whole thread.
+    /// cursor and answers the oldest end, so one page is the whole thread. The
+    /// owner's run sent it on a 39-message thread: all 39, oldest first, the
+    /// same as history listed; page 2 gave the oldest 2 (§64.9).
     static let threadPageSize: Int32 = 500
 
     /// A thread, its first message included, oldest first. Also asks

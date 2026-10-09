@@ -145,9 +145,10 @@ public enum TopicsRequestLadder {
     /// What history sends since the threads work (threads spec §2.2): rung 3,
     /// the reference's request plus `page_size_for_replies: 50`, so a thread's
     /// replies arrive with its first message (`findings.md` §63.5, about 2.4
-    /// times rung 2's bytes on the probed space). Rung 4 instead, if the
-    /// owner's §64.9 run shows its `TOTAL_MESSAGE_COUNTS` brings
-    /// `TopicReadState` field 10.
+    /// times rung 2's bytes on the probed space). Without it, 68 of 68 threads
+    /// carried their first message only (§64.9). Not rung 4: its
+    /// `TOTAL_MESSAGE_COUNTS` brings `TopicReadState` field 10, but field 10 is
+    /// not the thread's count (§64.9).
     public static func history(for group: GroupId) -> Rung {
         rungs(for: group)[2]
     }

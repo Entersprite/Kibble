@@ -127,8 +127,9 @@ struct ThreadMappingTests {
         #expect(changes(thread, listing: .history(countIsComplete: false)) == [.markedUnread(at: nil)])
     }
 
-    /// Field 4 is not trusted until §64.9 says it is the count.
-    @Test func fieldFourIsNotTheUnreadCountYet() {
+    /// Field 4 counts the first message too (§64.9), so it is not taken as
+    /// the unread count.
+    @Test func fieldFourIsNotTheUnreadCount() {
         #expect(!ThreadMapping.unreadCountIsField4)
         let thread = topic([message("t-1"), message("r-1", inlineReply: true)], unread: 1)
         #expect(changes(thread).first == .counted(messages: 2, unread: nil))

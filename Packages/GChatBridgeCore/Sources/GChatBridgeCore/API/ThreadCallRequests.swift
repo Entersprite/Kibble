@@ -46,7 +46,7 @@ public enum ThreadCallRequests {
 
     /// The Threads list: `paginated_world` as Home's Threads chip sends it (§64.6), followed threads
     /// only, newest first, one reply each, plus `fetch_from_user_spaces`, without which §64.7's
-    /// answer was empty. That it brings the list back is `[Verify]` until §64.9.
+    /// answer was empty. With it the answer was empty too: 200, two bytes, no thread (§64.9).
     public static func followedThreads(pageSize: Int32 = 30) -> PaginatedWorldRequest {
         var request = PaginatedWorldRequest()
         request.requestHeader = APIRequestHeader.make()
