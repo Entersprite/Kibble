@@ -58,28 +58,85 @@ struct ThreadSplit: ViewModifier {
     let dropStage: (([URL]) -> Void)?
     /// The panel's share, the window's for as long as it is open.
     @Binding var share: CGFloat
+    /// The conversation's title and subtitle, which the split draws itself
+    /// while it owns the title (`ownsTitle`).
+    let title: String
+    let subtitle: String
+    let sidebarShown: Bool
 
     /// Shown only with a panel to draw and the thread actions to draw it with.
     var isPresented: Bool {
         threads != nil && state.threads.panel != nil
     }
 
+    /// Whether the conversation's title is drawn here, in its own column,
+    /// rather than by AppKit, whose title spans the detail column and runs a
+    /// long name under the thread's (session 63). Only with the sidebar shown:
+    /// collapsed, AppKit's title starts past the window's buttons, at a place
+    /// SwiftUI cannot read, and the wider transcript needs a longer name to
+    /// reach the panel. Under `StatusStrip` the bar is an ordinary row.
+    var ownsTitle: Bool {
+        isPresented && sidebarShown
+    }
+
+    /// The toolbar modifiers sit outside the `GeometryReader`, so they are
+    /// not rebuilt on every layout pass. Moving them changed neither the CPU
+    /// a resize costs nor how the band draws (session 63, measured and seen).
     func body(content: Content) -> some View {
         GeometryReader { proxy in
             let layout = ThreadSplitLayout(total: proxy.size.width, share: share)
+            let band = proxy.safeAreaInsets.top
             HStack(spacing: 0) {
+                // A bar, as the panel's title is, raised into the band. Text
+                // laid over the transcript instead had the messages scroll
+                // through it, unblurred: the toolbar's blur went with AppKit's
+                // title (session 63, the owner's screenshot). Always applied,
+                // with only its contents and edges changing, so the transcript
+                // keeps its identity.
                 content
+                    .safeAreaBar(edge: .top, spacing: 0) {
+                        if ownsTitle {
+                            ColumnTitle(title: title, subtitle: subtitle)
+                                .padding(.horizontal, ColumnTitle.inset)
+                                .padding(.vertical, band > 0 ? 0 : 8)
+                                .frame(maxWidth: .infinity, minHeight: band, alignment: .leading)
+                        }
+                    }
+                    .ignoresSafeArea(.container, edges: ownsTitle ? .top : [])
                     .frame(width: isPresented ? layout.transcript : proxy.size.width)
                 if let threads, let panel = state.threads.panel {
                     ThreadSplitDivider(share: $share, total: proxy.size.width, position: layout.transcript)
+                        // Through the toolbar's band too, between the two titles.
+                        .ignoresSafeArea(.container, edges: .top)
                         // Above the panel, so the grip's half over it still takes the drag.
                         .zIndex(1)
                     ThreadPanel(
                         panel: panel, state: state, actions: actions, threads: threads,
-                        own: own, editing: editing, dropStage: dropStage
+                        own: own, editing: editing, dropStage: dropStage, band: band
                     )
                     .frame(width: layout.panel)
                 }
+            }
+        }
+        .toolbar(removing: ownsTitle ? .title : nil)
+        .toolbar {
+            // AppKit's title is what pushed the buttons to the trailing
+            // edge; without it they sat beside the sidebar button.
+            if ownsTitle {
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+            }
+            if let threads, let panel = state.threads.panel {
+                // Their own glass, the composer's, not the toolbar's capsule.
+                // Built on a reading of twelve builds that a toolbar item's
+                // glass, over the band's backing, drew the thread's header
+                // solid; whether this blurs it is `[Verify]` (session 63 §9).
+                ToolbarItem(placement: .primaryAction) {
+                    HStack(spacing: ComposerLayout.spacing) {
+                        ThreadFollowButton(panel: panel, threads: threads)
+                        ThreadCloseButton(threads: threads)
+                    }
+                }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
     }

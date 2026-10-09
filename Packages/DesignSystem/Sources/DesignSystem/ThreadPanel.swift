@@ -51,9 +51,10 @@ enum ThreadEditRouting {
     }
 }
 
-/// The thread on the right (threads spec §5.2): a header with Follow, the
-/// first message and its replies drawn by the transcript's own bubble, and a
-/// composer of its own.
+/// The thread on the right (threads spec §5.2): the first message and its
+/// replies drawn by the transcript's own bubble, and a composer of its own.
+/// Its title sits in the window toolbar's band, as the conversation's does,
+/// and its Follow and Close sit in the toolbar (`ThreadFollowButton`, `ThreadCloseButton`).
 struct ThreadPanel: View {
     let panel: ThreadPanelState
     let state: ChatSceneState
@@ -64,64 +65,35 @@ struct ThreadPanel: View {
     let editing: ComposerEditing?
     /// Where a drop on the panel goes (`ChatWindow.panelDropStage`).
     let dropStage: (([URL]) -> Void)?
+    /// The height of the window toolbar's band above the panel, or 0 when
+    /// something else is drawn between them (`StatusStrip`).
+    let band: CGFloat
 
+    /// The title is a bar the replies scroll under, raised into the band so
+    /// it sits level with the window's title. Below the band, with a divider,
+    /// it left the band empty above it (session 63).
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ThreadPanelList(panel: panel, state: state, actions: actions, own: own)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    composer
-                        .background(alignment: .bottom) { ComposerScrim() }
-                }
-                // Its own target: the conversation's covers the transcript
-                // only, so a file dropped here goes to the thread.
-                .modifier(FileDropTarget(stage: dropStage))
-        }
+        ThreadPanelList(panel: panel, state: state, actions: actions, own: own)
+            .safeAreaBar(edge: .top, spacing: 0) {
+                ColumnTitle(title: "Thread", subtitle: panel.conversationTitle)
+                    .padding(.leading, ColumnTitle.inset)
+                    // In the band, clear of Follow and Close above it.
+                    .padding(.trailing, band > 0 ? ThreadFollowButton.reserve : ColumnTitle.inset)
+                    .padding(.vertical, band > 0 ? 0 : 8)
+                    .frame(maxWidth: .infinity, minHeight: band, alignment: .leading)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                composer
+                    .background(alignment: .bottom) { ComposerScrim() }
+            }
+            // Its own target: the conversation's covers the transcript
+            // only, so a file dropped here goes to the thread.
+            .modifier(FileDropTarget(stage: dropStage))
+            .ignoresSafeArea(.container, edges: .top)
         #if os(macOS)
-        // Esc closes the panel only when nothing inside used it (ruling 5).
-        .onExitCommand { threads.close() }
+            // Esc closes the panel only when nothing inside used it (ruling 5).
+            .onExitCommand { threads.close() }
         #endif
-    }
-
-    private var isFollowed: Bool {
-        panel.thread.isFollowed ?? false
-    }
-
-    private var followSymbol: String {
-        isFollowed ? ThreadsPresentation.followingSymbol : ThreadsPresentation.followSymbol
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Thread")
-                    .font(.headline)
-                Text(panel.conversationTitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            Button {
-                threads.setFollowed(!isFollowed)
-            } label: {
-                Label(ThreadsPresentation.followTitle(isFollowed: isFollowed), systemImage: followSymbol)
-            }
-            .controlSize(.small)
-            // The toggle changes only once the server agreed (spec §3).
-            .disabled(panel.followPending)
-            Button {
-                threads.close()
-            } label: {
-                Label("Close Thread", systemImage: ThreadsPresentation.closeSymbol)
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help("Close Thread")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     /// `Composer` writes "Message " before its placeholder, so this reads
@@ -149,6 +121,60 @@ struct ThreadPanel: View {
             // conversation and thread, since a thread id is unique only in
             // its conversation.
             .id(ThreadListItem.Key(conversation: panel.thread.conversationID, thread: panel.thread.id))
+        }
+    }
+}
+
+/// Follow, beside Close in a toolbar item at the window's trailing edge,
+/// which is always over the panel (`ThreadSplit`). **The item at its own
+/// size:** one sized to the panel was not laid out again when the panel's
+/// width changed (past the window's edge after one resize, gone after the
+/// next), and a flexible one was held at its minimum (session 63).
+struct ThreadFollowButton: View {
+    let panel: ThreadPanelState
+    let threads: ThreadActions
+
+    /// How far the panel's title keeps from the window's trailing edge: the
+    /// buttons' item at its widest ("Following", 152 pt), the toolbar's 8-pt
+    /// margin, and 8 pt (measured, session 63).
+    static let reserve: CGFloat = 168
+
+    var body: some View {
+        Button {
+            threads.setFollowed(!isFollowed)
+        } label: {
+            Label(ThreadsPresentation.followTitle(isFollowed: isFollowed), systemImage: followSymbol)
+                // A toolbar draws icons alone, and a bare + reads as "new".
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .frame(height: ComposerLayout.lineHeight)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        // The composer's glass, in a capsule for the words.
+        .glassEffect(.regular.interactive(), in: .capsule)
+        // The toggle changes only once the server agreed (spec §3).
+        .disabled(panel.followPending)
+    }
+
+    private var isFollowed: Bool {
+        panel.thread.isFollowed ?? false
+    }
+
+    private var followSymbol: String {
+        isFollowed ? ThreadsPresentation.followingSymbol : ThreadsPresentation.followSymbol
+    }
+}
+
+struct ThreadCloseButton: View {
+    let threads: ThreadActions
+
+    /// The composer's round button, so the two sets of buttons match.
+    var body: some View {
+        ComposerRoundButton(title: "Close Thread", systemImage: ThreadsPresentation.closeSymbol) {
+            threads.close()
         }
     }
 }

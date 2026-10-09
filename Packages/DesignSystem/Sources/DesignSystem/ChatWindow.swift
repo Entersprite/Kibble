@@ -23,6 +23,8 @@ public struct ChatWindow: View {
     /// The thread panel's share of the width (`ThreadSplit`), kept while the
     /// window is open.
     @State var threadShare = ThreadSplitLayout.initialShare
+    /// Whether the sidebar shows, which decides who draws the title (`ThreadSplit`).
+    @State var columns = NavigationSplitViewVisibility.automatic
 
     public init(state: ChatSceneState, actions: ChatSceneActions) {
         self.state = state
@@ -30,7 +32,7 @@ public struct ChatWindow: View {
     }
 
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             ConversationList(state: state, actions: actions)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
@@ -77,7 +79,8 @@ public struct ChatWindow: View {
                     .modifier(ThreadSplit(
                         state: state, actions: actions, threads: offeredThreadActions,
                         own: { panelHandlers(for: $0) }, editing: panelEditing(), dropStage: panelDropStage,
-                        share: $threadShare
+                        share: $threadShare, title: title, subtitle: subtitle,
+                        sidebarShown: columns != .detailOnly
                     ))
                 } else {
                     ContentUnavailableView(
