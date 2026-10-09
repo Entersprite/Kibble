@@ -86,16 +86,6 @@ public extension ChatStore {
         try database.read { db in try Self.fetchFollowedThreads(limit: limit, db) }
     }
 
-    /// **Duplicates are dropped**, as `observeConversations` drops them: every
-    /// write to `message` or `thread` re-runs this read, and most change no
-    /// followed thread.
-    func observeFollowedThreads(limit: Int) -> AsyncValueObservation<[FollowedThread]> {
-        ValueObservation
-            .tracking { db in try Self.fetchFollowedThreads(limit: limit, db) }
-            .removeDuplicates()
-            .values(in: database)
-    }
-
     /// The Threads row's badge: every unread thread the list would show, not
     /// only the `limit` it shows.
     func unreadThreadCount() throws -> Int {
@@ -107,10 +97,31 @@ public extension ChatStore {
         try database.read(Self.fetchUnreadThreads)
     }
 
-    /// Duplicates dropped, for `observeFollowedThreads(limit:)`'s reason.
-    func observeUnreadThreads() -> AsyncValueObservation<UnreadThreads> {
-        ValueObservation.tracking(Self.fetchUnreadThreads).removeDuplicates().values(in: database)
+    /// The Threads list, its badge and the sidebar's dots, from one read.
+    func followedThreadsOverview(limit: Int) throws -> FollowedThreadsOverview {
+        try database.read { db in try Self.fetchFollowedThreadsOverview(limit: limit, db) }
     }
+
+    /// What the session watches for the list, the badge and the dots
+    /// (session 61). **Duplicates are dropped**, as `observeConversations`
+    /// drops them: every write to `message` or `thread` re-runs this read,
+    /// and most change no followed thread.
+    func observeFollowedThreadsOverview(limit: Int) -> AsyncValueObservation<FollowedThreadsOverview> {
+        ValueObservation
+            .tracking { db in try Self.fetchFollowedThreadsOverview(limit: limit, db) }
+            .removeDuplicates()
+            .values(in: database)
+    }
+}
+
+/// The Threads list and its badge and dots, from one read of the followed
+/// threads. Two reads built the same complete list on every message write,
+/// 46 ms each in a Release build on a heavy account (session 58 §4).
+public struct FollowedThreadsOverview: Equatable, Sendable {
+    /// The list: the newest `limit`.
+    public internal(set) var list: [FollowedThread]
+    /// The badge and the dots: every unread one, beyond the limit too.
+    public internal(set) var unread: UnreadThreads
 }
 
 // MARK: - The queries
@@ -165,7 +176,18 @@ extension ChatStore {
     }
 
     static func fetchUnreadThreads(_ db: Database) throws -> UnreadThreads {
-        let unread = try fetchFollowedThreads(limit: nil, db).filter(\.thread.hasUnread)
+        try unreadThreads(in: fetchFollowedThreads(limit: nil, db))
+    }
+
+    /// The complete list built once, the list cut from it and the unread
+    /// counted from it.
+    static func fetchFollowedThreadsOverview(limit: Int, _ db: Database) throws -> FollowedThreadsOverview {
+        let all = try fetchFollowedThreads(limit: nil, db)
+        return FollowedThreadsOverview(list: Array(all.prefix(limit)), unread: unreadThreads(in: all))
+    }
+
+    private static func unreadThreads(in followed: [FollowedThread]) -> UnreadThreads {
+        let unread = followed.filter(\.thread.hasUnread)
         return UnreadThreads(count: unread.count, conversations: Set(unread.map(\.thread.conversationID)))
     }
 

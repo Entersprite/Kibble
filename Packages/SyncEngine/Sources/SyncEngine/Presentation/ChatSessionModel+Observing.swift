@@ -49,12 +49,12 @@ extension ChatSessionModel {
     }
 
     /// The Threads list, its badge and the sidebar's dots, for the whole
-    /// session (threads spec §4.3).
+    /// session (threads spec §4.3), from one observation: two re-ran the same
+    /// read of every followed thread on each message write (session 61).
     func watchThreads() {
-        watch(store.observeFollowedThreads(limit: ThreadSessionState.listLimit)) { [weak self] in
-            self?.threads.followed = $0
+        watch(store.observeFollowedThreadsOverview(limit: ThreadSessionState.listLimit)) { [weak self] in
+            self?.threads.setFollowed($0)
         }
-        watch(store.observeUnreadThreads()) { [weak self] in self?.threads.setUnread($0) }
     }
 
     func watch<Value>(
