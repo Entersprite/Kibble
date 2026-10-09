@@ -91,13 +91,15 @@ enum OwnStatusRequests {
         return request
     }
 
-    /// A real end time: purple writes a 48-hour duration into this
-    /// timestamp field, which looks like its bug (spec §1).
-    static func doNotDisturb(until end: Date) -> SetDndDurationRequest {
+    /// How long, from `now`, in `new_dnd_duration_usec`: the field ending Do
+    /// not disturb already uses. An end time in `dnd_expiry_timestamp_usec`
+    /// was refused with a 400 (session 62, live), where purple writes a
+    /// 48-hour duration, which session 55 took for its bug. `[Verify]` live.
+    static func doNotDisturb(until end: Date, now: Date = Date()) -> SetDndDurationRequest {
         var request = SetDndDurationRequest()
         request.requestHeader = APIRequestHeader.make()
         request.currentDndState = .dnd
-        request.dndExpiryTimestampUsec = microseconds(end)
+        request.newDndDurationUsec = Int64((max(0, end.timeIntervalSince(now)) * 1_000_000).rounded())
         return request
     }
 

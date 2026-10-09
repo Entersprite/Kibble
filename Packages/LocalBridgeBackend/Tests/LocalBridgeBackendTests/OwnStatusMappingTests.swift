@@ -85,11 +85,15 @@ struct OwnStatusMappingTests {
         #expect(request.customStatusTiming == .customStatusRemainingDurationUsec(0))
     }
 
-    @Test func doNotDisturbSendsItsEndAndOffSendsAvailableNow() {
-        let end = now.addingTimeInterval(1800)
-        let on = OwnStatusRequests.doNotDisturb(until: end)
+    /// How long, in field 1, the field ending it already uses: an end time
+    /// in field 3 was refused with a 400 (session 62, live). An end already
+    /// past asks for no time at all.
+    @Test func doNotDisturbSendsHowLongAndOffSendsAvailableNow() {
+        let on = OwnStatusRequests.doNotDisturb(until: now.addingTimeInterval(1800), now: now)
         #expect(on.currentDndState == .dnd)
-        #expect(on.dndExpiry == .dndExpiryTimestampUsec(usec(end)))
+        #expect(on.dndExpiry == .newDndDurationUsec(1_800_000_000))
+        let past = OwnStatusRequests.doNotDisturb(until: now.addingTimeInterval(-5), now: now)
+        #expect(past.dndExpiry == .newDndDurationUsec(0))
         let off = OwnStatusRequests.doNotDisturbOff()
         #expect(off.currentDndState == .available)
         #expect(off.dndExpiry == .newDndDurationUsec(0))

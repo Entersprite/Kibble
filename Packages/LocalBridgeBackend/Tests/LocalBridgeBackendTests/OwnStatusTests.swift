@@ -15,12 +15,20 @@ private actor StatusTransport: HTTPTransport {
     private let selfStatus: UserStatus
     private let answer: UserStatus?
     private let refuses: Bool
+    /// One call's own answer, over `answer`, and the calls refused alone.
+    private let answers: [String: UserStatus]
+    private let refusing: Set<String>
     private(set) var sent: [HTTPRequest] = []
 
-    init(selfStatus: UserStatus = UserStatus(), answer: UserStatus? = UserStatus(), refuses: Bool = false) {
+    init(
+        selfStatus: UserStatus = UserStatus(), answer: UserStatus? = UserStatus(), refuses: Bool = false,
+        answers: [String: UserStatus] = [:], refusing: Set<String> = []
+    ) {
         self.selfStatus = selfStatus
         self.answer = answer
         self.refuses = refuses
+        self.answers = answers
+        self.refusing = refusing
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -36,7 +44,7 @@ private actor StatusTransport: HTTPTransport {
             return try ok(response.serializedBytes())
         }
         if let call = Self.calls.first(where: { path.contains("/api/\($0)") }) {
-            if refuses {
+            if refuses || refusing.contains(call) {
                 throw Refused()
             }
             return try ok(answerBody(for: call))
@@ -50,6 +58,7 @@ private actor StatusTransport: HTTPTransport {
 
     /// Each answer carries a revision, so its body is never empty.
     private func answerBody(for call: String) throws -> Data {
+        let answer = answers[call] ?? answer
         var revision = WriteRevision()
         revision.timestamp = 1
         switch call {
@@ -188,10 +197,43 @@ struct OwnStatusTests {
 
         try await backend.send(.setAvailability(.away))
 
-        #expect(await own(log.settle(since: mark)) == [
-            .availabilityChanged(.away),
-            .availabilityChanged(.away)
-        ])
+        #expect(await own(log.settle(since: mark)) == [.availabilityChanged(.away)])
+    }
+
+    /// Google's answers to Away, as the owner's live run logged them: ending
+    /// Do not disturb still says presence shared, then sharing says not.
+    private static func liveAnswers() -> [String: UserStatus] {
+        var shared = UserStatus()
+        shared.presenceShared = true
+        shared.dndSettings.dndState = .available
+        var notShared = shared
+        notShared.presenceShared = false
+        return ["set_dnd_duration": shared, "set_presence_shared": notShared]
+    }
+
+    /// Away is shown once. The first answer, still sharing, checked
+    /// Automatic for the 0.46 s before the second (session 62, live).
+    @Test func awayShowsOnlyTheFinalAnswer() async throws {
+        let (backend, log) = try await connected(StatusTransport(answers: Self.liveAnswers()))
+        let mark = await log.events.count
+
+        try await backend.send(.setAvailability(.away))
+
+        #expect(await own(log.settle(since: mark)) == [.availabilityChanged(.away)])
+    }
+
+    /// Sharing refused: the first answer is what is true, so it is shown,
+    /// and the refusal is thrown (session 55, ruling 6).
+    @Test func aRefusedSharingCallShowsTheFirstAnswer() async throws {
+        let transport = StatusTransport(answers: Self.liveAnswers(), refusing: ["set_presence_shared"])
+        let (backend, log) = try await connected(transport)
+        let mark = await log.events.count
+
+        await #expect(throws: (any Error).self) {
+            try await backend.send(.setAvailability(.away))
+        }
+
+        #expect(await own(log.settle(since: mark)) == [.availabilityChanged(.automatic)])
     }
 
     /// An answer that carries both parts is believed over the request.

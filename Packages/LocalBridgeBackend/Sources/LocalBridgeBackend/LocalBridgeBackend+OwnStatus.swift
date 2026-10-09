@@ -35,28 +35,36 @@ extension LocalBridgeBackend {
         }
     }
 
-    /// Automatic and away end Do not disturb, then set presence sharing; each
-    /// answer is emitted, so a failed second call still shows the first.
+    /// Automatic and away end Do not disturb, then set presence sharing. Only
+    /// the second answer is shown: the first still says presence shared, and
+    /// showing it checked Automatic for the moment before Away (session 62).
+    /// If the second call fails, the first answer is what is true, and is
+    /// shown before the failure is thrown (session 55, ruling 6).
     ///
     /// **Do not disturb first.** Sent after presence sharing, Away never
-    /// stuck: the owner picked it, Google answered at once with presence
-    /// shared, and Chat on the web showed him active (session 62). Ending Do
-    /// not disturb is suspected of sharing presence again, so presence
-    /// sharing goes last and has the last word. `[Verify]` live.
+    /// stuck: Google answered at once with presence shared, and Chat on the
+    /// web showed the owner active. Ending Do not disturb shares presence
+    /// again, so presence sharing goes last and has the last word. In this
+    /// order Away holds, in Kibble and on the web (session 62, the owner's
+    /// live run, logged by `AvailabilityLog`).
     private func setAvailability(_ availability: Availability, using api: ProtoAPIClient) async throws {
         switch availability {
         case .automatic, .away:
             let dnd = try await call("set_dnd_duration") {
                 try await api.call(.setDndDuration, OwnStatusRequests.doNotDisturbOff())
             }
-            emitAvailability(
-                dnd.hasUserStatus ? dnd.userStatus : nil,
-                requested: availability,
-                call: "set_dnd_duration"
-            )
             let sharing = availability == .automatic
-            let shared = try await call("set_presence_shared") {
-                try await api.call(.setPresenceShared, OwnStatusRequests.setPresenceShared(sharing))
+            let shared: SetPresenceSharedResponse
+            do {
+                shared = try await call("set_presence_shared") {
+                    try await api.call(.setPresenceShared, OwnStatusRequests.setPresenceShared(sharing))
+                }
+            } catch {
+                emitAvailability(
+                    dnd.hasUserStatus ? dnd.userStatus : nil, requested: availability,
+                    call: "set_dnd_duration"
+                )
+                throw error
             }
             emitAvailability(
                 shared.hasUserStatus ? shared.userStatus : nil, requested: availability,
