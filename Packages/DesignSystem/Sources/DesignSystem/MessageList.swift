@@ -18,6 +18,13 @@ enum TranscriptScroll {
             target = state.scrollTarget
             targetLoaded = state.scrollTarget.map { id in state.messages.contains { $0.id == id } } ?? false
         }
+
+        /// The same, for the thread panel's messages.
+        init(_ panel: ThreadPanelState) {
+            newest = panel.messages.last?.id
+            target = panel.scrollTarget
+            targetLoaded = panel.scrollTarget.map { id in panel.messages.contains { $0.id == id } } ?? false
+        }
     }
 
     enum Destination: Equatable {

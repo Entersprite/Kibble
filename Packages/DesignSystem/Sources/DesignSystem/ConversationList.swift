@@ -36,6 +36,10 @@ public struct ConversationList: View {
                 MentionsSidebarRow(unread: state.unreadMentionCount)
                     .tag(SidebarSelection.mentions)
             }
+            if actions.threads != nil {
+                ThreadsSidebarRow(unread: state.threads.unreadCount)
+                    .tag(SidebarSelection.threads)
+            }
             ForEach(SidebarSections.build(state.conversations)) { section in
                 Section(section.title, isExpanded: expansion(of: section.id)) {
                     ForEach(section.conversations, id: \.id) { conversation in

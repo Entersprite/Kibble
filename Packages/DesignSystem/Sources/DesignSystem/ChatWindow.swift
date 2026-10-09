@@ -37,6 +37,8 @@ public struct ChatWindow: View {
                     MentionsPane(items: state.mentions, status: state.mentionsStatus, me: state.me) {
                         actions.openMention?($0, $1)
                     }
+                } else if state.threads.showingList, let threads = actions.threads {
+                    ThreadsPane(items: state.threads.items, me: state.me) { threads.openItem($0, $1) }
                 } else if let conversation = state.selectedConversation {
                     // `safeAreaInset`, so the transcript scrolls under the
                     // composer rather than being hidden behind it the way an
@@ -58,7 +60,7 @@ public struct ChatWindow: View {
                         reactions: actions.reactions,
                         threads: offeredThreadActions
                     )
-                    .ownMessages(ownHandlers)
+                    .ownMessages(transcriptHandlers)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {
                             TypingStrip(state: state)
@@ -67,6 +69,10 @@ public struct ChatWindow: View {
                         .background(alignment: .bottom) { ComposerScrim() }
                     }
                     .modifier(FileDropTarget(stage: dropStage))
+                    .modifier(ThreadInspector(
+                        state: state, actions: actions, threads: offeredThreadActions,
+                        own: { panelHandlers(for: $0) }, editing: panelEditing()
+                    ))
                 } else {
                     ContentUnavailableView(
                         "Pick a conversation",
@@ -83,6 +89,7 @@ public struct ChatWindow: View {
             editRequest = nil
             editingMessage = nil
         }
+        .onChange(of: state.threads.panel?.thread.id) { forgetPanelEdit() }
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
     }
 
@@ -138,8 +145,9 @@ public struct ChatWindow: View {
     /// Where a drop goes, if anywhere: only where the composer is drawn and
     /// the host can stage files.
     private var dropStage: (([URL]) -> Void)? {
-        // Not while editing: an edit never carries files (edit spec §5).
-        guard state.capabilities.canSendMessages, editingMessage == nil else { return nil }
+        // Not while this composer edits: an edit never carries files (edit
+        // spec §5). The panel's edit leaves this composer free.
+        guard state.capabilities.canSendMessages, editingMessage == nil || panelIsEditing else { return nil }
         return actions.composerAttachments?.stage
     }
 

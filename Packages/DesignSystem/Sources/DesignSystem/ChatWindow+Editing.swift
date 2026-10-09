@@ -19,8 +19,9 @@ extension ChatWindow {
     /// actions (`offeredThreadActions`).
     ///
     /// `markUnread` is offered from the transcript's handlers too, but
-    /// `items(for:)` offers it only on a reply, and the transcript holds none;
-    /// the panel's bubbles use these same handlers.
+    /// `items(for:)` offers it only on a reply, and the transcript holds none.
+    /// Both lists take these through a gate (`transcriptHandlers`,
+    /// `panelHandlers(for:)`): one edit at a time across both composers.
     var ownHandlers: OwnMessageHandlers? {
         let threads = offeredThreadActions
         guard actions.messages != nil || threads != nil else { return nil }
@@ -51,7 +52,7 @@ extension ChatWindow {
         }
         return ComposerEditing(
             request: request,
-            newest: OwnMessageRule.newestEditable(in: state.messages, me: state.me),
+            newest: panelIsEditing ? nil : OwnMessageRule.newestEditable(in: state.messages, me: state.me),
             save: messages.save,
             began: { editingMessage = $0 },
             ended: {
@@ -59,6 +60,11 @@ extension ChatWindow {
                 editRequest = nil
             }
         )
+    }
+
+    /// Whether the panel's composer holds the window's edit (ruling 4).
+    var panelIsEditing: Bool {
+        editOwner == .panel
     }
 }
 
