@@ -35,25 +35,42 @@ extension LocalBridgeBackend {
         }
     }
 
-    /// Automatic and away set presence sharing, then end Do not disturb; each
+    /// Automatic and away end Do not disturb, then set presence sharing; each
     /// answer is emitted, so a failed second call still shows the first.
+    ///
+    /// **Do not disturb first.** Sent after presence sharing, Away never
+    /// stuck: the owner picked it, Google answered at once with presence
+    /// shared, and Chat on the web showed him active (session 62). Ending Do
+    /// not disturb is suspected of sharing presence again, so presence
+    /// sharing goes last and has the last word. `[Verify]` live.
     private func setAvailability(_ availability: Availability, using api: ProtoAPIClient) async throws {
         switch availability {
         case .automatic, .away:
+            let dnd = try await call("set_dnd_duration") {
+                try await api.call(.setDndDuration, OwnStatusRequests.doNotDisturbOff())
+            }
+            emitAvailability(
+                dnd.hasUserStatus ? dnd.userStatus : nil,
+                requested: availability,
+                call: "set_dnd_duration"
+            )
             let sharing = availability == .automatic
             let shared = try await call("set_presence_shared") {
                 try await api.call(.setPresenceShared, OwnStatusRequests.setPresenceShared(sharing))
             }
-            emitAvailability(shared.hasUserStatus ? shared.userStatus : nil, requested: availability)
-            let dnd = try await call("set_dnd_duration") {
-                try await api.call(.setDndDuration, OwnStatusRequests.doNotDisturbOff())
-            }
-            emitAvailability(dnd.hasUserStatus ? dnd.userStatus : nil, requested: availability)
+            emitAvailability(
+                shared.hasUserStatus ? shared.userStatus : nil, requested: availability,
+                call: "set_presence_shared"
+            )
         case let .doNotDisturb(end):
             let dnd = try await call("set_dnd_duration") {
                 try await api.call(.setDndDuration, OwnStatusRequests.doNotDisturb(until: end))
             }
-            emitAvailability(dnd.hasUserStatus ? dnd.userStatus : nil, requested: availability)
+            emitAvailability(
+                dnd.hasUserStatus ? dnd.userStatus : nil,
+                requested: availability,
+                call: "set_dnd_duration"
+            )
         case let .unknown(raw):
             throw ChatError.unsupported(capability: raw)
         }
@@ -94,10 +111,11 @@ extension LocalBridgeBackend {
     /// answer's when it carries both parts that decide it; otherwise, a
     /// partial answer or none at all, what was just accepted. Kept for the
     /// activity gate too (active-presence spec §3).
-    private func emitAvailability(_ answer: UserStatus?, requested: Availability) {
+    private func emitAvailability(_ answer: UserStatus?, requested: Availability, call: String) {
         let availability = answer.map {
             AvailabilityMapping.availability(answering: requested, with: $0, now: Date())
         } ?? requested
+        AvailabilityLog.answer(call, answer, requested: requested, shown: availability)
         presencePoll.ownAvailability = availability
         emit(.availabilityChanged(availability))
     }

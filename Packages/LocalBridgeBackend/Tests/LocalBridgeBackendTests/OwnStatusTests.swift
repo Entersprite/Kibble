@@ -210,8 +210,12 @@ struct OwnStatusTests {
         #expect(await own(log.settle(since: mark)) == [.availabilityChanged(.doNotDisturb(until: serverEnd))])
     }
 
-    /// Away: presence not shared, then Do not disturb off, in that order.
-    @Test func awaySendsPresenceThenDoNotDisturbOff() async throws {
+    /// Away: Do not disturb off, then presence not shared, in that order.
+    /// Sent the other way round, Away never stuck: Google answered at once
+    /// with presence shared and showed the owner active (session 62). The
+    /// call that turns Do not disturb off is suspected of turning sharing
+    /// back on, so it goes first, and presence sharing has the last word.
+    @Test func awaySendsDoNotDisturbOffThenPresence() async throws {
         let transport = StatusTransport()
         let (backend, _) = try await connected(transport)
         try await backend.send(.setAvailability(.away))
@@ -219,8 +223,8 @@ struct OwnStatusTests {
             StatusTransport.calls.contains { path.contains("/api/\($0)") }
         }
         #expect(sent.count == 2)
-        #expect(sent.first?.contains("/api/set_presence_shared") == true)
-        #expect(sent.last?.contains("/api/set_dnd_duration") == true)
+        #expect(sent.first?.contains("/api/set_dnd_duration") == true)
+        #expect(sent.last?.contains("/api/set_presence_shared") == true)
         let shared = try #require(await requests(transport, "set_presence_shared").first?.body)
         #expect(try SetPresenceSharedRequest(serializedBytes: shared).presenceShared == false)
     }
