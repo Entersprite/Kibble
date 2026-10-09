@@ -51,6 +51,8 @@ public extension ChatStore {
             try performMemberWrite(write, in: db)
         case .setReadState, .markUnread:
             try performReadWrite(write, in: db)
+        case .applyThreadChange, .setUnreadThreads:
+            try performThreadWrite(write, in: db)
         case .upsertMessage, .upsertMessageKeepingReactions, .markMessageDeleted, .removeMessage,
              .setReactions:
             try performMessageWrite(write, in: db)

@@ -14,6 +14,8 @@ public extension ChatStore {
         try database.read(Self.fetchConversations)
     }
 
+    /// The transcript: one conversation's top-level messages, oldest first.
+    /// Replies are left out (`fetchMessages`).
     func messages(in conversation: Conversation.ID) throws -> [Message] {
         try database.read { db in try Self.fetchMessages(conversation, db) }
     }
@@ -99,6 +101,7 @@ public extension ChatStore {
         ValueObservation.tracking(Self.fetchConversations).values(in: database)
     }
 
+    /// The transcript, observed. Replies are left out (`fetchMessages`).
     func observeMessages(in conversation: Conversation.ID) -> AsyncValueObservation<[Message]> {
         ValueObservation
             .tracking { db in try Self.fetchMessages(conversation, db) }
@@ -157,15 +160,30 @@ extension ChatStore {
             .order(Column("position").asc)
             .fetchAll(db)
         let byConversation = Dictionary(grouping: membership, by: \.conversationID)
+        let unreadThreads = try fetchConversationsWithUnreadThreads(db)
         return try rows.map { row in
             let members = (byConversation[row.id] ?? []).map { Member.ID($0.memberID) }
-            return try row.conversation(members: members)
+            var conversation = try row.conversation(members: members)
+            // Both sources, per CLAUDE.md's rule for a derived field (threads
+            // spec §4.2): the server's flag, and the threads the store holds.
+            if unreadThreads.contains(conversation.id) {
+                conversation.hasUnreadThread = true
+            }
+            return conversation
         }
     }
 
+    /// The transcript: one conversation's top-level messages, oldest first.
+    ///
+    /// **Replies are left out** (threads spec §4.1): they live in their
+    /// thread's panel (`fetchThreadMessages`), and the conversation's own
+    /// marks - automatic and from the sidebar (`newestServerMessage`) - read
+    /// this, so they never cover a reply. A reply stored before v13 has
+    /// `isReply = 0` and stays here until a history page rewrites it (§7).
+    /// The Mentions reads do not come through here and keep every reply.
     static func fetchMessages(_ conversation: Conversation.ID, _ db: Database) throws -> [Message] {
         try MessageRow
-            .filter(Column("conversationID") == conversation.rawValue)
+            .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
             .order(Column("createdAt").asc, Column("id").asc)
             .fetchAll(db)
             .map { try $0.message }

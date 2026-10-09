@@ -22,6 +22,7 @@ enum Schema {
         migrator.registerMigration("v10", migrate: addLinksAndCards)
         migrator.registerMigration("v11", migrate: addMemberCalendar)
         migrator.registerMigration("v12", migrate: addAvailability)
+        migrator.registerMigration("v13", migrate: addThreads)
         return migrator
     }
 
@@ -86,6 +87,42 @@ enum Schema {
     private static func addAvailability(_ db: Database) throws {
         try db.alter(table: "syncState") { table in
             table.add(column: "availability", .text)
+        }
+    }
+
+    /// Threads (threads spec §4.1).
+    ///
+    /// - `message.isReply`, false by default: a reply stored before v13 stays
+    ///   in the transcript until a history page rewrites it. Accepted (§7).
+    /// - An index on `(conversationID, threadID)`, for one thread's messages
+    ///   and the per-conversation summary read.
+    /// - `conversation.repliesEnabled` and `.hasUnreadThread`, false by
+    ///   default, for `addHasUnread`'s reason: no information is not "on".
+    ///   The first world load after this fills both.
+    /// - The `thread` table: what the server says about a thread, keyed by
+    ///   `(conversationID, id)` because a topic id is unique only inside its
+    ///   conversation. Every column nullable, `NULL` being "nobody has said";
+    ///   the dates are `StoredDate` REAL seconds. No foreign key, for
+    ///   `message`'s reason: a push about a thread in a conversation not yet
+    ///   listed must land, and the rows come back for free if it returns.
+    private static func addThreads(_ db: Database) throws {
+        try db.alter(table: "message") { table in
+            table.add(column: "isReply", .boolean).notNull().defaults(to: false)
+        }
+        try db.create(indexOn: "message", columns: ["conversationID", "threadID"])
+        try db.alter(table: "conversation") { table in
+            table.add(column: "repliesEnabled", .boolean).notNull().defaults(to: false)
+            table.add(column: "hasUnreadThread", .boolean).notNull().defaults(to: false)
+        }
+        try db.create(table: "thread") { table in
+            table.column("conversationID", .text).notNull()
+            table.column("id", .text).notNull()
+            table.column("messageCount", .integer)
+            table.column("unreadCount", .integer)
+            table.column("readPosition", .datetime)
+            table.column("markedUnreadAt", .datetime)
+            table.column("isFollowed", .boolean)
+            table.primaryKey(["conversationID", "id"])
         }
     }
 

@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+import GRDB
 import Testing
 @testable import SyncEngine
 
@@ -72,5 +73,27 @@ struct ChatStoreEraseTests {
 
         try store.apply([.upsertConversation(Conversation(id: space, kind: .space, title: "new"))])
         #expect(try store.conversations().map(\.title) == ["new"])
+    }
+
+    /// The `thread` table goes with the account (threads spec §4.1). Nothing
+    /// in `erase()` names it, which is the point; this is the test that would
+    /// see it left behind. Seen red with the erase deleted (Step 15).
+    @Test func eraseClearsTheThreadTable() throws {
+        let store = try ChatStore.inMemory()
+        let topic = MessageThread.ID("topic:1")
+        try store.apply([
+            .upsertConversation(Conversation(id: space, kind: .space, hasUnreadThread: true)),
+            .applyThreadChange(thread: topic, conversation: space, change: .followed(true)),
+            .applyThreadChange(thread: topic, conversation: space, change: .counted(messages: 3, unread: 1))
+        ])
+        let before = try store.database
+            .read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM thread") }
+        #expect(before == 1)
+
+        try store.erase()
+
+        let after = try store.database.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM thread") }
+        #expect(after == 0)
+        #expect(try store.conversations().isEmpty)
     }
 }

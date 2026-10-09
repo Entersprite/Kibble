@@ -27,12 +27,10 @@ public enum SyncReducer {
         case .conversationsChanged, .conversationUpdated, .membersChanged, .membersResolved,
              .readStateChanged, .typingChanged, .presenceChanged, .statusChanged, .calendarChanged:
             supersedingStaleError(reduceConversationEvent(event))
+        case .threadChanged, .unreadThreadsChanged:
+            supersedingStaleError(reduceThreadEvent(event))
         case .selfIdentified, .availabilityChanged:
             supersedingStaleError(reduceSessionEvent(event))
-        case .threadChanged, .unreadThreadsChanged:
-            // Nothing to store until the store keeps thread state
-            // (threads spec §4.1).
-            Reduction()
         case .connectionStateChanged, .backendError, .gap, .unknown:
             reduceSessionEvent(event)
         }
@@ -81,13 +79,10 @@ public enum SyncReducer {
             // No longer identical to `messageUpdated`. Both still end with the
             // store holding the message, but only an *arrival* can make a
             // conversation unread - an edit to something already read must
-            // not raise the dot again.
+            // not raise the dot again. And a reply never does (`unreadMark(for:)`).
             // A push keeps stored reactions (`StoreWrite.upsertMessageKeepingReactions`).
             Reduction(
-                writes: [
-                    .upsertMessageKeepingReactions(message),
-                    .markUnread(conversation: message.conversationID, sender: message.sender)
-                ],
+                writes: [.upsertMessageKeepingReactions(message)] + unreadMark(for: message),
                 effects: [.announceArrival(message)]
             )
         case let .messageUpdated(message):
@@ -99,6 +94,37 @@ public enum SyncReducer {
             Reduction(writes: [.setReactions(messageID: messageID, reactions: reactions)])
         default:
             Reduction()
+        }
+    }
+
+    /// The `.markUnread` an arrival implies: none for a reply (threads spec
+    /// §4.3). A conversation's unread state counts top-level messages - the
+    /// world load compares `last_head_message_create_time_usec`, believed to
+    /// leave replies out `[Verify]` - and its auto-mark-read reads the
+    /// transcript, which has no replies, so a reply's dot could never be
+    /// cleared. A thread's own unread state lives in the `thread` table.
+    private static func unreadMark(for message: Message) -> [StoreWrite] {
+        guard !message.isReply else { return [] }
+        return [.markUnread(conversation: message.conversationID, sender: message.sender)]
+    }
+
+    /// A thread's facts, and the conversation's flag (threads spec §4.1). An
+    /// unknown change writes nothing, as an unknown event does; `reduce(_:)`
+    /// still lets the event supersede a stale error, because the event itself
+    /// is proof the channel works.
+    private static func reduceThreadEvent(_ event: ChatEvent) -> Reduction {
+        switch event {
+        case let .threadChanged(thread, conversation, change):
+            if case .unknown = change {
+                return Reduction()
+            }
+            return Reduction(writes: [
+                .applyThreadChange(thread: thread, conversation: conversation, change: change)
+            ])
+        case let .unreadThreadsChanged(conversation, hasUnread):
+            return Reduction(writes: [.setUnreadThreads(conversation: conversation, hasUnread: hasUnread)])
+        default:
+            return Reduction()
         }
     }
 

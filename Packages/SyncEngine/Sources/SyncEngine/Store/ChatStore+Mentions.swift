@@ -75,12 +75,15 @@ extension ChatStore {
     /// the newest `limit` of them and nothing older.
     ///
     /// A message whose conversation the store no longer lists is skipped
-    /// (ruling 4). No `Date` is bound here (`StoredDate`'s rule).
+    /// (ruling 4). A reply's mention is read by its thread's position when
+    /// the store has one (`readPosition(of:in:threads:)`). No `Date` is bound
+    /// here (`StoredDate`'s rule).
     static func fetchMentionsOfMe(limit: Int, _ db: Database) throws -> [MentionOfMe] {
         guard let me = try fetchMe(db) else { return [] }
         let conversations = try Dictionary(
             uniqueKeysWithValues: fetchConversations(db).map { ($0.id, $0) }
         )
+        let threadPositions = try fetchThreadReadPositions(db)
         let candidates = try MessageRow
             .filter(Column("mentions") != "[]" && Column("isDeleted") == false)
             .order(Column("createdAt").desc, Column("id").desc)
@@ -91,12 +94,25 @@ extension ChatStore {
             guard message.mentionsMe(me), let conversation = conversations[message.conversationID] else {
                 continue
             }
+            let position = readPosition(of: message, in: conversation, threads: threadPositions)
             found.append(MentionOfMe(
                 message: message, conversation: conversation,
-                isUnread: MentionOfMe.isUnread(message, readPosition: conversation.readPosition)
+                isUnread: MentionOfMe.isUnread(message, readPosition: position)
             ))
         }
         return found
+    }
+
+    /// A reply's mention is read by its thread's position when the store has
+    /// one, else by its conversation's (threads spec §4.3): the conversation's
+    /// position follows top-level messages and never covers a reply. A
+    /// top-level message's is read by its conversation's.
+    static func readPosition(
+        of message: Message, in conversation: Conversation, threads: [ThreadKey: Date]
+    ) -> Date? {
+        guard message.isReply else { return conversation.readPosition }
+        return threads[ThreadKey(conversation: message.conversationID, thread: message.threadID)]
+            ?? conversation.readPosition
     }
 
     /// The badge: every unread mention, so it has no `limit` to stop at.
@@ -106,8 +122,10 @@ extension ChatStore {
     /// The narrowing is the list's own rules, restated:
     /// - the join drops a message whose conversation is gone (ruling 4);
     /// - `sender != me` is `mentionsMe`'s own first test, done early;
-    /// - `lastReadAt IS NULL OR createdAt > lastReadAt` is
-    ///   `MentionOfMe.isUnread`: strictly after, because equality is read
+    /// - `COALESCE(the reply's thread position, the conversation's) IS NULL OR
+    ///   createdAt > it` is `MentionOfMe.isUnread` over
+    ///   `readPosition(of:in:threads:)`: the `LEFT JOIN` finds a thread row
+    ///   for a reply only. Strictly after, because equality is read
     ///   (`findings.md` §42.2), and no position is unread.
     ///
     /// **Both sides of that `>` are `StoredDate` REAL seconds**, the same
@@ -120,8 +138,11 @@ extension ChatStore {
             sql: """
             SELECT message.* FROM message
             JOIN conversation ON conversation.id = message.conversationID
+            LEFT JOIN thread ON message.isReply = 1
+                AND thread.conversationID = message.conversationID AND thread.id = message.threadID
             WHERE message.mentions != '[]' AND message.isDeleted = 0 AND message.sender != ?
-                AND (conversation.lastReadAt IS NULL OR message.createdAt > conversation.lastReadAt)
+                AND (COALESCE(thread.readPosition, conversation.lastReadAt) IS NULL
+                    OR message.createdAt > COALESCE(thread.readPosition, conversation.lastReadAt))
             """,
             arguments: [me.rawValue]
         )

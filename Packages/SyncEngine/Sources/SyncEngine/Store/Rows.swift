@@ -33,6 +33,12 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
     var notificationLevel: String
     var isThreaded: Bool
     var memberCount: Int?
+    /// `Conversation.repliesEnabled`, from world field 27 (threads spec §1).
+    /// A snapshot: no event maintains it.
+    var repliesEnabled: Bool
+    /// The stored half of `Conversation.hasUnreadThread`: world field 25 and
+    /// push 53. `ChatStore.fetchConversations` ORs in the stored threads.
+    var hasUnreadThread: Bool
     /// `Conversation.readPosition`. One column for both of its sources (the
     /// mentions-list spec §1).
     var lastReadAt: Date?
@@ -49,6 +55,8 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
         notificationLevel = try Wire.string(conversation.notificationLevel)
         isThreaded = conversation.isThreaded
         memberCount = conversation.memberCount
+        repliesEnabled = conversation.repliesEnabled
+        hasUnreadThread = conversation.hasUnreadThread
         lastReadAt = conversation.readPosition
     }
 
@@ -66,7 +74,9 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
             members: members,
             memberCount: memberCount,
             isThreaded: isThreaded,
-            readPosition: lastReadAt
+            readPosition: lastReadAt,
+            repliesEnabled: repliesEnabled,
+            hasUnreadThread: hasUnreadThread
         )
     }
 }
@@ -153,6 +163,8 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord {
     var mentions: String
     var links: String
     var cards: String
+    /// `Message.isReply`. The transcript is `isReply = 0` (threads spec §4.1).
+    var isReply: Bool
 
     init(_ message: Message) throws {
         id = message.id.rawValue
@@ -169,6 +181,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord {
         mentions = try Wire.json(message.mentions)
         links = try Wire.json(message.links)
         cards = try Wire.json(message.cards)
+        isReply = message.isReply
     }
 
     var message: Message {
@@ -187,7 +200,8 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord {
                 localID: localID,
                 mentions: Wire.value([Mention].self, from: mentions),
                 links: Wire.value([MessageLink].self, from: links),
-                cards: Wire.value([AppCard].self, from: cards)
+                cards: Wire.value([AppCard].self, from: cards),
+                isReply: isReply
             )
         }
     }
