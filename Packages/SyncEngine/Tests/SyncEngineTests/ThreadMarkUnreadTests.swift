@@ -110,6 +110,8 @@ struct ThreadMarkUnreadTests {
         try openStoredThread(messages, in: harness)
         await settleAutoMarkRead(until: "the read is on the wire") { await hold.count == 1 }
         harness.model.markThreadUnread(from: messages[1])
+        // Kept where `stop()` reaches it while the unread mark waits.
+        #expect(harness.model.threads.work.superseded.count == 1)
         try await Task.sleep(for: .milliseconds(150))
         #expect(await hold.aborted == 0)
         #expect(await threadCommands(from: harness.backend) == [ThreadFixture.read(upTo: newest)])
@@ -118,11 +120,64 @@ struct ThreadMarkUnreadTests {
             await threadCommands(from: harness.backend).count == 2
         }
         await hold.release()
+        await unreadMarkDone(harness, sent: 2)
         #expect(await hold.aborted == 0)
+        #expect(harness.model.threads.work.superseded.isEmpty)
         #expect(await threadCommands(from: harness.backend) == [
             ThreadFixture.read(upTo: newest), ThreadFixture.unreadMark(at: messages[1].createdAt)
         ])
         await harness.model.stop()
+    }
+
+    /// A clear on the wire is the read's first request: the unread mark waits
+    /// for the clear and for the read sent after it, in that order.
+    @Test func anUnreadMarkWaitsForAClearAlreadyOnTheWire() async throws {
+        let harness = try await makeThreadHarness()
+        let hold = harness.backend.abortableSubmissions
+        await harness.backend.holdSubmissionsAbortably(true)
+        let marked = StoreWrite.applyThreadChange(
+            thread: ThreadFixture.thread, conversation: ThreadFixture.conversation,
+            change: .markedUnread(at: messages[1].createdAt)
+        )
+        try openStoredThread(messages, with: [marked], in: harness)
+        await settleAutoMarkRead(until: "the clear is on the wire") { await hold.count == 1 }
+        harness.model.markThreadUnread(from: messages[1])
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await hold.aborted == 0)
+        #expect(await threadCommands(from: harness.backend) == [ThreadFixture.unreadMark(at: nil)])
+        await hold.release()
+        await settleAutoMarkRead(until: "the read follows the clear") {
+            await threadCommands(from: harness.backend).count == 2
+        }
+        await hold.release()
+        await settleAutoMarkRead(until: "the unread mark follows the read") {
+            await threadCommands(from: harness.backend).count == 3
+        }
+        await hold.release()
+        #expect(await hold.aborted == 0)
+        #expect(await threadCommands(from: harness.backend) == [
+            ThreadFixture.unreadMark(at: nil), ThreadFixture.read(upTo: newest),
+            ThreadFixture.unreadMark(at: messages[1].createdAt)
+        ])
+        await harness.model.stop()
+    }
+
+    /// `stop()` reaches a read superseded on the wire too, though it is no
+    /// longer in `markTasks`: failing after sign-out, it records nothing in
+    /// the store being erased, and nothing follows it (`ThreadWork.superseded`).
+    @Test func stopReachesAReadSupersededOnTheWire() async throws {
+        let harness = try await makeThreadHarness()
+        let hold = harness.backend.abortableSubmissions
+        await harness.backend.holdSubmissionsAbortably(true)
+        try openStoredThread(messages, in: harness)
+        await settleAutoMarkRead(until: "the read is on the wire") { await hold.count == 1 }
+        harness.model.markThreadUnread(from: messages[1])
+        await harness.model.stop()
+        await harness.backend.failSubmissions(true)
+        await hold.release()
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(try harness.store.lastError() == nil)
+        #expect(await threadCommands(from: harness.backend) == [ThreadFixture.read(upTo: newest)])
     }
 
     /// A second Mark as Unread waits for the first one on the wire, as the

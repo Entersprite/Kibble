@@ -147,8 +147,9 @@ public extension ChatSessionModel {
     /// would end when the client gave up, not when the server answered: this
     /// mark could reach the server first, and the aborted read would never be
     /// reported. Superseded instead, its answer writes nothing
-    /// (`publishThreadReadPosition`). The same holds for an earlier unread
-    /// mark still on the wire.
+    /// (`publishThreadReadPosition`), and it stays where `stop()` cancels it
+    /// (`ThreadWork.superseded`). The same holds for an earlier unread mark
+    /// still on the wire.
     ///
     /// `at` is the message's own time; the backend owns the wire's offset.
     /// Nothing for a message still sending (`local/`), which has no server time.
@@ -158,6 +159,9 @@ public extension ChatSessionModel {
         let previous = threads.work.markTasks[key]
         if threads.work.submittedGeneration[key] != threads.work.markGeneration[key] {
             previous?.cancel()
+        } else if let previous {
+            // On the wire: left to answer, and kept where `stop()` reaches it.
+            threads.work.superseded.append(previous)
         }
         threads.work.published[key] = nil
         if selected == key.conversation, threads.openThread == key.thread {
@@ -170,7 +174,12 @@ public extension ChatSessionModel {
         )
         threads.work.markTasks[key] = Task { @MainActor [weak self] in
             defer { self?.clearThreadMarkTask(for: key, ifStillGeneration: generation) }
-            await previous?.value
+            // Not canceled with this task: a second click cancels a waiting
+            // unread mark, and passing that on would abort the read on the wire.
+            if let previous {
+                await previous.value
+                self?.threads.work.superseded.removeAll { $0 == previous }
+            }
             guard let self, !Task.isCancelled else { return }
             threads.work.submittedGeneration[key] = generation
             await engine.submit(command)

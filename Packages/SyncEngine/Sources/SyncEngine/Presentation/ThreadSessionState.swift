@@ -40,9 +40,11 @@ public struct ThreadSessionState: Sendable, Equatable {
     public init() {}
 
     /// For `ChatSessionModel.stop()`: cancels every task the panel and the
-    /// list started, for `stop()`'s own reason (nothing from the account being
-    /// signed out of may answer into an erased store), and forgets the
-    /// watermark. `markGeneration` stays, for the ABA its doc comment names.
+    /// list started, a mark superseded on the wire included
+    /// (`ThreadWork.superseded`), for `stop()`'s own reason (nothing from the
+    /// account being signed out of may answer into an erased store), and
+    /// forgets the watermark. `markGeneration` stays, for the ABA its doc
+    /// comment names.
     mutating func stop() {
         work.cancelAll()
         followPending = false
@@ -73,17 +75,25 @@ struct ThreadWork: Sendable, Equatable {
     /// then on the mark is on the wire, and `markThreadUnread(from:)` lets it
     /// answer rather than cancel it, which would abort the request.
     var submittedGeneration: [ThreadKey: Int] = [:]
+    /// Marks a Mark as Unread superseded while they were on the wire: out of
+    /// `markTasks` and left to answer, but still canceled by `cancelAll()`,
+    /// because at sign-out their order no longer matters and nothing may
+    /// answer into an erased store. Each leaves when the unread mark waiting
+    /// for it stops waiting.
+    var superseded: [Task<Void, Never>] = []
     /// The thread a manual Mark as Unread turned auto-mark-read off for, until
     /// the panel closes or shows another thread (spec §4.3).
     var disarmed: ThreadKey?
 
     mutating func cancelAll() {
-        let all = panelTasks + Array(markTasks.values) + [followTask, listTask].compactMap(\.self)
+        let all = panelTasks + Array(markTasks.values) + superseded
+            + [followTask, listTask].compactMap(\.self)
         for task in all {
             task.cancel()
         }
         panelTasks = []
         markTasks = [:]
+        superseded = []
         followTask = nil
         listTask = nil
         published = [:]
