@@ -58,27 +58,69 @@ struct ThreadSplit: ViewModifier {
     let dropStage: (([URL]) -> Void)?
     /// The panel's share, the window's for as long as it is open.
     @Binding var share: CGFloat
+    /// The conversation's title and subtitle, which the split draws itself
+    /// while it owns the title (`ownsTitle`).
+    let title: String
+    let subtitle: String
+    let sidebarShown: Bool
 
     /// Shown only with a panel to draw and the thread actions to draw it with.
     var isPresented: Bool {
         threads != nil && state.threads.panel != nil
     }
 
+    /// Whether the conversation's title is drawn here, in its own column,
+    /// rather than by AppKit, whose title spans the detail column and runs a
+    /// long name under the thread's (session 63). Only with the band there to
+    /// draw it in, and the sidebar shown: collapsed, AppKit's title starts past
+    /// the window's buttons, at a place SwiftUI cannot read, and the wider
+    /// transcript needs a longer name to reach the panel.
+    func ownsTitle(band: CGFloat) -> Bool {
+        isPresented && band > 0 && sidebarShown
+    }
+
     func body(content: Content) -> some View {
         GeometryReader { proxy in
             let layout = ThreadSplitLayout(total: proxy.size.width, share: share)
+            let band = proxy.safeAreaInsets.top
             HStack(spacing: 0) {
                 content
                     .frame(width: isPresented ? layout.transcript : proxy.size.width)
+                    // Always applied, so the transcript keeps its identity.
+                    .overlay(alignment: .topLeading) {
+                        if ownsTitle(band: band) {
+                            ColumnTitle(title: title, subtitle: subtitle)
+                                .padding(.leading, ColumnTitle.inset)
+                                .padding(.trailing, 12)
+                                .frame(width: layout.transcript, height: band, alignment: .leading)
+                                .offset(y: -band)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 if let threads, let panel = state.threads.panel {
                     ThreadSplitDivider(share: $share, total: proxy.size.width, position: layout.transcript)
+                        // Through the toolbar's band too, between the two titles.
+                        .ignoresSafeArea(.container, edges: .top)
                         // Above the panel, so the grip's half over it still takes the drag.
                         .zIndex(1)
                     ThreadPanel(
                         panel: panel, state: state, actions: actions, threads: threads,
-                        own: own, editing: editing, dropStage: dropStage
+                        own: own, editing: editing, dropStage: dropStage, band: band
                     )
                     .frame(width: layout.panel)
+                }
+            }
+            .toolbar(removing: ownsTitle(band: band) ? .title : nil)
+            .toolbar {
+                // AppKit's title is what pushed the buttons to the trailing
+                // edge; without it they sat beside the sidebar button.
+                if ownsTitle(band: band) {
+                    ToolbarSpacer(.flexible, placement: .primaryAction)
+                }
+                if let threads, let panel = state.threads.panel {
+                    ToolbarItem(placement: .primaryAction) {
+                        ThreadPanelButtons(panel: panel, threads: threads)
+                    }
                 }
             }
         }
