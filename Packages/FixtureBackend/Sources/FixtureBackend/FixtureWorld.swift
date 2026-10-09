@@ -35,6 +35,13 @@ public struct FixtureWorld: Sendable, Hashable {
     /// by a fixed tick; see the type's note above.
     public var startedAt: Date
 
+    /// What the server knows about each thread beyond its messages
+    /// (`FixtureThreadState`), keyed by thread id, which is unique across a
+    /// fixture world. Empty unless a world sets it, so `minimal` and every
+    /// test counting it are unchanged. Never iterated unsorted: a
+    /// dictionary's order changes from launch to launch.
+    public var threadStates: [MessageThread.ID: FixtureThreadState] = [:]
+
     public init(
         me: Member.ID,
         members: [Member],
@@ -110,6 +117,6 @@ public extension FixtureWorld {
                 problems.append("message \(message.id) was sent by \(message.sender), who does not exist")
             }
         }
-        return problems
+        return problems + threadInconsistencies()
     }
 }

@@ -71,8 +71,11 @@ private extension FakeBackend {
         attachments: [Attachment]
     ) throws {
         try require(capabilities.canSendMessages, "canSendMessages")
-        if thread != nil {
+        if let thread {
             try require(capabilities.supportsThreads, "supportsThreads")
+            // A reply names a thread the world holds; any other is refused
+            // rather than invented.
+            try requireThread(thread, in: conversationID)
         }
         if !attachments.isEmpty {
             try require(capabilities.canSendAttachments, "canSendAttachments")
@@ -95,7 +98,10 @@ private extension FakeBackend {
             createdAt: advance(),
             attachments: attachments,
             localID: localID,
-            mentions: body.mentions
+            mentions: body.mentions,
+            // A send into a thread is a reply: the command says so, and the
+            // id is never read for it (threads spec §1).
+            isReply: thread != nil
         )
         world.messages.append(message)
         emit(.messageReceived(message))
@@ -104,6 +110,9 @@ private extension FakeBackend {
         // instead - see deleteMessage and markRead.
         try updateConversation(conversationID) { $0.lastActivity = message.createdAt }
         try addInvited(body.mentions, to: conversationID)
+        if message.isReply {
+            announceReply(message)
+        }
     }
 
     /// An `.invite` mention of a directory person adds them, the way Chat's
@@ -178,8 +187,7 @@ private extension FakeBackend {
         if case let .markRead(conversationID, upTo) = command {
             try markRead(conversationID, upTo: upTo)
         } else {
-            // Not until the fixture serves threads.
-            throw ChatError.unsupported(capability: "supportsThreads")
+            try applyThreadMark(command)
         }
     }
 }

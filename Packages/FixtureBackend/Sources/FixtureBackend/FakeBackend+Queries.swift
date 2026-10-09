@@ -14,13 +14,20 @@ public extension FakeBackend {
         world.conversations
     }
 
-    /// A page of history, oldest to newest, ending just before `before`.
+    /// A page of history, oldest to newest: the newest `pageSize` top-level
+    /// messages ending just before `before`, each with every reply in its
+    /// thread. A page of topics, the way real history pages (threads spec
+    /// §2.2), so a thread never arrives without its first message; in a world
+    /// without replies it is exactly a page of messages.
     ///
     /// `before: nil` is the most recent page. A cursor the conversation does
     /// not contain **throws** rather than returning an empty page: an empty
     /// page is indistinguishable from "no more history", so a client that had
     /// muddled two conversations' identifiers would silently render a blank
     /// scrollback instead of failing.
+    ///
+    /// Each thread in the page with a reply is reported as `.threadChanged`
+    /// while it loads, as the bridge reports history's topics.
     ///
     /// The seam records `before:` as provisional - the wire protocol pages by
     /// revision anchors, not message identifiers - so this is one plausible
@@ -33,11 +40,19 @@ public extension FakeBackend {
             throw ChatError.unknown("no conversation \(conversation) in this fixture world")
         }
         let all = world.messages(in: conversation)
-        guard let before else { return Array(all.suffix(pageSize)) }
-        guard let index = all.firstIndex(where: { $0.id == before }) else {
-            throw ChatError.unknown("message \(before) is not in \(conversation)")
+        var earlier = all[...]
+        if let before {
+            guard let index = all.firstIndex(where: { $0.id == before }) else {
+                throw ChatError.unknown("message \(before) is not in \(conversation)")
+            }
+            earlier = all[..<index]
         }
-        return Array(all[..<index].suffix(pageSize))
+        let roots = earlier.filter { !$0.isReply }.suffix(pageSize)
+        let rootIDs = Set(roots.map(\.id))
+        let threads = Set(roots.map(\.threadID))
+        let page = all.filter { $0.isReply ? threads.contains($0.threadID) : rootIDs.contains($0.id) }
+        emitThreadState(of: page, in: conversation)
+        return page
     }
 }
 

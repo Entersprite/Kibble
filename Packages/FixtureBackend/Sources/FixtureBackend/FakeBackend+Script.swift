@@ -139,6 +139,9 @@ private extension FakeBackend {
     ) throws {
         try requireExists(conversation)
         try requireExists(sender)
+        if let thread {
+            try requireThread(thread, in: conversation)
+        }
 
         let message = Message(
             id: Message.ID(nextIdentifier("fixture-msg")),
@@ -146,7 +149,8 @@ private extension FakeBackend {
             threadID: thread ?? MessageThread.ID(nextIdentifier("fixture-topic")),
             sender: sender,
             text: text,
-            createdAt: advance()
+            createdAt: advance(),
+            isReply: thread != nil
         )
         world.messages.append(message)
         emit(.messageReceived(message))
@@ -154,10 +158,15 @@ private extension FakeBackend {
         let isMine = sender == world.me
         try updateConversation(conversation) {
             $0.lastActivity = message.createdAt
-            // Our own message arriving from another device is already read.
-            if !isMine {
+            // Our own message arriving from another device is already read,
+            // and a reply counts against its thread, never its conversation
+            // (threads spec §4.3).
+            if !isMine, !message.isReply {
                 $0.unreadCount += 1
             }
+        }
+        if message.isReply {
+            announceReply(message)
         }
     }
 
