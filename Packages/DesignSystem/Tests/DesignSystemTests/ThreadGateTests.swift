@@ -44,4 +44,33 @@ struct ThreadGateTests {
         #expect(window.offeredThreadActions == nil)
         #expect(window.ownHandlers?.items(for: message(in: meet))?.replyInThread == nil)
     }
+
+    /// The inspector is always applied (`ThreadInspector`'s identity rule),
+    /// so the gate lives in its presentation: a panel where the conversation
+    /// offers no replies (a Meet chat, or any before the first world load
+    /// after the v13 upgrade) is not presented. Whether the inspector shows
+    /// is a screenshot's question; this pins only what it is asked.
+    @Test func theInspectorIsPresentedOnlyWithThreadActionsAndAPanel() {
+        let space = Conversation(
+            id: Conversation.ID("space/s-1"), kind: .space, title: "Deploys", repliesEnabled: true
+        )
+        let meet = Conversation(id: Conversation.ID("space/m-1"), kind: .meetChat, title: "Standup")
+        func inspector(_ conversation: Conversation, panel: Bool) -> ThreadInspector {
+            let thread = MessageThread(id: MessageThread.ID("t-1"), conversationID: conversation.id)
+            let state = ChatSceneState(
+                conversations: [conversation], selected: conversation.id,
+                threads: ThreadSceneState(
+                    panel: panel ? ThreadPanelState(thread: thread, conversationTitle: "Deploys") : nil
+                )
+            )
+            let window = ChatWindow(state: state, actions: ChatSceneActions(threads: threads()))
+            return ThreadInspector(
+                state: state, actions: window.actions, threads: window.offeredThreadActions,
+                own: { _ in nil }, editing: nil
+            )
+        }
+        #expect(inspector(space, panel: true).isPresented)
+        #expect(!inspector(space, panel: false).isPresented)
+        #expect(!inspector(meet, panel: true).isPresented)
+    }
 }

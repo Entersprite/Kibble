@@ -177,8 +177,11 @@ public protocol ChatBackend: Sendable {
     ) async throws
 
     /// The Threads list: each followed thread's first message and the reply
-    /// the answer carries, newest activity first. Each thread's state also
-    /// arrives as `.threadChanged`. A requirement for the same reason.
+    /// the answer carries. **In no promised order:** the client stores them
+    /// and orders the list itself, from its own read. Each thread's state also
+    /// arrives as `.threadChanged`. A request because the client awaits it
+    /// when the Threads pane opens, as the panel awaits `loadThread`. A
+    /// requirement, for `attachmentData(_:size:)`'s reason.
     func loadFollowedThreads() async throws -> [Message]
 }
 

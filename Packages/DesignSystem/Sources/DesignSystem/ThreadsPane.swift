@@ -7,14 +7,18 @@ import SwiftUI
 public struct ThreadsPane: View {
     let items: [ThreadListItem]
     let me: Member.ID?
+    /// The window's directory, for the repliers' avatars, as the transcript's
+    /// marks get it.
+    let directory: [Member.ID: Member]
     let open: (Conversation.ID, MessageThread.ID) -> Void
 
     public init(
-        items: [ThreadListItem], me: Member.ID?,
+        items: [ThreadListItem], me: Member.ID?, directory: [Member.ID: Member],
         open: @escaping (Conversation.ID, MessageThread.ID) -> Void
     ) {
         self.items = items
         self.me = me
+        self.directory = directory
         self.open = open
     }
 
@@ -33,7 +37,7 @@ public struct ThreadsPane: View {
             // transcript's marks do (`ThreadMark`). `.now`, not the
             // timeline's date, so a redraw for any other reason draws now.
             TimelineView(.everyMinute) { _ in
-                ThreadsPaneList(items: items, me: me, now: .now, open: open)
+                ThreadsPaneList(items: items, me: me, directory: directory, now: .now, open: open)
             }
         }
         .overlay {
@@ -50,13 +54,14 @@ public struct ThreadsPane: View {
 struct ThreadsPaneList: View {
     let items: [ThreadListItem]
     let me: Member.ID?
+    let directory: [Member.ID: Member]
     let now: Date
     let open: (Conversation.ID, MessageThread.ID) -> Void
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(items) { item in
-                ThreadItemRow(item: item, me: me, now: now, open: open)
+                ThreadItemRow(item: item, me: me, directory: directory, now: now, open: open)
             }
         }
         .padding(12)
@@ -65,11 +70,13 @@ struct ThreadsPaneList: View {
 
 /// One followed thread: where, who, when, the first message, and its mark.
 ///
-/// The mark gets an empty directory: the row already names the sender, and
-/// the repliers' avatars fall back to initials.
+/// The mark gets the window's directory, as the transcript's marks do, so a
+/// replier is drawn by photo or initials; an empty one would draw every
+/// replier as the unknown-person glyph (`Avatar`'s rungs).
 struct ThreadItemRow: View {
     let item: ThreadListItem
     let me: Member.ID?
+    let directory: [Member.ID: Member]
     let now: Date
     let open: (Conversation.ID, MessageThread.ID) -> Void
 
@@ -92,7 +99,7 @@ struct ThreadItemRow: View {
                         .foregroundStyle(.tertiary)
                 }
                 rootText
-                ThreadMarkLabel(thread: item.thread, directory: [:], now: now)
+                ThreadMarkLabel(thread: item.thread, directory: directory, now: now)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

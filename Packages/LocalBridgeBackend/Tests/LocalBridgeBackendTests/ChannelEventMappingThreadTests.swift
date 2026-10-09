@@ -50,10 +50,21 @@ struct ChannelEventMappingThreadTests {
 
     /// Field 2 leaves the first message out; `.counted` counts it.
     @Test func pushEightyTwoCountsTheFirstMessage() throws {
+        let payload = padded([1: topicID(), 2: "4", 3: "2"], upTo: 3)
+        #expect(try change(mapped(body(type: 82, field: 64, payload: payload))) == .counted(
+            messages: 5,
+            unread: 2
+        ))
+    }
+
+    /// Field 3 has only been seen as 0, on the owner's own replies (§63.10,
+    /// `[Verify]`). A 0 is no claim: stored, it would pin the thread's count
+    /// at 0, since history's `nil` keeps it and a read only zeroes it.
+    @Test func pushEightyTwoWithZeroUnreadSaysNothingAboutUnread() throws {
         let payload = padded([1: topicID(), 2: "4", 3: "0"], upTo: 3)
         #expect(try change(mapped(body(type: 82, field: 64, payload: payload))) == .counted(
             messages: 5,
-            unread: 0
+            unread: nil
         ))
     }
 

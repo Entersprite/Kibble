@@ -38,7 +38,9 @@ public struct ChatWindow: View {
                         actions.openMention?($0, $1)
                     }
                 } else if state.threads.showingList, let threads = actions.threads {
-                    ThreadsPane(items: state.threads.items, me: state.me) { threads.openItem($0, $1) }
+                    ThreadsPane(items: state.threads.items, me: state.me, directory: state.directory) {
+                        threads.openItem($0, $1)
+                    }
                 } else if let conversation = state.selectedConversation {
                     // `safeAreaInset`, so the transcript scrolls under the
                     // composer rather than being hidden behind it the way an

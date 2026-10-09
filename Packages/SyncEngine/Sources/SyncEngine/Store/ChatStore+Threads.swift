@@ -73,9 +73,13 @@ public extension ChatStore {
         try database.read { db in try Self.fetchFollowedThreads(limit: limit, db) }
     }
 
+    /// **Duplicates are dropped**, as `observeConversations` drops them: every
+    /// write to `message` or `thread` re-runs this read, and most change no
+    /// followed thread.
     func observeFollowedThreads(limit: Int) -> AsyncValueObservation<[FollowedThread]> {
         ValueObservation
             .tracking { db in try Self.fetchFollowedThreads(limit: limit, db) }
+            .removeDuplicates()
             .values(in: database)
     }
 
@@ -85,8 +89,9 @@ public extension ChatStore {
         try database.read(Self.fetchUnreadThreadCount)
     }
 
+    /// Duplicates dropped, for `observeFollowedThreads(limit:)`'s reason.
     func observeUnreadThreadCount() -> AsyncValueObservation<Int> {
-        ValueObservation.tracking(Self.fetchUnreadThreadCount).values(in: database)
+        ValueObservation.tracking(Self.fetchUnreadThreadCount).removeDuplicates().values(in: database)
     }
 }
 

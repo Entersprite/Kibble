@@ -34,10 +34,17 @@ extension ChannelEventMapping {
 
     /// Push 82, `{1 topic, 2 replies, 3 unread}` (§63.10). Field 2 leaves the
     /// first message out; `.counted` counts it, as `replyCount` does.
+    ///
+    /// **Field 3 counts only when above 0.** It has been seen only as 0, twice,
+    /// both on the owner's own replies, so whether it is the unread count is
+    /// `[Verify]`. A stored count beats the client's fallback, history's `nil`
+    /// keeps it and a read only zeroes it: were field 3 always 0, every thread
+    /// it reached would read as read for good. A 0 says nothing until measured.
     private static func topicMetadata(in body: ChannelEventBody) -> ChatEvent? {
         guard case let .topicMetadataUpdatedEvent(event)? = decoded(body),
               event.hasReplyCount else { return nil }
-        let unread = event.hasUnreadReplyCount ? Int(event.unreadReplyCount) : nil
+        let claimsUnread = event.hasUnreadReplyCount && event.unreadReplyCount > 0
+        let unread = claimsUnread ? Int(event.unreadReplyCount) : nil
         return threadChange(event.topicID, .counted(messages: Int(event.replyCount) + 1, unread: unread))
     }
 

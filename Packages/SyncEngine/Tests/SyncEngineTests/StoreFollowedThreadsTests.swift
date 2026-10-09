@@ -174,4 +174,25 @@ struct StoreFollowedThreadsTests {
         try store.apply([change("topic:a", in: space, .counted(messages: 2, unread: 0))])
         #expect(try await iterator.next() == 0)
     }
+
+    /// Both reads re-run on every write to `message` or `thread`; a write
+    /// that changes neither answer is not sent on (`observeConversations`'
+    /// rule). The value after it is the next change, never a repeat.
+    @Test func anUnchangedListOrBadgeIsNotSentAgain() async throws {
+        let store = try store(
+            thread("topic:a", in: space, minute: 0, replyMinute: 10) + [
+                change("topic:a", in: space, .followed(true)),
+                change("topic:a", in: space, .counted(messages: 2, unread: 1))
+            ]
+        )
+        var badge = store.observeUnreadThreadCount().makeAsyncIterator()
+        var list = store.observeFollowedThreads(limit: 50).makeAsyncIterator()
+        #expect(try await badge.next() == 1)
+        #expect(try await list.next()?.first?.thread.hasUnread == true)
+        // A thread nobody follows: both reads re-run, and neither changes.
+        try store.apply(thread("topic:z", in: dm, minute: 2, replyMinute: 3))
+        try store.apply([change("topic:a", in: space, .counted(messages: 2, unread: 0))])
+        #expect(try await badge.next() == 0)
+        #expect(try await list.next()?.first?.thread.hasUnread == false)
+    }
 }

@@ -122,6 +122,8 @@ struct ThreadPanel: View {
                     )
                     : nil,
                 editing: editing,
+                // The thread open at call time, not captured as `sendHere` is: safe only
+                // while these mentions have no `nonMembers`, so nothing is awaited first.
                 send: threads.sendReply
             )
             // The draft belongs to its thread (ruling 6): another thread gets
