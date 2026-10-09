@@ -77,6 +77,10 @@ public actor SyncEngine {
     /// (`SyncEngine+Members.swift`). Forgotten on failure and on `stop()`.
     var membersLoaded: Set<Conversation.ID> = []
 
+    /// The Threads list fetch a world load started (`SyncEngine+Threads.swift`),
+    /// canceled by the next world load and by `stop()`.
+    var followedThreadsTask: Task<Void, Never>?
+
     public init(
         backend: any ChatBackend, store: ChatStore, mentionClock: (@Sendable () -> Date)? = nil
     ) {
@@ -122,6 +126,8 @@ public actor SyncEngine {
         mentionBackfillTask?.cancel()
         membersLoaded = []
         mentionBackfillTask = nil
+        followedThreadsTask?.cancel()
+        followedThreadsTask = nil
         await backend.disconnect()
     }
 
@@ -228,9 +234,12 @@ public extension SyncEngine {
     /// The one place the read-receipt gate is enforced, and the dormant
     /// ghost-mode switch with it.
     ///
-    /// A `.markRead` is refused when its conversation's resolved rule has
-    /// `readReceipts` off (`receiptsAllowed(in:)`). `ghostMode` is checked too,
-    /// though no host sets it any more - see its doc comment.
+    /// A `.markRead`, a `.markThreadRead` and the clear sent before one
+    /// (`.setThreadUnreadMark` with `at: nil`) are refused when their
+    /// conversation's resolved rule has `readReceipts` off
+    /// (`receiptsAllowed(in:)`); a manual Mark as Unread (`at:` set) never is.
+    /// `ghostMode` is checked too, though no host sets it any more - see its
+    /// doc comment.
     ///
     /// **`ghostSuppresses` is exhaustive with no `default`, on purpose.** A new
     /// `ChatCommand` case stops it compiling until someone decides whether it
@@ -242,10 +251,13 @@ public extension SyncEngine {
         if ghostMode, ghostSuppresses(command) {
             return true
         }
-        if case let .markRead(conversationID, _) = command {
+        switch command {
+        case let .markRead(conversationID, _), let .markThreadRead(conversationID, _, _),
+             let .setThreadUnreadMark(conversationID, _, nil):
             return !receiptsAllowed(in: conversationID)
+        default:
+            return false
         }
-        return false
     }
 
     /// Exhaustive on purpose - a new command must be decided here, not
@@ -257,12 +269,11 @@ public extension SyncEngine {
             // A thread's read position says what you have read, as a
             // conversation's does; whether others see it is `[Verify]`.
             true
-        case .sendMessage, .editMessage, .deleteMessage, .setReaction,
-             .setNotificationLevel, .watchPresence, .loadMembers, .setStatus, .setAvailability,
-             .setThreadUnreadMark, .unknown:
+        case .sendMessage, .editMessage, .deleteMessage, .setReaction, .setThreadUnreadMark,
+             .setNotificationLevel, .watchPresence, .loadMembers, .setStatus, .setAvailability, .unknown:
             // `.watchPresence` and `.loadMembers` ask about other people and
             // say nothing about this one. Setting your own status is an act,
-            // and so is marking a thread unread.
+            // and an unread mark is yours alone.
             false
         }
     }
@@ -331,7 +342,7 @@ extension SyncEngine {
             // A pushed world is a world load too: `FakeBackend`'s first
             // connect sends one with no gap (ruling 7).
             if case .conversationsChanged = event {
-                startMentionBackfill()
+                worldLoaded()
             }
         } catch {
             record(error)
@@ -347,7 +358,7 @@ extension SyncEngine {
             switch effect {
             case .reloadConversations:
                 try await store.apply([.replaceConversations(backend.loadConversations())])
-                startMentionBackfill()
+                worldLoaded()
             case let .reloadMessages(conversation):
                 try await loadMoreMessages(in: conversation)
             case let .announceArrival(message):

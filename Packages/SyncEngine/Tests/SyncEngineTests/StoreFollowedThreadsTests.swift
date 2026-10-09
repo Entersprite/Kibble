@@ -119,6 +119,30 @@ struct StoreFollowedThreadsTests {
         #expect(try store.thread(MessageThread.ID("topic:mine"), in: space)?.isFollowed == true)
     }
 
+    /// Posting follows a topic and pushes 4 and 9 carry no count
+    /// (`findings.md` §63.10), so a followed thread with nothing but its first
+    /// message stays out of the list and the badge until a reply lands. Marked
+    /// unread, so the badge would count it if it were let through.
+    @Test func aFollowedThreadWithoutAReplyIsNeitherListedNorCounted() throws {
+        let writes = thread("topic:solo", in: space, minute: 0, replyMinute: 1, rootSender: me)
+        let store = try store([
+            writes[0],
+            change("topic:solo", in: space, .followed(true)),
+            change("topic:solo", in: space, .markedUnread(at: start))
+        ])
+        // The positive control: the thread is followed and unread, so only
+        // its missing reply can keep it out.
+        let summary = try store.thread(MessageThread.ID("topic:solo"), in: space)
+        #expect(summary?.isFollowed == true)
+        #expect(summary?.hasUnread == true)
+        #expect(try store.followedThreads(limit: 10).isEmpty)
+        #expect(try store.unreadThreadCount() == 0)
+
+        try store.apply([writes[1]])
+        #expect(try store.followedThreads(limit: 10).map(\.thread.id.rawValue) == ["topic:solo"])
+        #expect(try store.unreadThreadCount() == 1)
+    }
+
     /// Every unread followed thread the list would show, not only the
     /// `limit` it shows, and the count moves back when one is read.
     @Test func theBadgeCountsUnreadFollowedThreadsBeyondTheLimitAndMovesBack() throws {

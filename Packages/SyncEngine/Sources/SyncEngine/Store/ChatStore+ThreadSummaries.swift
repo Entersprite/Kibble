@@ -60,8 +60,8 @@ extension ChatStore {
     /// from `thread`.
     ///
     /// The flag counts every unread thread. The Threads badge counts fewer:
-    /// only those the server says you follow, with the first message stored,
-    /// in a conversation still listed (`fetchFollowedThreads`).
+    /// only those the server says you follow, with the first message stored
+    /// and a reply, in a conversation still listed (`fetchFollowedThreads`).
     static func fetchConversationsWithUnreadThreads(_ db: Database) throws -> Set<Conversation.ID> {
         let me = try fetchMe(db)?.rawValue
         let rows = try Row.fetchAll(

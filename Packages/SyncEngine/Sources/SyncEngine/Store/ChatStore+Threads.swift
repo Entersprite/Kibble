@@ -62,8 +62,13 @@ public extension ChatStore {
     }
 
     /// Threads the server says you follow (`isFollowed = 1`, never the
-    /// fallback), with their first message stored, in a conversation the
-    /// store still lists; newest activity first, at most `limit`.
+    /// fallback), with their first message stored and at least one reply
+    /// (`replyCount > 1`), in a conversation the store still lists; newest
+    /// activity first, at most `limit`.
+    ///
+    /// **A reply is required** because posting follows a topic and pushes 4
+    /// and 9 carry no count (`findings.md` §63.10): without it, every
+    /// single-message topic you posted would be listed.
     func followedThreads(limit: Int) throws -> [FollowedThread] {
         try database.read { db in try Self.fetchFollowedThreads(limit: limit, db) }
     }
@@ -100,6 +105,8 @@ extension ChatStore {
     }
 
     /// Roots are each followed thread's oldest message that is not a reply.
+    /// A thread whose summary counts no reply is dropped before the limit, so
+    /// the badge (`fetchUnreadThreadCount`) drops it too.
     /// The summaries are one read for every followed thread at once
     /// (`fetchFollowedThreadSummaries`), never one per conversation or per
     /// thread. A conversation the store no longer lists is left out, as the
@@ -125,8 +132,10 @@ extension ChatStore {
             }
         }
         let summaries = try fetchFollowedThreadSummaries(db)
-        var items = rootByKey.compactMap { key, root in
-            summaries[key].map { FollowedThread(root: root, thread: $0) }
+        var items = rootByKey.compactMap { key, root -> FollowedThread? in
+            // Only a thread with a reply, before the limit.
+            guard let thread = summaries[key], thread.replyCount > 1 else { return nil }
+            return FollowedThread(root: root, thread: thread)
         }
         items.sort(by: newestActivityFirst)
         return limit.map { Array(items.prefix($0)) } ?? items
