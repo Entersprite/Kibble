@@ -179,6 +179,26 @@ struct StoreFollowedThreadsTests {
         #expect(try store.unreadThreads() == UnreadThreads(count: 1, conversations: [dm]))
     }
 
+    /// The list, the badge and the dots from one read of the followed threads
+    /// (session 61): the list the newest `limit`, the badge and the dots
+    /// every unread one, beyond the limit too. A thread with no reply, or one
+    /// nobody follows, is not counted.
+    @Test func oneReadGivesTheListTheBadgeAndTheDots() throws {
+        let store = try threeThreads()
+        try store.apply(
+            thread("topic:solo", in: dm, minute: 40, replyMinute: 40).prefix(1) + [
+                change("topic:solo", in: dm, .followed(true)),
+                change("topic:solo", in: dm, .markedUnread(at: start)),
+                change("topic:a", in: space, .counted(messages: 2, unread: 1)),
+                change("topic:b", in: dm, .markedUnread(at: start)),
+                change("topic:c", in: space, .counted(messages: 2, unread: 1))
+            ]
+        )
+        let overview = try store.followedThreadsOverview(limit: 1)
+        #expect(overview.list.map(\.thread.id.rawValue) == ["topic:b"])
+        #expect(overview.unread == UnreadThreads(count: 2, conversations: [space, dm]))
+    }
+
     @Test func theBadgeIsObserved() async throws {
         let store = try store(
             thread("topic:a", in: space, minute: 0, replyMinute: 10) + [
@@ -186,30 +206,32 @@ struct StoreFollowedThreadsTests {
                 change("topic:a", in: space, .counted(messages: 2, unread: 1))
             ]
         )
-        var iterator = store.observeUnreadThreads().makeAsyncIterator()
-        #expect(try await iterator.next() == UnreadThreads(count: 1, conversations: [space]))
+        var iterator = store.observeFollowedThreadsOverview(limit: 50).makeAsyncIterator()
+        #expect(try await iterator.next()?.unread == UnreadThreads(count: 1, conversations: [space]))
         try store.apply([change("topic:a", in: space, .counted(messages: 2, unread: 0))])
-        #expect(try await iterator.next() == UnreadThreads(count: 0, conversations: []))
+        #expect(try await iterator.next()?.unread == UnreadThreads(count: 0, conversations: []))
     }
 
-    /// Both reads re-run on every write to `message` or `thread`; a write
-    /// that changes neither answer is not sent on (`observeConversations`'
-    /// rule). The value after it is the next change, never a repeat.
-    @Test func anUnchangedListOrBadgeIsNotSentAgain() async throws {
+    /// The read re-runs on every write to `message` or `thread`; a write that
+    /// changes neither the list nor the badge is not sent on
+    /// (`observeConversations`' rule). The value after it is the next change,
+    /// never a repeat.
+    @Test func anUnchangedListAndBadgeAreNotSentAgain() async throws {
         let store = try store(
             thread("topic:a", in: space, minute: 0, replyMinute: 10) + [
                 change("topic:a", in: space, .followed(true)),
                 change("topic:a", in: space, .counted(messages: 2, unread: 1))
             ]
         )
-        var badge = store.observeUnreadThreads().makeAsyncIterator()
-        var list = store.observeFollowedThreads(limit: 50).makeAsyncIterator()
-        #expect(try await badge.next() == UnreadThreads(count: 1, conversations: [space]))
-        #expect(try await list.next()?.first?.thread.hasUnread == true)
-        // A thread nobody follows: both reads re-run, and neither changes.
+        var overviews = store.observeFollowedThreadsOverview(limit: 50).makeAsyncIterator()
+        let first = try await overviews.next()
+        #expect(first?.unread == UnreadThreads(count: 1, conversations: [space]))
+        #expect(first?.list.first?.thread.hasUnread == true)
+        // A thread nobody follows: the read re-runs, and nothing changes.
         try store.apply(thread("topic:z", in: dm, minute: 2, replyMinute: 3))
         try store.apply([change("topic:a", in: space, .counted(messages: 2, unread: 0))])
-        #expect(try await badge.next() == UnreadThreads())
-        #expect(try await list.next()?.first?.thread.hasUnread == false)
+        let next = try await overviews.next()
+        #expect(next?.unread == UnreadThreads())
+        #expect(next?.list.first?.thread.hasUnread == false)
     }
 }

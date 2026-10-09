@@ -42,11 +42,13 @@ public struct ThreadSessionState: Sendable, Equatable {
 
     public init() {}
 
-    /// The badge and the dots in one mutation, so nothing observing `threads`
-    /// sees one without the other.
-    mutating func setUnread(_ unread: UnreadThreads) {
-        unreadCount = unread.count
-        unreadConversations = unread.conversations
+    /// The list, the badge and the dots in one mutation, so nothing observing
+    /// `threads` sees one without the others, and a write that changes two of
+    /// them redraws once.
+    mutating func setFollowed(_ overview: FollowedThreadsOverview) {
+        followed = overview.list
+        unreadCount = overview.unread.count
+        unreadConversations = overview.unread.conversations
     }
 
     /// For `ChatSessionModel.stop()`: cancels every task the panel and the
