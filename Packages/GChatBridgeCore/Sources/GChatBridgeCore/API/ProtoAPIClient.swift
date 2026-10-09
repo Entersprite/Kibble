@@ -35,6 +35,10 @@ public actor ProtoAPIClient {
     /// and the next contradiction should be a measurement rather than an
     /// argument.
     public private(set) var lastEncoding: APIResponseEncoding?
+    /// The last call refused with a status other than 200, and what came
+    /// with it. Evidence, not control flow, as `lastEncoding` is: the status
+    /// alone named no reason for a 400 (session 62).
+    public private(set) var lastRefusal: APIRefusal?
 
     public init(
         transport: any HTTPTransport,
@@ -108,7 +112,17 @@ public actor ProtoAPIClient {
         // and then failed still rotated the cookie, and dropping it would leave
         // the jar behind the server.
         await credentials.absorb(response.headers, from: request.url)
-        guard response.status == 200 else { throw APIFailure.httpStatus(response.status) }
+        guard response.status == 200 else {
+            lastRefusal = APIRefusal(method: name, status: response.status, body: response.body)
+            throw APIFailure.httpStatus(response.status)
+        }
         return RawAPIResponse(status: response.status, body: response.body)
     }
+}
+
+/// A call refused with a status other than 200: which, and what came back.
+public struct APIRefusal: Sendable, Hashable {
+    public let method: String
+    public let status: Int
+    public let body: Data
 }

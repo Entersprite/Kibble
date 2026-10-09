@@ -45,6 +45,12 @@ extension LocalBridgeBackend {
         emit(.selfIdentified(ChatKit.Member(id: ChatKit.Member.ID(id), kind: .human)))
         // Your availability, from the same answer (set-your-status spec §3).
         let availability = AvailabilityMapping.availability(of: response.userStatus, now: Date())
+        AvailabilityLog.answer(
+            "get_self_user_status",
+            response.userStatus,
+            requested: nil,
+            shown: availability
+        )
         presencePoll.ownAvailability = availability
         emit(.availabilityChanged(availability))
         // The account's own name. The world lists it only as a member of a
