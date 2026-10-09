@@ -97,6 +97,8 @@ public struct ConversationList: View {
                     actions.select(id)
                 case .mentions?:
                     actions.showMentions?()
+                case .threads?:
+                    actions.threads?.showList()
                 case nil:
                     break
                 }
@@ -192,7 +194,8 @@ struct ConversationRow: View {
     }
 
     /// A number when the backend can count, a dot when it can only say
-    /// "something", and nothing when there is nothing.
+    /// "something", the thread symbol when only threads are unread (threads
+    /// spec §5.3), and nothing when there is nothing.
     ///
     /// Both cases exist because the two facts arrive separately and Chat
     /// currently supplies only the second: `unread_message_count` is sent as
@@ -221,6 +224,13 @@ struct ConversationRow: View {
                 .fill(.tint)
                 .frame(width: 7, height: 7)
                 .accessibilityLabel("Unread")
+        } else if ThreadsPresentation.showsThreadSymbol(
+            conversation, hidden: state.unreadHidden.contains(conversation.id)
+        ) {
+            Image(systemName: ThreadsPresentation.unreadSymbol)
+                .font(.caption2)
+                .foregroundStyle(.tint)
+                .accessibilityLabel("Unread threads")
         }
     }
 
@@ -264,32 +274,6 @@ struct ConversationRow: View {
         case .unknown:
             Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
         }
-    }
-}
-
-/// The Mentions row (the mentions-list spec §4): an `at` symbol, verified
-/// present with `NSImage(systemSymbolName:accessibilityDescription:)`, and a
-/// badge of unread mentions. It has no context menu and no rules.
-struct MentionsSidebarRow: View {
-    let unread: Int
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "at")
-                .frame(width: 20)
-                .foregroundStyle(.secondary)
-            Text("Mentions")
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            if let badge = MentionsPresentation.badge(unread: unread) {
-                Text(badge)
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(badge) unread")
-            }
-        }
-        .padding(.vertical, 1)
     }
 }
 

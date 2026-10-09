@@ -6,18 +6,31 @@ import SwiftUI
 /// confirmation before a delete.
 extension ChatWindow {
     /// What the bubbles' menus may offer: a `nil` handler where the backend
-    /// cannot, and nothing at all without `actions.messages`.
+    /// cannot, and nothing at all without `actions.messages` or thread
+    /// actions. The thread items only where the selected conversation has
+    /// replies (world field 27, `ThreadsPresentation.offersReplies`).
+    ///
+    /// `markUnread` is offered from the transcript's handlers too, but
+    /// `items(for:)` offers it only on a reply, and the transcript holds none;
+    /// the panel's bubbles use these same handlers.
     var ownHandlers: OwnMessageHandlers? {
-        guard actions.messages != nil else { return nil }
+        let offersReplies = ThreadsPresentation.offersReplies(in: state.selectedConversation)
+        let threads = offersReplies ? actions.threads : nil
+        guard actions.messages != nil || threads != nil else { return nil }
+        let summaries = state.threads.summaries
         return OwnMessageHandlers(
             me: state.me,
-            edit: state.capabilities.canEditMessages ? { message in
+            edit: actions.messages != nil && state.capabilities.canEditMessages ? { message in
                 editRequest = ComposerEditRequest(
                     messageID: message.id,
                     message: ComposedMessage(text: message.text, mentions: message.mentions)
                 )
             } : nil,
-            delete: state.capabilities.canDeleteMessages ? { pendingDelete = $0 } : nil
+            delete: actions.messages != nil && state.capabilities.canDeleteMessages
+                ? { pendingDelete = $0 } : nil,
+            replyInThread: threads.map { threads in { threads.open($0.threadID) } },
+            markUnread: threads.map { threads in { threads.markUnread($0) } },
+            hasReplies: { (summaries[$0.threadID]?.replyCount ?? 1) > 1 }
         )
     }
 

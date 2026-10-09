@@ -240,6 +240,16 @@ struct ReactionMenu: ViewModifier {
                     if actions != nil {
                         Divider()
                     }
+                    if let reply = own.replyInThread {
+                        Button("Reply in Thread", systemImage: ThreadsPresentation.replySymbol, action: reply)
+                    }
+                    if let markUnread = own.markUnread {
+                        Button(
+                            "Mark as Unread",
+                            systemImage: ThreadsPresentation.markUnreadSymbol,
+                            action: markUnread
+                        )
+                    }
                     if let edit = own.edit {
                         Button("Edit…", systemImage: "pencil", action: edit)
                     }

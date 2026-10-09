@@ -52,6 +52,9 @@ public struct MessageList: View {
     /// a read-only row and no context menu (`CLAUDE.md`: never draw a
     /// control the seam cannot honour).
     let reactions: ReactionActions?
+    /// `ChatSceneActions.threads`: a bubble's mark opens its thread; `nil`
+    /// draws no mark.
+    let threads: ThreadActions?
     /// Edit… and Delete… on the person's own messages; `nil` offers neither
     /// (edit spec §5). Set by `ChatWindow` through `ownMessages(_:)`: the
     /// handlers are the window's, and internal.
@@ -70,7 +73,8 @@ public struct MessageList: View {
         loadRemoteImage: ((URL) async throws -> Data)? = nil,
         downloads: [String: AttachmentDownloadState] = [:],
         attachmentFiles: AttachmentFileActions? = nil,
-        reactions: ReactionActions? = nil
+        reactions: ReactionActions? = nil,
+        threads: ThreadActions? = nil
     ) {
         self.state = state
         self.loadAttachment = loadAttachment
@@ -79,6 +83,7 @@ public struct MessageList: View {
         self.downloads = downloads
         self.attachmentFiles = attachmentFiles
         self.reactions = reactions
+        self.threads = threads
     }
 
     func ownMessages(_ handlers: OwnMessageHandlers?) -> MessageList {
@@ -97,7 +102,7 @@ public struct MessageList: View {
                             loadAttachment: loadAttachment, openAttachment: openAttachment,
                             loadRemoteImage: loadRemoteImage,
                             downloads: downloads, attachmentFiles: attachmentFiles,
-                            reactions: reactions, own: own
+                            reactions: reactions, own: own, openThread: threads?.open
                         )
                         .id(message.id)
                     }
@@ -145,6 +150,7 @@ struct MessageBubble: View {
     var attachmentFiles: AttachmentFileActions?
     var reactions: ReactionActions?
     var own: OwnMessageHandlers?
+    var openThread: ((MessageThread.ID) -> Void)?
 
     /// Whether the full emoji picker is open for this message: from either
     /// menu's "More Emoji…" or the row's "+" (reactions spec §4.1-§4.3).
@@ -239,6 +245,14 @@ struct MessageBubble: View {
                         loadImage: reactions?.customImage,
                         onAdd: reactions == nil || message.isDeleted ? nil : { picking = true }
                     )
+                }
+                if let mark = ThreadMark(
+                    thread: state.threads.summaries[message.threadID],
+                    message: message,
+                    directory: state.directory,
+                    open: openThread.map { open in { open(message.threadID) } }
+                ) {
+                    mark
                 }
             }
             .modifier(ReactionMenu(message: message, actions: reactions, own: ownItems) { picking = true })

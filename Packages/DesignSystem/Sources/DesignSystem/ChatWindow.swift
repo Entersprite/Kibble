@@ -55,7 +55,8 @@ public struct ChatWindow: View {
                         loadRemoteImage: actions.loadRemoteImage,
                         downloads: state.downloads,
                         attachmentFiles: actions.attachmentFiles,
-                        reactions: actions.reactions
+                        reactions: actions.reactions,
+                        threads: actions.threads
                     )
                     .ownMessages(ownHandlers)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -145,6 +146,9 @@ public struct ChatWindow: View {
     private var title: String {
         if state.showingMentions {
             return "Mentions"
+        }
+        if state.threads.showingList {
+            return ThreadsPresentation.title
         }
         guard let conversation = state.selectedConversation else { return "Kibble" }
         return Display.title(of: conversation, directory: state.directory, me: state.me)

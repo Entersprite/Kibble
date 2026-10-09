@@ -1,13 +1,15 @@
 import ChatKit
 import Foundation
 
-/// What the sidebar has chosen: a conversation, or the Mentions row (the
-/// mentions-list spec §4). A view type, so it lives here (ruling 1). The
-/// session model says `showingMentions` and `selected`, and
-/// `ChatSceneState.sidebarSelection` is the one place the two become this.
+/// What the sidebar has chosen: a conversation, the Mentions row (the
+/// mentions-list spec §4), or the Threads row. A view type, so it lives here
+/// (ruling 1). The session model says `showingMentions`, `threads.showingList`
+/// and `selected`, and `ChatSceneState.sidebarSelection` is the one place they
+/// become this.
 public enum SidebarSelection: Hashable, Sendable {
     case conversation(Conversation.ID)
     case mentions
+    case threads
 }
 
 /// Everything the chat window draws, as one value.
@@ -90,6 +92,8 @@ public struct ChatSceneState: Sendable, Equatable {
     /// The `@` list's directory section for the active query
     /// (`ChatSessionModel.directoryResults`).
     public var directoryResults: [Member]
+    /// Threads: the marks' summaries, the panel, the list (threads spec §5).
+    public var threads: ThreadSceneState
 
     public init(
         conversations: [Conversation] = [],
@@ -116,7 +120,8 @@ public struct ChatSceneState: Sendable, Equatable {
         downloads: [String: AttachmentDownloadState] = [:],
         stagedAttachments: [ComposerAttachment] = [],
         mentionCandidates: [Member] = [],
-        directoryResults: [Member] = []
+        directoryResults: [Member] = [],
+        threads: ThreadSceneState = ThreadSceneState()
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -143,6 +148,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.stagedAttachments = stagedAttachments
         self.mentionCandidates = mentionCandidates
         self.directoryResults = directoryResults
+        self.threads = threads
     }
 
     public var selectedConversation: Conversation? {
@@ -150,7 +156,13 @@ public struct ChatSceneState: Sendable, Equatable {
     }
 
     public var sidebarSelection: SidebarSelection? {
-        showingMentions ? .mentions : selected.map(SidebarSelection.conversation)
+        if showingMentions {
+            return .mentions
+        }
+        if threads.showingList {
+            return .threads
+        }
+        return selected.map(SidebarSelection.conversation)
     }
 }
 
@@ -287,6 +299,9 @@ public struct ChatSceneActions {
     public var setStatus: ((MemberStatus?) -> Void)?
     /// Sets your availability.
     public var setAvailability: ((Availability) -> Void)?
+    /// Threads. **Optional, and `nil` is the point**: a backend without
+    /// threads gets no mark, no panel and no Threads row.
+    public var threads: ThreadActions?
 
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
@@ -314,7 +329,8 @@ public struct ChatSceneActions {
         keepDraft: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
         messages: MessageActions? = nil,
         setStatus: ((MemberStatus?) -> Void)? = nil,
-        setAvailability: ((Availability) -> Void)? = nil
+        setAvailability: ((Availability) -> Void)? = nil,
+        threads: ThreadActions? = nil
     ) {
         self.select = select
         self.send = send
@@ -342,5 +358,6 @@ public struct ChatSceneActions {
         self.messages = messages
         self.setStatus = setStatus
         self.setAvailability = setAvailability
+        self.threads = threads
     }
 }
