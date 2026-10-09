@@ -82,19 +82,22 @@ public extension ChatStore {
     /// **A reply is required** because posting follows a topic and pushes 4
     /// and 9 carry no count (`findings.md` §63.10): without it, every
     /// single-message topic you posted would be listed.
+    ///
+    /// This and the two reads below go through the session's own read
+    /// (`fetchFollowedThreadsOverview`), so their tests cover what it shows.
     func followedThreads(limit: Int) throws -> [FollowedThread] {
-        try database.read { db in try Self.fetchFollowedThreads(limit: limit, db) }
+        try followedThreadsOverview(limit: limit).list
     }
 
     /// The Threads row's badge: every unread thread the list would show, not
     /// only the `limit` it shows.
     func unreadThreadCount() throws -> Int {
-        try database.read(Self.fetchUnreadThreads).count
+        try unreadThreads().count
     }
 
     /// The badge and the sidebar's dots (`UnreadThreads`).
     func unreadThreads() throws -> UnreadThreads {
-        try database.read(Self.fetchUnreadThreads)
+        try followedThreadsOverview(limit: 0).unread
     }
 
     /// The Threads list, its badge and the sidebar's dots, from one read.
@@ -116,7 +119,8 @@ public extension ChatStore {
 
 /// The Threads list and its badge and dots, from one read of the followed
 /// threads. Two reads built the same complete list on every message write,
-/// 46 ms each in a Release build on a heavy account (session 58 §4).
+/// 46 ms each in a Release build on a heavy synthetic store (session 58
+/// follow-ups §4).
 public struct FollowedThreadsOverview: Equatable, Sendable {
     /// The list: the newest `limit`.
     public internal(set) var list: [FollowedThread]
@@ -140,7 +144,7 @@ extension ChatStore {
 
     /// Roots are each followed thread's oldest message that is not a reply.
     /// A thread whose summary counts no reply is dropped before the limit, so
-    /// the badge and the dots (`fetchUnreadThreads`) drop it too.
+    /// the badge and the dots (`fetchFollowedThreadsOverview`) drop it too.
     /// The summaries are one read for every followed thread at once
     /// (`fetchFollowedThreadSummaries`), never one per conversation or per
     /// thread. A conversation the store no longer lists is left out, as the
@@ -173,10 +177,6 @@ extension ChatStore {
         }
         items.sort(by: newestActivityFirst)
         return limit.map { Array(items.prefix($0)) } ?? items
-    }
-
-    static func fetchUnreadThreads(_ db: Database) throws -> UnreadThreads {
-        try unreadThreads(in: fetchFollowedThreads(limit: nil, db))
     }
 
     /// The complete list built once, the list cut from it and the unread

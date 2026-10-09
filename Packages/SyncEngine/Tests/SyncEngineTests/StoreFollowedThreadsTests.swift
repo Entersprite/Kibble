@@ -181,8 +181,8 @@ struct StoreFollowedThreadsTests {
 
     /// The list, the badge and the dots from one read of the followed threads
     /// (session 61): the list the newest `limit`, the badge and the dots
-    /// every unread one, beyond the limit too. A thread with no reply is in
-    /// neither; an unread thread nobody follows gives no dot.
+    /// every unread one, beyond the limit too. A thread with no reply, or one
+    /// nobody follows, is not counted.
     @Test func oneReadGivesTheListTheBadgeAndTheDots() throws {
         let store = try threeThreads()
         try store.apply(
