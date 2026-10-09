@@ -1,48 +1,6 @@
 import ChatKit
 import SwiftUI
 
-/// The thread panel as an inspector on the transcript (threads spec §5.2).
-/// Shown while the scene has a panel; closing it any way tells the host.
-///
-/// **Always applied, never behind an `if`.** A branch here would give the
-/// whole transcript chain two identities, the main composer included, and
-/// `threads` can change without the conversation changing (the first world
-/// load after the v13 upgrade turns `repliesEnabled` on): the composer would
-/// be rebuilt, losing its draft and its edit without `ended()`.
-struct ThreadInspector: ViewModifier {
-    let state: ChatSceneState
-    let actions: ChatSceneActions
-    /// `ChatWindow.offeredThreadActions`: no panel, so no reply composer, in
-    /// a conversation without replies.
-    let threads: ThreadActions?
-    let own: (Message) -> OwnMessageHandlers?
-    let editing: ComposerEditing?
-
-    /// Shown only with a panel to draw and the thread actions to draw it with.
-    var isPresented: Bool {
-        threads != nil && state.threads.panel != nil
-    }
-
-    func body(content: Content) -> some View {
-        content.inspector(isPresented: Binding(
-            get: { isPresented },
-            set: { shown in
-                if !shown {
-                    threads?.close()
-                }
-            }
-        )) {
-            if let threads, let panel = state.threads.panel {
-                ThreadPanel(
-                    panel: panel, state: state, actions: actions, threads: threads,
-                    own: own, editing: editing
-                )
-                .inspectorColumnWidth(min: 300, ideal: 360, max: 560)
-            }
-        }
-    }
-}
-
 /// One edit at a time across the transcript's composer and the panel's
 /// (ruling 4): both share `editRequest` and `editingMessage`, and each
 /// composer takes an edit only while the other is not editing.

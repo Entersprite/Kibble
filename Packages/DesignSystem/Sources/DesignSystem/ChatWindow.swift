@@ -20,6 +20,9 @@ public struct ChatWindow: View {
     /// words change on time (spec §6.3). Read by `subtitle` as a floor for
     /// `now`, which is what makes SwiftUI redraw it.
     @State var headerClock = Date.now
+    /// The thread panel's share of the width (`ThreadSplit`), kept while the
+    /// window is open.
+    @State var threadShare = ThreadSplitLayout.initialShare
 
     public init(state: ChatSceneState, actions: ChatSceneActions) {
         self.state = state
@@ -71,9 +74,9 @@ public struct ChatWindow: View {
                         .background(alignment: .bottom) { ComposerScrim() }
                     }
                     .modifier(FileDropTarget(stage: dropStage))
-                    .modifier(ThreadInspector(
+                    .modifier(ThreadSplit(
                         state: state, actions: actions, threads: offeredThreadActions,
-                        own: { panelHandlers(for: $0) }, editing: panelEditing()
+                        own: { panelHandlers(for: $0) }, editing: panelEditing(), share: $threadShare
                     ))
                 } else {
                     ContentUnavailableView(
