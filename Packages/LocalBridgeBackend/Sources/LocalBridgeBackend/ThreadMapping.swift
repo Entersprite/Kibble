@@ -60,8 +60,8 @@ enum ThreadMapping {
 
     /// A thread's count, read position and mark-as-unread time, for a topic
     /// with at least one reply. Nothing for a single-message topic (652 of
-    /// 713 in §64.7). Field 10 is the count whenever present; `listing`
-    /// decides the rest, and has no default, so every caller says which it is.
+    /// 713 in §64.7). `listing` decides whether what it lists is the count,
+    /// and has no default, so every caller says which it is.
     static func events(for topic: Topic, in conversation: Conversation.ID, listing: Listing) -> [ChatEvent] {
         guard !topic.id.topicID.isEmpty, topic.replies.contains(where: isReply) else { return [] }
         let state = topic.topicReadState
@@ -83,13 +83,11 @@ enum ThreadMapping {
         return changes.map { .threadChanged(threadID: thread, conversationID: conversation, change: $0) }
     }
 
-    /// Field 10 when present; otherwise the messages listed, the first
-    /// included, as `MessageThread.replyCount` counts them.
+    /// The messages listed, the first included, as `MessageThread.replyCount`
+    /// counts them, when the listing is complete. **Never field 10**: it was
+    /// read as the count until the owner's run showed it is neither the
+    /// messages listed nor the replies listed (`findings.md` §64.9).
     private static func messageCount(_ topic: Topic, countsWhatItLists: Bool) -> Int? {
-        let state = topic.topicReadState
-        if state.hasTotalMessageCount, state.totalMessageCount > 0 {
-            return Int(state.totalMessageCount)
-        }
-        return countsWhatItLists ? topic.replies.count : nil
+        countsWhatItLists ? topic.replies.count : nil
     }
 }
