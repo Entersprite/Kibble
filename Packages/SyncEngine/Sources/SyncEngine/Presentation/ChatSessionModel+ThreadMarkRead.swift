@@ -28,11 +28,12 @@ import Foundation
 /// `markRead(_:from:)`'s reason.
 extension ChatSessionModel {
     /// *Schedules* a read position for the thread the panel shows, if the app
-    /// is frontmost, a manual Mark as Unread has not turned it off, the thread
-    /// has a reply with a server position beyond what has been published, and
-    /// no mark is in flight for it.
+    /// is frontmost, the window draws the panel (`isThreadPanelShown`), a
+    /// manual Mark as Unread has not turned it off, the thread has a reply
+    /// with a server position beyond what has been published, and no mark is
+    /// in flight for it.
     func markOpenThreadReadIfNeeded() {
-        guard isActive, let selected, let thread = threads.openThread else { return }
+        guard isActive, isThreadPanelShown, let selected, let thread = threads.openThread else { return }
         let key = ThreadKey(conversation: selected, thread: thread)
         // After a manual Mark as Unread the person is looking at a thread they
         // asked to keep unread, until the panel closes or shows another.

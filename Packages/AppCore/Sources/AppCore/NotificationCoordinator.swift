@@ -298,8 +298,9 @@ final class NotificationCoordinator {
     /// - Followed is the store's answer, which already falls back to "you
     ///   posted in it" (`ThreadUnreadRule.isFollowed`). A thread the store
     ///   cannot read counts as not followed: a mention still gets through.
-    /// - On screen is the thread's panel, in the selected conversation, behind
-    ///   the same viewing gate a conversation uses (`isActive`).
+    /// - On screen is the thread's panel as the window draws it
+    ///   (`isThreadPanelShown`), in the selected conversation, behind the same
+    ///   viewing gate a conversation uses (`isActive`).
     static func threadContext(
         of message: Message, in model: ChatSessionModel
     ) -> NotificationPolicy.ThreadContext? {
@@ -307,8 +308,8 @@ final class NotificationCoordinator {
         let stored = model.storedThread(message.threadID, in: message.conversationID)
         return NotificationPolicy.ThreadContext(
             isFollowed: stored?.isFollowed ?? false,
-            isOnScreen: model.isActive && model.selected == message.conversationID
-                && model.threads.openThread == message.threadID
+            isOnScreen: model.isActive && model.isThreadPanelShown
+                && model.selected == message.conversationID && model.threads.openThread == message.threadID
         )
     }
 

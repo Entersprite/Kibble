@@ -1,6 +1,7 @@
 import ChatKit
 import FixtureBackend
 import Foundation
+import Testing
 @testable import SyncEngine
 
 /// One thread in the minimal world's DM, for the thread suites (threads spec §4.3).
@@ -65,15 +66,41 @@ enum ThreadFixture {
 /// the fixture: what FakeBackend does with a thread command is
 /// FixtureBackend's subject, so here a refusal can only be the model's or
 /// the engine's.
+///
+/// The fixture conversation offers replies, as a world load after the v13
+/// upgrade says (`enableReplies(in:)`): the window draws the panel only
+/// there, and the panel marks read only where it is drawn (session 58).
+/// `repliesEnabled: false` is the panel the window does not draw.
 @MainActor
 func makeThreadHarness(
-    capabilities: Capabilities = ThreadFixture.capabilities, markReadDebounce: Duration = .zero
+    capabilities: Capabilities = ThreadFixture.capabilities, markReadDebounce: Duration = .zero,
+    repliesEnabled: Bool = true
 ) async throws -> AutoMarkReadHarness {
     let harness = try await makeAutoMarkReadHarness(
         capabilities: capabilities, markReadDebounce: markReadDebounce
     )
     await harness.backend.acceptWithoutForwarding(true)
+    if repliesEnabled {
+        try await enableReplies(in: harness)
+    }
     return harness
+}
+
+/// Turns on the fixture conversation's `repliesEnabled`, as a world load
+/// does, and waits until the model has it.
+@MainActor
+func enableReplies(in harness: AutoMarkReadHarness) async throws {
+    guard var conversation = try harness.store.conversations()
+        .first(where: { $0.id == ThreadFixture.conversation })
+    else {
+        Issue.record("the fixture conversation is not stored")
+        return
+    }
+    conversation.repliesEnabled = true
+    try harness.store.apply([.upsertConversation(conversation)])
+    await settleAutoMarkRead(until: "the model sees the conversation offer replies") {
+        harness.model.conversations.first { $0.id == ThreadFixture.conversation }?.repliesEnabled == true
+    }
 }
 
 /// Every thread read and unread mark the session sent, in order.

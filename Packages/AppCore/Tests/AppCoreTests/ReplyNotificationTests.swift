@@ -117,6 +117,31 @@ struct ReplyNotificationTests {
         #expect(notifications.map(\.id) == ["m:reply", "m:sentinel-2"])
     }
 
+    /// A panel the window does not draw is not on screen (session 58): the
+    /// thread is open in the model, but its conversation offers no replies
+    /// yet, so the reply is posted.
+    @Test func aReplyIsPostedWhileItsPanelIsOpenButNotDrawn() async throws {
+        let run = try await running()
+        run.services.backend.emit(.conversationsChanged([
+            Conversation(id: space, kind: .space, title: "Design"),
+            Conversation(id: other, kind: .space, title: "Ops", repliesEnabled: true)
+        ]))
+        #expect(await eventually {
+            run.model.conversations.first { $0.id == space }?.repliesEnabled == false
+        })
+        try run.services.store.apply([
+            .upsertMessage(message("m:root", from: alice.id, in: space)),
+            .applyThreadChange(thread: topic, conversation: space, change: .followed(true))
+        ])
+        run.model.select(space)
+        run.environment.setActive(true)
+        run.model.openThread(topic)
+        #expect(run.model.threads.openThread == topic)
+        let notifications = await posted(after: reply(), in: run, count: 2)
+        #expect(notifications.map(\.id) == ["m:reply", "m:sentinel-2"])
+        withExtendedLifetime(run) {}
+    }
+
     /// On screen for a reply is its thread's panel in a visible window: the
     /// conversation alone is not, and a closed window is not.
     @Test func aReplyIsNotPostedOnlyWhileItsThreadsPanelIsOnScreen() async throws {

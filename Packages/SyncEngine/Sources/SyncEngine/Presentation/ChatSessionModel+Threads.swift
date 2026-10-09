@@ -9,11 +9,22 @@ import Foundation
 /// `+ThreadMarkRead.swift`.
 ///
 /// Gated on `Capabilities.supportsThreads` where an action would otherwise
-/// reach the backend. Nothing here reads `Conversation.repliesEnabled`: the
-/// view offers the actions only where replies are enabled, and a
-/// notification's click on a reply must open its panel even before the first
-/// world load after the migration has filled that flag.
+/// reach the backend. No action reads `Conversation.repliesEnabled`: the view
+/// offers them only where replies are enabled, and a notification's click on
+/// a reply must open its panel even before the first world load after the
+/// migration has filled that flag. What the window draws does read it
+/// (`isThreadPanelShown`).
 public extension ChatSessionModel {
+    /// Whether the window draws the panel: a thread is open, in a conversation
+    /// that offers replies (`ChatWindow.offeredThreadActions`' gate). A panel
+    /// opened before the first world load after the v13 upgrade is held but
+    /// not drawn, so it is not marked read and is not on screen for a reply's
+    /// notification (session 58).
+    var isThreadPanelShown: Bool {
+        guard threads.openThread != nil, let selected else { return false }
+        return conversations.first { $0.id == selected }?.repliesEnabled == true
+    }
+
     /// Opens the panel on one of the selected conversation's threads: observes
     /// its messages, the first included, and fetches it, because a history
     /// page carries at most 50 replies a thread. Opening the thread already
