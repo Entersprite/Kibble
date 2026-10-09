@@ -34,7 +34,7 @@ extension AppEnvironment {
 
     /// Inspects each file and stages what can be sent; a folder or a file
     /// that cannot be read is named in a banner instead.
-    func stageFiles(_ urls: [URL], in target: StagingTarget = .conversation) {
+    func stageFiles(_ urls: [URL], in target: StagingTarget) {
         guard let model = runningModel, !urls.isEmpty else { return }
         var files: [OutgoingAttachment] = []
         var unreadable: [String] = []

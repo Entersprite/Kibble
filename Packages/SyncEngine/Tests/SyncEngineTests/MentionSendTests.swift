@@ -79,7 +79,7 @@ struct MentionSendTests {
         model.stage([OutgoingAttachment(
             id: "a", file: URL(fileURLWithPath: "/nonexistent/a.png"), name: "a.png",
             contentType: "image/png", byteSize: 100, width: 40, height: 30
-        )])
+        )], in: .conversation)
         model.send(Self.message)
         await settleAutoMarkRead(until: "the staged file has gone") { model.stagedAttachments.isEmpty }
         #expect(await Self.sentMentions(backend) == [[Self.other]])

@@ -48,11 +48,11 @@ struct ThreadStagedSendTests {
         let harness = try await opened()
         let model = harness.model
         model.stage([Self.file("a")], in: .openThread)
-        model.stage([Self.file("b")])
+        model.stage([Self.file("b")], in: .conversation)
         #expect(model.threadStagedAttachments.map(\.id) == ["a"])
         #expect(model.stagedAttachments.map(\.id) == ["b"])
         // Removing from the other place removes nothing.
-        model.unstage("a")
+        model.unstage("a", in: .conversation)
         #expect(model.threadStagedAttachments.map(\.id) == ["a"])
         model.unstage("a", in: .openThread)
         #expect(model.threadStagedAttachments.isEmpty)
@@ -126,6 +126,50 @@ struct ThreadStagedSendTests {
         #expect(await Self.sends(harness.backend).isEmpty)
         #expect(model.failedDraft == nil)
         await settleAutoMarkRead(until: "the refusal is recorded") { model.lastError != nil }
+        await model.stop()
+    }
+
+    /// A send belongs to the thread its files were staged in, not to whatever
+    /// is open when the upload answers: closing the panel mid-upload still
+    /// posts into that thread, as a reply (session 60 review, Minor 1).
+    @Test func aReplyUploadingWhenThePanelClosesStillPostsIntoItsThread() async throws {
+        let harness = try await opened()
+        let model = harness.model
+        model.stage([Self.file("a")], in: .openThread)
+        await harness.backend.holdUploads(true)
+        model.sendReply(ComposedMessage(text: "caption"))
+        await settleAutoMarkRead(until: "the upload is held") { await harness.backend.heldUploadCount == 1 }
+        model.closeThread()
+        await harness.backend.releaseHeldUpload()
+        await settleAutoMarkRead(until: "the reply is sent") { await Self.sends(harness.backend).count == 1 }
+        guard case let .sendMessage(_, threadID, text, _, attachments, _)? = await Self.sends(harness.backend)
+            .first
+        else {
+            Issue.record("expected one sendMessage")
+            return
+        }
+        #expect(threadID == thread)
+        #expect(text == "caption")
+        #expect(attachments.map(\.name) == ["a.png"])
+        model.openThread(thread)
+        await settleAutoMarkRead(until: "the reply is in the reopened panel") {
+            model.threads.messages.contains { $0.attachments.map(\.name) == ["a.png"] && $0.isReply }
+        }
+        #expect(model.stagedAttachments.isEmpty)
+        await model.stop()
+    }
+
+    /// Staged files wait in their thread while it is closed, shown nowhere
+    /// else, and are there again when it reopens.
+    @Test func stagedFilesWaitInTheirThreadWhileItIsClosed() async throws {
+        let harness = try await opened()
+        let model = harness.model
+        model.stage([Self.file("a")], in: .openThread)
+        model.closeThread()
+        #expect(model.threadStagedAttachments.isEmpty)
+        #expect(model.stagedAttachments.isEmpty)
+        model.openThread(thread)
+        #expect(model.threadStagedAttachments.map(\.id) == ["a"])
         await model.stop()
     }
 

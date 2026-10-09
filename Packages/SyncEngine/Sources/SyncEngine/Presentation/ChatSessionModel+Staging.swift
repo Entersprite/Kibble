@@ -70,6 +70,9 @@ public struct ComposerFiles {
 }
 
 /// Where files are staged: the conversation's composer, or the open thread's.
+/// Every call names one, with no default, so a call that forgot cannot stage
+/// a thread's files where Send posts them at the top level (session 60
+/// review).
 public enum StagingTarget: Sendable {
     case conversation
     case openThread
@@ -102,7 +105,7 @@ public extension ChatSessionModel {
     func stage(
         _ files: [OutgoingAttachment],
         unreadable: [String] = [],
-        in target: StagingTarget = .conversation
+        in target: StagingTarget
     ) {
         guard let key = key(for: target), capabilities.canSendAttachments else { return }
         if !unreadable.isEmpty {
@@ -128,7 +131,7 @@ public extension ChatSessionModel {
 
     /// Removes a staged file from the open conversation or its open thread,
     /// unless it is uploading: a send in flight owns it until it ends.
-    func unstage(_ id: String, in target: StagingTarget = .conversation) {
+    func unstage(_ id: String, in target: StagingTarget) {
         guard let key = key(for: target), var list = composerFiles.staged[key] else { return }
         list.removeAll { $0.id == id && !$0.isUploading }
         composerFiles.staged[key] = list.isEmpty ? nil : list

@@ -49,7 +49,7 @@ struct StagedSendTests {
     @Test func aStagedFileIsUploadedThenSentWithTheText() async throws {
         let backend = RecordingBackend()
         let (model, conversation) = try await Self.model(backend)
-        model.stage([Self.file("a")])
+        model.stage([Self.file("a")], in: .conversation)
         #expect(model.stagedAttachments.map(\.id) == ["a"])
 
         model.send(ComposedMessage(text: "caption"))
@@ -74,7 +74,7 @@ struct StagedSendTests {
     @Test func twoFilesAreTwoMessagesInOrderWithTheTextOnTheFirst() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
-        model.stage([Self.file("a"), Self.file("b")])
+        model.stage([Self.file("a"), Self.file("b")], in: .conversation)
         model.send(ComposedMessage(text: "hello"))
         await settleAutoMarkRead(until: "both sent") { model.stagedAttachments.isEmpty }
 
@@ -92,8 +92,8 @@ struct StagedSendTests {
     @Test func duplicatesAndOversizedFilesAreNotStaged() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
-        model.stage([Self.file("a"), Self.file("a")])
-        model.stage([Self.file("huge", byteSize: OutgoingAttachment.maximumByteSize + 1)])
+        model.stage([Self.file("a"), Self.file("a")], in: .conversation)
+        model.stage([Self.file("huge", byteSize: OutgoingAttachment.maximumByteSize + 1)], in: .conversation)
         #expect(model.stagedAttachments.map(\.id) == ["a"])
         await settleAutoMarkRead(until: "the oversize banner") { model.lastError != nil }
         await model.stop()
@@ -102,7 +102,7 @@ struct StagedSendTests {
     @Test func stagedFilesBelongToTheirConversation() async throws {
         let backend = RecordingBackend()
         let (model, first) = try await Self.model(backend)
-        model.stage([Self.file("a")])
+        model.stage([Self.file("a")], in: .conversation)
         let other = try #require(model.conversations.first { $0.id != first })
         model.select(other.id)
         #expect(model.stagedAttachments.isEmpty)
@@ -114,7 +114,7 @@ struct StagedSendTests {
     @Test func aRefusedUploadMarksTheFileFailedAndHandsTheTextBack() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
-        model.stage([Self.file("a"), Self.file("b")])
+        model.stage([Self.file("a"), Self.file("b")], in: .conversation)
         await backend.failUploads(true)
         model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the send stopped") {
@@ -140,7 +140,7 @@ struct StagedSendTests {
     @Test func aRefusedMessageKeepsTheFile() async throws {
         let backend = RecordingBackend()
         let (model, conversation) = try await Self.model(backend)
-        model.stage([Self.file("a")])
+        model.stage([Self.file("a")], in: .conversation)
         await backend.failSubmissions(true)
         await backend.holdSubmissions(true)
         model.send(ComposedMessage(text: "caption"))
@@ -165,7 +165,7 @@ struct StagedSendTests {
         let backend = RecordingBackend()
         let (model, conversation) = try await Self.model(backend)
         let before = try model.store.messages(in: conversation).count
-        model.stage([Self.file("a")])
+        model.stage([Self.file("a")], in: .conversation)
         model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "sent") { model.stagedAttachments.isEmpty }
         await settleAutoMarkRead(until: "the echo replaced the row") {
@@ -191,7 +191,7 @@ struct StagedSendTests {
         model.select(FixtureWorld.minimal.messages[0].conversationID)
         await settleAutoMarkRead()
 
-        model.stage([Self.file("a"), Self.file("b")])
+        model.stage([Self.file("a"), Self.file("b")], in: .conversation)
         model.send(ComposedMessage(text: "caption"))
         await settleAutoMarkRead(until: "the send stopped") {
             model.stagedAttachments.map(\.state) == [.failed]
@@ -204,14 +204,14 @@ struct StagedSendTests {
     @Test func aFileCannotBeRemovedWhileItUploads() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
-        model.stage([Self.file("a"), Self.file("b")])
-        model.unstage("b")
+        model.stage([Self.file("a"), Self.file("b")], in: .conversation)
+        model.unstage("b", in: .conversation)
         #expect(model.stagedAttachments.map(\.id) == ["a"])
 
         await backend.holdSubmissions(true)
         model.send(ComposedMessage(text: ""))
         await settleAutoMarkRead(until: "the message is held") { await backend.heldSubmissionCount == 1 }
-        model.unstage("a")
+        model.unstage("a", in: .conversation)
         #expect(model.stagedAttachments.map(\.id) == ["a"])
         await backend.releaseHeldSubmission()
         await settleAutoMarkRead(until: "sent") { model.stagedAttachments.isEmpty }
@@ -225,7 +225,7 @@ struct StagedSendTests {
         let (model, _) = try await Self.model(backend)
         var told: [String] = []
         model.didUpload = { attachment, file in told.append("\(file.id)>\(attachment.name)") }
-        model.stage([Self.file("a")])
+        model.stage([Self.file("a")], in: .conversation)
         model.send(ComposedMessage(text: ""))
         await settleAutoMarkRead(until: "sent") { model.stagedAttachments.isEmpty }
         #expect(told == ["a>a.png"])
@@ -238,7 +238,7 @@ struct StagedSendTests {
     @Test func stopCancelsASendWhosePostIsInFlight() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
-        model.stage([Self.file("a"), Self.file("b")])
+        model.stage([Self.file("a"), Self.file("b")], in: .conversation)
         await backend.holdSubmissions(true)
         await backend.acceptWithoutForwarding(true)
         model.send(ComposedMessage(text: "caption"))
@@ -258,7 +258,7 @@ struct StagedSendTests {
     @Test func stopCancelsASendWhoseUploadIsInFlight() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
-        model.stage([Self.file("a")])
+        model.stage([Self.file("a")], in: .conversation)
         await backend.holdUploads(true)
         await backend.failUploads(true)
         model.send(ComposedMessage(text: "caption"))
@@ -277,7 +277,7 @@ struct StagedSendTests {
         let (model, conversation) = try await Self.model(backend)
         var told = 0
         model.didUpload = { _, _ in told += 1 }
-        model.stage([Self.file("a")])
+        model.stage([Self.file("a")], in: .conversation)
         await backend.holdUploads(true)
         await backend.acceptWithoutForwarding(true)
         model.send(ComposedMessage(text: "caption"))
@@ -295,7 +295,7 @@ struct StagedSendTests {
         capabilities.canSendAttachments = false
         let backend = RecordingBackend(capabilities: capabilities)
         let (model, _) = try await Self.model(backend)
-        model.stage([Self.file("a")])
+        model.stage([Self.file("a")], in: .conversation)
         #expect(model.stagedAttachments.isEmpty)
         await model.stop()
     }
