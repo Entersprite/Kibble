@@ -14,8 +14,9 @@ public extension LocalBridgeBackend {
     /// 50`, so a thread's replies arrive with its first message (`findings.md`
     /// §63.5), and each thread's read state is emitted as `.threadChanged`
     /// (threads spec §2.2). A topic listing as many messages as the reply
-    /// cap may have been cut short, so only field 10 counts it (ruling 6);
-    /// its read state is a snapshot all the same, and clears a stale mark.
+    /// cap may be a longer thread cut short, so only field 10 counts it,
+    /// because a count replaces the stored one; its read state is a snapshot
+    /// all the same, and clears a stale mark.
     ///
     /// **`before:` is ignored, and pagination is unimplemented.** The
     /// vendored `ListTopicsRequest` has no cursor or offset field - only
@@ -57,8 +58,8 @@ public extension LocalBridgeBackend {
             // Each thread's count, read position and mark, before the page
             // is returned, so the store has both when the transcript draws.
             // A listing that reaches the reply cap may be cut short, and
-            // `.counted` replaces the stored count (ruling 6); its read state
-            // is still a snapshot.
+            // `.counted` replaces the stored count, so it counts only under
+            // the cap; its read state is still a snapshot.
             let cap = Int(rung.request.pageSizeForReplies)
             for topic in response.topics {
                 let listing = ThreadMapping.Listing.history(countIsComplete: topic.replies.count < cap)

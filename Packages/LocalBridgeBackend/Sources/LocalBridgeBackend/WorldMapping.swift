@@ -115,8 +115,9 @@ public enum WorldMapping {
     /// unnecessary rather than merely deferred.
     ///
     /// `has_unread_thread` (field 25) also arrives on every item and is
-    /// **not** read here: it says whether a thread has unread replies
-    /// (`findings.md` §64.4), and is `Conversation.hasUnreadThread` instead.
+    /// **not** read here: it says whether a thread has unread replies, as
+    /// read out of the web client's code (`findings.md` §64.4, `[Verify]`),
+    /// and is `Conversation.hasUnreadThread` instead.
     private static func hasUnread(_ item: WorldItemLite) -> Bool {
         let state = item.readState
         guard state.hasLastHeadMessageCreateTimeUsec, state.hasLastReadTime else {

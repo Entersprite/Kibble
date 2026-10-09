@@ -48,8 +48,9 @@ extension ChannelEventMapping {
         return threadChange(event.topicID, .followed(!event.muted))
     }
 
-    /// Push 4: a thread viewed, here or on another device. An absent time is
-    /// 1970, so it is routed instead (`GROUP_VIEWED`'s rule).
+    /// Push 4: a thread viewed, here or on another device (purple's name and
+    /// layout, `[Verify]` until a live run). An absent time is 1970, so it is
+    /// routed instead (`GROUP_VIEWED`'s rule).
     private static func topicViewed(in body: ChannelEventBody) -> ChatEvent? {
         guard case let .topicViewed(event)? = decoded(body), event.hasViewTime, event.viewTime > 0 else {
             return nil
@@ -58,7 +59,7 @@ extension ChannelEventMapping {
     }
 
     /// Push 53 (body field 46, §64.4): whether a conversation has an unread
-    /// thread.
+    /// thread. Read out of the web client's code, `[Verify]` until a live run.
     private static func unreadThreads(in body: ChannelEventBody) -> ChatEvent? {
         guard case let .groupUnreadThreadStateUpdatedEvent(event)? = decoded(body),
               event.hasHasUnreadThread_p,

@@ -82,11 +82,22 @@ struct ChannelEventMappingThreadTests {
         }
     }
 
+    /// Presence decides: without field 2 the count would read as 0, and
+    /// `.counted(messages: 1, …)` would replace the stored count.
+    @Test func pushEightyTwoWithoutACountIsUnknown() throws {
+        let payload = padded([1: topicID(), 3: "0"], upTo: 3)
+        guard case .unknown? = try mapped(body(type: 82, field: 64, payload: payload)) else {
+            Issue.record("expected .unknown")
+            return
+        }
+    }
+
     // MARK: - Push 9, follow
 
+    /// The flag as §63.10 measured it on the wire: `0`/`1`, not `false`/`true`.
     @Test func pushNineMutedIsNotFollowed() throws {
-        let muted = padded([1: topicID(), 2: "true"], upTo: 2)
-        let unmuted = padded([1: topicID(), 2: "false"], upTo: 2)
+        let muted = padded([1: topicID(), 2: "1"], upTo: 2)
+        let unmuted = padded([1: topicID(), 2: "0"], upTo: 2)
         #expect(try change(mapped(body(type: 9, field: 7, payload: muted))) == .followed(false))
         #expect(try change(mapped(body(type: 9, field: 7, payload: unmuted))) == .followed(true))
     }
@@ -118,9 +129,13 @@ struct ChannelEventMappingThreadTests {
 
     // MARK: - Push 53, a conversation's unread threads
 
+    /// `GroupId {1: SpaceId {1: id}}`.
+    private func spaceGroup() -> String {
+        padded([1: padded([1: quoted("s-1")], upTo: 1)], upTo: 3)
+    }
+
     @Test func pushFiftyThreeSaysWhetherThreadsAreUnread() throws {
-        let group = padded([1: padded([1: quoted("s-1")], upTo: 1)], upTo: 3)
-        let payload = padded([1: group, 2: "true", 3: "2"], upTo: 3)
+        let payload = padded([1: spaceGroup(), 2: "true", 3: "2"], upTo: 3)
         guard case let .unreadThreadsChanged(conversationID, hasUnread)? =
             try mapped(body(type: 53, field: 46, payload: payload))
         else {
@@ -129,5 +144,23 @@ struct ChannelEventMappingThreadTests {
         }
         #expect(conversationID == Conversation.ID("space/s-1"))
         #expect(hasUnread)
+    }
+
+    /// A present `0` says no thread is unread, and clears the flag; a mapping
+    /// that read the value instead of its presence would set it and never
+    /// clear it.
+    @Test func pushFiftyThreeFalseSaysNone() throws {
+        let payload = padded([1: spaceGroup(), 2: "0", 3: "0"], upTo: 3)
+        #expect(try mapped(body(type: 53, field: 46, payload: payload))
+            == .unreadThreadsChanged(conversationID: Conversation.ID("space/s-1"), hasUnread: false))
+    }
+
+    /// Presence decides (ruling 4).
+    @Test func pushFiftyThreeWithoutTheFlagIsUnknown() throws {
+        let payload = padded([1: spaceGroup(), 3: "2"], upTo: 3)
+        guard case .unknown? = try mapped(body(type: 53, field: 46, payload: payload)) else {
+            Issue.record("expected .unknown")
+            return
+        }
     }
 }

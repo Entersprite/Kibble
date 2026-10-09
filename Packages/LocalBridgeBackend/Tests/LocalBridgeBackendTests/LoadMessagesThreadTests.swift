@@ -107,7 +107,7 @@ struct LoadMessagesThreadTests {
         #expect(request.body == expected)
     }
 
-    // MARK: - A page of replies may be cut short (ruling 6)
+    // MARK: - A page of replies may be cut short
 
     /// The event log of one history load, for a topic listing `count`
     /// messages without fields 10 and 14. Each test waits, bounded, for the
@@ -163,7 +163,7 @@ struct LoadMessagesThreadTests {
     }
 
     /// A count the cap may have cut short does not make the read state less
-    /// of a snapshot: no field 14 still clears a stale mark (rulings 3 and 6).
+    /// of a snapshot: no field 14 still clears a stale mark (ruling 3).
     @Test func aListingThatReachesTheCapStillClearsTheMark() async throws {
         let log = try await historyLoad(listing: 50)
         let cleared = await log.first {

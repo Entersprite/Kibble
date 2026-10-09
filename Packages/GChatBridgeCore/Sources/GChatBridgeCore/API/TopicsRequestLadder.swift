@@ -128,9 +128,8 @@ public enum TopicsRequestLadder {
         ]
     }
 
-    /// The shape this ladder sends until a live run says otherwise - the
-    /// reference's own request (`rungs(for:)[1]`), the same conservative
-    /// choice `WorldRequestLadder`'s rung 2 turned out to be right about.
+    /// The reference's own request (`rungs(for:)[1]`), which the probes keep
+    /// as their baseline.
     ///
     /// Rung 2 was history's request from session 12 until the threads work,
     /// and the probes still compare against it; history now sends

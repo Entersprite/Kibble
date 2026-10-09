@@ -31,12 +31,14 @@ enum ThreadMapping {
         /// A history page. Its read state is a snapshot for every thread, so
         /// an absent field 14 clears a mark set elsewhere (ruling 3).
         /// `countIsComplete` is `false` for a listing that reached the reply
-        /// cap and may have been cut short (ruling 6).
+        /// cap: it may be a longer thread cut short, and `.counted` would
+        /// replace the stored count with a smaller one.
         case history(countIsComplete: Bool)
 
         /// The Threads list: one reply per topic, so it counts nothing it
-        /// lists (ruling 2), and no read state, so it sets a mark only when
-        /// field 14 says so and never clears one (ruling 3).
+        /// lists (ruling 2). Its answer carries no read state and loads after
+        /// every world load, so it sets a mark only when field 14 says so and
+        /// never clears one.
         case threadsList
 
         var countsWhatItLists: Bool {
@@ -59,10 +61,8 @@ enum ThreadMapping {
     /// A thread's count, read position and mark-as-unread time, for a topic
     /// with at least one reply. Nothing for a single-message topic (652 of
     /// 713 in §64.7). Field 10 is the count whenever present; `listing`
-    /// decides the rest.
-    static func events(
-        for topic: Topic, in conversation: Conversation.ID, listing: Listing = .history(countIsComplete: true)
-    ) -> [ChatEvent] {
+    /// decides the rest, and has no default, so every caller says which it is.
+    static func events(for topic: Topic, in conversation: Conversation.ID, listing: Listing) -> [ChatEvent] {
         guard !topic.id.topicID.isEmpty, topic.replies.contains(where: isReply) else { return [] }
         let state = topic.topicReadState
         var changes: [ThreadChange] = []

@@ -121,7 +121,7 @@ struct ThreadMappingTests {
     }
 
     /// A history listing that may have been cut short counts nothing, and
-    /// its read state is a snapshot all the same (rulings 3 and 6).
+    /// its read state is a snapshot all the same (ruling 3).
     @Test func anIncompleteHistoryCountStillClearsTheMark() {
         let thread = topic([message("t-1"), message("r-1", inlineReply: true)])
         #expect(changes(thread, listing: .history(countIsComplete: false)) == [.markedUnread(at: nil)])
@@ -156,7 +156,7 @@ struct ThreadMappingTests {
 
     /// The Threads list carries no read state (Task 5, ruling 2) and loads
     /// after every world load, so it never clears a mark: it sets one only
-    /// when field 14 is present and above zero (ruling 3).
+    /// when field 14 is present and above zero.
     @Test func theThreadsListOnlyEverSetsAMark() {
         let listed = [message("t-1"), message("r-1", inlineReply: true)]
         #expect(changes(topic(listed), listing: .threadsList).isEmpty)
