@@ -47,7 +47,8 @@ public enum NotificationPolicy {
         /// be told from anyone else's. Seconds at launch; guessing wrong would
         /// notify someone of their own message.
         case identityUnknown
-        /// The conversation is open in a window the user can see.
+        /// The conversation is open in a window the user can see. For a reply,
+        /// its thread's panel is (threads spec §4.3).
         case onScreen
         /// Already announced this session. `[Verify]` whether the real channel
         /// ever redelivers; `FixtureBackend`'s `duplicate-delivery` script does.
@@ -60,6 +61,26 @@ public enum NotificationPolicy {
         /// The rule says mentions only, and this message does not mention you
         /// (mentions spec §3).
         case notMentioned
+        /// A reply in a thread you do not follow, and it does not mention you
+        /// (threads spec §4.3). Following is the stored setting, or, when
+        /// nobody has said, whether you posted in the thread.
+        case threadNotFollowed
+    }
+
+    /// What the policy needs about a reply's thread (threads spec §4.3).
+    /// Ignored for a top-level message.
+    public struct ThreadContext: Sendable, Equatable {
+        /// `ThreadUnreadRule.isFollowed`: the stored setting, or whether you
+        /// posted in the thread.
+        public var isFollowed: Bool
+        /// The thread's panel is showing, in a window the user can see: what
+        /// "on screen" means for a reply.
+        public var isOnScreen: Bool
+
+        public init(isFollowed: Bool, isOnScreen: Bool) {
+            self.isFollowed = isFollowed
+            self.isOnScreen = isOnScreen
+        }
     }
 
     /// Everything the policy needs to decide one arrival.
@@ -87,6 +108,10 @@ public enum NotificationPolicy {
         public var paused: Bool
         /// `Message.mentionsMe`, evaluated by the caller.
         public var mentionsMe: Bool
+        /// For a reply (`message.isReply`), what is known about its thread.
+        /// `nil` for a top-level message - and a reply that comes with none
+        /// counts as neither followed nor on screen (`replyThread`).
+        public var thread: ThreadContext?
 
         public init(
             message: Message,
@@ -95,7 +120,8 @@ public enum NotificationPolicy {
             viewing: Conversation.ID?,
             alreadyAnnounced: Bool,
             paused: Bool,
-            mentionsMe: Bool
+            mentionsMe: Bool,
+            thread: ThreadContext? = nil
         ) {
             self.message = message
             self.rule = rule
@@ -104,6 +130,7 @@ public enum NotificationPolicy {
             self.alreadyAnnounced = alreadyAnnounced
             self.paused = paused
             self.mentionsMe = mentionsMe
+            self.thread = thread
         }
     }
 
@@ -112,7 +139,7 @@ public enum NotificationPolicy {
         if arrival.message.sender == me {
             return .suppress(.ownMessage)
         }
-        if arrival.message.conversationID == arrival.viewing {
+        if isOnScreen(arrival) {
             return .suppress(.onScreen)
         }
         if arrival.alreadyAnnounced {
@@ -124,10 +151,23 @@ public enum NotificationPolicy {
         if arrival.rule.delivery == .off {
             return .suppress(.off)
         }
+        if let thread = arrival.replyThread, !thread.isFollowed, !arrival.mentionsMe {
+            return .suppress(.threadNotFollowed)
+        }
         if arrival.rule.notifyAbout == .mentions, !arrival.mentionsMe {
             return .suppress(.notMentioned)
         }
         return .post(presentation(for: arrival.rule))
+    }
+
+    /// A top-level message is on screen when its conversation is; a reply
+    /// only when its thread's panel is (threads spec §4.3), because a reply is
+    /// not in the transcript.
+    private static func isOnScreen(_ arrival: Arrival) -> Bool {
+        if let thread = arrival.replyThread {
+            return thread.isOnScreen
+        }
+        return arrival.message.conversationID == arrival.viewing
     }
 
     /// The three things macOS lets an app choose per notification (spec §1),
@@ -152,5 +192,15 @@ public enum NotificationPolicy {
             // built-in default is the answer rather than a guess.
             Presentation(isPassive: false, playsSound: true, showsPreview: rule.showsPreview)
         }
+    }
+}
+
+extension NotificationPolicy.Arrival {
+    /// The thread context that applies: a reply's, never a top-level
+    /// message's. A reply with none is neither followed nor on screen, so only
+    /// a mention gets it through (ruling 11).
+    var replyThread: NotificationPolicy.ThreadContext? {
+        guard message.isReply else { return nil }
+        return thread ?? NotificationPolicy.ThreadContext(isFollowed: false, isOnScreen: false)
     }
 }

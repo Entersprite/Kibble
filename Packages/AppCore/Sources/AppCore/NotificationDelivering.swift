@@ -53,11 +53,16 @@ public struct MessageNotification: Sendable, Equatable {
     /// `SyncEngine.submit(_:)` would refuse the mark and the button would do
     /// nothing - `CLAUDE.md`: never draw a control the seam cannot honour.
     public var offersMarkRead: Bool
+    /// A reply (`Message.isReply`). Its click opens the reply in its thread's
+    /// panel, so the delivery keeps the message's id for the click; a
+    /// top-level message's click only opens its conversation.
+    public var isReply: Bool
 
     public init(
         id: String, conversationID: Conversation.ID, title: String,
         subtitle: String?, body: String, createdAt: Date,
-        isPassive: Bool = false, playsSound: Bool = true, offersMarkRead: Bool = true
+        isPassive: Bool = false, playsSound: Bool = true, offersMarkRead: Bool = true,
+        isReply: Bool = false
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -68,14 +73,29 @@ public struct MessageNotification: Sendable, Equatable {
         self.isPassive = isPassive
         self.playsSound = playsSound
         self.offersMarkRead = offersMarkRead
+        self.isReply = isReply
     }
 }
 
 public enum NotificationResponse: Sendable, Equatable {
     /// The notification itself was clicked: show that conversation.
     case open(Conversation.ID)
+    /// A reply's notification was clicked: show its conversation and open its
+    /// thread's panel at it (threads spec §4.3).
+    case openMessage(Conversation.ID, Message.ID)
     /// Its "Mark as Read" button was pressed.
     case markRead(Conversation.ID)
     /// Its "Mute" button was pressed (spec §4).
     case mute(Conversation.ID)
+}
+
+extension NotificationResponse {
+    /// Whether the click asks for the window: the banner itself, never one of
+    /// its buttons, which act without bringing the app forward.
+    var bringsWindowForward: Bool {
+        switch self {
+        case .open, .openMessage: true
+        case .markRead, .mute: false
+        }
+    }
 }
