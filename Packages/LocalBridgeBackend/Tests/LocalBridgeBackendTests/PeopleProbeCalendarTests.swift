@@ -164,13 +164,17 @@ struct PeopleProbeCalendarTests {
     private func run(
         _ responses: [Result<HTTPResponse, any Error>],
         tzliq: String = Self.tzliq,
-        cookies: [String] = Self.allThree
+        cookies: [String] = Self.allThree,
+        signingTime: @escaping @Sendable () -> Date = { Self.now }
     ) async throws -> (text: String, sent: [HTTPRequest]) {
         let transport = ScriptedTransport(responses)
         var lines: [String] = []
         let section = try PeopleProbeReport.CalendarSection(
             people: Self.people, tzliq: tzliq, page: Self.page, credentials: Self.credentials(cookies),
-            transport: transport, endpoints: ChatEndpoints(), now: Self.now
+            transport: transport, endpoints: ChatEndpoints(), now: Self.now,
+            // Pinned: a signature carries the second it was made in, so two of
+            // one variant differ across a second boundary (session 58).
+            signingTime: signingTime
         )
         await PeopleProbeReport.appendCalendarStatus(section, lines: &lines, flush: { _ in })
         return await (lines.joined(separator: "\n"), transport.sent)

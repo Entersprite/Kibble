@@ -50,6 +50,10 @@ extension PeopleProbeReport {
         let transport: any HTTPTransport
         let endpoints: ChatEndpoints
         let now: Date
+        /// The time each `SAPISIDHASH` is stamped with, in seconds: the wall
+        /// clock. A test pins it, or a second boundary between two requests
+        /// makes one variant's signatures differ (session 58).
+        var signingTime: @Sendable () -> Date = { Date() }
     }
 
     static func appendCalendarStatus(
@@ -71,7 +75,8 @@ extension PeopleProbeReport {
             client: client,
             jar: jar,
             endpoints: endpoints,
-            now: section.now
+            now: section.now,
+            signingTime: section.signingTime
         )
 
         var rungs = [Rung(keyName: "Tzliq (\(tzliq.count) chars)", key: tzliq, variant: nil)]
@@ -158,6 +163,7 @@ extension PeopleProbeReport {
         let jar: [SessionCookies.Cookie]
         let endpoints: ChatEndpoints
         let now: Date
+        let signingTime: @Sendable () -> Date
     }
 
     /// The first rung answered with a 200 that reads as an answer.
@@ -199,7 +205,7 @@ extension PeopleProbeReport {
             let input = SAPISIDHash.Input(
                 cookies: context.jar, url: PeopleStackRequests.getAssistiveFeaturesURL,
                 origin: PeopleRequests.origin(of: context.endpoints),
-                timestamp: Int(Date().timeIntervalSince1970)
+                timestamp: Int(context.signingTime().timeIntervalSince1970)
             )
             authorization = SAPISIDHash.authorization(variant, for: input, sha1: SHA1.hex)
             if authorization == nil {
