@@ -68,6 +68,32 @@ struct StoreFollowedThreadsTests {
         #expect(listed.first?.root.isReply == false)
     }
 
+    /// A topic id is unique only inside its conversation, and the list reads
+    /// every followed thread at once: the same id in two conversations is two
+    /// threads, each with its own count.
+    @Test func theSameTopicIdInTwoConversationsIsTwoThreads() throws {
+        func message(_ id: String, in conversation: Conversation.ID, minute: Int) -> Message {
+            Message(
+                id: Message.ID(id), conversationID: conversation, threadID: MessageThread.ID("topic:same"),
+                sender: alice, text: "hi", createdAt: start.addingTimeInterval(TimeInterval(minute * 60)),
+                isReply: minute > 0
+            )
+        }
+        let store = try store([
+            .upsertMessage(message("m:s-root", in: space, minute: 0)),
+            .upsertMessage(message("m:s-1", in: space, minute: 1)),
+            .upsertMessage(message("m:s-2", in: space, minute: 2)),
+            .upsertMessage(message("m:d-root", in: dm, minute: 0)),
+            .upsertMessage(message("m:d-1", in: dm, minute: 5)),
+            change("topic:same", in: space, .followed(true)),
+            change("topic:same", in: dm, .followed(true))
+        ])
+        let listed = try store.followedThreads(limit: 10)
+        #expect(listed.map(\.thread.conversationID) == [dm, space])
+        #expect(listed.map(\.thread.replyCount) == [2, 3])
+        #expect(listed.map(\.root.id.rawValue) == ["m:d-root", "m:s-root"])
+    }
+
     @Test func theLimitKeepsTheNewest() throws {
         #expect(try threeThreads().followedThreads(limit: 1).map(\.thread.id.rawValue) == ["topic:b"])
     }

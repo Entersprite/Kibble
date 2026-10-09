@@ -78,10 +78,14 @@ extension ChatStore {
     /// (ruling 4). A reply's mention is read by its thread's position when
     /// the store has one (`readPosition(of:in:threads:)`). No `Date` is bound
     /// here (`StoredDate`'s rule).
+    ///
+    /// The conversations come from `fetchStoredConversations`: the list needs
+    /// their names and read positions, never their thread marks, so its
+    /// `conversation.hasUnreadThread` is the server's half alone.
     static func fetchMentionsOfMe(limit: Int, _ db: Database) throws -> [MentionOfMe] {
         guard let me = try fetchMe(db) else { return [] }
         let conversations = try Dictionary(
-            uniqueKeysWithValues: fetchConversations(db).map { ($0.id, $0) }
+            uniqueKeysWithValues: fetchStoredConversations(db).map { ($0.id, $0) }
         )
         let threadPositions = try fetchThreadReadPositions(db)
         let candidates = try MessageRow

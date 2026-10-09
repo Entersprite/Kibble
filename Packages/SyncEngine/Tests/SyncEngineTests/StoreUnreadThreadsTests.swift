@@ -89,8 +89,10 @@ struct StoreUnreadThreadsTests {
     }
 
     /// Spec §4.2: "any of its stored threads is unread", by the thread's own
-    /// rule, the fallback included, so the sidebar and the Threads badge
-    /// agree. A read that covers the reply lowers it again (equality is read).
+    /// rule, the fallback included, so the flag and the thread's own
+    /// `hasUnread` agree, and every thread the Threads badge counts raises its
+    /// conversation's flag. A read that covers the reply lowers it again
+    /// (equality is read).
     @Test func theFallbackRuleRaisesIt() throws {
         let store = try store()
         try store.apply([
@@ -103,11 +105,14 @@ struct StoreUnreadThreadsTests {
         #expect(try conversation(in: store)?.hasUnreadThread == false)
     }
 
-    /// `ThreadUnreadRule` decides, not the store's narrowing: a thread not
-    /// followed, one whose only newer reply is your own, and one read to its
-    /// reply's own time each leave the flag down.
+    /// `ThreadUnreadRule` decides, on the inputs the store computes: a thread
+    /// not followed, one whose only newer reply is your own, one whose only
+    /// newer reply was deleted, and one read to its reply's own time each
+    /// leave the thread read and the flag down.
     @Test func whereTheFallbackSaysReadItStaysDown() throws {
         let before = at.addingTimeInterval(-60)
+        var deleted = message(isReply: true)
+        deleted.isDeleted = true
         let cases: [[StoreWrite]] = [
             [.upsertMessage(message(isReply: true)), change(.followed(false)), change(.read(upTo: before))],
             [
@@ -115,6 +120,7 @@ struct StoreUnreadThreadsTests {
                 change(.followed(true)),
                 change(.read(upTo: before))
             ],
+            [.upsertMessage(deleted), change(.followed(true)), change(.read(upTo: before))],
             [.upsertMessage(message(isReply: true)), change(.followed(true)), change(.read(upTo: at))]
         ]
         for writes in cases {

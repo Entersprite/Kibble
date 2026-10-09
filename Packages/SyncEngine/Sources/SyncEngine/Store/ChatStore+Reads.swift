@@ -97,8 +97,13 @@ public extension ChatStore {
     ///
     /// This is the seam between the database and SwiftUI: a view iterates one
     /// of these and never learns that a backend exists.
+    ///
+    /// **Duplicates are dropped.** `hasUnreadThread` reads the stored threads'
+    /// messages (`fetchConversationsWithUnreadThreads`), so every message
+    /// write re-runs this read: a page of history, a push, an edit. Most of
+    /// those change no conversation, and an equal list is not sent on.
     func observeConversations() -> AsyncValueObservation<[Conversation]> {
-        ValueObservation.tracking(Self.fetchConversations).values(in: database)
+        ValueObservation.tracking(Self.fetchConversations).removeDuplicates().values(in: database)
     }
 
     /// The transcript, observed. Replies are left out (`fetchMessages`).
@@ -153,6 +158,23 @@ extension ChatStore {
     /// Shared by the one-shot reads and the observations, so the two can never
     /// answer differently.
     static func fetchConversations(_ db: Database) throws -> [Conversation] {
+        let unreadThreads = try fetchConversationsWithUnreadThreads(db)
+        return try fetchStoredConversations(db).map { stored in
+            var conversation = stored
+            // Both sources, per CLAUDE.md's rule for a derived field (threads
+            // spec §4.2): the server's flag, and the threads the store holds.
+            if unreadThreads.contains(conversation.id) {
+                conversation.hasUnreadThread = true
+            }
+            return conversation
+        }
+    }
+
+    /// The conversations as stored: `hasUnreadThread` is the server's half
+    /// only. For a read that needs the list and the read positions and draws
+    /// no thread mark (`fetchMentionsOfMe`), so it does not pay for the
+    /// stored threads' derivation.
+    static func fetchStoredConversations(_ db: Database) throws -> [Conversation] {
         let rows = try ConversationRow
             .order(Column("lastActivity").desc, Column("id").asc)
             .fetchAll(db)
@@ -160,16 +182,9 @@ extension ChatStore {
             .order(Column("position").asc)
             .fetchAll(db)
         let byConversation = Dictionary(grouping: membership, by: \.conversationID)
-        let unreadThreads = try fetchConversationsWithUnreadThreads(db)
         return try rows.map { row in
             let members = (byConversation[row.id] ?? []).map { Member.ID($0.memberID) }
-            var conversation = try row.conversation(members: members)
-            // Both sources, per CLAUDE.md's rule for a derived field (threads
-            // spec §4.2): the server's flag, and the threads the store holds.
-            if unreadThreads.contains(conversation.id) {
-                conversation.hasUnreadThread = true
-            }
-            return conversation
+            return try row.conversation(members: members)
         }
     }
 
