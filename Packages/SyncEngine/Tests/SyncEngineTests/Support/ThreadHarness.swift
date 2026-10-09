@@ -85,3 +85,21 @@ func threadCommands(from backend: RecordingBackend) async -> [ChatCommand] {
         }
     }
 }
+
+extension ThreadFixture {
+    /// The fixture thread's key in the model's bookkeeping (`ThreadWork`).
+    static var key: ThreadKey {
+        ThreadKey(conversation: conversation, thread: thread)
+    }
+}
+
+/// Stores `messages` and any `writes` in one transaction, selects the
+/// fixture conversation, and opens the panel on the messages' thread.
+@MainActor
+func openStoredThread(
+    _ messages: [Message], with writes: [StoreWrite] = [], in harness: AutoMarkReadHarness
+) throws {
+    try harness.store.apply(messages.map { .upsertMessage($0) } + writes)
+    harness.model.select(ThreadFixture.conversation)
+    harness.model.openThread(messages[0].threadID)
+}

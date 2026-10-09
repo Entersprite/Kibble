@@ -4,7 +4,8 @@ import Foundation
 /// Split out of `ChatSessionModel.swift` for swiftlint's `file_length`, the
 /// reason `+Send.swift` and `+AutoMarkRead.swift` exist. A pure move.
 extension ChatSessionModel {
-    /// Refetches the open conversation's history when the channel comes back.
+    /// Refetches the open conversation's history when the channel comes back,
+    /// and the open thread's.
     ///
     /// A reconnect is a fresh registration with `AID` reset, so messages
     /// delivered during the outage were never seen and no later event will
@@ -25,6 +26,13 @@ extension ChatSessionModel {
         historyTask?.cancel()
         historyTask = Task { [engine] in
             await engine.requestMoreMessages(in: selected)
+        }
+        // An open thread missed its replies too (threads spec §4.3). One of the
+        // panel's tasks, so closing the panel or opening another cancels it.
+        if let thread = threads.openThread {
+            threads.work.panelTasks.append(Task { [engine] in
+                await engine.requestThread(thread, in: selected)
+            })
         }
         // A watch sent while disconnected was dropped, and a conversation
         // selected during launch sent one before the session existed. The
