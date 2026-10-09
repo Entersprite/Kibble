@@ -51,7 +51,10 @@ extension LocalBridgeBackend {
         switch availability {
         case .automatic, .away:
             let dnd = try await call("set_dnd_duration") {
-                try await api.call(.setDndDuration, OwnStatusRequests.doNotDisturbOff())
+                try await api.call(
+                    .setDndDuration,
+                    OwnStatusRequests.doNotDisturbOff(current: presencePoll.ownAvailability)
+                )
             }
             let sharing = availability == .automatic
             let shared: SetPresenceSharedResponse
@@ -72,7 +75,10 @@ extension LocalBridgeBackend {
             )
         case let .doNotDisturb(end):
             let dnd = try await call("set_dnd_duration") {
-                try await api.call(.setDndDuration, OwnStatusRequests.doNotDisturb(until: end))
+                try await api.call(
+                    .setDndDuration,
+                    OwnStatusRequests.doNotDisturb(until: end, current: presencePoll.ownAvailability)
+                )
             }
             emitAvailability(
                 dnd.hasUserStatus ? dnd.userStatus : nil,
@@ -96,6 +102,11 @@ extension LocalBridgeBackend {
         do {
             return try await body()
         } catch {
+            // What Google said with a refusal, for the log (session 62).
+            if case .httpStatus? = error as? APIFailure, let refusal = await apiClient?.lastRefusal,
+               refusal.method == name {
+                AvailabilityLog.refusal(refusal, current: presencePoll.ownAvailability)
+            }
             throw Self.chatError(fromAPI: error, call: "the /api/ \(name) call")
         }
     }

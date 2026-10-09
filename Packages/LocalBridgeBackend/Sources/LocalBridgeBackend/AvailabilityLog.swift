@@ -28,6 +28,25 @@ enum AvailabilityLog {
         )
     }
 
+    /// A refused availability call, with what Google said: the status alone
+    /// named no reason for Do not disturb's 400 (session 62). Only the two
+    /// availability calls, whose requests carry nothing private; the body cut
+    /// to 400 characters, anything but printable ASCII as `·`, because a
+    /// refusal's body may be binary.
+    static func refusal(_ refusal: APIRefusal, current: Availability?) {
+        guard ["set_dnd_duration", "set_presence_shared"].contains(refusal.method) else { return }
+        let text = String(refusal.body.prefix(400).map { byte in
+            (0x20 ... 0x7E).contains(byte) ? Character(UnicodeScalar(byte)) : "·"
+        })
+        log.notice(
+            """
+            order=dnd-first refused call=\(refusal.method, privacy: .public) \
+            status=\(refusal.status, privacy: .public) current=\(name(current), privacy: .public) \
+            bodyLength=\(refusal.body.count, privacy: .public) body=\(text, privacy: .public)
+            """
+        )
+    }
+
     private static func describe(_ status: UserStatus) -> String {
         let shared = status.hasPresenceShared ? String(status.presenceShared) : "absent"
         let dnd = status.hasDndSettings && status.dndSettings.hasDndState

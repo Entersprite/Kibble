@@ -271,13 +271,20 @@ struct OwnStatusTests {
         #expect(try SetPresenceSharedRequest(serializedBytes: shared).presenceShared == false)
     }
 
-    @Test func doNotDisturbSendsOnlyItsEnd() async throws {
+    @Test func doNotDisturbSendsOnlyItsCall() async throws {
         let transport = StatusTransport()
         let (backend, _) = try await connected(transport)
         let end = Date(timeIntervalSince1970: 1_900_000_000)
         try await backend.send(.setAvailability(.doNotDisturb(until: end)))
         let dnd = try #require(await requests(transport, "set_dnd_duration").first?.body)
-        #expect(try SetDndDurationRequest(serializedBytes: dnd).currentDndState == .dnd)
+        // From Automatic: the state you are in, and how long (session 62).
+        let request = try SetDndDurationRequest(serializedBytes: dnd)
+        #expect(request.currentDndState == .available)
+        guard case let .newDndDurationUsec(duration)? = request.dndExpiry else {
+            Issue.record("expected a duration")
+            return
+        }
+        #expect(duration > 0)
         #expect(await requests(transport, "set_presence_shared").isEmpty)
     }
 

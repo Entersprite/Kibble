@@ -49,6 +49,21 @@ struct ProtoAPIClientTests {
         #expect(await client.lastEncoding == .raw)
     }
 
+    /// A refused call keeps what Google said, for a diagnostic to read: the
+    /// status alone named no reason for Do not disturb's 400 (session 62).
+    /// Evidence, not control flow, as `lastEncoding` is.
+    @Test func aRefusedCallKeepsItsMethodStatusAndBody() async throws {
+        let refusal = HTTPResponse(status: 400, headers: HTTPHeaders([]), body: Data("bad dnd".utf8))
+        let client = client(FakeHTTPTransport(responses: [refusal]))
+        await #expect(throws: APIFailure.httpStatus(400)) {
+            _ = try await client.call(.setDndDuration, SetDndDurationRequest())
+        }
+        let kept = await client.lastRefusal
+        #expect(kept?.method == "set_dnd_duration")
+        #expect(kept?.status == 400)
+        #expect(kept?.body == Data("bad dnd".utf8))
+    }
+
     @Test func aBase64ResponseDecodesToo() async throws {
         let body = try selfStatusResponse()
         let encoded = Data(body.base64EncodedString().utf8)
