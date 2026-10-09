@@ -252,13 +252,17 @@ public extension SyncEngine {
     /// silently let through.
     private func ghostSuppresses(_ command: ChatCommand) -> Bool {
         switch command {
-        case .markRead, .setTyping, .reportActivity:
+        case .markRead, .markThreadRead, .setTyping, .reportActivity:
             // Activity is presence, which is exactly what ghosting withholds.
+            // A thread's read position says what you have read, as a
+            // conversation's does; whether others see it is `[Verify]`.
             true
         case .sendMessage, .editMessage, .deleteMessage, .setReaction,
-             .setNotificationLevel, .watchPresence, .loadMembers, .setStatus, .setAvailability, .unknown:
+             .setNotificationLevel, .watchPresence, .loadMembers, .setStatus, .setAvailability,
+             .setThreadUnreadMark, .unknown:
             // `.watchPresence` and `.loadMembers` ask about other people and
-            // say nothing about this one. Setting your own status is an act.
+            // say nothing about this one. Setting your own status is an act,
+            // and so is marking a thread unread.
             false
         }
     }

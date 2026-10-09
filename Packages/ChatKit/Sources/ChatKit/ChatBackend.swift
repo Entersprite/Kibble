@@ -158,6 +158,28 @@ public protocol ChatBackend: Sendable {
         to conversation: Conversation.ID,
         progress: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws -> Attachment
+
+    /// One thread's messages, oldest first, its first message included, each
+    /// with `Message.isReply` set (threads spec §1). A request because the
+    /// panel waits for it. **A requirement, not only an extension method**,
+    /// for the reason `attachmentData(_:size:)` gives.
+    func loadThread(_ thread: MessageThread.ID, in conversation: Conversation.ID) async throws -> [Message]
+
+    /// Follows or unfollows a thread, and throws when that is refused. A
+    /// request because a toggle must not spring back while the round trip is
+    /// in flight, as with `setNotificationSetting`; the new state also
+    /// arrives as `.threadChanged` with `.followed`. A requirement for the
+    /// same reason.
+    func setThreadFollowed(
+        _ followed: Bool,
+        thread: MessageThread.ID,
+        in conversation: Conversation.ID
+    ) async throws
+
+    /// The Threads list: each followed thread's first message and the reply
+    /// the answer carries, newest activity first. Each thread's state also
+    /// arrives as `.threadChanged`. A requirement for the same reason.
+    func loadFollowedThreads() async throws -> [Message]
 }
 
 /// Separate from the protocol body only so the default can sit beside it.
@@ -216,5 +238,21 @@ public extension ChatBackend {
         progress _: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws -> Attachment {
         throw ChatError.unsupported(capability: "canSendAttachments")
+    }
+
+    /// Refuses, so a backend that has not thought about threads offers no
+    /// panel, the direction `Capabilities` defaults in.
+    func loadThread(_: MessageThread.ID, in _: Conversation.ID) async throws -> [Message] {
+        throw ChatError.unsupported(capability: "supportsThreads")
+    }
+
+    /// Refuses, for the same reason.
+    func setThreadFollowed(_: Bool, thread _: MessageThread.ID, in _: Conversation.ID) async throws {
+        throw ChatError.unsupported(capability: "supportsThreads")
+    }
+
+    /// Refuses, for the same reason.
+    func loadFollowedThreads() async throws -> [Message] {
+        throw ChatError.unsupported(capability: "supportsThreads")
     }
 }

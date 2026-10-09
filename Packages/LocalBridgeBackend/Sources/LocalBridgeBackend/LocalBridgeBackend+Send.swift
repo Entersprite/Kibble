@@ -54,7 +54,7 @@ public extension LocalBridgeBackend {
         // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
         // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
         // until someone decides whether this backend can honour it.
-        case .setTyping, .setNotificationLevel, .unknown:
+        case .setTyping, .setNotificationLevel, .markThreadRead, .setThreadUnreadMark, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }
     }
@@ -210,6 +210,7 @@ public extension LocalBridgeBackend {
         case .reportActivity: "reportActivity"
         case .loadMembers: "canMention"
         case .setStatus, .setAvailability: "canSetStatus"
+        case .markThreadRead, .setThreadUnreadMark: "supportsThreads"
         case let .unknown(type, _): type
         }
     }

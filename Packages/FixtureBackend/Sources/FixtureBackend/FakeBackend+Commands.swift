@@ -36,8 +36,9 @@ public extension FakeBackend {
             try setReaction(on: messageID, choice: choice, add: add)
         case let .setTyping(conversationID, _, _):
             try setTyping(in: conversationID)
-        case let .markRead(conversationID, upTo):
-            try markRead(conversationID, upTo: upTo)
+        case .markRead, .markThreadRead, .setThreadUnreadMark:
+            // The read-state family, one case, for `cyclomatic_complexity`.
+            try applyReadState(command)
         case let .setNotificationLevel(conversationID, level):
             try require(capabilities.canSetNotificationLevel, "canSetNotificationLevel")
             try updateConversation(conversationID) { $0.notificationLevel = level }
@@ -169,6 +170,17 @@ private extension FakeBackend {
         // this, and sending both would make a client choose which to believe.
         try updateConversation(conversationID, emitUpdate: false) { $0.unreadCount = 0 }
         emit(.readStateChanged(conversationID: conversationID, lastReadAt: upTo, unread: 0))
+    }
+
+    /// `.markRead` and the two thread marks, one family behind one `case`
+    /// in `send(_:)`, which is at `cyclomatic_complexity`'s limit.
+    func applyReadState(_ command: ChatCommand) throws {
+        if case let .markRead(conversationID, upTo) = command {
+            try markRead(conversationID, upTo: upTo)
+        } else {
+            // Not until the fixture serves threads.
+            throw ChatError.unsupported(capability: "supportsThreads")
+        }
     }
 }
 

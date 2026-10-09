@@ -73,6 +73,21 @@ enum CommandSamples {
             capability: "canSetStatus"
         ),
         Sample(
+            name: "markThreadRead",
+            command: .markThreadRead(
+                conversationID: space, threadID: MessageThread.ID("fixture-seed-topic-3"),
+                upTo: Date(timeIntervalSince1970: 0)
+            ),
+            capability: "supportsThreads"
+        ),
+        Sample(
+            name: "setThreadUnreadMark",
+            command: .setThreadUnreadMark(
+                conversationID: space, threadID: MessageThread.ID("fixture-seed-topic-3"), at: nil
+            ),
+            capability: "supportsThreads"
+        ),
+        Sample(
             name: "unknown",
             command: .unknown(type: "someFutureCommand", payload: .object([:])),
             capability: "someFutureCommand"

@@ -29,6 +29,10 @@ public enum SyncReducer {
             supersedingStaleError(reduceConversationEvent(event))
         case .selfIdentified, .availabilityChanged:
             supersedingStaleError(reduceSessionEvent(event))
+        case .threadChanged, .unreadThreadsChanged:
+            // Nothing to store until the store keeps thread state
+            // (threads spec §4.1).
+            Reduction()
         case .connectionStateChanged, .backendError, .gap, .unknown:
             reduceSessionEvent(event)
         }

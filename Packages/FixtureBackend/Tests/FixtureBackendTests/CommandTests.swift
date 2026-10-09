@@ -312,7 +312,7 @@ struct CommandTests {
     /// this asserts the *tests* saw one of each too, and the hand-written count
     /// is what fails when someone adds a case and forgets a sample.
     @Test func everyCommandCaseHasASample() {
-        #expect(CommandSamples.all.count == 10)
+        #expect(CommandSamples.all.count == 12)
         #expect(Set(CommandSamples.all.map(\.name)).count == CommandSamples.all.count)
     }
 

@@ -127,6 +127,15 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// so no capability gates it.
     case reportActivity(active: Bool)
 
+    /// "This thread is read up to `upTo`", its newest message's own time; the
+    /// backend owns any offset on the wire (threads spec §1). The outcome
+    /// arrives as `.threadChanged` with `.read`.
+    case markThreadRead(conversationID: Conversation.ID, threadID: MessageThread.ID, upTo: Date)
+
+    /// Marks a thread unread from `at`, the message marked; `nil` clears the
+    /// mark. The outcome arrives as `.threadChanged` with `.markedUnread`.
+    case setThreadUnreadMark(conversationID: Conversation.ID, threadID: MessageThread.ID, at: Date?)
+
     /// A command from a newer client, kept whole so that a backend can report
     /// precisely what it was asked and could not do.
     case unknown(type: String, payload: JSONValue)
@@ -155,6 +164,7 @@ extension ChatCommand {
         case status
         case availability
         case active
+        case at
     }
 
     enum Tag: String {
@@ -170,6 +180,8 @@ extension ChatCommand {
         case setStatus
         case setAvailability
         case reportActivity
+        case markThreadRead
+        case setThreadUnreadMark
         case unknown
     }
 
@@ -179,6 +191,7 @@ extension ChatCommand {
         let decoded =
             try Self.decodeMessageCommand(raw, from: container)
                 ?? Self.decodeStateCommand(raw, from: container)
+                ?? Self.decodeThreadCommand(raw, from: container)
         self = try decoded ?? .unknown(type: raw, payload: UnknownFrame.payload(from: decoder))
     }
 
@@ -280,6 +293,7 @@ extension ChatCommand {
         var container = encoder.container(keyedBy: CodingKeys.self)
         let handled = try encodeMessageCommand(into: &container)
             || encodeStateCommand(into: &container)
+            || encodeThreadCommand(into: &container)
         guard handled else {
             throw WireEncoding.unhandled(self, path: container.codingPath)
         }

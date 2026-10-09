@@ -112,4 +112,35 @@ struct GhostModeTests {
 
         #expect(submitted == false)
     }
+
+    /// A thread's read position says what you have read, as a
+    /// conversation's does (threads spec §4.3).
+    @Test func ghostModeSuppressesAThreadsReadPosition() async throws {
+        let (engine, backend) = try await harness()
+        await engine.setGhostMode(true)
+
+        let submitted = await engine.submit(.markThreadRead(
+            conversationID: Conversation.ID("space:1"),
+            threadID: MessageThread.ID("fixture-seed-topic-3"),
+            upTo: Date(timeIntervalSince1970: 1)
+        ))
+
+        #expect(submitted == false)
+        #expect(await backend.commands.isEmpty)
+    }
+
+    /// Marking a thread unread is an act about your own view, like setting
+    /// a status, so ghosting lets it through.
+    @Test func ghostModeDoesNotSuppressAThreadsUnreadMark() async throws {
+        let (engine, backend) = try await harness()
+        await engine.setGhostMode(true)
+
+        _ = await engine.submit(.setThreadUnreadMark(
+            conversationID: Conversation.ID("space:1"),
+            threadID: MessageThread.ID("fixture-seed-topic-3"),
+            at: nil
+        ))
+
+        #expect(await backend.commands.count == 1)
+    }
 }
