@@ -14,9 +14,11 @@ import GChatBridgeCore
 ///
 /// A failed call, or a message not on the page, emits nothing: a missing
 /// count is not something a person can act on, and history corrects it.
+///
+/// The page is a whole thread (`threadPageSize`), so a reaction on a late
+/// reply in a long thread is found (threads spec §3).
 extension LocalBridgeBackend {
     static let defaultReactionRefetchDelay: Duration = .seconds(1)
-    static let reactionRefetchPageSize: Int32 = 50
 
     enum ReactionRefetchPhase { case waiting, fetching(again: Bool) }
 
@@ -63,7 +65,7 @@ extension LocalBridgeBackend {
         var request = ListMessagesRequest()
         request.requestHeader = APIRequestHeader.make()
         request.parentID = target.parent
-        request.pageSize = Self.reactionRefetchPageSize
+        request.pageSize = Self.threadPageSize
         let response = try? await apiClient.call(.listMessages, request)
         guard !Task.isCancelled, generation == directoryGeneration else { return }
         if let wire = response?.messages.first(where: { $0.id.messageID == target.messageID.rawValue }),
