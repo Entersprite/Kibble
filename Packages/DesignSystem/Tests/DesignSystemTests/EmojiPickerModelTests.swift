@@ -22,10 +22,13 @@ struct EmojiPickerModelTests {
 
     private static func model(
         query: String = "", tone: SkinTone = .none, recents: [ReactionChoice] = [],
-        custom: [CustomEmojiRef] = [], reactions: [Reaction] = []
+        custom: [CustomEmojiRef] = [], reactions: [Reaction] = [],
+        offersCustom: Bool = true
     ) -> EmojiPickerModel {
         EmojiPickerModel(
-            catalog: catalog, recents: recents, custom: custom, reactions: reactions, tone: tone, query: query
+            catalog: catalog, recents: recents, custom: custom, reactions: reactions, tone: tone,
+            query: query,
+            offersCustom: offersCustom
         )
     }
 
@@ -33,6 +36,21 @@ struct EmojiPickerModelTests {
         let sections = Self.model(recents: [ReactionChoice(emoji: "🎉")], custom: [Self.parrot]).sections
         #expect(sections.map(\.title) == ["Recent", "Smileys & Emotion", "People & Body", "Custom"])
         #expect(Self.model().sections.map(\.title) == ["Smileys & Emotion", "People & Body"])
+    }
+
+    /// The composer's picker inserts text, and a custom emoji is not text: it
+    /// needs an annotation the composer does not build. So none is offered
+    /// there, not even one a reaction left among the recents.
+    @Test func withoutCustomEmojiNoneIsOfferedAnywhere() {
+        let mixed = Self.model(
+            recents: [ReactionChoice(customEmoji: Self.parrot), ReactionChoice(emoji: "🎉")],
+            custom: [Self.parrot], offersCustom: false
+        )
+        #expect(mixed.sections.map(\.title) == ["Recent", "Smileys & Emotion", "People & Body"])
+        #expect(mixed.sections.first?.items.map(\.choice.emoji) == ["🎉"])
+        let onlyCustom = Self.model(recents: [ReactionChoice(customEmoji: Self.parrot)], offersCustom: false)
+        #expect(onlyCustom.sections.map(\.title) == ["Smileys & Emotion", "People & Body"])
+        #expect(Self.model(query: "parrot", custom: [Self.parrot], offersCustom: false).firstResult == nil)
     }
 
     /// Review Focus 3: the tone reaches a toned entry's choice, nothing else.

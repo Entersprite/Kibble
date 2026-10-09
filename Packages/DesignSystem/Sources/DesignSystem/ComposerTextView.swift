@@ -30,6 +30,10 @@
         /// view's own (edit spec §5).
         var upEdits = false
         var escCancels = false
+        /// Text to put in over the selection, once per new value.
+        var insertion: ComposerInsertion?
+        /// Bumped to start system dictation in the field (the waveform).
+        var dictationRequest = 0
 
         static let maxLines = 6
 
@@ -53,9 +57,24 @@
         }
 
         func updateNSView(_ scroll: ComposerScrollView, context: Context) {
-            context.coordinator.parent = self
+            let coordinator = context.coordinator
+            coordinator.parent = self
             Self.describe(scroll.textView, placeholder: placeholder)
-            context.coordinator.show(draft, in: scroll.textView)
+            coordinator.show(draft, in: scroll.textView)
+            // Both after this update, because both write the draft's binding,
+            // which an update must not; and the field takes focus first, since
+            // the picker's popover or the waveform's click had it.
+            if let insertion, insertion.id != coordinator.insertion {
+                coordinator.insertion = insertion.id
+                DispatchQueue.main.async {
+                    scroll.window?.makeFirstResponder(scroll.textView)
+                    coordinator.insert(insertion.text, in: scroll.textView)
+                }
+            }
+            if dictationRequest != coordinator.dictationRequest {
+                coordinator.dictationRequest = dictationRequest
+                DispatchQueue.main.async { ComposerDictation.start(in: scroll.textView) }
+            }
             guard context.coordinator.focusRequest != focusRequest else { return }
             context.coordinator.focusRequest = focusRequest
             DispatchQueue.main.async { scroll.window?.makeFirstResponder(scroll.textView) }
@@ -81,12 +100,16 @@
         final class Coordinator: NSObject, NSTextViewDelegate {
             var parent: ComposerTextView
             var focusRequest = -1
+            /// The last insertion and dictation request acted on.
+            var insertion: UUID?
+            var dictationRequest: Int
             /// Set while this class writes into the view, so the delegate
             /// callbacks it causes are not read as the person's edits.
             private var applying = false
 
             init(_ parent: ComposerTextView) {
                 self.parent = parent
+                dictationRequest = parent.dictationRequest
             }
 
             /// Puts the draft into the view when they differ: a send cleared
@@ -106,6 +129,14 @@
                 view.setSelectedRange(NSRange(location: draft.caret, length: 0))
                 applying = false
                 reportAnchor(in: view)
+            }
+
+            /// Text from outside the keyboard (the emoji picker), over the
+            /// selection. Through the view, never by setting the draft: the
+            /// edit reaches the draft by the delegate route above, so tokens
+            /// after it move, and it is one step Cmd-Z can take back.
+            func insert(_ text: String, in view: NSTextView) {
+                view.insertText(text, replacementRange: view.selectedRange())
             }
 
             func textView(
@@ -206,6 +237,21 @@
                 guard offset != parent.anchorX else { return }
                 parent.anchorX = offset
             }
+        }
+    }
+
+    /// Messages' waveform: the field takes focus, then the app starts system
+    /// dictation, as Edit › Start Dictation does. `startDictation:` is that
+    /// menu item's action and is not in Apple's documentation; `NSApplication`
+    /// answers it (checked on macOS 26, session 59). Sent up the responder
+    /// chain from the field, the way the menu sends it. Whether dictated text
+    /// lands in this field is `[Verify]`, and no test can reach it, which is
+    /// why it is this one function.
+    @MainActor
+    enum ComposerDictation {
+        static func start(in view: NSTextView) {
+            view.window?.makeFirstResponder(view)
+            NSApp.sendAction(Selector(("startDictation:")), to: nil, from: view)
         }
     }
 

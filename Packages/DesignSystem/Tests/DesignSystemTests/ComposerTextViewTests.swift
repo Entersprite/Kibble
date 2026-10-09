@@ -170,6 +170,28 @@
             #expect(box.draft.tokens.isEmpty)
         }
 
+        /// An emoji from the picker goes in at the caret through the text
+        /// view, not by setting the text: a mention after it moves with the
+        /// text, and Cmd-Z takes the emoji back out.
+        @Test func anInsertedEmojiMovesTheMentionAfterItAndUndoes() {
+            let box = Box()
+            let harness = windowed(box)
+            type("@ja", into: harness.view, undo: harness.undo)
+            box.draft.pick(.user(Member.ID("u-1")), name: "Jane")
+            harness.coordinator.show(box.draft, in: harness.view)
+            harness.view.setSelectedRange(NSRange(location: 0, length: 0))
+            harness.undo.beginUndoGrouping()
+            harness.coordinator.insert("😀", in: harness.view)
+            harness.undo.endUndoGrouping()
+            #expect(harness.view.string == "😀@Jane ")
+            #expect(box.draft.text == "😀@Jane ")
+            #expect(box.draft.tokens.map(\.location) == [2])
+            #expect(box.draft.caret == 2)
+            harness.undo.undo()
+            #expect(box.draft.text == "@Jane ")
+            withExtendedLifetime(harness.window) {}
+        }
+
         @Test func aDraftChangedElsewhereIsShown() {
             let box = Box()
             let (coordinator, view) = make(box, listOpen: false)

@@ -1,16 +1,15 @@
 import ChatKit
 import SwiftUI
 
-/// The message field - a floating capsule, the way Messages draws one.
+/// The message field, the way Messages on the Mac draws it (session 59): a
+/// round + button, the field, and a round emoji button, in Liquid Glass. The
+/// field is a capsule at one line and a rounded box beyond it, with a
+/// dictation waveform while it is empty and no send button: Return sends.
 ///
-/// A field, a send button, and a paperclip with the staged files above the
-/// field when the host supplies `attachmentActions`. Messages also carries a
-/// dictation waveform and an emoji picker; neither has a corresponding action
-/// on `ChatSceneActions`, and drawing a control that cannot do anything is the
-/// same mistake `ChatWindow` already refuses to make with its "cannot send
-/// messages yet" text rather than a greyed-out field. When those actions exist
-/// they arrive as optional closures and the buttons appear only where a host
-/// supplies them - the pattern the paperclip and `StatusStrip` follow.
+/// The + needs `attachmentActions` and the emoji button `emoji`; without
+/// them there is no button, as with `StatusStrip`'s, because drawing a control
+/// that cannot do anything is the mistake `ChatWindow` refuses to make with its
+/// "cannot send messages yet" text. Measurements are `ComposerLayout`'s.
 public struct Composer: View {
     let placeholder: String
     let send: (ComposedMessage) -> Void
@@ -30,6 +29,9 @@ public struct Composer: View {
     let mentions: ComposerMentions?
     /// `nil` offers no edit mode (edit spec §5).
     let editing: ComposerEditing?
+    /// The reactions' recents and skin tone, for the emoji button's picker.
+    /// `nil` draws no emoji button.
+    let emoji: ReactionActions?
 
     @State private var draft = ComposerDraft()
     @FocusState private var isFocused: Bool
@@ -44,6 +46,10 @@ public struct Composer: View {
     /// The message whose membership check is out, so a composer torn down
     /// meanwhile can hand it back.
     @State private var checking: ComposedMessage?
+    /// The picked emoji, for the macOS field to put in (`ComposerTextView`).
+    @State private var insertion: ComposerInsertion?
+    /// Bumped by the waveform (`ComposerTextView`).
+    @State private var dictationRequest = 0
 
     public init(
         placeholder: String,
@@ -53,6 +59,7 @@ public struct Composer: View {
         attachmentActions: ComposerAttachmentActions? = nil,
         mentions: ComposerMentions? = nil,
         editing: ComposerEditing? = nil,
+        emoji: ReactionActions? = nil,
         send: @escaping (ComposedMessage) -> Void
     ) {
         self.placeholder = placeholder
@@ -62,38 +69,31 @@ public struct Composer: View {
         self.attachmentActions = attachmentActions
         self.mentions = mentions
         self.editing = editing
+        self.emoji = emoji
         self.send = send
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // While editing, the bar replaces the staged files: they stay
-            // staged, and are never sent with the edit (edit spec §5).
-            if draft.editing != nil {
-                ComposerEditBar(cancel: cancelEdit)
-            } else if !attachments.isEmpty {
-                ComposerAttachmentStrip(attachments: attachments) { attachmentActions?.remove($0) }
+        // One container, so the buttons and the field blend as Messages' do.
+        GlassEffectContainer(spacing: ComposerLayout.spacing) {
+            // On the bottom edge, so the buttons stay by the last line as the
+            // field grows.
+            HStack(alignment: .bottom, spacing: ComposerLayout.spacing) {
+                if let attachmentActions, draft.editing == nil {
+                    ComposerRoundButton(
+                        title: "Attach Files…",
+                        systemImage: ComposerLayout.attachSymbol,
+                        action: attachmentActions.choose
+                    )
+                }
+                box
+                if let emoji {
+                    // Closed by a pick or not, the caret goes back to the field.
+                    ComposerEmojiButton(reactions: emoji, pick: insert) { focusRequest += 1 }
+                }
             }
-            field
         }
-        .padding(.leading, showsPaperclip ? 8 : 14)
-        .padding(.trailing, 5)
-        // 7.5 above and below a ~16pt line box lands the capsule at 31pt - the
-        // measured 30, plus the one point asked for. Half-points are fine: this
-        // is 15 device pixels at 2x. Padding rather than a fixed height,
-        // because the field grows to six lines.
-        .padding(.vertical, 7.5)
-        // Real Liquid Glass, not a tinted capsule pretending to be one.
-        // `.interactive()` is what gives it the press response; without it the
-        // field reads as a static translucent pill. A rounded rectangle once
-        // files are staged: a capsule 70pt tall is a pill with no straight
-        // edge for the chips to sit on.
-        .glassEffect(
-            .regular.interactive(),
-            in: attachments.isEmpty && draft
-                .editing == nil ? AnyShape(.capsule) : AnyShape(.rect(cornerRadius: 18))
-        )
-        .padding(.horizontal, 16)
+        .padding(.horizontal, ComposerLayout.spacing)
         .padding(.top, 10)
         .padding(.bottom, 11)
         .animation(.snappy(duration: 0.15), value: canAct)
@@ -135,7 +135,7 @@ public struct Composer: View {
             }
         }
         .confirmationDialog(
-            pendingInvite.map(inviteTitle) ?? "",
+            pendingInvite.map(\.title) ?? "",
             isPresented: Binding(get: { pendingInvite != nil }, set: {
                 if !$0 {
                     pendingInvite = nil
@@ -163,42 +163,56 @@ public struct Composer: View {
         }
     }
 
-    private var field: some View {
-        HStack(spacing: 6) {
-            if let attachmentActions, draft.editing == nil {
-                // A label rather than a bare image, so VoiceOver reads the words.
-                Button(action: attachmentActions.choose) {
-                    Label("Attach Files…", systemImage: "paperclip")
-                        .labelStyle(.iconOnly)
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Attach Files…")
+    /// The field, with the staged files or the edit bar above its text.
+    private var box: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // While editing, the bar replaces the staged files: they stay
+            // staged, and are never sent with the edit (edit spec §5).
+            if draft.editing != nil {
+                ComposerEditBar(canSave: canAct, save: submit, cancel: cancelEdit)
+            } else if !attachments.isEmpty {
+                ComposerAttachmentStrip(attachments: attachments) { attachmentActions?.remove($0) }
             }
+            field
+        }
+        .padding(.horizontal, 13)
+        // 7.5 above and below a ~16pt line box lands the field at 31pt - the
+        // measured 30, plus the one point asked for. Half-points are fine: this
+        // is 15 device pixels at 2x. Padding rather than a fixed height,
+        // because the field grows to six lines.
+        .padding(.vertical, 7.5)
+        // Real Liquid Glass, not a tinted shape pretending to be one.
+        // `.interactive()` is what gives it the press response; without it the
+        // field reads as a static translucent pill.
+        .glassEffect(.regular.interactive(), in: ComposerLayout.fieldShape)
+    }
+
+    private var field: some View {
+        HStack(alignment: .bottom, spacing: 6) {
             text
                 .anchorPreference(key: ComposerFieldAnchor.self, value: .bounds) { $0 }
-            // Present only when there is something to send, which is how
-            // Messages behaves - and it means the `.return` shortcut exists
-            // exactly when it would do something.
-            if canAct {
-                Button(action: submit) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title3)
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, Color.accentColor)
+            #if os(macOS)
+                if ComposerLayout.offersDictation(draft) {
+                    ComposerDictationButton { dictationRequest += 1 }
                 }
-                .buttonStyle(.plain)
-                #if !os(macOS)
-                    // Not on macOS: a key equivalent is checked before the
-                    // first responder, so it would send while the `@` list is
-                    // open and Return should pick. The text view handles
-                    // Return there (`ComposerTextView`).
-                    .keyboardShortcut(.return, modifiers: [])
-                #endif
-                    .transition(.scale.combined(with: .opacity))
-            }
+            #else
+                // Only when there is something to send (`ComposerSendButton`).
+                if canAct {
+                    ComposerSendButton(action: submit)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            #endif
         }
+    }
+
+    /// At the caret. On macOS through the text view, so it can be undone and
+    /// mentions after it move (`ComposerTextView.Coordinator.insert`).
+    private func insert(_ text: String) {
+        #if os(macOS)
+            insertion = ComposerInsertion(text: text)
+        #else
+            draft.replace(location: draft.caret, length: 0, with: text)
+        #endif
     }
 
     /// The field: an `NSTextView` on macOS, for tokens and a caret the `@`
@@ -217,7 +231,9 @@ public struct Composer: View {
                     draft: draft, stagedCount: attachments.count, listOpen: !suggestions.isEmpty,
                     newest: editing?.newest
                 ),
-                escCancels: ComposerEditKeys.escCancels(draft: draft, listOpen: !suggestions.isEmpty)
+                escCancels: ComposerEditKeys.escCancels(draft: draft, listOpen: !suggestions.isEmpty),
+                insertion: insertion,
+                dictationRequest: dictationRequest
             )
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
@@ -355,10 +371,6 @@ public struct Composer: View {
         ComposerEditKeys.submitAction(draft: draft, canSend: canSubmit) != .nothing
     }
 
-    private var showsPaperclip: Bool {
-        attachmentActions != nil && draft.editing == nil
-    }
-
     private func begin(_ request: ComposerEditRequest?) {
         guard let request, let editing else { return }
         draft.beginEditing(request.messageID, with: request.message)
@@ -381,10 +393,5 @@ public struct Composer: View {
         } else {
             send(message)
         }
-    }
-
-    private func inviteTitle(_ invite: PendingInvite) -> String {
-        let names = ListFormatter.localizedString(byJoining: invite.message.names(of: invite.people))
-        return "\(names) " + (invite.people.count == 1 ? "isn't" : "aren't") + " in this space."
     }
 }
