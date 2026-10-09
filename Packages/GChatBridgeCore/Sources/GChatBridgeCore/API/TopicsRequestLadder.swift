@@ -18,10 +18,11 @@ public struct TopicsRungResult: Sendable, Hashable {
 
     /// Field numbers found **inside** each `topics` (field 1) entry, one array
     /// per topic, in response order. The same gap `WorldRungResult.worldItemFields`
-    /// closed for `WorldItemLite` - `list_topics` has never been sent by this
-    /// implementation, so which fields inside one `Topic` are actually
-    /// populated has never been observed either. Empty when the rung carried
-    /// no `topics` (the control is expected to be one of these).
+    /// closed for `WorldItemLite`: when this was written `list_topics` had never
+    /// been sent, so which fields inside one `Topic` are populated had never
+    /// been observed. The ladder has since run (`findings.md` §21.4). Empty
+    /// when the rung carried no `topics` (the control is expected to be one of
+    /// these).
     public let topicFields: [[ProtoField]]
 
     public init(
@@ -51,10 +52,12 @@ public struct TopicsRungResult: Sendable, Hashable {
 ///
 /// ## Why a ladder here too
 ///
-/// `list_topics` (and `list_messages`) have **never been sent by anything in
-/// this project, in any language** - not this Swift implementation, not
-/// `gchat-probe`, not a captured browser session. The only worked example is
-/// the reference (`mautrix_googlechat/portal.py:406-446`), and `findings.md`
+/// When this ladder was written, `list_topics` (and `list_messages`) had
+/// **never been sent by anything in this project, in any language** - not this
+/// Swift implementation, not `gchat-probe`, not a captured browser session.
+/// Both have since been sent live: the ladder ran (`findings.md` §21.4), and
+/// `list_messages` serves the reaction refetch (§53.2). The only worked example
+/// then was the reference (`mautrix_googlechat/portal.py:406-446`), and `findings.md`
 /// §20.1 already recorded what happened the last time a shape was taken from
 /// a reference and trusted without a live run: `paginated_world` needed a
 /// four-rung ladder to find a shape *neither* reference implementation had
@@ -142,9 +145,10 @@ public enum TopicsRequestLadder {
     /// What history sends since the threads work (threads spec §2.2): rung 3,
     /// the reference's request plus `page_size_for_replies: 50`, so a thread's
     /// replies arrive with its first message (`findings.md` §63.5, about 2.4
-    /// times rung 2's bytes on the probed space). Rung 4 instead, if the
-    /// owner's §64.9 run shows its `TOTAL_MESSAGE_COUNTS` brings
-    /// `TopicReadState` field 10.
+    /// times rung 2's bytes on the probed space). Without it, 68 of 68 threads
+    /// carried their first message only (§64.9). Not rung 4: its
+    /// `TOTAL_MESSAGE_COUNTS` brings `TopicReadState` field 10, but field 10 is
+    /// not the thread's count (§64.9).
     public static func history(for group: GroupId) -> Rung {
         rungs(for: group)[2]
     }

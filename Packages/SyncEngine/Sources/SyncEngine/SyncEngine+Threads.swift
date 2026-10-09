@@ -85,13 +85,15 @@ extension SyncEngine {
     /// banner after every world load. This `Task.isCancelled` is the event
     /// loop's, for `startMentionBackfill()`'s reason.
     ///
-    /// **A failure is recorded**, like every request a view makes. The request
-    /// is `[Verify]` (spec §3). If the real server refuses it, each world load
-    /// records the error, and the events that follow a world load (a thread's
-    /// state, presence, members, a status) clear it again
-    /// (`SyncReducer.supersedingStaleError`), so the banner likely flashes and
-    /// vanishes `[Verify]`. Count failures instead, as the Mentions backfill
-    /// does, if that happens.
+    /// **A failure is recorded**, like every request a view makes. The
+    /// owner's run sent the bridge's request: 200, two bytes, no thread
+    /// (`findings.md` §64.9). Not refused, so nothing is recorded, and empty,
+    /// so the list holds only the threads Kibble has seen followed. The web
+    /// client's flag-gated filter (`WorldSectionRequest` field 16, §64.6) is
+    /// the next `[Verify]`. If a server ever refuses it, each world load
+    /// records the error and the events that follow clear it again
+    /// (`SyncReducer.supersedingStaleError`); count failures instead, as the
+    /// Mentions backfill does, if that happens.
     func startFollowedThreadsLoad() {
         guard capabilities.supportsThreads, !Task.isCancelled else { return }
         followedThreadsTask?.cancel()

@@ -16,7 +16,9 @@ import Foundation
 /// - the read-receipt gate, at `SyncEngine.submit(_:)`'s one chokepoint;
 /// - a generation per thread, so a completing mark clears only its own entry;
 /// - a watermark that advances only on success, and a re-check after the
-///   submit for a reply that landed during it.
+///   submit for a reply that landed during it;
+/// - no call for a thread the server already has read and nobody marked
+///   unread, as Chat on the web skips it (`findings.md` §64.2, session 58).
 ///
 /// One difference: there is no watermark check after the wait. The in-flight
 /// guard keeps any other mark for the thread from publishing during it, and
@@ -71,10 +73,22 @@ extension ChatSessionModel {
         // never be published against this one's id.
         let recomputed = panelShows(key) ? Self.newestServerReply(in: threads.messages) : nil
         let position = max(scheduledAt, recomputed ?? scheduledAt)
+        let stored = try? store.thread(key.thread, in: key.conversation)
+        // Already read on the server and not marked unread: Chat on the web
+        // skips the call when the newest message is not later than the read
+        // time it holds (`findings.md` §64.2), and so does this (session 58).
+        // Equality is read (§42.2). The watermark takes the server's position,
+        // as it would a published one, so the next trigger stops at it.
+        if stored?.markedUnreadAt == nil, let read = stored?.readPosition, position <= read {
+            if threads.work.markGeneration[key] == generation {
+                threads.work.published[key] = read
+            }
+            return
+        }
         // From here the mark is on the wire: a Mark as Unread now waits for
         // its answer instead of canceling it (`markThreadUnread(from:)`).
         threads.work.submittedGeneration[key] = generation
-        if (try? store.thread(key.thread, in: key.conversation))?.markedUnreadAt != nil {
+        if stored?.markedUnreadAt != nil {
             // Whether a read also clears a mark as unread on the server is
             // `[Verify]` (spec §3), so the clear goes first, and only when a
             // mark is set. A refused clear sends no read; the next trigger

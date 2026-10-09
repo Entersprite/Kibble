@@ -128,7 +128,8 @@ enum ThreadRequests {
         return state.hasMarkTopicAsUnreadTime ? state.markTopicAsUnreadTime : nil
     }
 
-    /// `TopicReadState` 4, `unread_message_count`. What it counts is §64.9's question.
+    /// `TopicReadState` 4, `unread_message_count`: the messages newer than the read time, the
+    /// first included when it is newer too (§64.9).
     static func unreadCount(of topic: GChatBridgeCore.Topic) -> Int64? {
         let state = topic.topicReadState
         return state.hasUnreadMessageCount ? state.unreadMessageCount : nil

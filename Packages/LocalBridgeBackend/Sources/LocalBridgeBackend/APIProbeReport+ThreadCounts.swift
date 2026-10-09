@@ -86,7 +86,8 @@ struct ReadStateCounts: Equatable {
 }
 
 extension APIProbeReport {
-    /// A thread longer than this is `[Verify]` (`findings.md` §63.7: up to 500 replies).
+    /// A thread longer than this is `[Verify]` (`findings.md` §63.7: up to 500 replies). A
+    /// 39-message thread came back whole (§64.9).
     static let threadMessagesPageSize: Int32 = 500
 
     static func readStateCountLines(_ counts: ReadStateCounts) -> [String] {

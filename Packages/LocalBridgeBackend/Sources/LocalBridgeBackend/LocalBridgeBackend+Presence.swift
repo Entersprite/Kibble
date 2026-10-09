@@ -44,6 +44,11 @@ extension LocalBridgeBackend {
         var deviceInUse = false
         /// The activity loop (`+Activity.swift`), stopped with the poll.
         var activityTask: Task<Void, Never>?
+        /// How many rounds the activity loop has finished since the poll was
+        /// reset, suppressed ones included. Nothing in the app reads it: a
+        /// round under Away or Do not disturb sends nothing, so tests wait on
+        /// this to know one ran, never on a clock (`CLAUDE.md`, Testing).
+        var activityRounds = 0
         /// The availability this backend last reported, which decides whether
         /// activity is reported at all; learned again at connect.
         var ownAvailability: Availability?

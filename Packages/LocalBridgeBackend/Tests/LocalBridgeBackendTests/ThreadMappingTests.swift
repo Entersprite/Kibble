@@ -127,31 +127,34 @@ struct ThreadMappingTests {
         #expect(changes(thread, listing: .history(countIsComplete: false)) == [.markedUnread(at: nil)])
     }
 
-    /// Field 4 is not trusted until §64.9 says it is the count.
-    @Test func fieldFourIsNotTheUnreadCountYet() {
+    /// Field 4 counts the first message too (§64.9), so it is not taken as
+    /// the unread count.
+    @Test func fieldFourIsNotTheUnreadCount() {
         #expect(!ThreadMapping.unreadCountIsField4)
         let thread = topic([message("t-1"), message("r-1", inlineReply: true)], unread: 1)
         #expect(changes(thread).first == .counted(messages: 2, unread: nil))
     }
 
-    @Test func fieldTenWinsOverTheListedCount() {
+    /// Field 10 is neither the messages listed nor the replies listed
+    /// (`findings.md` §64.9), so the listed count stands.
+    @Test func fieldTenIsNotTheCount() {
         let thread = topic([message("t-1"), message("r-1", inlineReply: true)], total: 9)
-        #expect(changes(thread).first == .counted(messages: 9, unread: nil))
+        #expect(changes(thread).first == .counted(messages: 2, unread: nil))
     }
 
     /// The Threads list carries one reply per topic: no count from that
-    /// (ruling 2). Field 10 still counts.
-    @Test func aPartialListCountsNothingWithoutFieldTen() {
+    /// (ruling 2), and none from field 10 either (§64.9).
+    @Test func aPartialListCountsNothing() {
         let listed = [message("t-1"), message("r-1", inlineReply: true)]
-        #expect(changes(topic(listed, lastRead: 5), listing: .threadsList).allSatisfy {
-            if case .counted = $0 {
-                false
-            } else {
-                true
-            }
-        })
-        let counted = changes(topic(listed, total: 9), listing: .threadsList)
-        #expect(counted.first == .counted(messages: 9, unread: nil))
+        for thread in [topic(listed, lastRead: 5), topic(listed, total: 9)] {
+            #expect(changes(thread, listing: .threadsList).allSatisfy {
+                if case .counted = $0 {
+                    false
+                } else {
+                    true
+                }
+            })
+        }
     }
 
     /// The Threads list carries no read state (Task 5, ruling 2) and loads

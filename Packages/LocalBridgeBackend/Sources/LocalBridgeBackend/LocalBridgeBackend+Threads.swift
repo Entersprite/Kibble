@@ -8,7 +8,9 @@ import GChatBridgeCore
 public extension LocalBridgeBackend {
     /// `list_messages`' page for a thread, here and in the reaction refetch: a
     /// thread is capped at 500 replies (§63.7, `[Verify]`), and the call has no
-    /// cursor and answers the oldest end, so one page is the whole thread.
+    /// cursor and answers the oldest end, so one page is the whole thread. The
+    /// owner's run sent it on a 39-message thread: all 39, oldest first, the
+    /// same as history listed; page 2 gave the oldest 2 (§64.9).
     static let threadPageSize: Int32 = 500
 
     /// A thread, its first message included, oldest first. Also asks
@@ -16,11 +18,17 @@ public extension LocalBridgeBackend {
     /// you follow a thread (§64.1); a failure there emits nothing (ruling 8).
     /// The page is returned even when the session changed meanwhile (ruling
     /// 5); only what it would emit, and the name lookup, are dropped.
+    ///
+    /// **The two calls go out together** (session 58): one round trip, not
+    /// two. The follow state is still emitted after the page, and not at all
+    /// when the page is refused. `async let`, never a detached task, so the
+    /// caller's cancellation reaches it; the page still waits for it.
     func loadThread(
         _ thread: MessageThread.ID, in conversation: Conversation.ID
     ) async throws -> [ChatKit.Message] {
         let target = try threadTarget(thread, conversation, what: "loadThread(_:in:)")
         let generation = directoryGeneration
+        async let followed = Self.isFollowed(target.topic, client: target.client)
         var request = ListMessagesRequest()
         request.requestHeader = APIRequestHeader.make()
         request.parentID.topicID = target.topic
@@ -36,7 +44,9 @@ public extension LocalBridgeBackend {
         if generation == directoryGeneration {
             resolveUnknownMembers(messages.map(\.sender))
         }
-        await emitFollowState(of: target, generation: generation)
+        if let followed = await followed, generation == directoryGeneration {
+            emit(target.event(.followed(followed)))
+        }
         return messages
     }
 
@@ -158,11 +168,13 @@ extension LocalBridgeBackend {
         return ThreadTarget(client: apiClient, topic: topic, thread: thread, conversation: conversation)
     }
 
-    private func emitFollowState(of target: ThreadTarget, generation: Int) async {
-        guard let response = try? await target.client.call(
-            .getUserTopicMetadata, ThreadCallRequests.metadata(topic: target.topic)
-        ), response.hasIsMuted, generation == directoryGeneration else { return }
-        emit(target.event(.followed(!response.isMuted)))
+    /// Whether you follow the thread, from `get_user_topic_metadata`: `nil`
+    /// when the call fails or the answer lacks field 2 (ruling 8).
+    private static func isFollowed(_ topic: TopicId, client: ProtoAPIClient) async -> Bool? {
+        guard let response = try? await client.call(
+            .getUserTopicMetadata, ThreadCallRequests.metadata(topic: topic)
+        ), response.hasIsMuted else { return nil }
+        return !response.isMuted
     }
 
     /// One microsecond past `date`, the conversation's rule (§36, §42). The
