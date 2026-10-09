@@ -28,14 +28,16 @@ extension ChatSessionModel {
 
     /// Told by the app shell whether the app is frontmost.
     ///
-    /// Becoming frontmost marks the open conversation, because otherwise
-    /// everything that arrived while the user was away stays unread until a
-    /// *new* message happens to arrive and trigger it.
+    /// Becoming frontmost marks the open conversation, and the thread the
+    /// panel shows, because otherwise everything that arrived while the user
+    /// was away stays unread until a *new* message happens to arrive and
+    /// trigger it.
     public func setActive(_ active: Bool) {
         guard active != isActive else { return }
         isActive = active
         if active {
             markSelectedReadIfNeeded()
+            markOpenThreadReadIfNeeded()
         }
     }
 
