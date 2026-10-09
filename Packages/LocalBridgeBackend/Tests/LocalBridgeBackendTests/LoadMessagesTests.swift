@@ -185,10 +185,10 @@ struct LoadMessagesTests {
         #expect(messages.map(\.id.rawValue) == ["m-1"])
     }
 
-    /// The request actually sent is `TopicsRequestLadder.minimumViable(for:)`
+    /// The request actually sent is `TopicsRequestLadder.history(for:)`
     /// for the conversation's own group - never a different shape, and never
     /// the whole four-rung ladder.
-    @Test func loadMessagesSendsTheMinimumViableRungForTheConversationsGroup() async throws {
+    @Test func loadMessagesSendsTheHistoryRungForTheConversationsGroup() async throws {
         let group = spaceGroupID("s-1")
         // An empty `ListTopicsResponse` serializes to zero bytes, which
         // `ProtoAPIClient.call` reports as `.emptyBody` rather than a decoded
@@ -208,7 +208,7 @@ struct LoadMessagesTests {
 
         let sent = await transport.sent
         let listTopicsRequest = try #require(sent.first { $0.url.path.contains("/api/list_topics") })
-        let expected: Data = try TopicsRequestLadder.minimumViable(for: group).request.serializedBytes()
+        let expected: Data = try TopicsRequestLadder.history(for: group).request.serializedBytes()
         #expect(listTopicsRequest.body == expected)
     }
 

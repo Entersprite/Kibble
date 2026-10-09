@@ -234,10 +234,11 @@ extension WorldMapping {
     ///
     /// `[Verify]`: whether "no information" should default to flat rather
     /// than threaded has not been checked against a live response - this
-    /// picks the less invasive wrong answer. `Conversation.isThreaded`'s own
-    /// doc comment calls the difference structural, not cosmetic: a threaded
-    /// space rendered flat is a degraded but still coherent view, whereas a
-    /// flat group rendered threaded invents a structure that was never there.
+    /// picks the less invasive wrong answer: a threaded space read as flat
+    /// is a degraded but still coherent label, whereas a flat group read as
+    /// threaded invents a structure that was never there. Since the threads
+    /// work this is the legacy room type only, which no view reads;
+    /// `Conversation.repliesEnabled` (world field 27) gates replies.
     static func isThreaded(_ item: WorldItemLite) -> Bool {
         if item.hasAttributeCheckerGroupType {
             switch item.attributeCheckerGroupType {
