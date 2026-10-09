@@ -66,7 +66,8 @@ struct ThreadGateTests {
             let window = ChatWindow(state: state, actions: ChatSceneActions(threads: threads()))
             return ThreadSplit(
                 state: state, actions: window.actions, threads: window.offeredThreadActions,
-                own: { _ in nil }, editing: nil, share: .constant(ThreadSplitLayout.initialShare)
+                own: { _ in nil }, editing: nil, dropStage: nil,
+                share: .constant(ThreadSplitLayout.initialShare)
             )
         }
         #expect(split(space, panel: true).isPresented)

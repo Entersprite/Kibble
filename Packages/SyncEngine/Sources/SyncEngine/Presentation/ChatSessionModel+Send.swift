@@ -59,7 +59,7 @@ public extension ChatSessionModel {
     func send(_ message: ComposedMessage) {
         guard let selected, capabilities.canSendMessages else { return }
         if stagedAttachments.contains(where: { !$0.isUploading }) {
-            sendStaged(message, in: selected)
+            sendStaged(message, in: StagingKey(conversation: selected, thread: nil))
             return
         }
         let text = message.text

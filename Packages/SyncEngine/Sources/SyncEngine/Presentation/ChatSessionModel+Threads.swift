@@ -65,15 +65,22 @@ public extension ChatSessionModel {
     /// The optimistic row is `send(_:)`'s, with the same `local/` id
     /// convention, plus `isReply` and the thread's id. So it lands in the
     /// panel and **never in the transcript**, which reads top-level messages
-    /// only. The echo replaces it by `localID`, as for any message. No staged
-    /// files: attachments in replies are not built (spec §7).
+    /// only. The echo replaces it by `localID`, as for any message. Files
+    /// staged in the thread go the way `send(_:)` sends the conversation's
+    /// (`sendStaged(_:in:)`), as replies (session 60).
     ///
     /// A refusal takes the row back and is recorded where errors show. Its
     /// text is not handed back: `failedDraft` belongs to the conversation's
     /// composer, and restoring a reply there would post it at the top level.
     func sendReply(_ message: ComposedMessage) {
-        guard let selected, let thread = threads.openThread, capabilities.canSendMessages,
-              !message.text.isEmpty else { return }
+        guard let selected, let thread = threads.openThread, capabilities.canSendMessages else { return }
+        let key = StagingKey(conversation: selected, thread: thread)
+        if (composerFiles.staged[key] ?? []).contains(where: { !$0.isUploading }) {
+            sendStaged(message, in: key)
+            return
+        }
+        // Only a staged file makes an empty reply mean something.
+        guard !message.text.isEmpty else { return }
         let localID = UUID().uuidString
         let optimisticID = Message.ID("local/\(localID)")
         var undo: [StoreWrite] = []

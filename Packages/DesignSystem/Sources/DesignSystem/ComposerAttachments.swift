@@ -42,7 +42,7 @@ public struct ComposerAttachment: Identifiable, Equatable, Sendable {
 /// What the composer can ask for about staged files: open a picker, stage
 /// files dropped on the conversation, and remove one.
 ///
-/// Supplied only when the backend can upload; with none there is no paperclip
+/// Supplied only when the backend can upload; with none there is no +
 /// and no drop target (`CLAUDE.md`: never draw a control the seam cannot
 /// honour).
 @MainActor

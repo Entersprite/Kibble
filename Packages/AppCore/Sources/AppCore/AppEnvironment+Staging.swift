@@ -3,32 +3,38 @@ import DesignSystem
 import Foundation
 import SyncEngine
 
-/// Files staged in the composer: the paperclip and the drop target, the chips
+/// Files staged in the composer: the + and the drop targets, the chips
 /// they become, and the cache that keeps a sent picture's bytes.
 extension AppEnvironment {
     /// A picture larger than this is fetched back from Google rather than
     /// kept from the upload: the cache holds it in memory too.
     static let seedLimit = 20 * 1_048_576
 
-    /// Offered only while a session runs on a backend that can both send and
-    /// upload; `nil` draws no paperclip and no drop target.
+    /// The conversation composer's.
     var composerAttachmentActions: ComposerAttachmentActions? {
+        composerAttachmentActions(in: .conversation)
+    }
+
+    /// Offered only while a session runs on a backend that can both send and
+    /// upload; `nil` draws no + and no drop target. `target` is the composer
+    /// they stage into: the conversation's, or the open thread's.
+    func composerAttachmentActions(in target: StagingTarget) -> ComposerAttachmentActions? {
         guard let capabilities = runningModel?.capabilities,
               capabilities.canSendMessages, capabilities.canSendAttachments
         else { return nil }
         return ComposerAttachmentActions(
             choose: { [weak self] in
                 guard let self else { return }
-                stageFiles(services.chooseFilesToSend())
+                stageFiles(services.chooseFilesToSend(), in: target)
             },
-            stage: { [weak self] in self?.stageFiles($0) },
-            remove: { [weak self] in self?.runningModel?.unstage($0) }
+            stage: { [weak self] in self?.stageFiles($0, in: target) },
+            remove: { [weak self] in self?.runningModel?.unstage($0, in: target) }
         )
     }
 
     /// Inspects each file and stages what can be sent; a folder or a file
     /// that cannot be read is named in a banner instead.
-    func stageFiles(_ urls: [URL]) {
+    func stageFiles(_ urls: [URL], in target: StagingTarget = .conversation) {
         guard let model = runningModel, !urls.isEmpty else { return }
         var files: [OutgoingAttachment] = []
         var unreadable: [String] = []
@@ -39,7 +45,7 @@ extension AppEnvironment {
                 unreadable.append(url.lastPathComponent)
             }
         }
-        model.stage(files, unreadable: unreadable)
+        model.stage(files, unreadable: unreadable, in: target)
     }
 
     static func composerAttachments(_ staged: [StagedAttachment]) -> [ComposerAttachment] {

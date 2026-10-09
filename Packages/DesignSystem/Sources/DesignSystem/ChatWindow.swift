@@ -76,7 +76,8 @@ public struct ChatWindow: View {
                     .modifier(FileDropTarget(stage: dropStage))
                     .modifier(ThreadSplit(
                         state: state, actions: actions, threads: offeredThreadActions,
-                        own: { panelHandlers(for: $0) }, editing: panelEditing(), share: $threadShare
+                        own: { panelHandlers(for: $0) }, editing: panelEditing(), dropStage: panelDropStage,
+                        share: $threadShare
                     ))
                 } else {
                     ContentUnavailableView(
@@ -151,9 +152,13 @@ public struct ChatWindow: View {
     /// Where a drop goes, if anywhere: only where the composer is drawn and
     /// the host can stage files.
     private var dropStage: (([URL]) -> Void)? {
-        // Not while this composer edits: an edit never carries files (edit
-        // spec §5). The panel's edit leaves this composer free.
-        guard state.capabilities.canSendMessages, editingMessage == nil || panelIsEditing else { return nil }
+        guard state.capabilities.canSendMessages,
+              ThreadEditRouting.takesDrops(
+                  in: .transcript,
+                  editing: editOwner,
+                  anyEdit: editingMessage != nil
+              )
+        else { return nil }
         return actions.composerAttachments?.stage
     }
 

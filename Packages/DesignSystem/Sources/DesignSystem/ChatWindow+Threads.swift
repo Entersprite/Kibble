@@ -62,6 +62,15 @@ extension ChatWindow {
         )
     }
 
+    /// Where a drop on the panel goes, if anywhere: the open thread's
+    /// composer, when the host can stage files there and it is not editing.
+    var panelDropStage: (([URL]) -> Void)? {
+        guard state.capabilities.canSendMessages,
+              ThreadEditRouting.takesDrops(in: .panel, editing: editOwner, anyEdit: editingMessage != nil)
+        else { return nil }
+        return offeredThreadActions?.attachments?.stage
+    }
+
     /// The panel's composer goes with its thread and never says its edit
     /// ended: forget that edit when the panel changes thread or closes, so a
     /// reopened thread does not begin it again and the transcript takes

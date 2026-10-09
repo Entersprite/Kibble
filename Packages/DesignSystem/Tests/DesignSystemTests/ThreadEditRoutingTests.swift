@@ -58,6 +58,37 @@ struct ThreadEditRoutingTests {
         #expect(ThreadEditRouting.offersEdit(in: .panel, editing: nil))
     }
 
+    /// Dropped files go to a composer only while it is not editing: an edit
+    /// never carries files (edit spec §5). The other composer's edit leaves
+    /// it free. An edit whose message neither list holds (deleted meanwhile)
+    /// still has its composer in edit mode, so neither takes files.
+    @Test func aComposerTakesDropsOnlyWhileItIsNotEditing() {
+        struct Row {
+            let composer: ThreadEditRouting.Owner
+            let owner: ThreadEditRouting.Owner?
+            let anyEdit: Bool
+            let takes: Bool
+        }
+        let rows = [
+            Row(composer: .transcript, owner: nil, anyEdit: false, takes: true),
+            Row(composer: .panel, owner: nil, anyEdit: false, takes: true),
+            Row(composer: .transcript, owner: .transcript, anyEdit: true, takes: false),
+            Row(composer: .panel, owner: .panel, anyEdit: true, takes: false),
+            Row(composer: .transcript, owner: .panel, anyEdit: true, takes: true),
+            Row(composer: .panel, owner: .transcript, anyEdit: true, takes: true),
+            Row(composer: .transcript, owner: nil, anyEdit: true, takes: false),
+            Row(composer: .panel, owner: nil, anyEdit: true, takes: false)
+        ]
+        for row in rows {
+            let result = ThreadEditRouting.takesDrops(
+                in: row.composer,
+                editing: row.owner,
+                anyEdit: row.anyEdit
+            )
+            #expect(result == row.takes, "\(row.composer) \(String(describing: row.owner)) \(row.anyEdit)")
+        }
+    }
+
     /// The panel's composer goes with its thread and never says so: its edit
     /// is forgotten when the panel changes, so a reopened thread does not
     /// begin it again. The transcript's edit stays.
