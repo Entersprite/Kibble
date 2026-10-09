@@ -36,8 +36,13 @@ struct EmojiPickerModel {
     let reactions: [Reaction]
     let tone: SkinTone
     let query: String
+    /// `false` in the composer, which inserts text: a custom emoji is not
+    /// text, and is offered nowhere, recents included.
+    var offersCustom = true
 
     var sections: [EmojiPickerSection] {
+        let custom = offersCustom ? custom : []
+        let recents = offersCustom ? recents : recents.filter { $0.customEmoji == nil }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty else {
             let results = catalog.search(trimmed).map(item(for:))
@@ -90,6 +95,8 @@ struct EmojiPicker: View {
     let reactions: [Reaction]
     let actions: ReactionActions
     let onChoose: (ReactionChoice, Bool) -> Void
+    /// `false` in the composer (`EmojiPickerModel.offersCustom`).
+    let offersCustom: Bool
 
     @State private var query = ""
     @State private var tone: SkinTone
@@ -100,10 +107,12 @@ struct EmojiPicker: View {
     init(
         reactions: [Reaction],
         actions: ReactionActions,
+        offersCustom: Bool = true,
         onChoose: @escaping (ReactionChoice, Bool) -> Void
     ) {
         self.reactions = reactions
         self.actions = actions
+        self.offersCustom = offersCustom
         self.onChoose = onChoose
         _tone = State(initialValue: actions.skinTone)
     }
@@ -111,7 +120,7 @@ struct EmojiPicker: View {
     private var model: EmojiPickerModel {
         EmojiPickerModel(
             catalog: .bundled, recents: recents, custom: custom, reactions: reactions, tone: tone,
-            query: query
+            query: query, offersCustom: offersCustom
         )
     }
 

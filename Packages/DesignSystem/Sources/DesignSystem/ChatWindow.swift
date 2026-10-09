@@ -127,6 +127,7 @@ public struct ChatWindow: View {
                     )
                     : nil,
                 editing: composerEditing(),
+                emoji: actions.reactions,
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without
