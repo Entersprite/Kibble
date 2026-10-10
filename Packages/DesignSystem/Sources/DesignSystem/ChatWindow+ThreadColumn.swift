@@ -15,7 +15,7 @@ extension ChatWindow {
     /// The column's content. Its title is a bar raised into the column's own
     /// titlebar section, so it blurs the replies under it, as AppKit's title
     /// does the transcript's; Follow and Close are toolbar items in the same
-    /// section (`ThreadColumnBridge` puts a flexible space before them).
+    /// section.
     @ViewBuilder var threadColumn: some View {
         if threadColumnShown, let threads = offeredThreadActions, let panel = state.threads.panel {
             Color.clear
@@ -28,6 +28,9 @@ extension ChatWindow {
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { threadBand = $0 }
                 .toolbar {
+                    // At the section's trailing edge; without it they sit
+                    // beside the divider (session 65, measured).
+                    ToolbarSpacer(.flexible, placement: .primaryAction)
                     // Their own glass, the composer's, not the toolbar's capsule
                     // (session 63).
                     ToolbarItem(placement: .primaryAction) {
@@ -60,5 +63,33 @@ enum ThreadColumnLayout {
         let minimum = min(minimumWidth, available / 2)
         let wanted = remembered ?? (available / 2).rounded()
         return min(max(wanted, minimum), available - minimum)
+    }
+
+    /// What the conversation and the thread share: from the sidebar's
+    /// trailing edge to the window's, less the thread's divider. Not from the
+    /// conversation's own leading edge, which on macOS 26 is at 0, under the
+    /// floating sidebar, so half of its frame left the conversation the
+    /// sidebar's width short of the thread (session 65, measured).
+    static func sharedWidth(
+        splitWidth: CGFloat, contentLeading: CGFloat, sidebarTrailing: CGFloat?, divider: CGFloat
+    ) -> CGFloat {
+        splitWidth - max(contentLeading, sidebarTrailing ?? 0) - divider
+    }
+}
+
+/// The sidebar's width. SwiftUI's three-column split does not apply the
+/// sidebar's `navigationSplitViewColumnWidth`, though it applies the
+/// conversation's: the item kept AppKit's defaults, a 140-pt minimum, and
+/// opened at 144 (session 65, measured with and without `ThreadColumnBridge`).
+/// So the bridge applies these, and `ChatWindow` passes them to SwiftUI too.
+enum SidebarColumnLayout {
+    static let minimumWidth: CGFloat = 200
+    static let idealWidth: CGFloat = 240
+
+    /// The width to set a sidebar to, or `nil` to keep it: narrower than the
+    /// minimum, as AppKit's default and every width saved before this fix
+    /// were, opens at the ideal width. Zero is a sidebar not laid out yet.
+    static func correctedWidth(current: CGFloat) -> CGFloat? {
+        current > 0 && current < minimumWidth ? idealWidth : nil
     }
 }

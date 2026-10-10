@@ -1,10 +1,21 @@
 import ChatKit
 import SwiftUI
 
-/// The window's subtitle, and the clock that redraws it on time (meeting
+/// The window's title and subtitle, and the clock that redraws it on time (meeting
 /// indicator spec §6.3). Moved out of `ChatWindow.swift`, which sits at
 /// `file_length`; `headerClock` is not `private` for this file's sake.
 extension ChatWindow {
+    var title: String {
+        if state.showingMentions {
+            return "Mentions"
+        }
+        if state.threads.showingList {
+            return ThreadsPresentation.title
+        }
+        guard let conversation = state.selectedConversation else { return "Kibble" }
+        return Display.title(of: conversation, directory: state.directory, me: state.me)
+    }
+
     var subtitle: String {
         // An empty subtitle draws nothing, which is the answer when there is
         // no count worth showing.
