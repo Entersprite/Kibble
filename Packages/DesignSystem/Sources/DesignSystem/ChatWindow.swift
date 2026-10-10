@@ -20,22 +20,31 @@ public struct ChatWindow: View {
     /// words change on time (spec §6.3). Read by `subtitle` as a floor for
     /// `now`, which is what makes SwiftUI redraw it.
     @State var headerClock = Date.now
-    /// The thread panel's share of the width (`ThreadSplit`), kept while the
-    /// window is open.
-    @State var threadShare = ThreadSplitLayout.initialShare
-    /// Whether the sidebar shows, which decides who draws the title (`ThreadSplit`).
-    @State var columns = NavigationSplitViewVisibility.automatic
+    /// The height of the toolbar's band over the thread column, where the
+    /// panel raises its title (`ChatWindow+ThreadColumn.swift`).
+    @State var threadBand: CGFloat = 0
 
     public init(state: ChatSceneState, actions: ChatSceneActions) {
         self.state = state
         self.actions = actions
     }
 
+    /// Three columns: the sidebar, the conversation, and the open thread
+    /// (session 64). **The thread is a real split view column, not a view
+    /// inside the conversation's**, because a column of its own is what gives it
+    /// a titlebar section, and a section is what gives its scroll-edge blur a
+    /// backdrop group of its own. Two blurred bands in one section share one
+    /// group, and the second drew a flat gray (session 64, measured in
+    /// composited pixels, and how Mail builds its viewer). SwiftUI makes no
+    /// section for the third column, so `ThreadColumnBridge` adds it, and
+    /// collapses the column while no thread is open. The sidebar cannot be
+    /// hidden (the owner, session 64: it is to be redesigned).
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columns) {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
             ConversationList(state: state, actions: actions)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
-        } detail: {
+                .toolbar(removing: .sidebarToggle)
+        } content: {
             VStack(spacing: 0) {
                 StatusStrip(state: state, actions: actions)
                 if state.showingMentions {
@@ -76,12 +85,6 @@ public struct ChatWindow: View {
                         .background(alignment: .bottom) { ComposerScrim() }
                     }
                     .modifier(FileDropTarget(stage: dropStage))
-                    .modifier(ThreadSplit(
-                        state: state, actions: actions, threads: offeredThreadActions,
-                        own: { panelHandlers(for: $0) }, editing: panelEditing(), dropStage: panelDropStage,
-                        share: $threadShare, title: title, subtitle: subtitle,
-                        sidebarShown: columns != .detailOnly
-                    ))
                 } else {
                     ContentUnavailableView(
                         "Pick a conversation",
@@ -93,7 +96,13 @@ public struct ChatWindow: View {
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
             .task(id: nextHeaderRedraw) { await waitForHeaderRedraw() }
+            .navigationSplitViewColumnWidth(min: ThreadColumnLayout.minimumWidth, ideal: 640)
+        } detail: {
+            threadColumn
         }
+        #if os(macOS)
+        .background { ThreadColumnBridge(isOpen: threadColumnShown) }
+        #endif
         .onChange(of: state.selectedConversation?.id) {
             editRequest = nil
             editingMessage = nil

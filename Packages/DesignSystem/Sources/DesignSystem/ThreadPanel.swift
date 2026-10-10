@@ -53,8 +53,9 @@ enum ThreadEditRouting {
 
 /// The thread on the right (threads spec §5.2): the first message and its
 /// replies drawn by the transcript's own bubble, and a composer of its own.
-/// Its title sits in the window toolbar's band, as the conversation's does,
-/// and its Follow and Close sit in the toolbar (`ThreadFollowButton`, `ThreadCloseButton`).
+/// It fills the window's third column (`ChatWindow+ThreadColumn.swift`); its title
+/// sits in that column's toolbar band, and its Follow and Close sit in the toolbar
+/// (`ThreadFollowButton`, `ThreadCloseButton`).
 struct ThreadPanel: View {
     let panel: ThreadPanelState
     let state: ChatSceneState
@@ -125,8 +126,8 @@ struct ThreadPanel: View {
     }
 }
 
-/// Follow, beside Close in a toolbar item at the window's trailing edge,
-/// which is always over the panel (`ThreadSplit`). **The item at its own
+/// Follow, beside Close in a toolbar item at the thread column's trailing edge
+/// (`ThreadColumnBridge` puts a flexible space before it). **The item at its own
 /// size:** one sized to the panel was not laid out again when the panel's
 /// width changed (past the window's edge after one resize, gone after the
 /// next), and a flexible one was held at its minimum (session 63).
