@@ -50,43 +50,31 @@ struct ThreadGateTests {
     )
     private let meet = Conversation(id: Conversation.ID("space/m-1"), kind: .meetChat, title: "Standup")
 
-    private func split(_ conversation: Conversation, panel: Bool, sidebarShown: Bool = true) -> ThreadSplit {
+    private func window(
+        _ conversation: Conversation, panel: Bool, mentions: Bool = false, list: Bool = false
+    ) -> ChatWindow {
         let thread = MessageThread(id: MessageThread.ID("t-1"), conversationID: conversation.id)
         let state = ChatSceneState(
-            conversations: [conversation], selected: conversation.id,
+            conversations: [conversation], selected: conversation.id, showingMentions: mentions,
             threads: ThreadSceneState(
-                panel: panel ? ThreadPanelState(thread: thread, conversationTitle: "Deploys") : nil
+                panel: panel ? ThreadPanelState(thread: thread, conversationTitle: "Deploys") : nil,
+                showingList: list
             )
         )
-        let window = ChatWindow(state: state, actions: ChatSceneActions(threads: threads()))
-        return ThreadSplit(
-            state: state, actions: window.actions, threads: window.offeredThreadActions,
-            own: { _ in nil }, editing: nil, dropStage: nil,
-            share: .constant(ThreadSplitLayout.initialShare), title: conversation.title ?? "",
-            subtitle: "", sidebarShown: sidebarShown
-        )
+        return ChatWindow(state: state, actions: ChatSceneActions(threads: threads()))
     }
 
-    /// The split is always applied (`ThreadSplit`'s identity rule), so the
-    /// gate lives in its presentation: a panel where the conversation offers
-    /// no replies (a Meet chat, or any before the first world load after the
-    /// v13 upgrade) is not presented. Whether the panel shows is a
-    /// screenshot's question; this pins only what it is asked.
-    @Test func thePanelIsPresentedOnlyWithThreadActionsAndAPanel() {
-        #expect(split(space, panel: true).isPresented)
-        #expect(!split(space, panel: false).isPresented)
-        #expect(!split(meet, panel: true).isPresented)
-    }
-
-    /// The split draws the conversation's title only where it knows where to
-    /// put it (session 63): beside a presented panel, with the sidebar shown.
-    /// Collapsed, AppKit's title starts past the window's buttons. Whether
-    /// the hand-over is invisible is a render's question; this pins only when
-    /// it happens.
-    @Test func theSplitDrawsTheTitleOnlyBesideAPanelWithTheSidebarShown() {
-        #expect(split(space, panel: true).ownsTitle)
-        #expect(!split(space, panel: false).ownsTitle)
-        #expect(!split(meet, panel: true).ownsTitle)
-        #expect(!split(space, panel: true, sidebarShown: false).ownsTitle)
+    /// The thread column opens only with a panel, in a conversation that offers
+    /// replies, while that conversation is on screen: a Meet chat (or any before
+    /// the first world load after the v13 upgrade) never opens it, and Mentions
+    /// or the Threads list taking the conversation's place collapse it. Whether
+    /// AppKit collapses the split view item is the harness's question
+    /// (`ThreadColumnBridge`); this pins only what it is asked.
+    @Test func theThreadColumnOpensOnlyBesideItsConversation() {
+        #expect(window(space, panel: true).threadColumnShown)
+        #expect(!window(space, panel: false).threadColumnShown)
+        #expect(!window(meet, panel: true).threadColumnShown)
+        #expect(!window(space, panel: true, mentions: true).threadColumnShown)
+        #expect(!window(space, panel: true, list: true).threadColumnShown)
     }
 }

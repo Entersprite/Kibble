@@ -1,13 +1,12 @@
 import SwiftUI
 
-/// A column's title in the window toolbar's band: the thread panel's always,
-/// and the conversation's while a thread is open beside it (`ThreadSplit`).
+/// The thread column's title in its toolbar band. The conversation's title is
+/// AppKit's own, in its own section (session 64).
 ///
 /// **In the toolbar's own fonts**, read off AppKit's title fields (session
-/// 63): 13-pt bold over 11-pt regular, or 15-pt semibold with no subtitle.
-/// The conversation's title changes hands when a thread opens, and these keep
-/// it from moving when it does: rendered both ways, the lines matched to the
-/// pixel in height and width. In an active window `.primary` and `.secondary`
+/// 63): 13-pt bold over 11-pt regular, or 15-pt semibold with no subtitle, so
+/// the two titles side by side match: rendered both ways, the lines matched to
+/// the pixel in height and width. In an active window `.primary` and `.secondary`
 /// measured within 5% of AppKit's title on the owner's screenshot; inactive,
 /// AppKit dims both lines alike, and `.secondary` is the nearest match.
 ///
