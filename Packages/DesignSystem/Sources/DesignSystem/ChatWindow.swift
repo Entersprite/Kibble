@@ -35,14 +35,16 @@ public struct ChatWindow: View {
     /// a titlebar section, and a section is what gives its scroll-edge blur a
     /// backdrop group of its own. Two blurred bands in one section share one
     /// group, and the second drew a flat gray (session 64, measured in
-    /// composited pixels, and how Mail builds its viewer). SwiftUI makes no
-    /// section for the third column, so `ThreadColumnBridge` adds it, and
-    /// collapses the column while no thread is open. The sidebar cannot be
-    /// hidden (the owner, session 64: it is to be redesigned).
+    /// composited pixels, and how Mail builds its viewer). `ThreadColumnBridge`
+    /// says what SwiftUI does not do for it. The sidebar cannot be hidden (the
+    /// owner, session 64: it is to be redesigned).
     public var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             ConversationList(state: state, actions: actions)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+                .navigationSplitViewColumnWidth(
+                    min: SidebarColumnLayout.minimumWidth,
+                    ideal: SidebarColumnLayout.idealWidth
+                )
                 .toolbar(removing: .sidebarToggle)
         } content: {
             VStack(spacing: 0) {
@@ -96,6 +98,9 @@ public struct ChatWindow: View {
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
             .task(id: nextHeaderRedraw) { await waitForHeaderRedraw() }
+            // Draws nothing; keeps the toolbar, so its band is 52 pt and two
+            // rows, and the thread's section (session 65, `ThreadColumnBridge`).
+            .toolbar { ToolbarSpacer(.flexible) }
             .navigationSplitViewColumnWidth(min: ThreadColumnLayout.minimumWidth, ideal: 640)
         } detail: {
             threadColumn
@@ -172,17 +177,6 @@ public struct ChatWindow: View {
               )
         else { return nil }
         return actions.composerAttachments?.stage
-    }
-
-    private var title: String {
-        if state.showingMentions {
-            return "Mentions"
-        }
-        if state.threads.showingList {
-            return ThreadsPresentation.title
-        }
-        guard let conversation = state.selectedConversation else { return "Kibble" }
-        return Display.title(of: conversation, directory: state.directory, me: state.me)
     }
 }
 
