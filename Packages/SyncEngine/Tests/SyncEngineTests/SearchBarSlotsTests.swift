@@ -166,18 +166,21 @@ struct SearchBarSlotsTests {
         await model.stop()
     }
 
-    /// ⌘F back to the bar at the same position restamps the same focus
-    /// value, so the overlay cannot tell it apart from one that never
-    /// changed. `focusGeneration` is the signal it watches instead, bumped
-    /// here regardless of whether the restamped value differs.
-    @Test func reshowingAtTheSamePositionStillBumpsTheFocusGeneration() async throws {
+    /// ⌘F pressed again while the overlay is already shown (nothing hides it
+    /// first: the real trigger is Edit › Search…/⌘F staying enabled while
+    /// `isShown` is already true) restamps the same focus value. The window
+    /// never tears the overlay down and remounts it for this, so `onAppear`
+    /// does not run again, and `.onChange(of: search.focus)` would not fire
+    /// from an unchanged value either. `focusGeneration` is the signal the
+    /// overlay watches instead, bumped here regardless of whether the
+    /// restamped value differs.
+    @Test func showingAgainWithNoHideBetweenStillBumpsTheFocusGeneration() async throws {
         let (model, _) = try await SearchOpenTests.searched([MessageSearchPage(hits: [Self.hit(11)])])
         model.openSearchResult(Self.hit(11).id)
         await settleAutoMarkRead(until: "it opens") { model.scrollTarget == Self.hit(11).id }
         model.showSearch()
         #expect(model.search.focus == Self.hit(11).id)
         let first = model.search.focusGeneration
-        model.hideSearch()
         model.showSearch()
         #expect(model.search.focus == Self.hit(11).id)
         #expect(model.search.focusGeneration == first + 1)
