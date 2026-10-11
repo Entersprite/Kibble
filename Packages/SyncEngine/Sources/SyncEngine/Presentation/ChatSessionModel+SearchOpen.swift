@@ -82,10 +82,14 @@ public extension ChatSessionModel {
 
 extension ChatSessionModel {
     /// Opens a hit where it lives: the transcript, or its thread for a reply
-    /// (`open(conversation:message:)`'s rule), once the engine has stored it
-    /// and asked for the history just before it
+    /// (`open(conversation:message:)`'s rule), once the engine has stored it,
+    /// asked for the history just before it and read where it lands
     /// (`SyncEngine.loadHistory(in:until:pageLimit:)`). `state` is the
     /// caller's pending change, written here in the same one mutation.
+    ///
+    /// Nothing here reads the store: pages are landing while a hit opens, and
+    /// a read on the main thread waits for each of them (CLAUDE.md, session
+    /// 66). That is why this does not call `open(conversation:message:)`.
     func openHit(_ hit: Message, from state: SearchSessionState) {
         searchWork.openTask?.cancel()
         searchWork.openTask = nil
@@ -105,12 +109,7 @@ extension ChatSessionModel {
         }
         let limit = searchWork.historyPageLimit
         searchWork.openTask = Task { @MainActor [weak self, engine] in
-            let found = await (try? engine.loadHistory(
-                in: hit.conversationID,
-                until: hit,
-                pageLimit: limit
-            ))
-                ?? false
+            let target = try? await engine.loadHistory(in: hit.conversationID, until: hit, pageLimit: limit)
             guard !Task.isCancelled, let self else { return }
             var state = search
             state.bar?.isOpening = false
@@ -119,16 +118,32 @@ extension ChatSessionModel {
                 search = state
                 return
             }
-            guard found else {
+            // The hit is not stored: the store refused it, or lost it while
+            // its page was out. There is nothing to land on.
+            guard let target else {
                 state.bar?.unreachable = .tooFarBack
                 search = state
                 return
             }
-            open(conversation: hit.conversationID, message: hit.id)
-            state.highlight = hit.id
+            land(on: target)
+            state.highlight = target.message.id
             state.openGeneration += 1
             search = state
         }
+    }
+
+    /// `open(conversation:message:)`'s rule, from what the engine read: a
+    /// root is scrolled to; a reply opens its thread at itself, and the
+    /// transcript scrolls to the thread's first message, when it is stored.
+    private func land(on target: HistoryTarget) {
+        let message = target.message
+        guard message.isReply else {
+            scrollTarget = message.id
+            return
+        }
+        scrollTarget = target.threadRoot
+        openThread(message.threadID)
+        threads.scrollTarget = message.id
     }
 
     private func cancelBarPage() {

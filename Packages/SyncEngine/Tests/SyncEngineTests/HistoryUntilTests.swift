@@ -10,6 +10,9 @@ import Testing
 /// asked for by its id - the bridge anchors that on the hit's own time
 /// (`findings.md` §65.9). A reply's root is paged back to. Kibble otherwise
 /// never loads past the newest page.
+///
+/// What comes back is what the opener lands on, read here rather than on the
+/// main thread (CLAUDE.md, session 66): the stored copy, and a reply's root.
 @Suite(.timeLimit(.minutes(1)))
 struct HistoryUntilTests {
     static let base = FixtureWorld.minimal
@@ -60,7 +63,8 @@ struct HistoryUntilTests {
         let store = try ChatStore.inMemory()
         let (engine, backend) = Self.engine(store)
         let hit = Self.root(10)
-        #expect(try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20))
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        #expect(target == HistoryTarget(message: hit, threadRoot: nil))
         #expect(await backend.historyCursors == [hit.id])
         #expect(try Self.stored(store) == ["h7", "h8", "h9", "h10"])
     }
@@ -76,7 +80,9 @@ struct HistoryUntilTests {
         try store.apply([.upsertMessage(stored)])
         var hit = Self.root(10)
         hit.text = "as search found it"
-        #expect(try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20))
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        // The store's copy is what opens, reactions and edit time included.
+        #expect(target == HistoryTarget(message: stored, threadRoot: nil))
         #expect(try store.message(hit.id) == stored)
         #expect(await backend.historyCursors.isEmpty)
     }
@@ -85,7 +91,8 @@ struct HistoryUntilTests {
     @Test func noPagesStillStoresTheHit() async throws {
         let store = try ChatStore.inMemory()
         let (engine, backend) = Self.engine(store)
-        #expect(try await engine.loadHistory(in: Self.space, until: Self.root(1), pageLimit: 0))
+        let target = try await engine.loadHistory(in: Self.space, until: Self.root(1), pageLimit: 0)
+        #expect(target == HistoryTarget(message: Self.root(1), threadRoot: nil))
         #expect(try Self.stored(store) == ["h1"])
         #expect(await backend.historyCursors.isEmpty)
     }
@@ -97,12 +104,15 @@ struct HistoryUntilTests {
         let store = try ChatStore.inMemory()
         let (engine, backend) = Self.engine(store)
         let hit = Self.reply("h0-reply", in: "t0", minute: 0.5)
-        #expect(try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20))
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
         #expect(await backend.historyCursors == [hit.id])
         let row = try #require(try store.message(hit.id))
         #expect(row.isReply)
         #expect(row.threadID == MessageThread.ID("t0"))
         #expect(try store.message(Message.ID("h0")) != nil)
+        // The root is found by the store's thread, never by its id: "h0"
+        // names thread "t0".
+        #expect(target == HistoryTarget(message: row, threadRoot: Message.ID("h0")))
     }
 
     /// A root 21 roots before its reply: seven pages of three, each `before:`
@@ -117,7 +127,8 @@ struct HistoryUntilTests {
         let store = try ChatStore.inMemory()
         let (engine, backend) = Self.engine(store, world: Self.farWorld)
         let hit = Self.reply("late", in: "t0", minute: 20.5)
-        #expect(try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20))
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        #expect(target?.threadRoot == Message.ID("h0"))
         #expect(try store.message(Message.ID("h0")) != nil)
         let cursors = await backend.historyCursors
         #expect(cursors.count == 7)
@@ -128,10 +139,24 @@ struct HistoryUntilTests {
         let store = try ChatStore.inMemory()
         let (engine, backend) = Self.engine(store, world: Self.farWorld)
         let hit = Self.reply("late", in: "t0", minute: 20.5)
-        #expect(try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 2))
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 2)
         #expect(await backend.historyCursors.count == 2)
         #expect(try store.message(Message.ID("h0")) == nil)
         #expect(try store.message(hit.id)?.isReply == true)
+        // The reply still opens, in its thread, with no root to scroll to.
+        #expect(target == HistoryTarget(message: hit, threadRoot: nil))
+    }
+
+    /// A stored reply asks for nothing, and names its root when that is
+    /// stored too.
+    @Test func aStoredReplyNamesItsStoredRoot() async throws {
+        let store = try ChatStore.inMemory()
+        let (engine, backend) = Self.engine(store)
+        let hit = Self.reply("h0-reply", in: "t0", minute: 0.5)
+        try store.apply([.upsertMessage(Self.root(0)), .upsertMessage(hit)])
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        #expect(target == HistoryTarget(message: hit, threadRoot: Message.ID("h0")))
+        #expect(await backend.historyCursors.isEmpty)
     }
 
     // MARK: - Review Focus 3: anchors at either end terminate
@@ -147,7 +172,8 @@ struct HistoryUntilTests {
         let (engine, backend) = Self.engine(store, world: world)
         try store.apply((10 ..< 20).map { .upsertMessage(Self.root($0)) })
         await backend.ignoreHistoryCursor(true)
-        #expect(try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20))
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        #expect(target?.message == hit)
         #expect(await backend.historyCursors.count == 2)
     }
 
@@ -158,7 +184,8 @@ struct HistoryUntilTests {
         world.messages.insert(hit, at: 0)
         let store = try ChatStore.inMemory()
         let (engine, backend) = Self.engine(store, world: world)
-        #expect(try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20))
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        #expect(target?.message == hit)
         #expect(await backend.historyCursors == [hit.id])
         #expect(try Self.stored(store) == ["ancient"])
     }
@@ -172,7 +199,8 @@ struct HistoryUntilTests {
         world.messages.insert(hit, at: 0)
         let (engine, backend) = try Self.engine(ChatStore.inMemory(), world: world)
         await backend.ignoreHistoryCursor(true)
-        #expect(try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20))
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        #expect(target?.message == hit)
         #expect(await backend.historyCursors.count == 1)
     }
 
@@ -190,6 +218,7 @@ struct HistoryUntilTests {
         }
         #expect(try store.messages(in: Self.space).isEmpty)
         #expect(await backend.historyCursors.isEmpty)
+        #expect(try store.lastError() == nil)
     }
 
     /// A sign-out cancels the open while its page is on the wire: the hold
@@ -208,6 +237,8 @@ struct HistoryUntilTests {
         }
         #expect(await backend.abortableHistory.aborted == 1)
         #expect(try Self.stored(store) == ["h10"])
+        // A sign-out is not a failure: nothing reaches the error banner.
+        #expect(try store.lastError() == nil)
     }
 
     /// A page that answers despite the cancel, as a transport may: the check
@@ -227,5 +258,66 @@ struct HistoryUntilTests {
             try await task.value
         }
         #expect(try Self.stored(store) == ["h10"])
+        #expect(try store.lastError() == nil)
+    }
+
+    /// A cancellation the transport reports as an ordinary failure, as
+    /// `URLSessionTransport`'s `URLError(.cancelled)` reaches the engine: our
+    /// own task asked to stop, so it is not recorded
+    /// (`SyncEngine.requestMoreMessages`' reasoning).
+    @Test func aCancellationShapedLikeAFailureIsNotRecorded() async throws {
+        let store = try ChatStore.inMemory()
+        let backend = HangingHistoryBackend()
+        let engine = SyncEngine(backend: backend, store: store)
+        let task = Task {
+            try await engine.loadHistory(in: Self.space, until: Self.root(10), pageLimit: 20)
+        }
+        await settleAutoMarkRead(until: "the page is hung") { await backend.isHoldingARequest }
+        task.cancel()
+        await backend.releaseHungRequest(throwing: ChatError.transport(
+            "the /api/ list_topics call: transport error (NSURLErrorDomain -999)"
+        ))
+        await #expect(throws: (any Error).self) {
+            try await task.value
+        }
+        #expect(try store.lastError() == nil)
+        #expect(try Self.stored(store) == ["h10"])
+    }
+
+    // MARK: - A failed page still opens the hit
+
+    /// Once the hit is stored, a page that fails is recorded where errors
+    /// show, and the hit still opens: without what led up to it, rather than
+    /// not at all.
+    @Test func aFailedPageIsRecordedAndTheHitStillOpens() async throws {
+        let store = try ChatStore.inMemory()
+        let (engine, backend) = Self.engine(store)
+        await backend.failHistory(true)
+        let hit = Self.root(10)
+        let target = try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        #expect(target == HistoryTarget(message: hit, threadRoot: nil))
+        #expect(await backend.historyCursors == [hit.id])
+        #expect(try store.lastError() == .notAuthenticated)
+        #expect(try Self.stored(store) == ["h10"])
+    }
+
+    /// No target only when the hit is not stored at the end: here something
+    /// else removed it while its page was out.
+    @Test func aHitNoLongerStoredIsNoTarget() async throws {
+        let store = try ChatStore.inMemory()
+        let (engine, backend) = Self.engine(store)
+        await backend.holdHistory(true)
+        let hit = Self.root(10)
+        let task = Task {
+            try await engine.loadHistory(in: Self.space, until: hit, pageLimit: 20)
+        }
+        await settleAutoMarkRead(until: "the page is held") { await backend.abortableHistory.count == 1 }
+        try #require(try store.message(hit.id) != nil)
+        try store.apply([.removeMessage(id: hit.id)])
+        await backend.holdHistory(false)
+        await backend.abortableHistory.release()
+        let target = try await task.value
+        #expect(target == nil)
+        #expect(try store.lastError() == nil)
     }
 }
