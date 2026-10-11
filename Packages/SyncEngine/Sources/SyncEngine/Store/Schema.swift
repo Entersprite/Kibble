@@ -23,7 +23,18 @@ enum Schema {
         migrator.registerMigration("v11", migrate: addMemberCalendar)
         migrator.registerMigration("v12", migrate: addAvailability)
         migrator.registerMigration("v13", migrate: addThreads)
+        migrator.registerMigration("v14", migrate: addSearchRecents)
         return migrator
+    }
+
+    /// Recent searches (search spec §1.2), one row per text. In the account's
+    /// store, so `ChatStore.erase()` takes them with the account, as it takes
+    /// `emojiRecent`. `usedAt` is seconds since 1970, only ever ordered by.
+    private static func addSearchRecents(_ db: Database) throws {
+        try db.create(table: "searchRecent") { table in
+            table.primaryKey("text", .text)
+            table.column("usedAt", .double).notNull()
+        }
     }
 
     /// `Conversation.memberCount`. Nullable, with no default: a row written
