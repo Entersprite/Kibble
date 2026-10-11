@@ -13,6 +13,7 @@ public extension AppEnvironment {
             people: search.people, hits: search.hits, isSearching: search.isSearching,
             isLoadingMore: search.isLoadingMore, loadMoreFailed: search.loadMoreFailed,
             hasMore: search.next != nil, failed: search.failed, recents: search.recents, focus: search.focus,
+            focusGeneration: search.focusGeneration,
             bar: search.bar.map { bar in
                 SearchBarScene(
                     query: bar.query, index: bar.index, count: bar.hits.count, hasMore: bar.next != nil,

@@ -100,9 +100,13 @@ public struct SearchOverlay: View {
             sent = adopted
             text = adopted
         }
-        .onChange(of: search.focus) {
-            // A focus arriving while shown (⌘F back to the bar's list); a
-            // focus cleared by a new answer leaves the pick to the rows-change
+        .onChange(of: search.focusGeneration) {
+            // ⌘F back to the bar's list (`search.focusGeneration` is the
+            // signal, not `search.focus`'s value: pressing it again at the
+            // same bar position restamps the same hit, which `focus` alone
+            // would not change, and nothing here clears it to `nil` first to
+            // force a change, which would flash the selection). A focus
+            // cleared by a new answer leaves the pick to the rows-change
             // handler below.
             guard search.focus != nil else { return }
             if let hit = SearchRows.initialSelection(search) {

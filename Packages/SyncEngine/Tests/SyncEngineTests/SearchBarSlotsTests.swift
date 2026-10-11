@@ -124,4 +124,22 @@ struct SearchBarSlotsTests {
         #expect(model.search.bar?.hits.count == 2)
         await model.stop()
     }
+
+    /// ⌘F back to the bar at the same position restamps the same focus
+    /// value, so the overlay cannot tell it apart from one that never
+    /// changed. `focusGeneration` is the signal it watches instead, bumped
+    /// here regardless of whether the restamped value differs.
+    @Test func reshowingAtTheSamePositionStillBumpsTheFocusGeneration() async throws {
+        let (model, _) = try await SearchOpenTests.searched([MessageSearchPage(hits: [Self.hit(11)])])
+        model.openSearchResult(Self.hit(11).id)
+        await settleAutoMarkRead(until: "it opens") { model.scrollTarget == Self.hit(11).id }
+        model.showSearch()
+        #expect(model.search.focus == Self.hit(11).id)
+        let first = model.search.focusGeneration
+        model.hideSearch()
+        model.showSearch()
+        #expect(model.search.focus == Self.hit(11).id)
+        #expect(model.search.focusGeneration == first + 1)
+        await model.stop()
+    }
 }

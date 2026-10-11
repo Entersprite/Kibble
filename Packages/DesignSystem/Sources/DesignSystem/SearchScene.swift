@@ -18,6 +18,9 @@ public struct SearchSceneState: Sendable, Equatable {
     public var recents: [String]
     /// The hit to select when the overlay opens.
     public var focus: Message.ID?
+    /// One more every time `focus` is restamped, even to the same value: what
+    /// the overlay watches to reselect it on ⌘F back to the same bar position.
+    public var focusGeneration: Int
     public var bar: SearchBarScene?
 
     public init(
@@ -25,7 +28,8 @@ public struct SearchSceneState: Sendable, Equatable {
         conversations: [Conversation] = [], people: [Member] = [], hits: [Message] = [],
         isSearching: Bool = false, isLoadingMore: Bool = false, loadMoreFailed: Bool = false,
         hasMore: Bool = false,
-        failed: Bool = false, recents: [String] = [], focus: Message.ID? = nil, bar: SearchBarScene? = nil
+        failed: Bool = false, recents: [String] = [], focus: Message.ID? = nil, focusGeneration: Int = 0,
+        bar: SearchBarScene? = nil
     ) {
         self.isShown = isShown
         self.query = query
@@ -39,6 +43,7 @@ public struct SearchSceneState: Sendable, Equatable {
         self.failed = failed
         self.recents = recents
         self.focus = focus
+        self.focusGeneration = focusGeneration
         self.bar = bar
     }
 }

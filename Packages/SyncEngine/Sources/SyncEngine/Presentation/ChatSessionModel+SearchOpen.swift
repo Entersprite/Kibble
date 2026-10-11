@@ -144,6 +144,7 @@ extension ChatSessionModel {
         scrollTarget = target.threadRoot
         openThread(message.threadID)
         threads.scrollTarget = message.id
+        threads.scrollGeneration += 1
     }
 
     private func cancelBarPage() {

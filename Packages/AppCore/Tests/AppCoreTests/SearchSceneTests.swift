@@ -19,6 +19,13 @@ struct SearchSceneTests {
         #expect(scene.bar?.count == 0)
     }
 
+    @Test func theSceneCarriesTheFocusGeneration() {
+        var session = SearchSessionState()
+        session.focusGeneration = 3
+        let scene = AppEnvironment.searchScene(session)
+        #expect(scene.focusGeneration == 3)
+    }
+
     @Test func theBarCarriesAFailedPage() {
         var session = SearchSessionState()
         session.bar = SearchBarState(

@@ -24,6 +24,11 @@ public struct SearchSessionState: Equatable, Sendable {
     public internal(set) var recents: [String] = []
     /// The hit the overlay selects when it opens again: the one being read.
     public internal(set) var focus: Message.ID?
+    /// One more every time `focus` is restamped from the bar (`showSearch()`):
+    /// the overlay's own signal to reselect it, so pressing ⌘F again at the
+    /// same bar position reselects the same hit too. Never achieved by
+    /// clearing `focus` to `nil` first, which would flash the selection.
+    public internal(set) var focusGeneration = 0
     public internal(set) var bar: SearchBarState?
     /// The message the transcript marks once, after a hit opened.
     public internal(set) var highlight: Message.ID?
