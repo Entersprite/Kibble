@@ -114,6 +114,13 @@ public struct ChatWindow: View {
         }
         .onChange(of: state.threads.panel?.thread.id) { forgetPanelEdit() }
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
+        .overlay {
+            // Over the whole split view, below the toolbar's band: content in
+            // the band takes no clicks (CLAUDE.md, session 63).
+            if state.search.isShown, let search = actions.search {
+                SearchOverlay(state: state, actions: search)
+            }
+        }
     }
 
     /// The bar's content: the field, or why there isn't one.

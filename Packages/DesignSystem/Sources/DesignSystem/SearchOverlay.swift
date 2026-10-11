@@ -1,0 +1,327 @@
+import ChatKit
+import SwiftUI
+
+/// Search, Spotlight-like: a Liquid Glass panel over the chat window with the
+/// field, the filter chips and three sections (search spec §1), ported from
+/// the owner's approved mockup (`Spikes/search-overlay`).
+///
+/// The view keeps only what is its own: the field's text, the selected row
+/// and the focus. Everything else is the window's `SearchSceneState`, and
+/// every change goes back through `SearchActions`.
+public struct SearchOverlay: View {
+    let state: ChatSceneState
+    let actions: SearchActions
+
+    @State private var text: String
+    /// What `actions.textChanged` was last told, so a text set here alongside
+    /// a query (Clear, "Messages from") is not sent a second time.
+    @State private var sent: String
+    @State private var selection: SearchRow?
+    @FocusState private var focused: Bool
+
+    public init(state: ChatSceneState, actions: SearchActions) {
+        self.state = state
+        self.actions = actions
+        _text = State(initialValue: state.search.query.text)
+        _sent = State(initialValue: state.search.query.text)
+    }
+
+    private var search: SearchSceneState {
+        state.search
+    }
+
+    private var words: [String] {
+        SearchPresentation.words(search.query.text)
+    }
+
+    public var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.18)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { actions.hide() }
+                panel
+                    .frame(width: max(0, min(680, geo.size.width - 80)))
+                    .frame(maxHeight: max(0, min(560, geo.size.height - 60)), alignment: .top)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 24)
+            }
+        }
+        .onAppear {
+            selection = search.focus.map(SearchRow.message) ?? SearchRows.rows(search).first
+            DispatchQueue.main.async { focused = true }
+        }
+        .onChange(of: text) {
+            guard text != sent else { return }
+            sent = text
+            actions.textChanged(text)
+        }
+        .onChange(of: SearchRows.rows(search)) { _, rows in
+            if let selection, rows.contains(selection) {
+                return
+            }
+            selection = rows.first
+        }
+    }
+
+    private var panel: some View {
+        VStack(spacing: 0) {
+            field
+            SearchFilterRow(
+                query: search.query,
+                filters: state.capabilities.messageSearchFilters,
+                people: filterPeople,
+                conversations: state.conversations,
+                directory: state.directory,
+                me: state.me,
+                setQuery: actions.setQuery
+            )
+            Divider()
+            results
+            Divider()
+            footer
+        }
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
+    }
+
+    /// The From chip's people: everyone named in the directory, by name.
+    private var filterPeople: [Member] {
+        state.directory.values
+            .filter { $0.kind == .human && $0.displayName != nil }
+            .sorted { Display.name(of: $0.id, in: state.directory) < Display.name(
+                of: $1.id,
+                in: state.directory
+            ) }
+    }
+
+    // MARK: The field
+
+    private var field: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            TextField("Search messages, people and conversations", text: $text)
+                .textFieldStyle(.plain)
+                .font(.title3)
+                .focused($focused)
+                .onKeyPress(.downArrow) { move(1); return .handled }
+                .onKeyPress(.upArrow) { move(-1); return .handled }
+                .onKeyPress(.escape) { actions.hide(); return .handled }
+                .onSubmit {
+                    if let selection {
+                        open(selection)
+                    } else {
+                        actions.submit()
+                    }
+                }
+            if !text.isEmpty || search.query.hasFilters {
+                Button {
+                    replace(text: "", query: MessageSearchQuery(order: search.query.order))
+                } label: {
+                    Label("Clear", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+    }
+
+    private func move(_ step: Int) {
+        let rows = SearchRows.rows(search)
+        guard !rows.isEmpty else { return }
+        let current = selection.flatMap { rows.firstIndex(of: $0) } ?? (step > 0 ? -1 : rows.count)
+        selection = rows[max(0, min(rows.count - 1, current + step))]
+    }
+
+    /// Sets the text and the filters together: the text first, so the query
+    /// the model keeps carries it, then the filters, which search at once.
+    private func replace(text newText: String, query: MessageSearchQuery) {
+        sent = newText
+        text = newText
+        actions.textChanged(newText)
+        actions.setQuery(query)
+    }
+
+    private func open(_ row: SearchRow) {
+        switch row {
+        case let .recent(recent): text = recent
+        case let .conversation(id): actions.openConversation(id)
+        case let .person(id): actions.openPerson(id)
+        case let .message(id): actions.openMessage(id)
+        }
+    }
+
+    // MARK: Results
+
+    private var results: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if SearchRows.showsRecents(search) {
+                        recents
+                    } else {
+                        sections
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .scrollIndicators(.automatic)
+            .frame(minHeight: 120, maxHeight: 420)
+            .onChange(of: selection) {
+                guard let selection else { return }
+                withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(selection) }
+            }
+        }
+    }
+
+    @ViewBuilder private var recents: some View {
+        header("Recent searches")
+        ForEach(search.recents, id: \.self) { recent in
+            row(.recent(recent)) {
+                HStack(spacing: 10) {
+                    Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
+                        .frame(width: 28)
+                    Text(recent)
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var sections: some View {
+        if !search.conversations.isEmpty {
+            header("Conversations")
+            ForEach(search.conversations, id: \.id) { conversation in
+                row(.conversation(conversation.id)) {
+                    ConversationHit(
+                        conversation: conversation,
+                        directory: state.directory,
+                        me: state.me,
+                        words: words
+                    )
+                }
+            }
+        }
+        if !search.people.isEmpty {
+            header("People")
+            ForEach(search.people, id: \.id) { person in
+                row(.person(person.id)) {
+                    PersonHit(
+                        person: person,
+                        directory: state.directory,
+                        words: words,
+                        messagesFrom: messagesFrom(person)
+                    )
+                }
+            }
+        }
+        messages
+    }
+
+    private func messagesFrom(_ person: Member) -> (() -> Void)? {
+        guard state.capabilities.messageSearchFilters.contains(.from) else { return nil }
+        return {
+            var query = search.query
+            query.from = person.id
+            replace(text: "", query: query)
+        }
+    }
+
+    @ViewBuilder private var messages: some View {
+        header(
+            "Messages",
+            trailing: search.isSearching ? nil : "\(search.hits.count)",
+            loading: search.isSearching
+        )
+        if search.failed {
+            note("Couldn't search right now.")
+        } else if !search.isSearching, search.hits.isEmpty {
+            note("No messages match. Try another word or remove a filter.")
+        }
+        let titles = conversationTitles
+        ForEach(search.hits, id: \.id) { message in
+            row(.message(message.id)) {
+                MessageHit(
+                    message: message, directory: state.directory,
+                    conversationTitle: titles[message.conversationID], words: words
+                )
+            }
+        }
+        if search.hasMore {
+            // A new trigger per page, so the next one appears at the new end.
+            Color.clear.frame(height: 1)
+                .id("more-\(search.hits.count)")
+                .onAppear { actions.loadMore() }
+        }
+    }
+
+    private var conversationTitles: [Conversation.ID: String] {
+        Dictionary(
+            state.conversations
+                .map { ($0.id, Display.title(of: $0, directory: state.directory, me: state.me)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+    }
+
+    private func header(_ title: String, trailing: String? = nil, loading: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Spacer()
+            if loading {
+                ProgressView().controlSize(.mini)
+                Text("Searching…").font(.caption).foregroundStyle(.tertiary)
+            } else if let trailing {
+                Text(trailing).font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+    }
+
+    private func row(_ row: SearchRow, @ViewBuilder content: () -> some View) -> some View {
+        content()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(selection == row ? Color.accentColor.opacity(0.22) : .clear)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { open(row) }
+            .onHover { inside in
+                if inside {
+                    selection = row
+                }
+            }
+            .padding(.horizontal, 8)
+            .id(row)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 14) {
+            Hint(keys: "↑↓", label: "Select")
+            Hint(keys: "↩", label: "Open")
+            Hint(keys: "⌘G", label: "Next result")
+            Hint(keys: "esc", label: "Close")
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+    }
+}
