@@ -64,6 +64,10 @@ public final class ChatSessionModel {
     public internal(set) var directoryResults: [Member] = []
     /// The search task, the membership checks and their timings (`+Directory.swift`).
     var directorySearch: DirectorySearchState
+    /// The search overlay, its results and the bar (`+Search.swift`).
+    public internal(set) var search = SearchSessionState()
+    /// The search's tasks and timings (`+Search.swift`).
+    var searchWork: SearchWork
     /// Whether the sidebar's Mentions row is chosen; `selected` is `nil` then.
     /// `internal(set)` for `+Mentions.swift`.
     public internal(set) var showingMentions = false
@@ -256,9 +260,12 @@ public final class ChatSessionModel {
         markReadTrace: (any MarkReadTraceSink)? = nil,
         markReadDebounce: Duration = .seconds(2),
         directoryDebounce: Duration = .milliseconds(200),
-        membershipWait: Duration = .seconds(1)
+        membershipWait: Duration = .seconds(1),
+        searchDebounce: Duration = .milliseconds(600),
+        searchHistoryPages: Int = 20
     ) {
         directorySearch = DirectorySearchState(debounce: directoryDebounce, membershipWait: membershipWait)
+        searchWork = SearchWork(debounce: searchDebounce, historyPageLimit: searchHistoryPages)
         self.store = store
         self.engine = engine
         self.me = me
@@ -301,6 +308,8 @@ public final class ChatSessionModel {
         historyTask?.cancel()
         historyTask = nil
         directorySearch.reset()
+        searchWork.reset()
+        search = SearchSessionState()
         // Same reasoning as `historyTask` just above: a mark in flight for an
         // account this call is signing out of must not be left to answer
         // into an erased store.
@@ -327,25 +336,6 @@ public final class ChatSessionModel {
         published = [:]
         failed = nil
         await engine.stop()
-    }
-
-    /// Stops the sync loop and erases the database behind it - in that
-    /// order, and inside one call, so the order is not something a caller has
-    /// to get right by its own timing.
-    ///
-    /// `stop()` already documents that it *awaits* its consuming task rather
-    /// than merely cancelling it, so "no further event can reach the store"
-    /// is true the instant it returns - which is exactly the guarantee
-    /// erasing needs. Calling these two out of order, or from two separate
-    /// `await`s a future edit could interleave, would let a write already in
-    /// flight from this very session land after the tables are wiped and
-    /// repopulate them.
-    ///
-    /// Used by `AppEnvironment.signOut()`, which explains what "sign out"
-    /// does and does not mean.
-    public func stopAndEraseStore() async throws {
-        await stop()
-        try store.erase()
     }
 
     /// Opens a conversation: swaps the observations over, then fetches a page
