@@ -45,6 +45,11 @@ public struct SearchBarState: Equatable, Sendable {
     public internal(set) var isOpening = false
     /// Why the hit could not be reached; `nil` while it can be.
     public internal(set) var unreachable: Unreachable?
+    /// The page past the last loaded hit failed: the bar offers a retry
+    /// rather than asking again on its own, which would loop while the wire
+    /// is down. Cleared the moment the next step asks again, not when that
+    /// page lands.
+    public internal(set) var pageFailed = false
 
     public enum Unreachable: Equatable, Sendable {
         /// History ran out of pages before reaching it.

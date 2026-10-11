@@ -27,6 +27,14 @@ struct SearchResultsBarTests {
         )) == "2 of 3+ · Can't open this message here")
     }
 
+    /// A page that failed to load past the last loaded hit says so beside
+    /// the position, the same way an unreachable hit does.
+    @Test func aFailedPageSaysSoBesideThePosition() {
+        #expect(SearchBarText.position(SearchBarScene(
+            query: Self.query, index: 0, count: 3, hasMore: true, pageFailed: true
+        )) == "1 of 3+ · Couldn't load more results")
+    }
+
     @Test func aMessageIsMarkedOnceWhenItIsThere() {
         let message = Message(
             id: Message.ID("m"), conversationID: Conversation.ID("c"), threadID: MessageThread.ID("m"),

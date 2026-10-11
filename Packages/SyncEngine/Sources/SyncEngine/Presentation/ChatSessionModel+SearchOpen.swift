@@ -169,10 +169,21 @@ extension ChatSessionModel {
     private func loadBarPage(after cursor: MessageSearchCursor, thenOpen target: Int) {
         guard let query = search.bar?.query else { return }
         searchWork.barPageTask?.cancel()
+        // Cleared the moment this retry asks, not when it lands.
+        var state = search
+        state.bar?.pageFailed = false
+        search = state
         searchWork.barPageTask = Task { @MainActor [weak self, engine] in
             let page = try? await engine.searchMessages(query, after: cursor)
             guard !Task.isCancelled, let self else { return }
-            guard let page, var bar = search.bar, bar.query == query else { return }
+            guard var bar = search.bar, bar.query == query else { return }
+            guard let page else {
+                bar.pageFailed = true
+                var state = search
+                state.bar = bar
+                search = state
+                return
+            }
             let known = Set(bar.hits.map(\.id))
             bar.hits += page.hits.filter { !known.contains($0.id) }
             bar.next = page.next

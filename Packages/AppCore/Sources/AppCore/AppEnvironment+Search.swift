@@ -16,7 +16,8 @@ public extension AppEnvironment {
             bar: search.bar.map { bar in
                 SearchBarScene(
                     query: bar.query, index: bar.index, count: bar.hits.count, hasMore: bar.next != nil,
-                    isOpening: bar.isOpening, unreachable: bar.unreachable.map(unreachable)
+                    isOpening: bar.isOpening, unreachable: bar.unreachable.map(unreachable),
+                    pageFailed: bar.pageFailed
                 )
             }
         )

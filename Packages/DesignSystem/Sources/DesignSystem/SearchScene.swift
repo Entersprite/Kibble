@@ -52,6 +52,8 @@ public struct SearchBarScene: Sendable, Equatable {
     public var isOpening: Bool
     /// Why the hit could not be opened; `nil` while it can be.
     public var unreachable: Unreachable?
+    /// The page past the last loaded hit failed to load.
+    public var pageFailed: Bool
 
     public enum Unreachable: Sendable, Equatable {
         case tooFarBack
@@ -60,7 +62,7 @@ public struct SearchBarScene: Sendable, Equatable {
 
     public init(
         query: MessageSearchQuery, index: Int, count: Int, hasMore: Bool = false,
-        isOpening: Bool = false, unreachable: Unreachable? = nil
+        isOpening: Bool = false, unreachable: Unreachable? = nil, pageFailed: Bool = false
     ) {
         self.query = query
         self.index = index
@@ -68,6 +70,7 @@ public struct SearchBarScene: Sendable, Equatable {
         self.hasMore = hasMore
         self.isOpening = isOpening
         self.unreachable = unreachable
+        self.pageFailed = pageFailed
     }
 }
 

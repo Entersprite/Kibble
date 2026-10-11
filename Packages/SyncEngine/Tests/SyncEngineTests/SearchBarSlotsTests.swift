@@ -96,4 +96,32 @@ struct SearchBarSlotsTests {
         #expect(!model.search.loadMoreFailed)
         await model.stop()
     }
+
+    /// A page the bar steps past the loaded end to reach can fail the same
+    /// way the list's "more" page can: said beside the position, the index
+    /// and the loaded hits untouched, and the next step past the end (⌘G or
+    /// ›) retries, clearing the message as soon as it asks again.
+    @Test func aFailedBarPageSaysSoAndTheNextStepRetries() async throws {
+        let (model, backend) = try await SearchOpenTests.searched([
+            MessageSearchPage(hits: [Self.hit(11)], next: MessageSearchCursor("1")),
+            MessageSearchPage(hits: [Self.hit(10)])
+        ])
+        model.openSearchResult(Self.hit(11).id)
+        await settleAutoMarkRead(until: "hit 11 opens") { model.scrollTarget == Self.hit(11).id }
+        await backend.failMessageSearches(true)
+        model.stepSearchResult(by: 1)
+        await settleAutoMarkRead(until: "the page fails") { model.search.bar?.pageFailed == true }
+        #expect(model.search.bar?.index == 0)
+        #expect(model.search.bar?.hits.count == 1)
+        #expect(model.search.bar?.isOpening == false)
+        #expect(model.scrollTarget == Self.hit(11).id)
+        await backend.failMessageSearches(false)
+        model.stepSearchResult(by: 1)
+        // Cleared the moment the retry asks, not when it lands.
+        #expect(model.search.bar?.pageFailed == false)
+        await settleAutoMarkRead(until: "the retry lands") { model.search.bar?.index == 1 }
+        #expect(model.search.bar?.pageFailed == false)
+        #expect(model.search.bar?.hits.count == 2)
+        await model.stop()
+    }
 }
