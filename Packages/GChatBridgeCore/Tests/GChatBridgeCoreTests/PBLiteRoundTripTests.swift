@@ -97,6 +97,50 @@ struct PBLiteRoundTripTests {
         #expect(again.issues.isEmpty)
     }
 
+    /// `ListTopicsRequest.filter.anchor` is this schema's first depth-2
+    /// nesting (`ListTopicsRequest` -> `TopicsFilter` -> `TimeAnchor`), added
+    /// for the field findings.md §65.9 found the web client sends with every
+    /// `list_topics` call. The shape itself is pinned by
+    /// `PBLiteEncoderTests.listTopicsFilterAndSortOption`; this is the round
+    /// trip, which is what actually exercises `PBLiteFieldSource
+    /// .decodeNested`'s recursion at that depth - nothing else in the schema
+    /// reaches two levels down.
+    @Test("a ListTopicsRequest with a nested filter round-trips through pblite and JSON")
+    func listTopicsFilterRoundTrips() throws {
+        var request = ListTopicsRequest()
+        request.filter.anchor.timeUsec = 1_790_000_000_000_000
+        request.sortOption = 2
+
+        let encoded = try PBLiteEncoder.encode(request)
+        let decoded = PBLiteDecoder.decode(ListTopicsRequest.self, from: encoded)
+        #expect(decoded.issues.isEmpty)
+        #expect(decoded.message == request)
+        #expect(decoded.message.filter.anchor.timeUsec == 1_790_000_000_000_000)
+        #expect(decoded.message.sortOption == 2)
+
+        let json = try PBLiteEncoder.encodeJSON(request)
+        let decodedFromJSON = try PBLiteDecoder.decode(ListTopicsRequest.self, fromJSON: json)
+        #expect(decodedFromJSON.issues.isEmpty)
+        #expect(decodedFromJSON.message == request)
+    }
+
+    /// `/api/` sends `list_topics` as binary protobuf, never pblite
+    /// (`APIRequests.swift:13-14`), so this is the round trip that matches
+    /// what actually goes on the wire - the pblite trip above is a structural
+    /// check of the same field positions, not a claim about their wire form.
+    @Test("the same request round-trips through binary protobuf, the form /api/ actually sends")
+    func listTopicsFilterRoundTripsThroughBinaryProtobuf() throws {
+        var request = ListTopicsRequest()
+        request.filter.anchor.timeUsec = 1_790_000_000_000_000
+        request.sortOption = 2
+
+        let bytes: Data = try request.serializedBytes()
+        let decoded = try ListTopicsRequest(serializedBytes: bytes)
+        #expect(decoded == request)
+        #expect(decoded.filter.anchor.timeUsec == 1_790_000_000_000_000)
+        #expect(decoded.sortOption == 2)
+    }
+
     private static var ping: PingEvent {
         var event = PingEvent()
         event.state = .active
