@@ -22,7 +22,7 @@ struct BatchExecuteTests {
 
     @Test func theRequestHasTheCapturesEnvelope() throws {
         let request = BatchExecute.request(
-            rpc: "SBNmJb", payload: #"[null,"a b"]"#, sourcePath: "/app/search",
+            BatchExecuteCall(rpc: "SBNmJb", payload: #"[null,"a b"]"#, sourcePath: "/app/search"),
             context: Self.context, requestID: 100_001, endpoints: ChatEndpoints(),
             sendsExtensionHeader: true
         )
@@ -41,8 +41,8 @@ struct BatchExecuteTests {
 
     @Test func theExtensionHeaderIsOptional() {
         let request = BatchExecute.request(
-            rpc: "SBNmJb", payload: "[]", sourcePath: "/app/search", context: Self.context,
-            requestID: 1, endpoints: ChatEndpoints(), sendsExtensionHeader: false
+            BatchExecuteCall(rpc: "SBNmJb", payload: "[]", sourcePath: "/app/search"),
+            context: Self.context, requestID: 1, endpoints: ChatEndpoints(), sendsExtensionHeader: false
         )
         #expect(request.headers[BatchExecute.extensionHeaderName] == nil)
     }
@@ -73,6 +73,15 @@ struct BatchExecuteTests {
     @Test func anUnclosedFrameThrows() {
         #expect(throws: BatchExecuteError.malformedFrame) {
             try BatchExecute.answers(in: Data(#")]}'\n\n9\n[["wrb.fr""#.utf8))
+        }
+    }
+
+    /// Balanced brackets are not proof of valid JSON - a comma with nothing
+    /// between its neighbors balances brackets the same as a well-formed row.
+    @Test func aBalancedButInvalidFrameThrows() {
+        let body = #")]}'"# + "\n\n9\n" + #"[["wrb.fr",,]]"# + "\n"
+        #expect(throws: BatchExecuteError.malformedFrame) {
+            try BatchExecute.answers(in: Data(body.utf8))
         }
     }
 

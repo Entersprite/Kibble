@@ -43,6 +43,22 @@ public struct BatchExecuteAnswer: Sendable, Hashable {
     }
 }
 
+/// The three pieces of a single RPC call, grouped so `BatchExecute.request`
+/// stays under swiftlint's `function_parameter_count` ceiling the way
+/// `ChannelAcknowledge`/`ChannelTrace`'s own groupings do, rather than a
+/// disable comment.
+public struct BatchExecuteCall: Sendable, Hashable {
+    public let rpc: String
+    public let payload: String
+    public let sourcePath: String
+
+    public init(rpc: String, payload: String, sourcePath: String) {
+        self.rpc = rpc
+        self.payload = payload
+        self.sourcePath = sourcePath
+    }
+}
+
 public enum BatchExecuteError: Error, Equatable {
     /// The body does not start with `)]}'`: a sign-in page, an HTML error.
     case notAnAnswer
@@ -64,26 +80,17 @@ public enum BatchExecute {
         + "null,2,2,2,2,2,null,2,2,2,2,2,2,null,2,2,null,2,2,null,null,2,2,2,null,2,2,null,2,2,null,2,2,2,2,"
         + "2,2,null,2,2,2,2,2,2,null,2,null,2,null,2,2,2,2,null,2,0,null,2,2,0,0,0]]"
 
-    // swiftlint:disable function_parameter_count
     /// One RPC, `rt=c`, as the capture sent it: parameters in its order, the
     /// form's trailing `&` included.
-    ///
-    /// Seven parameters, past swiftlint's `function_parameter_count` ceiling:
-    /// this is the task plan's own interface, consumed verbatim by its caller,
-    /// so unlike the codebase's other reductions (a context struct instead of
-    /// a disable) there is no internal grouping that would not just move the
-    /// seven arguments into a struct literal at every call site instead.
     public static func request(
-        rpc: String,
-        payload: String,
-        sourcePath: String,
+        _ call: BatchExecuteCall,
         context: BatchExecuteContext,
         requestID: Int,
         endpoints: ChatEndpoints,
         sendsExtensionHeader: Bool
     ) -> HTTPRequest {
         let query = QueryEncoding.query([
-            ("rpcids", rpc), ("source-path", sourcePath), ("f.sid", context.sessionID),
+            ("rpcids", call.rpc), ("source-path", call.sourcePath), ("f.sid", context.sessionID),
             ("bl", context.buildLabel), ("hl", context.language), ("soc-app", "1"),
             ("soc-platform", "1"), ("soc-device", "1"), ("_reqid", String(requestID)), ("rt", "c")
         ])
@@ -91,7 +98,7 @@ public enum BatchExecute {
             ? String(endpoints.host.absoluteString.dropLast()) : endpoints.host.absoluteString
         // Force-unwrapped: every piece is either a constant or percent-encoded.
         let url = URL(string: host + path + "?" + query)!
-        let envelope: [Any] = [[[rpc, payload, NSNull(), "generic"]]]
+        let envelope: [Any] = [[[call.rpc, call.payload, NSNull(), "generic"]]]
         let freq = (try? JSONSerialization.data(withJSONObject: envelope, options: [.withoutEscapingSlashes]))
             .map { String(decoding: $0, as: UTF8.self) } ?? "[]"
         let body = "f.req=\(QueryEncoding.encode(freq))&at=\(QueryEncoding.encode(context.token))&"
@@ -106,11 +113,9 @@ public enum BatchExecute {
         }
         return HTTPRequest(
             method: .post, url: url, headers: HTTPHeaders(headers), body: Data(body.utf8),
-            timeout: .seconds(30), traceLabel: "batchexecute \(rpc)"
+            timeout: .seconds(30), traceLabel: "batchexecute \(call.rpc)"
         )
     }
-
-    // swiftlint:enable function_parameter_count
 
     /// Every `wrb.fr` row in an `rt=c` answer. The length lines are skipped,
     /// not trusted: each frame is found by its balanced brackets, strings
@@ -123,8 +128,13 @@ public enum BatchExecute {
         while let open = text[cursor...].firstIndex(of: "[") {
             guard let close = closingBracket(in: text, from: open)
             else { throw BatchExecuteError.malformedFrame }
-            let rows = (try? JSONSerialization.jsonObject(with: Data(text[open ... close].utf8))) as? [Any] ??
-                []
+            let parsed: Any
+            do {
+                parsed = try JSONSerialization.jsonObject(with: Data(text[open ... close].utf8))
+            } catch {
+                throw BatchExecuteError.malformedFrame
+            }
+            guard let rows = parsed as? [Any] else { throw BatchExecuteError.malformedFrame }
             for case let row as [Any] in rows {
                 guard row.first as? String == "wrb.fr", row.count > 1,
                       let rpc = row[1] as? String else { continue }
