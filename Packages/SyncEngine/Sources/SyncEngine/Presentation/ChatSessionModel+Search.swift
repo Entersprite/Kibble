@@ -12,20 +12,26 @@ public extension ChatSessionModel {
             // nothing typed since may answer over it.
             searchWork.task?.cancel()
             searchWork.pageTask?.cancel()
+            searchWork.peopleTask?.cancel()
             searchWork.inFlight = nil
+            let words = SearchWords.of(bar.query.text)
             state.query = bar.query
+            state.conversations = nameMatches(words, filtered: bar.query.hasFilters)
+            state.people = knownPeople(words, filtered: bar.query.hasFilters)
             state.hits = bar.hits
             state.next = bar.next
             state.answered = bar.query
             state.focus = bar.hits.indices.contains(bar.index) ? bar.hits[bar.index].id : nil
             state.failed = false
             state.isSearching = false
+            state.isLoadingMore = false
         }
         state.isShown = true
         search = state
-        Task { @MainActor [weak self, engine] in
+        searchWork.recentsTask?.cancel()
+        searchWork.recentsTask = Task { @MainActor [weak self, engine] in
             let recents = await engine.recentSearches(limit: ChatStore.searchRecentLimit)
-            guard let self, search.isShown else { return }
+            guard !Task.isCancelled, let self, search.isShown else { return }
             search.recents = recents
         }
     }
@@ -87,8 +93,9 @@ extension ChatSessionModel {
         var state = search
         state.query = query
         state.isLoadingMore = false
-        state.conversations = query.hasFilters ? []
-            : Array(conversations.filter { SearchWords.match(searchTitle(of: $0), words) }.prefix(3))
+        state.conversations = nameMatches(words, filtered: query.hasFilters)
+        // Known people now, in this one write; the directory's later.
+        state.people = searchPeople(words: words, text: query.text, filtered: query.hasFilters)
         guard eligible, capabilities.canSearchMessages else {
             state.hits = []
             state.next = nil
@@ -96,17 +103,18 @@ extension ChatSessionModel {
             state.isSearching = false
             state.failed = false
             search = state
-            searchPeople(words: words, text: query.text, filtered: query.hasFilters)
             return
         }
         if state.answered == query, !state.failed {
+            // Back to the answered query (typed away and back): its answer
+            // stands, and nothing is out to clear `isSearching` later.
+            state.isSearching = false
             search = state
             return
         }
         state.isSearching = true
         state.failed = false
         search = state
-        searchPeople(words: words, text: query.text, filtered: query.hasFilters)
         requestMessages(query, debounced: debounced)
     }
 
@@ -142,29 +150,44 @@ extension ChatSessionModel {
         }
     }
 
-    /// Known people at once, the directory's after the pause, three at most.
-    private func searchPeople(words: [String], text: String, filtered: Bool) {
+    /// The known people matching, returned for the caller's one write, and
+    /// the directory's merged in after the pause, three at most.
+    private func searchPeople(words: [String], text: String, filtered: Bool) -> [Member] {
         searchWork.peopleTask?.cancel()
-        guard !filtered, !words.isEmpty else {
-            search.people = []
-            return
+        searchWork.peopleTask = nil
+        let known = knownPeople(words, filtered: filtered)
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !filtered, !words.isEmpty, capabilities.canMentionNonMembers, trimmed.count >= 2 else {
+            return known
         }
-        let known = directory.values
-            .filter { $0.id != me && SearchWords.match($0.displayName ?? "", words) }
-            .sorted { ($0.displayName ?? "") < ($1.displayName ?? "") }
-        search.people = Array(known.prefix(3))
-        guard capabilities.canMentionNonMembers, text.count >= 2 else { return }
         let wait = searchWork.debounce
         searchWork.peopleTask = Task { @MainActor [weak self, engine] in
             if wait > .zero {
                 try? await Task.sleep(for: wait)
             }
             guard !Task.isCancelled else { return }
-            let found = await (try? engine.searchPeople(text)) ?? []
+            let found = await (try? engine.searchPeople(trimmed)) ?? []
             guard !Task.isCancelled, let self else { return }
             let ids = Set(known.map(\.id))
             search.people = Array((known + found.filter { !ids.contains($0.id) && $0.id != me }).prefix(3))
         }
+        return known
+    }
+
+    /// Conversations whose name matches, three at most; none under a filter.
+    func nameMatches(_ words: [String], filtered: Bool) -> [Conversation] {
+        guard !filtered else { return [] }
+        return Array(conversations.filter { SearchWords.match(searchTitle(of: $0), words) }.prefix(3))
+    }
+
+    /// Known people whose name matches, by name, three at most; none under a
+    /// filter. Never you.
+    func knownPeople(_ words: [String], filtered: Bool) -> [Member] {
+        guard !filtered, !words.isEmpty else { return [] }
+        let known = directory.values
+            .filter { $0.id != me && SearchWords.match($0.displayName ?? "", words) }
+            .sorted { ($0.displayName ?? "") < ($1.displayName ?? "") }
+        return Array(known.prefix(3))
     }
 
     /// A conversation's name as the sidebar derives it, for matching only.

@@ -50,6 +50,7 @@ struct SearchWork {
     var peopleTask: Task<Void, Never>?
     var pageTask: Task<Void, Never>?
     var openTask: Task<Void, Never>?
+    var recentsTask: Task<Void, Never>?
     /// The query whose request is on the wire, so Return does not send it
     /// twice (Review Focus 1).
     var inFlight: MessageSearchQuery?
@@ -60,13 +61,14 @@ struct SearchWork {
     }
 
     mutating func reset() {
-        for task in [task, peopleTask, pageTask, openTask] {
+        for task in [task, peopleTask, pageTask, openTask, recentsTask] {
             task?.cancel()
         }
         task = nil
         peopleTask = nil
         pageTask = nil
         openTask = nil
+        recentsTask = nil
         inFlight = nil
     }
 }

@@ -359,11 +359,16 @@ actor RecordingBackend: ChatBackend {
     private(set) var messageSearches: [RecordedSearch] = []
     private var holdingMessageSearches = false
     private var scriptedSearchPages: [MessageSearchPage]?
+    private var failingMessageSearches = false
     /// Held message searches; a canceled one throws, as the wire's does.
     nonisolated let abortableMessageSearches = AbortableHold()
 
     func holdMessageSearches(_ hold: Bool) {
         holdingMessageSearches = hold
+    }
+
+    func failMessageSearches(_ fail: Bool) {
+        failingMessageSearches = fail
     }
 
     /// Answers with these pages instead of the fake's: page `n` for cursor `"n"`.
@@ -376,6 +381,9 @@ actor RecordingBackend: ChatBackend {
         messageSearches.append(RecordedSearch(query: query, cursor: cursor))
         if holdingMessageSearches {
             try await abortableMessageSearches.wait()
+        }
+        if failingMessageSearches {
+            throw ChatError.server(status: 500, message: "the search failed")
         }
         if let scripted = scriptedSearchPages {
             let index = cursor.flatMap { Int($0.rawValue) } ?? 0
