@@ -100,4 +100,28 @@ struct PBLiteEncoderTests {
         request.clientInfo = info
         #expect(try PBLiteEncoder.encode(request) == [nil, nil, nil, nil, [1]])
     }
+
+    /// `/api/` requests are sent as binary protobuf, never pblite
+    /// (`APIRequests.swift:13-14`), so this is a structural check, not a wire
+    /// check: it pins the field *positions* findings.md §65.9 found in 28
+    /// captured `list_topics` requests - filter at 4 with its anchor at the
+    /// filter's own field 5, sort_option at 11 - using pblite's index-is-
+    /// field-number layout as a readable stand-in for protobuf's field
+    /// numbering. The anchor's **value** matters too: 28 of 28 captures sent
+    /// it as a JSON number, never a string, which is what `int64EncodesAsNumber`
+    /// above already pins for int64 in general.
+    @Test("ListTopicsRequest's filter and sort_option land at the positions findings.md §65.9 captured")
+    func listTopicsFilterAndSortOption() throws {
+        var request = ListTopicsRequest()
+        request.filter.anchor.timeUsec = 1_790_000_000_000_000
+        request.sortOption = 2
+        let encoded = try PBLiteEncoder.encode(request)
+        let items = try #require(encoded.arrayValue)
+        #expect(items.count == 11)
+        // index 3 == field 4 (filter); the filter's own index 4 == its field 5
+        // (anchor), itself a one-element array holding time_usec (field 1).
+        #expect(items[3] == [nil, nil, nil, nil, [1_790_000_000_000_000]])
+        // index 10 == field 11 (sort_option).
+        #expect(items[10] == 2)
+    }
 }
