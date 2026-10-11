@@ -90,6 +90,24 @@ enum LaunchProbes {
         return write(text, to: name)
     }
 
+    /// `--probe=search`: one message search, a second page, the newest-first
+    /// order (`findings.md` §65). `--probe-query=` overrides the default.
+    ///
+    /// Rewritten after every step, as `peopleProbe` and `punctualProbe` are,
+    /// so a run that hangs leaves a file ending where it hung.
+    static func searchProbe() async -> String {
+        let name = "search-probe.txt"
+        guard let directory = try? SystemLaunchServices.supportDirectory() else {
+            return "Could not resolve where to write \(name)."
+        }
+        let url = directory.appendingPathComponent(name)
+        let text = await SearchProbeReport.run(
+            query: argument("--probe-query=") ?? SearchProbeReport.defaultQuery,
+            flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
+        )
+        return write(text, to: name)
+    }
+
     static func punctualProbe() async -> String {
         let name = "punctual-probe.txt"
         guard let directory = try? SystemLaunchServices.supportDirectory() else {

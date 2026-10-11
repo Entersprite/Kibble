@@ -110,6 +110,7 @@ public struct LaunchArguments: Sendable, Equatable {
                 : arguments.contains("--probe=punctual") ? .punctual
                 : arguments.contains("--probe=upload") ? .upload
                 : arguments.contains("--probe=people") ? .people
+                : arguments.contains("--probe=search") ? .search
                 : arguments.contains("--probe=edit") ? .edit : nil,
             runsDiagnostics: arguments.contains("--probe=appnap")
         )
@@ -134,6 +135,8 @@ public enum LaunchProbe: Sendable, Equatable {
     /// edits it and deletes it, reporting what came back as kinds and flags
     /// (`EditProbeReport`, edit spec §3).
     case edit
+    /// `--probe=search` (search spec §4): a feature's name, not a Google service.
+    case search
 }
 
 /// One backend, who we are, and the thing that drives a fake world.

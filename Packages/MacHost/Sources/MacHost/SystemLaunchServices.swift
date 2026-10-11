@@ -135,6 +135,7 @@ public final class SystemLaunchServices: LaunchServices {
         case .upload: await LaunchProbes.uploadProbe()
         case .people: await LaunchProbes.peopleProbe()
         case .edit: await LaunchProbes.editProbe()
+        case .search: await LaunchProbes.searchProbe()
         }
     }
 
