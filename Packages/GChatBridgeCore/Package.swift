@@ -55,7 +55,7 @@ let package = Package(
             // and so SwiftPM stops warning about an unhandled directory. They
             // are data, not sources. `Fixtures/raw/` is gitignored and must
             // never appear here.
-            resources: [.copy("Fixtures/shape")],
+            resources: [.copy("Fixtures/shape"), .copy("Fixtures/batchexecute")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
