@@ -147,10 +147,14 @@ public struct MessageList: View {
                 else {
                     return
                 }
-                marked = state.highlightedMessage
-                withAnimation(.easeIn(duration: 0.15)) { markOn = true }
-                try? await Task.sleep(for: .seconds(2))
-                withAnimation(.easeOut(duration: 0.6)) { markOn = false }
+                let justMarked = state.highlightedMessage
+                marked = justMarked
+                await TranscriptMark.fade(
+                    on: { withAnimation(.easeIn(duration: 0.15)) { markOn = true } },
+                    sleep: { try await Task.sleep(for: .seconds(2)) },
+                    isStillMarked: { marked == justMarked },
+                    off: { withAnimation(.easeOut(duration: 0.6)) { markOn = false } }
+                )
             }
         }
         .overlay {

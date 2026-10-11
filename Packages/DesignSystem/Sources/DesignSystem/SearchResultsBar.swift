@@ -70,4 +70,34 @@ enum TranscriptMark {
         guard let id, id != marked else { return false }
         return messages.contains { $0.id == id }
     }
+
+    /// The mark's lifecycle: turn on, wait, turn off - unless the wait is
+    /// canceled (a second ⌘G landed within the two seconds) or `isStillMarked`
+    /// says this mark was superseded before the wait ended.
+    ///
+    /// `sleep`, `isStillMarked`, `on` and `off` are injected so a test can
+    /// drive every branch without hosting a view or waiting two real seconds.
+    /// This exists because `try? await Task.sleep(...)` in `MessageList`
+    /// swallowed `CancellationError`, so a task a newer trigger had already
+    /// canceled still ran `off()` and could switch the *newer* mark back off
+    /// (review finding, round 1).
+    @MainActor
+    static func fade(
+        on: () -> Void,
+        sleep: () async throws -> Void,
+        isStillMarked: () -> Bool,
+        off: () -> Void
+    ) async {
+        on()
+        do {
+            try await sleep()
+        } catch {
+            // Canceled: a newer trigger is already running its own mark.
+            // Falling through to `off()` here is exactly the bug this
+            // function exists to not have.
+            return
+        }
+        guard isStillMarked() else { return }
+        off()
+    }
 }
