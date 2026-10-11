@@ -18,6 +18,10 @@ actor AbortableHold {
         held.count
     }
 
+    var isEmpty: Bool {
+        held.isEmpty
+    }
+
     /// Waits for `release()`, or throws once the calling task is canceled.
     func wait() async throws {
         let id = UUID()

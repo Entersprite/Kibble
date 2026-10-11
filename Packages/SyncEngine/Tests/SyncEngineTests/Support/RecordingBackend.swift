@@ -287,11 +287,17 @@ actor RecordingBackend: ChatBackend {
         ignoringHistoryCursor = ignore
     }
 
+    var holdingHistory = false // `holdHistory(_:)`, in +History
+    nonisolated let abortableHistory = AbortableHold()
+
     func loadMessages(
         in conversation: Conversation.ID,
         before: Message.ID?
     ) async throws -> [Message] {
         loadMessagesCalls += 1
+        if holdingHistory {
+            try await abortableHistory.wait()
+        }
         if failingHistory {
             throw ChatError.notAuthenticated
         }

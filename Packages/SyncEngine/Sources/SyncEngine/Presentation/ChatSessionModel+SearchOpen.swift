@@ -7,9 +7,12 @@ public extension ChatSessionModel {
     func openSearchResult(_ id: Message.ID) {
         guard let answered = search.answered, let index = search.hits.firstIndex(where: { $0.id == id })
         else { return }
+        cancelBarPage()
         var state = search
         state.bar = SearchBarState(query: answered, hits: state.hits, next: state.next, index: index)
         state.isShown = false
+        // A list page out now is canceled with the rest; the bar keeps its cursor.
+        state.isLoadingMore = false
         let text = answered.text.trimmingCharacters(in: .whitespaces)
         if !text.isEmpty {
             Task { [engine] in await engine.recordSearch(text) }
@@ -20,6 +23,7 @@ public extension ChatSessionModel {
     func openSearchConversation(_ id: Conversation.ID) {
         searchWork.openTask?.cancel()
         searchWork.openTask = nil
+        cancelBarPage()
         var state = search
         state.isShown = false
         state.bar = nil
@@ -49,6 +53,8 @@ public extension ChatSessionModel {
             return
         }
         guard bar.hits.indices.contains(target) else { return }
+        // A step to a loaded hit wins over a page still out for a later one.
+        cancelBarPage()
         var state = search
         state.bar?.index = target
         openHit(bar.hits[target], from: state)
@@ -57,6 +63,7 @@ public extension ChatSessionModel {
     func endSearch() {
         searchWork.openTask?.cancel()
         searchWork.openTask = nil
+        cancelBarPage()
         var state = search
         state.bar = nil
         state.highlight = nil
@@ -97,6 +104,11 @@ extension ChatSessionModel {
             guard !Task.isCancelled, let self else { return }
             var state = search
             state.bar?.isOpening = false
+            // The person went elsewhere while history paged: stay there.
+            guard selected == hit.conversationID else {
+                search = state
+                return
+            }
             guard found else {
                 state.bar?.unreachable = true
                 search = state
@@ -106,6 +118,11 @@ extension ChatSessionModel {
             state.highlight = hit.id
             search = state
         }
+    }
+
+    private func cancelBarPage() {
+        searchWork.pageTask?.cancel()
+        searchWork.pageTask = nil
     }
 
     private func loadBarPage(after cursor: MessageSearchCursor, thenOpen target: Int) {
