@@ -52,6 +52,13 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// `ChatBackend.remoteImage(_:)` returns bytes rather than refusing
     /// (links spec §3.3).
     public var canFetchRemoteImages: Bool
+    /// `ChatBackend.searchMessages(_:after:)` answers rather than refusing
+    /// (search spec §2). The search overlay and ⌘F exist only when this is
+    /// `true`.
+    public var canSearchMessages: Bool
+    /// The filters `searchMessages` honors. A chip is drawn only for these.
+    /// Encoded sorted, for the same reason as `extendedFlags`.
+    public var messageSearchFilters: Set<MessageSearchFilter>
 
     /// The escape hatch. A newer backend can advertise a capability this build
     /// has no property for, and a newer client can look for it by name without
@@ -80,6 +87,8 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canMention: Bool = false,
         canMentionNonMembers: Bool = false,
         canFetchRemoteImages: Bool = false,
+        canSearchMessages: Bool = false,
+        messageSearchFilters: Set<MessageSearchFilter> = [],
         extendedFlags: Set<String> = []
     ) {
         self.canSendMessages = canSendMessages
@@ -101,6 +110,8 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canMention = canMention
         self.canMentionNonMembers = canMentionNonMembers
         self.canFetchRemoteImages = canFetchRemoteImages
+        self.canSearchMessages = canSearchMessages
+        self.messageSearchFilters = messageSearchFilters
         self.extendedFlags = extendedFlags
     }
 }
@@ -128,6 +139,8 @@ public extension Capabilities {
         case canMention
         case canMentionNonMembers
         case canFetchRemoteImages
+        case canSearchMessages
+        case messageSearchFilters
         case extendedFlags
     }
 
@@ -159,6 +172,11 @@ public extension Capabilities {
             canMention: flag(.canMention),
             canMentionNonMembers: flag(.canMentionNonMembers),
             canFetchRemoteImages: flag(.canFetchRemoteImages),
+            canSearchMessages: flag(.canSearchMessages),
+            messageSearchFilters: Set(
+                (container.decodeIfPresent([String].self, forKey: .messageSearchFilters) ?? [])
+                    .map(MessageSearchFilter.init(wire:))
+            ),
             extendedFlags: Set(
                 container.decodeIfPresent([String].self, forKey: .extendedFlags) ?? []
             )
@@ -186,6 +204,8 @@ public extension Capabilities {
         try container.encode(canMention, forKey: .canMention)
         try container.encode(canMentionNonMembers, forKey: .canMentionNonMembers)
         try container.encode(canFetchRemoteImages, forKey: .canFetchRemoteImages)
+        try container.encode(canSearchMessages, forKey: .canSearchMessages)
+        try container.encode(messageSearchFilters.map(\.wire).sorted(), forKey: .messageSearchFilters)
         try container.encode(extendedFlags.sorted(), forKey: .extendedFlags)
     }
 }
