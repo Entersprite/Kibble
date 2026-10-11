@@ -62,7 +62,9 @@ public extension AppEnvironment {
             stagedAttachments: Self.composerAttachments(model.stagedAttachments),
             mentionCandidates: model.mentionCandidates,
             directoryResults: model.directoryResults,
-            threads: threadScene(of: model)
+            threads: threadScene(of: model),
+            search: Self.searchScene(model.search),
+            highlightedMessage: model.search.highlight
         )
     }
 
@@ -214,7 +216,8 @@ public extension AppEnvironment {
                 ? { [weak self] in self?.runningModel?.setStatus($0) } : nil,
             setAvailability: runningModel?.capabilities.canSetStatus == true
                 ? { [weak self] in self?.runningModel?.setAvailability($0) } : nil,
-            threads: threadActions
+            threads: threadActions,
+            search: searchActions
         )
     }
 
