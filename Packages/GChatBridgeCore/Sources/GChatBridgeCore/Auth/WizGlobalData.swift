@@ -1,7 +1,7 @@
 import Foundation
 
 /// The `window.WIZ_global_data` blob from a Chat app-shell response, reduced to
-/// the three things this package needs from it.
+/// what this package needs from it.
 ///
 /// ## Why this type exists at all
 ///
@@ -18,6 +18,9 @@ import Foundation
 ///   in ("Dynamite" is Chat's internal codename); `"AccountsSignInUi"` means
 ///   signed out.
 /// - `SMqcke` — the xsrf token, needed by later requests.
+/// - `SNlM0e` — `batchexecute`'s `at` form field, `[Verify]`.
+/// - `FdrFJe` — `batchexecute`'s `f.sid`, `[Verify]`.
+/// - `cfb2h` — the server's build label (`bl`), `[Verify]`.
 ///
 /// Names this opaque will change without notice. When they do, the failure is a
 /// `nil` here rather than a misparse somewhere later, which is the point of
@@ -37,6 +40,22 @@ public struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
     /// a sign-in requirement. A browser key, not a credential, but it is
     /// reported by length all the same.
     public let punctualKey: String?
+
+    /// `batchexecute`'s `at` form field (`SNlM0e`, `[Verify]`). **Not
+    /// `xsrfToken`**: in a capture the two were the same length and different
+    /// values (`findings.md` §65.4).
+    public let batchToken: String?
+
+    /// `batchexecute`'s `f.sid` (`FdrFJe`, `[Verify]`, §65.6).
+    public let sessionID: String?
+
+    /// `batchexecute`'s `bl`, the server's build label (`cfb2h`, `[Verify]`).
+    public let buildLabel: String?
+
+    /// Every string value's length, by key. For `--probe=search`, which has to
+    /// find `at` in a shell whose keys are obfuscated: it names keys and
+    /// lengths, never a value.
+    public let stringLengths: [String: Int]
 
     /// How many keys the blob had. Around 128 for an authenticated shell and
     /// around 68 signed out; not a decision input, but the number a human wants
@@ -68,10 +87,12 @@ public struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
     /// day, and `Never print cookie values, tokens, or message content` has to
     /// survive that.
     public var description: String {
-        let token = xsrfToken.map { "\($0.count) chars" } ?? "none"
-        let punctual = punctualKey.map { "\($0.count) chars" } ?? "none"
-        return "WizGlobalData(app: \(appName ?? "none"), xsrf: \(token), "
-            + "punctual key: \(punctual), keys: \(keyCount))"
+        func length(_ value: String?) -> String {
+            value.map { "\($0.count) chars" } ?? "none"
+        }
+        return "WizGlobalData(app: \(appName ?? "none"), xsrf: \(length(xsrfToken)), "
+            + "punctual key: \(length(punctualKey)), at: \(length(batchToken)), "
+            + "f.sid: \(length(sessionID)), bl: \(length(buildLabel)), keys: \(keyCount))"
     }
 }
 
@@ -95,6 +116,9 @@ public extension WizGlobalData {
     private static let appNameKey = "qwAQke"
     private static let xsrfTokenKey = "SMqcke"
     private static let punctualKeyKey = "Tzliq"
+    private static let batchTokenKey = "SNlM0e"
+    private static let sessionIDKey = "FdrFJe"
+    private static let buildLabelKey = "cfb2h"
 
     private static let signedInApp = "DynamiteWebUi"
     private static let signedOutApp = "AccountsSignInUi"
@@ -122,6 +146,10 @@ public extension WizGlobalData {
             appName: appName,
             xsrfToken: fields[Self.xsrfTokenKey] as? String,
             punctualKey: fields[Self.punctualKeyKey] as? String,
+            batchToken: fields[Self.batchTokenKey] as? String,
+            sessionID: fields[Self.sessionIDKey] as? String,
+            buildLabel: fields[Self.buildLabelKey] as? String,
+            stringLengths: fields.compactMapValues { ($0 as? String)?.count },
             keyCount: fields.count,
             signInState: Self.state(ofApp: appName)
         )

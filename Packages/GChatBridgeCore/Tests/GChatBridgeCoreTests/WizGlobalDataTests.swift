@@ -182,4 +182,54 @@ struct WizGlobalDataTests {
         let html = #"<script>window.WIZ_global_data={"qwAQke":"DynamiteWebUi"}</script>"#
         #expect(WizGlobalData(html: html)?.isSignedIn == true)
     }
+
+    // MARK: - batchexecute (findings.md §65.4, §65.6)
+
+    /// `SMqcke` and `SNlM0e` differ on purpose: in a capture, `batchexecute`'s
+    /// `at` was the same length as `/api/`'s token and a different value.
+    static func batchShell() -> String {
+        let api = String(repeating: "x", count: 42)
+        let batch = String(repeating: "y", count: 42)
+        return """
+        <script>window.WIZ_global_data = {"qwAQke":"DynamiteWebUi","SMqcke":"\(api)",\
+        "SNlM0e":"\(batch)","FdrFJe":"-1234567890123456789","cfb2h":"boq_dynamiteuiserver_20261005.01_p0",\
+        "n":7};</script>
+        """
+    }
+
+    @Test("batchexecute's values are read, and its token is not the api token")
+    func batchValues() throws {
+        let wiz = try #require(WizGlobalData(html: Self.batchShell()))
+        #expect(wiz.batchToken == String(repeating: "y", count: 42))
+        #expect(wiz.batchToken != wiz.xsrfToken)
+        #expect(wiz.sessionID == "-1234567890123456789")
+        #expect(wiz.buildLabel == "boq_dynamiteuiserver_20261005.01_p0")
+    }
+
+    @Test("string values are measured by key; other values are not")
+    func stringLengths() throws {
+        let wiz = try #require(WizGlobalData(html: Self.batchShell()))
+        #expect(wiz.stringLengths["SNlM0e"] == 42)
+        #expect(wiz.stringLengths["qwAQke"] == 13)
+        #expect(wiz.stringLengths["n"] == nil)
+    }
+
+    /// The sentinel is lowercase and digits, inside what an uppercase-only
+    /// masker would let through (CLAUDE.md, the leak-test rule).
+    @Test("the description reports the new values by length, never by value")
+    func batchDescription() throws {
+        let wiz = try #require(WizGlobalData(html: Self.batchShell()))
+        #expect(!wiz.description.contains("yyyy"))
+        #expect(!wiz.description.contains("1234567890"))
+        #expect(!wiz.description.contains("boq_dynamiteuiserver"))
+        #expect(wiz.description.contains("at: 42 chars"))
+    }
+
+    @Test("a shell without them leaves them nil")
+    func batchValuesAbsent() throws {
+        let wiz = try #require(WizGlobalData(html: Self.shell(app: "DynamiteWebUi")))
+        #expect(wiz.batchToken == nil)
+        #expect(wiz.sessionID == nil)
+        #expect(wiz.buildLabel == "boq_dynamiteuiserver")
+    }
 }
