@@ -94,6 +94,10 @@ public struct ChatSceneState: Sendable, Equatable {
     public var directoryResults: [Member]
     /// Threads: the marks' summaries, the panel, the list (threads spec §5).
     public var threads: ThreadSceneState
+    /// Search: the overlay and the results bar (search spec §1).
+    public var search: SearchSceneState
+    /// The message the transcript marks once, after a search opened it.
+    public var highlightedMessage: Message.ID?
 
     public init(
         conversations: [Conversation] = [],
@@ -121,7 +125,9 @@ public struct ChatSceneState: Sendable, Equatable {
         stagedAttachments: [ComposerAttachment] = [],
         mentionCandidates: [Member] = [],
         directoryResults: [Member] = [],
-        threads: ThreadSceneState = ThreadSceneState()
+        threads: ThreadSceneState = ThreadSceneState(),
+        search: SearchSceneState = SearchSceneState(),
+        highlightedMessage: Message.ID? = nil
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -149,6 +155,8 @@ public struct ChatSceneState: Sendable, Equatable {
         self.mentionCandidates = mentionCandidates
         self.directoryResults = directoryResults
         self.threads = threads
+        self.search = search
+        self.highlightedMessage = highlightedMessage
     }
 
     public var selectedConversation: Conversation? {
@@ -302,6 +310,9 @@ public struct ChatSceneActions {
     /// Threads. **Optional, and `nil` is the point**: a backend without
     /// threads gets no mark, no panel and no Threads row.
     public var threads: ThreadActions?
+    /// Search. **Optional, and `nil` is the point**: a backend that cannot
+    /// search gets no overlay.
+    public var search: SearchActions?
 
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
@@ -330,7 +341,8 @@ public struct ChatSceneActions {
         messages: MessageActions? = nil,
         setStatus: ((MemberStatus?) -> Void)? = nil,
         setAvailability: ((Availability) -> Void)? = nil,
-        threads: ThreadActions? = nil
+        threads: ThreadActions? = nil,
+        search: SearchActions? = nil
     ) {
         self.select = select
         self.send = send
@@ -359,5 +371,6 @@ public struct ChatSceneActions {
         self.setStatus = setStatus
         self.setAvailability = setAvailability
         self.threads = threads
+        self.search = search
     }
 }
