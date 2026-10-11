@@ -30,6 +30,10 @@ public extension Capabilities {
         canSendAttachments: true,
         canMention: true,
         canMentionNonMembers: true,
-        canFetchRemoteImages: true
+        canFetchRemoteImages: true,
+        canSearchMessages: true,
+        messageSearchFilters: [
+            .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
+        ]
     )
 }
