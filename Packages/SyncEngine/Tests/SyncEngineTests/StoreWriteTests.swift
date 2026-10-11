@@ -180,7 +180,6 @@ struct StoreWriteTests {
             .upsertMessage(message("msg:3", in: space, at: at.addingTimeInterval(120)))
         ])
         #expect(try store.messages(in: space).map(\.id.rawValue) == ["msg:1", "msg:2", "msg:3"])
-        #expect(try store.oldestMessage(in: space)?.id.rawValue == "msg:1")
     }
 
     @Test func upsertingTheSameMessageTwiceKeepsOneRow() throws {

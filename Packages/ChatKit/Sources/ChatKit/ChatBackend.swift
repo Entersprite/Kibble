@@ -77,6 +77,12 @@ public protocol ChatBackend: Sendable {
     // one page work. The signature is deliberately left exactly as it stands:
     // guessing at a cursor type before seeing a real page would be a worse
     // mistake than changing this signature later.
+    //
+    // Since `findings.md` §65.9: `ListTopicsRequest` also takes a time anchor
+    // (`filter.anchor.time_usec`), and the local bridge translates a `before`
+    // it has mapped into that message's own time. Whether the server pages
+    // from it is still `[Verify]`, so that backend keeps only what is older
+    // itself, and an id it never mapped gets the most recent page.
     /// A page of history, oldest-to-newest, ending just before `before`.
     ///
     /// `before: nil` means "the most recent page". See the `[Verify]` note

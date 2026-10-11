@@ -97,6 +97,32 @@ struct TopicsRequestLadderTests {
         #expect(viaAccessor == viaLadder)
     }
 
+    /// The anchored request is history's own plus exactly the two fields every
+    /// captured web-client `list_topics` carried (`findings.md` §65.9):
+    /// `filter.anchor.time_usec`, to the microsecond and unshifted, and
+    /// `sort_option` 2. Built here by hand from `history(for:)`, so a builder
+    /// that dropped a page size or nudged the anchor would differ in bytes.
+    @Test func anAnchoredHistoryIsHistoryPlusTheAnchorAndTheSort() throws {
+        let anchor: Int64 = 1_790_123_456_789_012
+        var expected = TopicsRequestLadder.history(for: group("s-1")).request
+        expected.filter.anchor.timeUsec = anchor
+        expected.sortOption = 2
+        let anchored = TopicsRequestLadder.history(for: group("s-1"), anchoredAt: anchor).request
+        #expect(anchored.filter.anchor.timeUsec == anchor)
+        #expect(anchored.sortOption == 2)
+        let viaBuilder: Data = try anchored.serializedBytes()
+        let viaHand: Data = try expected.serializedBytes()
+        #expect(viaBuilder == viaHand)
+    }
+
+    /// Unanchored history sends neither field, so a plain page is the request
+    /// it was before the anchor existed.
+    @Test func plainHistoryCarriesNoAnchorAndNoSort() {
+        let history = TopicsRequestLadder.history(for: group("s-1")).request
+        #expect(history.hasFilter == false)
+        #expect(history.hasSortOption == false)
+    }
+
     @Test func aRunReportsTheFieldNumbersThatCameBack() async throws {
         // A minimal ListTopicsResponse: field 4 (contains_first_topic), varint 1.
         let body = Data([0x20, 0x01])

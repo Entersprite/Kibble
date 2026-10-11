@@ -67,6 +67,9 @@ public extension LocalBridgeBackend {
         let inner = try decodedAnswer(in: response)
         let mapped = SearchHitMapping.page(from: inner)
         SearchLog.page(hits: mapped.hits.count, dropped: mapped.dropped, hasNext: mapped.next != nil)
+        // A hit's time is its own microseconds (`findings.md` §65.8), so an
+        // opened hit's history can anchor on it (`loadMessages(in:before:)`).
+        messageTimes.remember(mapped.hits)
         // Started, not awaited - the same rule `loadMessages(in:before:)`
         // follows for its own lookup, and for the same reason: a hit carries
         // no sender name (`findings.md` §65.8), so without this every result

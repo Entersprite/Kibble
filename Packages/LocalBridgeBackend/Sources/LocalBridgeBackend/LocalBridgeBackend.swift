@@ -151,6 +151,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// reset by `disconnect()`: a fresh base per process is all §65.6 says it
     /// needs to be - a monotonically increasing value, never repeated.
     var searchRequestID = Int.random(in: 1000 ... 9999)
+    /// Each mapped message's create time, for anchored history
+    /// (`MessageCreateTimes`, `findings.md` §65.9). Cleared by `disconnect()`.
+    var messageTimes = MessageCreateTimes()
 
     public init(
         cookies: SessionCookies,
@@ -292,6 +295,7 @@ public actor LocalBridgeBackend: ChatBackend {
         attachmentFetch = nil
         attachmentUpload = nil
         uploadedMetadata = [:]
+        messageTimes.forgetAll()
         memberResolution?.cancel()
         memberResolution = nil
         forgetDirectory()
@@ -362,6 +366,7 @@ public actor LocalBridgeBackend: ChatBackend {
             }
         }
         let chatEvents = ChannelEventMapping.chatEvents(from: event)
+        messageTimes.remember(chatEvents.flatMap(Self.messages(in:)))
         for chatEvent in chatEvents {
             emit(chatEvent)
         }

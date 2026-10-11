@@ -213,9 +213,9 @@ public enum SearchProbeReport {
         for offset in anchorOffsetsMicroseconds {
             let anchorTimeUsec = Microseconds.adding(offset, to: pick.anchorTimeUsec)
             let label = label(forAnchorOffset: offset)
-            var request = rung.request
-            request.filter.anchor.timeUsec = anchorTimeUsec
-            request.sortOption = 2
+            // The builder history's own anchored page uses, so this stage's
+            // answer is about the request the app sends.
+            let request = TopicsRequestLadder.history(for: pick.group, anchoredAt: anchorTimeUsec).request
             do {
                 let response = try await call.apiClient.call(.listTopics, request)
                 let summary = summarize(

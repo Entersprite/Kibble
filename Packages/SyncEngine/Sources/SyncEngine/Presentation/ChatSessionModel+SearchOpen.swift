@@ -82,9 +82,10 @@ public extension ChatSessionModel {
 
 extension ChatSessionModel {
     /// Opens a hit where it lives: the transcript, or its thread for a reply
-    /// (`open(conversation:message:)`'s rule), after paging history back until
-    /// it is stored. `state` is the caller's pending change, written here in
-    /// the same one mutation.
+    /// (`open(conversation:message:)`'s rule), once the engine has stored it
+    /// and asked for the history just before it
+    /// (`SyncEngine.loadHistory(in:until:pageLimit:)`). `state` is the
+    /// caller's pending change, written here in the same one mutation.
     func openHit(_ hit: Message, from state: SearchSessionState) {
         searchWork.openTask?.cancel()
         searchWork.openTask = nil
@@ -106,7 +107,7 @@ extension ChatSessionModel {
         searchWork.openTask = Task { @MainActor [weak self, engine] in
             let found = await (try? engine.loadHistory(
                 in: hit.conversationID,
-                until: hit.id,
+                until: hit,
                 pageLimit: limit
             ))
                 ?? false
