@@ -80,7 +80,7 @@ public extension ChatSessionModel {
 extension ChatSessionModel {
     /// Sets `query`, updates the instant sections, and searches messages after
     /// the pause (`debounced`) or now.
-    private func runSearch(_ query: MessageSearchQuery, debounced: Bool) {
+    func runSearch(_ query: MessageSearchQuery, debounced: Bool) {
         let words = SearchWords.of(query.text)
         let eligible = query.hasFilters || query.text.trimmingCharacters(in: .whitespaces).count >= 2
         // Return while this very query is on the wire: nothing to add.
