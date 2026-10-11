@@ -1,21 +1,35 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 import URLSessionTransport
 
-/// The three things every `SBNmJb` call needs, grouped so `send` and its
-/// callers stay under swiftlint's `function_parameter_count` ceiling - the
-/// same reason `BatchExecuteCall` groups its own three. A class, not a
-/// struct: every call shares one incrementing request id.
+/// The four things every `SBNmJb` call (plus the anchor stage's `list_topics`
+/// calls) needs, grouped so `send` and its callers stay under swiftlint's
+/// `function_parameter_count` ceiling - the same reason `BatchExecuteCall`
+/// groups its own three. A class, not a struct: every call shares one
+/// incrementing request id.
+///
+/// `apiClient` is a `ProtoAPIClient`, not the `PunctualClient` the other three
+/// fields serve: the anchor stage (`findings.md` §65.9, Task 3) sends `/api/`
+/// `list_topics` requests, not `batchexecute` ones, and reuses the exact
+/// client type `APIProbeReport`/`LocalBridgeBackend+History.swift` already
+/// reach `list_topics` through, rather than standing up a second way to call
+/// it.
 private final class SearchCallContext {
     let client: PunctualClient
     let context: BatchExecuteContext
     let endpoints: ChatEndpoints
+    let apiClient: ProtoAPIClient
     private var requestID: Int
 
-    init(client: PunctualClient, context: BatchExecuteContext, endpoints: ChatEndpoints) {
+    init(
+        client: PunctualClient, context: BatchExecuteContext, endpoints: ChatEndpoints,
+        apiClient: ProtoAPIClient
+    ) {
         self.client = client
         self.context = context
         self.endpoints = endpoints
+        self.apiClient = apiClient
         requestID = Int.random(in: 1000 ... 9999)
     }
 
@@ -56,7 +70,11 @@ public enum SearchProbeReport {
         flush(lines.joined(separator: "\n"))
         let call = SearchCallContext(
             client: PunctualClient(transport: transport, credentials: bootstrapped.credentials),
-            context: context, endpoints: endpoints
+            context: context, endpoints: endpoints,
+            apiClient: ProtoAPIClient(
+                transport: transport, endpoints: endpoints,
+                credentials: bootstrapped.credentials, xsrfToken: bootstrapped.wiz.xsrfToken
+            )
         )
         await appendSearches(query: query, call: call, lines: &lines, flush: flush)
         return done()
@@ -78,7 +96,9 @@ public enum SearchProbeReport {
     }
 
     /// One query id for the whole run, a search, its second page, then a
-    /// newest-first search of the same text under a fresh query id (§65.2).
+    /// newest-first search of the same text under a fresh query id (§65.2),
+    /// then the anchor stage (§65.9, Task 3) over every hit any of those
+    /// three pages decoded.
     private static func appendSearches(
         query: String, call: SearchCallContext, lines: inout [String], flush: (String) -> Void
     ) async {
@@ -105,15 +125,36 @@ public enum SearchProbeReport {
         lines.append("hits: \(hits.count); next token: \((first.first as? String)?.count ?? 0) chars")
         appendHits(hits, lines: &lines)
         flush(lines.joined(separator: "\n"))
-        await appendSecondPage(after: first, query: query, queryID: queryID, call: call, lines: &lines)
-        await appendNewestFirst(query: query, call: call, lines: &lines)
+        let second = await appendSecondPage(
+            after: first,
+            query: query,
+            queryID: queryID,
+            call: call,
+            lines: &lines
+        )
+        let newest = await appendNewestFirst(query: query, call: call, lines: &lines)
+        flush(lines.joined(separator: "\n"))
+        // Every hit any of the three pages decoded - "the hits the probe's
+        // earlier stages received (newest-first pages included)", per
+        // task-3-brief.md's amendment to step 2 - so the anchor stage can
+        // pick the single oldest one across all of them.
+        let candidateHits = [first, second, newest].compactMap(\.self)
+            .flatMap { SearchHitMapping.page(from: $0).hits }
+        await appendAnchorStage(
+            candidateHits: candidateHits,
+            firstRawHit0: hits.first,
+            call: call,
+            lines: &lines
+        )
     }
 
     /// The second page, when the first answered a token, and its hit count.
+    /// Returns the raw answer (not just its hit count) so `appendSearches`
+    /// can decode its hits for the anchor stage too.
     private static func appendSecondPage(
         after first: [Any], query: String, queryID: String, call: SearchCallContext, lines: inout [String]
-    ) async {
-        guard let token = first.first as? String else { return }
+    ) async -> [Any]? {
+        guard let token = first.first as? String else { return nil }
         let second = await send(
             MessageSearchPayload(
                 text: query, queryID: queryID, pageToken: token,
@@ -123,20 +164,69 @@ public enum SearchProbeReport {
         )
         let count = (second?.count ?? 0) > 9 ? (second?[9] as? [Any])?.count ?? 0 : 0
         lines.append("page 2 hits: \(count)")
+        return second
     }
 
-    /// A fresh query, newest first, checked for its hits' own times descending.
+    /// A fresh query, newest first, checked for its hits' own times
+    /// descending. Returns the raw answer for the same reason
+    /// `appendSecondPage` does.
     private static func appendNewestFirst(
         query: String, call: SearchCallContext, lines: inout [String]
-    ) async {
+    ) async -> [Any]? {
         let newest = await send(
             MessageSearchPayload(text: query, queryID: SearchRequests.newQueryID(), newestFirst: true),
             header: false, label: "newest first", call: call, lines: &lines
         )
-        guard let newest, newest.count > 9, let newestHits = newest[9] as? [Any] else { return }
+        guard let newest, newest.count > 9, let newestHits = newest[9] as? [Any] else { return newest }
         let times = newestHits.compactMap { decodedMessage($0)?.createTime }
         let descending = times == times.sorted(by: >)
         lines.append("newest first: \(times.count) decoded times, descending: \(descending)")
+        return newest
+    }
+
+    /// Task 3 (`findings.md` §65.9): does `list_topics`' filter page history
+    /// back from a time? Picks the oldest hit decoded across every page
+    /// `appendSearches` already sent, then sends three `list_topics` calls
+    /// for that hit's own conversation - the hit's own create time, one
+    /// microsecond after it, and one microsecond before - each with
+    /// `sort_option: 2` over `TopicsRequestLadder.history(for:)`'s own page
+    /// sizes, otherwise unchanged. The pure parts (the hit pick, each
+    /// response's summary, the verdict line) live in
+    /// `SearchProbeReport+Anchor.swift`; this is only the network sequencing,
+    /// which is why it stays here rather than there - it needs
+    /// `SearchCallContext`, which is file-private to this file.
+    private static func appendAnchorStage(
+        candidateHits: [ChatKit.Message], firstRawHit0: Any?, call: SearchCallContext, lines: inout [String]
+    ) async {
+        lines.append("")
+        lines.append("anchor (findings.md §65.9, Task 3 - does the filter page history back from a time?):")
+        guard let pick = pickAnchor(candidateHits: candidateHits, firstRawHit0: firstRawHit0) else {
+            lines.append("  STOP: no hit decoded on any page, and hit 0's group reference could not be read")
+            return
+        }
+        lines.append("  \(pick.source)")
+        let ageText = pick.hitCreatedAt.map { String(Int(Date().timeIntervalSince($0))) } ?? "n/a"
+        let kindText = pick.hitIsReply.map { $0 ? "reply" : "root" } ?? "n/a"
+        lines.append("  hit: age \(ageText) s before now, kind \(kindText)")
+        let rung = TopicsRequestLadder.history(for: pick.group)
+        lines.append("  " + anchorConfigLine(request: rung.request))
+        for offset in anchorOffsetsMicroseconds {
+            let anchorTimeUsec = Microseconds.adding(offset, to: pick.anchorTimeUsec)
+            var request = rung.request
+            request.filter.anchor.timeUsec = anchorTimeUsec
+            request.sortOption = 2
+            do {
+                let response = try await call.apiClient.call(.listTopics, request)
+                let summary = summarize(
+                    response: response, anchorTimeUsec: anchorTimeUsec, hitMessageID: pick.hitMessageID
+                )
+                let label = label(forAnchorOffset: offset)
+                lines.append(contentsOf: anchorReportLines(label: label, summary: summary))
+            } catch {
+                let label = label(forAnchorOffset: offset)
+                lines.append("  \(label): FAILED: \(APIProbeReport.safeDescription(of: error))")
+            }
+        }
     }
 
     /// One `SBNmJb` call. `nil` once its failure, or the absence of its row
