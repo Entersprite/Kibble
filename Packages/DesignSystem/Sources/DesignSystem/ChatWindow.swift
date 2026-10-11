@@ -49,6 +49,10 @@ public struct ChatWindow: View {
         } content: {
             VStack(spacing: 0) {
                 StatusStrip(state: state, actions: actions)
+                if let bar = state.search.bar, let search = actions.search,
+                   state.selectedConversation != nil {
+                    SearchResultsBar(bar: bar, state: state, actions: search)
+                }
                 if state.showingMentions {
                     MentionsPane(items: state.mentions, status: state.mentionsStatus, me: state.me) {
                         actions.openMention?($0, $1)
