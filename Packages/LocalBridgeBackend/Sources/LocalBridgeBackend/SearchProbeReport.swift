@@ -212,6 +212,7 @@ public enum SearchProbeReport {
         lines.append("  " + anchorConfigLine(request: rung.request))
         for offset in anchorOffsetsMicroseconds {
             let anchorTimeUsec = Microseconds.adding(offset, to: pick.anchorTimeUsec)
+            let label = label(forAnchorOffset: offset)
             var request = rung.request
             request.filter.anchor.timeUsec = anchorTimeUsec
             request.sortOption = 2
@@ -220,10 +221,8 @@ public enum SearchProbeReport {
                 let summary = summarize(
                     response: response, anchorTimeUsec: anchorTimeUsec, hitMessageID: pick.hitMessageID
                 )
-                let label = label(forAnchorOffset: offset)
                 lines.append(contentsOf: anchorReportLines(label: label, summary: summary))
             } catch {
-                let label = label(forAnchorOffset: offset)
                 lines.append("  \(label): FAILED: \(APIProbeReport.safeDescription(of: error))")
             }
         }

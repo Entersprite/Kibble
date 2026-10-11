@@ -94,36 +94,24 @@ extension SearchProbeReport {
     /// Hit 0's group reference (field 3, index 2), read directly rather than
     /// through `SearchHitMapping.message(from:)` - used only when every hit
     /// this run saw failed that mapping, which §65.8's capture never observed
-    /// (302 of 302 hits had a readable group reference there). This
-    /// duplicates the small prefix check `SearchHitMapping.groupReference(_:)`
-    /// keeps private, rather than editing that file while a concurrent review
-    /// owns it (`task-3-brief.md`'s "do not edit" list); field 3 is always a
-    /// direct index, far under the trailing-object cutoff at field 48, so the
-    /// merge that function's own private helper does is not needed here.
+    /// (302 of 302 hits had a readable group reference there).
+    ///
+    /// Delegates the actual match to `SearchHitMapping.groupReference(_:)`
+    /// (made internal for exactly this, fix round 1 review finding 2), rather
+    /// than a second copy of its prefix check: the first copy silently
+    /// dropped that function's `items.count >= 3 && items[2] == 2` space
+    /// requirement, which is one rule for what a group reference looks like
+    /// split into two places that could (and did) disagree. Field 3 is
+    /// always a direct index, far under the trailing-object cutoff at field
+    /// 48, so no merge is needed to reach it here.
     static func fallbackGroupID(fromRawHit0 raw: Any) -> GroupId? {
         guard JSONSerialization.isValidJSONObject(raw),
               let data = try? JSONSerialization.data(withJSONObject: raw),
               let value = try? PBLiteValue(json: data),
               let wrapper = value.arrayValue, let inner = wrapper.first,
-              let innerItems = inner.arrayValue, innerItems.indices.contains(2),
-              let groupItems = innerItems[2].arrayValue, groupItems.count >= 2,
-              let prefixed = groupItems[0].stringValue, let rawID = groupItems[1].stringValue, !rawID.isEmpty
+              let innerItems = inner.arrayValue, innerItems.indices.contains(2)
         else { return nil }
-        if prefixed == "space/\(rawID)" {
-            var space = SpaceId()
-            space.spaceID = rawID
-            var group = GroupId()
-            group.spaceID = space
-            return group
-        }
-        if prefixed == "dm/\(rawID)" {
-            var dm = DmId()
-            dm.dmID = rawID
-            var group = GroupId()
-            group.dmID = dm
-            return group
-        }
-        return nil
+        return SearchHitMapping.groupReference(innerItems[2])
     }
 
     // MARK: - One request's answer, summarized against its anchor
@@ -160,7 +148,9 @@ extension SearchProbeReport {
         let offsetsSeconds = messages.map { Double($0.createTime - anchorTimeUsec) / 1_000_000 }
         let topicOrder = anchorTopicOrder(response.topics.map(\.createTimeUsec))
         let reading = anchorReading(
-            containsLastTopic: response.containsLastTopic, offsetsSeconds: offsetsSeconds
+            containsFirstTopic: response.containsFirstTopic,
+            containsLastTopic: response.containsLastTopic,
+            offsetsSeconds: offsetsSeconds
         )
         return AnchorResponseSummary(
             topicCount: response.topics.count,
@@ -200,7 +190,23 @@ extension SearchProbeReport {
     /// does not." A false `contains_last_topic` with a message *after* the
     /// anchor fits neither half, so it is reported as such rather than forced
     /// into one - that combination is not something either reading predicts.
-    static func anchorReading(containsLastTopic: Bool, offsetsSeconds: [Double]) -> String {
+    ///
+    /// **Checked before any of that**: a small conversation that comes back
+    /// whole - `containsFirstTopic` *and* `containsLastTopic` both true - is
+    /// not evidence either way. Both readings predict exactly that answer (a
+    /// page that pages back from the anchor and a page that always reaches
+    /// the newest topic are indistinguishable once the whole conversation
+    /// fits in one page), so reading it as "does not page" would be a verdict
+    /// from something that never measured the question (fix round 1, review
+    /// finding 1). Only `containsLastTopic` true on its own - the page
+    /// reached the newest topic without reaching the oldest one - is real
+    /// asymmetric evidence and still reads "does not page".
+    static func anchorReading(
+        containsFirstTopic: Bool, containsLastTopic: Bool, offsetsSeconds: [Double]
+    ) -> String {
+        if containsFirstTopic, containsLastTopic {
+            return "inconclusive: the whole conversation came back in one page"
+        }
         if containsLastTopic {
             return "does not page (contains_last_topic true)"
         }

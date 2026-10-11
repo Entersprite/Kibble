@@ -122,6 +122,22 @@ struct SearchProbeReportAnchorTests {
         #expect(ChannelEventMapping.conversationID(group)?.rawValue == "dm/dm-1")
     }
 
+    /// Fix round 1, review finding 2: a two-element space reference (no
+    /// trailing `2`) must be refused, the same rule
+    /// `SearchHitMapping.groupReference(_:)` already enforces for its own
+    /// caller. This is what caught `fallbackGroupID` silently dropping that
+    /// check when it duplicated the match instead of calling the shared
+    /// function.
+    @Test func fallbackGroupIDRefusesASpaceReferenceMissingTheTrailingTwo() throws {
+        let raw = try Self.rawHit0(group: ["space/sp-1", "sp-1"])
+        #expect(SearchProbeReport.fallbackGroupID(fromRawHit0: raw) == nil)
+    }
+
+    @Test func fallbackGroupIDRefusesASpaceReferenceWhoseThirdElementIsNotTwo() throws {
+        let raw = try Self.rawHit0(group: ["space/sp-1", "sp-1", 5])
+        #expect(SearchProbeReport.fallbackGroupID(fromRawHit0: raw) == nil)
+    }
+
     // MARK: - Topic order
 
     @Test func topicOrderAscending() {
@@ -144,23 +160,51 @@ struct SearchProbeReportAnchorTests {
     // MARK: - The decisive reading
 
     @Test func readingDoesNotPageWhenContainsLastTopicIsTrue() {
-        #expect(SearchProbeReport.anchorReading(containsLastTopic: true, offsetsSeconds: [100])
-            .contains("does not page"))
+        #expect(SearchProbeReport.anchorReading(
+            containsFirstTopic: false, containsLastTopic: true, offsetsSeconds: [100]
+        ).contains("does not page"))
     }
 
     @Test func readingPagesInclusiveWhenEveryTimeIsAtOrBeforeTheAnchor() {
-        #expect(SearchProbeReport.anchorReading(containsLastTopic: false, offsetsSeconds: [-10, 0, -1])
-            .contains("pages, inclusive"))
+        #expect(SearchProbeReport.anchorReading(
+            containsFirstTopic: false, containsLastTopic: false, offsetsSeconds: [-10, 0, -1]
+        ).contains("pages, inclusive"))
     }
 
     @Test func readingIsInconclusiveWithNoMessages() {
-        #expect(SearchProbeReport.anchorReading(containsLastTopic: false, offsetsSeconds: [])
-            .contains("inconclusive"))
+        #expect(SearchProbeReport.anchorReading(
+            containsFirstTopic: false, containsLastTopic: false, offsetsSeconds: []
+        ).contains("inconclusive"))
     }
 
     @Test func readingIsInconclusiveWhenATimeIsAfterTheAnchorButContainsLastTopicIsFalse() {
-        #expect(SearchProbeReport.anchorReading(containsLastTopic: false, offsetsSeconds: [-10, 5])
-            .contains("inconclusive"))
+        #expect(SearchProbeReport.anchorReading(
+            containsFirstTopic: false, containsLastTopic: false, offsetsSeconds: [-10, 5]
+        ).contains("inconclusive"))
+    }
+
+    /// Fix round 1, review finding 1: a small conversation that comes back
+    /// whole (`contains_first_topic` and `contains_last_topic` both true) is
+    /// not evidence either way - both readings predict exactly that - so it
+    /// must not read as "does not page" even though `containsLastTopic`
+    /// alone is true. This is the test that was red against the old
+    /// two-parameter `anchorReading` (see the fix report).
+    @Test func readingIsInconclusiveWhenTheWholeConversationCameBackInOnePage() {
+        let reading = SearchProbeReport.anchorReading(
+            containsFirstTopic: true, containsLastTopic: true, offsetsSeconds: [-10, 5]
+        )
+        #expect(reading.contains("inconclusive"))
+        #expect(!reading.contains("does not page"))
+    }
+
+    /// Guard check: with only `containsLastTopic` true (not `containsFirstTopic`
+    /// too), the page reached the newest topic without reaching the oldest -
+    /// real asymmetric evidence, not the whole-conversation case, so this
+    /// must still read "does not page".
+    @Test func readingStillDoesNotPageWhenOnlyContainsLastTopicIsTrue() {
+        #expect(SearchProbeReport.anchorReading(
+            containsFirstTopic: false, containsLastTopic: true, offsetsSeconds: [100]
+        ).contains("does not page"))
     }
 
     // MARK: - Summarizing a response

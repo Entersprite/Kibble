@@ -121,7 +121,14 @@ public enum SearchHitMapping {
     /// `Conversation.ID` by hand - `ChannelEventMapping.conversationID(_:)`
     /// stays the one place that prefix is spelled; this only ever *checks*
     /// the prefix, against a string the hit already carries.
-    private static func groupReference(_ value: PBLiteValue?) -> GroupId? {
+    ///
+    /// Not `private`: `SearchProbeReport+Anchor.swift`'s
+    /// `fallbackGroupID(fromRawHit0:)` calls this directly too (fix round 1,
+    /// review finding 2), so there is one rule for what a group reference
+    /// looks like rather than two that can drift apart - the first draft of
+    /// that fallback duplicated this check and silently dropped the space
+    /// branch's `items.count >= 3 && items[2] == 2` requirement.
+    static func groupReference(_ value: PBLiteValue?) -> GroupId? {
         guard let value, case let .array(items) = value, items.count >= 2,
               let prefixed = items[0].stringValue, let rawID = items[1].stringValue, !rawID.isEmpty
         else { return nil }
