@@ -47,8 +47,16 @@ actor RecordingBackend: ChatBackend {
     private var holdingUploads = false
     private var heldUploads: [CheckedContinuation<Void, Never>] = []
 
-    init(world: FixtureWorld = .minimal, capabilities: Capabilities = .fixture, directory: [Member] = []) {
-        inner = FakeBackend(world: world, capabilities: capabilities, directory: directory)
+    init(
+        world: FixtureWorld = .minimal, capabilities: Capabilities = .fixture,
+        directory: [Member] = [], pageSize: Int = 30
+    ) {
+        inner = FakeBackend(
+            world: world,
+            capabilities: capabilities,
+            pageSize: pageSize,
+            directory: directory
+        )
         self.capabilities = capabilities
     }
 
@@ -269,15 +277,31 @@ actor RecordingBackend: ChatBackend {
         try await inner.loadConversations()
     }
 
+    /// Makes every later `loadMessages` forward `before: nil` regardless of
+    /// what it is asked for - the shape of the real `LocalBridgeBackend`,
+    /// which always answers the newest page (search spec review, Focus 1):
+    /// `loadHistory`'s no-progress exit is the path production takes.
+    private var ignoringHistoryCursor = false
+
+    func ignoreHistoryCursor(_ ignore: Bool) {
+        ignoringHistoryCursor = ignore
+    }
+
+    var holdingHistory = false // `holdHistory(_:)`, in +History
+    nonisolated let abortableHistory = AbortableHold()
+
     func loadMessages(
         in conversation: Conversation.ID,
         before: Message.ID?
     ) async throws -> [Message] {
         loadMessagesCalls += 1
+        if holdingHistory {
+            try await abortableHistory.wait()
+        }
         if failingHistory {
             throw ChatError.notAuthenticated
         }
-        return try await inner.loadMessages(in: conversation, before: before)
+        return try await inner.loadMessages(in: conversation, before: ignoringHistoryCursor ? nil : before)
     }
 
     func uploadAttachment(
@@ -313,74 +337,64 @@ actor RecordingBackend: ChatBackend {
 
     // MARK: - Threads (threads spec §4.3)
 
+    //
+    // Not `private`/`private(set)`: the thread calls live in
+    // `RecordingBackend+Threads.swift`, which needs to mutate them.
+
     /// Every `loadThread` call's thread, in order.
-    private(set) var threadLoads: [MessageThread.ID] = []
+    var threadLoads: [MessageThread.ID] = []
     /// Every `setThreadFollowed` call's value, in order.
-    private(set) var followRequests: [Bool] = []
-    private(set) var followedThreadLoads = 0
+    var followRequests: [Bool] = []
+    var followedThreadLoads = 0
     /// Scripted per test and never forwarded: the fixture's own threads are
     /// FixtureBackend's subject, and these suites must say exactly what a
     /// page holds.
-    private var threadPages: [MessageThread.ID: [Message]] = [:]
-    private var followedAnswer: [Message] = []
-    private var failingThreadCalls = false
-    private var holdingThreadCalls = false
-    private var heldThreadCalls: [CheckedContinuation<Void, Never>] = []
+    var threadPages: [MessageThread.ID: [Message]] = [:]
+    var followedAnswer: [Message] = []
+    var failingThreadCalls = false
+    var holdingThreadCalls = false
+    var heldThreadCalls: [CheckedContinuation<Void, Never>] = []
 
-    func answerThread(_ thread: MessageThread.ID, with page: [Message]) {
-        threadPages[thread] = page
+    // MARK: - Messages search (search spec §3)
+
+    struct RecordedSearch: Equatable, Sendable {
+        let query: MessageSearchQuery
+        let cursor: MessageSearchCursor?
     }
 
-    func answerFollowedThreads(with messages: [Message]) {
-        followedAnswer = messages
+    private(set) var messageSearches: [RecordedSearch] = []
+    private var holdingMessageSearches = false
+    private var scriptedSearchPages: [MessageSearchPage]?
+    private var failingMessageSearches = false
+    /// Held message searches; a canceled one throws, as the wire's does.
+    nonisolated let abortableMessageSearches = AbortableHold()
+
+    func holdMessageSearches(_ hold: Bool) {
+        holdingMessageSearches = hold
     }
 
-    /// Makes every later thread request record itself and then throw.
-    func failThreadCalls(_ fail: Bool) {
-        failingThreadCalls = fail
+    func failMessageSearches(_ fail: Bool) {
+        failingMessageSearches = fail
     }
 
-    /// Makes every later thread request record itself, then wait for
-    /// `releaseHeldThreadCall()`: a request asked and not yet answered.
-    func holdThreadCalls(_ hold: Bool) {
-        holdingThreadCalls = hold
+    /// Answers with these pages instead of the fake's: page `n` for cursor `"n"`.
+    func scriptMessageSearch(_ pages: [MessageSearchPage]) {
+        scriptedSearchPages = pages
     }
 
-    var heldThreadCallCount: Int {
-        heldThreadCalls.count
-    }
-
-    /// Releases the oldest held thread request, if any.
-    func releaseHeldThreadCall() {
-        guard !heldThreadCalls.isEmpty else { return }
-        heldThreadCalls.removeFirst().resume()
-    }
-
-    func loadThread(_ thread: MessageThread.ID, in _: Conversation.ID) async throws -> [Message] {
-        threadLoads.append(thread)
-        try await threadCallGate()
-        return threadPages[thread] ?? []
-    }
-
-    func setThreadFollowed(_ followed: Bool, thread _: MessageThread.ID, in _: Conversation.ID) async throws {
-        followRequests.append(followed)
-        try await threadCallGate()
-    }
-
-    func loadFollowedThreads() async throws -> [Message] {
-        followedThreadLoads += 1
-        try await threadCallGate()
-        return followedAnswer
-    }
-
-    /// Recording happens before this, in the same actor turn, so a test that
-    /// saw the call recorded knows it has already passed the hold check.
-    private func threadCallGate() async throws {
-        if holdingThreadCalls {
-            await withCheckedContinuation { heldThreadCalls.append($0) }
+    func searchMessages(_ query: MessageSearchQuery, after cursor: MessageSearchCursor?) async throws
+        -> MessageSearchPage {
+        messageSearches.append(RecordedSearch(query: query, cursor: cursor))
+        if holdingMessageSearches {
+            try await abortableMessageSearches.wait()
         }
-        if failingThreadCalls {
-            throw ChatError.server(status: 500, message: "the thread call failed")
+        if failingMessageSearches {
+            throw ChatError.server(status: 500, message: "the search failed")
         }
+        if let scripted = scriptedSearchPages {
+            let index = cursor.flatMap { Int($0.rawValue) } ?? 0
+            return scripted.indices.contains(index) ? scripted[index] : MessageSearchPage()
+        }
+        return try await inner.searchMessages(query, after: cursor)
     }
 }

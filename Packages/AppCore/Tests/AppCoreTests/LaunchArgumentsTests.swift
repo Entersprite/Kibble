@@ -34,6 +34,10 @@ struct LaunchArgumentsTests {
         #expect(LaunchArguments.parsing(["Kibble", "--probe=edit"]).probe == .edit)
     }
 
+    @Test func theSearchProbeIsParsed() {
+        #expect(LaunchArguments.parsing(["Kibble", "--probe=search"]).probe == .search)
+    }
+
     /// `--probe=appnap` is a different kind of flag: it does not short-circuit
     /// the launch into `.report`, it instruments a launch that proceeds
     /// normally. Conflating the two would stop the app ever starting under it.

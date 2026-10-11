@@ -30,7 +30,10 @@ struct ThreadPanelScrollTests {
     @Test func aTargetOnceThenTheNewest() {
         let opened = panel(target: "r-1")
         #expect(ThreadPanelScroll.destination(panel: opened, honored: nil) == .message(Message.ID("r-1")))
-        let afterwards = ThreadPanelScroll.destination(panel: opened, honored: Message.ID("r-1"))
+        let afterwards = ThreadPanelScroll.destination(
+            panel: opened,
+            honored: TranscriptScroll.Request(id: Message.ID("r-1"))
+        )
         #expect(afterwards == .newest(Message.ID("r-2")))
     }
 }

@@ -86,4 +86,20 @@ struct CapabilitiesTests {
         let decoded = try JSONDecoder().decode(Capabilities.self, from: Data("{}".utf8))
         #expect(decoded.canMentionNonMembers == false)
     }
+
+    @Test func aMissingCanSearchMessagesDecodesAsFalse() throws {
+        let decoded = try Wire.decode(Capabilities.self, from: "{}")
+        #expect(decoded.canSearchMessages == false)
+        #expect(decoded.messageSearchFilters.isEmpty)
+    }
+
+    /// A `Set`'s order changes from run to run; the wire's must not.
+    @Test func searchFiltersAreEncodedSortedAndUnknownOnesSurvive() throws {
+        let capabilities = Capabilities(
+            canSearchMessages: true, messageSearchFilters: [.mentionsMe, .from, .unknown("hasPoll")]
+        )
+        let json = try Wire.json(capabilities)
+        #expect(json.contains(#""messageSearchFilters":["from","hasPoll","mentionsMe"]"#))
+        #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
+    }
 }

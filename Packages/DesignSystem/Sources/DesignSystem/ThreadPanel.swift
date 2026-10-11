@@ -4,8 +4,13 @@ import SwiftUI
 /// Where the panel scrolls, the transcript's rule on the panel's messages
 /// (`TranscriptScroll`): a reply it was opened at, once, else the newest.
 enum ThreadPanelScroll {
-    static func destination(panel: ThreadPanelState, honored: Message.ID?) -> TranscriptScroll.Destination? {
-        TranscriptScroll.destination(messages: panel.messages, target: panel.scrollTarget, honoured: honored)
+    static func destination(
+        panel: ThreadPanelState, honored: TranscriptScroll.Request?
+    ) -> TranscriptScroll.Destination? {
+        TranscriptScroll.destination(
+            messages: panel.messages, target: panel.scrollTarget, generation: panel.scrollGeneration,
+            honoured: honored
+        )
     }
 }
 
@@ -187,7 +192,7 @@ struct ThreadPanelList: View {
     let actions: ChatSceneActions
     let own: (Message) -> OwnMessageHandlers?
     /// The reply this panel last scrolled to, so it is honored once.
-    @State private var honored: Message.ID?
+    @State private var honored: TranscriptScroll.Request?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -208,7 +213,7 @@ struct ThreadPanelList: View {
             .onChange(of: TranscriptScroll.Trigger(panel), initial: true) {
                 switch ThreadPanelScroll.destination(panel: panel, honored: honored) {
                 case let .message(id)?:
-                    honored = id
+                    honored = TranscriptScroll.Request(id: id, generation: panel.scrollGeneration)
                     proxy.scrollTo(id, anchor: .center)
                 case let .newest(id)?:
                     proxy.scrollTo(id, anchor: .bottom)

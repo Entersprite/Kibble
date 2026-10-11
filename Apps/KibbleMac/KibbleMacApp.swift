@@ -91,6 +91,24 @@ struct KibbleMacApp: App {
                 }
                 .disabled(!environment.canSignOut)
             }
+            // Search (search spec §1.1): ⌘F, as in Messages, and ⌘G to step.
+            CommandGroup(after: .textEditing) {
+                Button("Search…") {
+                    environment.showSearch()
+                }
+                .keyboardShortcut("f")
+                .disabled(!environment.canSearch)
+                Button("Next Result") {
+                    environment.stepSearch(1)
+                }
+                .keyboardShortcut("g")
+                .disabled(!environment.canStepSearch)
+                Button("Previous Result") {
+                    environment.stepSearch(-1)
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(!environment.canStepSearch)
+            }
         }
 
         MenuBarExtra {

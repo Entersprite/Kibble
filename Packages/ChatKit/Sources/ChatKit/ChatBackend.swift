@@ -136,6 +136,13 @@ public protocol ChatBackend: Sendable {
     /// method**, for the reason `attachmentData(_:size:)` gives.
     func searchPeople(_ query: String) async throws -> [Member]
 
+    /// A page of messages matching `query` (search spec §2). **A request, not
+    /// a command**: the person waits for the answer, and the hits are not
+    /// stored. **A requirement, not only an extension method**, for the reason
+    /// `attachmentData(_:size:)` gives.
+    func searchMessages(_ query: MessageSearchQuery, after cursor: MessageSearchCursor?) async throws
+        -> MessageSearchPage
+
     /// Whether `member` is in `conversation` now. A requirement for the same
     /// reason.
     func membership(of member: Member.ID, in conversation: Conversation.ID) async throws
@@ -226,6 +233,15 @@ public extension ChatBackend {
     /// no outside people, the direction `Capabilities` defaults in.
     func searchPeople(_: String) async throws -> [Member] {
         throw ChatError.unsupported(capability: "canMentionNonMembers")
+    }
+
+    /// Refuses, so a backend that has not thought about search offers none,
+    /// the direction `Capabilities` defaults in.
+    func searchMessages(
+        _: MessageSearchQuery,
+        after _: MessageSearchCursor?
+    ) async throws -> MessageSearchPage {
+        throw ChatError.unsupported(capability: "canSearchMessages")
     }
 
     /// Refuses, for the same reason.

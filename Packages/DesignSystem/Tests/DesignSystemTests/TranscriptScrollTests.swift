@@ -24,7 +24,8 @@ struct TranscriptScrollTests {
 
     @Test func anHonouredTargetGivesWayToTheNewest() {
         #expect(TranscriptScroll.destination(
-            messages: messages, target: Message.ID("m:1"), honoured: Message.ID("m:1")
+            messages: messages, target: Message.ID("m:1"),
+            honoured: TranscriptScroll.Request(id: Message.ID("m:1"))
         ) == .newest(Message.ID("m:3")))
     }
 
@@ -37,6 +38,32 @@ struct TranscriptScrollTests {
         #expect(TranscriptScroll.destination(messages: messages, target: nil, honoured: nil)
             == .newest(Message.ID("m:3")))
         #expect(TranscriptScroll.destination(messages: [], target: Message.ID("m:1"), honoured: nil) == nil)
+    }
+
+    /// Search fix wave, finding 3: the same hit opened again is a newer
+    /// request, so it is scrolled to again; the same open is honoured once.
+    @Test func theSameTargetOpenedAgainIsScrolledToAgain() {
+        let honoured = TranscriptScroll.Request(id: Message.ID("m:1"), generation: 1)
+        #expect(TranscriptScroll.destination(
+            messages: messages, target: Message.ID("m:1"), generation: 2, honoured: honoured
+        ) == .message(Message.ID("m:1")))
+        #expect(TranscriptScroll.destination(
+            messages: messages, target: Message.ID("m:1"), generation: 1, honoured: honoured
+        ) == .newest(Message.ID("m:3")))
+    }
+
+    /// Only the generation moves when the same hit opens again, so it alone
+    /// must fire the scroll and the mark.
+    @Test func aNewOpenOfTheSameTargetChangesBothTriggers() {
+        var state = ChatSceneState(
+            messages: messages, scrollTarget: Message.ID("m:1"), highlightedMessage: Message.ID("m:1"),
+            searchOpenGeneration: 1
+        )
+        let scroll = TranscriptScroll.Trigger(state)
+        let mark = TranscriptMarkTrigger(state)
+        state.searchOpenGeneration = 2
+        #expect(TranscriptScroll.Trigger(state) != scroll)
+        #expect(TranscriptMarkTrigger(state) != mark)
     }
 
     /// The trigger must change when a target is set on messages already

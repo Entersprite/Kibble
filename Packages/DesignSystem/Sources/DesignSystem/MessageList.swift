@@ -5,17 +5,28 @@ import SwiftUI
 /// is scrolled to once, and after that the newest message is again what
 /// arrivals scroll to. Pure, so each case is a test.
 enum TranscriptScroll {
-    /// What `onChange` watches: the newest message, the target, and whether
-    /// the target has loaded. So a target that arrives after the newest
-    /// still fires.
+    /// A target as it was asked for: the message, and the open that asked
+    /// (`ChatSceneState.searchOpenGeneration`). The same message asked for
+    /// again by a newer open is a new request, so it is honoured again.
+    struct Request: Equatable {
+        let id: Message.ID
+        var generation = 0
+    }
+
+    /// What `onChange` watches: the newest message, the target, its
+    /// generation, and whether the target has loaded. So a target that
+    /// arrives after the newest still fires, and so does the same target
+    /// opened again.
     struct Trigger: Equatable {
         let newest: Message.ID?
         let target: Message.ID?
+        let generation: Int
         let targetLoaded: Bool
 
         init(_ state: ChatSceneState) {
             newest = state.messages.last?.id
             target = state.scrollTarget
+            generation = state.searchOpenGeneration
             targetLoaded = state.scrollTarget.map { id in state.messages.contains { $0.id == id } } ?? false
         }
 
@@ -23,6 +34,7 @@ enum TranscriptScroll {
         init(_ panel: ThreadPanelState) {
             newest = panel.messages.last?.id
             target = panel.scrollTarget
+            generation = panel.scrollGeneration
             targetLoaded = panel.scrollTarget.map { id in panel.messages.contains { $0.id == id } } ?? false
         }
     }
@@ -32,8 +44,11 @@ enum TranscriptScroll {
         case newest(Message.ID)
     }
 
-    static func destination(messages: [Message], target: Message.ID?, honoured: Message.ID?) -> Destination? {
-        if let target, target != honoured, messages.contains(where: { $0.id == target }) {
+    static func destination(
+        messages: [Message], target: Message.ID?, generation: Int = 0, honoured: Request?
+    ) -> Destination? {
+        if let target, Request(id: target, generation: generation) != honoured,
+           messages.contains(where: { $0.id == target }) {
             return .message(target)
         }
         return messages.last.map { .newest($0.id) }
@@ -72,7 +87,14 @@ public struct MessageList: View {
     /// `@State` is enough: opening a mention always passes through the
     /// Mentions pane, which removes this view, so a fresh list has honoured
     /// nothing.
-    @State private var honoured: Message.ID?
+    @State private var honoured: TranscriptScroll.Request?
+
+    /// The message a search opened, while its two-second tint is showing
+    /// (search spec §1.5). `marked` is set once per open, so a later render
+    /// of the same highlight does not restart the mark, and opening it again
+    /// does.
+    @State private var marked: TranscriptScroll.Request?
+    @State private var markOn = false
 
     public init(
         state: ChatSceneState,
@@ -110,7 +132,8 @@ public struct MessageList: View {
                             loadAttachment: loadAttachment, openAttachment: openAttachment,
                             loadRemoteImage: loadRemoteImage,
                             downloads: downloads, attachmentFiles: attachmentFiles,
-                            reactions: reactions, own: own, openThread: threads?.open
+                            reactions: reactions, own: own, openThread: threads?.open,
+                            marked: marked?.id, markOn: markOn
                         )
                         .id(message.id)
                     }
@@ -122,10 +145,11 @@ public struct MessageList: View {
             }
             .onChange(of: TranscriptScroll.Trigger(state), initial: true) {
                 switch TranscriptScroll.destination(
-                    messages: state.messages, target: state.scrollTarget, honoured: honoured
+                    messages: state.messages, target: state.scrollTarget,
+                    generation: state.searchOpenGeneration, honoured: honoured
                 ) {
                 case let .message(id)?:
-                    honoured = id
+                    honoured = TranscriptScroll.Request(id: id, generation: state.searchOpenGeneration)
                     proxy.scrollTo(id, anchor: .center)
                 case let .newest(id)?:
                     withAnimation(.easeOut(duration: 0.2)) {
@@ -134,6 +158,22 @@ public struct MessageList: View {
                 case nil:
                     break
                 }
+            }
+            .task(id: TranscriptMarkTrigger(state)) {
+                let request = state.highlightedMessage.map {
+                    TranscriptScroll.Request(id: $0, generation: state.searchOpenGeneration)
+                }
+                guard TranscriptMark.shouldMark(request, in: state.messages, marked: marked) else {
+                    return
+                }
+                let justMarked = request
+                marked = justMarked
+                await TranscriptMark.fade(
+                    on: { withAnimation(.easeIn(duration: 0.15)) { markOn = true } },
+                    sleep: { try await Task.sleep(for: .seconds(2)) },
+                    isStillMarked: { marked == justMarked },
+                    off: { withAnimation(.easeOut(duration: 0.6)) { markOn = false } }
+                )
             }
         }
         .overlay {
@@ -148,224 +188,18 @@ public struct MessageList: View {
     }
 }
 
-struct MessageBubble: View {
-    let message: Message
-    let state: ChatSceneState
-    var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
-    var openAttachment: ((Attachment) async throws -> URL)?
-    var loadRemoteImage: ((URL) async throws -> Data)?
-    var downloads: [String: AttachmentDownloadState] = [:]
-    var attachmentFiles: AttachmentFileActions?
-    var reactions: ReactionActions?
-    var own: OwnMessageHandlers?
-    var openThread: ((MessageThread.ID) -> Void)?
+/// What `MessageList`'s mark watches: the message a search opened, the open
+/// that opened it, and whether the transcript has loaded it yet. `loaded` is
+/// the count rather than the message ids, so the trigger stays cheap to
+/// compare and still fires once the target's page lands.
+struct TranscriptMarkTrigger: Equatable {
+    let target: Message.ID?
+    let generation: Int
+    let loaded: Int
 
-    /// Whether the full emoji picker is open for this message: from either
-    /// menu's "More Emoji…" or the row's "+" (reactions spec §4.1-§4.3).
-    @State private var picking = false
-
-    /// The transcript's, which `MessageList` sets to `LinkPolicy.openURLAction`.
-    @Environment(\.openURL) private var openURL
-
-    private var parts: AttachmentLayout.Parts {
-        AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
+    init(_ state: ChatSceneState) {
+        target = state.highlightedMessage
+        generation = state.searchOpenGeneration
+        loaded = state.messages.count
     }
-
-    private var ownItems: OwnMessageMenuItems? {
-        own?.items(for: message)
-    }
-
-    private var isMine: Bool {
-        message.sender == state.me
-    }
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if isMine {
-                Spacer(minLength: 60)
-            }
-            if !isMine {
-                Avatar(
-                    member: message.sender,
-                    directory: state.directory,
-                    size: 26,
-                    presence: Display.presence(
-                        of: message.sender, directory: state.directory, me: state.me,
-                        connection: state.connection
-                    )
-                )
-            }
-
-            VStack(alignment: isMine ? .trailing : .leading, spacing: 2) {
-                if isMine {
-                    // An outgoing bubble has no sender name to sit beside, so
-                    // the stamp stands alone. It is shown at all because a
-                    // conversation where only one side is dated makes the
-                    // other side's times unreadable as a sequence.
-                    timestamp
-                } else {
-                    HStack(spacing: 6) {
-                        Text(Display.name(of: message.sender, in: state.directory))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        timestamp
-                    }
-                }
-                if message.isDeleted {
-                    bubble
-                } else {
-                    // Pictures above the words, as Messages draws them, and
-                    // files last; an image-only message has no empty bubble.
-                    if let loadAttachment {
-                        ForEach(parts.images, id: \.id) { image in
-                            AttachmentImage(attachment: image, load: loadAttachment, open: openAttachment)
-                        }
-                    }
-                    if parts.showsText {
-                        bubble
-                    }
-                    ForEach(parts.files, id: \.id) {
-                        AttachmentChip(
-                            attachment: $0,
-                            state: downloads[$0.id] ?? .idle,
-                            actions: attachmentFiles
-                        )
-                    }
-                    // Link cards, each with the row's menu plus Open and Copy Link
-                    // (links spec §7.3, §7.5).
-                    ForEach(parts.previews, id: \.url) { link in
-                        LinkPreviewCard(link: link, load: loadRemoteImage)
-                            .modifier(ReactionMenu(
-                                message: message, actions: reactions, own: ownItems,
-                                onMore: { picking = true }, link: link.url
-                            ))
-                    }
-                    ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
-                        AppCardView(card: card, load: loadRemoteImage)
-                    }
-                }
-                if !message.reactions.isEmpty {
-                    ReactionRow(
-                        reactions: message.reactions,
-                        toggle: reactions.map { actions in
-                            { choice, add in actions.toggle(message.id, choice, add) }
-                        },
-                        loadImage: reactions?.customImage,
-                        onAdd: reactions == nil || message.isDeleted ? nil : { picking = true }
-                    )
-                }
-                if let mark = ThreadMark(
-                    thread: state.threads.summaries[message.threadID],
-                    message: message,
-                    directory: state.directory,
-                    open: openThread.map { open in { open(message.threadID) } }
-                ) {
-                    mark
-                }
-            }
-            .modifier(ReactionMenu(message: message, actions: reactions, own: ownItems) { picking = true })
-            .popover(isPresented: $picking, arrowEdge: .bottom) {
-                if let reactions {
-                    EmojiPicker(reactions: message.reactions, actions: reactions) { choice, add in
-                        reactions.toggle(message.id, choice, add)
-                        picking = false
-                    }
-                }
-            }
-            if !isMine {
-                Spacer(minLength: 60)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    /// The date is included only once it is not today's - see
-    /// `Display.timestamp(of:now:calendar:locale:)`.
-    ///
-    /// `now` is left at its default, so it is read afresh on every render.
-    /// That means a "Yesterday" label written just before midnight stays
-    /// wrong until something re-renders the row; a timer invalidating the
-    /// whole list once a minute would cost more than the staleness does, and
-    /// Apple's own apps behave the same way.
-    private var timestamp: some View {
-        Text(Display.timestamp(of: message.createdAt))
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-    }
-
-    @ViewBuilder private var bubble: some View {
-        if message.isDeleted {
-            // A tombstone renders as a tombstone. It keeps its place because
-            // the protocol keeps sending it and a hole would break paging.
-            Text("Message deleted")
-                .font(.callout.italic())
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(.quaternary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                )
-        } else {
-            textBubble
-                .background(isMine ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quinary))
-                .foregroundStyle(isMine ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-        }
-    }
-
-    private var editedLabel: some View {
-        Text("edited")
-            .font(.caption2)
-            .foregroundStyle(isMine ? .white.opacity(0.7) : .secondary)
-    }
-
-    #if os(macOS)
-        /// The text view is the bubble, padding included, so a right-click
-        /// anywhere on it opens the native menu with the reaction row (native
-        /// text menu spec §2). With an "edited" label the label takes the
-        /// bottom padding, and the bubble's size is what it was.
-        private var textBubble: some View {
-            VStack(alignment: .leading, spacing: 2) {
-                MessageTextView(
-                    text: MessageTextAttributes.attributed(
-                        message.text, mentions: message.mentions, links: message.links, me: state.me,
-                        inOwnBubble: isMine
-                    ),
-                    insets: NSEdgeInsets(
-                        top: 7,
-                        left: 12,
-                        bottom: message.editedAt == nil ? 7 : 0,
-                        right: 12
-                    ),
-                    message: message,
-                    actions: reactions,
-                    onMore: { picking = true },
-                    own: ownItems,
-                    inOwnBubble: isMine,
-                    open: { openURL($0) }
-                )
-                if message.editedAt != nil {
-                    editedLabel
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 7)
-                }
-            }
-        }
-    #else
-        private var textBubble: some View {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(MentionHighlight.attributed(
-                    message.text, mentions: message.mentions, links: message.links, me: state.me,
-                    inOwnBubble: isMine
-                ))
-                .textSelection(.enabled)
-                if message.editedAt != nil {
-                    editedLabel
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-        }
-    #endif
 }

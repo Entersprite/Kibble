@@ -113,4 +113,13 @@ struct AttachmentDataTests {
         )
         #expect(try Data(contentsOf: destination) == Data("x".utf8))
     }
+
+    /// Through `any ChatBackend`, the way `SyncEngine` holds it: a requirement,
+    /// so the refusal is the default's and not a static dispatch's.
+    @Test func searchMessagesRefusesByDefault() async {
+        let backend: any ChatBackend = BackendWithoutAttachments()
+        await #expect(throws: ChatError.unsupported(capability: "canSearchMessages")) {
+            _ = try await backend.searchMessages(MessageSearchQuery(text: "x"), after: nil)
+        }
+    }
 }
