@@ -11,6 +11,12 @@ import SwiftUI
 public struct SearchOverlay: View {
     let state: ChatSceneState
     let actions: SearchActions
+    /// The From chip's people, everyone named in the directory, by name; and
+    /// every conversation's title for the hits' "in …". Built here rather than
+    /// in `body`, so a hover or a key that redraws only this view does not
+    /// sort the directory again.
+    private let filterPeople: [Member]
+    private let conversationTitles: [Conversation.ID: String]
 
     @State private var text: String
     /// What `actions.textChanged` was last told, so a text set here alongside
@@ -24,6 +30,16 @@ public struct SearchOverlay: View {
         self.actions = actions
         _text = State(initialValue: state.search.query.text)
         _sent = State(initialValue: state.search.query.text)
+        let directory = state.directory
+        filterPeople = directory.values
+            .filter { $0.kind == .human && $0.displayName != nil }
+            .map { (member: $0, name: Display.name(of: $0.id, in: directory)) }
+            .sorted { $0.name < $1.name }
+            .map(\.member)
+        conversationTitles = Dictionary(
+            state.conversations.map { ($0.id, Display.title(of: $0, directory: directory, me: state.me)) },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     private var search: SearchSceneState {
@@ -37,31 +53,33 @@ public struct SearchOverlay: View {
     public var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
+                // Not under the toolbar's band, which takes no clicks.
                 Color.black.opacity(0.18)
-                    .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { actions.hide() }
                 panel
-                    .frame(width: max(0, min(680, geo.size.width - 80)))
-                    .frame(maxHeight: max(0, min(560, geo.size.height - 60)), alignment: .top)
+                    .frame(width: SearchOverlayLayout.panelWidth(for: geo.size.width))
+                    .frame(
+                        maxHeight: SearchOverlayLayout.panelMaxHeight(for: geo.size.height),
+                        alignment: .top
+                    )
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 24)
+                    .padding(.top, SearchOverlayLayout.topInset)
             }
         }
         .onAppear {
-            selection = search.focus.map(SearchRow.message) ?? SearchRows.rows(search).first
+            selection = SearchRows.initialSelection(search)
             DispatchQueue.main.async { focused = true }
         }
         .onChange(of: text) {
+            // Typing drops the pick, so Return searches what was typed.
+            selection = nil
             guard text != sent else { return }
             sent = text
             actions.textChanged(text)
         }
         .onChange(of: SearchRows.rows(search)) { _, rows in
-            if let selection, rows.contains(selection) {
-                return
-            }
-            selection = rows.first
+            selection = SearchRows.kept(selection, in: rows)
         }
     }
 
@@ -85,16 +103,6 @@ public struct SearchOverlay: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
-    }
-
-    /// The From chip's people: everyone named in the directory, by name.
-    private var filterPeople: [Member] {
-        state.directory.values
-            .filter { $0.kind == .human && $0.displayName != nil }
-            .sorted { Display.name(of: $0.id, in: state.directory) < Display.name(
-                of: $1.id,
-                in: state.directory
-            ) }
     }
 
     // MARK: The field
@@ -134,10 +142,7 @@ public struct SearchOverlay: View {
     }
 
     private func move(_ step: Int) {
-        let rows = SearchRows.rows(search)
-        guard !rows.isEmpty else { return }
-        let current = selection.flatMap { rows.firstIndex(of: $0) } ?? (step > 0 ? -1 : rows.count)
-        selection = rows[max(0, min(rows.count - 1, current + step))]
+        selection = SearchRows.next(after: SearchRows.rows(search), selected: selection, by: step)
     }
 
     /// Sets the text and the filters together: the text first, so the query
@@ -151,7 +156,12 @@ public struct SearchOverlay: View {
 
     private func open(_ row: SearchRow) {
         switch row {
-        case let .recent(recent): text = recent
+        case let .recent(recent):
+            // Searches at once: the text first, so the submit carries it.
+            sent = recent
+            text = recent
+            actions.textChanged(recent)
+            actions.submit()
         case let .conversation(id): actions.openConversation(id)
         case let .person(id): actions.openPerson(id)
         case let .message(id): actions.openMessage(id)
@@ -222,7 +232,10 @@ public struct SearchOverlay: View {
                 }
             }
         }
-        messages
+        // Below the model's floor nothing is searched, so nothing is said.
+        if SearchRows.searchesMessages(search.query) {
+            messages
+        }
     }
 
     private func messagesFrom(_ person: Member) -> (() -> Void)? {
@@ -260,14 +273,6 @@ public struct SearchOverlay: View {
                 .id("more-\(search.hits.count)")
                 .onAppear { actions.loadMore() }
         }
-    }
-
-    private var conversationTitles: [Conversation.ID: String] {
-        Dictionary(
-            state.conversations
-                .map { ($0.id, Display.title(of: $0, directory: state.directory, me: state.me)) },
-            uniquingKeysWith: { first, _ in first }
-        )
     }
 
     private func note(_ text: String) -> some View {

@@ -39,9 +39,69 @@ struct SearchOverlayTests {
         #expect(DateChoice.any.bound(now: now) == nil)
     }
 
+    // MARK: Selection: nothing until a row is picked, so Return searches
+
+    static let rows: [SearchRow] = [
+        .conversation(Conversation.ID("c")), .person(Member.ID("p")), .message(Message.ID("1"))
+    ]
+
+    @Test func typingLeavesNothingSelected() {
+        // The overlay clears the pick on a text change; the rows that answer
+        // the new text keep it cleared.
+        #expect(SearchRows.kept(nil, in: Self.rows) == nil)
+        #expect(SearchRows.initialSelection(SearchSceneState(
+            query: MessageSearchQuery(text: "de"),
+            hits: [Self.message("1")]
+        )) == nil)
+    }
+
+    @Test func downFromNothingSelectsTheFirstRow() {
+        #expect(SearchRows.next(after: Self.rows, selected: nil, by: 1) == Self.rows[0])
+    }
+
+    @Test func upAndDownStopAtTheEnds() {
+        #expect(SearchRows.next(after: Self.rows, selected: Self.rows[2], by: 1) == Self.rows[2])
+        #expect(SearchRows.next(after: Self.rows, selected: Self.rows[0], by: -1) == Self.rows[0])
+        #expect(SearchRows.next(after: Self.rows, selected: Self.rows[0], by: 1) == Self.rows[1])
+        #expect(SearchRows.next(after: [], selected: nil, by: 1) == nil)
+    }
+
+    @Test func aPickStaysWhileItsRowIsListed() {
+        #expect(SearchRows.kept(Self.rows[1], in: Self.rows) == Self.rows[1])
+        #expect(SearchRows.kept(.person(Member.ID("gone")), in: Self.rows) == nil)
+    }
+
+    @Test func aListedFocusIsSelectedOnOpen() {
+        var search = SearchSceneState(
+            query: MessageSearchQuery(text: "deploy"),
+            hits: [Self.message("1"), Self.message("2")],
+            focus: Message.ID("2")
+        )
+        #expect(SearchRows.initialSelection(search) == .message(Message.ID("2")))
+        search.focus = Message.ID("absent")
+        #expect(SearchRows.initialSelection(search) == nil)
+    }
+
+    @Test func messagesAreSearchedFromTwoCharactersOrAFilter() {
+        #expect(!SearchRows.searchesMessages(MessageSearchQuery(text: "d")))
+        #expect(SearchRows.searchesMessages(MessageSearchQuery(text: "de")))
+        #expect(SearchRows.searchesMessages(MessageSearchQuery(text: "", mentionsMe: true)))
+    }
+
+    // MARK: Layout
+
+    @Test func thePanelIsAtMost680Wide() {
+        #expect(SearchOverlayLayout.panelWidth(for: 1100) == 680)
+    }
+
+    @Test func aNarrowWindowKeeps40PointsEachSide() {
+        #expect(SearchOverlayLayout.panelWidth(for: 600) == 520)
+        #expect(SearchOverlayLayout.panelWidth(for: 50) == 0)
+    }
+
     /// The panel is laid out headless (CLAUDE.md: `NSHostingView` runs headless);
     /// its look is checked on the owner's screen, not here.
-    @Test func thePanelFitsItsWidth() {
+    @Test func theOverlayLaysOutHosted() {
         var state = ChatSceneState()
         state.capabilities = Capabilities(canSearchMessages: true, messageSearchFilters: [.from, .hasLink])
         state.search = SearchSceneState(
@@ -49,12 +109,11 @@ struct SearchOverlayTests {
             query: MessageSearchQuery(text: "deploy"),
             hits: (1 ... 8).map { Self.message(String($0)) }
         )
-        let host = NSHostingView(rootView: SearchOverlay(state: state, actions: .inert).frame(
-            width: 1100,
-            height: 760
-        ))
+        let host = NSHostingView(rootView: SearchOverlay(state: state, actions: .inert))
+        host.frame = NSRect(x: 0, y: 0, width: 1100, height: 760)
         host.layout()
-        #expect(host.fittingSize.width <= 1100)
+        #expect(host.fittingSize.width > 0)
+        #expect(host.fittingSize.height > 0)
     }
 }
 

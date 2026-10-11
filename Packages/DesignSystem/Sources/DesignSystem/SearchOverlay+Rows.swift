@@ -22,6 +22,52 @@ enum SearchRows {
     static func showsRecents(_ search: SearchSceneState) -> Bool {
         search.query.text.trimmingCharacters(in: .whitespaces).isEmpty && !search.query.hasFilters
     }
+
+    /// Whether the query reaches the message search at all: a filter, or two
+    /// characters (the model's floor). Below it the Messages section says nothing.
+    static func searchesMessages(_ query: MessageSearchQuery) -> Bool {
+        query.hasFilters || query.text.trimmingCharacters(in: .whitespaces).count >= 2
+    }
+
+    // MARK: Selection: nothing until the person picks a row, so Return searches
+
+    /// On open: the hit Show All came back to, when it is listed.
+    static func initialSelection(_ search: SearchSceneState) -> SearchRow? {
+        guard let focus = search.focus else { return nil }
+        let row = SearchRow.message(focus)
+        return rows(search).contains(row) ? row : nil
+    }
+
+    /// After the rows change without typing (hits arriving, a filter): the pick
+    /// while its row is still listed, else nothing.
+    static func kept(_ selected: SearchRow?, in rows: [SearchRow]) -> SearchRow? {
+        guard let selected, rows.contains(selected) else { return nil }
+        return selected
+    }
+
+    /// ↑ and ↓: from nothing, ↓ picks the first row and ↑ the last; from a row,
+    /// a step that stops at either end.
+    static func next(after rows: [SearchRow], selected: SearchRow?, by step: Int) -> SearchRow? {
+        guard !rows.isEmpty else { return nil }
+        guard let selected, let index = rows.firstIndex(of: selected) else {
+            return step > 0 ? rows.first : rows.last
+        }
+        return rows[max(0, min(rows.count - 1, index + step))]
+    }
+}
+
+/// The panel's size in the window (the mockup's): at most 680 pt wide and
+/// 560 tall, with 40 pt each side and 60 below kept clear.
+enum SearchOverlayLayout {
+    static let topInset: CGFloat = 24
+
+    static func panelWidth(for width: CGFloat) -> CGFloat {
+        max(0, min(680, width - 80))
+    }
+
+    static func panelMaxHeight(for height: CGFloat) -> CGFloat {
+        max(0, min(560, height - 60))
+    }
 }
 
 struct ConversationHit: View {
@@ -83,11 +129,17 @@ struct PersonHit: View {
     /// `nil` when the backend cannot filter by sender: no button.
     let messagesFrom: (() -> Void)?
 
+    /// A hit from the directory search may not be in `directory` yet, so its
+    /// own name comes first.
+    private var name: String {
+        person.displayName ?? Display.name(of: person.id, in: directory)
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             Avatar(member: person.id, directory: directory, size: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text(SearchPresentation.highlighted(person.displayName ?? person.id.rawValue, words: words))
+                Text(SearchPresentation.highlighted(name, words: words))
                 Text(person.email ?? "").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
