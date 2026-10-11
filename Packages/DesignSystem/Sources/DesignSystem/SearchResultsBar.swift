@@ -7,10 +7,12 @@ enum SearchBarText {
         if bar.isOpening {
             return "Loading older messages…"
         }
-        if bar.unreachable {
-            return "Too far back to open here"
+        let position = "\(bar.index + 1) of \(bar.count)\(bar.hasMore ? "+" : "")"
+        switch bar.unreachable {
+        case .tooFarBack?: return "\(position) · Too far back to open here"
+        case .notInSidebar?: return "\(position) · Can't open this message here"
+        case nil: return position
         }
-        return "\(bar.index + 1) of \(bar.count)\(bar.hasMore ? "+" : "")"
     }
 }
 
@@ -66,9 +68,13 @@ struct SearchResultsBar: View {
 /// When the transcript marks a message a search opened: once, when it is
 /// loaded. Pure, like `TranscriptScroll`.
 enum TranscriptMark {
-    static func shouldMark(_ id: Message.ID?, in messages: [Message], marked: Message.ID?) -> Bool {
-        guard let id, id != marked else { return false }
-        return messages.contains { $0.id == id }
+    /// `request` is the highlight with its open's generation, so the same
+    /// message opened again is marked again.
+    static func shouldMark(
+        _ request: TranscriptScroll.Request?, in messages: [Message], marked: TranscriptScroll.Request?
+    ) -> Bool {
+        guard let request, request != marked else { return false }
+        return messages.contains { $0.id == request.id }
     }
 
     /// The mark's lifecycle: turn on, wait, turn off - unless the wait is

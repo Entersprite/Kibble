@@ -12,16 +12,19 @@ struct SearchResultsBarTests {
             == "1 of 20+")
     }
 
-    @Test func openingAndUnreachableReplaceThePosition() {
+    @Test func openingReplacesThePosition() {
         #expect(SearchBarText.position(SearchBarScene(query: Self.query, index: 0, count: 3, isOpening: true))
             == "Loading older messages…")
+    }
+
+    /// Search fix wave, finding 5: why a hit cannot open, beside where it is.
+    @Test func unreachableSaysWhyBesideThePosition() {
         #expect(SearchBarText.position(SearchBarScene(
-            query: Self.query,
-            index: 0,
-            count: 3,
-            unreachable: true
-        ))
-            == "Too far back to open here")
+            query: Self.query, index: 0, count: 3, unreachable: .tooFarBack
+        )) == "1 of 3 · Too far back to open here")
+        #expect(SearchBarText.position(SearchBarScene(
+            query: Self.query, index: 1, count: 3, hasMore: true, unreachable: .notInSidebar
+        )) == "2 of 3+ · Can't open this message here")
     }
 
     @Test func aMessageIsMarkedOnceWhenItIsThere() {
@@ -29,10 +32,14 @@ struct SearchResultsBarTests {
             id: Message.ID("m"), conversationID: Conversation.ID("c"), threadID: MessageThread.ID("m"),
             sender: Member.ID("s"), text: "x", createdAt: .now
         )
-        #expect(TranscriptMark.shouldMark(message.id, in: [message], marked: nil))
-        #expect(!TranscriptMark.shouldMark(message.id, in: [message], marked: message.id))
-        #expect(!TranscriptMark.shouldMark(message.id, in: [], marked: nil))
+        let first = TranscriptScroll.Request(id: message.id, generation: 1)
+        #expect(TranscriptMark.shouldMark(first, in: [message], marked: nil))
+        #expect(!TranscriptMark.shouldMark(first, in: [message], marked: first))
+        #expect(!TranscriptMark.shouldMark(first, in: [], marked: nil))
         #expect(!TranscriptMark.shouldMark(nil, in: [message], marked: nil))
+        // Search fix wave, finding 3: the same message opened again is marked again.
+        let again = TranscriptScroll.Request(id: message.id, generation: 2)
+        #expect(TranscriptMark.shouldMark(again, in: [message], marked: first))
     }
 
     @Test func theMarkTurnsOnBeforeItsWait() async {

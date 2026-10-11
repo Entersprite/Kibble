@@ -88,6 +88,23 @@ struct SearchOverlayTests {
         #expect(SearchRows.searchesMessages(MessageSearchQuery(text: "", mentionsMe: true)))
     }
 
+    /// Search fix wave, finding 1: the field follows a query text set without
+    /// typing (a person row clears it), and never re-sends what it sent.
+    @Test func theFieldAdoptsTextItDidNotSend() {
+        #expect(SearchRows.adopted("", sent: "alex") == "")
+        #expect(SearchRows.adopted("deploy", sent: "something else") == "deploy")
+        #expect(SearchRows.adopted("alex", sent: "alex") == nil)
+    }
+
+    /// Search fix wave, findings 6 and 7: a spinner while a page is out, a
+    /// retry after a failed one, else the trigger while there is more.
+    @Test func theMoreRowFollowsThePage() {
+        #expect(SearchRows.more(SearchSceneState(isLoadingMore: true, hasMore: true)) == .loading)
+        #expect(SearchRows.more(SearchSceneState(loadMoreFailed: true, hasMore: true)) == .retry)
+        #expect(SearchRows.more(SearchSceneState(hasMore: true)) == .trigger)
+        #expect(SearchRows.more(SearchSceneState()) == nil)
+    }
+
     // MARK: Layout
 
     @Test func thePanelIsAtMost680Wide() {

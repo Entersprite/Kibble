@@ -98,6 +98,9 @@ public struct ChatSceneState: Sendable, Equatable {
     public var search: SearchSceneState
     /// The message the transcript marks once, after a search opened it.
     public var highlightedMessage: Message.ID?
+    /// One more on every hit a search opens, so the same hit opened again
+    /// scrolls and marks again (`TranscriptScroll.Request`).
+    public var searchOpenGeneration: Int
 
     public init(
         conversations: [Conversation] = [],
@@ -127,7 +130,8 @@ public struct ChatSceneState: Sendable, Equatable {
         directoryResults: [Member] = [],
         threads: ThreadSceneState = ThreadSceneState(),
         search: SearchSceneState = SearchSceneState(),
-        highlightedMessage: Message.ID? = nil
+        highlightedMessage: Message.ID? = nil,
+        searchOpenGeneration: Int = 0
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -157,6 +161,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.threads = threads
         self.search = search
         self.highlightedMessage = highlightedMessage
+        self.searchOpenGeneration = searchOpenGeneration
     }
 
     public var selectedConversation: Conversation? {

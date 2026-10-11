@@ -11,15 +11,22 @@ public extension AppEnvironment {
         SearchSceneState(
             isShown: search.isShown, query: search.query, conversations: search.conversations,
             people: search.people, hits: search.hits, isSearching: search.isSearching,
-            isLoadingMore: search.isLoadingMore, hasMore: search.next != nil, failed: search.failed,
-            recents: search.recents, focus: search.focus,
+            isLoadingMore: search.isLoadingMore, loadMoreFailed: search.loadMoreFailed,
+            hasMore: search.next != nil, failed: search.failed, recents: search.recents, focus: search.focus,
             bar: search.bar.map { bar in
                 SearchBarScene(
                     query: bar.query, index: bar.index, count: bar.hits.count, hasMore: bar.next != nil,
-                    isOpening: bar.isOpening, unreachable: bar.unreachable
+                    isOpening: bar.isOpening, unreachable: bar.unreachable.map(unreachable)
                 )
             }
         )
+    }
+
+    private static func unreachable(_ reason: SearchBarState.Unreachable) -> SearchBarScene.Unreachable {
+        switch reason {
+        case .tooFarBack: .tooFarBack
+        case .notInSidebar: .notInSidebar
+        }
     }
 
     /// Offered only while a session runs on a backend that can search.
@@ -49,9 +56,10 @@ public extension AppEnvironment {
         runningModel?.showSearch()
     }
 
-    /// Edit › Next Result and Previous Result (⌘G, ⇧⌘G).
+    /// Edit › Next Result and Previous Result (⌘G, ⇧⌘G): the model's rule,
+    /// which refuses while the overlay is shown.
     var canStepSearch: Bool {
-        runningModel?.search.bar != nil
+        runningModel?.canStepSearch == true
     }
 
     func stepSearch(_ step: Int) {

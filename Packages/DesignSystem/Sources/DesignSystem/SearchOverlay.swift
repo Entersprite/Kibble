@@ -72,11 +72,24 @@ public struct SearchOverlay: View {
             DispatchQueue.main.async { focused = true }
         }
         .onChange(of: text) {
+            guard text != sent else { return }
             // Typing drops the pick, so Return searches what was typed.
             selection = nil
-            guard text != sent else { return }
             sent = text
             actions.textChanged(text)
+        }
+        .onChange(of: search.query.text) { _, modelText in
+            // Set without typing (a person row, ⌘F back to the bar's search):
+            // the field follows, and sends nothing.
+            guard let adopted = SearchRows.adopted(modelText, sent: sent) else { return }
+            sent = adopted
+            text = adopted
+        }
+        .onChange(of: search.focus) {
+            // A focus arriving while shown (⌘F back to the bar's list); a
+            // focus cleared by a new answer leaves the pick to `kept`.
+            guard search.focus != nil else { return }
+            selection = SearchRows.initialSelection(search)
         }
         .onChange(of: SearchRows.rows(search)) { _, rows in
             selection = SearchRows.kept(selection, in: rows)
@@ -267,36 +280,27 @@ public struct SearchOverlay: View {
                 )
             }
         }
-        if search.hasMore {
+        switch SearchRows.more(search) {
+        case .loading?:
+            ProgressView().controlSize(.small)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+        case .retry?:
+            HStack(spacing: 8) {
+                Text("Couldn't load more results.").foregroundStyle(.secondary)
+                Button("Try Again", action: actions.loadMore).controlSize(.small)
+            }
+            .font(.callout)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        case .trigger?:
             // A new trigger per page, so the next one appears at the new end.
             Color.clear.frame(height: 1)
                 .id("more-\(search.hits.count)")
                 .onAppear { actions.loadMore() }
+        case nil:
+            EmptyView()
         }
-    }
-
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-    }
-
-    private func header(_ title: String, trailing: String? = nil, loading: Bool = false) -> some View {
-        HStack(spacing: 6) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            Spacer()
-            if loading {
-                ProgressView().controlSize(.mini)
-                Text("Searching…").font(.caption).foregroundStyle(.tertiary)
-            } else if let trailing {
-                Text(trailing).font(.caption).monospacedDigit().foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 10)
-        .padding(.bottom, 4)
     }
 
     private func row(_ row: SearchRow, @ViewBuilder content: () -> some View) -> some View {
@@ -317,12 +321,38 @@ public struct SearchOverlay: View {
             .padding(.horizontal, 8)
             .id(row)
     }
+}
 
-    private var footer: some View {
+/// The panel's fixed pieces, outside the struct so its body stays in lint's limit.
+private extension SearchOverlay {
+    func note(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+    }
+
+    func header(_ title: String, trailing: String? = nil, loading: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Spacer()
+            if loading {
+                ProgressView().controlSize(.mini)
+                Text("Searching…").font(.caption).foregroundStyle(.tertiary)
+            } else if let trailing {
+                Text(trailing).font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+    }
+
+    var footer: some View {
         HStack(spacing: 14) {
             Hint(keys: "↑↓", label: "Select")
             Hint(keys: "↩", label: "Open")
-            Hint(keys: "⌘G", label: "Next result")
             Hint(keys: "esc", label: "Close")
             Spacer()
         }

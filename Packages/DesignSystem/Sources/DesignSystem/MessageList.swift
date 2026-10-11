@@ -5,17 +5,28 @@ import SwiftUI
 /// is scrolled to once, and after that the newest message is again what
 /// arrivals scroll to. Pure, so each case is a test.
 enum TranscriptScroll {
-    /// What `onChange` watches: the newest message, the target, and whether
-    /// the target has loaded. So a target that arrives after the newest
-    /// still fires.
+    /// A target as it was asked for: the message, and the open that asked
+    /// (`ChatSceneState.searchOpenGeneration`). The same message asked for
+    /// again by a newer open is a new request, so it is honoured again.
+    struct Request: Equatable {
+        let id: Message.ID
+        var generation = 0
+    }
+
+    /// What `onChange` watches: the newest message, the target, its
+    /// generation, and whether the target has loaded. So a target that
+    /// arrives after the newest still fires, and so does the same target
+    /// opened again.
     struct Trigger: Equatable {
         let newest: Message.ID?
         let target: Message.ID?
+        let generation: Int
         let targetLoaded: Bool
 
         init(_ state: ChatSceneState) {
             newest = state.messages.last?.id
             target = state.scrollTarget
+            generation = state.searchOpenGeneration
             targetLoaded = state.scrollTarget.map { id in state.messages.contains { $0.id == id } } ?? false
         }
 
@@ -23,6 +34,7 @@ enum TranscriptScroll {
         init(_ panel: ThreadPanelState) {
             newest = panel.messages.last?.id
             target = panel.scrollTarget
+            generation = panel.scrollGeneration
             targetLoaded = panel.scrollTarget.map { id in panel.messages.contains { $0.id == id } } ?? false
         }
     }
@@ -32,8 +44,11 @@ enum TranscriptScroll {
         case newest(Message.ID)
     }
 
-    static func destination(messages: [Message], target: Message.ID?, honoured: Message.ID?) -> Destination? {
-        if let target, target != honoured, messages.contains(where: { $0.id == target }) {
+    static func destination(
+        messages: [Message], target: Message.ID?, generation: Int = 0, honoured: Request?
+    ) -> Destination? {
+        if let target, Request(id: target, generation: generation) != honoured,
+           messages.contains(where: { $0.id == target }) {
             return .message(target)
         }
         return messages.last.map { .newest($0.id) }
@@ -72,12 +87,13 @@ public struct MessageList: View {
     /// `@State` is enough: opening a mention always passes through the
     /// Mentions pane, which removes this view, so a fresh list has honoured
     /// nothing.
-    @State private var honoured: Message.ID?
+    @State private var honoured: TranscriptScroll.Request?
 
     /// The message a search opened, while its two-second tint is showing
-    /// (search spec §1.5). `marked` is set once, so a later render of the
-    /// same highlight does not restart the mark.
-    @State private var marked: Message.ID?
+    /// (search spec §1.5). `marked` is set once per open, so a later render
+    /// of the same highlight does not restart the mark, and opening it again
+    /// does.
+    @State private var marked: TranscriptScroll.Request?
     @State private var markOn = false
 
     public init(
@@ -117,7 +133,7 @@ public struct MessageList: View {
                             loadRemoteImage: loadRemoteImage,
                             downloads: downloads, attachmentFiles: attachmentFiles,
                             reactions: reactions, own: own, openThread: threads?.open,
-                            marked: marked, markOn: markOn
+                            marked: marked?.id, markOn: markOn
                         )
                         .id(message.id)
                     }
@@ -129,10 +145,11 @@ public struct MessageList: View {
             }
             .onChange(of: TranscriptScroll.Trigger(state), initial: true) {
                 switch TranscriptScroll.destination(
-                    messages: state.messages, target: state.scrollTarget, honoured: honoured
+                    messages: state.messages, target: state.scrollTarget,
+                    generation: state.searchOpenGeneration, honoured: honoured
                 ) {
                 case let .message(id)?:
-                    honoured = id
+                    honoured = TranscriptScroll.Request(id: id, generation: state.searchOpenGeneration)
                     proxy.scrollTo(id, anchor: .center)
                 case let .newest(id)?:
                     withAnimation(.easeOut(duration: 0.2)) {
@@ -142,12 +159,14 @@ public struct MessageList: View {
                     break
                 }
             }
-            .task(id: TranscriptMarkTrigger(target: state.highlightedMessage, loaded: state.messages.count)) {
-                guard TranscriptMark.shouldMark(state.highlightedMessage, in: state.messages, marked: marked)
-                else {
+            .task(id: TranscriptMarkTrigger(state)) {
+                let request = state.highlightedMessage.map {
+                    TranscriptScroll.Request(id: $0, generation: state.searchOpenGeneration)
+                }
+                guard TranscriptMark.shouldMark(request, in: state.messages, marked: marked) else {
                     return
                 }
-                let justMarked = state.highlightedMessage
+                let justMarked = request
                 marked = justMarked
                 await TranscriptMark.fade(
                     on: { withAnimation(.easeIn(duration: 0.15)) { markOn = true } },
@@ -169,11 +188,18 @@ public struct MessageList: View {
     }
 }
 
-/// What `MessageList`'s mark watches: the message a search opened, and
-/// whether the transcript has loaded it yet. `loaded` is the count rather
-/// than the message ids, so the trigger stays cheap to compare and still
-/// fires once the target's page lands.
-private struct TranscriptMarkTrigger: Equatable {
+/// What `MessageList`'s mark watches: the message a search opened, the open
+/// that opened it, and whether the transcript has loaded it yet. `loaded` is
+/// the count rather than the message ids, so the trigger stays cheap to
+/// compare and still fires once the target's page lands.
+struct TranscriptMarkTrigger: Equatable {
     let target: Message.ID?
+    let generation: Int
     let loaded: Int
+
+    init(_ state: ChatSceneState) {
+        target = state.highlightedMessage
+        generation = state.searchOpenGeneration
+        loaded = state.messages.count
+    }
 }

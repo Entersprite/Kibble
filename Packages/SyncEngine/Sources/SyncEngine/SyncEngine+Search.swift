@@ -36,7 +36,9 @@ public extension SyncEngine {
     }
 
     /// Off the main thread: the store is one serial queue (CLAUDE.md, session 66).
+    /// A save canceled by `stop()` writes nothing into the store it erases.
     func recordSearch(_ text: String) {
+        guard !Task.isCancelled else { return }
         try? store.recordSearch(text, at: Date())
     }
 

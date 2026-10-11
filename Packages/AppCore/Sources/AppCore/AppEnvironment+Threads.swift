@@ -43,6 +43,7 @@ extension AppEnvironment {
             conversationTitle: Display.title(of: conversation, directory: model.directory, me: model.me),
             messages: model.threads.messages,
             scrollTarget: model.threads.scrollTarget,
+            scrollGeneration: model.search.openGeneration,
             followPending: model.threads.followPending,
             stagedAttachments: Self.composerAttachments(model.threadStagedAttachments)
         )

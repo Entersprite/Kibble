@@ -45,6 +45,9 @@ public struct ThreadPanelState: Sendable, Equatable {
     /// The reply to scroll to once, after a mention or a notification opened
     /// the panel; `nil` means the newest reply.
     public var scrollTarget: Message.ID?
+    /// One more on every search open, so the same reply opened again is
+    /// scrolled to again (`TranscriptScroll.Request`).
+    public var scrollGeneration: Int
     /// A Follow or Unfollow is on its way: the toggle waits for it.
     public var followPending: Bool
     /// The files staged in this thread's composer (session 60).
@@ -55,6 +58,7 @@ public struct ThreadPanelState: Sendable, Equatable {
         conversationTitle: String,
         messages: [Message] = [],
         scrollTarget: Message.ID? = nil,
+        scrollGeneration: Int = 0,
         followPending: Bool = false,
         stagedAttachments: [ComposerAttachment] = []
     ) {
@@ -62,6 +66,7 @@ public struct ThreadPanelState: Sendable, Equatable {
         self.conversationTitle = conversationTitle
         self.messages = messages
         self.scrollTarget = scrollTarget
+        self.scrollGeneration = scrollGeneration
         self.followPending = followPending
         self.stagedAttachments = stagedAttachments
     }

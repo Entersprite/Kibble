@@ -11,6 +11,8 @@ public struct SearchSceneState: Sendable, Equatable {
     public var hits: [Message]
     public var isSearching: Bool
     public var isLoadingMore: Bool
+    /// The last "more" page failed: a retry row instead of the trigger.
+    public var loadMoreFailed: Bool
     public var hasMore: Bool
     public var failed: Bool
     public var recents: [String]
@@ -21,7 +23,8 @@ public struct SearchSceneState: Sendable, Equatable {
     public init(
         isShown: Bool = false, query: MessageSearchQuery = MessageSearchQuery(),
         conversations: [Conversation] = [], people: [Member] = [], hits: [Message] = [],
-        isSearching: Bool = false, isLoadingMore: Bool = false, hasMore: Bool = false,
+        isSearching: Bool = false, isLoadingMore: Bool = false, loadMoreFailed: Bool = false,
+        hasMore: Bool = false,
         failed: Bool = false, recents: [String] = [], focus: Message.ID? = nil, bar: SearchBarScene? = nil
     ) {
         self.isShown = isShown
@@ -31,6 +34,7 @@ public struct SearchSceneState: Sendable, Equatable {
         self.hits = hits
         self.isSearching = isSearching
         self.isLoadingMore = isLoadingMore
+        self.loadMoreFailed = loadMoreFailed
         self.hasMore = hasMore
         self.failed = failed
         self.recents = recents
@@ -46,11 +50,17 @@ public struct SearchBarScene: Sendable, Equatable {
     public var count: Int
     public var hasMore: Bool
     public var isOpening: Bool
-    public var unreachable: Bool
+    /// Why the hit could not be opened; `nil` while it can be.
+    public var unreachable: Unreachable?
+
+    public enum Unreachable: Sendable, Equatable {
+        case tooFarBack
+        case notInSidebar
+    }
 
     public init(
         query: MessageSearchQuery, index: Int, count: Int, hasMore: Bool = false,
-        isOpening: Bool = false, unreachable: Bool = false
+        isOpening: Bool = false, unreachable: Unreachable? = nil
     ) {
         self.query = query
         self.index = index

@@ -64,7 +64,8 @@ public extension AppEnvironment {
             directoryResults: model.directoryResults,
             threads: threadScene(of: model),
             search: Self.searchScene(model.search),
-            highlightedMessage: model.search.highlight
+            highlightedMessage: model.search.highlight,
+            searchOpenGeneration: model.search.openGeneration
         )
     }
 

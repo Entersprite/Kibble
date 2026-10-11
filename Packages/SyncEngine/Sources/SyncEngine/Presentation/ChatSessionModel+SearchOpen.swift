@@ -8,16 +8,25 @@ public extension ChatSessionModel {
         guard let answered = search.answered, let index = search.hits.firstIndex(where: { $0.id == id })
         else { return }
         cancelBarPage()
+        // A list page out now is canceled; the bar keeps its cursor.
+        searchWork.pageTask?.cancel()
+        searchWork.pageTask = nil
         var state = search
         state.bar = SearchBarState(query: answered, hits: state.hits, next: state.next, index: index)
         state.isShown = false
-        // A list page out now is canceled with the rest; the bar keeps its cursor.
         state.isLoadingMore = false
         let text = answered.text.trimmingCharacters(in: .whitespaces)
         if !text.isEmpty {
-            Task { [engine] in await engine.recordSearch(text) }
+            recordSearch(text)
         }
         openHit(state.hits[index], from: state)
+    }
+
+    /// Edit › Next Result and Previous Result (⌘G, ⇧⌘G): only the bar, and
+    /// never under the overlay, where the step would move the transcript
+    /// behind the dim.
+    var canStepSearch: Bool {
+        search.bar != nil && !search.isShown
     }
 
     func openSearchConversation(_ id: Conversation.ID) {
@@ -83,11 +92,11 @@ extension ChatSessionModel {
         state.highlight = nil
         guard conversations.contains(where: { $0.id == hit.conversationID }) else {
             state.bar?.isOpening = false
-            state.bar?.unreachable = true
+            state.bar?.unreachable = .notInSidebar
             search = state
             return
         }
-        state.bar?.unreachable = false
+        state.bar?.unreachable = nil
         state.bar?.isOpening = true
         search = state
         if selected != hit.conversationID {
@@ -110,25 +119,41 @@ extension ChatSessionModel {
                 return
             }
             guard found else {
-                state.bar?.unreachable = true
+                state.bar?.unreachable = .tooFarBack
                 search = state
                 return
             }
             open(conversation: hit.conversationID, message: hit.id)
             state.highlight = hit.id
+            state.openGeneration += 1
             search = state
         }
     }
 
     private func cancelBarPage() {
-        searchWork.pageTask?.cancel()
-        searchWork.pageTask = nil
+        searchWork.barPageTask?.cancel()
+        searchWork.barPageTask = nil
+    }
+
+    /// Saved after any earlier save, so the newest search is the newest
+    /// recent, and `stop()` cancels the chain through its one handle.
+    private func recordSearch(_ text: String) {
+        let previous = searchWork.recordTask
+        searchWork.recordTask = Task { [engine] in
+            await withTaskCancellationHandler {
+                await previous?.value
+            } onCancel: {
+                previous?.cancel()
+            }
+            guard !Task.isCancelled else { return }
+            await engine.recordSearch(text)
+        }
     }
 
     private func loadBarPage(after cursor: MessageSearchCursor, thenOpen target: Int) {
         guard let query = search.bar?.query else { return }
-        searchWork.pageTask?.cancel()
-        searchWork.pageTask = Task { @MainActor [weak self, engine] in
+        searchWork.barPageTask?.cancel()
+        searchWork.barPageTask = Task { @MainActor [weak self, engine] in
             let page = try? await engine.searchMessages(query, after: cursor)
             guard !Task.isCancelled, let self else { return }
             guard let page, var bar = search.bar, bar.query == query else { return }

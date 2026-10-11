@@ -17,6 +17,9 @@ public struct SearchSessionState: Equatable, Sendable {
     public internal(set) var answered: MessageSearchQuery?
     public internal(set) var isSearching = false
     public internal(set) var isLoadingMore = false
+    /// The last "more" page failed: the list offers a retry rather than
+    /// asking again on its own, which would loop while the wire is down.
+    public internal(set) var loadMoreFailed = false
     public internal(set) var failed = false
     public internal(set) var recents: [String] = []
     /// The hit the overlay selects when it opens again: the one being read.
@@ -24,6 +27,9 @@ public struct SearchSessionState: Equatable, Sendable {
     public internal(set) var bar: SearchBarState?
     /// The message the transcript marks once, after a hit opened.
     public internal(set) var highlight: Message.ID?
+    /// One more on every hit that opens, written with `highlight`, so opening
+    /// the hit already scrolled to and marked scrolls and marks it again.
+    public internal(set) var openGeneration = 0
 
     public init() {}
 }
@@ -37,9 +43,15 @@ public struct SearchBarState: Equatable, Sendable {
     public internal(set) var index: Int
     /// History is being paged back to reach the hit.
     public internal(set) var isOpening = false
-    /// The hit could not be reached: too far back, or in a conversation the
-    /// sidebar does not have.
-    public internal(set) var unreachable = false
+    /// Why the hit could not be reached; `nil` while it can be.
+    public internal(set) var unreachable: Unreachable?
+
+    public enum Unreachable: Equatable, Sendable {
+        /// History ran out of pages before reaching it.
+        case tooFarBack
+        /// Its conversation is not in the sidebar.
+        case notInSidebar
+    }
 }
 
 /// The search's tasks and timings. Not observed.
@@ -48,9 +60,14 @@ struct SearchWork {
     let historyPageLimit: Int
     var task: Task<Void, Never>?
     var peopleTask: Task<Void, Never>?
+    /// The list's "more" page.
     var pageTask: Task<Void, Never>?
+    /// The bar's next page, apart from the list's so neither cancels the other.
+    var barPageTask: Task<Void, Never>?
     var openTask: Task<Void, Never>?
     var recentsTask: Task<Void, Never>?
+    /// Saving an opened search as a recent.
+    var recordTask: Task<Void, Never>?
     /// The query whose request is on the wire, so Return does not send it
     /// twice (Review Focus 1).
     var inFlight: MessageSearchQuery?
@@ -61,14 +78,16 @@ struct SearchWork {
     }
 
     mutating func reset() {
-        for task in [task, peopleTask, pageTask, openTask, recentsTask] {
+        for task in [task, peopleTask, pageTask, barPageTask, openTask, recentsTask, recordTask] {
             task?.cancel()
         }
         task = nil
         peopleTask = nil
         pageTask = nil
+        barPageTask = nil
         openTask = nil
         recentsTask = nil
+        recordTask = nil
         inFlight = nil
     }
 }

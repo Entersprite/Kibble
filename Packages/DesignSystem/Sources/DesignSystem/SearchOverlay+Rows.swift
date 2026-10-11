@@ -38,6 +38,33 @@ enum SearchRows {
         return rows(search).contains(row) ? row : nil
     }
 
+    /// What the field takes when the model's query text changes: `nil` when
+    /// it is what this field last sent, else the model's text, which a person
+    /// row, Show All or ⌘F set without typing (search fix wave, finding 1).
+    static func adopted(_ modelText: String, sent: String) -> String? {
+        modelText == sent ? nil : modelText
+    }
+
+    /// The row at the end of the Messages section: a spinner while a page is
+    /// out, a retry after one failed, else the trigger for the next page.
+    /// The trigger is removed while a page is out, so it appears again, and
+    /// asks again, after a page that was ignored (search fix wave, finding 6).
+    enum More: Equatable {
+        case loading
+        case retry
+        case trigger
+    }
+
+    static func more(_ search: SearchSceneState) -> More? {
+        if search.isLoadingMore {
+            return .loading
+        }
+        if search.loadMoreFailed {
+            return .retry
+        }
+        return search.hasMore ? .trigger : nil
+    }
+
     /// After the rows change without typing (hits arriving, a filter): the pick
     /// while its row is still listed, else nothing.
     static func kept(_ selected: SearchRow?, in rows: [SearchRow]) -> SearchRow? {

@@ -25,6 +25,7 @@ public extension ChatSessionModel {
             state.failed = false
             state.isSearching = false
             state.isLoadingMore = false
+            state.loadMoreFailed = false
         }
         state.isShown = true
         search = state
@@ -61,16 +62,22 @@ public extension ChatSessionModel {
         guard let cursor = search.next, !search.isLoadingMore, let answered = search.answered,
               answered == search.query
         else { return }
-        search.isLoadingMore = true
+        var state = search
+        state.isLoadingMore = true
+        state.loadMoreFailed = false
+        search = state
         searchWork.pageTask = Task { @MainActor [weak self, engine] in
             let page = try? await engine.searchMessages(answered, after: cursor)
             guard !Task.isCancelled, let self else { return }
             var state = search
             state.isLoadingMore = false
-            if let page, state.answered == answered {
-                let known = Set(state.hits.map(\.id))
-                state.hits += page.hits.filter { !known.contains($0.id) }
-                state.next = page.next
+            if state.answered == answered {
+                if let page {
+                    let known = Set(state.hits.map(\.id))
+                    state.hits += page.hits.filter { !known.contains($0.id) }
+                    state.next = page.next
+                }
+                state.loadMoreFailed = page == nil
             }
             search = state
         }
@@ -93,6 +100,7 @@ extension ChatSessionModel {
         var state = search
         state.query = query
         state.isLoadingMore = false
+        state.loadMoreFailed = false
         state.conversations = nameMatches(words, filtered: query.hasFilters)
         // Known people now, in this one write; the directory's later.
         state.people = searchPeople(words: words, text: query.text, filtered: query.hasFilters)
