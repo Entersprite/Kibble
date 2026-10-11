@@ -19,7 +19,7 @@ public extension SyncEngine {
         if try store.message(message) != nil {
             return true
         }
-        var before = try store.messages(in: conversation).first?.id
+        var before = try store.oldestMessage(in: conversation)?.id
         for _ in 0 ..< pageLimit {
             try Task.checkCancellation()
             let page = try await backend.loadMessages(in: conversation, before: before)

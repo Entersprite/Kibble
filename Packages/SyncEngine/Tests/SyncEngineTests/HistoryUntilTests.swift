@@ -69,7 +69,26 @@ struct HistoryUntilTests {
             try await engine.loadHistory(in: Self.space, until: Message.ID("h1"), pageLimit: 20)
         }
         task.cancel()
-        _ = try? await task.value
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        #expect(try store.message(Message.ID("h1")) == nil)
+        #expect(try store.messages(in: Self.space).isEmpty)
+    }
+
+    /// Review Focus 1: the real `LocalBridgeBackend.loadMessages(in:before:)`
+    /// ignores `before:` and always answers the newest page, so this - not
+    /// `thePageLimitStopsIt` - is the no-progress exit production actually
+    /// takes. `h1` is never the newest page's oldest root, so the second call
+    /// must give up rather than loop `pageLimit` times asking the same
+    /// question.
+    @Test func aBackendThatIgnoresTheCursorGivesUpRatherThanLooping() async throws {
+        let store = try ChatStore.inMemory()
+        let backend = RecordingBackend(world: Self.world, pageSize: 3)
+        await backend.ignoreHistoryCursor(true)
+        let engine = SyncEngine(backend: backend, store: store)
+        #expect(try await engine.loadHistory(in: Self.space, until: Message.ID("h1"), pageLimit: 20) == false)
+        #expect(await backend.loadMessagesCount <= 2)
         #expect(try store.message(Message.ID("h1")) == nil)
     }
 }

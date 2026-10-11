@@ -277,6 +277,16 @@ actor RecordingBackend: ChatBackend {
         try await inner.loadConversations()
     }
 
+    /// Makes every later `loadMessages` forward `before: nil` regardless of
+    /// what it is asked for - the shape of the real `LocalBridgeBackend`,
+    /// which always answers the newest page (search spec review, Focus 1):
+    /// `loadHistory`'s no-progress exit is the path production takes.
+    private var ignoringHistoryCursor = false
+
+    func ignoreHistoryCursor(_ ignore: Bool) {
+        ignoringHistoryCursor = ignore
+    }
+
     func loadMessages(
         in conversation: Conversation.ID,
         before: Message.ID?
@@ -285,7 +295,7 @@ actor RecordingBackend: ChatBackend {
         if failingHistory {
             throw ChatError.notAuthenticated
         }
-        return try await inner.loadMessages(in: conversation, before: before)
+        return try await inner.loadMessages(in: conversation, before: ignoringHistoryCursor ? nil : before)
     }
 
     func uploadAttachment(

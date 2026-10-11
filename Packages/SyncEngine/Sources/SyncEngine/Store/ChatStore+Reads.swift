@@ -20,6 +20,13 @@ public extension ChatStore {
         try database.read { db in try Self.fetchMessages(conversation, db) }
     }
 
+    /// The transcript's oldest top-level message, read directly with
+    /// `LIMIT 1` rather than paging the whole list in to take its head
+    /// (`SyncEngine.loadHistory`'s starting `before:`).
+    func oldestMessage(in conversation: Conversation.ID) throws -> Message? {
+        try database.read { db in try Self.fetchOldestMessage(conversation, db) }
+    }
+
     /// One message by id, read straight from the database rather than from
     /// whatever a `ValueObservation` has last delivered.
     ///
@@ -201,6 +208,17 @@ extension ChatStore {
             .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
             .order(Column("createdAt").asc, Column("id").asc)
             .fetchAll(db)
+            .map { try $0.message }
+    }
+
+    /// Same filter and order as `fetchMessages`, but `fetchOne` rather than
+    /// `fetchAll`: GRDB adds `LIMIT 1` to a query interface request's
+    /// `fetchOne`, so this never reads more than one row.
+    static func fetchOldestMessage(_ conversation: Conversation.ID, _ db: Database) throws -> Message? {
+        try MessageRow
+            .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
+            .order(Column("createdAt").asc, Column("id").asc)
+            .fetchOne(db)
             .map { try $0.message }
     }
 
