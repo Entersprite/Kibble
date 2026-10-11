@@ -21,7 +21,7 @@ struct SearchResultsBarTests {
     @Test func unreachableSaysWhyBesideThePosition() {
         #expect(SearchBarText.position(SearchBarScene(
             query: Self.query, index: 0, count: 3, unreachable: .tooFarBack
-        )) == "1 of 3 · Too far back to open here")
+        )) == "1 of 3 · Couldn't open this message")
         #expect(SearchBarText.position(SearchBarScene(
             query: Self.query, index: 1, count: 3, hasMore: true, unreachable: .notInSidebar
         )) == "2 of 3+ · Can't open this message here")

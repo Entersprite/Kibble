@@ -14,9 +14,10 @@ public extension LocalBridgeBackend {
     /// 50`, so a thread's replies arrive with its first message (`findings.md`
     /// §63.5), and each thread's read state is emitted as `.threadChanged`
     /// (threads spec §2.2). A topic listing as many messages as the reply
-    /// cap may be a longer thread cut short, so only field 10 counts it,
-    /// because a count replaces the stored one; its read state is a snapshot
-    /// all the same, and clears a stale mark.
+    /// cap may be a longer thread cut short, and so may any topic on an
+    /// anchored page (§65.9), so neither is counted, because a count replaces
+    /// the stored one; its read state is a snapshot all the same, and clears
+    /// a stale mark.
     ///
     /// **`before:` anchors on a time when this session mapped that message.**
     /// `list_topics` has no message cursor, but every request the web client
@@ -71,12 +72,15 @@ public extension LocalBridgeBackend {
             messageTimes.remember(mapped.messages)
             // Each thread's count, read position and mark, before the page
             // is returned, so the store has both when the transcript draws.
-            // A listing that reaches the reply cap may be cut short, and
-            // `.counted` replaces the stored count, so it counts only under
-            // the cap; its read state is still a snapshot.
+            // `.counted` replaces the stored count, so only a listing that
+            // cannot have been cut short counts: one under the reply cap, on
+            // a page with no anchor, since §65.9 saw an anchored page list a
+            // topic's replies only "at or before the anchor". Its read state
+            // is a snapshot either way.
             let cap = Int(rung.request.pageSizeForReplies)
             for topic in response.topics {
-                let listing = ThreadMapping.Listing.history(countIsComplete: topic.replies.count < cap)
+                let complete = anchor == nil && topic.replies.count < cap
+                let listing = ThreadMapping.Listing.history(countIsComplete: complete)
                 ThreadMapping.events(for: topic, in: conversationID, listing: listing).forEach(emit)
             }
             // Same rule `loadConversations()` follows for `WorldMapping.Result.skipped`:

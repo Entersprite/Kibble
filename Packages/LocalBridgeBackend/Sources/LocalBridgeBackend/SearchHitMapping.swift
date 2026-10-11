@@ -4,8 +4,7 @@ import GChatBridgeCore
 
 /// A message search hit (`SBNmJb` over `batchexecute`) becoming a
 /// `ChatKit.Message` - purely, with no backend call. `findings.md` §65.8 is
-/// the capture this is built from; Task 1's report (`task-1-report.md`,
-/// "Positions for Task 5") names every index below.
+/// the capture this is built from, and its table names every index below.
 ///
 /// ## Reuse, not a second translation
 ///
@@ -25,9 +24,9 @@ import GChatBridgeCore
 /// §65.8: a hit has no reactions, no edit time, no app cards and no sender
 /// name. The synthetic `Message` never sets those fields, so
 /// `domainMessage(_:)` maps them exactly as it would an ordinary message that
-/// happens to lack them. Avoiding an upsert that overwrites a stored copy's
-/// richer fields with a hit's absence of them is Task 7's problem, not this
-/// type's - nothing here ever sees a store.
+/// happens to lack them. Not overwriting a stored copy's richer fields with
+/// a hit's absence of them is the client's business, not this type's -
+/// nothing here ever sees a store.
 public enum SearchHitMapping {
     /// One hit - `[inner, 2]` (302 of 302, §65.8) - to a `ChatKit.Message`, or
     /// `nil` when it lacks a message id, a valid create time, or a group
@@ -72,12 +71,12 @@ public enum SearchHitMapping {
         return ChannelEventMapping.domainMessage(message)
     }
 
-    // Three members, the plan's own signature - `HistoryMapping.Result` would
-    // be the two-member version swiftlint's `large_tuple` otherwise asks for,
-    // but Task 6 and `SearchProbeReport` both consume this exact shape, so
-    // the rule is disabled for this one declaration instead. Wrapped around
-    // the doc comment rather than `:next` above the `func` line, which would
-    // orphan the doc comment from its declaration.
+    // Three members - `HistoryMapping.Result` would be the two-member version
+    // swiftlint's `large_tuple` otherwise asks for, but
+    // `searchMessages(_:after:)` and `SearchProbeReport` both consume this
+    // exact shape, so the rule is disabled for this one declaration instead.
+    // Wrapped around the doc comment rather than `:next` above the `func`
+    // line, which would orphan the doc comment from its declaration.
     // swiftlint:disable large_tuple
     /// A page of `SBNmJb`'s answer - `JSONSerialization` of the `wrb.fr`
     /// payload string, the same shape `SearchProbeReport.send(_:...)` already
@@ -123,11 +122,11 @@ public enum SearchHitMapping {
     /// the prefix, against a string the hit already carries.
     ///
     /// Not `private`: `SearchProbeReport+Anchor.swift`'s
-    /// `fallbackGroupID(fromRawHit0:)` calls this directly too (fix round 1,
-    /// review finding 2), so there is one rule for what a group reference
-    /// looks like rather than two that can drift apart - the first draft of
-    /// that fallback duplicated this check and silently dropped the space
-    /// branch's `items.count >= 3 && items[2] == 2` requirement.
+    /// `fallbackGroupID(fromRawHit0:)` calls this directly too, so there is
+    /// one rule for what a group reference looks like rather than two that
+    /// can drift apart: a second copy would have to repeat the space branch's
+    /// `items.count >= 3 && items[2] == 2` requirement, and one that dropped
+    /// it would accept a reference this one refuses.
     static func groupReference(_ value: PBLiteValue?) -> GroupId? {
         guard let value, case let .array(items) = value, items.count >= 2,
               let prefixed = items[0].stringValue, let rawID = items[1].stringValue, !rawID.isEmpty

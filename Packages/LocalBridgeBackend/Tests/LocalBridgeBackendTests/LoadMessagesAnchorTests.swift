@@ -189,6 +189,55 @@ struct LoadMessagesAnchorTests {
         #expect(read != nil)
     }
 
+    /// §65.9 saw a topic list its replies "at or before the anchor", so an
+    /// anchored page may cut a thread short, and `.counted` replaces the
+    /// stored count. Only a plain page counts what it lists; an anchored one
+    /// still reports the thread's read state.
+    @Test func onlyAPlainPageCountsAThread() async throws {
+        let thread = [
+            Self.message("t-old", at: Self.anchor - 10),
+            Self.message("r-old", at: Self.anchor - 9, topic: "t-old", reply: true)
+        ]
+        let (backend, _) = try await Self.connected(then: [
+            Self.answer([Self.topic(thread)]), Self.answer([Self.topic(thread)])
+        ])
+        let log = ThreadEventLog(backend)
+        _ = try await backend.loadMessages(in: Self.space, before: nil)
+        _ = try await backend.loadMessages(in: Self.space, before: ChatKit.Message.ID("m-anchor"))
+        // A topic's changes are emitted in one pass, its count first and its
+        // mark last, so once the mark is logged a count would be too.
+        let anchoredMark = await log.first {
+            if case let .threadChanged(thread, _, .markedUnread) = $0 {
+                thread == MessageThread.ID("t-old")
+            } else {
+                false
+            }
+        }
+        #expect(anchoredMark != nil)
+        #expect(await !log.threadChanges().contains { Self.isCount($0) })
+
+        _ = try await backend.loadMessages(in: Self.space, before: nil)
+        let counted = await log.first {
+            if case let .threadChanged(_, _, change) = $0 {
+                Self.isCount(change)
+            } else {
+                false
+            }
+        }
+        #expect(counted == .threadChanged(
+            threadID: MessageThread.ID("t-old"), conversationID: Self.space,
+            change: .counted(messages: 2, unread: nil)
+        ))
+    }
+
+    private static func isCount(_ change: ThreadChange) -> Bool {
+        if case .counted = change {
+            true
+        } else {
+            false
+        }
+    }
+
     // MARK: - What fills the memory, and what empties it
 
     @Test func aHistoryPageIsRemembered() async throws {

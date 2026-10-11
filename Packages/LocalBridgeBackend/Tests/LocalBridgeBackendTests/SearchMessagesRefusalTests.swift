@@ -66,6 +66,9 @@ struct SearchMessagesRefusalTests {
         await #expect(throws: ChatError.self) {
             _ = try await backend.searchMessages(queryB, after: cursor)
         }
+        // Refused before sending: the transport's one answer was the first
+        // page's, and nothing else was asked.
+        #expect(await SearchBackendSupport.batchRequests(transport).count == 1)
     }
 
     @Test func aShellMissingTheBatchKeysThrowsAClearError() async throws {

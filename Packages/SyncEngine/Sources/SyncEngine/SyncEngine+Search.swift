@@ -25,31 +25,46 @@ public extension SyncEngine {
 struct HistoryTarget: Sendable, Equatable {
     /// The stored copy, which may be richer than the hit (`findings.md` §65.8).
     let message: Message
-    /// For a reply, its thread's first stored message, which the transcript
-    /// scrolls to: `nil` for a root, and for a reply whose root is not
-    /// stored.
+    /// For a reply, its thread's first stored non-reply message, which the
+    /// transcript scrolls to: `nil` for a root, and for a reply whose root is
+    /// not stored.
     let threadRoot: Message.ID?
 }
 
 extension SyncEngine {
-    /// Makes an opened hit openable, asks for the history just older than
-    /// it, and reads what the opener lands on: `nil` only when the hit is not
-    /// stored at the end.
+    /// Asks for the history just older than an opened hit, stores the hit
+    /// with it, and reads what the opener lands on: `nil` only when the hit is
+    /// not stored at the end.
     ///
-    /// A hit the store holds opens as stored: a hit lacks reactions, the edit
-    /// time and app cards (`findings.md` §65.8), so the stored copy is the
-    /// better one, and nothing is asked. Otherwise the hit is written as
-    /// search found it (`.insertMessageIfAbsent`, so a copy that lands
-    /// meanwhile is never replaced), then one page is asked `before:` it, so
-    /// the transcript shows what led up to it rather than the hit alone. A
-    /// reply's thread is drawn from its root, so a reply keeps paging back,
-    /// `before:` the oldest root each page brought, until its root is stored.
+    /// **One page is asked `before:` the hit, so the transcript shows what led
+    /// up to it rather than the hit alone,** and the hit is written as search
+    /// found it in the same write as that page. So an open canceled before its
+    /// page lands, by a step to another hit, by ✕ or by `stop()`, stores
+    /// nothing, and the next open of that hit asks again. The hit goes in
+    /// first, as `.insertMessageIfAbsent`, and the page's upserts after it:
+    /// a copy that is already stored, or that the page itself carries, is
+    /// never replaced by the hit, which lacks reactions, the edit time and app
+    /// cards (`findings.md` §65.8). A reply's thread is drawn from its root, so
+    /// a reply keeps paging back, `before:` the oldest root each page brought,
+    /// until its root is stored. With a `pageLimit` of zero the hit is stored
+    /// alone and nothing is asked.
     ///
-    /// **A page that fails still opens the hit.** Once the hit is stored, the
-    /// failure is recorded where errors show, as `requestMoreMessages` records
-    /// one, and the hit opens without what led up to it, rather than not at
-    /// all. A cancellation is not a failure, for that function's reason: it
-    /// throws, and records nothing.
+    /// **A stored hit opens as stored,** and asks for nothing, when a
+    /// top-level message older than it is stored too. One with nothing older
+    /// beside it asks for its page as an unstored one does, and the stored
+    /// copy still opens: that is what a failed first page leaves, and what an
+    /// open that wrote the hit before its page left behind.
+    ///
+    /// **A page that fails still opens the hit.** The failure is recorded
+    /// where errors show, as `requestMoreMessages` records one. If it was the
+    /// first page, the hit is then stored alone, and opens without what led up
+    /// to it, rather than not at all. A cancellation is not a failure, for
+    /// that function's reason: it throws, and records nothing.
+    ///
+    /// **A store failure before the hit opens is recorded too,** then thrown:
+    /// the hit cannot open, and the person is told why rather than shown
+    /// nothing. One on a reply's later page is recorded as a page's is, and
+    /// the hit opens.
     ///
     /// **Never trusts a backend to page.** It stops at `pageLimit` pages, at a
     /// page with no root older than the last cursor (an empty one included),
@@ -70,33 +85,81 @@ extension SyncEngine {
     /// last answer, so no test can cancel in between.
     func loadHistory(in conversation: Conversation.ID, until hit: Message, pageLimit: Int) async throws
         -> HistoryTarget? {
-        if try store.message(hit.id) == nil {
-            try Task.checkCancellation()
-            try store.apply([.insertMessageIfAbsent(hit)])
-            do {
-                try await pageBack(in: conversation, until: hit, pageLimit: pageLimit)
-            } catch {
-                guard !Task.isCancelled else { throw error }
+        do {
+            if try needsContext(hit, in: conversation) {
+                try Task.checkCancellation()
+                try await loadContext(in: conversation, until: hit, pageLimit: pageLimit)
+            }
+            return try target(hit.id, in: conversation)
+        } catch {
+            // Only the store's failures reach here: `loadContext` records a
+            // page's own. A cancellation, whatever its shape, records nothing.
+            if !Task.isCancelled {
                 record(error)
             }
+            throw error
         }
-        return try target(hit.id, in: conversation)
     }
 
-    private func pageBack(in conversation: Conversation.ID, until hit: Message, pageLimit: Int) async throws {
-        var before = hit.id
-        var boundary = hit.createdAt
-        for _ in 0 ..< pageLimit {
-            try Task.checkCancellation()
-            let page = try await backend.loadMessages(in: conversation, before: before)
-            try Task.checkCancellation()
-            try store.apply(page.map { .upsertMessage($0) })
-            guard hit.isReply, try rootID(of: hit.threadID, in: conversation) == nil else { break }
-            let older = page.filter { !$0.isReply && $0.createdAt < boundary }
-            guard let oldest = older.min(by: { $0.createdAt < $1.createdAt }) else { break }
-            before = oldest.id
-            boundary = oldest.createdAt
+    /// Whether the hit has nothing stored that led up to it: it is not
+    /// stored, or no top-level message older than it is.
+    private func needsContext(_ hit: Message, in conversation: Conversation.ID) throws -> Bool {
+        guard let stored = try store.message(hit.id) else { return true }
+        return try !store.hasTopLevelMessage(in: conversation, before: stored.createdAt)
+    }
+
+    /// The hit and the page before it in one write, then a reply's way back
+    /// to its root. A page's failure is recorded here; a store's is thrown.
+    private func loadContext(
+        in conversation: Conversation.ID,
+        until hit: Message,
+        pageLimit: Int
+    ) async throws {
+        guard pageLimit > 0 else {
+            try store.apply([.insertMessageIfAbsent(hit)])
+            return
         }
+        let first: [Message]
+        do {
+            first = try await page(in: conversation, before: hit.id)
+        } catch {
+            guard !Task.isCancelled else { throw error }
+            try store.apply([.insertMessageIfAbsent(hit)])
+            record(error)
+            return
+        }
+        try store.apply([.insertMessageIfAbsent(hit)] + first.map { .upsertMessage($0) })
+        do {
+            try await pageBackToRoot(of: hit, in: conversation, from: first, pagesLeft: pageLimit - 1)
+        } catch {
+            guard !Task.isCancelled else { throw error }
+            record(error)
+        }
+    }
+
+    /// For a reply, the pages after the first, each `before:` the oldest root
+    /// the last one brought, until its root is stored.
+    private func pageBackToRoot(
+        of hit: Message, in conversation: Conversation.ID, from first: [Message], pagesLeft: Int
+    ) async throws {
+        var last = first
+        var boundary = hit.createdAt
+        for _ in 0 ..< pagesLeft {
+            guard hit.isReply, try rootID(of: hit.threadID, in: conversation) == nil else { return }
+            let older = last.filter { !$0.isReply && $0.createdAt < boundary }
+            guard let oldest = older.min(by: { $0.createdAt < $1.createdAt }) else { return }
+            boundary = oldest.createdAt
+            last = try await page(in: conversation, before: oldest.id)
+            try store.apply(last.map { .upsertMessage($0) })
+        }
+    }
+
+    /// One page, with the cancellation checks every page gets.
+    private func page(in conversation: Conversation.ID, before: Message.ID) async throws -> [Message] {
+        try Task.checkCancellation()
+        let page = try await backend.loadMessages(in: conversation, before: before)
+        try Task.checkCancellation()
+        return page
     }
 
     private func target(_ id: Message.ID, in conversation: Conversation.ID) throws -> HistoryTarget? {

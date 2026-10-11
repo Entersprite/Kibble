@@ -10,7 +10,7 @@ import URLSessionTransport
 /// incrementing request id.
 ///
 /// `apiClient` is a `ProtoAPIClient`, not the `PunctualClient` the other three
-/// fields serve: the anchor stage (`findings.md` §65.9, Task 3) sends `/api/`
+/// fields serve: the anchor stage (`findings.md` §65.9) sends `/api/`
 /// `list_topics` requests, not `batchexecute` ones, and reuses the exact
 /// client type `APIProbeReport`/`LocalBridgeBackend+History.swift` already
 /// reach `list_topics` through, rather than standing up a second way to call
@@ -97,7 +97,7 @@ public enum SearchProbeReport {
 
     /// One query id for the whole run, a search, its second page, then a
     /// newest-first search of the same text under a fresh query id (§65.2),
-    /// then the anchor stage (§65.9, Task 3) over every hit any of those
+    /// then the anchor stage (§65.9) over every hit any of those
     /// three pages decoded.
     private static func appendSearches(
         query: String, call: SearchCallContext, lines: inout [String], flush: (String) -> Void
@@ -134,10 +134,9 @@ public enum SearchProbeReport {
         )
         let newest = await appendNewestFirst(query: query, call: call, lines: &lines)
         flush(lines.joined(separator: "\n"))
-        // Every hit any of the three pages decoded - "the hits the probe's
-        // earlier stages received (newest-first pages included)", per
-        // task-3-brief.md's amendment to step 2 - so the anchor stage can
-        // pick the single oldest one across all of them.
+        // Every hit any of the three pages decoded, newest-first included,
+        // so the anchor stage can pick the single oldest one across all of
+        // them.
         let candidateHits = [first, second, newest].compactMap(\.self)
             .flatMap { SearchHitMapping.page(from: $0).hits }
         await appendAnchorStage(
@@ -184,13 +183,13 @@ public enum SearchProbeReport {
         return newest
     }
 
-    /// Task 3 (`findings.md` §65.9): does `list_topics`' filter page history
-    /// back from a time? Picks the oldest hit decoded across every page
-    /// `appendSearches` already sent, then sends three `list_topics` calls
-    /// for that hit's own conversation - the hit's own create time, one
-    /// microsecond after it, and one microsecond before - each with
-    /// `sort_option: 2` over `TopicsRequestLadder.history(for:)`'s own page
-    /// sizes, otherwise unchanged. The pure parts (the hit pick, each
+    /// The anchor stage (`findings.md` §65.9): does `list_topics`' filter
+    /// page history back from a time? Picks the oldest hit decoded across
+    /// every page `appendSearches` already sent, then sends three
+    /// `list_topics` calls for that hit's own conversation - the hit's own
+    /// create time, one microsecond after it, and one microsecond before -
+    /// each with `sort_option: 2` over `TopicsRequestLadder.history(for:)`'s
+    /// own page sizes, otherwise unchanged. The pure parts (the hit pick, each
     /// response's summary, the verdict line) live in
     /// `SearchProbeReport+Anchor.swift`; this is only the network sequencing,
     /// which is why it stays here rather than there - it needs
@@ -199,7 +198,7 @@ public enum SearchProbeReport {
         candidateHits: [ChatKit.Message], firstRawHit0: Any?, call: SearchCallContext, lines: inout [String]
     ) async {
         lines.append("")
-        lines.append("anchor (findings.md §65.9, Task 3 - does the filter page history back from a time?):")
+        lines.append("anchor (findings.md §65.9): does the filter page history back from a time?")
         guard let pick = pickAnchor(candidateHits: candidateHits, firstRawHit0: firstRawHit0) else {
             lines.append("  STOP: no hit decoded on any page, and hit 0's group reference could not be read")
             return

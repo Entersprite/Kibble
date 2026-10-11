@@ -61,6 +61,8 @@ public struct SearchBarScene: Sendable, Equatable {
     public var pageFailed: Bool
 
     public enum Unreachable: Sendable, Equatable {
+        /// The hit could not be kept to open, however near or far back it is;
+        /// a failure behind it shows in the error banner.
         case tooFarBack
         case notInSidebar
     }

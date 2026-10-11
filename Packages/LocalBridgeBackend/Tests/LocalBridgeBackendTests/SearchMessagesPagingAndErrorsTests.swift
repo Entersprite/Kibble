@@ -43,18 +43,17 @@ struct SearchMessagesPagingAndErrorsTests {
         let secondFilter = try #require(second[6] as? [Any])
         #expect((secondFilter[1] as? [[String]])?.first == (firstFilter[1] as? [[String]])?.first)
         // filter[4] is null on a later page (`SearchRequests.payload`'s own
-        // existing rule, unchanged by this task).
+        // rule).
         #expect(secondFilter[4] is NSNull)
     }
 
-    /// The Important bug a reviewer reproduced 20 of 20 times: `olderThan`
-    /// goes on the wire as RFC 3339 at millisecond precision, so decoding a
-    /// stored query back into a `Date` and comparing it against the caller's
-    /// own sub-millisecond one (built from `.now`, as `SearchChips.swift`
-    /// does) never matched. `Date()` here carries that same sub-millisecond
-    /// precision in memory. Fixed by comparing two fresh encodings of the
-    /// query instead of a decoded `Date` - see `SearchCursorPayload`'s own
-    /// doc comment.
+    /// `olderThan` goes on the wire as RFC 3339 at millisecond precision, so
+    /// decoding a stored query back into a `Date` and comparing it against
+    /// the caller's own sub-millisecond one (built from `.now`, as
+    /// `SearchChips.swift` does) would never match. `Date()` here carries
+    /// that same sub-millisecond precision in memory. So the cursor compares
+    /// two fresh encodings of the query instead of a decoded `Date` - see
+    /// `SearchCursorPayload`'s own doc comment.
     @Test func page2WorksWhenOlderThanHasSubMillisecondPrecision() async throws {
         let hit1 = SearchFixtures.hit(
             messageID: "m-1", spaceID: "sp-1", senderID: "u-1", text: "one", createdAtMicros: 1

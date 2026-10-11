@@ -2,9 +2,10 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
-/// Task 3's question (`findings.md` §65.9, "Two readings fit every answer"):
-/// does `list_topics`' `filter.anchor` page history back from a time, or does
-/// every answer reach the newest topic regardless of what the anchor says?
+/// The question `findings.md` §65.9 leaves open ("Two readings fit every
+/// answer"): does `list_topics`' `filter.anchor` page history back from a
+/// time, or does every answer reach the newest topic regardless of what the
+/// anchor says?
 /// The capture behind §65.9 could not tell the two readings apart - the
 /// anchor was always the account's own read position, so no page in it ever
 /// stopped short of the newest topic.
@@ -20,8 +21,8 @@ extension SearchProbeReport {
     /// from the hit's own create time - `+1 µs` first (an anchor just past
     /// the hit, the convention `LocalBridgeBackend.readPositionOffsetMicroseconds`
     /// already uses for "this covers the message"), then exactly on it, then
-    /// `-1 µs`, in case the hit is not returned at the first offset
-    /// (`task-3-brief.md` step 3's "try … variants in the same run").
+    /// `-1 µs`, in case the hit is not returned at the first offset: all
+    /// three in one run, so a single run answers for every offset.
     static let anchorOffsetsMicroseconds: [Int64] = [1, 0, -1]
 
     static func label(forAnchorOffset offset: Int64) -> String {
@@ -41,7 +42,7 @@ extension SearchProbeReport {
         let group: GroupId
         /// What every offset in `anchorOffsetsMicroseconds` is added to - the
         /// hit's own `createdAt` when one decoded, or 30 days before `now` in
-        /// the fallback (`task-3-brief.md`'s amendment to step 2).
+        /// the fallback, when none did.
         let anchorTimeUsec: Int64
         /// `nil` only in the fallback, where no hit decoded at all, so there
         /// is no id a response's messages can be compared against.
@@ -61,10 +62,9 @@ extension SearchProbeReport {
 
     /// `candidateHits` is every hit `SearchHitMapping.page(from:)` decoded
     /// across every page `appendSearches` sent (first page, second page,
-    /// newest-first) - "the hits the probe's earlier stages received
-    /// (newest-first pages included)", per the amendment. `firstRawHit0` is
-    /// the very first page's first raw hit element (`JSONSerialization`'s
-    /// `Any`), read only when nothing decoded.
+    /// newest-first), so the oldest is the oldest hit the probe saw.
+    /// `firstRawHit0` is the very first page's first raw hit element
+    /// (`JSONSerialization`'s `Any`), read only when nothing decoded.
     static func pickAnchor(
         candidateHits: [ChatKit.Message], firstRawHit0: Any?, now: Date = Date()
     ) -> AnchorPick? {
@@ -97,13 +97,13 @@ extension SearchProbeReport {
     /// (302 of 302 hits had a readable group reference there).
     ///
     /// Delegates the actual match to `SearchHitMapping.groupReference(_:)`
-    /// (made internal for exactly this, fix round 1 review finding 2), rather
-    /// than a second copy of its prefix check: the first copy silently
-    /// dropped that function's `items.count >= 3 && items[2] == 2` space
-    /// requirement, which is one rule for what a group reference looks like
-    /// split into two places that could (and did) disagree. Field 3 is
-    /// always a direct index, far under the trailing-object cutoff at field
-    /// 48, so no merge is needed to reach it here.
+    /// (internal for exactly this), rather than a second copy of its prefix
+    /// check: a copy would have to repeat that function's
+    /// `items.count >= 3 && items[2] == 2` space requirement, and one rule
+    /// for what a group reference looks like, split into two places, can
+    /// disagree with itself. Field 3 is always a direct index, far under the
+    /// trailing-object cutoff at field 48, so no merge is needed to reach it
+    /// here.
     static func fallbackGroupID(fromRawHit0 raw: Any) -> GroupId? {
         guard JSONSerialization.isValidJSONObject(raw),
               let data = try? JSONSerialization.data(withJSONObject: raw),
@@ -184,10 +184,10 @@ extension SearchProbeReport {
         return "mixed"
     }
 
-    /// The decisive reading `task-3-brief.md`'s amendment states in full: "if
+    /// The decisive reading, from the run §65.9 asks for: if
     /// `contains_last_topic` is false and every returned time is at or
     /// before the anchor, the filter pages (inclusive); if it is true, it
-    /// does not." A false `contains_last_topic` with a message *after* the
+    /// does not. A false `contains_last_topic` with a message *after* the
     /// anchor fits neither half, so it is reported as such rather than forced
     /// into one - that combination is not something either reading predicts.
     ///
@@ -197,8 +197,8 @@ extension SearchProbeReport {
     /// page that pages back from the anchor and a page that always reaches
     /// the newest topic are indistinguishable once the whole conversation
     /// fits in one page), so reading it as "does not page" would be a verdict
-    /// from something that never measured the question (fix round 1, review
-    /// finding 1). Only `containsLastTopic` true on its own - the page
+    /// from something that never measured the question. Only
+    /// `containsLastTopic` true on its own - the page
     /// reached the newest topic without reaching the oldest one - is real
     /// asymmetric evidence and still reads "does not page".
     static func anchorReading(

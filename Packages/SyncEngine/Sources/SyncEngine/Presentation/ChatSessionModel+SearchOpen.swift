@@ -82,9 +82,9 @@ public extension ChatSessionModel {
 
 extension ChatSessionModel {
     /// Opens a hit where it lives: the transcript, or its thread for a reply
-    /// (`open(conversation:message:)`'s rule), once the engine has stored it,
-    /// asked for the history just before it and read where it lands
-    /// (`SyncEngine.loadHistory(in:until:pageLimit:)`). `state` is the
+    /// (`open(conversation:message:)`'s rule), once the engine has asked for
+    /// the history just before it, stored the hit with it and read where it
+    /// lands (`SyncEngine.loadHistory(in:until:pageLimit:)`). `state` is the
     /// caller's pending change, written here in the same one mutation.
     ///
     /// Nothing here reads the store: pages are landing while a hit opens, and
@@ -124,8 +124,9 @@ extension ChatSessionModel {
                 search = state
                 return
             }
-            // The hit is not stored: the store refused it, or lost it while
-            // its page was out. There is nothing to land on.
+            // The hit is not stored: the store refused it (the engine has
+            // recorded why), or lost it before the open read it back. There
+            // is nothing to land on.
             guard let target else {
                 state.bar?.unreachable = .tooFarBack
                 search = state

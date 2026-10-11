@@ -20,8 +20,8 @@ import Foundation
 /// millisecond precision (`WireCoding.swift`), so decoding a stored query
 /// back into a `Date` and comparing it against the caller's own
 /// sub-millisecond `Date` (built from `.now`) fails equality on every call
-/// that sets "Older than" - reproduced 20 of 20 times by a reviewer before
-/// this was fixed. Comparing two *encodings* instead sidesteps the problem
+/// that sets "Older than", so every second page would be refused.
+/// Comparing two *encodings* instead sidesteps the problem
 /// entirely: `fingerprint(of:)` is called once when a page is handed back and
 /// once when the next page is checked, and the same lossy, deterministic
 /// encoding applied both times to the same `Date` value produces the same

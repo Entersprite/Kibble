@@ -25,12 +25,12 @@ struct SearchProbeReportTests {
     }
 }
 
-// MARK: - Task 3: the anchor stage (findings.md §65.9)
+// MARK: - The anchor stage (findings.md §65.9)
 
 /// `Microseconds.from(_:)`/`Microseconds.date(_:)`'s round trip, pinned for a
-/// 16-digit value - the precision `AnchorPick.anchorTimeUsec` depends on
-/// (`task-3-brief.md`: "an in-memory µs → Date → µs round trip is exact",
-/// CLAUDE.md's §36 note).
+/// 16-digit value - the precision `AnchorPick.anchorTimeUsec` depends on.
+/// In memory only, where the round trip is exact; what a store keeps is
+/// another question (CLAUDE.md's §36 note).
 struct MicrosecondsRoundTripTests {
     @Test func a16DigitMicrosecondValueRoundTripsExactly() {
         let micros: Int64 = 1_700_000_123_456_789
@@ -41,7 +41,7 @@ struct MicrosecondsRoundTripTests {
 /// The anchor stage's pure parts: picking the hit, summarizing a response
 /// against its anchor, and the verdict line - `SearchProbeReport+Anchor.swift`.
 /// None of this touches the network; `appendAnchorStage` itself is exercised
-/// only by the owner's live run (`task-3-brief.md` step 3).
+/// only by a live `--probe=search` run.
 struct SearchProbeReportAnchorTests {
     // MARK: - Picking the hit
 
@@ -85,8 +85,8 @@ struct SearchProbeReportAnchorTests {
 
     /// The raw hit shape §65.8 found: `[inner, 2]`, group reference at index
     /// 2 (field 3) of `inner`. Built by hand rather than reusing
-    /// `SearchHitMappingTests`'s private fixture builder, which this task is
-    /// explicitly barred from editing.
+    /// `SearchHitMappingTests`'s private fixture builder, so the two suites
+    /// stay independent.
     private static func rawHit0(group: PBLiteValue) throws -> Any {
         var fields = [PBLiteValue](repeating: .null, count: 18)
         fields[2] = group
@@ -122,12 +122,10 @@ struct SearchProbeReportAnchorTests {
         #expect(ChannelEventMapping.conversationID(group)?.rawValue == "dm/dm-1")
     }
 
-    /// Fix round 1, review finding 2: a two-element space reference (no
-    /// trailing `2`) must be refused, the same rule
-    /// `SearchHitMapping.groupReference(_:)` already enforces for its own
-    /// caller. This is what caught `fallbackGroupID` silently dropping that
-    /// check when it duplicated the match instead of calling the shared
-    /// function.
+    /// A two-element space reference (no trailing `2`) must be refused, the
+    /// same rule `SearchHitMapping.groupReference(_:)` already enforces for
+    /// its own caller: a `fallbackGroupID` that copied the match and dropped
+    /// that check would fail here.
     @Test func fallbackGroupIDRefusesASpaceReferenceMissingTheTrailingTwo() throws {
         let raw = try Self.rawHit0(group: ["space/sp-1", "sp-1"])
         #expect(SearchProbeReport.fallbackGroupID(fromRawHit0: raw) == nil)
@@ -183,12 +181,10 @@ struct SearchProbeReportAnchorTests {
         ).contains("inconclusive"))
     }
 
-    /// Fix round 1, review finding 1: a small conversation that comes back
-    /// whole (`contains_first_topic` and `contains_last_topic` both true) is
-    /// not evidence either way - both readings predict exactly that - so it
-    /// must not read as "does not page" even though `containsLastTopic`
-    /// alone is true. This is the test that was red against the old
-    /// two-parameter `anchorReading` (see the fix report).
+    /// A small conversation that comes back whole (`contains_first_topic`
+    /// and `contains_last_topic` both true) is not evidence either way - both
+    /// readings predict exactly that - so it must not read as "does not page"
+    /// even though `containsLastTopic` alone is true.
     @Test func readingIsInconclusiveWhenTheWholeConversationCameBackInOnePage() {
         let reading = SearchProbeReport.anchorReading(
             containsFirstTopic: true, containsLastTopic: true, offsetsSeconds: [-10, 5]

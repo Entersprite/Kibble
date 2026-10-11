@@ -88,6 +88,23 @@ public extension ChatStore {
             ).map(StoredDate.date)
         }
     }
+
+    /// Whether `conversation` holds a top-level message older than `date`:
+    /// something the transcript shows before it. An opened search hit with
+    /// none has nothing stored that led up to it
+    /// (`SyncEngine.loadHistory(in:until:pageLimit:)`).
+    func hasTopLevelMessage(in conversation: Conversation.ID, before date: Date) throws -> Bool {
+        try database.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: """
+                SELECT EXISTS (SELECT 1 FROM message
+                               WHERE conversationID = ? AND isReply = 0 AND createdAt < ?)
+                """,
+                arguments: [conversation.rawValue, StoredDate.value(date)]
+            ) ?? false
+        }
+    }
 }
 
 // MARK: - Observing

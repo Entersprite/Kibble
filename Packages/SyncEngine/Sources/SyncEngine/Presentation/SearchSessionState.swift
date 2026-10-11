@@ -57,7 +57,11 @@ public struct SearchBarState: Equatable, Sendable {
     public internal(set) var pageFailed = false
 
     public enum Unreachable: Equatable, Sendable {
-        /// History ran out of pages before reaching it.
+        /// It could not be stored to open: the store refused it, and the
+        /// failure is recorded where errors show, or lost it before the open
+        /// read it back. Not "history ran out": a hit is stored as search
+        /// found it, however far back it is
+        /// (`SyncEngine.loadHistory(in:until:pageLimit:)`).
         case tooFarBack
         /// Its conversation is not in the sidebar.
         case notInSidebar

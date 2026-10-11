@@ -20,10 +20,10 @@ public extension LocalBridgeBackend {
         guard isConnected else {
             throw ChatError.unknown("searchMessages requires connect() to succeed first")
         }
-        // Never captured on the wire (`findings.md` §65.5): refusing rather
-        // than silently dropping it is the plan's own ruling, the same
-        // posture `membership(of:in:)` and `searchPeople` take toward a
-        // filter or a conversation they cannot honour.
+        // Never captured on the wire (`findings.md` §65.5): refused rather
+        // than silently dropped, so no page claims a filter it did not
+        // apply - the same posture `membership(of:in:)` and `searchPeople`
+        // take toward a filter or a conversation they cannot honor.
         guard query.newerThan == nil else {
             throw ChatError.unsupported(capability: "messageSearchFilters: newerThan")
         }

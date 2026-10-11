@@ -36,10 +36,10 @@ struct SearchMessagesCancelAndMapTests {
         #expect(memberLookupsAfter == memberLookupsBeforeSearch)
     }
 
-    /// The spec deviation a reviewer found: nothing checked cancellation
-    /// *after* a good answer had already come back, so a request that landed
-    /// despite its caller having moved on would still start a `get_members`
-    /// lookup nobody needed any more. `IgnoringHold` stands in for a network
+    /// Cancellation is checked *after* a good answer has come back too:
+    /// otherwise a request that landed despite its caller having moved on
+    /// would still start a `get_members` lookup nobody needed any more
+    /// (search spec §3.2: latest wins). `IgnoringHold` stands in for a network
     /// layer that does not notice a cancellation as promptly as `SearchHold`'s
     /// own does: the task is cancelled first, and only then is the answer
     /// released, so by the time `searchMessages` resumes `Task.isCancelled`
