@@ -97,7 +97,9 @@ public final class ChatSessionModel {
     /// name, which this design explicitly does not have.
     ///
     /// Advances **only on a successful mark** (see `markSelectedReadIfNeeded`
-    /// in `ChatSessionModel+AutoMarkRead.swift`).
+    /// in `ChatSessionModel+AutoMarkRead.swift`), or to the server's own read
+    /// position when a mark is skipped as already read there
+    /// (`skipsBehindServerPosition`).
     ///
     /// Not `private`: the trigger that reads and writes this lives in that
     /// extension file, in a different source file, so this needs at least

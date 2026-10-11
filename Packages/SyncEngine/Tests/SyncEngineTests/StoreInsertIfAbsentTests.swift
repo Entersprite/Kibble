@@ -69,8 +69,8 @@ struct StoreInsertIfAbsentTests {
         #expect(row.text.isEmpty)
     }
 
-    /// The hit is a placeholder, not a claim: the history page that covers it
-    /// later replaces it as it would any message.
+    /// The hit does not lock its row: a later write of the same message - a
+    /// push, or a newest page that holds it - replaces it as it would any.
     @Test func historyLaterReplacesTheHit() throws {
         let store = try ChatStore.inMemory()
         try store.apply([.insertMessageIfAbsent(Self.hit())])

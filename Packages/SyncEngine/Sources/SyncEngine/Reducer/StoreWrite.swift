@@ -44,8 +44,12 @@ public enum StoreWrite: Sendable, Equatable {
     /// A message the store lacks, added; one it holds, left exactly as it is.
     /// For an opened search hit, which lacks reactions, the edit time, app
     /// cards and some link-preview fields, and carries a different upload
-    /// token (`findings.md` §65.8): it may stand in until a history page
-    /// covers it, never replace a copy that has them.
+    /// token (`findings.md` §65.8): it must never replace a copy that has
+    /// them. Once written it stays as search found it until something else
+    /// writes that message - a push about it, or the newest page when the hit
+    /// is recent. Opening it asks only for what is strictly older, and the
+    /// bridge drops the hit's own copy from that page, so the open itself
+    /// never replaces it.
     ///
     /// **One statement, never a read and then an upsert** (`INSERT OR
     /// IGNORE`), so a push that lands between a check and a write is never

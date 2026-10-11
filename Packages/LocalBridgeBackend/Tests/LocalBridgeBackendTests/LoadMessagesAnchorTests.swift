@@ -245,7 +245,12 @@ struct LoadMessagesAnchorTests {
         let backend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
         try await backend.connect()
         let id = ChatKit.Message.ID("m-1")
-        for _ in 0 ..< 400 where await backend.messageTimes.micros(of: id) == nil {
+        // Bounded, and it stops once the push is remembered: `for ... where`
+        // would only skip iterations and keep polling to the bound.
+        for _ in 0 ..< 400 {
+            if await backend.messageTimes.micros(of: id) != nil {
+                break
+            }
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(await backend.messageTimes.micros(of: id) == Self.anchor)
