@@ -29,13 +29,26 @@ enum SearchRows {
         query.hasFilters || query.text.trimmingCharacters(in: .whitespaces).count >= 2
     }
 
-    // MARK: Selection: nothing until the person picks a row, so Return searches
+    // MARK: Selection: Spotlight-like — the top result, unless a row is picked
 
     /// On open: the hit Show All came back to, when it is listed.
     static func initialSelection(_ search: SearchSceneState) -> SearchRow? {
         guard let focus = search.focus else { return nil }
         let row = SearchRow.message(focus)
         return rows(search).contains(row) ? row : nil
+    }
+
+    /// What Return does: open the selected row, or the top row when nothing
+    /// is selected yet (defensive — the overlay keeps a row selected whenever
+    /// any are listed), or call `submit()` when there are none at all.
+    enum ReturnAction: Equatable {
+        case open(SearchRow)
+        case submit
+    }
+
+    static func returnAction(selected: SearchRow?, rows: [SearchRow]) -> ReturnAction {
+        guard !rows.isEmpty else { return .submit }
+        return .open(selected ?? rows[0])
     }
 
     /// What the field takes when the model's query text changes: `nil` when
@@ -65,11 +78,14 @@ enum SearchRows {
         return search.hasMore ? .trigger : nil
     }
 
-    /// After the rows change without typing (hits arriving, a filter): the pick
-    /// while its row is still listed, else nothing.
-    static func kept(_ selected: SearchRow?, in rows: [SearchRow]) -> SearchRow? {
-        guard let selected, rows.contains(selected) else { return nil }
-        return selected
+    /// After the rows change (typing, results arriving, a filter): an explicit
+    /// pick (↑↓ or hover, since the last keystroke) while its row is still
+    /// listed, else the top row — Spotlight's "Return opens the top result".
+    static func selected(previous: SearchRow?, explicit: Bool, in rows: [SearchRow]) -> SearchRow? {
+        if explicit, let previous, rows.contains(previous) {
+            return previous
+        }
+        return rows.first
     }
 
     /// ↑ and ↓: from nothing, ↓ picks the first row and ↑ the last; from a row,

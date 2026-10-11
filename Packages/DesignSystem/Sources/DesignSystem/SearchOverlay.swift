@@ -23,6 +23,10 @@ public struct SearchOverlay: View {
     /// a query (Clear, "Messages from") is not sent a second time.
     @State private var sent: String
     @State private var selection: SearchRow?
+    /// Whether `selection` came from ↑↓ or a hover since the last keystroke,
+    /// so it survives a rows update that still lists it. A keystroke clears
+    /// this; the next rows update then lands on the top result (Spotlight).
+    @State private var explicitPick = false
     @FocusState private var focused: Bool
 
     public init(state: ChatSceneState, actions: SearchActions) {
@@ -68,13 +72,24 @@ public struct SearchOverlay: View {
             }
         }
         .onAppear {
-            selection = SearchRows.initialSelection(search)
+            if let hit = SearchRows.initialSelection(search) {
+                selection = hit
+                explicitPick = true
+            } else {
+                selection = SearchRows.rows(search).first
+                explicitPick = false
+            }
             DispatchQueue.main.async { focused = true }
         }
         .onChange(of: text) {
             guard text != sent else { return }
-            // Typing drops the pick, so Return searches what was typed.
-            selection = nil
+            // Typing drops the pick; the next rows update lands on the top
+            // result (Spotlight-like), so Return opens it unless the person
+            // arrows to another row first.
+            explicitPick = false
+            // Also now: a keystroke that leaves the rows as they were fires no
+            // rows update, and must not leave an arrow pick selected.
+            selection = SearchRows.rows(search).first
             sent = text
             actions.textChanged(text)
         }
@@ -87,12 +102,19 @@ public struct SearchOverlay: View {
         }
         .onChange(of: search.focus) {
             // A focus arriving while shown (⌘F back to the bar's list); a
-            // focus cleared by a new answer leaves the pick to `kept`.
+            // focus cleared by a new answer leaves the pick to the rows-change
+            // handler below.
             guard search.focus != nil else { return }
-            selection = SearchRows.initialSelection(search)
+            if let hit = SearchRows.initialSelection(search) {
+                selection = hit
+                explicitPick = true
+            } else {
+                selection = SearchRows.rows(search).first
+                explicitPick = false
+            }
         }
         .onChange(of: SearchRows.rows(search)) { _, rows in
-            selection = SearchRows.kept(selection, in: rows)
+            selection = SearchRows.selected(previous: selection, explicit: explicitPick, in: rows)
         }
     }
 
@@ -133,10 +155,9 @@ public struct SearchOverlay: View {
                 .onKeyPress(.upArrow) { move(-1); return .handled }
                 .onKeyPress(.escape) { actions.hide(); return .handled }
                 .onSubmit {
-                    if let selection {
-                        open(selection)
-                    } else {
-                        actions.submit()
+                    switch SearchRows.returnAction(selected: selection, rows: SearchRows.rows(search)) {
+                    case let .open(row): open(row)
+                    case .submit: actions.submit()
                     }
                 }
             if !text.isEmpty || search.query.hasFilters {
@@ -156,6 +177,7 @@ public struct SearchOverlay: View {
 
     private func move(_ step: Int) {
         selection = SearchRows.next(after: SearchRows.rows(search), selected: selection, by: step)
+        explicitPick = true
     }
 
     /// Sets the text and the filters together: the text first, so the query
@@ -316,6 +338,7 @@ public struct SearchOverlay: View {
             .onHover { inside in
                 if inside {
                     selection = row
+                    explicitPick = true
                 }
             }
             .padding(.horizontal, 8)

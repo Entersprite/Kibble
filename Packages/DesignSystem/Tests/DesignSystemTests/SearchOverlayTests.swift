@@ -39,20 +39,36 @@ struct SearchOverlayTests {
         #expect(DateChoice.any.bound(now: now) == nil)
     }
 
-    // MARK: Selection: nothing until a row is picked, so Return searches
+    // MARK: Selection: Spotlight-like — the top result, unless a row is picked
 
     static let rows: [SearchRow] = [
         .conversation(Conversation.ID("c")), .person(Member.ID("p")), .message(Message.ID("1"))
     ]
 
-    @Test func typingLeavesNothingSelected() {
-        // The overlay clears the pick on a text change; the rows that answer
-        // the new text keep it cleared.
-        #expect(SearchRows.kept(nil, in: Self.rows) == nil)
-        #expect(SearchRows.initialSelection(SearchSceneState(
-            query: MessageSearchQuery(text: "de"),
-            hits: [Self.message("1")]
-        )) == nil)
+    @Test func typingSelectsTheTopRow() {
+        // No explicit pick: the rows that answer the new text select their
+        // own top row, the way Spotlight does.
+        #expect(SearchRows.selected(previous: nil, explicit: false, in: Self.rows) == Self.rows[0])
+        #expect(SearchRows.selected(previous: .person(Member.ID("p")), explicit: false, in: Self.rows) == Self
+            .rows[0])
+        #expect(SearchRows.selected(previous: nil, explicit: false, in: []) == nil)
+    }
+
+    @Test func anArrowPickSurvivesARowsUpdateWhileItIsStillListed() {
+        #expect(SearchRows.selected(previous: Self.rows[1], explicit: true, in: Self.rows) == Self.rows[1])
+    }
+
+    @Test func anArrowPickIsDroppedOnceItsRowIsGone() {
+        // Falls back to the new top row, not to nothing.
+        #expect(SearchRows
+            .selected(previous: .person(Member.ID("gone")), explicit: true, in: Self.rows) == Self.rows[0])
+    }
+
+    @Test func aKeystrokeDropsThePickBackToTheTopRow() {
+        // `explicit: false` is what a keystroke leaves behind (SearchOverlay
+        // clears its own `explicitPick` flag on every text change), even
+        // though a row is still otherwise listed.
+        #expect(SearchRows.selected(previous: Self.rows[1], explicit: false, in: Self.rows) == Self.rows[0])
     }
 
     @Test func downFromNothingSelectsTheFirstRow() {
@@ -66,9 +82,19 @@ struct SearchOverlayTests {
         #expect(SearchRows.next(after: [], selected: nil, by: 1) == nil)
     }
 
-    @Test func aPickStaysWhileItsRowIsListed() {
-        #expect(SearchRows.kept(Self.rows[1], in: Self.rows) == Self.rows[1])
-        #expect(SearchRows.kept(.person(Member.ID("gone")), in: Self.rows) == nil)
+    @Test func returnOpensTheSelectedRow() {
+        #expect(SearchRows.returnAction(selected: Self.rows[1], rows: Self.rows) == .open(Self.rows[1]))
+    }
+
+    @Test func returnWithNoSelectionOpensTheTopRow() {
+        // Defensive: the overlay always keeps a row selected when any are
+        // listed, but `returnAction` does not depend on that.
+        #expect(SearchRows.returnAction(selected: nil, rows: Self.rows) == .open(Self.rows[0]))
+    }
+
+    @Test func returnWithNoRowsSubmits() {
+        #expect(SearchRows.returnAction(selected: nil, rows: []) == .submit)
+        #expect(SearchRows.returnAction(selected: Self.rows[0], rows: []) == .submit)
     }
 
     @Test func aListedFocusIsSelectedOnOpen() {
