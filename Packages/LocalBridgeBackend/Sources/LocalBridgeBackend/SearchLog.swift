@@ -8,10 +8,13 @@ import os
 ///     /usr/bin/log show --last 10m --predicate \
 ///         'subsystem == "com.entersprite.kibble" && category == "search"'
 ///
-/// **Why a log line and not `.backendError`:** a dropped hit (a shape
-/// `SearchHitMapping` does not recognise) is not a failure a person should
-/// see a banner about on every search - `CLAUDE.md`'s ruling for this task is
-/// explicit that nothing emits for it.
+/// **Why a log line and not `.backendError`:** a dropped hit is a shape
+/// `SearchHitMapping` does not yet recognise, not a failed request - the
+/// search itself still answered and the person still sees their other
+/// results. Raising a banner for it on every such search would teach people
+/// to ignore search errors generally, so the count goes here instead, where
+/// it stays visible to whoever is looking without interrupting anyone who is
+/// not.
 enum SearchLog {
     private static let log = Logger(subsystem: "com.entersprite.kibble", category: "search")
 

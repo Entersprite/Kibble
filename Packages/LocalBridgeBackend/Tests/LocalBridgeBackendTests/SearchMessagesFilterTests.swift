@@ -118,4 +118,38 @@ struct SearchMessagesFilterTests {
         let sent = try #require(await SearchBackendSupport.batchRequests(transport).first)
         #expect(try SearchFixtures.innerPayload(of: sent)[8] as? [Int] == [2])
     }
+
+    /// §65.2: position 7, the client's clock, is "absent only on the
+    /// session's first search" - a first page sends no cursor, so there is
+    /// nothing to carry a clock for yet.
+    @Test func theFirstPageSendsNoClientClock() async throws {
+        let inner = SearchFixtures.pageInner(nextToken: nil, hits: [])
+        let transport = try SearchTransport(shell: SearchFixtures.fullShell(), batchResponses: [
+            SearchFixtures.ok(SearchFixtures.answerBody(inner: inner))
+        ])
+        let backend = try await SearchBackendSupport.connected(transport)
+        _ = try await backend.searchMessages(MessageSearchQuery(text: "x"), after: nil)
+        let sent = try #require(await SearchBackendSupport.batchRequests(transport).first)
+        #expect(try SearchFixtures.innerPayload(of: sent)[7] is NSNull)
+    }
+
+    /// §65.2: position 5 is "new per query" - two unrelated searches, each
+    /// its own first page, must not share a query id.
+    @Test func twoFirstPagesGetDifferentQueryIDs() async throws {
+        let inner = SearchFixtures.pageInner(nextToken: nil, hits: [])
+        let transport = try SearchTransport(shell: SearchFixtures.fullShell(), batchResponses: [
+            SearchFixtures.ok(SearchFixtures.answerBody(inner: inner)),
+            SearchFixtures.ok(SearchFixtures.answerBody(inner: inner))
+        ])
+        let backend = try await SearchBackendSupport.connected(transport)
+        _ = try await backend.searchMessages(MessageSearchQuery(text: "a"), after: nil)
+        _ = try await backend.searchMessages(MessageSearchQuery(text: "b"), after: nil)
+        let sent = await SearchBackendSupport.batchRequests(transport)
+        #expect(sent.count == 2)
+        let firstQueryID = try SearchFixtures.innerPayload(of: sent[0])[5] as? String
+        let secondQueryID = try SearchFixtures.innerPayload(of: sent[1])[5] as? String
+        #expect(firstQueryID != nil)
+        #expect(secondQueryID != nil)
+        #expect(firstQueryID != secondQueryID)
+    }
 }

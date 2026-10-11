@@ -1,7 +1,7 @@
 import ChatKit
 
 /// What the bridge can actually do - split out of `LocalBridgeBackend.swift`
-/// once Task 6's search filters pushed that file to `file_length`, the same
+/// once search's own additions pushed that file to `file_length`, the same
 /// convention `+Errors.swift`, `+SelfIdentification.swift` and `+Capture.swift`
 /// already established.
 ///

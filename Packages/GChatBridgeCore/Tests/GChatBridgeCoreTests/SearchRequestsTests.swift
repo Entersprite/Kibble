@@ -37,12 +37,13 @@ struct SearchRequestsTests {
         #expect(SearchRequests.newQueryID() != SearchRequests.newQueryID())
     }
 
-    // MARK: - Filters (§65.5), Task 6
+    // MARK: - Filters (§65.5)
 
     /// With every new filter field left at its default, the payload is
     /// byte-identical to the one the probe already sends and depends on -
-    /// `theFirstPageMatchesTheCapture` above pins the same string, so this is
-    /// the same guarantee stated as its own test for Task 6's record.
+    /// `theFirstPageMatchesTheCapture` above pins the same string; this test
+    /// states that guarantee explicitly, rather than leaving it implicit in
+    /// every filter field happening to default to "unset".
     @Test func noFilterSetMatchesTheUnfilteredPayload() {
         let withoutFilters = SearchRequests.payload(MessageSearchPayload(text: "deploy", queryID: "Q"))
         let explicitlyUnset = SearchRequests.payload(MessageSearchPayload(

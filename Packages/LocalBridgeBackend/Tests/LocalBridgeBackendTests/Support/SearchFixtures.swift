@@ -50,14 +50,29 @@ enum SearchFixtures {
 
     /// One `wrb.fr` row, framed as a `batchexecute` answer body (§65.6):
     /// `)]}'` then a balanced JSON array - the length line `BatchExecute
-    /// .answers(in:)` itself says it never trusts.
-    static func answerBody(inner: [Any], errorCode: Int? = nil) throws -> Data {
+    /// .answers(in:)` itself says it never trusts. `rpc` defaults to
+    /// `SBNmJb`'s own; a test naming a different one builds an answer
+    /// `searchMessages` must report as carrying no `SBNmJb` row at all.
+    static func answerBody(inner: [Any], errorCode: Int? = nil, rpc: String = SearchRequests.rpc) throws
+        -> Data {
         let payloadData = try JSONSerialization.data(
             withJSONObject: inner, options: [.withoutEscapingSlashes]
         )
         let payloadString = String(decoding: payloadData, as: UTF8.self)
+        return try rawAnswerBody(payload: payloadString, errorCode: errorCode, rpc: rpc)
+    }
+
+    /// The same framing, with the payload a literal string instead of a JSON
+    /// encoding of an array - for a row whose payload is not valid JSON at
+    /// all, which `answerBody(inner:)` cannot build since it always encodes
+    /// one.
+    static func answerBody(undecodablePayload payload: String) throws -> Data {
+        try rawAnswerBody(payload: payload, errorCode: nil, rpc: SearchRequests.rpc)
+    }
+
+    private static func rawAnswerBody(payload: String, errorCode: Int?, rpc: String) throws -> Data {
         let row: [Any] = [
-            "wrb.fr", SearchRequests.rpc, payloadString, NSNull(), NSNull(),
+            "wrb.fr", rpc, payload, NSNull(), NSNull(),
             errorCode.map { [$0] } ?? NSNull()
         ]
         let frame: [Any] = [row]

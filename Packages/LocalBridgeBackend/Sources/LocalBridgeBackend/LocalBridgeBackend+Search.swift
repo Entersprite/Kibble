@@ -2,9 +2,9 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
-/// `searchMessages(_:after:)` - `SBNmJb` over `batchexecute`, made real
-/// (search plan 2, Task 6). `SearchProbeReport` already proved Google accepts
-/// a request Kibble built itself end to end (`findings.md` §65.7: HTTP 200,
+/// `searchMessages(_:after:)` - `SBNmJb` over `batchexecute`, made real.
+/// `SearchProbeReport` already proved Google accepts a request Kibble built
+/// itself end to end (`findings.md` §65.7: HTTP 200,
 /// no error code, `at` from `SNlM0e`, no extension header, no `/u/0`); this
 /// reaches the exact same request from the seam instead of a probe, and maps
 /// every hit through `SearchHitMapping`, the pure function `--probe=search`'s
@@ -33,7 +33,7 @@ public extension LocalBridgeBackend {
                 "the Chat shell lacks SNlM0e, FdrFJe or cfb2h - a batchexecute call needs all three"
             )
         }
-        let searchPayload = try searchPayload(for: query, page: page)
+        let searchPayload = try await searchPayload(for: query, page: page)
         let request = BatchExecute.request(
             BatchExecuteCall(
                 rpc: SearchRequests.rpc,
@@ -54,6 +54,13 @@ public extension LocalBridgeBackend {
         // being folded into a `ChatError` that would hide which one it was.
         let response = try await PunctualClient(transport: transport, credentials: credentials)
             .send(request)
+        // The send above does not itself check cancellation - a transport is
+        // free to honour it or not, so a task cancelled while the request was
+        // in flight can still land here with a perfectly good answer. Nothing
+        // past this point should run for a caller who has already stopped
+        // listening - most of all `resolveUnknownMembers` below, which would
+        // otherwise start a `get_members` call nobody asked for any more.
+        try Task.checkCancellation()
         guard response.status == 200 else {
             throw ChatError.server(status: response.status, message: "the search batchexecute call")
         }
@@ -70,7 +77,10 @@ public extension LocalBridgeBackend {
         resolveUnknownMembers(mapped.hits.map(\.sender))
         let next = mapped.next.map { token in
             SearchCursorCoding.encode(
-                SearchCursorPayload(queryID: searchPayload.queryID, pageToken: token, query: query)
+                SearchCursorPayload(
+                    queryID: searchPayload.queryID, pageToken: token,
+                    queryFingerprint: SearchCursorCoding.fingerprint(of: query)
+                )
             )
         }
         return MessageSearchPage(hits: mapped.hits, next: next)
@@ -95,9 +105,9 @@ public extension LocalBridgeBackend {
     ) throws -> SearchCursorPayload? {
         guard let cursor else { return nil }
         guard let decoded = SearchCursorCoding.decode(cursor) else {
-            throw ChatError.unknown("not a search cursor this backend made: \(cursor)")
+            throw ChatError.unknown("not a search cursor this backend made")
         }
-        guard decoded.query == query else {
+        guard decoded.queryFingerprint == SearchCursorCoding.fingerprint(of: query) else {
             throw ChatError.unknown("this cursor was made for a different search query")
         }
         return decoded
@@ -112,9 +122,15 @@ public extension LocalBridgeBackend {
     private func searchPayload(
         for query: MessageSearchQuery,
         page: SearchCursorPayload?
-    ) throws -> MessageSearchPayload {
+    ) async throws -> MessageSearchPayload {
         var mentionsUserID: String?
         if query.mentionsMe {
+            // `resolveAndEmitSelf()` may still be in flight (it runs behind
+            // `connect()`, not awaited by it): wait for it the way the
+            // calendar poll does (`startCalendarPoll(for:after:)`) rather
+            // than refusing on a race `connect()` itself never promised to
+            // have settled.
+            await selfIdentification?.value
             guard let me = calendarPoll.me, !me.rawValue.isEmpty else {
                 throw ChatError.unknown(
                     "searchMessages needs the local user's id for \"mentions me\", and "
@@ -179,7 +195,9 @@ public extension LocalBridgeBackend {
             )
         }
         guard let answer = answers.first(where: { $0.rpc == SearchRequests.rpc }) else {
-            throw ChatError.decoding("no SBNmJb row in the batchexecute answer")
+            throw ChatError.server(
+                status: response.status, message: "no SBNmJb row in the batchexecute answer"
+            )
         }
         if let code = answer.errorCode {
             throw ChatError.server(status: response.status, message: "SBNmJb answered error code \(code)")
@@ -187,7 +205,9 @@ public extension LocalBridgeBackend {
         guard let payload = answer.payload,
               let inner = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [Any]
         else {
-            throw ChatError.decoding("the SBNmJb row carried no decodable payload")
+            throw ChatError.server(
+                status: response.status, message: "the SBNmJb row carried no decodable payload"
+            )
         }
         return inner
     }

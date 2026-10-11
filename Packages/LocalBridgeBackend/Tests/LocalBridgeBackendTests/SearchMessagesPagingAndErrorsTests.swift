@@ -47,6 +47,57 @@ struct SearchMessagesPagingAndErrorsTests {
         #expect(secondFilter[4] is NSNull)
     }
 
+    /// The Important bug a reviewer reproduced 20 of 20 times: `olderThan`
+    /// goes on the wire as RFC 3339 at millisecond precision, so decoding a
+    /// stored query back into a `Date` and comparing it against the caller's
+    /// own sub-millisecond one (built from `.now`, as `SearchChips.swift`
+    /// does) never matched. `Date()` here carries that same sub-millisecond
+    /// precision in memory. Fixed by comparing two fresh encodings of the
+    /// query instead of a decoded `Date` - see `SearchCursorPayload`'s own
+    /// doc comment.
+    @Test func page2WorksWhenOlderThanHasSubMillisecondPrecision() async throws {
+        let hit1 = SearchFixtures.hit(
+            messageID: "m-1", spaceID: "sp-1", senderID: "u-1", text: "one", createdAtMicros: 1
+        )
+        let page1Inner = SearchFixtures.pageInner(nextToken: "tok-1", hits: [hit1])
+        let page2Inner = SearchFixtures.pageInner(nextToken: nil, hits: [])
+        let transport = try SearchTransport(shell: SearchFixtures.fullShell(), batchResponses: [
+            SearchFixtures.ok(SearchFixtures.answerBody(inner: page1Inner)),
+            SearchFixtures.ok(SearchFixtures.answerBody(inner: page2Inner))
+        ])
+        let backend = try await SearchBackendSupport.connected(transport)
+        let query = MessageSearchQuery(text: "x", olderThan: Date())
+        let page1 = try await backend.searchMessages(query, after: nil)
+        let cursor = try #require(page1.next)
+        // Must not throw "this cursor was made for a different search query".
+        _ = try await backend.searchMessages(query, after: cursor)
+    }
+
+    @Test func noSBNmJbRowBecomesAServerError() async throws {
+        let inner = SearchFixtures.pageInner(nextToken: nil, hits: [])
+        let transport = try SearchTransport(shell: SearchFixtures.fullShell(), batchResponses: [
+            SearchFixtures.ok(SearchFixtures.answerBody(inner: inner, rpc: "SomeOtherRpc"))
+        ])
+        let backend = try await SearchBackendSupport.connected(transport)
+        await #expect(throws: ChatError.server(
+            status: 200, message: "no SBNmJb row in the batchexecute answer"
+        )) {
+            _ = try await backend.searchMessages(MessageSearchQuery(text: "x"), after: nil)
+        }
+    }
+
+    @Test func anUndecodablePayloadBecomesAServerError() async throws {
+        let transport = try SearchTransport(shell: SearchFixtures.fullShell(), batchResponses: [
+            SearchFixtures.ok(SearchFixtures.answerBody(undecodablePayload: "not json at all"))
+        ])
+        let backend = try await SearchBackendSupport.connected(transport)
+        await #expect(throws: ChatError.server(
+            status: 200, message: "the SBNmJb row carried no decodable payload"
+        )) {
+            _ = try await backend.searchMessages(MessageSearchQuery(text: "x"), after: nil)
+        }
+    }
+
     @Test func anErrorCodeRowBecomesAServerError() async throws {
         let inner = SearchFixtures.pageInner(nextToken: nil, hits: [])
         let transport = try SearchTransport(shell: SearchFixtures.fullShell(), batchResponses: [

@@ -51,4 +51,23 @@ enum SearchBackendSupport {
         }
         return await transport.sent
     }
+
+    /// Waits until a request has reached `hold` - bounded, never a fixed
+    /// sleep before cancelling, which is exactly the gap between "probably
+    /// sent by now" and "has definitely reached the transport" a guessed-at
+    /// delay leaves open.
+    static func waitUntilEntered(_ hold: SearchHold) async throws {
+        for _ in 0 ..< 400 where await !hold.entered {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await hold.entered)
+    }
+
+    /// The same, for `IgnoringHold`.
+    static func waitUntilEntered(_ hold: IgnoringHold) async throws {
+        for _ in 0 ..< 400 where await !hold.entered {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await hold.entered)
+    }
 }

@@ -23,7 +23,7 @@ public actor LocalBridgeBackend: ChatBackend {
     public static let missingChannel = "liveChannel"
 
     // `capabilities` lives in `LocalBridgeBackend+Capabilities.swift` - a
-    // computed property, moved out once Task 6's search filters pushed this
+    // computed property, moved out once search's own additions pushed this
     // file to `file_length`.
 
     public nonisolated let events: AsyncStream<ChatEvent>

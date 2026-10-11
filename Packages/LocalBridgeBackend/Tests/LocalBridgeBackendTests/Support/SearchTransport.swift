@@ -21,19 +21,22 @@ actor SearchTransport: HTTPTransport {
     private var batchResponses: [Result<HTTPResponse, any Error>]
     private(set) var sent: [HTTPRequest] = []
     private var hold: SearchHold?
+    private var ignoringHold: IgnoringHold?
 
     init(
         shell: HTTPResponse,
         selfStatus: Result<HTTPResponse, any Error> = .success(SearchTransport.selfStatusResponse("u-me")),
         membersResponse: HTTPResponse = SearchTransport.emptyMembersResponse,
         batchResponses: [Result<HTTPResponse, any Error>] = [],
-        hold: SearchHold? = nil
+        hold: SearchHold? = nil,
+        ignoringHold: IgnoringHold? = nil
     ) {
         self.shell = shell
         self.selfStatus = selfStatus
         self.membersResponse = membersResponse
         self.batchResponses = batchResponses
         self.hold = hold
+        self.ignoringHold = ignoringHold
     }
 
     static func selfStatusResponse(_ userID: String) -> HTTPResponse {
@@ -64,6 +67,9 @@ actor SearchTransport: HTTPTransport {
             if let hold {
                 try await hold.wait()
             }
+            if let ignoringHold {
+                await ignoringHold.wait()
+            }
             guard !batchResponses.isEmpty else { throw Exhausted() }
             return try batchResponses.removeFirst().get()
         }
@@ -82,8 +88,13 @@ actor SearchTransport: HTTPTransport {
 actor SearchHold {
     private var continuation: CheckedContinuation<Void, any Error>?
     private(set) var aborted = 0
+    /// Set the moment `wait()` is called, before it suspends - so a test can
+    /// poll for "the request has reached the hold" instead of sleeping a
+    /// fixed, guessed-at duration before cancelling.
+    private(set) var entered = false
 
     func wait() async throws {
+        entered = true
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation = $0 }
         } onCancel: {
@@ -101,5 +112,28 @@ actor SearchHold {
         aborted += 1
         continuation.resume(throwing: CancellationError())
         self.continuation = nil
+    }
+}
+
+/// The opposite of `SearchHold`: a hold a canceled caller's task does **not**
+/// tear down, so a test can simulate the race `LocalBridgeBackend
+/// +Search.swift`'s own `try Task.checkCancellation()` exists for - a
+/// transport that answers despite the cancel, because the network layer
+/// beneath it does not always notice a cancellation as promptly as
+/// `SearchHold`'s own `withTaskCancellationHandler` does.
+actor IgnoringHold {
+    private var continuation: CheckedContinuation<Void, Never>?
+    /// Set the moment `wait()` is called, before it suspends - the same
+    /// reason `SearchHold.entered` is.
+    private(set) var entered = false
+
+    func wait() async {
+        entered = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
     }
 }

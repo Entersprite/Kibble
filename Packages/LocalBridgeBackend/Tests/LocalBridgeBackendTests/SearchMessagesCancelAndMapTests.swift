@@ -21,13 +21,51 @@ struct SearchMessagesCancelAndMapTests {
         let task = Task {
             try await backend.searchMessages(MessageSearchQuery(text: "x"), after: nil)
         }
-        try await Task.sleep(for: .milliseconds(20))
+        // Waits until the request has actually reached the hold, rather than
+        // sleeping a guessed-at duration and hoping it was long enough.
+        try await SearchBackendSupport.waitUntilEntered(hold)
         task.cancel()
         await #expect(throws: (any Error).self) { try await task.value }
         #expect(await hold.aborted == 1)
         // Nothing past the cancelled send ran: no member lookup was started
         // for the search's own hits (there are none to map, since the send
         // never returned).
+        try await Task.sleep(for: .milliseconds(20))
+        let memberLookupsAfter = await transport.sent
+            .filter { $0.url.path.contains("/api/get_members") }.count
+        #expect(memberLookupsAfter == memberLookupsBeforeSearch)
+    }
+
+    /// The spec deviation a reviewer found: nothing checked cancellation
+    /// *after* a good answer had already come back, so a request that landed
+    /// despite its caller having moved on would still start a `get_members`
+    /// lookup nobody needed any more. `IgnoringHold` stands in for a network
+    /// layer that does not notice a cancellation as promptly as `SearchHold`'s
+    /// own does: the task is cancelled first, and only then is the answer
+    /// released, so by the time `searchMessages` resumes `Task.isCancelled`
+    /// is already true.
+    @Test func noLookupStartsForAPageThatArrivesAfterItsOwnCancellation() async throws {
+        let hold = IgnoringHold()
+        let hit1 = SearchFixtures.hit(
+            messageID: "m-1", spaceID: "sp-1", senderID: "u-sender", text: "hello there",
+            createdAtMicros: 1
+        )
+        let inner = SearchFixtures.pageInner(nextToken: nil, hits: [hit1])
+        let transport = try SearchTransport(
+            shell: SearchFixtures.fullShell(),
+            batchResponses: [SearchFixtures.ok(SearchFixtures.answerBody(inner: inner))],
+            ignoringHold: hold
+        )
+        let backend = try await SearchBackendSupport.connected(transport)
+        let memberLookupsBeforeSearch = await transport.sent
+            .filter { $0.url.path.contains("/api/get_members") }.count
+        let task = Task {
+            try await backend.searchMessages(MessageSearchQuery(text: "hello"), after: nil)
+        }
+        try await SearchBackendSupport.waitUntilEntered(hold)
+        task.cancel()
+        await hold.release()
+        await #expect(throws: (any Error).self) { try await task.value }
         try await Task.sleep(for: .milliseconds(20))
         let memberLookupsAfter = await transport.sent
             .filter { $0.url.path.contains("/api/get_members") }.count
