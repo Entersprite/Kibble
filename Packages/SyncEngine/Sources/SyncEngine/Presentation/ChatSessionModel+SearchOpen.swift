@@ -95,6 +95,12 @@ extension ChatSessionModel {
         searchWork.openTask = nil
         var state = state
         state.highlight = nil
+        // Opening a hit, whatever it lands on, supersedes a stale "couldn't
+        // load more": the bar has something more current to say now, if
+        // anything. Cleared here, once, so every exit below (this guard's
+        // `.notInSidebar`, the task's `.tooFarBack`, and the plain open)
+        // inherits it rather than each needing its own.
+        state.bar?.pageFailed = false
         guard conversations.contains(where: { $0.id == hit.conversationID }) else {
             state.bar?.isOpening = false
             state.bar?.unreachable = .notInSidebar
@@ -178,9 +184,9 @@ extension ChatSessionModel {
             let page = try? await engine.searchMessages(query, after: cursor)
             guard !Task.isCancelled, let self else { return }
             guard var bar = search.bar, bar.query == query else { return }
+            var state = search
             guard let page else {
                 bar.pageFailed = true
-                var state = search
                 state.bar = bar
                 search = state
                 return
@@ -188,7 +194,6 @@ extension ChatSessionModel {
             let known = Set(bar.hits.map(\.id))
             bar.hits += page.hits.filter { !known.contains($0.id) }
             bar.next = page.next
-            var state = search
             guard bar.hits.indices.contains(target) else {
                 state.bar = bar
                 search = state

@@ -125,6 +125,47 @@ struct SearchBarSlotsTests {
         await model.stop()
     }
 
+    /// Stepping back to an already-loaded hit must clear a stale
+    /// `pageFailed` too, not just a stale `unreachable` — or the bar keeps
+    /// saying "Couldn't load more results" after the step back succeeds,
+    /// with no forward retry left to clear it.
+    @Test func steppingBackToALoadedHitClearsAStalePageFailed() async throws {
+        let (model, backend) = try await SearchOpenTests.searched([
+            MessageSearchPage(hits: [Self.hit(11), Self.hit(10)], next: MessageSearchCursor("1"))
+        ])
+        model.openSearchResult(Self.hit(10).id)
+        await settleAutoMarkRead(until: "hit 10 opens") { model.scrollTarget == Self.hit(10).id }
+        await backend.failMessageSearches(true)
+        model.stepSearchResult(by: 1)
+        await settleAutoMarkRead(until: "the page fails") { model.search.bar?.pageFailed == true }
+        model.stepSearchResult(by: -1)
+        // Cleared synchronously inside `openHit`, before any history loads.
+        #expect(model.search.bar?.pageFailed == false)
+        await settleAutoMarkRead(until: "hit 11 opens") { model.scrollTarget == Self.hit(11).id }
+        #expect(model.search.bar?.pageFailed == false)
+        await model.stop()
+    }
+
+    /// The same clearing must survive into an unreachable outcome too, or
+    /// the bar would keep showing "Couldn't load more results" over the
+    /// hit's own "Can't open this message here."
+    @Test func anUnreachableHitAfterAFailedPageShowsItsOwnReason() async throws {
+        var stranger = Self.hit(2)
+        stranger.conversationID = Conversation.ID("space/left-long-ago")
+        let (model, backend) = try await SearchOpenTests.searched([
+            MessageSearchPage(hits: [stranger, Self.hit(10)], next: MessageSearchCursor("1"))
+        ])
+        model.openSearchResult(Self.hit(10).id)
+        await settleAutoMarkRead(until: "hit 10 opens") { model.scrollTarget == Self.hit(10).id }
+        await backend.failMessageSearches(true)
+        model.stepSearchResult(by: 1)
+        await settleAutoMarkRead(until: "the page fails") { model.search.bar?.pageFailed == true }
+        model.stepSearchResult(by: -1)
+        #expect(model.search.bar?.unreachable == .notInSidebar)
+        #expect(model.search.bar?.pageFailed == false)
+        await model.stop()
+    }
+
     /// ⌘F back to the bar at the same position restamps the same focus
     /// value, so the overlay cannot tell it apart from one that never
     /// changed. `focusGeneration` is the signal it watches instead, bumped
