@@ -68,7 +68,7 @@ struct SearchModelTests {
         await model.stop()
     }
 
-    /// Review Focus 1.
+    /// Return while a search is on the wire sends no second request.
     @Test func returnDuringAnInFlightSearchSendsNoSecond() async throws {
         let backend = RecordingBackend()
         await backend.holdMessageSearches(true)
@@ -86,7 +86,7 @@ struct SearchModelTests {
         await model.stop()
     }
 
-    /// Review Focus 2: newer text tears the older request down, and the older
+    /// Newer text tears the older request down, and the older
     /// answer never replaces the newer one.
     @Test func aSupersededSearchIsTornDown() async throws {
         let backend = RecordingBackend()
@@ -146,7 +146,7 @@ struct SearchModelTests {
         await model.stop()
     }
 
-    /// Fix round 1, finding 1: typing away from an answered query and back
+    /// Typing away from an answered query and back
     /// returns to its answer, with nothing searching and nothing sent again.
     @Test func backToTheAnsweredQueryIsNotSearching() async throws {
         let backend = RecordingBackend()
@@ -231,7 +231,7 @@ struct SearchModelTests {
         }
     }
 
-    /// Fix round 1, finding 1: the directory search for text typed away from
+    /// The directory search for text typed away from
     /// an answered query never lands under that query when it comes back.
     @Test func aSupersededDirectorySearchNeverLands() async throws {
         let backend = RecordingBackend()

@@ -121,7 +121,7 @@ public struct ChatSceneActions {
     /// Who in a message is not in the conversation, asked at Return.
     public var nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])?
     /// Sends into one conversation only while it is open; otherwise the
-    /// message goes back to its draft (review finding 2).
+    /// message goes back to its draft.
     public var sendTo: ((ComposedMessage, Conversation.ID) -> Void)?
     /// Hands an unsent message back to its conversation's draft.
     public var keepDraft: ((ComposedMessage, Conversation.ID) -> Void)?

@@ -83,7 +83,7 @@ struct SearchWork {
     /// Saving an opened search as a recent.
     var recordTask: Task<Void, Never>?
     /// The query whose request is on the wire, so Return does not send it
-    /// twice (Review Focus 1).
+    /// twice.
     var inFlight: MessageSearchQuery?
 
     init(debounce: Duration, historyPageLimit: Int) {

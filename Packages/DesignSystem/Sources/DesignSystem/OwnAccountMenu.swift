@@ -99,8 +99,8 @@ struct OwnAccountMenu<Label: View>: View {
 enum MenuCheck {
     /// Checked when `isOn`, and choosing it acts whether it was checked or
     /// not: a checkmark can be wrong (ruling 4, or a change made on another
-    /// device), and the row a person picks to correct it is the checked one
-    /// (review finding 3). Sending the same availability again is harmless.
+    /// device), and the row a person picks to correct it is the checked one.
+    /// Sending the same availability again is harmless.
     static func binding(isOn: Bool, act: @escaping () -> Void) -> Binding<Bool> {
         Binding(get: { isOn }, set: { _ in act() })
     }

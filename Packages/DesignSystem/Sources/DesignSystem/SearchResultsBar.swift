@@ -88,8 +88,7 @@ enum TranscriptMark {
     /// drive every branch without hosting a view or waiting two real seconds.
     /// This exists because `try? await Task.sleep(...)` in `MessageList`
     /// swallowed `CancellationError`, so a task a newer trigger had already
-    /// canceled still ran `off()` and could switch the *newer* mark back off
-    /// (review finding, round 1).
+    /// canceled still ran `off()` and could switch the *newer* mark back off.
     @MainActor
     static func fade(
         on: () -> Void,

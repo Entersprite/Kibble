@@ -62,7 +62,7 @@ struct SearchResultsBarTests {
         #expect(offCalled)
     }
 
-    /// Pins the round 1 review finding: `try?` around the sleep swallowed
+    /// `try?` around the sleep once swallowed
     /// `CancellationError`, so a mark a newer trigger had already canceled
     /// still ran `off()` - which could switch the newer mark back off.
     @Test func aCanceledWaitNeverTurnsTheMarkOff() async {
