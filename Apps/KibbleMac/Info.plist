@@ -22,6 +22,10 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Mark Guzmics. MIT License.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Kibble uses your camera during calls you choose to join.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Kibble uses your microphone during calls you choose to join.</string>
 	<!-- Updates (Sparkle). YES in Release only, so a development build never
 	     replaces itself with the last release. -->
 	<key>KibbleUpdatesEnabled</key>

@@ -169,6 +169,19 @@ struct KibbleMacApp: App {
 
     @ViewBuilder
     private var content: some View {
+        #if DEBUG
+            if CommandLine.arguments.contains("--probe=meet-webkit") {
+                MeetWebKitProbeView()
+            } else {
+                normalContent
+            }
+        #else
+            normalContent
+        #endif
+    }
+
+    @ViewBuilder
+    private var normalContent: some View {
         switch environment.phase {
         case .loading:
             ProgressView("Starting…")
