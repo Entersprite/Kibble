@@ -87,7 +87,7 @@ extension ChatSessionModel {
             // head. A failed fetch leaves the store as it was, so what is
             // stored is marked, and the failure is recorded where the window
             // shows it.
-            await engine.requestMoreMessages(in: conversation)
+            await engine.requestMoreMessages(in: conversation, verifyCachedRoots: true)
             guard !Task.isCancelled else { return }
             newest = newestServerMessage(in: conversation)
         }

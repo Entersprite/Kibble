@@ -11,13 +11,23 @@ import Foundation
 /// answer that arrives after its caller stopped caring (a closed panel, a
 /// sign-out) must not land in a store that may already be erased.
 public extension SyncEngine {
-    /// Fetches one thread, its first message included, and files it as a
-    /// history page is filed (`upsertMessage`): `list_messages` carries
-    /// reactions, which is why the reaction refetch already relies on it.
+    /// Fetches one thread, its first message included. A complete listing
+    /// also removes server rows that disappeared while this client was away.
     func loadThread(_ thread: MessageThread.ID, in conversation: Conversation.ID) async throws {
-        let page = try await backend.loadThread(thread, in: conversation)
+        let snapshot = try await backend.loadThreadSnapshot(thread, in: conversation)
         try Task.checkCancellation()
-        try store.apply(page.map { .upsertMessage($0) })
+        guard snapshot.messages.allSatisfy({ $0.conversationID == conversation && $0.threadID == thread })
+        else {
+            throw ChatError.unknown("Thread listing contains a message from another thread")
+        }
+        var writes = snapshot.messages.map { StoreWrite.upsertMessage($0) }
+        if snapshot.isComplete {
+            writes.append(.reconcileThread(
+                thread: thread, conversation: conversation,
+                keeping: snapshot.messages.map(\.id)
+            ))
+        }
+        try store.apply(writes)
     }
 
     /// Follows or unfollows a thread, then files the answer itself.

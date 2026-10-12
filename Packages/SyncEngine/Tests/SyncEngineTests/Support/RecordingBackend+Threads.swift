@@ -6,8 +6,13 @@ import Foundation
 /// it; the stored properties stay in `RecordingBackend.swift`, an actor's
 /// extension cannot add them.
 extension RecordingBackend {
-    func answerThread(_ thread: MessageThread.ID, with page: [Message]) {
+    func answerThread(_ thread: MessageThread.ID, with page: [Message], complete: Bool = false) {
         threadPages[thread] = page
+        if complete {
+            completeThreadPages.insert(thread)
+        } else {
+            completeThreadPages.remove(thread)
+        }
     }
 
     func answerFollowedThreads(with messages: [Message]) {
@@ -39,6 +44,12 @@ extension RecordingBackend {
         threadLoads.append(thread)
         try await threadCallGate()
         return threadPages[thread] ?? []
+    }
+
+    func loadThreadSnapshot(_ thread: MessageThread.ID, in conversation: Conversation.ID) async throws
+        -> ThreadMessagesSnapshot {
+        let messages = try await loadThread(thread, in: conversation)
+        return ThreadMessagesSnapshot(messages: messages, isComplete: completeThreadPages.contains(thread))
     }
 
     func setThreadFollowed(_ followed: Bool, thread _: MessageThread.ID, in _: Conversation.ID) async throws {

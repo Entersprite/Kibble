@@ -26,6 +26,12 @@ public extension LocalBridgeBackend {
     func loadThread(
         _ thread: MessageThread.ID, in conversation: Conversation.ID
     ) async throws -> [ChatKit.Message] {
+        try await loadThreadSnapshot(thread, in: conversation).messages
+    }
+
+    func loadThreadSnapshot(
+        _ thread: MessageThread.ID, in conversation: Conversation.ID
+    ) async throws -> ThreadMessagesSnapshot {
         let target = try threadTarget(thread, conversation, what: "loadThread(_:in:)")
         let generation = directoryGeneration
         async let followed = Self.isFollowed(target.topic, client: target.client)
@@ -47,7 +53,11 @@ public extension LocalBridgeBackend {
         if let followed = await followed, generation == directoryGeneration {
             emit(target.event(.followed(followed)))
         }
-        return messages
+        return ThreadMessagesSnapshot(
+            messages: messages,
+            isComplete: response.messages.count < Int(Self.threadPageSize)
+                && messages.count == response.messages.count
+        )
     }
 
     /// Follow is `mute: false`, Unfollow `mute: true` (§64.1). Throws when the

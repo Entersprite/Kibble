@@ -54,7 +54,7 @@ public extension ChatStore {
         case .applyThreadChange, .setUnreadThreads:
             try performThreadWrite(write, in: db)
         case .upsertMessage, .upsertMessageKeepingReactions, .insertMessageIfAbsent, .markMessageDeleted,
-             .removeMessage, .setReactions:
+             .removeMessage, .reconcileThread, .setReactions:
             try performMessageWrite(write, in: db)
         case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
              .setAvailability, .clearEphemeralState:
@@ -246,6 +246,18 @@ public extension ChatStore {
             try db.execute(
                 sql: "DELETE FROM message WHERE id = ?",
                 arguments: [id.rawValue]
+            )
+        case let .reconcileThread(thread, conversation, keeping):
+            let placeholders = Array(repeating: "?", count: keeping.count).joined(separator: ",")
+            let exclusion = keeping.isEmpty ? "" : " AND id NOT IN (\(placeholders))"
+            try db.execute(
+                sql: """
+                DELETE FROM message
+                WHERE conversationID = ? AND threadID = ? AND id NOT LIKE 'local/%'\(exclusion)
+                """,
+                arguments: StatementArguments(
+                    [conversation.rawValue, thread.rawValue] + keeping.map(\.rawValue)
+                )
             )
         case let .setReactions(messageID, reactions):
             try db.execute(

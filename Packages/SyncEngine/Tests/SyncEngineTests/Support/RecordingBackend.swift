@@ -282,6 +282,11 @@ actor RecordingBackend: ChatBackend {
     /// §65.9), or a message the bridge has no time for: `loadHistory`'s
     /// no-progress exit is what ends it then.
     private var ignoringHistoryCursor = false
+    private var historyOverride: [Conversation.ID: [Message]] = [:]
+
+    func answerHistory(in conversation: Conversation.ID, with messages: [Message]) {
+        historyOverride[conversation] = messages
+    }
 
     func ignoreHistoryCursor(_ ignore: Bool) {
         ignoringHistoryCursor = ignore
@@ -300,6 +305,9 @@ actor RecordingBackend: ChatBackend {
         }
         if failingHistory {
             throw ChatError.notAuthenticated
+        }
+        if let answer = historyOverride[conversation] {
+            return answer
         }
         return try await inner.loadMessages(in: conversation, before: ignoringHistoryCursor ? nil : before)
     }
@@ -350,6 +358,7 @@ actor RecordingBackend: ChatBackend {
     /// FixtureBackend's subject, and these suites must say exactly what a
     /// page holds.
     var threadPages: [MessageThread.ID: [Message]] = [:]
+    var completeThreadPages: Set<MessageThread.ID> = []
     var followedAnswer: [Message] = []
     var failingThreadCalls = false
     var holdingThreadCalls = false

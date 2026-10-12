@@ -49,11 +49,7 @@ struct MessageBubble: View {
                 Avatar(
                     member: message.sender,
                     directory: state.directory,
-                    size: 26,
-                    presence: Display.presence(
-                        of: message.sender, directory: state.directory, me: state.me,
-                        connection: state.connection
-                    )
+                    size: 26
                 )
             }
 

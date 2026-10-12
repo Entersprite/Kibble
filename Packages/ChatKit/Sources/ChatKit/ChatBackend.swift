@@ -1,5 +1,15 @@
 import Foundation
 
+public struct ThreadMessagesSnapshot: Sendable {
+    public let messages: [Message]
+    public let isComplete: Bool
+
+    public init(messages: [Message], isComplete: Bool) {
+        self.messages = messages
+        self.isComplete = isComplete
+    }
+}
+
 /// The seam.
 ///
 /// Everything above this protocol is a chat client; everything below it is one
@@ -178,6 +188,11 @@ public protocol ChatBackend: Sendable {
     /// for the reason `attachmentData(_:size:)` gives.
     func loadThread(_ thread: MessageThread.ID, in conversation: Conversation.ID) async throws -> [Message]
 
+    /// A thread listing with explicit coverage. Only a complete listing may
+    /// remove locally cached messages that the server no longer includes.
+    func loadThreadSnapshot(_ thread: MessageThread.ID, in conversation: Conversation.ID) async throws
+        -> ThreadMessagesSnapshot
+
     /// Follows or unfollows a thread, and throws when that is refused. A
     /// request because a toggle must not spring back while the round trip is
     /// in flight, as with `setNotificationSetting`; the new state also
@@ -269,6 +284,12 @@ public extension ChatBackend {
     /// panel, the direction `Capabilities` defaults in.
     func loadThread(_: MessageThread.ID, in _: Conversation.ID) async throws -> [Message] {
         throw ChatError.unsupported(capability: "supportsThreads")
+    }
+
+    func loadThreadSnapshot(_ thread: MessageThread.ID, in conversation: Conversation.ID) async throws
+        -> ThreadMessagesSnapshot {
+        let messages = try await loadThread(thread, in: conversation)
+        return ThreadMessagesSnapshot(messages: messages, isComplete: false)
     }
 
     /// Refuses, for the same reason.

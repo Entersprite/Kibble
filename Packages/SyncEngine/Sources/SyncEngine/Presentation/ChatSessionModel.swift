@@ -388,7 +388,7 @@ public final class ChatSessionModel {
         // one this session's own `stop()` needs to find later.
         historyTask?.cancel()
         historyTask = Task { [engine] in
-            await engine.requestMoreMessages(in: id)
+            await engine.requestMoreMessages(in: id, verifyCachedRoots: true)
         }
         // Untracked: a late one reaches a backend that drops it once
         // disconnected (`LocalBridgeBackend.watchPresence`).

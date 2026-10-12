@@ -178,13 +178,15 @@
         /// repeatedly.
         func fittingSize(forWidth width: CGFloat?) -> CGSize {
             let width = width.flatMap { $0.isFinite ? $0 : nil }
-            // A copy: `attributedString()` is the live storage, and a cached
-            // alias of it would match every later text (session 45 re-review).
-            let text = NSAttributedString(attributedString: attributedString())
+            let current = attributedString()
             if let last = lastMeasurement, last.width == width, last.insets == Insets(insets),
-               last.text.isEqual(to: text) {
+               last.text.isEqual(to: current) {
                 return last.size
             }
+            // Keep an immutable copy only on a cache miss. The live storage
+            // changes in place, so retaining it would make later text appear
+            // equal to the previous measurement.
+            let text = NSAttributedString(attributedString: current)
             let horizontal = insets.left + insets.right
             let available = width.map { max(1, $0 - horizontal) } ?? CGFloat.greatestFiniteMagnitude
             let storage = NSTextStorage(attributedString: text)

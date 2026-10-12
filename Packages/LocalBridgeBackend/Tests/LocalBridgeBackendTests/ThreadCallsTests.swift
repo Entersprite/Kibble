@@ -89,6 +89,23 @@ struct ThreadCallsTests {
         #expect(decoded.pageSize == 500)
     }
 
+    @Test func onlyAThreadListingBelowTheReplyCapIsComplete() async throws {
+        let (shortBackend, _) = try await connected([
+            "list_messages": listMessages(["t-1", "r-1"]),
+            "get_user_topic_metadata": metadata(muted: false)
+        ])
+        let short = try await shortBackend.loadThreadSnapshot(thread, in: conversation)
+        #expect(short.isComplete)
+
+        let ids = ["t-1"] + (1 ..< Int(LocalBridgeBackend.threadPageSize)).map { "r-\($0)" }
+        let (fullBackend, _) = try await connected([
+            "list_messages": listMessages(ids),
+            "get_user_topic_metadata": metadata(muted: false)
+        ])
+        let full = try await fullBackend.loadThreadSnapshot(thread, in: conversation)
+        #expect(!full.isComplete)
+    }
+
     @Test func openingAThreadSaysWhetherYouFollowIt() async throws {
         let (backend, _) = try await connected([
             "list_messages": listMessages(["t-1", "r-1"]),

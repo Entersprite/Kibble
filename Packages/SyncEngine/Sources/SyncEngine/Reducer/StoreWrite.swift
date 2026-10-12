@@ -87,6 +87,13 @@ public enum StoreWrite: Sendable, Equatable {
     /// correctly does nothing.
     case removeMessage(id: Message.ID)
 
+    /// After a complete server thread listing, remove cached server rows
+    /// absent from it. An optimistic `local/` row is never removed here.
+    /// Apply after the page's upserts in the same transaction.
+    case reconcileThread(
+        thread: MessageThread.ID, conversation: Conversation.ID, keeping: [Message.ID]
+    )
+
     /// The complete reaction set for a message, not a diff.
     case setReactions(messageID: Message.ID, reactions: [Reaction])
 

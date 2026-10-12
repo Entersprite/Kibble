@@ -34,6 +34,55 @@ struct ThreadEngineTests {
         #expect(await backend.threadLoads == [thread])
     }
 
+    @Test func aCompleteThreadRefreshRemovesMissingServerRowsButKeepsLocalAndOtherThreads() async throws {
+        let backend = RecordingBackend()
+        let page = ThreadFixture.messages(replies: 2)
+        await backend.answerThread(thread, with: [page[0], page[2]], complete: true)
+        let store = try ChatStore.inMemory()
+        var local = page[1]
+        local.id = Message.ID("local/pending")
+        var other = page[1]
+        other.id = Message.ID("other-thread-message")
+        other.threadID = MessageThread.ID("other-thread")
+        try store.apply((page + [local, other]).map { .upsertMessage($0) })
+
+        try await SyncEngine(backend: backend, store: store).loadThread(thread, in: conversation)
+
+        #expect(try store.message(page[0].id) != nil)
+        #expect(try store.message(page[1].id) == nil)
+        #expect(try store.message(page[2].id) != nil)
+        #expect(try store.message(local.id) != nil)
+        #expect(try store.message(other.id) != nil)
+    }
+
+    @Test func anIncompleteThreadRefreshKeepsMissingRows() async throws {
+        let backend = RecordingBackend()
+        let page = ThreadFixture.messages(replies: 1)
+        await backend.answerThread(thread, with: [page[0]])
+        let store = try ChatStore.inMemory()
+        try store.apply(page.map { .upsertMessage($0) })
+
+        try await SyncEngine(backend: backend, store: store).loadThread(thread, in: conversation)
+
+        #expect(try store.message(page[1].id) != nil)
+    }
+
+    @Test func anEmptyCompleteThreadRefreshRemovesOnlyServerRows() async throws {
+        let backend = RecordingBackend()
+        await backend.answerThread(thread, with: [], complete: true)
+        let page = ThreadFixture.messages(replies: 1)
+        var local = page[1]
+        local.id = Message.ID("local/pending")
+        let store = try ChatStore.inMemory()
+        try store.apply((page + [local]).map { .upsertMessage($0) })
+
+        try await SyncEngine(backend: backend, store: store).loadThread(thread, in: conversation)
+
+        #expect(try store.message(page[0].id) == nil)
+        #expect(try store.message(page[1].id) == nil)
+        #expect(try store.message(local.id) != nil)
+    }
+
     /// Filed by the engine once the backend accepts, not only by the
     /// backend's later event; and a refusal throws and files nothing.
     @Test func followingIsFiledOnceTheBackendAccepts() async throws {

@@ -25,7 +25,7 @@ extension ChatSessionModel {
         // fresher fetch's result with an older conversation's history.
         historyTask?.cancel()
         historyTask = Task { [engine] in
-            await engine.requestMoreMessages(in: selected)
+            await engine.requestMoreMessages(in: selected, verifyCachedRoots: true)
         }
         // An open thread missed its replies too (threads spec §4.3). One of the
         // panel's tasks, so closing the panel or opening another cancels it.
