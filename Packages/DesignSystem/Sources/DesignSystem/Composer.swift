@@ -80,7 +80,7 @@ public struct Composer: View {
             // field grows.
             HStack(alignment: .bottom, spacing: ComposerLayout.spacing) {
                 if let attachmentActions, draft.editing == nil {
-                    ComposerRoundButton(
+                    RoundGlassButton(
                         title: "Attach Files…",
                         systemImage: ComposerLayout.attachSymbol,
                         action: attachmentActions.choose

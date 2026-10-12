@@ -179,7 +179,7 @@ struct ThreadCloseButton: View {
 
     /// The composer's round button, so the two sets of buttons match.
     var body: some View {
-        ComposerRoundButton(title: "Close Thread", systemImage: ThreadsPresentation.closeSymbol) {
+        RoundGlassButton(title: "Close Thread", systemImage: ThreadsPresentation.closeSymbol) {
             threads.close()
         }
     }
