@@ -45,8 +45,4 @@ public struct OutgoingAttachment: Hashable, Sendable, Identifiable {
     public var isImage: Bool {
         contentType.lowercased().hasPrefix("image/")
     }
-
-    /// Google's own limit for one file is 200 MB `[Verify]`; a bigger file is
-    /// refused when it is staged, rather than after minutes of uploading.
-    public static let maximumByteSize = 200 * 1024 * 1024
 }

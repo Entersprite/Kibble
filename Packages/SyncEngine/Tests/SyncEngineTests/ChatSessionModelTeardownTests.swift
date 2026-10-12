@@ -88,6 +88,49 @@ struct ChatSessionModelTeardownTests {
         #expect(try store.messages(in: conversation).isEmpty)
     }
 
+    /// A send may have reached the backend when sign-out starts. If that
+    /// request later fails, it must not put its error back into the erased
+    /// store or restore a draft on the stopped model.
+    @MainActor
+    @Test(arguments: [false, true])
+    func aHeldSendCannotWriteAfterTheErase(isReply: Bool) async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(
+            store: store, engine: engine, me: FixtureWorld.minimal.me,
+            markReadDebounce: .zero
+        )
+        let conversation = FixtureWorld.minimal.messages[0].conversationID
+        try await model.start()
+        model.select(conversation)
+        await settleAutoMarkRead()
+
+        if isReply {
+            model.threads.openThread = MessageThread.ID("thread/held-send")
+        }
+        await backend.holdSubmissions(true)
+        let draft = ComposedMessage(text: "in flight during sign-out")
+        if isReply {
+            model.sendReply(draft)
+        } else {
+            model.send(draft)
+        }
+        await settleAutoMarkRead(until: "the send reaches the backend") {
+            await backend.heldSubmissionCount == 1
+        }
+        let task = try #require(model.sendTasks.values.first)
+
+        try await model.stopAndEraseStore()
+        await backend.failSubmissions(true)
+        await backend.releaseHeldSubmission()
+        await task.value
+
+        #expect(try store.messages(in: conversation).isEmpty)
+        #expect(try store.lastError() == nil)
+        #expect(model.failedDraft == nil)
+    }
+
     /// Unreachable in production today - a fresh model is built per session -
     /// but a model reused across sign-out and sign-in must not carry a stale
     /// read watermark or a retained failed draft into the next account.

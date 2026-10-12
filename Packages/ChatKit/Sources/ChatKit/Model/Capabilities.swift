@@ -41,6 +41,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// `ChatBackend.uploadAttachment(_:to:progress:)` uploads rather than
     /// refusing, and `ChatCommand.sendMessage` honours `attachments`.
     public var canSendAttachments: Bool
+    /// Largest attachment this backend accepts, in bytes. `nil` means the
+    /// backend has not advertised a size limit.
+    public var maximumAttachmentBytes: Int?
     /// `ChatCommand.sendMessage` honours `mentions`, and `.loadMembers` lists
     /// a conversation's members. The composer offers its `@` list only when
     /// this is `true` (mention composer spec §3.1).
@@ -84,6 +87,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canDownloadFiles: Bool = false,
         canFetchCustomEmoji: Bool = false,
         canSendAttachments: Bool = false,
+        maximumAttachmentBytes: Int? = nil,
         canMention: Bool = false,
         canMentionNonMembers: Bool = false,
         canFetchRemoteImages: Bool = false,
@@ -107,6 +111,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canDownloadFiles = canDownloadFiles
         self.canFetchCustomEmoji = canFetchCustomEmoji
         self.canSendAttachments = canSendAttachments
+        self.maximumAttachmentBytes = maximumAttachmentBytes
         self.canMention = canMention
         self.canMentionNonMembers = canMentionNonMembers
         self.canFetchRemoteImages = canFetchRemoteImages
@@ -136,6 +141,7 @@ public extension Capabilities {
         case canDownloadFiles
         case canFetchCustomEmoji
         case canSendAttachments
+        case maximumAttachmentBytes
         case canMention
         case canMentionNonMembers
         case canFetchRemoteImages
@@ -169,6 +175,7 @@ public extension Capabilities {
             canDownloadFiles: flag(.canDownloadFiles),
             canFetchCustomEmoji: flag(.canFetchCustomEmoji),
             canSendAttachments: flag(.canSendAttachments),
+            maximumAttachmentBytes: container.decodeIfPresent(Int.self, forKey: .maximumAttachmentBytes),
             canMention: flag(.canMention),
             canMentionNonMembers: flag(.canMentionNonMembers),
             canFetchRemoteImages: flag(.canFetchRemoteImages),
@@ -201,6 +208,7 @@ public extension Capabilities {
         try container.encode(canDownloadFiles, forKey: .canDownloadFiles)
         try container.encode(canFetchCustomEmoji, forKey: .canFetchCustomEmoji)
         try container.encode(canSendAttachments, forKey: .canSendAttachments)
+        try container.encodeIfPresent(maximumAttachmentBytes, forKey: .maximumAttachmentBytes)
         try container.encode(canMention, forKey: .canMention)
         try container.encode(canMentionNonMembers, forKey: .canMentionNonMembers)
         try container.encode(canFetchRemoteImages, forKey: .canFetchRemoteImages)

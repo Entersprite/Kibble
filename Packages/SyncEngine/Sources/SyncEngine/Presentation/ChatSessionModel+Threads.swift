@@ -97,8 +97,10 @@ public extension ChatSessionModel {
             conversationID: selected, threadID: thread, text: message.text, localID: localID,
             mentions: message.mentions
         )
-        // Untracked, like `send(_:)`'s, a known wart that file records.
-        Task { [engine, undo] in
+        let taskID = UUID()
+        sendTasks[taskID] = Task { @MainActor [weak self, engine, undo] in
+            defer { self?.sendTasks.removeValue(forKey: taskID) }
+            guard !Task.isCancelled else { return }
             await engine.submit(command, undoing: undo)
         }
     }

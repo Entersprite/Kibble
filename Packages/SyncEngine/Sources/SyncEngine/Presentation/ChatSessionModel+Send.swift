@@ -17,9 +17,6 @@ import Foundation
 /// surface is unchanged either way: nothing outside this module could see
 /// past `private` or `internal` regardless.
 ///
-/// **This was a pure move.** Nothing here changed when it arrived, including
-/// `send(_:)`'s untracked `Task` - which is a known and deliberately
-/// out-of-scope wart, not something this split fixed or introduced.
 public extension ChatSessionModel {
     /// Forwarded from the backend so a view can degrade without meeting one.
     /// Here rather than in `ChatSessionModel.swift`, for that file's length.
@@ -87,7 +84,10 @@ public extension ChatSessionModel {
             // optimistic row and nothing to take back.
             undo = [.removeMessage(id: optimisticID)]
         }
-        Task { @MainActor [weak self, engine] in
+        let taskID = UUID()
+        sendTasks[taskID] = Task { @MainActor [weak self, engine] in
+            defer { self?.sendTasks.removeValue(forKey: taskID) }
+            guard !Task.isCancelled else { return }
             let accepted = await engine.submit(
                 .sendMessage(
                     conversationID: selected, threadID: nil, text: text, localID: localID,
@@ -100,7 +100,7 @@ public extension ChatSessionModel {
                 // was written for.
                 undoing: undo
             )
-            guard let self, !accepted else { return }
+            guard let self, !Task.isCancelled, !accepted else { return }
             failed = (conversationID: selected, draft: message)
         }
     }

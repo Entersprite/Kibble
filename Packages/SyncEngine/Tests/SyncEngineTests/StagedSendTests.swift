@@ -90,12 +90,23 @@ struct StagedSendTests {
     /// A file staged twice is staged once, and a file over the limit is
     /// refused with a banner rather than uploaded.
     @Test func duplicatesAndOversizedFilesAreNotStaged() async throws {
-        let backend = RecordingBackend()
+        let limit = 200 * 1024 * 1024
+        var capabilities = Capabilities.fixture
+        capabilities.maximumAttachmentBytes = limit
+        let backend = RecordingBackend(capabilities: capabilities)
         let (model, _) = try await Self.model(backend)
         model.stage([Self.file("a"), Self.file("a")], in: .conversation)
-        model.stage([Self.file("huge", byteSize: OutgoingAttachment.maximumByteSize + 1)], in: .conversation)
+        model.stage([Self.file("huge", byteSize: limit + 1)], in: .conversation)
         #expect(model.stagedAttachments.map(\.id) == ["a"])
         await settleAutoMarkRead(until: "the oversize banner") { model.lastError != nil }
+        await model.stop()
+    }
+
+    @Test func aBackendWithoutAnAdvertisedLimitCanStageLargerFiles() async throws {
+        let backend = RecordingBackend()
+        let (model, _) = try await Self.model(backend)
+        model.stage([Self.file("large", byteSize: 200 * 1024 * 1024 + 1)], in: .conversation)
+        #expect(model.stagedAttachments.map(\.id) == ["large"])
         await model.stop()
     }
 

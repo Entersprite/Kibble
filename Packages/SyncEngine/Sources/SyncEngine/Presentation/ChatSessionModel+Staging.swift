@@ -98,9 +98,8 @@ public extension ChatSessionModel {
     }
 
     /// Stages files in the open conversation, or its open thread. A file already staged there is
-    /// not staged twice, and a file over `OutgoingAttachment.maximumByteSize`
-    /// is refused with a banner rather than uploaded for minutes and refused
-    /// by Google `[Verify]`. `unreadable` names what the host could not read
+    /// not staged twice. A file over the backend's advertised size limit is
+    /// refused before upload. `unreadable` names what the host could not read
     /// (a folder, a file it has no access to), for the same banner.
     func stage(
         _ files: [OutgoingAttachment],
@@ -117,10 +116,9 @@ public extension ChatSessionModel {
         }
         var list = composerFiles.staged[key] ?? []
         for file in files where !list.contains(where: { $0.id == file.id }) {
-            guard file.byteSize <= OutgoingAttachment.maximumByteSize else {
+            if let limit = capabilities.maximumAttachmentBytes, file.byteSize > limit {
                 Task { [engine] in
-                    await engine
-                        .record(ChatError.unknown("\(file.name) is larger than 200 MB, Google Chat's limit"))
+                    await engine.record(ChatError.unknown("\(file.name) exceeds the attachment size limit"))
                 }
                 continue
             }

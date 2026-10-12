@@ -158,6 +158,10 @@ public final class ChatSessionModel {
     /// Edit and delete submissions (`+Edit.swift`); `stop()` cancels them.
     var editTasks: [UUID: Task<Void, Never>] = [:]
 
+    /// Message and reply submissions. A backend request can answer after
+    /// sign-out, so stop cancels these before the session's store is erased.
+    var sendTasks: [UUID: Task<Void, Never>] = [:]
+
     /// The text of a send that was not accepted, and the conversation it was
     /// typed in.
     ///
@@ -328,6 +332,10 @@ public final class ChatSessionModel {
             task.cancel()
         }
         editTasks = [:]
+        for task in sendTasks.values {
+            task.cancel()
+        }
+        sendTasks = [:]
         composerFiles.reset()
         threads.stop()
         // Unreachable today - a fresh model is built per session - but a

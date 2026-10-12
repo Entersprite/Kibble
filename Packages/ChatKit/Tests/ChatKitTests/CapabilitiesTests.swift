@@ -27,6 +27,7 @@ struct CapabilitiesTests {
         #expect(capabilities.canDownloadFiles == false)
         #expect(capabilities.canFetchCustomEmoji == false)
         #expect(capabilities.canSendAttachments == false)
+        #expect(capabilities.maximumAttachmentBytes == nil)
         #expect(capabilities.extendedFlags.isEmpty)
     }
 
@@ -53,6 +54,17 @@ struct CapabilitiesTests {
     @Test("a populated capability set matches its golden file")
     func populated() throws {
         try expectWireStable(Fixture.capabilities, golden: "capabilities")
+    }
+
+    @Test func anAdvertisedAttachmentLimitRoundTripsWithoutChangingOlderWireValues() throws {
+        var capabilities = Capabilities(canSendAttachments: true)
+        let oldJSON = try Wire.json(capabilities)
+        #expect(!oldJSON.contains("maximumAttachmentBytes"))
+
+        capabilities.maximumAttachmentBytes = 200 * 1024 * 1024
+        let json = try Wire.json(capabilities)
+        #expect(json.contains(#""maximumAttachmentBytes":209715200"#))
+        #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
     }
 
     /// The escape hatch: a newer backend advertising something this build has no
