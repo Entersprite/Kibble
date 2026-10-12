@@ -9,6 +9,13 @@ import SyncEngine
 /// `swiftlint --strict` enforces `type_body_length: 300` - the combined type
 /// was close enough to the limit that the split is not merely tidiness.
 public extension AppEnvironment {
+    /// Keeps the connection's display identity with the engine chosen for
+    /// this session; a later session can replace both together.
+    internal func prepareEngine(for selection: SessionSelection, store: ChatStore) -> SyncEngine {
+        connectionService = selection.connectionService
+        return SyncEngine(backend: selection.backend, store: store, mentionClock: selection.now)
+    }
+
     /// For the menu-bar agent, which has no room for a sidebar.
     var totalUnread: Int {
         guard case let .running(model) = phase else { return 0 }
@@ -43,6 +50,7 @@ public extension AppEnvironment {
             messages: model.messages,
             typing: model.typing,
             connection: model.connectionState,
+            connectionService: connectionService,
             lastError: model.lastError,
             capabilities: model.capabilities,
             failedDraft: model.failedDraft,

@@ -35,6 +35,7 @@ final class FakeLaunchServices: LaunchServices {
     /// The clock `makeSession()` hands the engine for the mention backfill.
     /// `nil` is the wall clock, `SessionSelection`'s own default.
     var sessionNow: (@Sendable () -> Date)?
+    var sessionConnectionService: ConnectionService?
 
     var hasStoredSessionFailure: (any Error)?
     var forgetFailure: (any Error)?
@@ -136,7 +137,10 @@ final class FakeLaunchServices: LaunchServices {
         if let makeSessionFailure {
             throw makeSessionFailure
         }
-        return SessionSelection(backend: backend, me: nil, driver: driver, now: sessionNow ?? { Date() })
+        return SessionSelection(
+            backend: backend, me: nil, driver: driver,
+            connectionService: sessionConnectionService, now: sessionNow ?? { Date() }
+        )
     }
 
     func runProbe(_ probe: LaunchProbe) async -> String {

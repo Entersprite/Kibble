@@ -143,6 +143,8 @@ public enum LaunchProbe: Sendable, Equatable {
 public struct SessionSelection {
     public let backend: any ChatBackend
     public let me: Member.ID?
+    /// The endpoint named by this backend's connection failures.
+    public let connectionService: ConnectionService?
     /// Non-nil only for the fixture, which is the one that needs driving.
     public let driver: (any DemoDriver)?
 
@@ -153,11 +155,13 @@ public struct SessionSelection {
 
     public init(
         backend: any ChatBackend, me: Member.ID?, driver: (any DemoDriver)? = nil,
+        connectionService: ConnectionService? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.backend = backend
         self.me = me
         self.driver = driver
+        self.connectionService = connectionService
         self.now = now
     }
 }

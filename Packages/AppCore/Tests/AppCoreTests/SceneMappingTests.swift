@@ -41,6 +41,18 @@ struct SceneMappingTests {
         #expect(environment.sceneState.notice == nil)
     }
 
+    @Test func aRunningSceneCarriesTheSessionsConnectionServiceAndSignOutClearsIt() async throws {
+        let services = try FakeLaunchServices()
+        let service = ConnectionService(name: "Google Chat", operatorName: "Google")
+        services.sessionConnectionService = service
+        let environment = AppEnvironment(services: services)
+        await environment.start()
+
+        #expect(environment.sceneState.connectionService == service)
+        await environment.signOut()
+        #expect(environment.sceneState.connectionService == nil)
+    }
+
     /// An earlier draft asserted `connection != .idle || messages.isEmpty`,
     /// whose right operand is always true - a tautology that would have passed
     /// against any implementation. Ruling R4 in the SDD ledger.

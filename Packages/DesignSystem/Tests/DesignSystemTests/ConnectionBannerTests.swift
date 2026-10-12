@@ -11,9 +11,11 @@ import Testing
 /// `[Verify]` discipline is the precedent - a confidently wrong diagnosis on
 /// screen is worse than an honest vague one.
 struct ConnectionBannerTests {
+    private let google = ConnectionService(name: "Google Chat", operatorName: "Google")
+
     private func banner(_ issue: ConnectionIssue?) -> String? {
         ConnectionBanner.text(
-            for: .reconnecting(attempt: 1, issue: issue, detail: nil)
+            for: .reconnecting(attempt: 1, issue: issue, detail: nil), service: google
         )
     }
 
@@ -27,6 +29,19 @@ struct ConnectionBannerTests {
         #expect(banner(.dropped) == "Reconnecting…")
         #expect(banner(.rateLimited) == "Google is asking us to slow down.")
         #expect(banner(.serverError(status: 503)) == "Google Chat is having problems.")
+    }
+
+    @Test func anUnlabelledBackendUsesNeutralConnectionWording() {
+        let state = ConnectionState.reconnecting(attempt: 1, issue: .serverError(status: 503), detail: nil)
+        let rendered = ConnectionBanner.text(for: state)
+        #expect(rendered == "The chat service is having problems.")
+        #expect(rendered?.contains("Google") == false)
+    }
+
+    @Test func anotherServiceCanSupplyItsOwnName() {
+        let service = ConnectionService(name: "Kibble", operatorName: "Kibble")
+        let state = ConnectionState.reconnecting(attempt: 1, issue: .nameResolution, detail: nil)
+        #expect(ConnectionBanner.text(for: state, service: service) == "Can't look up Kibble's address.")
     }
 
     /// An unknown *issue* still reports a problem - we know something is

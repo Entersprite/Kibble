@@ -27,6 +27,8 @@ public struct ChatSceneState: Sendable, Equatable {
     public var messages: [Message]
     public var typing: [Member.ID]
     public var connection: ConnectionState
+    /// Supplied by the host for connection diagnostics; `nil` uses neutral wording.
+    public var connectionService: ConnectionService?
     public var lastError: ChatError?
 
     /// A confirmation that is not an error - `AppEnvironment`'s two
@@ -114,6 +116,7 @@ public struct ChatSceneState: Sendable, Equatable {
         messages: [Message] = [],
         typing: [Member.ID] = [],
         connection: ConnectionState = .idle,
+        connectionService: ConnectionService? = nil,
         lastError: ChatError? = nil,
         notice: String? = nil,
         capabilities: Capabilities = Capabilities(),
@@ -145,6 +148,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.messages = messages
         self.typing = typing
         self.connection = connection
+        self.connectionService = connectionService
         self.lastError = lastError
         self.notice = notice
         self.capabilities = capabilities

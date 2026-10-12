@@ -8,9 +8,9 @@ import ChatKit
 /// `StatusStrip`: `ConnectionBannerTests` exercises every sentence without a
 /// window in sight.
 ///
-/// The wording is deliberately vague where the truth is: "Google isn't
-/// responding," never "Google is down" - a timeout is byte-identical for
-/// "their fault" and "your network is blocking them." `.intercepted` names
+/// The wording is deliberately vague where the truth is: "isn't responding,"
+/// never "is down" - a timeout is byte-identical for "their fault" and
+/// "your network is blocking them." `.intercepted` names
 /// what is observable, not a captive portal or a VPN specifically, because
 /// nothing distinguishes them. `findings.md` §24's `[Verify]` discipline is
 /// the precedent: a confidently wrong diagnosis on screen is worse than an
@@ -37,7 +37,7 @@ public enum ConnectionBanner {
     /// What to show for `state`. `nil` means there is nothing to say - either
     /// the connection is healthy, or (for `.idle`) it has not been asked to
     /// try.
-    public static func text(for state: ConnectionState) -> String? {
+    public static func text(for state: ConnectionState, service: ConnectionService? = nil) -> String? {
         switch state {
         case .connected:
             nil
@@ -46,7 +46,7 @@ public enum ConnectionBanner {
         case .connecting:
             "Connecting…"
         case let .reconnecting(attempt, issue, _):
-            text(forReconnectAttempt: attempt, issue: issue)
+            text(forReconnectAttempt: attempt, issue: issue, service: service)
         case let .disconnected(reason, _):
             reason.map { "Disconnected: \($0)" } ?? "Disconnected."
         case .unknown:
@@ -93,7 +93,9 @@ public enum ConnectionBanner {
         return attempt >= attemptsPastAMinute
     }
 
-    private static func text(forReconnectAttempt attempt: Int, issue: ConnectionIssue?) -> String {
+    private static func text(
+        forReconnectAttempt attempt: Int, issue: ConnectionIssue?, service: ConnectionService?
+    ) -> String {
         guard let issue else {
             // What a peer predating the `issue` field sends, and what the
             // fixture backend still emits.
@@ -103,21 +105,26 @@ public enum ConnectionBanner {
         case .noInternet:
             return "No internet connection."
         case .nameResolution:
-            return "Can't look up Google's address."
+            return service.map { "Can't look up \($0.operatorName)'s address." }
+                ?? "Can't look up the chat service's address."
         case .refused:
-            return "Google's servers refused the connection."
+            return service.map { "\($0.operatorName)'s servers refused the connection." }
+                ?? "The chat service refused the connection."
         case .intercepted:
             return "Something is intercepting the connection — a captive portal, proxy or VPN."
         case .unresponsive:
-            return "Google isn't responding."
+            return service.map { "\($0.operatorName) isn't responding." }
+                ?? "The chat service isn't responding."
         case .dropped:
             return "Reconnecting…"
         case .rateLimited:
-            return "Google is asking us to slow down."
+            return service.map { "\($0.operatorName) is asking us to slow down." }
+                ?? "The chat service is asking us to slow down."
         case .serverError:
             // Not "Server error \(status)": the status is diagnostic, not
             // headline material - see `ConnectionIssue`'s own doc comment.
-            return "Google Chat is having problems."
+            return service.map { "\($0.name) is having problems." }
+                ?? "The chat service is having problems."
         case .unknown:
             // An unknown issue still reports a problem - we know something is
             // wrong, just not what.

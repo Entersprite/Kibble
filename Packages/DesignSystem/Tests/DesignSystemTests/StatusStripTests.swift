@@ -30,4 +30,12 @@ struct StatusStripTests {
         state.connection = .connected
         #expect(StatusStrip.headline(for: state) == nil)
     }
+
+    @Test func theStripUsesTheSessionsConnectionService() {
+        let state = ChatSceneState(
+            connection: .reconnecting(attempt: 1, issue: .unresponsive, detail: nil),
+            connectionService: ConnectionService(name: "Google Chat", operatorName: "Google")
+        )
+        #expect(StatusStrip.headline(for: state) == .warning("Google isn't responding."))
+    }
 }

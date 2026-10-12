@@ -85,7 +85,9 @@ struct StatusStrip: View {
         if let notice = state.notice {
             return .notice(notice)
         }
-        return ConnectionBanner.text(for: state.connection).map(Headline.warning)
+        return ConnectionBanner.text(
+            for: state.connection, service: state.connectionService
+        ).map(Headline.warning)
     }
 
     /// Same precedence as `banner`: a real error's own description already

@@ -43,6 +43,8 @@ public final class AppEnvironment {
     /// `ChatSessionModel.stopAndEraseStore()` exists to make impossible, so
     /// the model has to be reachable before it is parked, not after.
     private(set) var model: ChatSessionModel?
+    /// The active backend's connection label; cleared with its session.
+    var connectionService: ConnectionService?
 
     /// This session's attachment cache (`AppEnvironment+Attachments.swift`).
     var attachments: AttachmentCache?
@@ -156,7 +158,7 @@ public final class AppEnvironment {
             // disk last said.
             try store.apply([.clearEphemeralState])
             let selection = try await services.makeSession()
-            let engine = SyncEngine(backend: selection.backend, store: store, mentionClock: selection.now)
+            let engine = prepareEngine(for: selection, store: store)
             // Receipts are withheld until an account is identified; its saved
             // rules then decide. The old `ghostMode` key migrates into the
             // first account's global rule (`NotificationSettingsModel`).
@@ -344,6 +346,7 @@ public final class AppEnvironment {
         // must go back through that same connection rather than forward to
         // `LaunchServices.eraseStore()` and a second one.
         model = nil
+        connectionService = nil
         phase = .needsSignIn(reason: reason)
     }
 

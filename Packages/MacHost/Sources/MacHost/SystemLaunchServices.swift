@@ -124,7 +124,10 @@ public final class SystemLaunchServices: LaunchServices {
         // `ChatSessionModel.me` watches the store for it, so a message renders
         // as incoming for one heartbeat and then correctly as outgoing - never
         // a session-long "wrong-looking".
-        return SessionSelection(backend: backend, me: nil, driver: nil)
+        return SessionSelection(
+            backend: backend, me: nil, driver: nil,
+            connectionService: ConnectionService(name: "Google Chat", operatorName: "Google")
+        )
     }
 
     public func runProbe(_ probe: LaunchProbe) async -> String {
