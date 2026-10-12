@@ -137,6 +137,27 @@ struct MarkReadTests {
         #expect(request.body == expected)
     }
 
+    @Test func aFourHundredLeavesContentFreeFailureEvidence() async throws {
+        let transport = RoutingTransport(
+            shell: shellResponse(),
+            markReadResponse: HTTPResponse(status: 400, headers: HTTPHeaders([]), body: Data("private".utf8))
+        )
+        let backend = backend(transport)
+        let recorder = ReadFailureRecorder()
+        await backend.observeReadStateFailures { recorder.append($0) }
+        try await backend.connect()
+        await #expect(throws: (any Error).self) {
+            try await backend.send(.markRead(
+                conversationID: Conversation.ID("space/s-1"),
+                upTo: Date(timeIntervalSince1970: 1_700_000_000)
+            ))
+        }
+        let record = try #require(recorder.first)
+        #expect(record.status == 400)
+        #expect(record.conversationKind == "space")
+        #expect(record.requestMinusWorldHeadSeconds == nil)
+    }
+
     /// **The server decides what the badge says.** The event carries the
     /// response's own `last_read_time` and `unread_message_count`, not the
     /// values this client asked for - a deliberate non-zero unread here is
@@ -294,5 +315,22 @@ struct MarkReadTests {
                 upTo: Date(timeIntervalSince1970: 1)
             ))
         }
+    }
+}
+
+private final class ReadFailureRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var records: [ReadStateRequestFailure] = []
+
+    var first: ReadStateRequestFailure? {
+        lock.lock()
+        defer { lock.unlock() }
+        return records.first
+    }
+
+    func append(_ record: ReadStateRequestFailure) {
+        lock.lock()
+        records.append(record)
+        lock.unlock()
     }
 }

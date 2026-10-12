@@ -121,6 +121,17 @@ public extension ChatStore {
         ValueObservation.tracking(Self.fetchStoredConversations).removeDuplicates().values(in: database)
     }
 
+    /// The directory, re-emitted when a member changes: a name, a photo,
+    /// presence, status or calendar. One read per member write, never one per
+    /// delivery of something else (`ChatSessionModel.watchDirectory()`).
+    ///
+    /// **Duplicates are dropped**, as `observeConversations` drops them:
+    /// `clearEphemeralState` and a snapshot that names nobody new re-run the
+    /// read and change no entry.
+    func observeMembers() -> AsyncValueObservation<[Member]> {
+        ValueObservation.tracking(Self.fetchMembers).removeDuplicates().values(in: database)
+    }
+
     /// The transcript, observed. Replies are left out (`fetchMessages`).
     func observeMessages(in conversation: Conversation.ID) -> AsyncValueObservation<[Message]> {
         ValueObservation

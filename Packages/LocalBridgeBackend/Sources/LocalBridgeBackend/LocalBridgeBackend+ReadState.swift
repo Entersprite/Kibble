@@ -2,12 +2,25 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
+/// Values needed to investigate a failed mark without a conversation ID,
+/// message ID, timestamp, or response body.
+public struct ReadStateRequestFailure: Sendable {
+    public let status: Int
+    public let conversationKind: String
+    public let requestedAgeSeconds: Int
+    public let requestMinusWorldHeadSeconds: Int?
+}
+
 /// Publishing this client's read position - `.markRead`.
 ///
 /// Its own file for the same reason `+History.swift`, `+Directory.swift` and
 /// `+Send.swift` are: swiftlint's `file_length`, and this is a coherent
 /// concern rather than an arbitrary cut.
 public extension LocalBridgeBackend {
+    func observeReadStateFailures(_ callback: @escaping @Sendable (ReadStateRequestFailure) -> Void) {
+        onReadStateFailure = callback
+    }
+
     /// **Confirmed behaviour, not an experiment** - `findings.md` §36,
     /// measured 2026-09-07. **The server's read comparison is
     /// strictly-greater-than.** A `last_read_time` exactly equal to a
@@ -103,6 +116,7 @@ public extension LocalBridgeBackend {
                 )
             )
         } catch {
+            recordReadStateFailure(error, in: conversationID, upTo: date)
             throw Self.chatError(fromAPI: error, call: "the /api/ mark_group_readstate call")
         }
         guard response.hasReadState else {
@@ -121,6 +135,26 @@ public extension LocalBridgeBackend {
             conversationID: conversationID,
             lastReadAt: Microseconds.date(response.readState.lastReadTime),
             unread: Int(response.readState.unreadMessageCount)
+        ))
+    }
+
+    private func recordReadStateFailure(
+        _ error: any Error, in conversationID: Conversation.ID, upTo date: Date
+    ) {
+        guard let failure = error as? APIFailure, case let .httpStatus(status) = failure else { return }
+        let requested = Microseconds.adding(
+            Self.readPositionOffsetMicroseconds, to: Microseconds.from(date)
+        )
+        let head = conversationHeads[conversationID]
+        onReadStateFailure?(ReadStateRequestFailure(
+            status: status,
+            conversationKind: conversationID.rawValue.hasPrefix("space/") ? "space" : "dm",
+            requestedAgeSeconds: Int(
+                Date().timeIntervalSince(Microseconds.date(Microseconds.from(date))).rounded()
+            ),
+            requestMinusWorldHeadSeconds: head.map {
+                Int((Double(requested) - Double($0)) / 1_000_000)
+            }
         ))
     }
 }

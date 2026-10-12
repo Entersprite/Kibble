@@ -282,6 +282,8 @@ public final class ChatSessionModel {
     /// Starts syncing and watching. Safe to call once; later calls do nothing.
     public func start() async throws {
         guard watchers.isEmpty else { return }
+        // First, so a name is there by the time anything that shows one lands.
+        watchDirectory()
         watch(store.observeConversations()) { [weak self] in self?.conversationsObserved($0) }
         watch(store.observeConnectionState()) { [weak self] in
             self?.connectionState = $0

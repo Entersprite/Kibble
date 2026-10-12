@@ -19,9 +19,11 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// process like everything else here. No updater in a development build
     /// (`KibbleUpdatesEnabled`), so a dev build never replaces itself.
     public let updates: UpdateSettingsModel
+    public let diagnostics: DiagnosticReportStore
     private let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
     private var deviceTask: Task<Void, Never>?
+    private var memoryTask: Task<Void, Never>?
     private var windowObservers: [NSObjectProtocol] = []
     /// Filters the minimise observers to the main window, which the shell's
     /// `reportsMainWindow(to:)` names.
@@ -35,8 +37,11 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         let settingsStore: any NotificationSettingsStore =
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
+        let services = SystemLaunchServices(arguments: .fromCommandLine())
+        let diagnostics = DiagnosticReportStore(directory: try? SystemLaunchServices.supportDirectory())
+        services.diagnostics = diagnostics
         let environment = AppEnvironment(
-            services: SystemLaunchServices(arguments: .fromCommandLine()),
+            services: services,
             notifications: notifications,
             settingsStore: settingsStore
         )
@@ -49,6 +54,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             defaults: .standard,
             version: info["CFBundleShortVersionString"] as? String ?? "unknown"
         )
+        self.diagnostics = diagnostics
         super.init()
     }
 
@@ -58,6 +64,15 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationDidFinishLaunching(_: Notification) {
+        diagnostics.start()
+        diagnostics.sampleMemory()
+        memoryTask = Task { [diagnostics] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                diagnostics.sampleMemory()
+            }
+        }
         let environment = environment
         Task { await environment.start() }
 

@@ -16,9 +16,15 @@ import SyncEngine
 public final class SystemLaunchServices: LaunchServices {
     public let arguments: LaunchArguments
     private let launchProbe: MacLaunchProbe?
+    public var diagnostics: DiagnosticReportStore?
 
-    public var launchReportRequested: Bool { launchProbe != nil }
-    public var diagnosticsRequested: Bool { CommandLine.arguments.contains("--probe=appnap") }
+    public var launchReportRequested: Bool {
+        launchProbe != nil
+    }
+
+    public var diagnosticsRequested: Bool {
+        CommandLine.arguments.contains("--probe=appnap")
+    }
 
     public init(arguments: LaunchArguments) {
         self.arguments = arguments
@@ -118,6 +124,14 @@ public final class SystemLaunchServices: LaunchServices {
             // Before `connect()`, so the tally sees the channel's first event.
             if let eventFile = Self.eventTallyFile() {
                 await backend?.tallyEvents(to: eventFile)
+            }
+            if let diagnostics {
+                await backend?.observeReadStateFailures { [diagnostics] failure in
+                    diagnostics.recordReadStateFailure(failure)
+                }
+                await backend?.observeHistoryResponses { [diagnostics] response in
+                    diagnostics.recordHistoryResponse(response)
+                }
             }
         } catch {
             // A Keychain that refuses is not an absent credential, and

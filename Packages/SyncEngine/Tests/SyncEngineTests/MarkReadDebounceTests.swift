@@ -232,7 +232,12 @@ struct MarkReadDebounceTests {
         let harness = try await makeAutoMarkReadHarness(markReadDebounce: .zero)
         await harness.backend.failSubmissions(true)
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        // The page lands from the engine's actor; wait for the mark it
+        // triggers, never a number of yields (session 66: a fixed settle here
+        // had been passing on the directory read's accidental barrier).
+        await settleAutoMarkRead(until: "the failed mark is recorded") {
+            await markReadPositions(from: harness.backend).count >= 1
+        }
         let afterFailure = await markReadPositions(from: harness.backend).count
         #expect(afterFailure == 1)
         #expect(harness.model.published[autoMarkReadConversation] == nil)
@@ -240,7 +245,9 @@ struct MarkReadDebounceTests {
         await harness.backend.failSubmissions(false)
         harness.model.setActive(false)
         harness.model.setActive(true)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the retried mark is recorded") {
+            await markReadPositions(from: harness.backend).count >= afterFailure + 1
+        }
 
         #expect(await markReadPositions(from: harness.backend).count == afterFailure + 1)
         await harness.model.stop()

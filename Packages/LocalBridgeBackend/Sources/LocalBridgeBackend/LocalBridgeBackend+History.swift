@@ -2,6 +2,19 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
+/// A content-free summary of one history response for production diagnostics.
+public struct HistoryResponseObservation: Sendable {
+    public let phase: String
+    public let conversationKind: String
+    public let topics: Int
+    public let messages: Int
+    public let skipped: Int
+    public let containsFirstTopic: Bool?
+    public let containsLastTopic: Bool?
+    public let newestMainAgeSeconds: Int?
+    public let worldHeadAgeSeconds: Int?
+}
+
 /// History for one conversation - `loadMessages(in:before:)`.
 ///
 /// Split into its own file for the same reason `+Directory.swift`,
@@ -9,6 +22,10 @@ import GChatBridgeCore
 /// are: `swiftlint`'s `file_length`, and this is a coherent concern of its
 /// own rather than an arbitrary cut.
 public extension LocalBridgeBackend {
+    func observeHistoryResponses(_ callback: @escaping @Sendable (HistoryResponseObservation) -> Void) {
+        onHistoryResponse = callback
+    }
+
     /// A page of history, via `TopicsRequestLadder.history(for:)`: the
     /// reference's `page_size_for_topics: 50` plus `page_size_for_replies:
     /// 50`, so a thread's replies arrive with its first message (`findings.md`
@@ -27,9 +44,10 @@ public extension LocalBridgeBackend {
     /// to the microsecond (`messageTimes`). An unknown one, or `nil`, first
     /// sends the plain page. If that page ends before the world's newest
     /// head, a second request anchors there and merges its window. A full
-    /// plain page also asks for a window at the present time: a busy space
-    /// can fill all 50 topic slots before its newest message, while the
-    /// world head remembered at connection time may itself be stale.
+    /// plain page, or one explicitly marked as not containing the last topic,
+    /// also asks for a window at the present time. A busy space can stop
+    /// before its newest message even with fewer than 50 topics in its page,
+    /// while the world head remembered at connection time may itself be stale.
     ///
     /// The live probe measured an anchored response as a window around its
     /// time (§65.10). For backward paging, keep only messages strictly older
@@ -69,35 +87,17 @@ public extension LocalBridgeBackend {
             let response = try await apiClient.call(.listTopics, rung.request)
             let mapped = recordHistory(
                 response, in: conversationID, anchored: anchor != nil,
-                replyCap: Int(rung.request.pageSizeForReplies)
+                replyCap: Int(rung.request.pageSizeForReplies),
+                phase: anchor == nil ? "plain" : "backward"
             )
             var page = anchor.map { anchor in
                 mapped.messages.filter { Microseconds.from($0.createdAt) < anchor }
             } ?? mapped.messages
-            // A full plain page gives no assurance that it reached the most
-            // recent topic. The world head is also only as fresh as the last
-            // world load, so use a present-time window in that case.
-            if before == nil,
-               let retryAnchor = latestRetryAnchor(
-                   for: conversationID, topicsCount: response.topics.count,
-                   pageSize: Int(rung.request.pageSizeForTopics), messages: page
-               ) {
-                do {
-                    let retry = TopicsRequestLadder.history(for: group, anchoredAt: retryAnchor)
-                    let answer = try await apiClient.call(.listTopics, retry.request)
-                    let newer = recordHistory(
-                        answer, in: conversationID, anchored: true,
-                        replyCap: Int(retry.request.pageSizeForReplies)
-                    )
-                    page = Self.merged(page, newer.messages)
-                } catch {
-                    // The first page still has useful history. Report the
-                    // failed retry without discarding what already loaded.
-                    emit(.backendError(Self.chatError(
-                        fromAPI: error,
-                        call: "the newest /api/ list_topics call"
-                    )))
-                }
+            if before == nil {
+                page = await retryNewestIfNeeded(
+                    page, response: response, group: group, conversationID: conversationID,
+                    pageSize: Int(rung.request.pageSizeForTopics)
+                )
             }
             // Resolve only senders in messages the caller will store. An
             // anchored backward page may have returned newer messages that
@@ -109,15 +109,45 @@ public extension LocalBridgeBackend {
         }
     }
 
+    /// A full page, or an explicit `contains_last_topic = false` even on a
+    /// short page, may end before the newest topic. The world head can also
+    /// be stale, so the retry anchors at the present time in those cases.
+    private func retryNewestIfNeeded(
+        _ page: [ChatKit.Message], response: ListTopicsResponse, group: GroupId,
+        conversationID: Conversation.ID, pageSize: Int
+    ) async -> [ChatKit.Message] {
+        guard let apiClient else { return page }
+        guard let retryAnchor = latestRetryAnchor(
+            for: conversationID, topicsCount: response.topics.count, pageSize: pageSize,
+            didReachNewest: response.hasContainsLastTopic ? response.containsLastTopic : nil,
+            messages: page
+        ) else { return page }
+        do {
+            let retry = TopicsRequestLadder.history(for: group, anchoredAt: retryAnchor)
+            let answer = try await apiClient.call(.listTopics, retry.request)
+            let newer = recordHistory(
+                answer, in: conversationID, anchored: true,
+                replyCap: Int(retry.request.pageSizeForReplies), phase: "latest-retry"
+            )
+            return Self.merged(page, newer.messages)
+        } catch {
+            // The first page still has useful history. Report the failed
+            // retry without discarding what already loaded.
+            emit(.backendError(Self.chatError(fromAPI: error, call: "the newest /api/ list_topics call")))
+            return page
+        }
+    }
+
     private static func newestMainMessage(in messages: [ChatKit.Message]) -> Int64 {
         messages.lazy.filter { !$0.isReply }.map { Microseconds.from($0.createdAt) }.max() ?? 0
     }
 
     private func latestRetryAnchor(
-        for conversation: Conversation.ID, topicsCount: Int, pageSize: Int, messages: [ChatKit.Message]
+        for conversation: Conversation.ID, topicsCount: Int, pageSize: Int,
+        didReachNewest: Bool?, messages: [ChatKit.Message]
     ) -> Int64? {
         let head = conversationHeads[conversation]
-        if topicsCount >= pageSize {
+        if topicsCount >= pageSize || didReachNewest == false {
             return max(Microseconds.from(Date()), head ?? 0)
         }
         if let head, Self.newestMainMessage(in: messages) < head {
@@ -137,9 +167,22 @@ public extension LocalBridgeBackend {
     }
 
     private func recordHistory(
-        _ response: ListTopicsResponse, in conversationID: Conversation.ID, anchored: Bool, replyCap: Int
+        _ response: ListTopicsResponse, in conversationID: Conversation.ID, anchored: Bool,
+        replyCap: Int, phase: String
     ) -> HistoryMapping.Result {
         let mapped = HistoryMapping.map(response)
+        let now = Date()
+        let newest = mapped.messages.filter { !$0.isReply }.map(\.createdAt).max()
+        let worldHead = conversationHeads[conversationID].map(Microseconds.date)
+        onHistoryResponse?(HistoryResponseObservation(
+            phase: phase,
+            conversationKind: conversationID.rawValue.hasPrefix("space/") ? "space" : "dm",
+            topics: response.topics.count, messages: mapped.messages.count, skipped: mapped.skipped,
+            containsFirstTopic: response.hasContainsFirstTopic ? response.containsFirstTopic : nil,
+            containsLastTopic: response.hasContainsLastTopic ? response.containsLastTopic : nil,
+            newestMainAgeSeconds: newest.map { Int(now.timeIntervalSince($0).rounded()) },
+            worldHeadAgeSeconds: worldHead.map { Int(now.timeIntervalSince($0).rounded()) }
+        ))
         messageTimes.remember(mapped.messages)
         // An anchored window may cut a topic's replies short, so it cannot
         // replace a complete thread count. Its read state is still a snapshot.

@@ -80,8 +80,13 @@ struct LoadMessagesWorldHeadTests {
         return message
     }
 
-    private static func topicsResponse(_ messages: [GChatBridgeCore.Message]) throws -> HTTPResponse {
+    private static func topicsResponse(
+        _ messages: [GChatBridgeCore.Message], containsLastTopic: Bool? = nil
+    ) throws -> HTTPResponse {
         var response = ListTopicsResponse()
+        if let containsLastTopic {
+            response.containsLastTopic = containsLastTopic
+        }
         response.topics = messages.map { message in
             var topic = Topic()
             topic.id = message.id.parentID.topicID
@@ -143,5 +148,30 @@ struct LoadMessagesWorldHeadTests {
         #expect(anchored.hasFilter)
         #expect(anchored.filter.anchor.timeUsec > Self.oldTime + 100_000)
         #expect(anchored.sortOption == 2)
+    }
+
+    @Test func aShortPageExplicitlyBeforeTheLastTopicFetchesCurrentWindow() async throws {
+        let old = Self.message("m-old", at: Self.oldTime)
+        let latest = Self.message("m-latest", at: Self.headTime + 100_000)
+        let transport = try WorldHeadTransport(
+            world: Self.worldResponse(),
+            topics: [
+                Self.topicsResponse([old], containsLastTopic: false),
+                Self.topicsResponse([latest], containsLastTopic: true)
+            ]
+        )
+        let backend = try LocalBridgeBackend(
+            cookies: #require(SessionCookies(header: "SID=a; COMPASS=b; OSID=c")), transport: transport
+        )
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+
+        let messages = try await backend.loadMessages(in: Self.space, before: nil)
+        #expect(messages.map(\.id.rawValue) == ["m-old", "m-latest"])
+        let requests = await transport.topicRequests
+        #expect(requests.count == 2)
+        let anchored = try ListTopicsRequest(serializedBytes: #require(requests.last?.body))
+        #expect(anchored.hasFilter)
+        #expect(anchored.filter.anchor.timeUsec > Self.headTime)
     }
 }

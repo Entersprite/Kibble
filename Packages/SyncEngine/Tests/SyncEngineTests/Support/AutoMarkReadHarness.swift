@@ -47,7 +47,15 @@ func makeAutoMarkReadHarness(
         store: store, engine: engine, me: nil, markReadDebounce: markReadDebounce
     )
     try await model.start()
-    await settleAutoMarkRead()
+    // The state the callers need, never a number of yields. The fixture's
+    // world is pushed on connect from another actor, and 200 yields on the
+    // main actor were enough only because every delivery's synchronous member
+    // read blocked the main thread on the store queue until that write had
+    // landed. With the directory observed instead (session 66), nothing
+    // blocks, and `enableReplies` found no conversation stored.
+    await settleAutoMarkRead(until: "the fixture world is stored") {
+        model.conversations.count == FixtureWorld.minimal.conversations.count
+    }
     return AutoMarkReadHarness(model: model, backend: backend, store: store)
 }
 
@@ -337,7 +345,9 @@ func makeTracedMarkReadHarness(
         markReadDebounce: markReadDebounce
     )
     try await model.start()
-    await settleAutoMarkRead()
+    await settleAutoMarkRead(until: "the traced fixture world is stored") {
+        model.conversations.count == FixtureWorld.minimal.conversations.count
+    }
     return TracedMarkReadHarness(model: model, backend: backend, store: store, sink: sink)
 }
 

@@ -280,7 +280,13 @@ struct MarkReadDebounceGuardSequenceTests {
         await harness.backend.failSubmissions(true)
         try landUnackedLocalMessage(in: harness.store, id: "local/pending")
         harness.model.select(autoMarkReadConversation)
-        await settleAutoMarkRead()
+        // The baseline is taken once the first mark has failed, not after a
+        // number of yields that may end before the page has even landed
+        // (session 66); the frozen-count check below still gets a fixed
+        // settle, because it asserts that nothing happens.
+        await settleAutoMarkRead(until: "the first mark has failed") {
+            await harness.backend.markReadCount >= 1
+        }
 
         let bound = 4
         let first = await harness.backend.markReadCount

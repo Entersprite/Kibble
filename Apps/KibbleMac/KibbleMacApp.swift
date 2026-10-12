@@ -155,9 +155,10 @@ struct KibbleMacApp: App {
                 Tab("Account", systemImage: "person.crop.circle", value: "account") {
                     AccountSettingsPane(
                         state: environment.accountSettingsState,
-                        signOut: environment.canSignOut ? { isConfirmingSignOutFromSettings = true } : nil
+                        signOut: environment.canSignOut ? { isConfirmingSignOutFromSettings = true } : nil,
+                        exportDiagnostics: { appDelegate.diagnostics.export() }
                     )
-                    .frame(width: 560, height: 220)
+                    .frame(width: 560, height: 350)
                 }
             }
             .signOutConfirmation(isPresented: $isConfirmingSignOutFromSettings) {

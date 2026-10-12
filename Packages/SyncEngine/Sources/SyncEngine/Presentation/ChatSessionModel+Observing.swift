@@ -9,13 +9,22 @@ import GRDB
 /// `directory` and `lastError` are `internal` there for this file's sake,
 /// the same trade `+AutoMarkRead.swift` already made for `conversations`.
 extension ChatSessionModel {
-    /// Members are read once per conversation change rather than observed:
-    /// there is one directory for the whole app, it changes rarely, and an
-    /// observation per member would be a lot of machinery for a lookup table.
-    public func refreshDirectory() {
-        directory = Dictionary(
-            uniqueKeysWithValues: ((try? store.members()) ?? []).map { ($0.id, $0) }
-        )
+    /// The directory, observed: one read per member write, never one per
+    /// delivery.
+    ///
+    /// Until session 66 every observation's delivery re-read the whole
+    /// `member` table synchronously on the main thread and rebuilt
+    /// `directory` from it. That read waits behind the store's serial queue,
+    /// which a page of history holds for about 100 ms on a large store (its
+    /// seven refetches, `docs/journal/2026-10-10-session-66.md`). With pages
+    /// landing back to back, as the mention backfill lands them after every
+    /// world load, the main thread stalled for up to a quarter second at a
+    /// time: the lag while messages load. A member write is the only thing
+    /// that can change a name, so it is the only thing that re-reads them.
+    func watchDirectory() {
+        watch(store.observeMembers()) { [weak self] in
+            self?.directory = Dictionary(uniqueKeysWithValues: $0.map { ($0.id, $0) })
+        }
     }
 
     /// Who the local user is, and their own availability (set-your-status
@@ -78,7 +87,6 @@ extension ChatSessionModel {
                     // closed thread panel showed a reply written after it closed.
                     guard !Task.isCancelled else { return }
                     apply(value)
-                    self?.refreshDirectory()
                 }
             } catch {
                 self?.lastError = error as? ChatError ?? .unknown(String(describing: error))

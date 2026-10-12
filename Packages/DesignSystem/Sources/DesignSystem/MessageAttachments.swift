@@ -82,9 +82,11 @@ enum AttachmentLayout {
         attachment.name.isEmpty ? "Attachment" : attachment.name
     }
 
-    /// Decodes at most `maxPixel` on the long side, so a 4000-pixel photo
-    /// costs a bubble's worth of memory rather than its own.
-    static func decode(_ data: Data, maxPixel: Int = 1024) -> CGImage? {
+    /// The largest bubble is 320 points, so 640 pixels covers a 2x display.
+    /// Keeping a 1024-pixel bitmap for each visible photo spent more memory
+    /// without adding detail in the transcript; Quick Look still opens the
+    /// original attachment on demand.
+    static func decode(_ data: Data, maxPixel: Int = Int(maxSide * 2)) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

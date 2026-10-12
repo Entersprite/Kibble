@@ -158,6 +158,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `list_topics` page can end before this head, leaving an unread dot
     /// without the message the client needs to mark read.
     var conversationHeads: [Conversation.ID: Int64] = [:]
+    /// Host-owned, content-free telemetry for failed read-state writes.
+    var onReadStateFailure: (@Sendable (ReadStateRequestFailure) -> Void)?
+    var onHistoryResponse: (@Sendable (HistoryResponseObservation) -> Void)?
 
     public init(
         cookies: SessionCookies,
