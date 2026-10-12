@@ -3,6 +3,23 @@ import Foundation
 import Testing
 @testable import AppCore
 
+private actor PausedUploadImageRead {
+    private var pending: CheckedContinuation<Data?, Never>?
+
+    var isWaiting: Bool {
+        pending != nil
+    }
+
+    func read(_: URL) async -> Data? {
+        await withCheckedContinuation { pending = $0 }
+    }
+
+    func finish(with data: Data) {
+        pending?.resume(returning: data)
+        pending = nil
+    }
+}
+
 /// The attachment cache, as `AppEnvironment` builds it per session and offers
 /// it to the scene: the actions exist only when the backend can fetch, they
 /// go through the cache, and sign-out takes the cache with it.
@@ -78,5 +95,31 @@ struct AttachmentWiringTests {
         }
         #expect(services.backend.attachmentFetches.isEmpty)
         #expect(files(in: services.attachmentDirectory).isEmpty)
+    }
+
+    @Test func anOldUploadReadCannotSeedTheNextAccountsCache() async throws {
+        let (environment, services) = try await running(canFetch: true)
+        defer { try? FileManager.default.removeItem(at: services.attachmentDirectory) }
+        let attachment = Self.image
+        let outgoing = OutgoingAttachment(
+            id: "old-upload", file: URL(fileURLWithPath: "/unused/old.png"),
+            name: "old.png", contentType: "image/png", byteSize: 8
+        )
+        let read = PausedUploadImageRead()
+        let task = try #require(environment.seedUpload(attachment, from: outgoing, read: read.read))
+        #expect(await eventually { await read.isWaiting })
+
+        await environment.signOut()
+        let nextDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "next-account-attachments-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: nextDirectory) }
+        let nextCache = AttachmentCache(directory: nextDirectory) { _, _ in Data("next account".utf8) }
+        environment.attachments = nextCache
+
+        await read.finish(with: Data("old account".utf8))
+        await task.value
+
+        #expect(files(in: nextDirectory).isEmpty)
+        #expect(try await nextCache.data(for: attachment, size: .preview) == Data("next account".utf8))
     }
 }

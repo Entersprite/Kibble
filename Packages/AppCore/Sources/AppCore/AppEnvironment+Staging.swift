@@ -75,15 +75,29 @@ extension AppEnvironment {
     }
 
     /// Keeps a sent picture's bytes, so its bubble draws from the file the
-    /// person chose rather than fetching it back. Read off the main actor,
-    /// and the cache read through `self` afterwards, for
-    /// `loadAttachment(_:size:)`'s reason: a sign-out meanwhile has erased it.
+    /// person chose rather than fetching it back. The cache is captured
+    /// before the file read: a later sign-in must not receive bytes from the
+    /// session that started this upload. `erase()` rejects a late seed on the
+    /// old cache.
     func seedUpload(_ attachment: Attachment, from file: OutgoingAttachment) {
-        guard file.isImage, file.byteSize <= Self.seedLimit else { return }
+        _ = seedUpload(attachment, from: file) { url in
+            await Task.detached(priority: .utility) { try? Data(contentsOf: url) }.value
+        }
+    }
+
+    /// The reader is supplied by the production file read above and can be
+    /// held in a test across sign-out to prove where its result is stored.
+    @discardableResult
+    func seedUpload(
+        _ attachment: Attachment,
+        from file: OutgoingAttachment,
+        read: @escaping @Sendable (URL) async -> Data?
+    ) -> Task<Void, Never>? {
+        guard file.isImage, file.byteSize <= Self.seedLimit, let cache = attachments else { return nil }
         let url = file.file
-        Task { [weak self] in
-            let data = await Task.detached(priority: .utility) { try? Data(contentsOf: url) }.value
-            guard let data, let cache = self?.attachments else { return }
+        return Task {
+            let data = await read(url)
+            guard let data else { return }
             await cache.seed(data, for: attachment)
         }
     }
