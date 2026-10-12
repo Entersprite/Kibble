@@ -24,19 +24,16 @@ public extension LocalBridgeBackend {
     /// sent carried `filter.anchor.time_usec` and `sort_option: 2`
     /// (`findings.md` §65.9), so a known `before` sends
     /// `TopicsRequestLadder.history(for:anchoredAt:)` at its own create time,
-    /// to the microsecond (`messageTimes`). An unknown one, or `nil`, sends
-    /// the newest page, as history always did.
+    /// to the microsecond (`messageTimes`). An unknown one, or `nil`, first
+    /// sends the plain page. If that page ends before the world's newest
+    /// head, a second request anchors there and merges its window.
     ///
-    /// **Whether the server pages from the anchor is `[Verify]`.** In the
-    /// capture every answer still reached the newest topic (§65.9: the anchor
-    /// was the read position each time), so this never trusts it to:
-    /// an anchored page returns only messages created strictly before
-    /// `before`, by microseconds. If the server ignores the anchor, an old
-    /// `before` gets the newest page back, filtered to nothing, and a caller
-    /// paging back stops for want of progress. The threads the answer
-    /// listed still report their state, filtered or not: that is a snapshot
-    /// of the server's, whatever this page keeps. `--probe=search`'s anchor
-    /// stage sends the same request, and its run settles the question.
+    /// The live probe measured an anchored response as a window around its
+    /// time (§65.10). For backward paging, keep only messages strictly older
+    /// than `before`, by microseconds. An empty filtered page stops paging;
+    /// thread read states from the response are still snapshots. The
+    /// latest-head retry instead keeps the whole window so the message
+    /// missing from the plain page can reach the transcript.
     ///
     /// **No per-topic `list_messages` follow-up.** Replies come with the page;
     /// a thread longer than 50 replies is read whole by `loadThread(_:in:)`
@@ -67,41 +64,75 @@ public extension LocalBridgeBackend {
             ?? TopicsRequestLadder.history(for: group)
         do {
             let response = try await apiClient.call(.listTopics, rung.request)
-            let mapped = HistoryMapping.map(response)
-            // Every message mapped, kept or not: its time is a fact either way.
-            messageTimes.remember(mapped.messages)
-            // Each thread's count, read position and mark, before the page
-            // is returned, so the store has both when the transcript draws.
-            // `.counted` replaces the stored count, so only a listing that
-            // cannot have been cut short counts: one under the reply cap, on
-            // a page with no anchor, since §65.9 saw an anchored page list a
-            // topic's replies only "at or before the anchor". Its read state
-            // is a snapshot either way.
-            let cap = Int(rung.request.pageSizeForReplies)
-            for topic in response.topics {
-                let complete = anchor == nil && topic.replies.count < cap
-                let listing = ThreadMapping.Listing.history(countIsComplete: complete)
-                ThreadMapping.events(for: topic, in: conversationID, listing: listing).forEach(emit)
-            }
-            // Same rule `loadConversations()` follows for `WorldMapping.Result.skipped`:
-            // a count, never an id or message text, rather than a silently
-            // shorter array.
-            if mapped.skipped > 0 {
-                emit(.backendError(.unknown(
-                    "\(mapped.skipped) message(s) could not be mapped and were skipped"
-                )))
-            }
-            let page = anchor.map { anchor in
+            let mapped = recordHistory(
+                response, in: conversationID, anchored: anchor != nil,
+                replyCap: Int(rung.request.pageSizeForReplies)
+            )
+            var page = anchor.map { anchor in
                 mapped.messages.filter { Microseconds.from($0.createdAt) < anchor }
             } ?? mapped.messages
-            // Names for the senders, started rather than awaited - the same
-            // rule `loadConversations()` follows for its own lookup. A space
-            // lists no members on the world response (`findings.md` §37.5),
-            // so without this anyone met only in a space renders as an id.
+            // A plain page can end before the world's newest main message.
+            // Retry at that head: §65.10 measured the anchor as a window
+            // around its time. Keep both pages so the transcript gains the
+            // missing head without losing the history it already loaded.
+            if before == nil, let head = conversationHeads[conversationID],
+               Self.newestMainMessage(in: page) < head {
+                do {
+                    let retry = TopicsRequestLadder.history(for: group, anchoredAt: head)
+                    let answer = try await apiClient.call(.listTopics, retry.request)
+                    let newer = recordHistory(
+                        answer, in: conversationID, anchored: true,
+                        replyCap: Int(retry.request.pageSizeForReplies)
+                    )
+                    page = Self.merged(page, newer.messages)
+                } catch {
+                    // The first page still has useful history. Report the
+                    // failed retry without discarding what already loaded.
+                    emit(.backendError(Self.chatError(
+                        fromAPI: error,
+                        call: "the newest /api/ list_topics call"
+                    )))
+                }
+            }
+            // Resolve only senders in messages the caller will store. An
+            // anchored backward page may have returned newer messages that
+            // its strict older-than filter deliberately leaves out.
             resolveUnknownMembers(page.map(\.sender))
             return page
         } catch {
             throw Self.chatError(fromAPI: error, call: "the /api/ list_topics call")
         }
+    }
+
+    private static func newestMainMessage(in messages: [ChatKit.Message]) -> Int64 {
+        messages.lazy.filter { !$0.isReply }.map { Microseconds.from($0.createdAt) }.max() ?? 0
+    }
+
+    private static func merged(_ first: [ChatKit.Message], _ second: [ChatKit.Message]) -> [ChatKit.Message] {
+        var byID: [ChatKit.Message.ID: ChatKit.Message] = [:]
+        for message in first + second {
+            byID[message.id] = message
+        }
+        return byID.values.sorted {
+            $0.createdAt == $1.createdAt ? $0.id.rawValue < $1.id.rawValue : $0.createdAt < $1.createdAt
+        }
+    }
+
+    private func recordHistory(
+        _ response: ListTopicsResponse, in conversationID: Conversation.ID, anchored: Bool, replyCap: Int
+    ) -> HistoryMapping.Result {
+        let mapped = HistoryMapping.map(response)
+        messageTimes.remember(mapped.messages)
+        // An anchored window may cut a topic's replies short, so it cannot
+        // replace a complete thread count. Its read state is still a snapshot.
+        for topic in response.topics {
+            let complete = !anchored && topic.replies.count < replyCap
+            let listing = ThreadMapping.Listing.history(countIsComplete: complete)
+            ThreadMapping.events(for: topic, in: conversationID, listing: listing).forEach(emit)
+        }
+        if mapped.skipped > 0 {
+            emit(.backendError(.unknown("\(mapped.skipped) message(s) could not be mapped and were skipped")))
+        }
+        return mapped
     }
 }

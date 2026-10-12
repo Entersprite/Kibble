@@ -92,6 +92,11 @@ extension ChatSessionModel {
             newest = newestServerMessage(in: conversation)
         }
         guard let newest else { return }
+        // A stale history page must not move Google's read position backward.
+        // The automatic path makes this same check before publishing.
+        if skipsBehindServerPosition(newest, in: conversation) {
+            return
+        }
         if let already = published[conversation], newest <= already {
             return
         }

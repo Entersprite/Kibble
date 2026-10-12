@@ -95,6 +95,23 @@ struct MarkReadNowTests {
         #expect(await backend.loadMessagesCount == 1)
     }
 
+    /// A page ending before the world's unread head must not push the read
+    /// position backward when the user chooses Mark as Read in the sidebar.
+    @Test func aSidebarMarkDoesNotPublishAnOldPageBehindTheServerPosition() async throws {
+        let (model, store, backend) = try await harness()
+        let read = storedBeforeQuit.createdAt.addingTimeInterval(60)
+        model.conversations = [Conversation(
+            id: dm, kind: .directMessage, hasUnread: true, readPosition: read
+        )]
+        try store.apply([.upsertMessage(storedBeforeQuit)])
+        await backend.failHistory(true)
+
+        model.markRead(dm, from: .conversationList)
+        #expect(await eventually { await backend.loadMessagesCount == 1 && model.markTasks[dm] == nil })
+        #expect(await backend.markReadCount == 0)
+        #expect(model.published[dm] == read)
+    }
+
     /// Nothing stored and the fetch fails: nothing to name, so nothing is
     /// published - and the in-flight guard is released, so a later mark can.
     @Test func aSidebarMarkWithNothingStoredWhoseFetchFailsPublishesNothing() async throws {

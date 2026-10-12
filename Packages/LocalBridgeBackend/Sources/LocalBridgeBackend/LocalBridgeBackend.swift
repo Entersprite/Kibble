@@ -154,6 +154,10 @@ public actor LocalBridgeBackend: ChatBackend {
     /// Each mapped message's create time, for anchored history
     /// (`MessageCreateTimes`, `findings.md` §65.9). Cleared by `disconnect()`.
     var messageTimes = MessageCreateTimes()
+    /// The world's newest top-level message per conversation. A plain
+    /// `list_topics` page can end before this head, leaving an unread dot
+    /// without the message the client needs to mark read.
+    var conversationHeads: [Conversation.ID: Int64] = [:]
 
     public init(
         cookies: SessionCookies,
@@ -296,6 +300,7 @@ public actor LocalBridgeBackend: ChatBackend {
         attachmentUpload = nil
         uploadedMetadata = [:]
         messageTimes.forgetAll()
+        conversationHeads = [:]
         memberResolution?.cancel()
         memberResolution = nil
         forgetDirectory()

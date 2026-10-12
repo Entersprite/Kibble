@@ -25,6 +25,12 @@ public extension LocalBridgeBackend {
         do {
             let response = try await apiClient.call(.paginatedWorld, rung.request)
             let mapped = WorldMapping.map(response)
+            conversationHeads = [:]
+            for item in response.worldItems where item.readState.hasLastHeadMessageCreateTimeUsec {
+                if let id = ChannelEventMapping.conversationID(item.groupID) {
+                    conversationHeads[id] = item.readState.lastHeadMessageCreateTimeUsec
+                }
+            }
             // `ChatBackend.loadConversations()` returns `[Conversation]` and
             // cannot carry `.skipped` alongside it, but silently returning a
             // shorter array is exactly the kind of loss `WorldMapping.Result`
