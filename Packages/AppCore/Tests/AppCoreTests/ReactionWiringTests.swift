@@ -42,8 +42,7 @@ struct ReactionWiringTests {
         #expect(environment.actions.reactions?.customImage != nil)
     }
 
-    /// Slice 2: the skin tone is the app's, and survives a new environment on
-    /// the same defaults (reactions spec §3).
+    /// The skin tone survives a relaunch for the same identified account.
     @Test func theSkinToneIsSavedAndReadBack() async throws {
         let suite = "reaction-wiring-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -53,11 +52,20 @@ struct ReactionWiringTests {
         )
         let first = AppEnvironment(services: services, preferences: defaults)
         await first.start()
+        let me = Member(id: Member.ID("users/me"), kind: .human)
+        services.backend.emit(.selfIdentified(me))
+        #expect(await eventually { first.settings.account == me.id })
         let actions = try #require(first.actions.reactions)
         #expect(actions.skinTone == .none)
         actions.setSkinTone(.medium)
         #expect(first.actions.reactions?.skinTone == .medium)
-        let second = AppEnvironment(services: services, preferences: defaults)
+        let secondServices = try FakeLaunchServices(
+            backendCapabilities: Capabilities(canSendMessages: true, canReact: true)
+        )
+        let second = AppEnvironment(services: secondServices, preferences: defaults)
+        await second.start()
+        secondServices.backend.emit(.selfIdentified(me))
+        #expect(await eventually { second.settings.account == me.id })
         #expect(second.skinTone == .medium)
     }
 

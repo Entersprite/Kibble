@@ -30,7 +30,7 @@ extension AppEnvironment {
         identityTask = Task { [weak self] in
             for await me in Observations({ model.me }) {
                 guard !Task.isCancelled else { return }
-                self?.settings.switchAccount(to: me)
+                self?.switchAccount(to: me)
             }
         }
     }

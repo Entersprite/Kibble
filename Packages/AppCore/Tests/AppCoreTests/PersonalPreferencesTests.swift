@@ -1,0 +1,81 @@
+import ChatKit
+import DesignSystem
+import Foundation
+import Testing
+@testable import AppCore
+
+@MainActor
+struct PersonalPreferencesTests {
+    private let alice = Member(id: Member.ID("users/alice"), kind: .human)
+    private let bob = Member(id: Member.ID("users/bob"), kind: .human)
+
+    private func defaults() throws -> UserDefaults {
+        try #require(UserDefaults(suiteName: "personal-preferences-\(UUID().uuidString)"))
+    }
+
+    private func identify(
+        _ member: Member,
+        in environment: AppEnvironment,
+        services: FakeLaunchServices
+    ) async {
+        services.backend.emit(.selfIdentified(member))
+        #expect(await eventually { environment.settings.account == member.id })
+    }
+
+    @Test func preferencesWaitForIdentityAndStayWithTheirAccount() async throws {
+        let preferences = try defaults()
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services, preferences: preferences)
+        await environment.start()
+
+        environment.setSkinTone(.dark)
+        environment.setSection("space", collapsed: true)
+        #expect(environment.skinTone == .none)
+        #expect(environment.collapsedSections.isEmpty)
+
+        await identify(alice, in: environment, services: services)
+        environment.setSkinTone(.medium)
+        environment.setSection("space", collapsed: true)
+        await identify(bob, in: environment, services: services)
+        #expect(environment.skinTone == .none)
+        #expect(environment.collapsedSections.isEmpty)
+        environment.setSkinTone(.light)
+        environment.setSection("directMessage", collapsed: true)
+        await identify(alice, in: environment, services: services)
+        #expect(environment.skinTone == .medium)
+        #expect(environment.collapsedSections == ["space"])
+        await environment.signOut()
+        #expect(environment.skinTone == .none)
+        #expect(environment.collapsedSections.isEmpty)
+    }
+
+    @Test func legacyPreferencesMoveToFirstRealAccountOnly() async throws {
+        let preferences = try defaults()
+        preferences.set(SkinTone.dark.rawValue, forKey: AppEnvironment.skinToneKey)
+        preferences.set(["space"], forKey: AppEnvironment.collapsedSectionsKey)
+
+        let fixtureServices = try FakeLaunchServices(arguments: LaunchArguments(usesRealBackend: false))
+        let fixture = AppEnvironment(services: fixtureServices, preferences: preferences)
+        await fixture.start()
+        await identify(alice, in: fixture, services: fixtureServices)
+        #expect(fixture.skinTone == .none)
+        #expect(fixture.collapsedSections.isEmpty)
+        #expect(preferences.object(forKey: AppEnvironment.skinToneKey) != nil)
+
+        let realServices = try FakeLaunchServices()
+        let real = AppEnvironment(services: realServices, preferences: preferences)
+        await real.start()
+        await identify(bob, in: real, services: realServices)
+        #expect(real.skinTone == .dark)
+        #expect(real.collapsedSections == ["space"])
+        #expect(preferences.object(forKey: AppEnvironment.skinToneKey) == nil)
+        #expect(preferences.object(forKey: AppEnvironment.collapsedSectionsKey) == nil)
+
+        let laterServices = try FakeLaunchServices()
+        let later = AppEnvironment(services: laterServices, preferences: preferences)
+        await later.start()
+        await identify(alice, in: later, services: laterServices)
+        #expect(later.skinTone == .none)
+        #expect(later.collapsedSections.isEmpty)
+    }
+}

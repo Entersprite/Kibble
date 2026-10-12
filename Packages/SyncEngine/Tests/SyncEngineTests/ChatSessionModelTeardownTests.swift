@@ -12,6 +12,10 @@ import Testing
 /// database that looks erased.
 @Suite(.timeLimit(.minutes(1)))
 struct ChatSessionModelTeardownTests {
+    private enum StatusCommandCase: CaseIterable {
+        case status, availability, activity
+    }
+
     /// What a caller can actually observe of that guarantee: seed the store
     /// from a running session, erase, and find nothing left - not
     /// "eventually", immediately after the `await` returns.
@@ -129,6 +133,41 @@ struct ChatSessionModelTeardownTests {
         #expect(try store.messages(in: conversation).isEmpty)
         #expect(try store.lastError() == nil)
         #expect(model.failedDraft == nil)
+    }
+
+    /// All three status methods submit through the same task owner. A late
+    /// refusal after sign-out must not recreate an error in the erased store.
+    @MainActor
+    @Test(arguments: StatusCommandCase.allCases)
+    private func aHeldStatusCommandCannotWriteAfterTheErase(
+        command: StatusCommandCase
+    ) async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, markReadDebounce: .zero)
+        try await model.start()
+        await backend.holdSubmissions(true)
+
+        switch command {
+        case .status:
+            model.setStatus(MemberStatus(emoji: "🏠", text: "Working remotely"))
+        case .availability:
+            model.setAvailability(.away)
+        case .activity:
+            model.reportActivity(false)
+        }
+        await settleAutoMarkRead(until: "the status command reaches the backend") {
+            await backend.heldSubmissionCount == 1
+        }
+        let task = try #require(model.sendTasks.values.first)
+
+        try await model.stopAndEraseStore()
+        await backend.failSubmissions(true)
+        await backend.releaseHeldSubmission()
+        await task.value
+
+        #expect(try store.lastError() == nil)
     }
 
     /// Unreachable in production today - a fresh model is built per session -

@@ -1,7 +1,6 @@
 import Foundation
 
-/// One of the five Fitzpatrick modifiers, or none: one app-wide setting
-/// (reactions spec §3), applied to what the picker shows and picks.
+/// One of the five Fitzpatrick modifiers, or none, applied to what the picker shows and picks.
 public enum SkinTone: Int, CaseIterable, Sendable {
     case none, light, mediumLight, medium, mediumDark, dark
 }

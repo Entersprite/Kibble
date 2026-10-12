@@ -101,13 +101,11 @@ public final class AppEnvironment {
     /// dialog, so both can be confirmed before either finishes.
     private var isSigningOut = false
 
-    /// The app's one skin tone for reactions (reactions spec §3). Not
-    /// personal data, so it lives in the app's defaults and survives sign-out.
+    /// Local preferences for the currently identified account.
     public internal(set) var skinTone: SkinTone = .none
-    /// The sidebar's collapsed sections, the app's like `skinTone` (`AppEnvironment+Sidebar.swift`).
     public internal(set) var collapsedSections: Set<String> = []
 
-    /// The app's defaults, for `skinTone` and `collapsedSections`.
+    /// Local account preferences and one-time migration of the old global keys.
     @ObservationIgnored let preferences: UserDefaults
 
     public init(
@@ -118,8 +116,6 @@ public final class AppEnvironment {
     ) {
         self.services = services
         self.preferences = preferences
-        skinTone = SkinTone(rawValue: preferences.integer(forKey: Self.skinToneKey)) ?? .none
-        collapsedSections = Set(preferences.stringArray(forKey: Self.collapsedSectionsKey) ?? [])
         // Only a real account may take the legacy ghost-mode key; the fixture
         // identifies a demo account of its own.
         settings = NotificationSettingsModel(
@@ -310,7 +306,7 @@ public final class AppEnvironment {
         identityTask?.cancel()
         identityTask = nil
         // Nothing is deleted: the account's settings wait for it to sign in again.
-        settings.switchAccount(to: nil)
+        switchAccount(to: nil)
         // First, and on every path: an image needs no live model to be erased.
         await eraseAttachments()
         stopDownloads()

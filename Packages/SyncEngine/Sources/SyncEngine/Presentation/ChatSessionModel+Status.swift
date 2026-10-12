@@ -7,22 +7,25 @@ import Foundation
 /// the answer, so nothing has to spring back (spec §7).
 public extension ChatSessionModel {
     func setStatus(_ status: MemberStatus?) {
-        Task { [engine] in
-            _ = await engine.submit(.setStatus(status))
-        }
+        submitStatusCommand(.setStatus(status))
     }
 
     func setAvailability(_ availability: Availability) {
-        Task { [engine] in
-            _ = await engine.submit(.setAvailability(availability))
-        }
+        submitStatusCommand(.setAvailability(availability))
     }
 
     /// Whether this device is in use (active-presence spec §5). A hint: a
     /// backend that cannot keep you active ignores it.
     func reportActivity(_ active: Bool) {
-        Task { [engine] in
-            _ = await engine.submit(.reportActivity(active: active))
+        submitStatusCommand(.reportActivity(active: active))
+    }
+
+    private func submitStatusCommand(_ command: ChatCommand) {
+        let taskID = UUID()
+        sendTasks[taskID] = Task { @MainActor [weak self, engine] in
+            defer { self?.sendTasks.removeValue(forKey: taskID) }
+            guard !Task.isCancelled else { return }
+            await engine.submit(command)
         }
     }
 }
