@@ -25,22 +25,17 @@ struct ThreadsPresentationTests {
         #expect(ThreadsPresentation.badge(unread: 3) == "3")
     }
 
-    /// The dot shows for a top-level unread and for activity in a followed
-    /// thread alike (owner, session 58): no thread symbol.
-    @Test func theDotShowsForTopLevelOrFollowedThreadActivity() {
+    @Test func theDotShowsForTheConversationsOwnUnreadState() {
         let space = conversation(unread: false, threads: false)
         #expect(ThreadsPresentation.showsUnread(
-            conversation(unread: true, threads: false), hidden: false, unreadThreads: []
+            conversation(unread: true, threads: false), hidden: false
         ))
-        #expect(ThreadsPresentation.showsUnread(space, hidden: false, unreadThreads: [space.id]))
-        #expect(!ThreadsPresentation.showsUnread(space, hidden: false, unreadThreads: []))
+        #expect(!ThreadsPresentation.showsUnread(space, hidden: false))
     }
 
-    /// Followed threads only: the server's flag, whose scope is unmeasured,
-    /// shows no dot of its own (session 58, `[Verify]` in `findings.md` §64).
     @Test func theServersThreadFlagAloneShowsNoDot() {
         #expect(!ThreadsPresentation.showsUnread(
-            conversation(unread: false, threads: true), hidden: false, unreadThreads: []
+            conversation(unread: false, threads: true), hidden: false
         ))
     }
 
@@ -57,10 +52,9 @@ struct ThreadsPresentationTests {
         #expect(!ThreadsPresentation.offersReplies(in: nil))
     }
 
-    /// A rule that hides unread hides thread activity too.
     @Test func aHiddenConversationShowsNoDot() {
         let space = conversation(unread: true, threads: false)
-        #expect(!ThreadsPresentation.showsUnread(space, hidden: true, unreadThreads: [space.id]))
+        #expect(!ThreadsPresentation.showsUnread(space, hidden: true))
     }
 
     /// The Threads row is chosen as the Mentions row is: no conversation is.

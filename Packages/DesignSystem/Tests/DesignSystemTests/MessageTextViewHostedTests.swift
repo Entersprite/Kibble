@@ -19,12 +19,6 @@
                     LazyVStack(alignment: .leading) {
                         HStack {
                             MessageTextView(
-                                text: MessageTextAttributes.attributed(
-                                    text,
-                                    mentions: [],
-                                    links: [], me: nil,
-                                    inOwnBubble: false
-                                ),
                                 insets: NSEdgeInsets(top: 7, left: 12, bottom: 7, right: 12),
                                 message: Message(
                                     id: Message.ID("m-1"), conversationID: Conversation.ID("space/s-1"),

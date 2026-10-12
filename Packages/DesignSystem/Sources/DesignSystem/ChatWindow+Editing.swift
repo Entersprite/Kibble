@@ -28,14 +28,15 @@ extension ChatWindow {
         let summaries = state.threads.summaries
         return OwnMessageHandlers(
             me: state.me,
-            edit: actions.messages != nil && state.capabilities.canEditMessages ? { message in
-                editRequest = ComposerEditRequest(
-                    messageID: message.id,
-                    message: ComposedMessage(text: message.text, mentions: message.mentions)
-                )
-            } : nil,
+            edit: actions.messages != nil && state.capabilities
+                .canEditMessages ? { [editRequest = $editRequest] message in
+                    editRequest.wrappedValue = ComposerEditRequest(
+                        messageID: message.id,
+                        message: ComposedMessage(text: message.text, mentions: message.mentions)
+                    )
+                } : nil,
             delete: actions.messages != nil && state.capabilities.canDeleteMessages
-                ? { pendingDelete = $0 } : nil,
+                ? { [pendingDelete = $pendingDelete] in pendingDelete.wrappedValue = $0 } : nil,
             replyInThread: threads.map { threads in { threads.open($0.threadID) } },
             markUnread: threads.map { threads in { threads.markUnread($0) } },
             hasReplies: { ThreadsPresentation.hasReplies(summaries[$0.threadID]) }
@@ -54,10 +55,10 @@ extension ChatWindow {
             request: request,
             newest: panelIsEditing ? nil : OwnMessageRule.newestEditable(in: state.messages, me: state.me),
             save: messages.save,
-            began: { editingMessage = $0 },
-            ended: {
-                editingMessage = nil
-                editRequest = nil
+            began: { [editingMessage = $editingMessage] in editingMessage.wrappedValue = $0 },
+            ended: { [editingMessage = $editingMessage, editRequest = $editRequest] in
+                editingMessage.wrappedValue = nil
+                editRequest.wrappedValue = nil
             }
         )
     }

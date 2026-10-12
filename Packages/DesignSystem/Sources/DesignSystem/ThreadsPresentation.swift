@@ -30,16 +30,11 @@ public enum ThreadsPresentation {
         unread > 0 ? "\(unread)" : nil
     }
 
-    /// The sidebar's dot and bold name: a top-level unread, or activity in a
-    /// followed thread (owner, session 58, replacing spec §5.3's thread
-    /// symbol). `unreadThreads` is `ThreadSceneState.unreadConversations`, the
-    /// badge's own read. **`hasUnreadThread` is not read**: the server's flag
-    /// may cover unfollowed threads (`[Verify]`, `findings.md` §64). A rule
-    /// that hides unread hides both.
-    static func showsUnread(
-        _ conversation: Conversation, hidden: Bool, unreadThreads: Set<Conversation.ID>
-    ) -> Bool {
-        !hidden && (conversation.hasUnread || unreadThreads.contains(conversation.id))
+    /// The sidebar's dot and bold name reflect the conversation's own read
+    /// state. Unread replies remain on their thread marks and the Threads
+    /// badge: a read space can still contain unread followed threads.
+    static func showsUnread(_ conversation: Conversation, hidden: Bool) -> Bool {
+        !hidden && conversation.hasUnread
     }
 
     static func followTitle(isFollowed: Bool) -> String {

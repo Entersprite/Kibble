@@ -128,10 +128,14 @@ public struct MessageList: View {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(state.messages, id: \.id) { message in
                         MessageBubble(
-                            message: message, state: state,
+                            message: message,
+                            state: MessageRowState(
+                                message: message, scene: state, showsThread: threads != nil,
+                                downloads: downloads
+                            ),
                             loadAttachment: loadAttachment, openAttachment: openAttachment,
                             loadRemoteImage: loadRemoteImage,
-                            downloads: downloads, attachmentFiles: attachmentFiles,
+                            attachmentFiles: attachmentFiles,
                             reactions: reactions, own: own, openThread: threads?.open,
                             marked: marked?.id, markOn: markOn
                         )

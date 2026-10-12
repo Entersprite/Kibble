@@ -5,11 +5,10 @@ import SwiftUI
 /// `file_length`.
 struct MessageBubble: View {
     let message: Message
-    let state: ChatSceneState
+    let state: MessageRowState
     var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
     var openAttachment: ((Attachment) async throws -> URL)?
     var loadRemoteImage: ((URL) async throws -> Data)?
-    var downloads: [String: AttachmentDownloadState] = [:]
     var attachmentFiles: AttachmentFileActions?
     var reactions: ReactionActions?
     var own: OwnMessageHandlers?
@@ -84,7 +83,7 @@ struct MessageBubble: View {
                     ForEach(parts.files, id: \.id) {
                         AttachmentChip(
                             attachment: $0,
-                            state: downloads[$0.id] ?? .idle,
+                            state: state.downloads[$0.id] ?? .idle,
                             actions: attachmentFiles
                         )
                     }
@@ -112,7 +111,7 @@ struct MessageBubble: View {
                     )
                 }
                 if let mark = ThreadMark(
-                    thread: state.threads.summaries[message.threadID],
+                    thread: state.thread,
                     message: message,
                     directory: state.directory,
                     open: openThread.map { open in { open(message.threadID) } }
@@ -190,10 +189,6 @@ struct MessageBubble: View {
         private var textBubble: some View {
             VStack(alignment: .leading, spacing: 2) {
                 MessageTextView(
-                    text: MessageTextAttributes.attributed(
-                        message.text, mentions: message.mentions, links: message.links, me: state.me,
-                        inOwnBubble: isMine
-                    ),
                     insets: NSEdgeInsets(
                         top: 7,
                         left: 12,
@@ -202,6 +197,7 @@ struct MessageBubble: View {
                     ),
                     message: message,
                     actions: reactions,
+                    me: state.me,
                     onMore: { picking = true },
                     own: ownItems,
                     inOwnBubble: isMine,

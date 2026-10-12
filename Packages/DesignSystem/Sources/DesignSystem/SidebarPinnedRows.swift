@@ -188,9 +188,10 @@ struct PinnedList: View {
     }
 
     private var selection: Binding<SidebarSelection?> {
-        Binding(
-            get: { SidebarPinned.pinnedSelection(state) },
-            set: { SidebarPinned.choose($0, actions: actions) }
+        let selected = SidebarPinned.pinnedSelection(state)
+        return Binding(
+            get: { selected },
+            set: { [actions] in SidebarPinned.choose($0, actions: actions) }
         )
     }
 }

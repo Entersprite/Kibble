@@ -54,10 +54,10 @@ extension ChatWindow {
             newest: ThreadEditRouting.offersEdit(in: .panel, editing: editOwner)
                 ? OwnMessageRule.newestEditable(in: panel.replies, me: state.me) : nil,
             save: messages.save,
-            began: { editingMessage = $0 },
-            ended: {
-                editingMessage = nil
-                editRequest = nil
+            began: { [editingMessage = $editingMessage] in editingMessage.wrappedValue = $0 },
+            ended: { [editingMessage = $editingMessage, editRequest = $editRequest] in
+                editingMessage.wrappedValue = nil
+                editRequest.wrappedValue = nil
             }
         )
     }

@@ -12,10 +12,10 @@
     /// `insets` rather than being padded by SwiftUI, so a right-click anywhere
     /// on the bubble reaches this view and its menu.
     struct MessageTextView: NSViewRepresentable {
-        let text: NSAttributedString
         let insets: NSEdgeInsets
         let message: Message
         let actions: ReactionActions?
+        var me: Member.ID?
         /// Opens the picker from the native menu's "More Emoji…".
         var onMore: (() -> Void)?
         /// Reply in Thread or Mark as Unread (threads spec §5), and Edit…
@@ -35,7 +35,11 @@
             view.delegate = context.coordinator
             view.insets = insets
             view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
-            view.show(text)
+            view.show(context.coordinator.textCache.attributed(
+                message: message,
+                me: me,
+                inOwnBubble: inOwnBubble
+            ))
             return view
         }
 
@@ -49,7 +53,11 @@
             )
             view.insets = insets
             view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
-            view.show(text)
+            view.show(context.coordinator.textCache.attributed(
+                message: message,
+                me: me,
+                inOwnBubble: inOwnBubble
+            ))
         }
 
         func sizeThatFits(
@@ -64,6 +72,7 @@
         /// so a menu always acts on what the bubble shows now.
         @MainActor
         final class Coordinator: NSObject, NSTextViewDelegate {
+            let textCache = MessageTextCache()
             private(set) var message: Message
             private(set) var actions: ReactionActions?
             private(set) var onMore: (() -> Void)?

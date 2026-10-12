@@ -15,8 +15,8 @@ public struct ThreadSceneState: Sendable, Equatable {
     public var showingList: Bool
     /// The Threads row's badge: followed threads with something unread.
     public var unreadCount: Int
-    /// Where those threads are: each of these conversations shows the unread
-    /// dot, as a top-level unread does (session 58).
+    /// Where those unread followed threads are. This metadata is separate
+    /// from each conversation's own read state and sidebar dot.
     public var unreadConversations: Set<Conversation.ID>
 
     public init(

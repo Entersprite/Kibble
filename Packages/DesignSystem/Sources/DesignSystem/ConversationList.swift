@@ -45,9 +45,17 @@ public struct ConversationList: View {
             ForEach(SidebarSections.build(state.conversations)) { section in
                 Section(section.title, isExpanded: expansion(of: section.id)) {
                     ForEach(section.conversations, id: \.id) { conversation in
-                        ConversationRow(conversation: conversation, state: state)
-                            .tag(SidebarSelection.conversation(conversation.id))
-                            .contextMenu { menu(for: conversation) }
+                        let items = ConversationMenu.items(
+                            for: conversation, state: state, offers: ConversationMenu.Offers(actions)
+                        )
+                        ConversationRow(
+                            conversation: conversation,
+                            state: ConversationRowState(conversation: conversation, scene: state)
+                        )
+                        .tag(SidebarSelection.conversation(conversation.id))
+                        .contextMenu { [actions] in
+                            ConversationRowMenu(id: conversation.id, items: items, actions: actions)
+                        }
                     }
                 }
             }
@@ -83,60 +91,42 @@ public struct ConversationList: View {
     /// disclosure state while its contents change underneath it, and across
     /// launches where the host keeps it.
     private func expansion(of id: String) -> Binding<Bool> {
-        Binding(
+        let stored = actions.setSectionCollapsed == nil ? nil : state.collapsedSections
+        let local = $collapsed
+        let setSection = actions.setSectionCollapsed
+        return Binding(
             get: {
-                let shut = SectionCollapse.collapsed(state: state, actions: actions, local: collapsed)
+                let shut = stored ?? local.wrappedValue
                 return !shut.contains(id)
             },
             set: { isExpanded in
-                SectionCollapse.set(id, collapsed: !isExpanded, actions: actions, local: &collapsed)
+                if let setSection {
+                    setSection(id, !isExpanded)
+                } else if isExpanded {
+                    local.wrappedValue.remove(id)
+                } else {
+                    local.wrappedValue.insert(id)
+                }
             }
         )
     }
 
     /// Conversations only: a pinned row is selected in `PinnedList`.
     private var selectionBinding: Binding<SidebarSelection?> {
-        Binding(
-            get: { SidebarPinned.conversationSelection(state) },
-            set: { SidebarPinned.choose($0, actions: actions) }
+        let selected = SidebarPinned.conversationSelection(state)
+        return Binding(
+            get: { selected },
+            set: { [actions] in SidebarPinned.choose($0, actions: actions) }
         )
-    }
-
-    /// Draws `ConversationMenu.items`, which decides what is offered - an
-    /// item appears only where its action was supplied, so each closure below
-    /// is present whenever its button is.
-    private func menu(for conversation: Conversation) -> some View {
-        let id = conversation.id
-        let items = ConversationMenu.items(
-            for: conversation,
-            state: state,
-            offers: ConversationMenu.Offers(actions)
-        )
-        return ForEach(items, id: \.self) { item in
-            switch item {
-            case .markAsRead:
-                Button("Mark as Read") { actions.markRead?(id) }
-                Divider()
-            case .mute:
-                Button("Mute") { actions.mute?(id) }
-            case .unmute:
-                Button("Unmute") { actions.unmute?(id) }
-            case .notificationSettings:
-                Button("Notification Settings…") { actions.showNotificationSettings?(id) }
-            }
-        }
     }
 }
 
 struct ConversationRow: View {
     let conversation: Conversation
-    let state: ChatSceneState
+    let state: ConversationRowState
 
     private var showsUnread: Bool {
-        ThreadsPresentation.showsUnread(
-            conversation, hidden: state.unreadHidden.contains(conversation.id),
-            unreadThreads: state.threads.unreadConversations
-        )
+        state.showsUnread
     }
 
     var body: some View {
@@ -149,7 +139,7 @@ struct ConversationRow: View {
         // Dimmed whenever the resolved delivery is Off (spec §2.5).
         // `[Verify]` the value against the selection highlight in the
         // running app.
-        .opacity(state.dimmed.contains(conversation.id) ? 0.55 : 1)
+        .opacity(state.dimmed ? 0.55 : 1)
     }
 
     private var partner: Member? {
@@ -183,7 +173,7 @@ struct ConversationRow: View {
             }
             // Google's own mute (`Conversation.isMuted`, only the fixture
             // sets it) or this account's local record (decision 1).
-            if conversation.isMuted || state.muted.contains(conversation.id) {
+            if conversation.isMuted || state.muted {
                 Image(systemName: "bell.slash")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -193,7 +183,7 @@ struct ConversationRow: View {
     }
 
     /// A number when the backend can count, a dot when it can only say
-    /// "something" (a followed thread's activity included, session 58), and
+    /// "something" in the main conversation, and
     /// nothing when there is nothing.
     ///
     /// Both cases exist because the two facts arrive separately and Chat
@@ -213,7 +203,7 @@ struct ConversationRow: View {
     /// accent for, and it is distinct from the advice against fixed-colour
     /// sidebar *icons* - this is state, not iconography.
     @ViewBuilder private var unreadMarker: some View {
-        if !state.unreadHidden.contains(conversation.id), conversation.unreadCount > 0 {
+        if !state.unreadHidden, conversation.unreadCount > 0 {
             Text("\(conversation.unreadCount)")
                 .font(.caption.weight(.semibold))
                 .monospacedDigit()

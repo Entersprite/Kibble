@@ -61,7 +61,14 @@ struct ThreadsPaneList: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(items) { item in
-                ThreadItemRow(item: item, me: me, directory: directory, now: now, open: open)
+                ThreadItemRow(
+                    item: item, me: me,
+                    directory: RowDirectory.avatars(
+                        Array(item.thread.recentRepliers.prefix(3)),
+                        in: directory
+                    ),
+                    now: now, open: open
+                )
             }
         }
         .padding(12)

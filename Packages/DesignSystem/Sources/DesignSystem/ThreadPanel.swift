@@ -228,10 +228,10 @@ struct ThreadPanelList: View {
     /// no mark.
     private func bubble(_ message: Message) -> some View {
         MessageBubble(
-            message: message, state: state,
+            message: message, state: MessageRowState(message: message, scene: state, showsThread: false),
             loadAttachment: actions.loadAttachment, openAttachment: actions.openAttachment,
             loadRemoteImage: actions.loadRemoteImage,
-            downloads: state.downloads, attachmentFiles: actions.attachmentFiles,
+            attachmentFiles: actions.attachmentFiles,
             reactions: actions.reactions, own: own(message)
         )
         .id(message.id)
