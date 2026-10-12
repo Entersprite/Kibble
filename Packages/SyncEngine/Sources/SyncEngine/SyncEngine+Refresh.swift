@@ -1,0 +1,23 @@
+import ChatKit
+import Foundation
+
+public extension SyncEngine {
+    /// Reconciles server read state and the visible transcript after another
+    /// client may have changed them while this app was in the background.
+    /// The world load also updates the bridge's latest-head hint before the
+    /// history request. The caller owns and cancels this task on sign-out.
+    func refreshVisibleConversation(_ conversation: Conversation.ID?) async {
+        do {
+            let conversations = try await backend.loadConversations()
+            try Task.checkCancellation()
+            try store.apply([.replaceConversations(conversations)])
+            worldLoaded()
+            if let conversation {
+                try await loadMoreMessages(in: conversation)
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+            record(error)
+        }
+    }
+}

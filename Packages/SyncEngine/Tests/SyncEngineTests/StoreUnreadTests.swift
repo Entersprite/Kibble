@@ -82,6 +82,21 @@ struct StoreUnreadTests {
         #expect(try hasUnread(space, in: store) == false)
     }
 
+    @Test func movingReadPositionBackwardMarksUnreadWithoutTheNewestMessageLoaded() throws {
+        let store = try store()
+        try store.apply([.replaceConversations([conversation(space)])])
+        let newer = at.addingTimeInterval(60)
+        try store.apply([.setReadState(conversation: space, lastReadAt: newer, unread: 0)])
+
+        // The web app can mark a message unread before this client's history
+        // has fetched it. The moved position alone must raise the dot.
+        try store.apply([.setReadState(conversation: space, lastReadAt: at, unread: 0)])
+        #expect(try hasUnread(space, in: store) == true)
+
+        try store.apply([.setReadState(conversation: space, lastReadAt: newer, unread: 0)])
+        #expect(try hasUnread(space, in: store) == false)
+    }
+
     /// An **edit** to a message already read must not raise the dot again.
     /// `messageReceived` and `messageUpdated` shared one reducer case until
     /// unread existed; this is what that split is for.

@@ -144,14 +144,10 @@ public extension ChatStore {
     private static func performReadWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case let .setReadState(conversation, lastReadAt, unread):
-            // `hasUnread` is cleared here, and this is the only thing that
-            // clears it. Correct by construction rather than by convention:
-            // §36 requires the position a client publishes to be one
-            // microsecond *past* the newest message it has actually seen, so
-            // an acknowledged read state means there is nothing newer left to
-            // be unread about. A `GROUP_VIEWED` event from another device
-            // (§34) arrives on this same path and clears it for the same
-            // reason.
+            // A forward read clears the dot. A backward read is the web
+            // client's Mark as unread: the newest message may not be in our
+            // local history yet, so comparing against stored messages would
+            // miss precisely the conversation the user marked unread.
             //
             // The position is bound through `StoredDate`, never as the `Date`
             // itself: a bound `Date` is GRDB's millisecond text whatever the
@@ -160,10 +156,13 @@ public extension ChatStore {
             try db.execute(
                 sql: """
                 UPDATE conversation
-                SET unreadCount = ?, lastReadAt = ?, hasUnread = 0
+                SET unreadCount = ?, lastReadAt = ?,
+                    hasUnread = CASE WHEN lastReadAt > ? THEN 1 ELSE 0 END
                 WHERE id = ?
                 """,
-                arguments: [unread, StoredDate.value(lastReadAt), conversation.rawValue]
+                arguments: [
+                    unread, StoredDate.value(lastReadAt), StoredDate.value(lastReadAt), conversation.rawValue
+                ]
             )
         case let .markUnread(conversation, sender):
             // The local user's own message never marks their conversation

@@ -117,4 +117,31 @@ struct LoadMessagesWorldHeadTests {
         #expect(anchored.filter.anchor.timeUsec == Self.headTime)
         #expect(anchored.sortOption == 2)
     }
+
+    @Test func fullPlainPageFetchesCurrentWindowEvenWhenWorldHeadIsStale() async throws {
+        let old = (0 ..< 50).map { index in
+            Self.message("m-\(index)", at: Self.oldTime + Int64(index) * 1000)
+        }
+        let latest = Self.message("m-latest", at: Self.oldTime + 100_000)
+        let transport = try WorldHeadTransport(
+            world: Self.worldResponse(),
+            topics: [Self.topicsResponse(old), Self.topicsResponse([latest])]
+        )
+        let backend = try LocalBridgeBackend(
+            cookies: #require(SessionCookies(header: "SID=a; COMPASS=b; OSID=c")), transport: transport
+        )
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+
+        let messages = try await backend.loadMessages(in: Self.space, before: nil)
+        #expect(messages.count == 51)
+        #expect(messages.last?.id.rawValue == "m-latest")
+
+        let requests = await transport.topicRequests
+        #expect(requests.count == 2)
+        let anchored = try ListTopicsRequest(serializedBytes: #require(requests.last?.body))
+        #expect(anchored.hasFilter)
+        #expect(anchored.filter.anchor.timeUsec > Self.oldTime + 100_000)
+        #expect(anchored.sortOption == 2)
+    }
 }

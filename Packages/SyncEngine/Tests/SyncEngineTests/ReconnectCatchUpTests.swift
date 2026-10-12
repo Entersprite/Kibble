@@ -68,6 +68,24 @@ struct ReconnectCatchUpTests {
         await model.stop()
     }
 
+    @MainActor
+    @Test func returningToTheAppRefetchesTheOpenConversation() async throws {
+        let harness = try await harness()
+        harness.model.select(conversation)
+        await settleAutoMarkRead(until: "the first history page") {
+            await harness.backend.historyCursors.count >= 1
+        }
+        let before = await harness.backend.historyCursors.count
+
+        harness.model.setActive(false)
+        harness.model.setActive(true)
+        await settleAutoMarkRead(until: "the foreground history page") {
+            await harness.backend.historyCursors.count > before
+        }
+        #expect(harness.model.lastError == nil)
+        await harness.model.stop()
+    }
+
     /// Nothing open, nothing to refetch - and in particular no fetch with an
     /// invented conversation id standing in for the absent one.
     @MainActor

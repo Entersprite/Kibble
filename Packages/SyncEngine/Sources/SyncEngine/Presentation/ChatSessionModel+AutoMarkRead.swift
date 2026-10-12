@@ -42,6 +42,17 @@ extension ChatSessionModel {
         guard active != isActive else { return }
         isActive = active
         if active {
+            // Another client can mark a message unread, post a new root, or
+            // delete one while this window is away. The channel does not
+            // guarantee replay of those changes, so foregrounding refreshes
+            // the server's read state and the visible transcript together.
+            if case .connected = connectionState {
+                historyTask?.cancel()
+                let visible = selected
+                historyTask = Task { [engine] in
+                    await engine.refreshVisibleConversation(visible)
+                }
+            }
             markSelectedReadIfNeeded()
             markOpenThreadReadIfNeeded()
         }

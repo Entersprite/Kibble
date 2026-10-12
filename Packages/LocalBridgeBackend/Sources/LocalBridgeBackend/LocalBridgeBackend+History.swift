@@ -26,7 +26,10 @@ public extension LocalBridgeBackend {
     /// `TopicsRequestLadder.history(for:anchoredAt:)` at its own create time,
     /// to the microsecond (`messageTimes`). An unknown one, or `nil`, first
     /// sends the plain page. If that page ends before the world's newest
-    /// head, a second request anchors there and merges its window.
+    /// head, a second request anchors there and merges its window. A full
+    /// plain page also asks for a window at the present time: a busy space
+    /// can fill all 50 topic slots before its newest message, while the
+    /// world head remembered at connection time may itself be stale.
     ///
     /// The live probe measured an anchored response as a window around its
     /// time (§65.10). For backward paging, keep only messages strictly older
@@ -71,14 +74,16 @@ public extension LocalBridgeBackend {
             var page = anchor.map { anchor in
                 mapped.messages.filter { Microseconds.from($0.createdAt) < anchor }
             } ?? mapped.messages
-            // A plain page can end before the world's newest main message.
-            // Retry at that head: §65.10 measured the anchor as a window
-            // around its time. Keep both pages so the transcript gains the
-            // missing head without losing the history it already loaded.
-            if before == nil, let head = conversationHeads[conversationID],
-               Self.newestMainMessage(in: page) < head {
+            // A full plain page gives no assurance that it reached the most
+            // recent topic. The world head is also only as fresh as the last
+            // world load, so use a present-time window in that case.
+            if before == nil,
+               let retryAnchor = latestRetryAnchor(
+                   for: conversationID, topicsCount: response.topics.count,
+                   pageSize: Int(rung.request.pageSizeForTopics), messages: page
+               ) {
                 do {
-                    let retry = TopicsRequestLadder.history(for: group, anchoredAt: head)
+                    let retry = TopicsRequestLadder.history(for: group, anchoredAt: retryAnchor)
                     let answer = try await apiClient.call(.listTopics, retry.request)
                     let newer = recordHistory(
                         answer, in: conversationID, anchored: true,
@@ -106,6 +111,19 @@ public extension LocalBridgeBackend {
 
     private static func newestMainMessage(in messages: [ChatKit.Message]) -> Int64 {
         messages.lazy.filter { !$0.isReply }.map { Microseconds.from($0.createdAt) }.max() ?? 0
+    }
+
+    private func latestRetryAnchor(
+        for conversation: Conversation.ID, topicsCount: Int, pageSize: Int, messages: [ChatKit.Message]
+    ) -> Int64? {
+        let head = conversationHeads[conversation]
+        if topicsCount >= pageSize {
+            return max(Microseconds.from(Date()), head ?? 0)
+        }
+        if let head, Self.newestMainMessage(in: messages) < head {
+            return head
+        }
+        return nil
     }
 
     private static func merged(_ first: [ChatKit.Message], _ second: [ChatKit.Message]) -> [ChatKit.Message] {
