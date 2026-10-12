@@ -35,6 +35,8 @@ extension ChatEvent {
         case threadID
         case change
         case hasUnread
+        case at
+        case historyBefore
     }
 
     /// The discriminators, in one place, so the encoder and decoder cannot
@@ -44,6 +46,8 @@ extension ChatEvent {
         case selfIdentified
         case conversationsChanged
         case conversationUpdated
+        case conversationRemoved
+        case conversationUnreadMarkChanged
         case messageReceived
         case messageUpdated
         case messageDeleted
@@ -72,6 +76,7 @@ extension ChatEvent {
                 ?? Self.decodeMessageEvent(raw, from: container)
                 ?? Self.decodeStateEvent(raw, from: container)
                 ?? Self.decodeThreadEvent(raw, from: container)
+                ?? Self.decodeConversationActionEvent(raw, from: container)
         self = try decoded ?? .unknown(type: raw, payload: UnknownFrame.payload(from: decoder))
     }
 
@@ -218,6 +223,7 @@ extension ChatEvent {
             || encodeMessageEvent(into: &container)
             || encodeStateEvent(into: &container)
             || encodeThreadEvent(into: &container)
+            || encodeConversationActionEvent(into: &container)
         guard handled else {
             throw WireEncoding.unhandled(self, path: container.codingPath)
         }

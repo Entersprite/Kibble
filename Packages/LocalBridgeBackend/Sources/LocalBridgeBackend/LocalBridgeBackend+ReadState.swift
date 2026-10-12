@@ -104,6 +104,7 @@ public extension LocalBridgeBackend {
                     + "can be built for it"
             )
         }
+        try await clearConversationUnreadMark(conversationID)
         let response: MarkGroupReadstateResponse
         do {
             response = try await apiClient.call(

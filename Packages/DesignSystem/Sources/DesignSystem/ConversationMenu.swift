@@ -8,6 +8,7 @@ import ChatKit
 enum ConversationMenu {
     enum Item: Hashable {
         case markAsRead
+        case action(ConversationAction)
         case mute
         case unmute
         case notificationSettings
@@ -20,6 +21,7 @@ enum ConversationMenu {
         var mute = false
         var unmute = false
         var notificationSettings = false
+        var conversationActions: Capabilities = .init()
     }
 
     /// Mark as Read where it can publish, Mute or Unmute by the conversation's
@@ -46,6 +48,15 @@ enum ConversationMenu {
         if offers.notificationSettings {
             items.append(.notificationSettings)
         }
+        let actions: [ConversationAction] = [.markUnread, .leave, .hide, .block, .delete]
+        for action in actions
+            where offers.conversationActions.supports(action) && action.isAvailable(for: conversation.kind) {
+            if action == .markUnread {
+                items.insert(.action(action), at: 0)
+            } else {
+                items.append(.action(action))
+            }
+        }
         return items
     }
 }
@@ -56,7 +67,8 @@ extension ConversationMenu.Offers {
             markRead: actions.markRead != nil,
             mute: actions.mute != nil,
             unmute: actions.unmute != nil,
-            notificationSettings: actions.showNotificationSettings != nil
+            notificationSettings: actions.showNotificationSettings != nil,
+            conversationActions: actions.conversationActions?.capabilities ?? Capabilities()
         )
     }
 }

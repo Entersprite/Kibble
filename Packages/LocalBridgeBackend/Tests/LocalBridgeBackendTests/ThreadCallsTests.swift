@@ -331,9 +331,11 @@ struct ThreadCallsTests {
         try await Task.sleep(for: .milliseconds(100)) // asserting that nothing happens
         #expect(await log.threadChanges().isEmpty)
     }
+}
 
-    // MARK: - The Threads list
+// MARK: - The Threads list
 
+extension ThreadCallsTests {
     @Test func theThreadsListFollowsEachThreadAndStoresItsMessages() async throws {
         var topic = Topic()
         topic.id = self.topic()

@@ -35,7 +35,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// (`LocalBridgeBackend+ChannelStopped.swift`) sets it too.
     public internal(set) var lastFailure: ChatError?
 
-    private let continuation: AsyncStream<ChatEvent>.Continuation
+    let continuation: AsyncStream<ChatEvent>.Continuation
     private let cookies: SessionCookies
     /// `internal`, not `private`: `+People.swift` sends the people search.
     let endpoints: ChatEndpoints
@@ -158,6 +158,11 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `list_topics` page can end before this head, leaving an unread dot
     /// without the message the client needs to mark read.
     var conversationHeads: [Conversation.ID: Int64] = [:]
+    var historyCutoffs: [Conversation.ID: Int64] = [:]
+    var hiddenConversations: Set<Conversation.ID> = []
+    var hiddenThrough: [Conversation.ID: Int64] = [:]
+    var onConversationAction: (@Sendable (ConversationActionObservation) -> Void)?
+    var conversationDetails: [Conversation.ID: WorldItemLite] = [:]
     /// Host-owned, content-free telemetry for failed read-state writes.
     var onReadStateFailure: (@Sendable (ReadStateRequestFailure) -> Void)?
     var onHistoryResponse: (@Sendable (HistoryResponseObservation) -> Void)?
@@ -304,6 +309,10 @@ public actor LocalBridgeBackend: ChatBackend {
         uploadedMetadata = [:]
         messageTimes.forgetAll()
         conversationHeads = [:]
+        conversationDetails = [:]
+        hiddenConversations = []
+        hiddenThrough = [:]
+        historyCutoffs = [:]
         memberResolution?.cancel()
         memberResolution = nil
         forgetDirectory()
@@ -375,13 +384,10 @@ public actor LocalBridgeBackend: ChatBackend {
         }
         let chatEvents = ChannelEventMapping.chatEvents(from: event)
         messageTimes.remember(chatEvents.flatMap(Self.messages(in:)))
-        for chatEvent in chatEvents {
+        for (body, chatEvent) in zip(event.bodies, chatEvents) {
+            reconcileHiddenConversation(chatEvent, type: body.typeTag)
             emit(chatEvent)
         }
         resolveUnknownMembers(chatEvents.flatMap(Self.memberIDs(in:)))
-    }
-
-    func emit(_ event: ChatEvent) {
-        continuation.yield(event)
     }
 }

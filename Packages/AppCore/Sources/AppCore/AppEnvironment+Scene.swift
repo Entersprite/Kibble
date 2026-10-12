@@ -167,6 +167,12 @@ public extension AppEnvironment {
             markRead: canEditNotificationRules && runningModel?.capabilities.canMarkRead == true
                 ? { [weak self] in self?.runningModel?.markRead($0, from: .conversationList) }
                 : nil,
+            conversationActions: runningModel.map { model in
+                ConversationActions(capabilities: model.capabilities) { [weak self, weak model] action, id in
+                    guard let model, self?.runningModel === model else { return }
+                    model.perform(action, in: id)
+                }
+            },
             // Offered only while a session runs: before that there is nothing to list.
             showMentions: runningModel == nil ? nil : { [weak self] in self?.runningModel?.showMentions() },
             openMention: runningModel == nil ? nil : { [weak self] conversation, message in

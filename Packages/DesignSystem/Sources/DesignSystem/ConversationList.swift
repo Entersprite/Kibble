@@ -23,6 +23,8 @@ public struct ConversationList: View {
         self.actions = actions
     }
 
+    @State private var pendingAction: PendingConversationAction?
+
     /// Two lists: the pinned rows, which never scroll (`PinnedList`), and the
     /// conversations below them. A second list rather than a bar over the
     /// conversations, so the pinned rows keep the system's own selection and
@@ -38,6 +40,45 @@ public struct ConversationList: View {
             }
             conversations
         }
+        .alert(
+            pendingAction?.action.confirmationTitle ?? "",
+            isPresented: Binding(get: { pendingAction != nil }, set: {
+                if !$0 {
+                    pendingAction = nil
+                }
+            }),
+            presenting: pendingAction
+        ) { pending in
+            Button(pending.action.confirmationButton, role: .destructive) {
+                pending.perform(pending.action, pending.conversation)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { pending in
+            Text(pending.title + "\n\n" + pending.action.confirmationMessage)
+        }
+    }
+
+    private func rowActions(for conversation: Conversation) -> ChatSceneActions {
+        var result = actions
+        if let original = actions.conversationActions {
+            let pending = $pendingAction
+            let title = Display.title(of: conversation, directory: state.directory, me: state.me)
+            result
+                .conversationActions = ConversationActions(capabilities: original
+                    .capabilities) { action, id in
+                        if action.needsConfirmation {
+                            pending.wrappedValue = PendingConversationAction(
+                                conversation: id,
+                                action: action,
+                                title: title,
+                                perform: original.perform
+                            )
+                        } else {
+                            original.perform(action, id)
+                        }
+                }
+        }
+        return result
     }
 
     private var conversations: some View {
@@ -53,8 +94,8 @@ public struct ConversationList: View {
                             state: ConversationRowState(conversation: conversation, scene: state)
                         )
                         .tag(SidebarSelection.conversation(conversation.id))
-                        .contextMenu { [actions] in
-                            ConversationRowMenu(id: conversation.id, items: items, actions: actions)
+                        .contextMenu { [menuActions = rowActions(for: conversation)] in
+                            ConversationRowMenu(id: conversation.id, items: items, actions: menuActions)
                         }
                     }
                 }

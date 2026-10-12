@@ -41,6 +41,9 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
     /// `Conversation.readPosition`. One column for both of its sources (the
     /// mentions-list spec §1).
     var lastReadAt: Date?
+    var markedUnreadAt: Date?
+    var historyClearedBefore: Date?
+    var latestMainMessageAt: Date?
 
     init(_ conversation: Conversation) throws {
         id = conversation.id.rawValue
@@ -57,6 +60,9 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
         repliesEnabled = conversation.repliesEnabled
         hasUnreadThread = conversation.hasUnreadThread
         lastReadAt = conversation.readPosition
+        markedUnreadAt = conversation.markedUnreadAt
+        historyClearedBefore = conversation.historyClearedBefore
+        latestMainMessageAt = conversation.latestMainMessageAt
     }
 
     func conversation(members: [Member.ID]) throws -> Conversation {
@@ -75,7 +81,10 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
             isThreaded: isThreaded,
             readPosition: lastReadAt,
             repliesEnabled: repliesEnabled,
-            hasUnreadThread: hasUnreadThread
+            hasUnreadThread: hasUnreadThread,
+            markedUnreadAt: markedUnreadAt,
+            historyClearedBefore: historyClearedBefore,
+            latestMainMessageAt: latestMainMessageAt
         )
     }
 }

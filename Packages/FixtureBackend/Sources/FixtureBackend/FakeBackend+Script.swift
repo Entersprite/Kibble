@@ -153,6 +153,9 @@ private extension FakeBackend {
             isReply: thread != nil
         )
         world.messages.append(message)
+        if !message.isReply {
+            hiddenConversations.remove(conversation)
+        }
         emit(.messageReceived(message))
 
         let isMine = sender == world.me
@@ -161,8 +164,12 @@ private extension FakeBackend {
             // Our own message arriving from another device is already read,
             // and a reply counts against its thread, never its conversation
             // (threads spec §4.3).
+            if !message.isReply {
+                $0.latestMainMessageAt = message.createdAt
+            }
             if !isMine, !message.isReply {
                 $0.unreadCount += 1
+                $0.hasUnread = true
             }
         }
         if message.isReply {

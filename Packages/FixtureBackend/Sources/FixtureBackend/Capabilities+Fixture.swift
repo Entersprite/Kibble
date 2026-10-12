@@ -23,6 +23,8 @@ public extension Capabilities {
         canSetNotificationLevel: true,
         canSetStatus: true,
         canMarkRead: true,
+        canMarkUnread: true, canHideConversations: true, canBlockConversations: true,
+        canLeaveConversations: true, canDeleteConversations: true, canOpenDirectConversations: true,
         supportsThreads: true,
         needsFollowedThreadsBackfill: true,
         supportsHistoryCatchUp: true,

@@ -41,16 +41,20 @@ public extension ChatSessionModel {
         select(id)
     }
 
-    /// Their direct message if there is one; otherwise their messages.
+    /// Opens their direct message, restoring it when hidden or deleted.
     func openSearchPerson(_ id: Member.ID) {
         if let dm = conversations.first(where: { $0.kind == .directMessage && $0.members.contains(id) }) {
             openSearchConversation(dm.id)
             return
         }
-        var query = search.query
-        query.text = ""
-        query.from = id
-        runSearch(query, debounced: false)
+        guard capabilities.canOpenDirectConversations else {
+            var query = search.query
+            query.text = ""
+            query.from = id
+            runSearch(query, debounced: false)
+            return
+        }
+        openNewDirectConversation(with: id)
     }
 
     /// The bar's ‹ and ›. Past the last loaded hit, the next page first.

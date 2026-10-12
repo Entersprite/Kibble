@@ -18,6 +18,10 @@ public enum StoreWrite: Sendable, Equatable {
     case replaceConversations([Conversation])
 
     case upsertConversation(Conversation)
+    /// An explicit user open may restore a removed conversation without new activity.
+    case restoreConversation(Conversation)
+    case removeConversation(conversation: Conversation.ID, historyBefore: Date?)
+    case setConversationUnreadMark(conversation: Conversation.ID, at: Date?)
 
     /// Member records. Separate from membership because the same person appears
     /// in many conversations and the record is shared.

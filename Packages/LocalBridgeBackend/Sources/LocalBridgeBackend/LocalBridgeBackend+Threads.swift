@@ -45,8 +45,9 @@ public extension LocalBridgeBackend {
         } catch {
             throw Self.chatError(fromAPI: error, call: "the /api/ list_messages call")
         }
-        let messages = response.messages.compactMap(ChannelEventMapping.domainMessage)
+        let mapped = response.messages.compactMap(ChannelEventMapping.domainMessage)
             .sorted { $0.createdAt < $1.createdAt }
+        let messages = retainingUnclearedHistory(mapped, in: conversation)
         if generation == directoryGeneration {
             resolveUnknownMembers(messages.map(\.sender))
         }
@@ -56,7 +57,7 @@ public extension LocalBridgeBackend {
         return ThreadMessagesSnapshot(
             messages: messages,
             isComplete: response.messages.count < Int(Self.threadPageSize)
-                && messages.count == response.messages.count
+                && mapped.count == response.messages.count
         )
     }
 
@@ -120,7 +121,10 @@ public extension LocalBridgeBackend {
             events.forEach(emit)
             resolveUnknownMembers(messages.map(\.sender))
         }
-        return messages.sorted { $0.createdAt < $1.createdAt }
+        return messages.filter { message in
+            guard let cutoff = historyCutoffs[message.conversationID] else { return true }
+            return Microseconds.from(message.createdAt) > cutoff
+        }.sorted { $0.createdAt < $1.createdAt }
     }
 }
 
@@ -141,6 +145,8 @@ extension LocalBridgeBackend {
     /// in `send(_:)`, for its case-label budget (ruling 6).
     func markReadState(_ command: ChatCommand) async throws {
         switch command {
+        case let .conversationAction(id, action):
+            try await performConversationAction(action, in: id)
         case let .markRead(conversationID, upTo):
             try await markRead(conversationID, upTo: upTo)
         case let .markThreadRead(conversationID, threadID, upTo):

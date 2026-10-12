@@ -24,6 +24,8 @@ public enum SyncReducer {
         switch event {
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged:
             supersedingStaleError(reduceMessageEvent(event))
+        case .conversationRemoved, .conversationUnreadMarkChanged:
+            supersedingStaleError(reduceConversationActionEvent(event))
         case .conversationsChanged, .conversationUpdated, .membersChanged, .membersResolved,
              .readStateChanged, .typingChanged, .presenceChanged, .statusChanged, .calendarChanged:
             supersedingStaleError(reduceConversationEvent(event))

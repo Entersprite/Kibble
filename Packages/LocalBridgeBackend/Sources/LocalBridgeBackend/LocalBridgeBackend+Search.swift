@@ -66,10 +66,14 @@ public extension LocalBridgeBackend {
         }
         let inner = try decodedAnswer(in: response)
         let mapped = SearchHitMapping.page(from: inner)
-        SearchLog.page(hits: mapped.hits.count, dropped: mapped.dropped, hasNext: mapped.next != nil)
+        let hits = mapped.hits.filter { hit in
+            guard let cutoff = historyCutoffs[hit.conversationID] else { return true }
+            return Microseconds.from(hit.createdAt) > cutoff
+        }
+        SearchLog.page(hits: hits.count, dropped: mapped.dropped, hasNext: mapped.next != nil)
         // A hit's time is its own microseconds (`findings.md` §65.8), so an
         // opened hit's history can anchor on it (`loadMessages(in:before:)`).
-        messageTimes.remember(mapped.hits)
+        messageTimes.remember(hits)
         // Started, not awaited - the same rule `loadMessages(in:before:)`
         // follows for its own lookup, and for the same reason: a hit carries
         // no sender name (`findings.md` §65.8), so without this every result
@@ -77,7 +81,7 @@ public extension LocalBridgeBackend {
         // sender up. `resolveUnknownMembers` already no-ops once `apiClient`
         // is `nil`, which is what makes this safe to call even when
         // `disconnect()` ran while the request above was in flight.
-        resolveUnknownMembers(mapped.hits.map(\.sender))
+        resolveUnknownMembers(hits.map(\.sender))
         let next = mapped.next.map { token in
             SearchCursorCoding.encode(
                 SearchCursorPayload(
@@ -86,7 +90,7 @@ public extension LocalBridgeBackend {
                 )
             )
         }
-        return MessageSearchPage(hits: mapped.hits, next: next)
+        return MessageSearchPage(hits: hits, next: next)
     }
 
     /// `_reqid`: a counter on the actor, mirroring the probe's own

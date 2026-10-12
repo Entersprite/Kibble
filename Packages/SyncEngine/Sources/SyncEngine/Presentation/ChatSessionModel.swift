@@ -34,6 +34,7 @@ public final class ChatSessionModel {
     ///
     /// Not `private(set)`: that catch lives in `ChatSessionModel+Observing.swift`.
     public internal(set) var lastError: ChatError?
+    var conversationActionError: ChatError?
     public internal(set) var selected: Conversation.ID? // set from +Mentions.swift
 
     /// Who the local user is.
@@ -161,6 +162,9 @@ public final class ChatSessionModel {
     /// Message, reply, status and activity submissions. A backend request can
     /// answer after sign-out, so stop cancels these before the store is erased.
     var sendTasks: [UUID: Task<Void, Never>] = [:]
+    var conversationActionTasks: [Conversation.ID: Task<Void, Never>] = [:]
+    var conversationActionGenerations: [Conversation.ID: UUID] = [:]
+    var unreadHolds: Set<Conversation.ID> = []
 
     /// The text of a send that was not accepted, and the conversation it was
     /// typed in.
@@ -298,62 +302,19 @@ public final class ChatSessionModel {
         // Everything `SyncEngine.record` writes arrives here. Without it the
         // property below was set only by an observation throwing, so a refused
         // send or a failed history page was recorded and never rendered.
-        watch(store.observeLastError()) { [weak self] in self?.lastError = $0 }
+        watch(store.observeLastError()) { [weak self] in
+            self?.lastError = $0 ?? self?.conversationActionError
+        }
         try await engine.start()
-    }
-
-    public func stop() async {
-        for watcher in watchers + conversationWatchers {
-            watcher.cancel()
-        }
-        watchers = []
-        conversationWatchers = []
-        // Cancelled, not joined: the request behind it may not itself be
-        // abortable, and blocking `stop()` on a hung call would make sign-out
-        // hang with it. `SyncEngine.loadMoreMessages`'s own cancellation
-        // check is what actually stops it from writing whenever it does
-        // return - see `historyTask`'s doc comment.
-        historyTask?.cancel()
-        historyTask = nil
-        directorySearch.reset()
-        searchWork.reset()
-        search = SearchSessionState()
-        // Same reasoning as `historyTask` just above: a mark in flight for an
-        // account this call is signing out of must not be left to answer
-        // into an erased store.
-        for task in markTasks.values {
-            task.cancel()
-        }
-        markTasks = [:]
-        for task in reactionTasks.values {
-            task.cancel()
-        }
-        reactionTasks = [:]
-        reactionChainTail = nil
-        for task in editTasks.values {
-            task.cancel()
-        }
-        editTasks = [:]
-        for task in sendTasks.values {
-            task.cancel()
-        }
-        sendTasks = [:]
-        composerFiles.reset()
-        threads.stop()
-        // Unreachable today - a fresh model is built per session - but a
-        // stale watermark or a retained draft from the account being signed
-        // out of must not survive into a model reused for the next sign-in.
-        // `markGeneration` is deliberately **not** reset here: see its own
-        // doc comment for the ABA a reset would reopen.
-        published = [:]
-        failed = nil
-        await engine.stop()
     }
 
     /// Opens a conversation: swaps the observations over, then fetches a page
     /// of history, because connecting deliberately does not.
     public func select(_ id: Conversation.ID) {
         guard selected != id else { return }
+        if conversationActionTasks[id] == nil {
+            unreadHolds.remove(id)
+        }
         selected = id
         showingMentions = false
         scrollTarget = nil

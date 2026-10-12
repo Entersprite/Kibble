@@ -30,7 +30,7 @@ public extension LocalBridgeBackend {
                 localID: localID,
                 attachments: attachments
             )
-        case .markRead, .markThreadRead, .setThreadUnreadMark:
+        case .markRead, .markThreadRead, .setThreadUnreadMark, .conversationAction:
             try await markReadState(command)
         case let .watchPresence(members):
             watchPresence(members)
@@ -202,7 +202,8 @@ public extension LocalBridgeBackend {
     /// `unsupported(capability:)` it throws.
     private static func commandName(_ command: ChatCommand) -> String {
         switch command {
-        case .sendMessage, .editMessage, .deleteMessage, .setReaction: messageCommandName(command)
+        case .sendMessage, .editMessage, .deleteMessage, .setReaction,
+             .conversationAction: messageCommandName(command)
         case .setTyping: "canSendTypingState"
         case .markRead: "canMarkRead"
         case .setNotificationLevel: "canSetNotificationLevel"
@@ -222,6 +223,7 @@ public extension LocalBridgeBackend {
         case .editMessage: "canEditMessages"
         case .deleteMessage: "canDeleteMessages"
         case .setReaction: "canReact"
+        case let .conversationAction(_, action): action.wire
         default: "canSendMessages"
         }
     }

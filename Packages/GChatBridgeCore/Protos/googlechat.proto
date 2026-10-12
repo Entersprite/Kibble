@@ -1495,6 +1495,17 @@ message SetTopicUnreadTimestampRequest {
 message SetTopicUnreadTimestampResponse {
 }
 
+// The web client's network builder sets header 100, group 1 and time 2.
+message SetMarkAsUnreadTimestampRequest {
+	optional RequestHeader request_header = 100;
+	optional GroupId group_id = 1;
+	optional int64 unread_timestamp = 2;
+}
+
+// The web client's response (dfe.rs.smaut) reads no named fields.
+message SetMarkAsUnreadTimestampResponse {
+}
+
 message ListMembersRequest {
 	optional RequestHeader request_header = 100;
 	optional SpaceId space_id = 1;

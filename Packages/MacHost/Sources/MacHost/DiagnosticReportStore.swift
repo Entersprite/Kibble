@@ -12,6 +12,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
     private let lock = NSLock()
     private let maxReports = 20
     private var reports: [SanitizedDiagnostic] = []
+    private var conversationActions: [ConversationActionRecord] = []
     private var readStateFailures: [ReadStateFailureRecord] = []
     private var historyResponses: [HistoryResponseRecord] = []
     private var memorySamples: [MemorySample] = []
@@ -24,6 +25,11 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
             if let data = try? Data(contentsOf: file),
                let saved = try? JSONDecoder().decode([SanitizedDiagnostic].self, from: data) {
                 reports = Array(saved.suffix(maxReports))
+            }
+            let actionFile = directory.appendingPathComponent("conversation-actions.json")
+            if let data = try? Data(contentsOf: actionFile),
+               let saved = try? JSONDecoder().decode([ConversationActionRecord].self, from: data) {
+                conversationActions = Array(saved.suffix(50))
             }
             let readFile = directory.appendingPathComponent("read-state-failures.json")
             if let data = try? Data(contentsOf: readFile),
@@ -82,6 +88,19 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         lock.unlock()
     }
 
+    public func recordConversationAction(_ observation: ConversationActionObservation) {
+        let record = ConversationActionRecord(recordedAt: Date(), request: observation)
+        lock.lock()
+        conversationActions = Array((conversationActions + [record]).suffix(50))
+        if let directory, let data = try? JSONEncoder().encode(conversationActions) {
+            try? data.write(
+                to: directory.appendingPathComponent("conversation-actions.json"),
+                options: .atomic
+            )
+        }
+        lock.unlock()
+    }
+
     public func recordReadStateFailure(_ failure: ReadStateRequestFailure) {
         let record = ReadStateFailureRecord(
             recordedAt: Date(), status: failure.status, conversationKind: failure.conversationKind,
@@ -128,26 +147,31 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         lock.unlock()
     }
 
+    func exportData() throws -> Data {
+        lock.lock()
+        let snapshot = reports
+        let actions = conversationActions
+        let failures = readStateFailures
+        let history = historyResponses
+        let memory = memorySamples
+        lock.unlock()
+        let export = DiagnosticExport(
+            schemaVersion: 2, reports: snapshot, conversationActions: actions, readStateFailures: failures,
+            historyResponses: history, memorySamples: memory
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(export)
+    }
+
     @MainActor
     public func export() {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "kibble-diagnostics.json"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        lock.lock()
-        let snapshot = reports
-        let failures = readStateFailures
-        let history = historyResponses
-        let memory = memorySamples
-        lock.unlock()
-        let export = DiagnosticExport(
-            schemaVersion: 1, reports: snapshot, readStateFailures: failures,
-            historyResponses: history, memorySamples: memory
-        )
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(export).write(to: url, options: .atomic)
+            try exportData().write(to: url, options: .atomic)
         } catch {
             let alert = NSAlert()
             alert.messageText = "Couldn’t export diagnostics"
@@ -160,6 +184,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
 private struct DiagnosticExport: Codable {
     let schemaVersion: Int
     let reports: [SanitizedDiagnostic]
+    let conversationActions: [ConversationActionRecord]
     let readStateFailures: [ReadStateFailureRecord]
     let historyResponses: [HistoryResponseRecord]
     let memorySamples: [MemorySample]
@@ -239,4 +264,9 @@ struct SanitizedStack: Codable {
 struct SanitizedFrame: Codable {
     let binaryUUID: String
     let offset: UInt64
+}
+
+private struct ConversationActionRecord: Codable {
+    let recordedAt: Date
+    let request: ConversationActionObservation
 }

@@ -159,6 +159,10 @@ public protocol ChatBackend: Sendable {
     func searchMessages(_ query: MessageSearchQuery, after cursor: MessageSearchCursor?) async throws
         -> MessageSearchPage
 
+    /// Opens or restores the one-to-one conversation with this person.
+    /// Restoring a deleted conversation preserves its history cutoff.
+    func openDirectConversation(with member: Member.ID) async throws -> Conversation
+
     /// Whether `member` is in `conversation` now. A requirement for the same
     /// reason.
     func membership(of member: Member.ID, in conversation: Conversation.ID) async throws

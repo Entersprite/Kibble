@@ -54,6 +54,9 @@ public actor FakeBackend {
     /// How many messages `loadMessages(in:before:)` returns at most.
     let pageSize: Int
 
+    var hiddenConversations: Set<Conversation.ID> = []
+    var blockedDirectMembers: Set<Member.ID> = []
+    var nextDirectConversationNumber = 0
     var world: FixtureWorld
 
     /// People outside the world's conversations, for `searchPeople` and an
@@ -157,8 +160,8 @@ extension FakeBackend {
 
     /// The conversation list and the members of each conversation.
     func emitSnapshot() {
-        emit(.conversationsChanged(world.conversations))
-        for conversation in world.conversations {
+        emit(.conversationsChanged(world.conversations.filter { !hiddenConversations.contains($0.id) }))
+        for conversation in world.conversations where !hiddenConversations.contains(conversation.id) {
             emit(
                 .membersChanged(
                     conversationID: conversation.id,

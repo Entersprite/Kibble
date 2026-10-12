@@ -34,6 +34,32 @@ extension ChatSessionModel {
         watch(store.observeAvailability()) { [weak self] in self?.availability = $0 }
     }
 
+    /// `store.observeConversations()`'s handler, moved here from `start()` so
+    /// `ChatSessionModel.swift` stays a one-line `watch(...)` call - the same
+    /// `file_length` reasoning that put this whole extension in its own file.
+    /// This is why `conversations` is `internal(set)` rather than
+    /// `private(set)`, same as `isActive`.
+    func conversationsObserved(_ conversations: [Conversation]) {
+        let panelWasShown = isThreadPanelShown
+        let selectionWasListed = self.conversations.contains { $0.id == selected }
+        let previousMark = self.conversations.first { $0.id == selected }?.markedUnreadAt
+        reconcileSearchVisibility(previous: self.conversations, current: conversations)
+        self.conversations = conversations
+        if selectionWasListed, let selected,
+           !conversations.contains(where: { $0.id == selected }) {
+            clearSelection()
+        }
+        markReadTrace?.conversationsChanged(conversations)
+        if let selected, conversations.first(where: { $0.id == selected })?.markedUnreadAt != previousMark {
+            markSelectedReadIfNeeded()
+        }
+        // The world load that turns replies on draws a panel held until now:
+        // the thread it shows is marked read then (session 58).
+        if !panelWasShown, isThreadPanelShown {
+            markOpenThreadReadIfNeeded()
+        }
+    }
+
     /// The rest of what `select(_:)` swaps once it has canceled the last
     /// conversation's watchers: who is typing, the `@` list's people, and the
     /// thread summaries the marks read. Moved out of `select(_:)` for

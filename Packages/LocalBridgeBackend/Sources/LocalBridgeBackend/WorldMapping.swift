@@ -42,7 +42,7 @@ public enum WorldMapping {
     public static func map(_ response: PaginatedWorldResponse) -> Result {
         var conversations: [Conversation] = []
         var skipped = 0
-        for item in response.worldItems {
+        for item in response.worldItems where isVisible(item) {
             guard let conversation = conversation(from: item) else {
                 skipped += 1
                 continue
@@ -52,7 +52,7 @@ public enum WorldMapping {
         return Result(conversations: conversations, skipped: skipped)
     }
 
-    private static func conversation(from item: WorldItemLite) -> Conversation? {
+    static func conversation(from item: WorldItemLite) -> Conversation? {
         guard let id = ChannelEventMapping.conversationID(item.groupID) else { return nil }
         return Conversation(
             id: id,
@@ -70,7 +70,13 @@ public enum WorldMapping {
             readPosition: readPosition(item),
             // Field 27, the per-conversation gate (§63.2); read state 25 (§64.4).
             repliesEnabled: item.hasInlineThreadingEnabled && item.inlineThreadingEnabled,
-            hasUnreadThread: item.readState.hasHasUnreadThread_p && item.readState.hasUnreadThread_p
+            hasUnreadThread: item.readState.hasHasUnreadThread_p && item.readState.hasUnreadThread_p,
+            markedUnreadAt: item.readState.markAsUnreadTimestampUsec > 0
+                ? Microseconds.date(item.readState.markAsUnreadTimestampUsec) : nil,
+            historyClearedBefore: item.readState.clearHistoryTimestamp_p > 0
+                ? Microseconds.date(item.readState.clearHistoryTimestamp_p) : nil,
+            latestMainMessageAt: item.readState.lastHeadMessageCreateTimeUsec > 0
+                ? Microseconds.date(item.readState.lastHeadMessageCreateTimeUsec) : nil
         )
     }
 
@@ -120,6 +126,9 @@ public enum WorldMapping {
     /// and is `Conversation.hasUnreadThread` instead.
     private static func hasUnread(_ item: WorldItemLite) -> Bool {
         let state = item.readState
+        if state.markAsUnreadTimestampUsec > 0 {
+            return true
+        }
         guard state.hasLastHeadMessageCreateTimeUsec, state.hasLastReadTime else {
             return false
         }

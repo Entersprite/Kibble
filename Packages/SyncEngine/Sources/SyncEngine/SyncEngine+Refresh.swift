@@ -8,11 +8,13 @@ public extension SyncEngine {
     /// history request. The caller owns and cancels this task on sign-out.
     func refreshVisibleConversation(_ conversation: Conversation.ID?) async {
         do {
+            let version = conversationMutationVersion
             let conversations = try await backend.loadConversations()
             try Task.checkCancellation()
+            guard version == conversationMutationVersion else { return }
             try store.apply([.replaceConversations(conversations)])
             worldLoaded()
-            if let conversation {
+            if let conversation, conversations.contains(where: { $0.id == conversation }) {
                 try await loadMoreMessages(in: conversation)
             }
         } catch {

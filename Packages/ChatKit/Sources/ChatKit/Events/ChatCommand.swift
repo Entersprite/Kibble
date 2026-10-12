@@ -96,6 +96,9 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// can mark a conversation read without knowing what the last message was.
     case markRead(conversationID: Conversation.ID, upTo: Date)
 
+    /// Applied by the backend; accepted results arrive as conversation events.
+    case conversationAction(conversationID: Conversation.ID, action: ConversationAction)
+
     case setNotificationLevel(conversationID: Conversation.ID, level: NotificationLevel)
 
     /// "These people are on screen; tell me their presence." A hint, not a
@@ -146,6 +149,7 @@ public enum ChatCommand: Codable, Hashable, Sendable {
 extension ChatCommand {
     enum CodingKeys: String, CodingKey {
         case type
+        case action
         case conversationID
         case threadID
         case text
@@ -174,6 +178,7 @@ extension ChatCommand {
         case setReaction
         case setTyping
         case markRead
+        case conversationAction
         case setNotificationLevel
         case watchPresence
         case loadMembers
@@ -192,6 +197,7 @@ extension ChatCommand {
             try Self.decodeMessageCommand(raw, from: container)
                 ?? Self.decodeStateCommand(raw, from: container)
                 ?? Self.decodeThreadCommand(raw, from: container)
+                ?? Self.decodeConversationAction(raw, from: container)
         self = try decoded ?? .unknown(type: raw, payload: UnknownFrame.payload(from: decoder))
     }
 
@@ -294,6 +300,7 @@ extension ChatCommand {
         let handled = try encodeMessageCommand(into: &container)
             || encodeStateCommand(into: &container)
             || encodeThreadCommand(into: &container)
+            || encodeConversationAction(into: &container)
         guard handled else {
             throw WireEncoding.unhandled(self, path: container.codingPath)
         }

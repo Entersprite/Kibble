@@ -24,6 +24,33 @@ enum Schema {
         migrator.registerMigration("v12", migrate: addAvailability)
         migrator.registerMigration("v13", migrate: addThreads)
         migrator.registerMigration("v14", migrate: addSearchRecents)
+        migrator.registerMigration("v15") { db in
+            try db.alter(table: "conversation") {
+                $0.add(column: "markedUnreadAt", .double)
+                $0.add(column: "historyClearedBefore", .double)
+            }
+            try db.create(table: "conversationActionState") {
+                $0.primaryKey("id", .text)
+                $0.column("isRemoved", .boolean).notNull().defaults(to: false)
+                $0.column("historyClearedBefore", .double)
+            }
+        }
+        migrator.registerMigration("v16") { db in
+            try db.alter(table: "conversation") { $0.add(column: "latestMainMessageAt", .double) }
+            try db.alter(table: "conversationActionState") { $0.add(column: "removedThrough", .double) }
+            try db.execute(sql: """
+            UPDATE conversationActionState SET removedThrough = (
+                SELECT MAX(cutoff) FROM (
+                    SELECT historyClearedBefore AS cutoff FROM conversationActionState AS state
+                        WHERE state.id = conversationActionState.id
+                    UNION ALL SELECT createdAt AS cutoff FROM message
+                        WHERE conversationID = conversationActionState.id AND isReply = 0
+                    UNION ALL SELECT lastActivity AS cutoff FROM conversation
+                        WHERE id = conversationActionState.id
+                )
+            ) WHERE isRemoved = 1
+            """)
+        }
         return migrator
     }
 

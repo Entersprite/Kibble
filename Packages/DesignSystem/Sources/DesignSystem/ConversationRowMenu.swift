@@ -11,6 +11,8 @@ struct ConversationRowMenu: View {
     var body: some View {
         ForEach(items, id: \.self) { item in
             switch item {
+            case let .action(action):
+                Button(action.menuTitle) { actions.conversationActions?.perform(action, id) }
             case .markAsRead:
                 Button("Mark as Read") { actions.markRead?(id) }
                 Divider()

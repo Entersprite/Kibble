@@ -51,6 +51,13 @@ public enum ChannelEventMapping {
             readState(in: body) ?? routed(body)
         case .messageDeleted:
             deletion(in: body) ?? routed(body)
+        case .groupHideChanged, .clearHistory, .markAsUnread:
+            conversationActionEvent(in: body) ?? .gap(
+                scope: .everything,
+                reason: "Conversation state changed on the service."
+            )
+        case .blockStateChanged, .userRemovedFromGroup, .membershipChanged:
+            .gap(scope: .everything, reason: "Conversation state changed on the service.")
         default:
             threadEvent(in: body) ?? routed(body)
         }

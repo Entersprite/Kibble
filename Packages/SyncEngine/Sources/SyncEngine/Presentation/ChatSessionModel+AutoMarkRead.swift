@@ -16,22 +16,6 @@ import Foundation
 /// unchanged either way, since nothing outside this module could see past
 /// `private` or `internal` regardless.
 extension ChatSessionModel {
-    /// `store.observeConversations()`'s handler, moved here from `start()` so
-    /// `ChatSessionModel.swift` stays a one-line `watch(...)` call - the same
-    /// `file_length` reasoning that put this whole extension in its own file.
-    /// This is why `conversations` is `internal(set)` rather than
-    /// `private(set)`, same as `isActive`.
-    func conversationsObserved(_ conversations: [Conversation]) {
-        let panelWasShown = isThreadPanelShown
-        self.conversations = conversations
-        markReadTrace?.conversationsChanged(conversations)
-        // The world load that turns replies on draws a panel held until now:
-        // the thread it shows is marked read then (session 58).
-        if !panelWasShown, isThreadPanelShown {
-            markOpenThreadReadIfNeeded()
-        }
-    }
-
     /// Told by the app shell whether the app is frontmost.
     ///
     /// Becoming frontmost marks the open conversation, and the thread the
@@ -139,6 +123,7 @@ extension ChatSessionModel {
         guard isActive else { traceTrigger(.notFrontmost); return }
         guard capabilities.canMarkRead else { traceTrigger(.cannotMarkRead); return }
         guard let selected else { traceTrigger(.nothingSelected); return }
+        guard !unreadHolds.contains(selected), conversationActionTasks[selected] == nil else { return }
         // `max` rather than `messages.last`, so the trigger does not depend on
         // the observation's ordering. Excludes this file's own `local/`-
         // prefixed optimistic rows (see `send(_:)`): they carry `Date()`, not
@@ -154,7 +139,7 @@ extension ChatSessionModel {
             traceTrigger(.noServerMessages)
             return
         }
-        if let already = published[selected], newest <= already {
+        if let already = published[selected], newest <= already, !isManuallyUnread(selected) {
             traceTrigger(.watermarkNotAdvanced)
             return
         }
@@ -255,7 +240,7 @@ extension ChatSessionModel {
             traceTrigger(.cannotMarkRead, for: conversation, publishing: scheduledAt)
             return
         }
-        let position: Date
+        var position: Date
         if selected == conversation {
             let recomputed = messages
                 .filter { !$0.id.rawValue.hasPrefix("local/") }
@@ -264,7 +249,7 @@ extension ChatSessionModel {
         } else {
             position = scheduledAt
         }
-        if let already = published[conversation], position <= already {
+        if let already = published[conversation], position <= already, !isManuallyUnread(conversation) {
             traceTrigger(.watermarkNotAdvanced, for: conversation, publishing: position)
             return
         }
@@ -273,6 +258,7 @@ extension ChatSessionModel {
         if skipsBehindServerPosition(position, in: conversation, generation: generation) {
             return
         }
+        position = readPositionClearingUnreadMark(position, in: conversation)
         traceTrigger(.submitted, for: conversation, publishing: position)
         let startedAt = ContinuousClock.now
         let accepted = await engine.submit(.markRead(
@@ -372,6 +358,9 @@ extension ChatSessionModel {
     func skipsBehindServerPosition(
         _ position: Date, in conversation: Conversation.ID, generation: Int? = nil
     ) -> Bool {
+        if isManuallyUnread(conversation) {
+            return false
+        }
         guard let read = conversations.first(where: { $0.id == conversation })?.readPosition,
               position <= read
         else { return false }

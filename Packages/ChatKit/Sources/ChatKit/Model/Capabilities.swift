@@ -22,6 +22,13 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// your name appears only when this is `true` (set-your-status spec §2).
     public var canSetStatus: Bool
     public var canMarkRead: Bool
+    public var canMarkUnread: Bool
+    public var canHideConversations: Bool
+    public var canBlockConversations: Bool
+    public var canLeaveConversations: Bool
+    public var canOpenDirectConversations: Bool
+    public var canDeleteConversations: Bool
+
     /// Threads, as one gate (threads spec §1): the thread panel and replies
     /// (`ChatCommand.sendMessage` with a `threadID`, `Message.isReply`),
     /// following (`ChatBackend.setThreadFollowed`), thread read state
@@ -87,6 +94,13 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canSetNotificationLevel: Bool = false,
         canSetStatus: Bool = false,
         canMarkRead: Bool = false,
+        canMarkUnread: Bool = false,
+        canHideConversations: Bool = false,
+        canBlockConversations: Bool = false,
+        canLeaveConversations: Bool = false,
+        canDeleteConversations: Bool = false,
+        canOpenDirectConversations: Bool = false,
+
         supportsThreads: Bool = false,
         needsFollowedThreadsBackfill: Bool = false,
         supportsHistoryCatchUp: Bool = false,
@@ -113,6 +127,13 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canSetNotificationLevel = canSetNotificationLevel
         self.canSetStatus = canSetStatus
         self.canMarkRead = canMarkRead
+        self.canMarkUnread = canMarkUnread
+        self.canHideConversations = canHideConversations
+        self.canBlockConversations = canBlockConversations
+        self.canLeaveConversations = canLeaveConversations
+        self.canDeleteConversations = canDeleteConversations
+        self.canOpenDirectConversations = canOpenDirectConversations
+
         self.supportsThreads = supportsThreads
         self.needsFollowedThreadsBackfill = needsFollowedThreadsBackfill
         self.supportsHistoryCatchUp = supportsHistoryCatchUp
@@ -145,6 +166,13 @@ public extension Capabilities {
         case canSetNotificationLevel
         case canSetStatus
         case canMarkRead
+        case canMarkUnread
+        case canHideConversations
+        case canBlockConversations
+        case canLeaveConversations
+        case canDeleteConversations
+        case canOpenDirectConversations
+
         case supportsThreads
         case needsFollowedThreadsBackfill
         case supportsHistoryCatchUp
@@ -181,6 +209,13 @@ public extension Capabilities {
             canSetNotificationLevel: flag(.canSetNotificationLevel),
             canSetStatus: flag(.canSetStatus),
             canMarkRead: flag(.canMarkRead),
+            canMarkUnread: flag(.canMarkUnread),
+            canHideConversations: flag(.canHideConversations),
+            canBlockConversations: flag(.canBlockConversations),
+            canLeaveConversations: flag(.canLeaveConversations),
+            canDeleteConversations: flag(.canDeleteConversations),
+            canOpenDirectConversations: flag(.canOpenDirectConversations),
+
             supportsThreads: flag(.supportsThreads),
             needsFollowedThreadsBackfill: flag(.needsFollowedThreadsBackfill),
             supportsHistoryCatchUp: flag(.supportsHistoryCatchUp),
@@ -216,6 +251,25 @@ public extension Capabilities {
         try container.encode(canSetNotificationLevel, forKey: .canSetNotificationLevel)
         try container.encode(canSetStatus, forKey: .canSetStatus)
         try container.encode(canMarkRead, forKey: .canMarkRead)
+        if canMarkUnread {
+            try container.encode(true, forKey: .canMarkUnread)
+        }
+        if canHideConversations {
+            try container.encode(true, forKey: .canHideConversations)
+        }
+        if canBlockConversations {
+            try container.encode(true, forKey: .canBlockConversations)
+        }
+        if canLeaveConversations {
+            try container.encode(true, forKey: .canLeaveConversations)
+        }
+        if canOpenDirectConversations {
+            try container.encode(true, forKey: .canOpenDirectConversations)
+        }
+        if canDeleteConversations {
+            try container.encode(true, forKey: .canDeleteConversations)
+        }
+
         try container.encode(supportsThreads, forKey: .supportsThreads)
         if needsFollowedThreadsBackfill {
             try container.encode(true, forKey: .needsFollowedThreadsBackfill)

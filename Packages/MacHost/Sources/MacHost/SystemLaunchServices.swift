@@ -126,6 +126,9 @@ public final class SystemLaunchServices: LaunchServices {
                 await backend?.tallyEvents(to: eventFile)
             }
             if let diagnostics {
+                await backend?.observeConversationActions { [diagnostics] observation in
+                    diagnostics.recordConversationAction(observation)
+                }
                 await backend?.observeReadStateFailures { [diagnostics] failure in
                     diagnostics.recordReadStateFailure(failure)
                 }

@@ -58,7 +58,8 @@ extension ChatSessionModel {
     /// trigger's gates, and no exhaustive switch would force a new token to be
     /// emitted (`CLAUDE.md`, "a guard is not covered until...").
     public func markRead(_ conversation: Conversation.ID, from origin: MarkReadOrigin) {
-        guard capabilities.canMarkRead else { return }
+        guard capabilities.canMarkRead, conversationActionTasks[conversation] == nil else { return }
+        unreadHolds.remove(conversation)
         guard markTasks[conversation] == nil else { return }
         let generation = (markGeneration[conversation] ?? 0) + 1
         markGeneration[conversation] = generation
@@ -94,18 +95,20 @@ extension ChatSessionModel {
         guard let newest else { return }
         // A stale history page must not move Google's read position backward.
         // The automatic path makes this same check before publishing.
-        if skipsBehindServerPosition(newest, in: conversation) {
+        let hasManualMark = (try? store.hasManualUnreadMark(in: conversation)) == true
+        if !hasManualMark, skipsBehindServerPosition(newest, in: conversation) {
             return
         }
-        if let already = published[conversation], newest <= already {
+        if let already = published[conversation], newest <= already, !hasManualMark {
             return
         }
-        let accepted = await engine.submit(.markRead(conversationID: conversation, upTo: newest))
+        let position = readPositionClearingUnreadMark(newest, in: conversation)
+        let accepted = await engine.submit(.markRead(conversationID: conversation, upTo: position))
         // As in the automatic trigger: a mark cancelled by `stop()` must not
         // advance the watermark of a session that is being torn down.
         guard !Task.isCancelled else { return }
         if accepted {
-            published[conversation] = newest
+            published[conversation] = position
         }
     }
 

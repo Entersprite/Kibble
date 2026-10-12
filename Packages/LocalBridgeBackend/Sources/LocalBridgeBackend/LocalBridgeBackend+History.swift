@@ -99,6 +99,7 @@ public extension LocalBridgeBackend {
                     pageSize: Int(rung.request.pageSizeForTopics)
                 )
             }
+            page = retainingUnclearedHistory(page, in: conversationID)
             // Resolve only senders in messages the caller will store. An
             // anchored backward page may have returned newer messages that
             // its strict older-than filter deliberately leaves out.

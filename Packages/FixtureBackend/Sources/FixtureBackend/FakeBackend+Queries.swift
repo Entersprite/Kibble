@@ -11,7 +11,7 @@ public extension FakeBackend {
     /// someone building a sidebar from seeing anything until they had wired up
     /// a lifecycle. Writes are the ones that need a live session.
     func loadConversations() async throws -> [Conversation] {
-        world.conversations
+        world.conversations.filter { !hiddenConversations.contains($0.id) }
     }
 
     /// A page of history, oldest to newest: the newest `pageSize` top-level
@@ -118,7 +118,7 @@ extension FakeBackend {
         }
         change(&world.conversations[index])
         let updated = world.conversations[index]
-        if emitUpdate {
+        if emitUpdate, !hiddenConversations.contains(id) {
             emit(.conversationUpdated(updated))
         }
         return updated

@@ -68,6 +68,7 @@ public struct ChatSceneActions {
     /// Read. `nil` hides it: no identified account, or a backend that cannot
     /// mark read.
     public var markRead: ((Conversation.ID) -> Void)?
+    public var conversationActions: ConversationActions?
 
     /// Opens "Notifications for <name>". The host presents it; `nil` hides
     /// the menu item.
@@ -161,6 +162,7 @@ public struct ChatSceneActions {
         mute: ((Conversation.ID) -> Void)? = nil,
         unmute: ((Conversation.ID) -> Void)? = nil,
         markRead: ((Conversation.ID) -> Void)? = nil,
+        conversationActions: ConversationActions? = nil,
         showNotificationSettings: ((Conversation.ID) -> Void)? = nil,
         showMentions: (() -> Void)? = nil,
         openMention: ((Conversation.ID, Message.ID) -> Void)? = nil,
@@ -192,6 +194,7 @@ public struct ChatSceneActions {
         self.mute = mute
         self.unmute = unmute
         self.markRead = markRead
+        self.conversationActions = conversationActions
         self.showNotificationSettings = showNotificationSettings
         self.showMentions = showMentions
         self.openMention = openMention

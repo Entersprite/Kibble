@@ -36,7 +36,7 @@ public extension FakeBackend {
             try setReaction(on: messageID, choice: choice, add: add)
         case let .setTyping(conversationID, _, _):
             try setTyping(in: conversationID)
-        case .markRead, .markThreadRead, .setThreadUnreadMark:
+        case .markRead, .markThreadRead, .setThreadUnreadMark, .conversationAction:
             // The read-state family, one case, for `cyclomatic_complexity`.
             try applyReadState(command)
         case let .setNotificationLevel(conversationID, level):
@@ -108,6 +108,7 @@ private extension FakeBackend {
         // No event says "a conversation's last activity moved", so the whole
         // snapshot goes out. Where a specific event does exist, it is used
         // instead - see deleteMessage and markRead.
+        hiddenConversations.remove(conversationID)
         try updateConversation(conversationID) { $0.lastActivity = message.createdAt }
         try addInvited(body.mentions, to: conversationID)
         if message.isReply {
@@ -178,13 +179,24 @@ private extension FakeBackend {
         // emitUpdate: false because readStateChanged is the specific event for
         // this, and sending both would make a client choose which to believe.
         try updateConversation(conversationID, emitUpdate: false) { $0.unreadCount = 0 }
+        let hadUnreadMark = world.conversation(conversationID)?.markedUnreadAt != nil
+        try updateConversation(conversationID, emitUpdate: false) {
+            $0.markedUnreadAt = nil
+            $0.hasUnread = false
+            $0.readPosition = upTo
+        }
+        if hadUnreadMark {
+            emit(.conversationUnreadMarkChanged(conversationID: conversationID, at: nil))
+        }
         emit(.readStateChanged(conversationID: conversationID, lastReadAt: upTo, unread: 0))
     }
 
     /// `.markRead` and the two thread marks, one family behind one `case`
     /// in `send(_:)`, which is at `cyclomatic_complexity`'s limit.
     func applyReadState(_ command: ChatCommand) throws {
-        if case let .markRead(conversationID, upTo) = command {
+        if case let .conversationAction(id, action) = command {
+            try performConversationAction(action, in: id)
+        } else if case let .markRead(conversationID, upTo) = command {
             try markRead(conversationID, upTo: upTo)
         } else {
             try applyThreadMark(command)

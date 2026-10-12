@@ -17,7 +17,10 @@ actor RecordingBackend: ChatBackend {
         inner.events
     }
 
-    private nonisolated let inner: FakeBackend
+    nonisolated let abortableDirectOpens = AbortableHold()
+    var holdingDirectOpens = false
+
+    nonisolated let inner: FakeBackend
     private(set) var commands: [ChatCommand] = []
     /// Every `.watchPresence`, kept out of `commands`: it is sent on every
     /// selection, and would otherwise race a mark for `commands.last` in
@@ -371,10 +374,10 @@ actor RecordingBackend: ChatBackend {
         let cursor: MessageSearchCursor?
     }
 
-    private(set) var messageSearches: [RecordedSearch] = []
-    private var holdingMessageSearches = false
-    private var scriptedSearchPages: [MessageSearchPage]?
-    private var failingMessageSearches = false
+    var messageSearches: [RecordedSearch] = []
+    var holdingMessageSearches = false
+    var scriptedSearchPages: [MessageSearchPage]?
+    var failingMessageSearches = false
     /// Held message searches; a canceled one throws, as the wire's does.
     nonisolated let abortableMessageSearches = AbortableHold()
 
@@ -389,21 +392,5 @@ actor RecordingBackend: ChatBackend {
     /// Answers with these pages instead of the fake's: page `n` for cursor `"n"`.
     func scriptMessageSearch(_ pages: [MessageSearchPage]) {
         scriptedSearchPages = pages
-    }
-
-    func searchMessages(_ query: MessageSearchQuery, after cursor: MessageSearchCursor?) async throws
-        -> MessageSearchPage {
-        messageSearches.append(RecordedSearch(query: query, cursor: cursor))
-        if holdingMessageSearches {
-            try await abortableMessageSearches.wait()
-        }
-        if failingMessageSearches {
-            throw ChatError.server(status: 500, message: "the search failed")
-        }
-        if let scripted = scriptedSearchPages {
-            let index = cursor.flatMap { Int($0.rawValue) } ?? 0
-            return scripted.indices.contains(index) ? scripted[index] : MessageSearchPage()
-        }
-        return try await inner.searchMessages(query, after: cursor)
     }
 }

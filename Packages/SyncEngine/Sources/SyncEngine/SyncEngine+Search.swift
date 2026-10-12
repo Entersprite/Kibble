@@ -5,7 +5,9 @@ import Foundation
 public extension SyncEngine {
     func searchMessages(_ query: MessageSearchQuery, after cursor: MessageSearchCursor?) async throws
         -> MessageSearchPage {
-        try await backend.searchMessages(query, after: cursor)
+        let page = try await backend.searchMessages(query, after: cursor)
+        try Task.checkCancellation()
+        return try MessageSearchPage(hits: store.searchableMessages(page.hits), next: page.next)
     }
 
     /// Off the main thread: the store is one serial queue (CLAUDE.md, session 66).

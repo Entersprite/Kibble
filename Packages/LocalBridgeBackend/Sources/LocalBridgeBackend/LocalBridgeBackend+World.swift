@@ -23,9 +23,19 @@ public extension LocalBridgeBackend {
         }
         let rung = WorldRequestLadder.minimumViable
         do {
-            let response = try await apiClient.call(.paginatedWorld, rung.request)
+            var response = try await apiClient.call(.paginatedWorld, rung.request)
+            try Task.checkCancellation()
+            reconcileHistoryCutoffs(in: &response)
+            reconcileHiddenWorld(in: &response)
             let mapped = WorldMapping.map(response)
             conversationHeads = [:]
+            conversationDetails = [:]
+            for item in response.worldItems {
+                if let id = ChannelEventMapping
+                    .conversationID(item.groupID) {
+                    conversationDetails[id] = item
+                }
+            }
             for item in response.worldItems where item.readState.hasLastHeadMessageCreateTimeUsec {
                 if let id = ChannelEventMapping.conversationID(item.groupID) {
                     conversationHeads[id] = item.readState.lastHeadMessageCreateTimeUsec

@@ -45,7 +45,9 @@ public extension ChatStore {
 
     private static func perform(_ write: StoreWrite, in db: Database) throws {
         switch write {
-        case .replaceConversations, .upsertConversation, .upsertMembers, .setMembership:
+        case .removeConversation, .setConversationUnreadMark:
+            try performConversationActionWrite(write, in: db)
+        case .replaceConversations, .upsertConversation, .restoreConversation, .upsertMembers, .setMembership:
             try performConversationWrite(write, in: db)
         case .setPresence, .setStatus, .setCalendar:
             try performMemberWrite(write, in: db)
@@ -103,6 +105,12 @@ public extension ChatStore {
             for conversation in conversations {
                 try upsert(conversation, in: db)
             }
+        case let .restoreConversation(conversation):
+            try db.execute(
+                sql: "UPDATE conversationActionState SET isRemoved = 0 WHERE id = ?",
+                arguments: [conversation.id.rawValue]
+            )
+            try upsert(conversation, in: db)
         case let .upsertConversation(conversation):
             try upsert(conversation, in: db)
         case let .upsertMembers(members):
@@ -133,58 +141,6 @@ public extension ChatStore {
         }
     }
 
-    /// Read state and the unread flag - the two writes that move `hasUnread`.
-    ///
-    /// Split from `performConversationWrite(_:in:)` because adding
-    /// `.markUnread` took that function to `swiftlint`'s cyclomatic-complexity
-    /// limit of 10. It is a real seam rather than an arbitrary cut: these two
-    /// are the **only** writes that touch `hasUnread`, and they are the pair
-    /// that has to stay consistent - the flag shipped with nothing clearing it
-    /// (`findings.md` §37.8), so keeping them adjacent is the point.
-    private static func performReadWrite(_ write: StoreWrite, in db: Database) throws {
-        switch write {
-        case let .setReadState(conversation, lastReadAt, unread):
-            // A forward read clears the dot. A backward read is the web
-            // client's Mark as unread: the newest message may not be in our
-            // local history yet, so comparing against stored messages would
-            // miss precisely the conversation the user marked unread.
-            //
-            // The position is bound through `StoredDate`, never as the `Date`
-            // itself: a bound `Date` is GRDB's millisecond text whatever the
-            // records' strategy says, which would truncate the watermark and
-            // leave a text value in a column of numbers.
-            try db.execute(
-                sql: """
-                UPDATE conversation
-                SET unreadCount = ?, lastReadAt = ?,
-                    hasUnread = CASE WHEN lastReadAt > ? THEN 1 ELSE 0 END
-                WHERE id = ?
-                """,
-                arguments: [
-                    unread, StoredDate.value(lastReadAt), StoredDate.value(lastReadAt), conversation.rawValue
-                ]
-            )
-        case let .markUnread(conversation, sender):
-            // The local user's own message never marks their conversation
-            // unread - see `StoreWrite.markUnread`'s doc comment for why the
-            // comparison happens here rather than in the reducer.
-            let localMember = try String.fetchOne(
-                db, sql: "SELECT localMemberID FROM syncState WHERE id = 1"
-            )
-            guard localMember != sender.rawValue else { break }
-            try db.execute(
-                sql: "UPDATE conversation SET hasUnread = 1 WHERE id = ?",
-                arguments: [conversation.rawValue]
-            )
-        default:
-            // `perform(_:in:)` routes only the two cases above here. Kept
-            // rather than made exhaustive because `StoreWrite` gains cases
-            // often, and each one should be a decision in `perform(_:in:)`
-            // rather than a compile error in every branch function.
-            break
-        }
-    }
-
     private static func performMessageWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case let .upsertMessageKeepingReactions(message):
@@ -199,24 +155,9 @@ public extension ChatStore {
             }
             try performMessageWrite(.upsertMessage(kept), in: db)
         case let .upsertMessage(message):
-            // An optimistic copy and its echo are the same message with two
-            // different ids: the client invented one, the server assigned the
-            // other. Keyed on `localID`, which the server echoes back and which
-            // is `nil` on everyone else's messages - so this can never merge two
-            // messages that merely both lack one.
-            //
-            // The `id <> ?` clause is what keeps an ordinary re-delivery of the
-            // same server message from deleting the row it is about to write.
-            if let localID = message.localID {
-                try db.execute(
-                    sql: "DELETE FROM message WHERE localID = ? AND id <> ?",
-                    arguments: [localID, message.id.rawValue]
-                )
-            }
-            try MessageRow(message).upsert(db)
+            try upsertUnclearedMessage(message, in: db)
         case let .insertMessageIfAbsent(message):
-            // `INSERT OR IGNORE` - `StoreWrite.insertMessageIfAbsent` says why.
-            try MessageRow(message).insert(db, onConflict: .ignore)
+            try insertUnclearedMessageIfAbsent(message, in: db)
         case let .markMessageDeleted(id, _):
             // A tombstone, not a removal: the message keeps its place in the
             // ordering because the protocol keeps sending it and a hole would
@@ -248,17 +189,7 @@ public extension ChatStore {
                 arguments: [id.rawValue]
             )
         case let .reconcileThread(thread, conversation, keeping):
-            let placeholders = Array(repeating: "?", count: keeping.count).joined(separator: ",")
-            let exclusion = keeping.isEmpty ? "" : " AND id NOT IN (\(placeholders))"
-            try db.execute(
-                sql: """
-                DELETE FROM message
-                WHERE conversationID = ? AND threadID = ? AND id NOT LIKE 'local/%'\(exclusion)
-                """,
-                arguments: StatementArguments(
-                    [conversation.rawValue, thread.rawValue] + keeping.map(\.rawValue)
-                )
-            )
+            try reconcileThread(thread, in: conversation, keeping: keeping, db: db)
         case let .setReactions(messageID, reactions):
             try db.execute(
                 sql: "UPDATE message SET reactions = ? WHERE id = ?",
@@ -267,6 +198,22 @@ public extension ChatStore {
         default:
             break
         }
+    }
+
+    private static func reconcileThread(
+        _ thread: MessageThread.ID, in conversation: Conversation.ID, keeping: [Message.ID], db: Database
+    ) throws {
+        let placeholders = Array(repeating: "?", count: keeping.count).joined(separator: ",")
+        let exclusion = keeping.isEmpty ? "" : " AND id NOT IN (\(placeholders))"
+        try db.execute(
+            sql: """
+            DELETE FROM message
+            WHERE conversationID = ? AND threadID = ? AND id NOT LIKE 'local/%'\(exclusion)
+            """,
+            arguments: StatementArguments(
+                [conversation.rawValue, thread.rawValue] + keeping.map(\.rawValue)
+            )
+        )
     }
 
     private static func performSessionWrite(_ write: StoreWrite, in db: Database) throws {
@@ -330,6 +277,7 @@ public extension ChatStore {
     }
 
     private static func upsert(_ conversation: Conversation, in db: Database) throws {
+        guard try mayRestoreConversation(conversation, in: db) else { return }
         var row = try ConversationRow(conversation)
         // `lastReadAt` is `Conversation.readPosition` (the mentions-list spec
         // §1). A snapshot that carries one is authoritative: a world load's is
@@ -344,7 +292,27 @@ public extension ChatStore {
                 arguments: [row.id]
             ).map(StoredDate.date)
         }
+        if let previous = try Double.fetchOne(
+            db,
+            sql: """
+            SELECT MAX(cutoff) FROM (
+                SELECT historyClearedBefore AS cutoff FROM conversation WHERE id = ?
+                UNION ALL SELECT historyClearedBefore AS cutoff FROM conversationActionState WHERE id = ?
+            )
+            """,
+            arguments: [row.id, row.id]
+        ) {
+            let prior = StoredDate.date(previous)
+            row.historyClearedBefore = max(row.historyClearedBefore ?? prior, prior)
+        }
+        if let cutoff = row.historyClearedBefore {
+            try clearConversationHistory(conversation.id, through: cutoff, in: db)
+        }
         try row.upsert(db)
+        try db.execute(
+            sql: "UPDATE conversationActionState SET isRemoved = 0 WHERE id = ?",
+            arguments: [row.id]
+        )
         // A snapshot that lists nobody says nothing about membership, the same
         // reasoning as `lastReadAt` above. A space's world item never lists
         // its members (`findings.md` §43.1); `list_members` does (§56.1), and
@@ -362,6 +330,16 @@ public extension ChatStore {
         _ members: [Member.ID],
         in db: Database
     ) throws {
+        // A directory answer can arrive after Hide, Block or Leave removed
+        // this row. Keep the member records without restoring membership.
+        if try !ConversationRow.exists(db, key: conversation.rawValue),
+           try Bool.fetchOne(
+               db,
+               sql: "SELECT isRemoved FROM conversationActionState WHERE id = ?",
+               arguments: [conversation.rawValue]
+           ) == true {
+            return
+        }
         try MembershipRow
             .filter(Column("conversationID") == conversation.rawValue)
             .deleteAll(db)

@@ -140,7 +140,10 @@ struct LocalBridgeBackendTests {
         #expect(!backend.capabilities.needsFollowedThreadsBackfill)
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
-            canSetStatus: true, canMarkRead: true, supportsThreads: true,
+            canSetStatus: true, canMarkRead: true,
+            canMarkUnread: true, canHideConversations: true, canBlockConversations: true,
+            canLeaveConversations: true, canDeleteConversations: true, canOpenDirectConversations: true,
+            supportsThreads: true,
             canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
             canSendAttachments: true, maximumAttachmentBytes: 200 * 1024 * 1024,
             canMention: true, canMentionNonMembers: true, needsMentionBackfill: true,

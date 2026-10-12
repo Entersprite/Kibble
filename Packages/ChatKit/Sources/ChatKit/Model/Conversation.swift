@@ -106,6 +106,12 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// A client's followed-thread badge is computed separately. Absent means
     /// `false`.
     public var hasUnreadThread: Bool
+    /// A manual unread mark, retained until a backend confirms it was cleared.
+    public var markedUnreadAt: Date?
+    /// Account history at or before this accepted cutoff must stay cleared.
+    public var historyClearedBefore: Date?
+    /// Latest main-conversation message, excluding activity in replies.
+    public var latestMainMessageAt: Date?
 
     public init(
         id: ID,
@@ -122,7 +128,10 @@ public struct Conversation: Codable, Hashable, Sendable {
         isThreaded: Bool = false,
         readPosition: Date? = nil,
         repliesEnabled: Bool = false,
-        hasUnreadThread: Bool = false
+        hasUnreadThread: Bool = false,
+        markedUnreadAt: Date? = nil,
+        historyClearedBefore: Date? = nil,
+        latestMainMessageAt: Date? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -139,6 +148,9 @@ public struct Conversation: Codable, Hashable, Sendable {
         self.readPosition = readPosition
         self.repliesEnabled = repliesEnabled
         self.hasUnreadThread = hasUnreadThread
+        self.markedUnreadAt = markedUnreadAt
+        self.historyClearedBefore = historyClearedBefore
+        self.latestMainMessageAt = latestMainMessageAt
     }
 }
 
@@ -264,6 +276,9 @@ public extension Conversation {
         case readPosition
         case repliesEnabled
         case hasUnreadThread
+        case markedUnreadAt
+        case historyClearedBefore
+        case latestMainMessageAt
     }
 
     /// `id` and `kind` are required; everything else falls back to the same
@@ -293,7 +308,10 @@ public extension Conversation {
             isThreaded: container.decodeIfPresent(Bool.self, forKey: .isThreaded) ?? false,
             readPosition: container.decodeWireIfPresent(Date.self, forKey: .readPosition),
             repliesEnabled: container.decodeIfPresent(Bool.self, forKey: .repliesEnabled) ?? false,
-            hasUnreadThread: container.decodeIfPresent(Bool.self, forKey: .hasUnreadThread) ?? false
+            hasUnreadThread: container.decodeIfPresent(Bool.self, forKey: .hasUnreadThread) ?? false,
+            markedUnreadAt: container.decodeWireIfPresent(Date.self, forKey: .markedUnreadAt),
+            historyClearedBefore: container.decodeWireIfPresent(Date.self, forKey: .historyClearedBefore),
+            latestMainMessageAt: container.decodeWireIfPresent(Date.self, forKey: .latestMainMessageAt)
         )
     }
 
@@ -317,6 +335,9 @@ public extension Conversation {
         if repliesEnabled {
             try container.encode(repliesEnabled, forKey: .repliesEnabled)
         }
+        try container.encodeWireIfPresent(markedUnreadAt, forKey: .markedUnreadAt)
+        try container.encodeWireIfPresent(historyClearedBefore, forKey: .historyClearedBefore)
+        try container.encodeWireIfPresent(latestMainMessageAt, forKey: .latestMainMessageAt)
         if hasUnreadThread {
             try container.encode(hasUnreadThread, forKey: .hasUnreadThread)
         }

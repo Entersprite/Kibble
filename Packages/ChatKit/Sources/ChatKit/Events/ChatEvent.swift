@@ -62,6 +62,11 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// One conversation's snapshot has been replaced.
     case conversationUpdated(Conversation)
 
+    /// Removes the account's sidebar entry. Only deletion clears cached history.
+    case conversationRemoved(conversationID: Conversation.ID, historyBefore: Date?)
+    /// A manual unread mark is independent of the ordinary read position.
+    case conversationUnreadMarkChanged(conversationID: Conversation.ID, at: Date?)
+
     /// Its `reactions` are not authoritative: a client keeps the reactions it
     /// already holds for the message, and `reactionChanged` and history
     /// change them.
