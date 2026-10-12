@@ -1405,7 +1405,16 @@ message ListTopicsRequest {
 	optional int32 page_size_for_unread_replies = 6;
 	optional int32 page_size_for_read_replies = 7;
 	optional int32 page_size_for_replies = 3;
-	//optional DYNProtoListTopicsRequest_Filter filter = 4;
+
+	// findings.md §65.9: Chat on the web sends the conversation's read position
+	// here, with sort_option 2; whether it bounds a page is [Verify]. Names ours,
+	// numbers the wire's (28 of 28 captured `list_topics` requests); neither
+	// reference implementation names this field.
+	message TopicsFilter {
+		message TimeAnchor { optional int64 time_usec = 1; }
+		optional TimeAnchor anchor = 5;
+	}
+	optional TopicsFilter filter = 4;
 
 	enum FetchOptions {
 		USER = 1;
@@ -1415,7 +1424,10 @@ message ListTopicsRequest {
 	repeated FetchOptions fetch_options = 5;
 	optional ReferenceRevision user_not_older_than = 9;
 	optional ReferenceRevision group_not_older_than = 10;
-	//optional DYNProtoListTopicsRequest_SortOption sort_option = 11;
+
+	// findings.md §65.9: 28 of 28 captured requests sent 2; neither reference
+	// implementation names this field.
+	optional int32 sort_option = 11;
 }
 
 message ListMessagesRequest {

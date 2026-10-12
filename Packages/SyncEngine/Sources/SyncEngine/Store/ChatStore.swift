@@ -53,8 +53,8 @@ public extension ChatStore {
             try performReadWrite(write, in: db)
         case .applyThreadChange, .setUnreadThreads:
             try performThreadWrite(write, in: db)
-        case .upsertMessage, .upsertMessageKeepingReactions, .markMessageDeleted, .removeMessage,
-             .setReactions:
+        case .upsertMessage, .upsertMessageKeepingReactions, .insertMessageIfAbsent, .markMessageDeleted,
+             .removeMessage, .setReactions:
             try performMessageWrite(write, in: db)
         case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
              .setAvailability, .clearEphemeralState:
@@ -215,6 +215,9 @@ public extension ChatStore {
                 )
             }
             try MessageRow(message).upsert(db)
+        case let .insertMessageIfAbsent(message):
+            // `INSERT OR IGNORE` - `StoreWrite.insertMessageIfAbsent` says why.
+            try MessageRow(message).insert(db, onConflict: .ignore)
         case let .markMessageDeleted(id, _):
             // A tombstone, not a removal: the message keeps its place in the
             // ordering because the protocol keeps sending it and a hole would

@@ -40,7 +40,7 @@ actor RecordingBackend: ChatBackend {
     nonisolated let abortableSubmissions = AbortableHold()
     private var holdingAbortably = false
 
-    private(set) var loadMessagesCalls = 0
+    private(set) var historyCursors: [Message.ID?] = [] // every `loadMessages`' `before:`, as asked
     /// Every `uploadAttachment` call, in order, failed ones included.
     private(set) var uploads: [OutgoingAttachment] = []
     private var failingUploads = false
@@ -234,7 +234,7 @@ actor RecordingBackend: ChatBackend {
     /// Lets a test prove a repeated `.connected` observation does not refetch
     /// history twice - no assertion other than a query count can express that.
     var loadMessagesCount: Int {
-        loadMessagesCalls
+        historyCursors.count
     }
 
     func connect() async throws {
@@ -278,9 +278,9 @@ actor RecordingBackend: ChatBackend {
     }
 
     /// Makes every later `loadMessages` forward `before: nil` regardless of
-    /// what it is asked for - the shape of the real `LocalBridgeBackend`,
-    /// which always answers the newest page (search spec review, Focus 1):
-    /// `loadHistory`'s no-progress exit is the path production takes.
+    /// what it is asked for - a server that ignores the anchor (`findings.md`
+    /// §65.9), or a message the bridge has no time for: `loadHistory`'s
+    /// no-progress exit is what ends it then.
     private var ignoringHistoryCursor = false
 
     func ignoreHistoryCursor(_ ignore: Bool) {
@@ -294,7 +294,7 @@ actor RecordingBackend: ChatBackend {
         in conversation: Conversation.ID,
         before: Message.ID?
     ) async throws -> [Message] {
-        loadMessagesCalls += 1
+        historyCursors.append(before)
         if holdingHistory {
             try await abortableHistory.wait()
         }

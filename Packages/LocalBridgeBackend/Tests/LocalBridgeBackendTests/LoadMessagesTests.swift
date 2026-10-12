@@ -167,10 +167,10 @@ struct LoadMessagesTests {
         #expect(messages.map(\.id.rawValue) == ["m-old", "m-new"])
     }
 
-    /// `before:` has no cursor to spend on the wire, so it is ignored and the
-    /// first page always comes back - asserted by passing a non-nil value
-    /// and getting the identical result `nil` would.
-    @Test func loadMessagesIgnoresBeforeAndReturnsTheFirstPage() async throws {
+    /// A `before:` this session never mapped has no known time to anchor on,
+    /// so the first page comes back, unfiltered - the identical result `nil`
+    /// would give. A known one anchors (`LoadMessagesAnchorTests`).
+    @Test func anUnknownBeforeReturnsTheFirstPage() async throws {
         let group = spaceGroupID("s-1")
         let response = try topicsResponse([
             topic(replies: [reply(id: "m-1", groupID: group)])

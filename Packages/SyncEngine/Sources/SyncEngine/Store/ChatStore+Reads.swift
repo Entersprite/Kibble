@@ -20,13 +20,6 @@ public extension ChatStore {
         try database.read { db in try Self.fetchMessages(conversation, db) }
     }
 
-    /// The transcript's oldest top-level message, read directly with
-    /// `LIMIT 1` rather than paging the whole list in to take its head
-    /// (`SyncEngine.loadHistory`'s starting `before:`).
-    func oldestMessage(in conversation: Conversation.ID) throws -> Message? {
-        try database.read { db in try Self.fetchOldestMessage(conversation, db) }
-    }
-
     /// One message by id, read straight from the database rather than from
     /// whatever a `ValueObservation` has last delivered.
     ///
@@ -93,6 +86,23 @@ public extension ChatStore {
                 sql: "SELECT lastReadAt FROM conversation WHERE id = ?",
                 arguments: [conversation.rawValue]
             ).map(StoredDate.date)
+        }
+    }
+
+    /// Whether `conversation` holds a top-level message older than `date`:
+    /// something the transcript shows before it. An opened search hit with
+    /// none has nothing stored that led up to it
+    /// (`SyncEngine.loadHistory(in:until:pageLimit:)`).
+    func hasTopLevelMessage(in conversation: Conversation.ID, before date: Date) throws -> Bool {
+        try database.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: """
+                SELECT EXISTS (SELECT 1 FROM message
+                               WHERE conversationID = ? AND isReply = 0 AND createdAt < ?)
+                """,
+                arguments: [conversation.rawValue, StoredDate.value(date)]
+            ) ?? false
         }
     }
 }
@@ -208,17 +218,6 @@ extension ChatStore {
             .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
             .order(Column("createdAt").asc, Column("id").asc)
             .fetchAll(db)
-            .map { try $0.message }
-    }
-
-    /// Same filter and order as `fetchMessages`, but `fetchOne` rather than
-    /// `fetchAll`: GRDB adds `LIMIT 1` to a query interface request's
-    /// `fetchOne`, so this never reads more than one row.
-    static func fetchOldestMessage(_ conversation: Conversation.ID, _ db: Database) throws -> Message? {
-        try MessageRow
-            .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
-            .order(Column("createdAt").asc, Column("id").asc)
-            .fetchOne(db)
             .map { try $0.message }
     }
 

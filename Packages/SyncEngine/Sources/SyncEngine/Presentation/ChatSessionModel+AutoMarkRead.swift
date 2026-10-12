@@ -148,6 +148,9 @@ extension ChatSessionModel {
             return
         }
         guard markTasks[selected] == nil else { traceTrigger(.alreadyInFlight); return }
+        if skipsBehindServerPosition(newest, in: selected) {
+            return
+        }
         // `.scheduled`, not `.submitted`: all this call has decided is that a
         // mark will happen. The row that says one was actually sent follows
         // when the wait below ends and the guards still hold, and a capture
@@ -254,6 +257,11 @@ extension ChatSessionModel {
             traceTrigger(.watermarkNotAdvanced, for: conversation, publishing: position)
             return
         }
+        // Again after the wait: the position was recomputed, and the server's
+        // can have moved meanwhile (a world load, another device reading).
+        if skipsBehindServerPosition(position, in: conversation, generation: generation) {
+            return
+        }
         traceTrigger(.submitted, for: conversation, publishing: position)
         let startedAt = ContinuousClock.now
         let accepted = await engine.submit(.markRead(
@@ -320,6 +328,47 @@ extension ChatSessionModel {
         if let freshest, freshest > position {
             markSelectedReadIfNeeded()
         }
+    }
+
+    /// Whether `position` is at or behind the read position the server holds
+    /// for `conversation`, in which case the mark is skipped and the watermark
+    /// takes the server's position, so the next trigger stops there. The thread
+    /// mark skips the same way (`publishThreadReadPosition`, `findings.md`
+    /// §64.2), and equality is read (§42.2).
+    ///
+    /// **Why it exists.** An opened search hit is stored before its
+    /// conversation's newest page lands (`SyncEngine.loadHistory`), so the
+    /// transcript can hold nothing but a message years old. Publishing that
+    /// would move the server's position back and turn the conversation unread
+    /// everywhere. A transcript left on disk by an earlier launch, behind a
+    /// conversation read since on another device, is the same case.
+    ///
+    /// **It never drops a mark the server needs.** The stored position comes
+    /// only from the server's read state - a world load or `readStateChanged`;
+    /// a published mark writes none of its own (`SyncEngine.submit`) - so one
+    /// at or after `position` already covers it. It reads the position, never
+    /// `hasUnread`: a conversation unread for messages the transcript does
+    /// not hold yet must not be marked back to an older one. A conversation
+    /// marked unread by moving its position back is still marked on view, since
+    /// its newest message is then after the position. The store keeps no other
+    /// conversation-level mark: `GroupReadState.mark_as_unread_timestamp_usec`
+    /// is not mapped.
+    ///
+    /// Read from the observed `conversations`, never the store: this runs on
+    /// every delivery, on the main thread (CLAUDE.md, session 66). After the
+    /// wait, the watermark is written only by the mark still installed
+    /// (`generation`), for `clearMarkTask`'s reason.
+    func skipsBehindServerPosition(
+        _ position: Date, in conversation: Conversation.ID, generation: Int? = nil
+    ) -> Bool {
+        guard let read = conversations.first(where: { $0.id == conversation })?.readPosition,
+              position <= read
+        else { return false }
+        if generation == nil || markGeneration[conversation] == generation {
+            published[conversation] = read
+        }
+        traceTrigger(.alreadyReadOnServer, for: conversation, publishing: position)
+        return true
     }
 
     /// Clears `markTasks[conversation]`, but only if `markGeneration` still

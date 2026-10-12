@@ -72,6 +72,11 @@ public enum MarkReadTriggerOutcome: String, Sendable, Equatable {
     case watermarkNotAdvanced = "watermark-not-advanced"
     /// A mark for this conversation was already in flight.
     case alreadyInFlight = "already-in-flight"
+    /// The server's stored read position for the conversation was at or
+    /// after the position this mark would publish (equality is read,
+    /// `findings.md` §42.2), so it was skipped and the watermark took the
+    /// server's position. Before the wait or after it.
+    case alreadyReadOnServer = "already-read-on-server"
     /// A mark passed every guard and is **waiting** before it publishes.
     ///
     /// The debounce (see `ChatSessionModel+AutoMarkRead.swift`) splits what

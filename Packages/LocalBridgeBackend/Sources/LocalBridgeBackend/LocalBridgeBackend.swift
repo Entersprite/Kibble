@@ -22,40 +22,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// caller that logs it learns something true.
     public static let missingChannel = "liveChannel"
 
-    /// Almost nothing is advertised until it works.
-    ///
-    /// Not modesty - the UI reads `capabilities` to decide what to offer, and a
-    /// bridge claiming it could do something it could not would hand the user a
-    /// composer that silently swallowed their messages. `canSendMessages` is
-    /// now true: `send(_:)` posts through `create_topic` /
-    /// `create_message` (`LocalBridgeBackend+Send.swift`), `[Verify]` until a
-    /// deliberate single send against live traffic confirms the shape.
-    /// `supportsThreads` is the other exception: `loadConversations()` now maps
-    /// `isThreaded` for real (`WorldMapping`), so a client can tell a flat
-    /// group from a threaded one without guessing.
-    /// `canMarkRead` is now true: `.markRead` posts through
-    /// `mark_group_readstate` (`LocalBridgeBackend+ReadState.swift`) and the
-    /// response's own `GroupReadState` becomes `.readStateChanged`.
-    /// `[Verify]` until one deliberate call against live traffic confirms the
-    /// shape. `receivesReadReceipts` stays false and is a different claim -
-    /// it is about *other people's* read positions, which nothing here maps.
-    /// `canDownloadFiles` is backed by `findings.md` §52.10's live download.
-    /// `canReact` is true: `.setReaction` posts through `update_reaction`
-    /// (`LocalBridgeBackend+Reactions.swift`), `[Verify]` until a live toggle
-    /// confirms the shape.
-    /// `canFetchCustomEmoji` is true on `findings.md` §54.4's capture: the
-    /// image call is the one Chat on the web makes, `[Verify]` from here.
-    /// `canSendAttachments` is true on both references' agreement
-    /// (`LocalBridgeBackend+Uploads.swift`), `[Verify]` until a live upload.
-    /// `canEditMessages` and `canDeleteMessages` are true: `edit_message` and
-    /// `delete_message` (`LocalBridgeBackend+EditDelete.swift`), `[Verify]`
-    /// until `--probe=edit` runs.
-    public nonisolated let capabilities = Capabilities(
-        canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
-        canSetStatus: true, canMarkRead: true, supportsThreads: true,
-        canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
-        canSendAttachments: true, canMention: true, canMentionNonMembers: true, canFetchRemoteImages: true
-    )
+    // `capabilities` lives in `LocalBridgeBackend+Capabilities.swift` - a
+    // computed property, moved out once search's own additions pushed this
+    // file to `file_length`.
 
     public nonisolated let events: AsyncStream<ChatEvent>
 
@@ -177,6 +146,14 @@ public actor LocalBridgeBackend: ChatBackend {
     /// How long a refetch waits before asking: `defaultReactionRefetchDelay`
     /// outside tests.
     let reactionRefetchDelay: Duration
+    /// `SBNmJb`'s `_reqid` counter (`LocalBridgeBackend+Search.swift`),
+    /// mirroring the probe's own `SearchCallContext.nextRequestID()`. Not
+    /// reset by `disconnect()`: a fresh base per process is all §65.6 says it
+    /// needs to be - a monotonically increasing value, never repeated.
+    var searchRequestID = Int.random(in: 1000 ... 9999)
+    /// Each mapped message's create time, for anchored history
+    /// (`MessageCreateTimes`, `findings.md` §65.9). Cleared by `disconnect()`.
+    var messageTimes = MessageCreateTimes()
 
     public init(
         cookies: SessionCookies,
@@ -318,6 +295,7 @@ public actor LocalBridgeBackend: ChatBackend {
         attachmentFetch = nil
         attachmentUpload = nil
         uploadedMetadata = [:]
+        messageTimes.forgetAll()
         memberResolution?.cancel()
         memberResolution = nil
         forgetDirectory()
@@ -388,6 +366,7 @@ public actor LocalBridgeBackend: ChatBackend {
             }
         }
         let chatEvents = ChannelEventMapping.chatEvents(from: event)
+        messageTimes.remember(chatEvents.flatMap(Self.messages(in:)))
         for chatEvent in chatEvents {
             emit(chatEvent)
         }

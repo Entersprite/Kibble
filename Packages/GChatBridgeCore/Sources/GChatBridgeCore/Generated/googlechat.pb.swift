@@ -8013,7 +8013,6 @@ public nonisolated struct ListTopicsRequest: @unchecked Sendable {
   /// Clears the value of `pageSizeForReadReplies`. Subsequent reads from it will return its default value.
   public mutating func clearPageSizeForReadReplies() {_uniqueStorage()._pageSizeForReadReplies = nil}
 
-  ///optional DYNProtoListTopicsRequest_Filter filter = 4;
   public var pageSizeForReplies: Int32 {
     get {_storage._pageSizeForReplies ?? 0}
     set {_uniqueStorage()._pageSizeForReplies = newValue}
@@ -8022,6 +8021,15 @@ public nonisolated struct ListTopicsRequest: @unchecked Sendable {
   public var hasPageSizeForReplies: Bool {_storage._pageSizeForReplies != nil}
   /// Clears the value of `pageSizeForReplies`. Subsequent reads from it will return its default value.
   public mutating func clearPageSizeForReplies() {_uniqueStorage()._pageSizeForReplies = nil}
+
+  public var filter: ListTopicsRequest.TopicsFilter {
+    get {_storage._filter ?? ListTopicsRequest.TopicsFilter()}
+    set {_uniqueStorage()._filter = newValue}
+  }
+  /// Returns true if `filter` has been explicitly set.
+  public var hasFilter: Bool {_storage._filter != nil}
+  /// Clears the value of `filter`. Subsequent reads from it will return its default value.
+  public mutating func clearFilter() {_uniqueStorage()._filter = nil}
 
   public var fetchOptions: [ListTopicsRequest.FetchOptions] {
     get {_storage._fetchOptions}
@@ -8037,7 +8045,6 @@ public nonisolated struct ListTopicsRequest: @unchecked Sendable {
   /// Clears the value of `userNotOlderThan`. Subsequent reads from it will return its default value.
   public mutating func clearUserNotOlderThan() {_uniqueStorage()._userNotOlderThan = nil}
 
-  ///optional DYNProtoListTopicsRequest_SortOption sort_option = 11;
   public var groupNotOlderThan: ReferenceRevision {
     get {_storage._groupNotOlderThan ?? ReferenceRevision()}
     set {_uniqueStorage()._groupNotOlderThan = newValue}
@@ -8046,6 +8053,17 @@ public nonisolated struct ListTopicsRequest: @unchecked Sendable {
   public var hasGroupNotOlderThan: Bool {_storage._groupNotOlderThan != nil}
   /// Clears the value of `groupNotOlderThan`. Subsequent reads from it will return its default value.
   public mutating func clearGroupNotOlderThan() {_uniqueStorage()._groupNotOlderThan = nil}
+
+  /// findings.md §65.9: 28 of 28 captured requests sent 2; neither reference
+  /// implementation names this field.
+  public var sortOption: Int32 {
+    get {_storage._sortOption ?? 0}
+    set {_uniqueStorage()._sortOption = newValue}
+  }
+  /// Returns true if `sortOption` has been explicitly set.
+  public var hasSortOption: Bool {_storage._sortOption != nil}
+  /// Clears the value of `sortOption`. Subsequent reads from it will return its default value.
+  public mutating func clearSortOption() {_uniqueStorage()._sortOption = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -8058,6 +8076,52 @@ public nonisolated struct ListTopicsRequest: @unchecked Sendable {
       self = .user
     }
 
+  }
+
+  /// findings.md §65.9: Chat on the web sends the conversation's read position
+  /// here, with sort_option 2; whether it bounds a page is [Verify]. Names ours,
+  /// numbers the wire's (28 of 28 captured `list_topics` requests); neither
+  /// reference implementation names this field.
+  public nonisolated struct TopicsFilter: Sendable {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var anchor: ListTopicsRequest.TopicsFilter.TimeAnchor {
+      get {_anchor ?? ListTopicsRequest.TopicsFilter.TimeAnchor()}
+      set {_anchor = newValue}
+    }
+    /// Returns true if `anchor` has been explicitly set.
+    public var hasAnchor: Bool {self._anchor != nil}
+    /// Clears the value of `anchor`. Subsequent reads from it will return its default value.
+    public mutating func clearAnchor() {self._anchor = nil}
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public nonisolated struct TimeAnchor: Sendable {
+      // SwiftProtobuf.Message conformance is added in an extension below. See the
+      // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+      // methods supported on all messages.
+
+      public var timeUsec: Int64 {
+        get {_timeUsec ?? 0}
+        set {_timeUsec = newValue}
+      }
+      /// Returns true if `timeUsec` has been explicitly set.
+      public var hasTimeUsec: Bool {self._timeUsec != nil}
+      /// Clears the value of `timeUsec`. Subsequent reads from it will return its default value.
+      public mutating func clearTimeUsec() {self._timeUsec = nil}
+
+      public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+      public init() {}
+
+      fileprivate var _timeUsec: Int64? = nil
+    }
+
+    public init() {}
+
+    fileprivate var _anchor: ListTopicsRequest.TopicsFilter.TimeAnchor? = nil
   }
 
   public init() {}
@@ -23345,7 +23409,7 @@ nonisolated extension ListTopicsResponse: SwiftProtobuf.Message, SwiftProtobuf._
 
 nonisolated extension ListTopicsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ListTopicsRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{2}page_size_for_topics\0\u{3}page_size_for_replies\0\u{4}\u{2}fetch_options\0\u{3}page_size_for_unread_replies\0\u{3}page_size_for_read_replies\0\u{3}group_id\0\u{3}user_not_older_than\0\u{3}group_not_older_than\0\u{4}Z\u{1}request_header\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{2}page_size_for_topics\0\u{3}page_size_for_replies\0\u{1}filter\0\u{3}fetch_options\0\u{3}page_size_for_unread_replies\0\u{3}page_size_for_read_replies\0\u{3}group_id\0\u{3}user_not_older_than\0\u{3}group_not_older_than\0\u{3}sort_option\0\u{4}Y\u{1}request_header\0")
 
   fileprivate class _StorageClass {
     var _requestHeader: RequestHeader? = nil
@@ -23354,9 +23418,11 @@ nonisolated extension ListTopicsRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     var _pageSizeForUnreadReplies: Int32? = nil
     var _pageSizeForReadReplies: Int32? = nil
     var _pageSizeForReplies: Int32? = nil
+    var _filter: ListTopicsRequest.TopicsFilter? = nil
     var _fetchOptions: [ListTopicsRequest.FetchOptions] = []
     var _userNotOlderThan: ReferenceRevision? = nil
     var _groupNotOlderThan: ReferenceRevision? = nil
+    var _sortOption: Int32? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -23373,9 +23439,11 @@ nonisolated extension ListTopicsRequest: SwiftProtobuf.Message, SwiftProtobuf._M
       _pageSizeForUnreadReplies = source._pageSizeForUnreadReplies
       _pageSizeForReadReplies = source._pageSizeForReadReplies
       _pageSizeForReplies = source._pageSizeForReplies
+      _filter = source._filter
       _fetchOptions = source._fetchOptions
       _userNotOlderThan = source._userNotOlderThan
       _groupNotOlderThan = source._groupNotOlderThan
+      _sortOption = source._sortOption
     }
   }
 
@@ -23396,12 +23464,14 @@ nonisolated extension ListTopicsRequest: SwiftProtobuf.Message, SwiftProtobuf._M
         switch fieldNumber {
         case 2: try { try decoder.decodeSingularInt32Field(value: &_storage._pageSizeForTopics) }()
         case 3: try { try decoder.decodeSingularInt32Field(value: &_storage._pageSizeForReplies) }()
+        case 4: try { try decoder.decodeSingularMessageField(value: &_storage._filter) }()
         case 5: try { try decoder.decodeRepeatedEnumField(value: &_storage._fetchOptions) }()
         case 6: try { try decoder.decodeSingularInt32Field(value: &_storage._pageSizeForUnreadReplies) }()
         case 7: try { try decoder.decodeSingularInt32Field(value: &_storage._pageSizeForReadReplies) }()
         case 8: try { try decoder.decodeSingularMessageField(value: &_storage._groupID) }()
         case 9: try { try decoder.decodeSingularMessageField(value: &_storage._userNotOlderThan) }()
         case 10: try { try decoder.decodeSingularMessageField(value: &_storage._groupNotOlderThan) }()
+        case 11: try { try decoder.decodeSingularInt32Field(value: &_storage._sortOption) }()
         case 100: try { try decoder.decodeSingularMessageField(value: &_storage._requestHeader) }()
         default: break
         }
@@ -23421,6 +23491,9 @@ nonisolated extension ListTopicsRequest: SwiftProtobuf.Message, SwiftProtobuf._M
       try { if let v = _storage._pageSizeForReplies {
         try visitor.visitSingularInt32Field(value: v, fieldNumber: 3)
       } }()
+      try { if let v = _storage._filter {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+      } }()
       if !_storage._fetchOptions.isEmpty {
         try visitor.visitRepeatedEnumField(value: _storage._fetchOptions, fieldNumber: 5)
       }
@@ -23438,6 +23511,9 @@ nonisolated extension ListTopicsRequest: SwiftProtobuf.Message, SwiftProtobuf._M
       } }()
       try { if let v = _storage._groupNotOlderThan {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+      } }()
+      try { if let v = _storage._sortOption {
+        try visitor.visitSingularInt32Field(value: v, fieldNumber: 11)
       } }()
       try { if let v = _storage._requestHeader {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 100)
@@ -23457,9 +23533,11 @@ nonisolated extension ListTopicsRequest: SwiftProtobuf.Message, SwiftProtobuf._M
         if _storage._pageSizeForUnreadReplies != rhs_storage._pageSizeForUnreadReplies {return false}
         if _storage._pageSizeForReadReplies != rhs_storage._pageSizeForReadReplies {return false}
         if _storage._pageSizeForReplies != rhs_storage._pageSizeForReplies {return false}
+        if _storage._filter != rhs_storage._filter {return false}
         if _storage._fetchOptions != rhs_storage._fetchOptions {return false}
         if _storage._userNotOlderThan != rhs_storage._userNotOlderThan {return false}
         if _storage._groupNotOlderThan != rhs_storage._groupNotOlderThan {return false}
+        if _storage._sortOption != rhs_storage._sortOption {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -23471,6 +23549,74 @@ nonisolated extension ListTopicsRequest: SwiftProtobuf.Message, SwiftProtobuf._M
 
 nonisolated extension ListTopicsRequest.FetchOptions: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}USER\0\u{1}TOTAL_MESSAGE_COUNTS\0\u{1}READ_RECEIPTS\0")
+}
+
+nonisolated extension ListTopicsRequest.TopicsFilter: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = ListTopicsRequest.protoMessageName + ".TopicsFilter"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{5}anchor\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._anchor) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._anchor {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: ListTopicsRequest.TopicsFilter, rhs: ListTopicsRequest.TopicsFilter) -> Bool {
+    if lhs._anchor != rhs._anchor {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension ListTopicsRequest.TopicsFilter.TimeAnchor: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = ListTopicsRequest.TopicsFilter.protoMessageName + ".TimeAnchor"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}time_usec\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self._timeUsec) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._timeUsec {
+      try visitor.visitSingularInt64Field(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: ListTopicsRequest.TopicsFilter.TimeAnchor, rhs: ListTopicsRequest.TopicsFilter.TimeAnchor) -> Bool {
+    if lhs._timeUsec != rhs._timeUsec {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 nonisolated extension ListMessagesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {

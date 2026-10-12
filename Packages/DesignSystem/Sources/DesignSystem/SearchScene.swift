@@ -18,6 +18,9 @@ public struct SearchSceneState: Sendable, Equatable {
     public var recents: [String]
     /// The hit to select when the overlay opens.
     public var focus: Message.ID?
+    /// One more every time `focus` is restamped, even to the same value: what
+    /// the overlay watches to reselect it on ⌘F back to the same bar position.
+    public var focusGeneration: Int
     public var bar: SearchBarScene?
 
     public init(
@@ -25,7 +28,8 @@ public struct SearchSceneState: Sendable, Equatable {
         conversations: [Conversation] = [], people: [Member] = [], hits: [Message] = [],
         isSearching: Bool = false, isLoadingMore: Bool = false, loadMoreFailed: Bool = false,
         hasMore: Bool = false,
-        failed: Bool = false, recents: [String] = [], focus: Message.ID? = nil, bar: SearchBarScene? = nil
+        failed: Bool = false, recents: [String] = [], focus: Message.ID? = nil, focusGeneration: Int = 0,
+        bar: SearchBarScene? = nil
     ) {
         self.isShown = isShown
         self.query = query
@@ -39,6 +43,7 @@ public struct SearchSceneState: Sendable, Equatable {
         self.failed = failed
         self.recents = recents
         self.focus = focus
+        self.focusGeneration = focusGeneration
         self.bar = bar
     }
 }
@@ -52,15 +57,19 @@ public struct SearchBarScene: Sendable, Equatable {
     public var isOpening: Bool
     /// Why the hit could not be opened; `nil` while it can be.
     public var unreachable: Unreachable?
+    /// The page past the last loaded hit failed to load.
+    public var pageFailed: Bool
 
     public enum Unreachable: Sendable, Equatable {
+        /// The hit could not be kept to open, however near or far back it is;
+        /// a failure behind it shows in the error banner.
         case tooFarBack
         case notInSidebar
     }
 
     public init(
         query: MessageSearchQuery, index: Int, count: Int, hasMore: Bool = false,
-        isOpening: Bool = false, unreachable: Unreachable? = nil
+        isOpening: Bool = false, unreachable: Unreachable? = nil, pageFailed: Bool = false
     ) {
         self.query = query
         self.index = index
@@ -68,6 +77,7 @@ public struct SearchBarScene: Sendable, Equatable {
         self.hasMore = hasMore
         self.isOpening = isOpening
         self.unreachable = unreachable
+        self.pageFailed = pageFailed
     }
 }
 

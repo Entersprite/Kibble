@@ -82,14 +82,25 @@ public extension ChatSessionModel {
 
 extension ChatSessionModel {
     /// Opens a hit where it lives: the transcript, or its thread for a reply
-    /// (`open(conversation:message:)`'s rule), after paging history back until
-    /// it is stored. `state` is the caller's pending change, written here in
-    /// the same one mutation.
+    /// (`open(conversation:message:)`'s rule), once the engine has asked for
+    /// the history just before it, stored the hit with it and read where it
+    /// lands (`SyncEngine.loadHistory(in:until:pageLimit:)`). `state` is the
+    /// caller's pending change, written here in the same one mutation.
+    ///
+    /// Nothing here reads the store: pages are landing while a hit opens, and
+    /// a read on the main thread waits for each of them (CLAUDE.md, session
+    /// 66). That is why this does not call `open(conversation:message:)`.
     func openHit(_ hit: Message, from state: SearchSessionState) {
         searchWork.openTask?.cancel()
         searchWork.openTask = nil
         var state = state
         state.highlight = nil
+        // Opening a hit, whatever it lands on, supersedes a stale "couldn't
+        // load more": the bar has something more current to say now, if
+        // anything. Cleared here, once, so every exit below (this guard's
+        // `.notInSidebar`, the task's `.tooFarBack`, and the plain open)
+        // inherits it rather than each needing its own.
+        state.bar?.pageFailed = false
         guard conversations.contains(where: { $0.id == hit.conversationID }) else {
             state.bar?.isOpening = false
             state.bar?.unreachable = .notInSidebar
@@ -104,12 +115,7 @@ extension ChatSessionModel {
         }
         let limit = searchWork.historyPageLimit
         searchWork.openTask = Task { @MainActor [weak self, engine] in
-            let found = await (try? engine.loadHistory(
-                in: hit.conversationID,
-                until: hit.id,
-                pageLimit: limit
-            ))
-                ?? false
+            let target = try? await engine.loadHistory(in: hit.conversationID, until: hit, pageLimit: limit)
             guard !Task.isCancelled, let self else { return }
             var state = search
             state.bar?.isOpening = false
@@ -118,16 +124,34 @@ extension ChatSessionModel {
                 search = state
                 return
             }
-            guard found else {
+            // The hit is not stored: the store refused it (the engine has
+            // recorded why), or lost it before the open read it back. There
+            // is nothing to land on.
+            guard let target else {
                 state.bar?.unreachable = .tooFarBack
                 search = state
                 return
             }
-            open(conversation: hit.conversationID, message: hit.id)
-            state.highlight = hit.id
+            land(on: target)
+            state.highlight = target.message.id
             state.openGeneration += 1
             search = state
         }
+    }
+
+    /// `open(conversation:message:)`'s rule, from what the engine read: a
+    /// root is scrolled to; a reply opens its thread at itself, and the
+    /// transcript scrolls to the thread's first message, when it is stored.
+    private func land(on target: HistoryTarget) {
+        let message = target.message
+        guard message.isReply else {
+            scrollTarget = message.id
+            return
+        }
+        scrollTarget = target.threadRoot
+        openThread(message.threadID)
+        threads.scrollTarget = message.id
+        threads.scrollGeneration += 1
     }
 
     private func cancelBarPage() {
@@ -153,14 +177,24 @@ extension ChatSessionModel {
     private func loadBarPage(after cursor: MessageSearchCursor, thenOpen target: Int) {
         guard let query = search.bar?.query else { return }
         searchWork.barPageTask?.cancel()
+        // Cleared the moment this retry asks, not when it lands.
+        var state = search
+        state.bar?.pageFailed = false
+        search = state
         searchWork.barPageTask = Task { @MainActor [weak self, engine] in
             let page = try? await engine.searchMessages(query, after: cursor)
             guard !Task.isCancelled, let self else { return }
-            guard let page, var bar = search.bar, bar.query == query else { return }
+            guard var bar = search.bar, bar.query == query else { return }
+            var state = search
+            guard let page else {
+                bar.pageFailed = true
+                state.bar = bar
+                search = state
+                return
+            }
             let known = Set(bar.hits.map(\.id))
             bar.hits += page.hits.filter { !known.contains($0.id) }
             bar.next = page.next
-            var state = search
             guard bar.hits.indices.contains(target) else {
                 state.bar = bar
                 search = state

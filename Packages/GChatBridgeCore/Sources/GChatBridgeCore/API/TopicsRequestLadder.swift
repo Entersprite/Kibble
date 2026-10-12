@@ -153,6 +153,37 @@ public enum TopicsRequestLadder {
         rungs(for: group)[2]
     }
 
+    /// `list_topics`' `sort_option` on every request the web client sent
+    /// (`findings.md` §65.9, 28 of 28). Its answers came back oldest first by
+    /// creation, so 2 is plausibly "oldest first" `[Verify]`; the vendored
+    /// proto names no values.
+    public static let anchoredSortOption: Int32 = 2
+
+    /// `history(for:)` plus the two fields every captured web-client
+    /// `list_topics` carried (`findings.md` §65.9): `filter.anchor.time_usec`
+    /// set to `timeUsec` exactly, and `sort_option` 2. Nothing else changes, so
+    /// a page is still 50 topics with their replies.
+    ///
+    /// **Whether the anchor bounds a page is `[Verify]`.** In the capture the
+    /// anchor was always the conversation's read position and every answer
+    /// still reached the newest topic, so it may only mark what is unread
+    /// (§65.9, "Two readings fit every answer"). A caller must not assume the
+    /// answer holds only topics older than the anchor. `--probe=search`'s
+    /// anchor stage sends this same request, so its run settles the question
+    /// for this one.
+    public static func history(for group: GroupId, anchoredAt timeUsec: Int64) -> Rung {
+        let plain = history(for: group)
+        var request = plain.request
+        request.filter.anchor.timeUsec = timeUsec
+        request.sortOption = anchoredSortOption
+        return Rung(
+            label: plain.label + " + filter.anchor + sort_option: 2",
+            source: "the web client's own list_topics (findings.md §65.9): every captured request "
+                + "set filter field 5 to a microsecond time and sort_option to 2",
+            request: request
+        )
+    }
+
     private static func control(_ group: GroupId) -> ListTopicsRequest {
         var request = ListTopicsRequest()
         request.requestHeader = APIRequestHeader.make()

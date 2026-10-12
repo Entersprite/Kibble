@@ -8,8 +8,11 @@ enum SearchBarText {
             return "Loading older messages…"
         }
         let position = "\(bar.index + 1) of \(bar.count)\(bar.hasMore ? "+" : "")"
+        if bar.pageFailed {
+            return "\(position) · Couldn't load more results"
+        }
         switch bar.unreachable {
-        case .tooFarBack?: return "\(position) · Too far back to open here"
+        case .tooFarBack?: return "\(position) · Couldn't open this message"
         case .notInSidebar?: return "\(position) · Can't open this message here"
         case nil: return position
         }

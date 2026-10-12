@@ -45,8 +45,10 @@ public struct ThreadPanelState: Sendable, Equatable {
     /// The reply to scroll to once, after a mention or a notification opened
     /// the panel; `nil` means the newest reply.
     public var scrollTarget: Message.ID?
-    /// One more on every search open, so the same reply opened again is
-    /// scrolled to again (`TranscriptScroll.Request`).
+    /// One more on every open that lands on a reply here, never on one that
+    /// lands on a root elsewhere: the same reply opened again is scrolled to
+    /// again (`TranscriptScroll.Request`), and an unrelated root hit opening
+    /// leaves this panel exactly where it is.
     public var scrollGeneration: Int
     /// A Follow or Unfollow is on its way: the toggle waits for it.
     public var followPending: Bool

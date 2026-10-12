@@ -24,6 +24,11 @@ public struct SearchSessionState: Equatable, Sendable {
     public internal(set) var recents: [String] = []
     /// The hit the overlay selects when it opens again: the one being read.
     public internal(set) var focus: Message.ID?
+    /// One more every time `focus` is restamped from the bar (`showSearch()`):
+    /// the overlay's own signal to reselect it, so pressing ⌘F again at the
+    /// same bar position reselects the same hit too. Never achieved by
+    /// clearing `focus` to `nil` first, which would flash the selection.
+    public internal(set) var focusGeneration = 0
     public internal(set) var bar: SearchBarState?
     /// The message the transcript marks once, after a hit opened.
     public internal(set) var highlight: Message.ID?
@@ -45,9 +50,18 @@ public struct SearchBarState: Equatable, Sendable {
     public internal(set) var isOpening = false
     /// Why the hit could not be reached; `nil` while it can be.
     public internal(set) var unreachable: Unreachable?
+    /// The page past the last loaded hit failed: the bar offers a retry
+    /// rather than asking again on its own, which would loop while the wire
+    /// is down. Cleared the moment the next step asks again, not when that
+    /// page lands.
+    public internal(set) var pageFailed = false
 
     public enum Unreachable: Equatable, Sendable {
-        /// History ran out of pages before reaching it.
+        /// It could not be stored to open: the store refused it, and the
+        /// failure is recorded where errors show, or lost it before the open
+        /// read it back. Not "history ran out": a hit is stored as search
+        /// found it, however far back it is
+        /// (`SyncEngine.loadHistory(in:until:pageLimit:)`).
         case tooFarBack
         /// Its conversation is not in the sidebar.
         case notInSidebar

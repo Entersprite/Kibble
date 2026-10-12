@@ -22,6 +22,7 @@ public extension ChatSessionModel {
             state.next = bar.next
             state.answered = bar.query
             state.focus = bar.hits.indices.contains(bar.index) ? bar.hits[bar.index].id : nil
+            state.focusGeneration += 1
             state.failed = false
             state.isSearching = false
             state.isLoadingMore = false

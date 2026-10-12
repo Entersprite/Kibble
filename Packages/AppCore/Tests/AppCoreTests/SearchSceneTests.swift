@@ -18,4 +18,21 @@ struct SearchSceneTests {
         // swiftlint:disable:next empty_count
         #expect(scene.bar?.count == 0)
     }
+
+    @Test func theSceneCarriesTheFocusGeneration() {
+        var session = SearchSessionState()
+        session.focusGeneration = 3
+        let scene = AppEnvironment.searchScene(session)
+        #expect(scene.focusGeneration == 3)
+    }
+
+    @Test func theBarCarriesAFailedPage() {
+        var session = SearchSessionState()
+        session.bar = SearchBarState(
+            query: MessageSearchQuery(text: "x"), hits: [], next: MessageSearchCursor("1"), index: 0,
+            pageFailed: true
+        )
+        let scene = AppEnvironment.searchScene(session)
+        #expect(scene.bar?.pageFailed == true)
+    }
 }

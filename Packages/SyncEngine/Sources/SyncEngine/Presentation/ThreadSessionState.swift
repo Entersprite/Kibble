@@ -31,6 +31,11 @@ public struct ThreadSessionState: Sendable, Equatable {
     /// The reply the panel scrolls to when a mention or a notification of a
     /// reply opened it; `nil` opens it at the newest reply.
     public internal(set) var scrollTarget: Message.ID?
+    /// One more on every search hit that opens here (a reply, never a root):
+    /// the panel's own generation, so the same reply opened again is
+    /// scrolled to again, and a root hit opening elsewhere (which bumps
+    /// nothing here) leaves an already-open panel exactly where it is.
+    public internal(set) var scrollGeneration = 0
     /// Whether a Follow or Unfollow is in flight. The toggle changes only when
     /// it answers (spec §5.2), and one runs at a time.
     public internal(set) var followPending = false
