@@ -28,6 +28,7 @@ struct CapabilitiesTests {
         #expect(capabilities.canFetchCustomEmoji == false)
         #expect(capabilities.canSendAttachments == false)
         #expect(capabilities.maximumAttachmentBytes == nil)
+        #expect(capabilities.needsMentionBackfill == false)
         #expect(capabilities.extendedFlags.isEmpty)
     }
 
@@ -64,6 +65,17 @@ struct CapabilitiesTests {
         capabilities.maximumAttachmentBytes = 200 * 1024 * 1024
         let json = try Wire.json(capabilities)
         #expect(json.contains(#""maximumAttachmentBytes":209715200"#))
+        #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
+    }
+
+    @Test func mentionBackfillDefaultsOffAndRoundTripsOnlyWhenNeeded() throws {
+        let oldJSON = try Wire.json(Capabilities())
+        #expect(!oldJSON.contains("needsMentionBackfill"))
+        #expect(try Wire.decode(Capabilities.self, from: oldJSON).needsMentionBackfill == false)
+
+        let capabilities = Capabilities(needsMentionBackfill: true)
+        let json = try Wire.json(capabilities)
+        #expect(json.contains(#""needsMentionBackfill":true"#))
         #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
     }
 

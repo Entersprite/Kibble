@@ -11,7 +11,7 @@ import Foundation
 /// parked call return early, which is exactly the property a cancelled run
 /// has to survive.
 actor GatedHistoryBackend: ChatBackend {
-    nonisolated let capabilities = Capabilities()
+    nonisolated let capabilities: Capabilities
     nonisolated let events: AsyncStream<ChatEvent>
     private let continuation: AsyncStream<ChatEvent>.Continuation
 
@@ -27,7 +27,8 @@ actor GatedHistoryBackend: ChatBackend {
     private(set) var inFlight = 0
     private(set) var maxInFlight = 0
 
-    init(world: [Conversation]) {
+    init(world: [Conversation], needsMentionBackfill: Bool = true) {
+        capabilities = Capabilities(needsMentionBackfill: needsMentionBackfill)
         self.world = world
         (events, continuation) = AsyncStream.makeStream(of: ChatEvent.self, bufferingPolicy: .unbounded)
     }

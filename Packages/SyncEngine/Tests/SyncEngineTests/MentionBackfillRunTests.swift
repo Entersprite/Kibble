@@ -201,4 +201,18 @@ struct MentionBackfillRunTests {
         #expect(try store.mentionBackfill() == MentionBackfillStatus())
         await engine.stop()
     }
+
+    @Test func aBackendWithItsOwnMentionsFeedDoesNotBackfill() async throws {
+        let backend = GatedHistoryBackend(
+            world: [conversation("space/a")], needsMentionBackfill: false
+        )
+        await backend.openGate()
+        let (engine, store) = try await makeEngine(over: backend)
+        await backend.emit(.gap(scope: .everything, reason: "test"))
+        #expect(try await eventually { try store.conversations().count == 1 })
+        await settle()
+        #expect(await backend.requested.isEmpty)
+        #expect(try store.mentionBackfill() == MentionBackfillStatus())
+        await engine.stop()
+    }
 }

@@ -20,7 +20,7 @@ extension SyncEngine {
     /// consumer, and a world load that lands while `stop()` drains it must
     /// start nothing for a session being torn down, not even a status write.
     func startMentionBackfill() {
-        guard let mentionClock, !Task.isCancelled else { return }
+        guard backend.capabilities.needsMentionBackfill, let mentionClock, !Task.isCancelled else { return }
         mentionBackfillTask?.cancel()
         mentionBackfillTask = nil
         let candidates: [Conversation.ID]

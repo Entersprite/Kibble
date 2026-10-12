@@ -140,7 +140,7 @@ struct LocalBridgeBackendTests {
             canSetStatus: true, canMarkRead: true, supportsThreads: true,
             canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
             canSendAttachments: true, maximumAttachmentBytes: 200 * 1024 * 1024,
-            canMention: true, canMentionNonMembers: true,
+            canMention: true, canMentionNonMembers: true, needsMentionBackfill: true,
             canFetchRemoteImages: true, canSearchMessages: true,
             messageSearchFilters: [
                 .from, .conversation, .olderThan, .hasFile, .hasLink, .mentionsMe, .newestFirst

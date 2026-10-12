@@ -52,6 +52,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// `.sendMessage` honours `Mention.Mode`. Gates the `@` list's directory
     /// section and the add-or-not confirmation (mention non-members spec §3.1).
     public var canMentionNonMembers: Bool
+    /// The client must discover mentions by loading recent conversation
+    /// history because this backend does not provide a mentions feed.
+    public var needsMentionBackfill: Bool
     /// `ChatBackend.remoteImage(_:)` returns bytes rather than refusing
     /// (links spec §3.3).
     public var canFetchRemoteImages: Bool
@@ -90,6 +93,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         maximumAttachmentBytes: Int? = nil,
         canMention: Bool = false,
         canMentionNonMembers: Bool = false,
+        needsMentionBackfill: Bool = false,
         canFetchRemoteImages: Bool = false,
         canSearchMessages: Bool = false,
         messageSearchFilters: Set<MessageSearchFilter> = [],
@@ -114,6 +118,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.maximumAttachmentBytes = maximumAttachmentBytes
         self.canMention = canMention
         self.canMentionNonMembers = canMentionNonMembers
+        self.needsMentionBackfill = needsMentionBackfill
         self.canFetchRemoteImages = canFetchRemoteImages
         self.canSearchMessages = canSearchMessages
         self.messageSearchFilters = messageSearchFilters
@@ -144,6 +149,7 @@ public extension Capabilities {
         case maximumAttachmentBytes
         case canMention
         case canMentionNonMembers
+        case needsMentionBackfill
         case canFetchRemoteImages
         case canSearchMessages
         case messageSearchFilters
@@ -178,6 +184,7 @@ public extension Capabilities {
             maximumAttachmentBytes: container.decodeIfPresent(Int.self, forKey: .maximumAttachmentBytes),
             canMention: flag(.canMention),
             canMentionNonMembers: flag(.canMentionNonMembers),
+            needsMentionBackfill: flag(.needsMentionBackfill),
             canFetchRemoteImages: flag(.canFetchRemoteImages),
             canSearchMessages: flag(.canSearchMessages),
             messageSearchFilters: Set(
@@ -211,6 +218,9 @@ public extension Capabilities {
         try container.encodeIfPresent(maximumAttachmentBytes, forKey: .maximumAttachmentBytes)
         try container.encode(canMention, forKey: .canMention)
         try container.encode(canMentionNonMembers, forKey: .canMentionNonMembers)
+        if needsMentionBackfill {
+            try container.encode(true, forKey: .needsMentionBackfill)
+        }
         try container.encode(canFetchRemoteImages, forKey: .canFetchRemoteImages)
         try container.encode(canSearchMessages, forKey: .canSearchMessages)
         try container.encode(messageSearchFilters.map(\.wire).sorted(), forKey: .messageSearchFilters)

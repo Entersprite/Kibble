@@ -28,7 +28,9 @@ struct MentionsListWiringTests {
     }
 
     private func running() async throws -> (AppEnvironment, FakeLaunchServices) {
-        let services = try FakeLaunchServices()
+        let services = try FakeLaunchServices(
+            backendCapabilities: Capabilities(canSendMessages: true, needsMentionBackfill: true)
+        )
         let clock = now
         services.sessionNow = { clock }
         services.backend.answerHistory(with: [mention("m:1")])

@@ -30,6 +30,7 @@ public extension Capabilities {
         canSendAttachments: true,
         canMention: true,
         canMentionNonMembers: true,
+        needsMentionBackfill: true,
         canFetchRemoteImages: true,
         canSearchMessages: true,
         messageSearchFilters: [

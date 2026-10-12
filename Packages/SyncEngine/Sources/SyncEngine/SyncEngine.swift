@@ -63,10 +63,11 @@ public actor SyncEngine {
     /// Read receipts per conversation. See `ReadReceiptGate`.
     public nonisolated let readReceipts = ReadReceiptGate()
 
-    /// Turns on the Mentions list's backfill, and is the "now" its 30-day
-    /// window reads (`SyncEngine+MentionBackfill.swift`). `nil`, the default,
-    /// means no backfill (ruling 6): a host opts in, so an engine built without
-    /// one fetches nothing it did not fetch before. Not `private`, for that file.
+    /// The "now" for the Mentions backfill's 30-day window
+    /// (`SyncEngine+MentionBackfill.swift`). Backfill runs only when the
+    /// backend advertises `needsMentionBackfill` and a clock is supplied.
+    /// `nil`, the default, still disables it for callers without a clock.
+    /// Not `private`, for that file.
     let mentionClock: (@Sendable () -> Date)?
 
     /// The backfill run in flight, if any. Tracked so that a new world load
