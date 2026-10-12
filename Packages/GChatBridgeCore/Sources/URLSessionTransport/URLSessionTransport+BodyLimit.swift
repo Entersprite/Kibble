@@ -1,5 +1,8 @@
 import Foundation
 import GChatBridgeCore
+#if canImport(FoundationNetworking)
+    import FoundationNetworking
+#endif
 
 extension URLSessionTransport {
     /// `send` with a ceiling on the body (`HTTPRequest.maxBodyBytes`, review finding 3).

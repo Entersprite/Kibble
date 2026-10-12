@@ -2,10 +2,9 @@ import ChatKit
 import Foundation
 import GRDB
 
-/// Thread summaries (threads spec §4.1) and the store's half of
-/// `Conversation.hasUnreadThread` (§4.2). Every answer `ThreadUnreadRule`
-/// gives the store is computed in this file, from inputs that one SQL
-/// fragment defines (`ruleInputs`).
+/// Thread summaries (threads spec §4.1). Every answer `ThreadUnreadRule`
+/// gives the store is computed from inputs that one SQL fragment defines
+/// (`ruleInputs`).
 ///
 /// **No `Date` is bound here**: every date is read out of a REAL column
 /// (`StoredDate`'s rule).
@@ -16,8 +15,7 @@ extension ChatStore {
     /// `ThreadUnreadRule`'s two inputs from a thread's messages, as
     /// aggregates: the newest reply someone else sent, not deleted, and
     /// whether you sent any of its messages, deleted or not. One definition
-    /// for the summaries and the conversation's flag, so the two cannot read
-    /// different inputs. Binds `me` twice, ahead of anything else in the
+    /// for all summaries. Binds `me` twice, ahead of anything else in the
     /// statement. The column names are `message`'s alone, so it reads the
     /// same inside a join with `thread`.
     private static let ruleInputs = """
@@ -45,47 +43,6 @@ extension ChatStore {
     /// badge.
     static func fetchFollowedThreadSummaries(_ db: Database) throws -> [ThreadKey: MessageThread] {
         try fetchSummaries(.followed, db)
-    }
-
-    /// Conversations with a stored thread that is unread: the half of
-    /// `Conversation.hasUnreadThread` the store derives (threads spec §4.2,
-    /// "any of its stored threads is unread").
-    ///
-    /// **One query, whatever the number of conversations**: every `thread`
-    /// row with `ruleInputs` over its messages. **`ThreadUnreadRule` decides
-    /// each thread in Swift**, the fallback included, on the same row and
-    /// inputs a summary reads, so the flag and `MessageThread.hasUnread` agree
-    /// on every thread. A thread with no row has no read position, no count
-    /// and no mark, so the rule cannot call it unread, and the query starts
-    /// from `thread`.
-    ///
-    /// The flag counts every unread thread. The Threads badge counts fewer:
-    /// only those the server says you follow, with the first message stored
-    /// and a reply, in a conversation still listed (`fetchFollowedThreads`).
-    static func fetchConversationsWithUnreadThreads(_ db: Database) throws -> Set<Conversation.ID> {
-        let me = try fetchMe(db)?.rawValue
-        let rows = try Row.fetchAll(
-            db,
-            sql: """
-            SELECT thread.conversationID AS conversationID, thread.id AS id,
-                thread.messageCount AS messageCount, thread.unreadCount AS unreadCount,
-                thread.readPosition AS readPosition, thread.markedUnreadAt AS markedUnreadAt,
-                thread.isFollowed AS isFollowed, \(ruleInputs)
-            FROM thread
-            LEFT JOIN message
-                ON message.conversationID = thread.conversationID AND message.threadID = thread.id
-            GROUP BY thread.conversationID, thread.id
-            """,
-            arguments: [me, me]
-        )
-        let unread = rows.filter { row in
-            let newestReply: Double? = row["newestReply"]
-            return ThreadUnreadRule.isUnread(
-                ThreadState(row).thread(ThreadKey(row, threadColumn: "id")),
-                newestReplyAt: newestReply.map(StoredDate.date), participated: row["participated"]
-            )
-        }
-        return Set(unread.map { Conversation.ID($0["conversationID"] as String) })
     }
 
     /// A summary for every thread in `scope` that has a stored reply or a

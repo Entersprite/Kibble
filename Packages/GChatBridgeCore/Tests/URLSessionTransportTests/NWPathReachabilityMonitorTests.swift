@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import URLSessionTransport
 
+#if canImport(Network)
 /// A boundary, tested only where it can be.
 ///
 /// `shouldYield(isUp:wasUp:)` carries the one behaviour with a bug in it if
@@ -196,3 +197,4 @@ private actor ResultBox<Value: Sendable> {
         value = newValue
     }
 }
+#endif

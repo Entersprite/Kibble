@@ -135,6 +135,9 @@ struct LocalBridgeBackendTests {
     /// (set-your-status spec §1), before any live run.
     @Test func itAdvertisesSendingAndThreadSupport() {
         let backend = backend([])
+        // The observed Threads filter answered successfully but supplied no
+        // entries; world and topic events maintain the local followed state.
+        #expect(!backend.capabilities.needsFollowedThreadsBackfill)
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
             canSetStatus: true, canMarkRead: true, supportsThreads: true,

@@ -72,30 +72,20 @@ public extension SyncEngine {
 
 extension SyncEngine {
     /// What every world load starts, pushed (`conversationsChanged`) or
-    /// fetched after a gap: the Mentions backfill and the Threads list.
-    /// Loading the list after every world load is what gives the Threads
-    /// row's badge a number before the pane is opened (spec §4.3).
+    /// fetched after a gap: the Mentions backfill and, for providers that need
+    /// it, the Threads list. A provider whose events keep followed threads
+    /// current need not issue a separate list request on each world load.
     func worldLoaded() {
         startMentionBackfill()
         startFollowedThreadsLoad()
     }
 
-    /// One request, replacing one still in flight, and only on a backend with
-    /// threads: any other would refuse it, and the refusal would show as a
-    /// banner after every world load. This `Task.isCancelled` is the event
+    /// One request, replacing one still in flight, only when the backend
+    /// advertises useful list backfill. This `Task.isCancelled` is the event
     /// loop's, for `startMentionBackfill()`'s reason.
-    ///
-    /// **A failure is recorded**, like every request a view makes. The
-    /// owner's run sent the bridge's request: 200, two bytes, no thread
-    /// (`findings.md` §64.9). Not refused, so nothing is recorded, and empty,
-    /// so the list holds only the threads Kibble has seen followed. The web
-    /// client's flag-gated filter (`WorldSectionRequest` field 16, §64.6) is
-    /// the next `[Verify]`. If a server ever refuses it, each world load
-    /// records the error and the events that follow clear it again
-    /// (`SyncReducer.supersedingStaleError`); count failures instead, as the
-    /// Mentions backfill does, if that happens.
     func startFollowedThreadsLoad() {
-        guard capabilities.supportsThreads, !Task.isCancelled else { return }
+        guard capabilities.supportsThreads, capabilities.needsFollowedThreadsBackfill,
+              !Task.isCancelled else { return }
         followedThreadsTask?.cancel()
         followedThreadsTask = Task { [weak self] in
             await self?.requestFollowedThreads()

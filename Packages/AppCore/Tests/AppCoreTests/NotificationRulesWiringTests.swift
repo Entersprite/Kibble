@@ -45,11 +45,11 @@ struct NotificationRulesWiringTests {
     /// `FakeBackend` identifies a demo account of its own.
     @Test func onlyARealBackendLaunchMigratesTheLegacyGhostModeKey() throws {
         let fixture = try AppEnvironment(services: FakeLaunchServices(
-            arguments: LaunchArguments(usesRealBackend: false)
+            arguments: LaunchArguments(backend: .fixture)
         ))
         #expect(!fixture.settings.migratesLegacyGhostMode)
         let real = try AppEnvironment(services: FakeLaunchServices(
-            arguments: LaunchArguments(usesRealBackend: true)
+            arguments: LaunchArguments(backend: .local)
         ))
         #expect(real.settings.migratesLegacyGhostMode)
     }

@@ -6,7 +6,7 @@ import Testing
 
 /// The engine's thread calls (threads spec §4.3): each files its answer, a
 /// failure is recorded rather than thrown, a world load fetches the Threads
-/// list, and nothing lands once its caller has stopped.
+/// list only when needed, and nothing lands once its caller has stopped.
 @Suite(.timeLimit(.minutes(1)))
 struct ThreadEngineTests {
     private let conversation = ThreadFixture.conversation
@@ -134,6 +134,23 @@ struct ThreadEngineTests {
         })
         try await Task.sleep(for: .milliseconds(150))
         #expect(await backend.followedThreadLoads == 0)
+        await engine.stop()
+    }
+
+    @Test func aBackendWithCurrentFollowedThreadEventsSkipsWorldListBackfill() async throws {
+        var capabilities = Capabilities.fixture
+        capabilities.needsFollowedThreadsBackfill = false
+        let backend = RecordingBackend(capabilities: capabilities)
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        try await engine.start()
+        #expect(try await eventually {
+            try store.conversations().count == FixtureWorld.minimal.conversations.count
+        })
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await backend.followedThreadLoads == 0)
+        await engine.requestFollowedThreads()
+        #expect(await backend.followedThreadLoads == 1)
         await engine.stop()
     }
 

@@ -29,6 +29,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// and the Threads list (`ChatBackend.loadFollowedThreads`). Per
     /// conversation, `Conversation.repliesEnabled` is the second gate.
     public var supportsThreads: Bool
+    /// A world load must fetch `loadFollowedThreads()` to discover followed
+    /// threads that its events and history pages have not supplied.
+    public var needsFollowedThreadsBackfill: Bool
     public var supportsHistoryCatchUp: Bool
     /// `ChatBackend.attachmentData(_:size:)` returns bytes rather than
     /// refusing.
@@ -85,6 +88,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canSetStatus: Bool = false,
         canMarkRead: Bool = false,
         supportsThreads: Bool = false,
+        needsFollowedThreadsBackfill: Bool = false,
         supportsHistoryCatchUp: Bool = false,
         canFetchAttachments: Bool = false,
         canDownloadFiles: Bool = false,
@@ -110,6 +114,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canSetStatus = canSetStatus
         self.canMarkRead = canMarkRead
         self.supportsThreads = supportsThreads
+        self.needsFollowedThreadsBackfill = needsFollowedThreadsBackfill
         self.supportsHistoryCatchUp = supportsHistoryCatchUp
         self.canFetchAttachments = canFetchAttachments
         self.canDownloadFiles = canDownloadFiles
@@ -141,6 +146,7 @@ public extension Capabilities {
         case canSetStatus
         case canMarkRead
         case supportsThreads
+        case needsFollowedThreadsBackfill
         case supportsHistoryCatchUp
         case canFetchAttachments
         case canDownloadFiles
@@ -176,6 +182,7 @@ public extension Capabilities {
             canSetStatus: flag(.canSetStatus),
             canMarkRead: flag(.canMarkRead),
             supportsThreads: flag(.supportsThreads),
+            needsFollowedThreadsBackfill: flag(.needsFollowedThreadsBackfill),
             supportsHistoryCatchUp: flag(.supportsHistoryCatchUp),
             canFetchAttachments: flag(.canFetchAttachments),
             canDownloadFiles: flag(.canDownloadFiles),
@@ -210,6 +217,9 @@ public extension Capabilities {
         try container.encode(canSetStatus, forKey: .canSetStatus)
         try container.encode(canMarkRead, forKey: .canMarkRead)
         try container.encode(supportsThreads, forKey: .supportsThreads)
+        if needsFollowedThreadsBackfill {
+            try container.encode(true, forKey: .needsFollowedThreadsBackfill)
+        }
         try container.encode(supportsHistoryCatchUp, forKey: .supportsHistoryCatchUp)
         try container.encode(canFetchAttachments, forKey: .canFetchAttachments)
         try container.encode(canDownloadFiles, forKey: .canDownloadFiles)

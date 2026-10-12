@@ -11,7 +11,7 @@ public extension ChatStore {
     /// yet" is what `Conversation` says it means, and SQLite orders NULL below
     /// everything under `DESC`, which is exactly that.
     func conversations() throws -> [Conversation] {
-        try database.read(Self.fetchConversations)
+        try database.read(Self.fetchStoredConversations)
     }
 
     /// The transcript: one conversation's top-level messages, oldest first.
@@ -115,12 +115,10 @@ public extension ChatStore {
     /// This is the seam between the database and SwiftUI: a view iterates one
     /// of these and never learns that a backend exists.
     ///
-    /// **Duplicates are dropped.** `hasUnreadThread` reads the stored threads'
-    /// messages (`fetchConversationsWithUnreadThreads`), so every message
-    /// write re-runs this read: a page of history, a push, an edit. Most of
-    /// those change no conversation, and an equal list is not sent on.
+    /// **Duplicates are dropped.** Other store writes may still invalidate
+    /// this observation without changing the conversation list.
     func observeConversations() -> AsyncValueObservation<[Conversation]> {
-        ValueObservation.tracking(Self.fetchConversations).removeDuplicates().values(in: database)
+        ValueObservation.tracking(Self.fetchStoredConversations).removeDuplicates().values(in: database)
     }
 
     /// The transcript, observed. Replies are left out (`fetchMessages`).
@@ -172,25 +170,9 @@ public extension ChatStore {
 // MARK: - The queries themselves
 
 extension ChatStore {
-    /// Shared by the one-shot reads and the observations, so the two can never
-    /// answer differently.
-    static func fetchConversations(_ db: Database) throws -> [Conversation] {
-        let unreadThreads = try fetchConversationsWithUnreadThreads(db)
-        return try fetchStoredConversations(db).map { stored in
-            var conversation = stored
-            // Both sources, per CLAUDE.md's rule for a derived field (threads
-            // spec §4.2): the server's flag, and the threads the store holds.
-            if unreadThreads.contains(conversation.id) {
-                conversation.hasUnreadThread = true
-            }
-            return conversation
-        }
-    }
-
-    /// The conversations as stored: `hasUnreadThread` is the server's half
-    /// only. For a read that needs the list and the read positions and draws
-    /// no thread mark (`fetchMentionsOfMe`), so it does not pay for the
-    /// stored threads' derivation.
+    /// The conversations as stored. The server's `hasUnreadThread` is kept for
+    /// callers that need it; the sidebar uses the followed-thread overview's
+    /// own badge rather than deriving a second flag on every message write.
     static func fetchStoredConversations(_ db: Database) throws -> [Conversation] {
         let rows = try ConversationRow
             .order(Column("lastActivity").desc, Column("id").asc)

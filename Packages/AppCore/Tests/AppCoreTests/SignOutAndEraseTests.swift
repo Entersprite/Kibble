@@ -194,9 +194,8 @@ struct SignOutAndEraseTests {
     /// `FakeLaunchServices` carried failure knobs for five operations and not
     /// for this one, which is why nothing could reach this state.
     @Test func aFailedDiagnosticStillErasesThroughTheSessionItBuilt() async throws {
-        let services = try FakeLaunchServices(
-            arguments: LaunchArguments(runsDiagnostics: true)
-        )
+        let services = try FakeLaunchServices()
+        services.diagnosticsRequested = true
         services.startDiagnosticsFailure = ChatError.unknown("the App Nap probe refused")
         // Longer than the old fixed 50 ms wait, as the full suite's load can make it.
         services.backend.disconnectDelay = .milliseconds(150)

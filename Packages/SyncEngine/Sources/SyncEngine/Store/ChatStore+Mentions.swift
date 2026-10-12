@@ -80,8 +80,7 @@ extension ChatStore {
     /// here (`StoredDate`'s rule).
     ///
     /// The conversations come from `fetchStoredConversations`: the list needs
-    /// their names and read positions, never their thread marks, so its
-    /// `conversation.hasUnreadThread` is the server's half alone.
+    /// their names and read positions. Thread marks are read separately.
     static func fetchMentionsOfMe(limit: Int, _ db: Database) throws -> [MentionOfMe] {
         guard let me = try fetchMe(db) else { return [] }
         let conversations = try Dictionary(

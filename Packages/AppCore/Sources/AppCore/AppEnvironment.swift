@@ -119,7 +119,7 @@ public final class AppEnvironment {
         // Only a real account may take the legacy ghost-mode key; the fixture
         // identifies a demo account of its own.
         settings = NotificationSettingsModel(
-            store: settingsStore, migratesLegacyGhostMode: services.arguments.usesRealBackend
+            store: settingsStore, migratesLegacyGhostMode: services.arguments.backend == .local
         )
         notifications = delivery.map(NotificationCoordinator.init(delivery:))
         notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
@@ -133,8 +133,8 @@ public final class AppEnvironment {
         if case .running = phase {
             return
         }
-        if let probe = services.arguments.probe {
-            phase = await .report(services.runProbe(probe))
+        if services.launchReportRequested {
+            phase = await .report(services.runLaunchReport())
             return
         }
         do {
@@ -142,7 +142,7 @@ public final class AppEnvironment {
             // launch with no stored session is not an error and must not be
             // reported as one - it is a first run, and the only sensible thing
             // to show is a sign-in.
-            if services.arguments.usesRealBackend {
+            if services.arguments.backend == .local {
                 guard try await services.hasStoredSession() else {
                     await enterNeedsSignIn(reason: nil)
                     return
@@ -191,7 +191,7 @@ public final class AppEnvironment {
             model.reportActivity(deviceInUse)
             notifications?.requestAuthorizationOnce()
 
-            if services.arguments.runsDiagnostics {
+            if services.diagnosticsRequested {
                 try services.startDiagnostics()
             }
 

@@ -8,42 +8,19 @@ import Testing
 /// from reading: `parsing(_:)` is pure and tested here, and
 /// `fromCommandLine()` is the one-line caller that supplies the real list.
 struct LaunchArgumentsTests {
-    @Test func theDefaultIsTheRealBackendAndNoProbe() {
+    @Test func theDefaultIsTheLocalBackend() {
         let arguments = LaunchArguments.parsing(["Kibble"])
-        #expect(arguments.usesRealBackend)
-        #expect(arguments.probe == nil)
-        #expect(!arguments.runsDiagnostics)
+        #expect(arguments.backend == .local)
     }
 
     @Test func theFixtureIsOptedIntoByName() {
-        #expect(!LaunchArguments.parsing(["Kibble", "--backend=fixture"]).usesRealBackend)
+        #expect(LaunchArguments.parsing(["Kibble", "--backend=fixture"]).backend == .fixture)
     }
 
     /// Inverted from `--backend=local` on purpose: what a person gets by
     /// double-clicking the app is the real bridge.
     @Test func anUnrecognisedBackendFlagStillMeansTheRealBackend() {
-        #expect(LaunchArguments.parsing(["Kibble", "--backend=wat"]).usesRealBackend)
+        #expect(LaunchArguments.parsing(["Kibble", "--backend=wat"]).backend == .local)
     }
 
-    @Test func eachProbeIsRecognised() {
-        #expect(LaunchArguments.parsing(["Kibble", "--probe=keychain"]).probe == .keychain)
-        #expect(LaunchArguments.parsing(["Kibble", "--probe=api"]).probe == .api)
-        #expect(LaunchArguments.parsing(["Kibble", "--probe=punctual"]).probe == .punctual)
-        #expect(LaunchArguments.parsing(["Kibble", "--probe=upload"]).probe == .upload)
-        #expect(LaunchArguments.parsing(["Kibble", "--probe=people"]).probe == .people)
-        #expect(LaunchArguments.parsing(["Kibble", "--probe=edit"]).probe == .edit)
-    }
-
-    @Test func theSearchProbeIsParsed() {
-        #expect(LaunchArguments.parsing(["Kibble", "--probe=search"]).probe == .search)
-    }
-
-    /// `--probe=appnap` is a different kind of flag: it does not short-circuit
-    /// the launch into `.report`, it instruments a launch that proceeds
-    /// normally. Conflating the two would stop the app ever starting under it.
-    @Test func appNapIsDiagnosticsAndNotAReportProbe() {
-        let arguments = LaunchArguments.parsing(["Kibble", "--probe=appnap"])
-        #expect(arguments.probe == nil)
-        #expect(arguments.runsDiagnostics)
-    }
 }

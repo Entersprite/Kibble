@@ -102,8 +102,8 @@ public struct Conversation: Codable, Hashable, Sendable {
     public var repliesEnabled: Bool
 
     /// Whether a thread here is unread, as the server says (threads spec §1).
-    /// The world load sets it and `ChatEvent.unreadThreadsChanged` moves it;
-    /// a store may also derive it from the threads it holds. Absent means
+    /// The world load sets it and `ChatEvent.unreadThreadsChanged` moves it.
+    /// A client's followed-thread badge is computed separately. Absent means
     /// `false`.
     public var hasUnreadThread: Bool
 

@@ -24,6 +24,7 @@ public extension Capabilities {
         canSetStatus: true,
         canMarkRead: true,
         supportsThreads: true,
+        needsFollowedThreadsBackfill: true,
         supportsHistoryCatchUp: true,
         canFetchAttachments: true,
         canDownloadFiles: true,

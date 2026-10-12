@@ -22,7 +22,7 @@ extension AppEnvironment {
         let key = Self.accountPreferencesPrefix + account.rawValue
         let legacyTone = preferences.object(forKey: Self.skinToneKey)
         let legacySections = preferences.stringArray(forKey: Self.collapsedSectionsKey)
-        if services.arguments.usesRealBackend,
+        if services.arguments.backend == .local,
            legacyTone != nil || legacySections != nil {
             if preferences.object(forKey: key) == nil {
                 preferences.set([

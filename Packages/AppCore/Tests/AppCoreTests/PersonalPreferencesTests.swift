@@ -54,7 +54,7 @@ struct PersonalPreferencesTests {
         preferences.set(SkinTone.dark.rawValue, forKey: AppEnvironment.skinToneKey)
         preferences.set(["space"], forKey: AppEnvironment.collapsedSectionsKey)
 
-        let fixtureServices = try FakeLaunchServices(arguments: LaunchArguments(usesRealBackend: false))
+        let fixtureServices = try FakeLaunchServices(arguments: LaunchArguments(backend: .fixture))
         let fixture = AppEnvironment(services: fixtureServices, preferences: preferences)
         await fixture.start()
         await identify(alice, in: fixture, services: fixtureServices)

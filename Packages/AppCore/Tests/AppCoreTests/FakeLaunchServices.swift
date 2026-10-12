@@ -19,7 +19,7 @@ final class FakeLaunchServices: LaunchServices {
         case openStore
         case eraseStore
         case makeSession
-        case runProbe(LaunchProbe)
+        case runLaunchReport
         case startDiagnostics
     }
 
@@ -28,6 +28,8 @@ final class FakeLaunchServices: LaunchServices {
     var arguments: LaunchArguments
 
     var storedSessionExists = true
+    var launchReportRequested = false
+    var diagnosticsRequested = false
     /// What the composer's paperclip is answered with.
     var filesToSend: [URL] = []
     var probeReport = "Written to probe.txt."
@@ -143,8 +145,8 @@ final class FakeLaunchServices: LaunchServices {
         )
     }
 
-    func runProbe(_ probe: LaunchProbe) async -> String {
-        calls.append(.runProbe(probe))
+    func runLaunchReport() async -> String {
+        calls.append(.runLaunchReport)
         return probeReport
     }
 

@@ -13,7 +13,8 @@ import Testing
 @MainActor
 struct SceneMappingTests {
     @Test func aProbeReportIsANoticeAndNotAnError() async throws {
-        let services = try FakeLaunchServices(arguments: LaunchArguments(probe: .api))
+        let services = try FakeLaunchServices()
+        services.launchReportRequested = true
         services.probeReport = "Written to api-probe.txt."
         let environment = AppEnvironment(services: services)
         await environment.start()
@@ -123,7 +124,8 @@ struct SceneMappingTests {
         await runningEnvironment.start()
         #expect(runningEnvironment.actions.signIn == nil)
 
-        let probing = try FakeLaunchServices(arguments: LaunchArguments(probe: .api))
+        let probing = try FakeLaunchServices()
+        probing.launchReportRequested = true
         let probingEnvironment = AppEnvironment(services: probing)
         await probingEnvironment.start()
         #expect(probingEnvironment.actions.signIn == nil)

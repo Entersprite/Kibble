@@ -21,10 +21,9 @@ struct LaunchDecisionTests {
         }
     }
 
-    @Test func aKeychainProbeReplacesTheLaunchAndTouchesNothing() async throws {
-        let services = try FakeLaunchServices(
-            arguments: LaunchArguments(probe: .keychain)
-        )
+    @Test func aHostReportReplacesTheLaunchAndTouchesNothing() async throws {
+        let services = try FakeLaunchServices()
+        services.launchReportRequested = true
         services.probeReport = "Written to keychain-check.txt."
         let environment = AppEnvironment(services: services)
 
@@ -35,11 +34,12 @@ struct LaunchDecisionTests {
             return
         }
         #expect(message == "Written to keychain-check.txt.")
-        #expect(services.calls == [.runProbe(.keychain)])
+        #expect(services.calls == [.runLaunchReport])
     }
 
-    @Test func anAPIProbeDoesTheSame() async throws {
-        let services = try FakeLaunchServices(arguments: LaunchArguments(probe: .api))
+    @Test func anotherHostReportDoesTheSame() async throws {
+        let services = try FakeLaunchServices()
+        services.launchReportRequested = true
         services.probeReport = "Written to api-probe.txt."
         let environment = AppEnvironment(services: services)
 
@@ -50,7 +50,7 @@ struct LaunchDecisionTests {
             return
         }
         #expect(message == "Written to api-probe.txt.")
-        #expect(services.calls == [.runProbe(.api)])
+        #expect(services.calls == [.runLaunchReport])
         #expect(!services.calls.contains(.openStore))
     }
 
@@ -143,7 +143,7 @@ struct LaunchDecisionTests {
     @Test func aFixtureWorldGetsDriven() async throws {
         let driver = RecordingDemoDriver()
         let services = try FakeLaunchServices(
-            arguments: LaunchArguments(usesRealBackend: false),
+            arguments: LaunchArguments(backend: .fixture),
             driver: driver
         )
         let environment = AppEnvironment(services: services)
@@ -171,9 +171,8 @@ struct LaunchDecisionTests {
         await AppEnvironment(services: quiet).start()
         #expect(!quiet.calls.contains(.startDiagnostics))
 
-        let loud = try FakeLaunchServices(
-            arguments: LaunchArguments(runsDiagnostics: true)
-        )
+        let loud = try FakeLaunchServices()
+        loud.diagnosticsRequested = true
         await AppEnvironment(services: loud).start()
         #expect(loud.calls.contains(.startDiagnostics))
     }

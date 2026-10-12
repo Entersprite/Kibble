@@ -22,6 +22,7 @@ struct CapabilitiesTests {
         #expect(capabilities.canSetNotificationLevel == false)
         #expect(capabilities.canMarkRead == false)
         #expect(capabilities.supportsThreads == false)
+        #expect(capabilities.needsFollowedThreadsBackfill == false)
         #expect(capabilities.supportsHistoryCatchUp == false)
         #expect(capabilities.canFetchAttachments == false)
         #expect(capabilities.canDownloadFiles == false)
@@ -76,6 +77,17 @@ struct CapabilitiesTests {
         let capabilities = Capabilities(needsMentionBackfill: true)
         let json = try Wire.json(capabilities)
         #expect(json.contains(#""needsMentionBackfill":true"#))
+        #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
+    }
+
+    @Test func followedThreadsBackfillDefaultsOffAndRoundTripsOnlyWhenNeeded() throws {
+        let oldJSON = try Wire.json(Capabilities(supportsThreads: true))
+        #expect(!oldJSON.contains("needsFollowedThreadsBackfill"))
+        #expect(try Wire.decode(Capabilities.self, from: oldJSON).needsFollowedThreadsBackfill == false)
+
+        let capabilities = Capabilities(supportsThreads: true, needsFollowedThreadsBackfill: true)
+        let json = try Wire.json(capabilities)
+        #expect(json.contains(#""needsFollowedThreadsBackfill":true"#))
         #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
     }
 

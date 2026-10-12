@@ -15,9 +15,14 @@ import SyncEngine
 @MainActor
 public final class SystemLaunchServices: LaunchServices {
     public let arguments: LaunchArguments
+    private let launchProbe: MacLaunchProbe?
+
+    public var launchReportRequested: Bool { launchProbe != nil }
+    public var diagnosticsRequested: Bool { CommandLine.arguments.contains("--probe=appnap") }
 
     public init(arguments: LaunchArguments) {
         self.arguments = arguments
+        launchProbe = MacLaunchProbe.parsing(CommandLine.arguments)
     }
 
     /// Whether anything is stored. Throws rather than answering `false` when
@@ -72,7 +77,10 @@ public final class SystemLaunchServices: LaunchServices {
     }
 
     static func attachmentDirectoryName(for arguments: LaunchArguments) -> String {
-        arguments.usesRealBackend ? "attachments-local" : "attachments-fixture"
+        switch arguments.backend {
+        case .local: "attachments-local"
+        case .fixture: "attachments-fixture"
+        }
     }
 
     /// The only place in the repo that picks a backend.
@@ -81,7 +89,8 @@ public final class SystemLaunchServices: LaunchServices {
     /// through `LocalBridgeBackend`, using whatever session
     /// `hasStoredSession()` already confirmed is in the Keychain.
     public func makeSession() async throws -> SessionSelection {
-        guard arguments.usesRealBackend else {
+        switch arguments.backend {
+        case .fixture:
             let fixture = FakeBackend(world: .acme, directory: FixtureWorld.acmeDirectory)
             // The demo world's dates are literals (2026-08-31), so the mention
             // backfill's window is anchored at the world's own start rather
@@ -93,6 +102,8 @@ public final class SystemLaunchServices: LaunchServices {
                 driver: FixtureDemoDriver(backend: fixture),
                 now: { demoNow }
             )
+        case .local:
+            break
         }
         // The session comes from the Keychain, put there by the login window.
         // There is no longer a file to copy: a live Google session in plain
@@ -130,8 +141,9 @@ public final class SystemLaunchServices: LaunchServices {
         )
     }
 
-    public func runProbe(_ probe: LaunchProbe) async -> String {
-        switch probe {
+    public func runLaunchReport() async -> String {
+        guard let launchProbe else { return "No launch report was requested." }
+        return switch launchProbe {
         case .keychain: await LaunchProbes.keychainCheck()
         case .api: await LaunchProbes.apiProbe()
         case .punctual: await LaunchProbes.punctualProbe()
@@ -228,7 +240,10 @@ public final class SystemLaunchServices: LaunchServices {
     /// Not `throws`: it cannot fail. `databasePath(for:)` below keeps `throws`,
     /// which it genuinely needs through `supportDirectory()`. Ruling R5.
     static func databaseName(for arguments: LaunchArguments) -> String {
-        arguments.usesRealBackend ? "chat-local.sqlite" : "chat-fixture.sqlite"
+        switch arguments.backend {
+        case .local: "chat-local.sqlite"
+        case .fixture: "chat-fixture.sqlite"
+        }
     }
 
     static func databasePath(for arguments: LaunchArguments) throws -> String {

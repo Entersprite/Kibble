@@ -36,8 +36,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
     /// `Conversation.repliesEnabled`, from world field 27 (threads spec §1).
     /// A snapshot: no event maintains it.
     var repliesEnabled: Bool
-    /// The stored half of `Conversation.hasUnreadThread`: world field 25 and
-    /// push 53. `ChatStore.fetchConversations` ORs in the stored threads.
+    /// `Conversation.hasUnreadThread`: world field 25 and push 53.
     var hasUnreadThread: Bool
     /// `Conversation.readPosition`. One column for both of its sources (the
     /// mentions-list spec §1).

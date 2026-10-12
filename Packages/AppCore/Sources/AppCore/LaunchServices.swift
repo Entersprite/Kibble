@@ -39,10 +39,15 @@ public protocol LaunchServices: AnyObject {
 
     func makeSession() async throws -> SessionSelection
 
-    /// Runs a diagnostic and returns a **short confirmation naming the file**
-    /// the full report went to - never the report itself. See
-    /// `LaunchPhase.report`.
-    func runProbe(_ probe: LaunchProbe) async -> String
+    /// Whether a host-specific diagnostic replaces this launch.
+    var launchReportRequested: Bool { get }
+
+    /// Runs that diagnostic and returns a short confirmation for
+    /// `LaunchPhase.report`. The host owns its names and arguments.
+    func runLaunchReport() async -> String
+
+    /// Whether host-specific instrumentation starts after the session.
+    var diagnosticsRequested: Bool { get }
 
     /// Platform-chosen. On macOS this starts the App Nap probe; a future iOS
     /// conformance does nothing. Named neutrally so this package's vocabulary
@@ -82,15 +87,16 @@ public extension LaunchServices {
 }
 
 /// What the launch was asked for, parsed once.
-public struct LaunchArguments: Sendable, Equatable {
-    public var usesRealBackend: Bool
-    public var probe: LaunchProbe?
-    public var runsDiagnostics: Bool
+public enum BackendSelection: Sendable, Equatable {
+    case local
+    case fixture
+}
 
-    public init(usesRealBackend: Bool = true, probe: LaunchProbe? = nil, runsDiagnostics: Bool = false) {
-        self.usesRealBackend = usesRealBackend
-        self.probe = probe
-        self.runsDiagnostics = runsDiagnostics
+public struct LaunchArguments: Sendable, Equatable {
+    public var backend: BackendSelection
+
+    public init(backend: BackendSelection = .local) {
+        self.backend = backend
     }
 
     /// The real process arguments. One line, so that everything above it is
@@ -104,39 +110,9 @@ public struct LaunchArguments: Sendable, Equatable {
         LaunchArguments(
             // Inverted from `--backend=local` deliberately: what a person gets
             // by double-clicking the app is the real bridge.
-            usesRealBackend: !arguments.contains("--backend=fixture"),
-            probe: arguments.contains("--probe=keychain") ? .keychain
-                : arguments.contains("--probe=api") ? .api
-                : arguments.contains("--probe=punctual") ? .punctual
-                : arguments.contains("--probe=upload") ? .upload
-                : arguments.contains("--probe=people") ? .people
-                : arguments.contains("--probe=search") ? .search
-                : arguments.contains("--probe=edit") ? .edit : nil,
-            runsDiagnostics: arguments.contains("--probe=appnap")
+            backend: arguments.contains("--backend=fixture") ? .fixture : .local
         )
     }
-}
-
-/// A diagnostic that replaces the launch rather than instrumenting it.
-public enum LaunchProbe: Sendable, Equatable {
-    case keychain
-    case api
-    /// Watches availability on Punctual for about ten minutes and reports the
-    /// pushes' shapes (`findings.md` §47).
-    case punctual
-    /// Uploads one generated 16×16 PNG into a conversation and posts
-    /// nothing, reporting the upload's shape (`UploadProbeReport`).
-    case upload
-    /// Searches the directory as Chat on the web does while `@` is typed,
-    /// one read per way of signing it, and reports counts only
-    /// (`PeopleProbeReport`, `findings.md` §57).
-    case people
-    /// Posts one message into the conversation `--probe-conversation=` names,
-    /// edits it and deletes it, reporting what came back as kinds and flags
-    /// (`EditProbeReport`, edit spec §3).
-    case edit
-    /// `--probe=search` (search spec §4): a feature's name, not a Google service.
-    case search
 }
 
 /// One backend, who we are, and the thing that drives a fake world.

@@ -1,5 +1,6 @@
 import Foundation
 import GChatBridgeCore
+#if canImport(Network)
 import Network
 
 /// Whether `isUp` is a recovery, given the network's previous state.
@@ -178,3 +179,4 @@ public final class NWPathReachabilityMonitor: ReachabilityMonitor, Sendable {
 
     deinit { monitor.cancel() }
 }
+#endif
