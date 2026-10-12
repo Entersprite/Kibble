@@ -6,7 +6,9 @@ public struct ConversationList: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
 
-    /// Which sections are **collapsed**, keyed by `SidebarSection.id`.
+    /// Which sections are **collapsed**, keyed by `SidebarSection.id`, for a
+    /// host that keeps none (`SectionCollapse`). A host that keeps them hands
+    /// them back in `state.collapsedSections`, so collapse survives a relaunch.
     ///
     /// Collapsed rather than expanded, so the empty default means everything
     /// is open - and, more usefully, so a section appearing for the first time
@@ -14,13 +16,6 @@ public struct ConversationList: View {
     /// `Kind.unknown` group type mints a section nobody has seen before
     /// (`findings.md` §37.4), and defaulting it shut would hide the very thing
     /// those sections exist to surface.
-    ///
-    /// `@State`, so **collapse does not survive relaunch.** Persisting it
-    /// needs a decision this view cannot make: `DesignSystem` takes values and
-    /// hands back callbacks, and reaching for `UserDefaults` here would be the
-    /// first time a view in this package owned durable state. The honest
-    /// options are a `ChatSceneActions`-style callback or host-provided
-    /// storage; neither is worth building before anyone asks.
     @State private var collapsed: Set<String> = []
 
     public init(state: ChatSceneState, actions: ChatSceneActions) {
@@ -28,18 +23,25 @@ public struct ConversationList: View {
         self.actions = actions
     }
 
+    /// Two lists: the pinned rows, which never scroll (`PinnedList`), and the
+    /// conversations below them. A second list rather than a bar over the
+    /// conversations, so the pinned rows keep the system's own selection and
+    /// row height, and no second scroll-edge blur joins the window's
+    /// (CLAUDE.md, the titlebar section rules).
     public var body: some View {
+        VStack(spacing: 0) {
+            let pinned = SidebarPinned.rows(actions)
+            if !pinned.isEmpty {
+                PinnedList(rows: pinned, state: state, actions: actions)
+                    // Measured afresh for new rows: see `PinnedList`'s height.
+                    .id(pinned)
+            }
+            conversations
+        }
+    }
+
+    private var conversations: some View {
         List(selection: selectionBinding) {
-            // Pinned above the first section, and drawn only where the host
-            // offers it (`ChatSceneActions.showMentions`).
-            if actions.showMentions != nil {
-                MentionsSidebarRow(unread: state.unreadMentionCount)
-                    .tag(SidebarSelection.mentions)
-            }
-            if actions.threads != nil {
-                ThreadsSidebarRow(unread: state.threads.unreadCount)
-                    .tag(SidebarSelection.threads)
-            }
             ForEach(SidebarSections.build(state.conversations)) { section in
                 Section(section.title, isExpanded: expansion(of: section.id)) {
                     ForEach(section.conversations, id: \.id) { conversation in
@@ -74,39 +76,29 @@ public struct ConversationList: View {
         .scrollEdgeEffectStyle(.soft, for: .bottom)
     }
 
-    /// Whether one section is expanded, as a binding over `collapsed`.
+    /// Whether one section is expanded, as a binding over the collapsed set.
     ///
     /// `SidebarSection.id` is stable across rebuilds by construction - that is
     /// what its own doc comment promises it for - so a section keeps its
-    /// disclosure state while its contents change underneath it.
+    /// disclosure state while its contents change underneath it, and across
+    /// launches where the host keeps it.
     private func expansion(of id: String) -> Binding<Bool> {
         Binding(
-            get: { !collapsed.contains(id) },
+            get: {
+                let shut = SectionCollapse.collapsed(state: state, actions: actions, local: collapsed)
+                return !shut.contains(id)
+            },
             set: { isExpanded in
-                if isExpanded {
-                    collapsed.remove(id)
-                } else {
-                    collapsed.insert(id)
-                }
+                SectionCollapse.set(id, collapsed: !isExpanded, actions: actions, local: &collapsed)
             }
         )
     }
 
+    /// Conversations only: a pinned row is selected in `PinnedList`.
     private var selectionBinding: Binding<SidebarSelection?> {
         Binding(
-            get: { state.sidebarSelection },
-            set: { selection in
-                switch selection {
-                case let .conversation(id)?:
-                    actions.select(id)
-                case .mentions?:
-                    actions.showMentions?()
-                case .threads?:
-                    actions.threads?.showList()
-                case nil:
-                    break
-                }
-            }
+            get: { SidebarPinned.conversationSelection(state) },
+            set: { SidebarPinned.choose($0, actions: actions) }
         )
     }
 
@@ -273,101 +265,6 @@ struct ConversationRow: View {
             }
         case .unknown:
             Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
-        }
-    }
-}
-
-/// Who is signed in, and the way to stop - the sidebar's fixed bottom row.
-///
-/// Drawn only when `actions.signOut` is offered, the same rule `StatusStrip`
-/// already applies to `actions.signIn`: a host with no running session has
-/// nothing to sign out of, so this draws nothing rather than a button that
-/// does nothing. That also keeps this from ever showing a half-built
-/// identity next to a control that cannot act on it - there is no running
-/// session either way.
-struct SidebarFooter: View {
-    let state: ChatSceneState
-    let actions: ChatSceneActions
-
-    var body: some View {
-        if let signOut = actions.signOut {
-            // No `Divider()` and no tinted background: both existed to fake a
-            // separation `safeAreaBar` now provides, and keeping them would
-            // draw it twice.
-            // Redrawn at your own boundaries, like a DM row (spec §6.3), and when Do not disturb ends.
-            TimelineView(.explicit(Display.ownRedrawDates(
-                for: state.me.flatMap { state.directory[$0] },
-                availability: state.availability,
-                now: .now
-            ))) { _ in
-                HStack(spacing: 10) {
-                    if state.capabilities.canSetStatus, let setStatus = actions.setStatus,
-                       let setAvailability = actions.setAvailability {
-                        OwnStatusMenu(
-                            state: state, setStatus: setStatus, setAvailability: setAvailability,
-                            reactions: actions.reactions
-                        ) {
-                            HStack(spacing: 10) { identity }
-                        }
-                    } else {
-                        identity
-                    }
-                    Spacer(minLength: 8)
-                    ownMarks
-                    // Icon-only, but built from a `Label` rather than a bare
-                    // `Image`: `.iconOnly` hides the text visually and keeps it as
-                    // the accessibility label, so VoiceOver still says "Sign Out"
-                    // instead of reading a symbol name. `.help` gives the same
-                    // words back as a tooltip on macOS.
-                    Button(action: signOut) {
-                        Label("Sign Out…", systemImage: "rectangle.portrait.and.arrow.right")
-                            .labelStyle(.iconOnly)
-                            .font(.body)
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Sign Out…")
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-        }
-    }
-
-    /// `Display.signedInLabel` already decides what to show when `state.me`
-    /// has not resolved yet - see its own doc comment - so this only has to
-    /// draw an avatar or a neutral stand-in for the same gap.
-    @ViewBuilder private var identity: some View {
-        if let me = state.me {
-            Avatar(
-                member: me, directory: state.directory, size: 28,
-                presence: Display.ownPresence(
-                    availability: state.availability, directory: state.directory, me: me,
-                    connection: state.connection, now: .now
-                )
-            )
-        } else {
-            UnknownPersonGlyph(size: 28)
-        }
-        Text(Display.signedInLabel(me: state.me, directory: state.directory))
-            .font(.callout)
-            .lineLimit(1)
-            .foregroundStyle(.primary)
-    }
-
-    /// Your own status and calendar marks, the one place they are drawn
-    /// (spec §6.2): at the trailing edge, beside Sign Out, as a DM row's are.
-    @ViewBuilder private var ownMarks: some View {
-        if let marks = PersonMarks(
-            status: Display.ownStatus(
-                directory: state.directory, me: state.me, connection: state.connection, now: .now
-            ),
-            calendar: Display.ownCalendar(
-                directory: state.directory, me: state.me, connection: state.connection, now: .now
-            ),
-            now: .now
-        ) {
-            marks
         }
     }
 }

@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// A round glass button beside the field, as Messages draws its + and emoji
-/// buttons. A label rather than a bare image, so VoiceOver reads the title.
-struct ComposerRoundButton: View {
+/// A round glass button, as Messages draws its + and emoji buttons beside the
+/// field; the sidebar footer's gear is one too. A label rather than a bare
+/// image, so VoiceOver reads the title.
+struct RoundGlassButton: View {
     let title: String
     let systemImage: String
+    var diameter: CGFloat = ComposerLayout.lineHeight
     let action: () -> Void
 
     var body: some View {
@@ -13,7 +15,7 @@ struct ComposerRoundButton: View {
                 .labelStyle(.iconOnly)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
-                .frame(width: ComposerLayout.lineHeight, height: ComposerLayout.lineHeight)
+                .frame(width: diameter, height: diameter)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
@@ -36,7 +38,7 @@ struct ComposerEmojiButton: View {
     @State private var picking = false
 
     var body: some View {
-        ComposerRoundButton(title: "Emoji", systemImage: ComposerLayout.emojiSymbol) {
+        RoundGlassButton(title: "Emoji", systemImage: ComposerLayout.emojiSymbol) {
             picking = true
         }
         .popover(isPresented: $picking, arrowEdge: .leading) {

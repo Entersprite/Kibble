@@ -184,23 +184,27 @@ struct KibbleMacApp: App {
             // sidebar and their message in the status strip. They differ in
             // one thing, and it is `environment.actions`' job: a failed launch
             // offers a way back to sign-in, and a probe report does not.
-            ChatWindow(state: environment.sceneState, actions: sceneActions)
+            SettingsOpening { showSettings in
+                ChatWindow(state: environment.sceneState, actions: sceneActions(showSettings: showSettings))
+            }
         }
     }
 
-    /// `environment.actions` plus the one thing `AppEnvironment` must not own:
-    /// the confirmation dialog above already lives in this file, next to the
+    /// `environment.actions` plus what `AppEnvironment` must not own: the
+    /// confirmation dialog above already lives in this file, next to the
     /// identical one the menu command has always shown, and `ChatSceneActions
     /// .signOut`'s own doc comment is explicit that triggering *that* dialog -
-    /// not a second one - is the whole job here. Assembly, not logic: this
+    /// not a second one - is the whole job here. Settings is the shell's scene,
+    /// so the shell opens it (`SettingsOpening`). Assembly, not logic: this
     /// still names no concrete backend and makes no decision `AppEnvironment`
     /// has not already made through `canSignOut`.
-    private var sceneActions: ChatSceneActions {
+    private func sceneActions(showSettings: @escaping () -> Void) -> ChatSceneActions {
         var actions = environment.actions
         actions.signOut = environment.canSignOut ? { isConfirmingSignOut = true } : nil
         actions.showNotificationSettings = environment.canEditNotificationRules
             ? { editingConversation = ConversationSelection(id: $0) }
             : nil
+        actions.showSettings = showSettings
         return actions
     }
 }

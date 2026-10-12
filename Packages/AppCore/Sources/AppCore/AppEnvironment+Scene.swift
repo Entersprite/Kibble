@@ -65,7 +65,8 @@ public extension AppEnvironment {
             threads: threadScene(of: model),
             search: Self.searchScene(model.search),
             highlightedMessage: model.search.highlight,
-            searchOpenGeneration: model.search.openGeneration
+            searchOpenGeneration: model.search.openGeneration,
+            collapsedSections: collapsedSections
         )
     }
 
@@ -218,8 +219,18 @@ public extension AppEnvironment {
             setAvailability: runningModel?.capabilities.canSetStatus == true
                 ? { [weak self] in self?.runningModel?.setAvailability($0) } : nil,
             threads: threadActions,
-            search: searchActions
+            search: searchActions,
+            setSectionCollapsed: { [weak self] in self?.setSection($0, collapsed: $1) }
         )
+    }
+
+    /// Whether `signOut()` has a running session to act on. The menu command is
+    /// disabled otherwise - there is nothing to confirm forgetting.
+    var canSignOut: Bool {
+        if case .running = phase {
+            return true
+        }
+        return false
     }
 
     private var isFailed: Bool {

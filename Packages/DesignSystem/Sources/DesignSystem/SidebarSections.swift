@@ -117,3 +117,27 @@ public enum SidebarSections {
         }
     }
 }
+
+/// Where a section's disclosure lives: with the host when it keeps one, so a
+/// collapsed section stays collapsed across launches, or in the sidebar's own
+/// state for a host that keeps none (previews, tests, a future host).
+@MainActor
+enum SectionCollapse {
+    static func collapsed(
+        state: ChatSceneState, actions: ChatSceneActions, local: Set<String>
+    ) -> Set<String> {
+        actions.setSectionCollapsed == nil ? local : state.collapsedSections
+    }
+
+    static func set(
+        _ id: String, collapsed: Bool, actions: ChatSceneActions, local: inout Set<String>
+    ) {
+        if let remember = actions.setSectionCollapsed {
+            remember(id, collapsed)
+        } else if collapsed {
+            local.insert(id)
+        } else {
+            local.remove(id)
+        }
+    }
+}

@@ -102,8 +102,10 @@ public final class AppEnvironment {
     /// The app's one skin tone for reactions (reactions spec §3). Not
     /// personal data, so it lives in the app's defaults and survives sign-out.
     public internal(set) var skinTone: SkinTone = .none
+    /// The sidebar's collapsed sections, the app's like `skinTone` (`AppEnvironment+Sidebar.swift`).
+    public internal(set) var collapsedSections: Set<String> = []
 
-    /// The app's defaults, for `skinTone` (`AppEnvironment+SkinTone.swift`).
+    /// The app's defaults, for `skinTone` and `collapsedSections`.
     @ObservationIgnored let preferences: UserDefaults
 
     public init(
@@ -115,6 +117,7 @@ public final class AppEnvironment {
         self.services = services
         self.preferences = preferences
         skinTone = SkinTone(rawValue: preferences.integer(forKey: Self.skinToneKey)) ?? .none
+        collapsedSections = Set(preferences.stringArray(forKey: Self.collapsedSectionsKey) ?? [])
         // Only a real account may take the legacy ghost-mode key; the fixture
         // identifies a demo account of its own.
         settings = NotificationSettingsModel(
@@ -385,14 +388,5 @@ public final class AppEnvironment {
     public func setActive(_ active: Bool) {
         pendingActive = active
         applyViewing()
-    }
-
-    /// Whether `signOut()` has a running session to act on. The menu command is
-    /// disabled otherwise - there is nothing to confirm forgetting.
-    public var canSignOut: Bool {
-        if case .running = phase {
-            return true
-        }
-        return false
     }
 }
