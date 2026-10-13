@@ -11,7 +11,9 @@ public enum MeetDeviceWire {
     /// The web source's request extension specifies client RPC semantics.
     static let clientExtension = Data([0x0A, 0x02, 0x08, 0x03]).base64EncodedString()
 
-    public static func create(space: String, mediaSession: String) throws -> Data {
+    public static func create(
+        space: String, mediaSession: String, incomingInvitation: MeetIncomingInvitation? = nil
+    ) throws -> Data {
         guard validSpace(space), validMediaSession(mediaSession) else {
             throw MeetCallWire.WireError.invalidIdentifier
         }
@@ -19,7 +21,14 @@ public enum MeetDeviceWire {
         // Omit unsupported device and viewer capability enums (fields 18/39).
         let device = MeetProto.number(4, 2) + MeetProto.string(22, cloudID(mediaSession))
             + MeetProto.number(25, 1) + MeetProto.number(38, 1)
-        return MeetProto.string(1, space) + MeetProto.bytes(2, device)
+        var body = MeetProto.string(1, space) + MeetProto.bytes(2, device)
+        if let incomingInvitation {
+            body += MeetProto.string(4, incomingInvitation.id)
+            if let clientID = incomingInvitation.clientID {
+                body += MeetProto.string(5, clientID)
+            }
+        }
+        return body
     }
 
     public static func join(device: String, mediaSession: String) throws -> Data {

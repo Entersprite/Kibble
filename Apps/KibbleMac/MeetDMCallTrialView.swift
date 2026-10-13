@@ -16,6 +16,27 @@
             }
         }
 
+        private var incomingControls: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Button("Listen for Incoming Calls") { Task { await model.startListening() } }
+                        .disabled(model.isListening || model.isBusy || model.people.isEmpty)
+                    Button("Stop Listening") { Task { await model.stopListening() } }
+                        .disabled(!model.isListening)
+                }
+                Text(model.incomingStatus).font(.callout).foregroundStyle(.secondary)
+                if let person = model.incomingPerson {
+                    Text("Incoming call: \(person.name)").font(.headline)
+                    HStack {
+                        Button("Accept with Native Audio") { Task { await model.acceptIncoming() } }
+                            .disabled(model.isBusy || model.isNativeCallActive)
+                        Button("Dismiss Locally") { Task { await model.dismissIncoming() } }
+                            .disabled(model.isBusy)
+                    }
+                }
+            }
+        }
+
         var body: some View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Native DM call trial").font(.title2.bold())
@@ -50,6 +71,8 @@
                         } else {
                             Text("Select a person from your DMs.").font(.headline)
                         }
+                        incomingControls
+                        Divider()
                         Button("1. Prepare Call") { Task { await model.prepare() } }
                             .disabled(!model.canPrepare)
                         Button("2. Connect Native Audio") { Task { await model.joinNative() } }
@@ -69,7 +92,7 @@
                         Spacer()
                         Text(
                             "Connect native audio first, then ring explicitly. "
-                                + "This first trial uses audio; video and incoming calls are still pending."
+                                + "This trial uses audio; video is still pending."
                         )
                         .font(.callout).foregroundStyle(.secondary)
                         Text("End Native Call closes audio and asks Meet to remove Kibble's caller device.")

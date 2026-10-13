@@ -10,6 +10,7 @@ public enum MeetDeviceSessionError: Error, Sendable, Equatable {
 public actor MeetDeviceSession {
     private let client: MeetCallClient
     private let space: MeetCallWire.Space
+    private let incomingInvitation: MeetIncomingInvitation?
     private var token = MeetMeetingToken()
     private var device: MeetDeviceWire.Device?
     private var mediaSession: String?
@@ -22,6 +23,7 @@ public actor MeetDeviceSession {
     public init(client: MeetCallClient, call: MeetResolvedCall) {
         self.client = client
         space = call.space
+        incomingInvitation = call.incomingInvitation
         token.absorb(call.token)
     }
 
@@ -29,7 +31,9 @@ public actor MeetDeviceSession {
         try begin()
         defer { busy = false }
         guard !didRegister else { throw MeetDeviceSessionError.deviceExists }
-        let body = try MeetDeviceWire.create(space: space.name, mediaSession: mediaSession)
+        let body = try MeetDeviceWire.create(
+            space: space.name, mediaSession: mediaSession, incomingInvitation: incomingInvitation
+        )
         didRegister = true
         let response = try await request("CreateMeetingDevice", body: body)
         // Keep the device before checking cancellation, so the adapter can leave

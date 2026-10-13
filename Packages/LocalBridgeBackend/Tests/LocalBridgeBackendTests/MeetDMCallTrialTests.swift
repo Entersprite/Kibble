@@ -68,7 +68,7 @@ struct MeetDMCallTrialTests {
         ])!, capturedAt: capturedAt, expiresAt: nil)
     }
 
-    private func trial(
+    func trial(
         _ transport: any HTTPTransport
     ) async throws -> (MeetDMCallTrial, KeychainCredentialStore) {
         let store = KeychainCredentialStore(storage: Storage(), account: "trial-test")
@@ -80,7 +80,7 @@ struct MeetDMCallTrialTests {
         .success(HTTPResponse(status: 200, headers: HTTPHeaders(headers), body: body))
     }
 
-    private func loadingResponses(
+    func loadingResponses(
         memberCountEstimate: Int32? = nil
     ) throws -> [Result<HTTPResponse, any Error>] {
         var selfStatus = GetSelfUserStatusResponse()
@@ -126,7 +126,7 @@ struct MeetDMCallTrialTests {
         return member
     }
 
-    private func preparingResponses() -> [Result<HTTPResponse, any Error>] {
+    func preparingResponses() -> [Result<HTTPResponse, any Error>] {
         let key = "AIza" + String(repeating: "K", count: 35)
         return [
             ScriptedTransport.ok("<script>window.WIZ_global_data={};</script>\(key) \(key)"),

@@ -195,7 +195,7 @@ struct NativeMeetCallSessionTests {
 }
 
 @MainActor
-private final class NativeFakeMedia: CallMediaEngine {
+final class NativeFakeMedia: CallMediaEngine {
     var isConnected = false
     var calls: [String] = []
     let failConnection: Bool

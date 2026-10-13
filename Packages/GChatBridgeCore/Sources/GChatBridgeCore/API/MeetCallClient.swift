@@ -66,6 +66,32 @@ public struct MeetCallConfiguration: Sendable {
 public struct MeetResolvedCall: Sendable {
     public let space: MeetCallWire.Space
     let token: String
+    let incomingInvitation: MeetIncomingInvitation?
+    private let incomingReference: String?
+
+    init(space: MeetCallWire.Space, token: String, incomingInvitation: MeetIncomingInvitation? = nil) {
+        self.space = space
+        self.token = token
+        self.incomingInvitation = incomingInvitation
+        incomingReference = nil
+    }
+
+    fileprivate init(
+        space: MeetCallWire.Space, token: String, invitation: MeetIncomingInvitation,
+        resolvedReference: String
+    ) {
+        self.space = space
+        self.token = token
+        incomingInvitation = invitation
+        incomingReference = resolvedReference
+    }
+
+    /// Only the offered-reference resolver can establish this binding. A DM
+    /// resolve or a different notification cannot satisfy it, even if a code
+    /// happens to equal the returned canonical space.
+    public func resolvesIncomingReference(_ reference: String) -> Bool {
+        incomingInvitation != nil && incomingReference == reference
+    }
 }
 
 public enum MeetCallClientError: Error, Sendable, Equatable {
@@ -108,7 +134,25 @@ public struct MeetCallClient: Sendable {
         guard let token = response.headers["x-goog-meeting-token"], !token.isEmpty else {
             throw MeetCallClientError.missingMeetingToken
         }
-        return MeetResolvedCall(space: space, token: token)
+        return MeetResolvedCall(space: space, token: token, incomingInvitation: nil)
+    }
+
+    public func resolveIncoming(
+        code: String,
+        invitation: MeetIncomingInvitation
+    ) async throws -> MeetResolvedCall {
+        var request = try configuration.request(
+            method: "MeetingSpaceService/ResolveMeetingSpace", body: MeetCallWire.resolveOffered(code: code)
+        )
+        request.headers = try HTTPHeaders(fields: request.headers.fields + [
+            .init(name: "X-Goog-Meeting-Identifier", value: MeetCallWire.offeredIdentifier(code: code))
+        ])
+        let response = try await send(request)
+        let space = try MeetCallWire.resolvedSpace(from: response.body)
+        guard let token = response.headers["x-goog-meeting-token"], !token.isEmpty else {
+            throw MeetCallClientError.missingMeetingToken
+        }
+        return MeetResolvedCall(space: space, token: token, invitation: invitation, resolvedReference: code)
     }
 
     public func invite(_ call: MeetResolvedCall, calleeID: String, requestID: UUID) async throws {

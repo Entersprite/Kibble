@@ -41,6 +41,13 @@ public struct WizGlobalData: Sendable, Hashable, CustomStringConvertible {
     /// reported by length all the same.
     public let punctualKey: String?
 
+    /// Separate Meet-ring prefix watch, using signaler rather than the Chat
+    /// availability project. Missing configuration disables that capability.
+    public let meetPushConfiguration: MeetPushConfiguration?
+
+    /// Fixed field shapes only; no opaque values are included.
+    public let meetPushDiagnostics: [String]
+
     /// `batchexecute`'s `at` form field (`SNlM0e`, `[Verify]`). **Not
     /// `xsrfToken`**: in a capture the two were the same length and different
     /// values (`findings.md` §65.4).
@@ -141,6 +148,8 @@ public extension WizGlobalData {
             appName: appName,
             xsrfToken: fields[Self.xsrfTokenKey] as? String,
             punctualKey: fields[Self.punctualKeyKey] as? String,
+            meetPushConfiguration: MeetPushConfiguration.read(fields),
+            meetPushDiagnostics: MeetPushConfiguration.diagnostics(fields),
             batchToken: fields[Self.batchTokenKey] as? String,
             sessionID: fields[Self.sessionIDKey] as? String,
             buildLabel: fields[Self.buildLabelKey] as? String,

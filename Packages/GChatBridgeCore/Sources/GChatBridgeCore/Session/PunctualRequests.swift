@@ -25,6 +25,14 @@ public struct PunctualTopic: Sendable, Hashable {
         ])
     }
 
+    /// A prefix watch on one opaque Meet topic. Source zRh/aZm: field 6
+    /// selects prefix, the point is a string part, and field 2.2 is true.
+    public static func meetRings(_ configuration: MeetPushConfiguration) -> PunctualTopic {
+        PunctualTopic(value: [
+            [.string(configuration.project)], [nil, 1], [[[.string(configuration.topic)]]]
+        ])
+    }
+
     /// The envelope around a topic, shared by `chooseServer` and a watch.
     /// `[9,5]` is constant in every request captured; what it means is
     /// `[Verify]`, and it is copied rather than interpreted.
@@ -85,6 +93,7 @@ public struct PunctualRequests: Sendable {
     public let endpoints: ChatEndpoints
     public let serverPath: String
     public let key: String
+    private let baseURL: URL
 
     /// The server path the captured client used. The page carries a longer
     /// `prod-dynamite-prod-09-us` in its config, so this is probably derived
@@ -96,6 +105,14 @@ public struct PunctualRequests: Sendable {
         self.endpoints = endpoints
         self.serverPath = serverPath
         self.key = key
+        baseURL = endpoints.host.appendingPathComponent("punctual").appendingPathComponent(serverPath)
+    }
+
+    public init(meet configuration: MeetPushConfiguration, endpoints: ChatEndpoints) {
+        self.endpoints = endpoints
+        serverPath = ""
+        key = configuration.key
+        baseURL = URL(string: "https://signaler-pa.clients6.google.com/punctual")!
     }
 
     /// Asks which server to use, and mints the `gsessionid`.
@@ -198,10 +215,7 @@ public struct PunctualRequests: Sendable {
     /// On the host root: the capture's Punctual paths carry no `/u/N`, while
     /// `X-Goog-AuthUser` names the account instead.
     private func base(_ path: String) -> URL {
-        endpoints.host
-            .appendingPathComponent("punctual")
-            .appendingPathComponent(serverPath)
-            .appendingPathComponent(path)
+        baseURL.appendingPathComponent(path)
     }
 
     private func headers(_ extra: [(String, String)] = []) -> HTTPHeaders {

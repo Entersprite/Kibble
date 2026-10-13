@@ -32,6 +32,19 @@ public enum MeetCallWire {
         return body
     }
 
+    /// Meet's receiver hih/Xnf flow resolves the offered meeting code at
+    /// field 1. It does not resolve/create the Chat DM's outgoing call space.
+    public static func resolveOffered(code: String) throws -> Data {
+        guard validIdentifier(code) else { throw WireError.invalidIdentifier }
+        return MeetProto.string(1, code)
+    }
+
+    /// hih/gih also sends MeetingIdentifier(type=2, value=offered code).
+    public static func offeredIdentifier(code: String) throws -> String {
+        _ = try resolveOffered(code: code)
+        return (MeetProto.number(1, 2) + MeetProto.string(2, code)).base64EncodedString()
+    }
+
     /// The response body is base64 binary protobuf when the request asks for
     /// `x-goog-encode-response-if-executable: base64`.
     public static func resolvedSpace(from body: Data) throws -> Space {

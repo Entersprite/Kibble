@@ -3,36 +3,10 @@ import Foundation
 import GChatBridgeCore
 import URLSessionTransport
 
-public struct MeetDMCallPerson: Sendable, Identifiable {
-    public let id: UUID
-    public let name: String
-    public let email: String?
-}
-
-public struct PreparedMeetDMCall: Sendable {
-    public let id: UUID
-    public let url: URL
-}
-
-public enum MeetDMCallTrialError: Error, Sendable, Equatable {
-    case noSession, signedOut, missingSelf, accountChanged, invalidPerson, callNotPrepared, superseded
-    case browserJoinRequired, callChanged
-}
-
-public enum MeetDMCallLoadStep: String, Sendable {
-    case storedSession = "Reading the saved Chat session…"
-    case chatBootstrap = "Connecting to Chat…"
-    case selfAccount = "Checking your Chat account…"
-    case conversations = "Loading your DM conversations…"
-    case profiles = "Loading people's names…"
-    case ready = "Checking the loaded people list…"
-}
-
-/// An owner-operated trial: loading people sends only Chat queries; preparing
-/// resolves a DM; only `ring` sends an invitation. Provider IDs and tokens stay
-/// in this actor. Public UUIDs are temporary handles, not Google identifiers.
+/// Owner-operated DM trial. Only explicit ring sends invitations; provider
+/// IDs/tokens stay in this actor and public UUIDs are temporary handles.
 public actor MeetDMCallTrial {
-    private struct Target {
+    struct Target: Sendable {
         let dmID: String
         let calleeID: String
     }
@@ -40,6 +14,8 @@ public actor MeetDMCallTrial {
     private struct Context {
         let stored: StoredSession
         let credentials: SessionCredentials
+        let push: MeetPushConfiguration?
+        let pushDiagnostics: [String]
     }
 
     private struct Prepared {
@@ -50,6 +26,7 @@ public actor MeetDMCallTrial {
         let client: MeetCallClient
         let call: MeetResolvedCall
         let ownerReportedBrowserJoin: Bool
+        let permitsInvitation: Bool
     }
 
     private let store: KeychainCredentialStore
@@ -60,7 +37,7 @@ public actor MeetDMCallTrial {
     private var prepared: Prepared?
     private var native: NativeMeetCallSession?
     private var generation = 0
-    private var lines = [
+    var lines = [
         "kibble native DM call trial",
         "Native audio/device trial; invitations are explicit and require a connected joined device.", ""
     ]
@@ -121,7 +98,10 @@ public actor MeetDMCallTrial {
             try await loadProgress(.ready, generation: currentGeneration, progress: progress)
             try await ensureCurrent(stored)
             try ensureGeneration(currentGeneration)
-            context = Context(stored: stored, credentials: credentials)
+            context = Context(
+                stored: stored, credentials: credentials, push: wiz.meetPushConfiguration,
+                pushDiagnostics: wiz.meetPushDiagnostics
+            )
             targets = people.targets
             lines.append("Loaded \(people.people.count) named human DM recipients.")
             return people.people.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -131,6 +111,8 @@ public actor MeetDMCallTrial {
         }
     }
 
+    private var watchScope = UUID()
+
     public func prepare(person: UUID) async throws -> PreparedMeetDMCall {
         await endNativeCall()
         prepared = nil
@@ -139,27 +121,15 @@ public actor MeetDMCallTrial {
         do {
             guard let target = targets[person], let context else { throw MeetDMCallTrialError.invalidPerson }
             try await ensureCurrent(context.stored)
-            let accountIndex = switch endpoints.account {
-            case let .index(index): index
-            case .none: 0
-            }
-            let configuration = try await MeetCallBootstrap(
-                transport: transport, credentials: context.credentials
-            ).loadConfiguration(accountIndex: accountIndex, userAgent: endpoints.userAgent)
-            lines.append("Meet call shell: client key found")
-            lines.append("Meet RTC client header: validated client descriptor protobuf")
-            try ensureGeneration(currentGeneration)
-            let client = MeetCallClient(
-                transport: transport, credentials: context.credentials, configuration: configuration,
-                sha1: SHA1.hex
-            )
+            let client = try await loadCallClient(context, generation: currentGeneration)
             let call = try await client.resolve(dmID: target.dmID)
             try await ensureCurrent(context.stored)
             try ensureGeneration(currentGeneration)
             let ticket = UUID()
             prepared = Prepared(
                 ticket: ticket, generation: currentGeneration, target: target,
-                context: context, client: client, call: call, ownerReportedBrowserJoin: false
+                context: context, client: client, call: call, ownerReportedBrowserJoin: false,
+                permitsInvitation: true
             )
             lines.append("ResolveForHangoutsChat: accepted; valid normal Meet URL (value withheld)")
             return PreparedMeetDMCall(id: ticket, url: call.space.url)
@@ -169,12 +139,11 @@ public actor MeetDMCallTrial {
         }
     }
 
-    /// The owner confirms being joined in the browser. Resolve again for this
-    /// same DM and space before allowing a native invite. A browser device's
-    /// token is never imported; whether this refreshed token suffices is a
-    /// separate protocol check. This method cannot send an invitation.
+    /// Legacy browser confirmation trial: refreshes the same DM/space but
+    /// creates no device and imports no browser credentials. Incoming calls
+    /// cannot enter this invitation path.
     public func prepareRingAfterBrowserJoin(preparedID: UUID) async throws -> PreparedMeetDMCall {
-        guard let previous = prepared, previous.ticket == preparedID else {
+        guard let previous = prepared, previous.ticket == preparedID, previous.permitsInvitation else {
             throw MeetDMCallTrialError.callNotPrepared
         }
         prepared = nil
@@ -191,7 +160,9 @@ public actor MeetDMCallTrial {
             let ticket = UUID()
             prepared = Prepared(
                 ticket: ticket, generation: currentGeneration, target: previous.target,
-                context: previous.context, client: previous.client, call: call, ownerReportedBrowserJoin: true
+                context: previous.context, client: previous.client, call: call,
+                ownerReportedBrowserJoin: true,
+                permitsInvitation: true
             )
             lines.append("Resolve after browser join: accepted; same Meet space; new response token retained")
             return PreparedMeetDMCall(id: ticket, url: call.space.url)
@@ -203,7 +174,8 @@ public actor MeetDMCallTrial {
 
     public func ring(preparedID: UUID) async throws {
         guard let call = prepared,
-              call.ticket == preparedID else { throw MeetDMCallTrialError.callNotPrepared }
+              call.ticket == preparedID,
+              call.permitsInvitation else { throw MeetDMCallTrialError.callNotPrepared }
         guard call.ownerReportedBrowserJoin || native != nil else {
             throw MeetDMCallTrialError.browserJoinRequired
         }
@@ -231,6 +203,7 @@ public actor MeetDMCallTrial {
 
     public func close() async {
         generation += 1
+        watchScope = UUID()
         targets = [:]
         context = nil
         prepared = nil
@@ -295,79 +268,131 @@ public actor MeetDMCallTrial {
     }
 }
 
-private extension MeetDMCallTrial {
-    private static func candidates(
-        _ conversations: [Conversation], selfID: String
-    ) -> (targets: [Target], diagnostics: [String]) {
-        var seen = Set<String>()
-        var direct = 0
-        var pairs = 0
-        var ownerPairs = 0
-        var differingEstimates = 0
-        let targets: [Target] = conversations.compactMap { conversation in
-            guard let dmID = MeetCallProbeReport.dmID(for: conversation) else { return nil }
-            direct += 1
-            let members = Set(conversation.members.map(\.rawValue))
-            guard members.count == 2 else { return nil }
-            pairs += 1
-            guard members.contains(selfID) else { return nil }
-            ownerPairs += 1
-            // The segmented count is an estimate. The DM kind and actual
-            // owner/peer pair establish the recipient; a different estimate
-            // is diagnostic information, not grounds to discard that person.
-            if let count = conversation.memberCount, count != 2 {
-                differingEstimates += 1
+extension MeetDMCallTrial {
+    public func incomingCalls() async throws -> MeetIncomingDMCalls {
+        guard let context else { throw MeetDMCallTrialError.noSession }
+        let currentGeneration = generation
+        try await ensureCurrent(context.stored)
+        try ensureGeneration(currentGeneration)
+        let push = try await pushConfiguration(context, generation: currentGeneration)
+        try await ensureCurrent(context.stored)
+        try ensureGeneration(currentGeneration)
+        let scope = UUID()
+        watchScope = scope
+        let people = Dictionary(uniqueKeysWithValues: targets.map { ($0.value.dmID, $0.key) })
+        let client = PunctualClient(
+            transport: transport,
+            credentials: context.credentials,
+            authorization: { jar, url in
+                SAPISIDHash.browserAuthorization(for: .init(
+                    cookies: jar.cookies, url: url, origin: "https://chat.google.com",
+                    timestamp: Int(Date().timeIntervalSince1970)
+                ), sha1: SHA1.hex)
             }
-            guard
-                let callee = members.first(where: { $0 != selfID }), seen.insert(callee).inserted
-            else { return nil }
-            return Target(dmID: dmID, calleeID: callee)
-        }
-        return (targets, [
-            "Human DM filters: \(direct) human DMs; \(pairs) with two listed members; "
-                + "\(ownerPairs) including current account; "
-                + "\(differingEstimates) with differing count estimates; "
-                + "\(targets.count) unique recipients"
-        ])
+        )
+        return MeetIncomingDMCalls(
+            requests: PunctualRequests(meet: push, endpoints: endpoints), topic: .meetRings(push),
+            client: client,
+            people: people,
+            validate: { [weak self] in
+                guard let self else { throw MeetDMCallTrialError.superseded }
+                try await validateWatch(context.stored, scope: scope)
+            },
+            prepare: { [weak self] person, ring in
+                guard let self else { throw MeetDMCallTrialError.superseded }
+                return try await prepareIncoming(person: person, ring: ring)
+            },
+            discard: { [weak self] ticket in await self?.discardIncoming(ticket) }
+        )
     }
 
-    private func namedPeople(
-        _ candidates: [Target], using chat: ProtoAPIClient
-    ) async throws -> (people: [MeetDMCallPerson], targets: [UUID: Target]) {
-        guard !candidates.isEmpty else {
-            lines.append("get_members: not sent; no candidate recipients")
-            return ([], [:])
+    private func pushConfiguration(
+        _ context: Context,
+        generation: Int
+    ) async throws -> MeetPushConfiguration {
+        lines.append("Incoming watch config: initial Chat shell")
+        lines.append(contentsOf: context.pushDiagnostics)
+        if let push = context.push {
+            return push
         }
-        let response = try await chat.call(
-            .getMembers, LocalBridgeBackend.getMembersRequest(candidates.map { .init($0.calleeID) })
-        )
-        let mapped = MemberMapping.map(response)
-        lines.append(
-            "get_members: accepted; \(response.members.count) profiles; "
-                + "\(mapped.members.count) mapped; \(mapped.skipped) unmapped"
-        )
-        let members = Dictionary(
-            mapped.members.map { ($0.id.rawValue, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        var people: [MeetDMCallPerson] = []
-        var selected: [UUID: Target] = [:]
-        var matching = 0
-        var human = 0
-        for target in candidates {
-            guard let member = members[target.calleeID] else { continue }
-            matching += 1
-            guard member.kind == .human else { continue }
-            human += 1
-            guard let name = member.displayName ?? member.email, !name.isEmpty
-            else { continue }
-            let id = UUID()
-            people.append(MeetDMCallPerson(id: id, name: name, email: member.email))
-            selected[id] = target
+        lines.append("Incoming watch config: reading standalone Chat page…")
+        do {
+            let wiz = try await MeetPushBootstrap(transport: transport, credentials: context.credentials)
+                .load(endpoints: endpoints)
+            try await ensureCurrent(context.stored)
+            try ensureGeneration(generation)
+            lines.append("Incoming watch config: standalone Chat shell accepted")
+            lines.append(contentsOf: wiz.meetPushDiagnostics)
+            guard let push = wiz.meetPushConfiguration
+            else { throw MeetDMCallTrialError.missingPushConfiguration }
+            self.context = Context(
+                stored: context.stored, credentials: context.credentials, push: push,
+                pushDiagnostics: wiz.meetPushDiagnostics
+            )
+            return push
+        } catch {
+            lines.append("Incoming watch config: " + Self.errorDescription(error))
+            throw error
         }
-        lines.append(
-            "Recipient profiles: \(matching) matched; \(human) human; \(people.count) named"
+    }
+
+    private func loadCallClient(_ context: Context, generation: Int) async throws -> MeetCallClient {
+        let accountIndex = switch endpoints.account {
+        case let .index(index): index
+        case .none: 0
+        }
+        let configuration = try await MeetCallBootstrap(
+            transport: transport, credentials: context.credentials
+        ).loadConfiguration(accountIndex: accountIndex, userAgent: endpoints.userAgent)
+        lines.append("Meet call shell: client key found")
+        lines.append("Meet RTC client header: validated client descriptor protobuf")
+        try ensureGeneration(generation)
+        return MeetCallClient(
+            transport: transport, credentials: context.credentials, configuration: configuration,
+            sha1: SHA1.hex
         )
-        return (people, selected)
+    }
+
+    private func discardIncoming(_ ticket: UUID) {
+        guard let call = prepared, call.ticket == ticket, !call.permitsInvitation,
+              native == nil else { return }
+        prepared = nil
+        generation += 1
+        lines.append("Incoming call: abandoned preparation discarded before media")
+    }
+
+    private func validateWatch(_ stored: StoredSession, scope: UUID) async throws {
+        try await ensureCurrent(stored)
+        guard watchScope == scope else { throw MeetDMCallTrialError.superseded }
+    }
+
+    private func prepareIncoming(person: UUID, ring: MeetPushWire.Ring) async throws -> PreparedMeetDMCall {
+        guard native == nil else { throw MeetDMCallTrialError.callNotPrepared }
+        prepared = nil
+        generation += 1
+        let currentGeneration = generation
+        guard let target = targets[person], let context else { throw MeetDMCallTrialError.invalidPerson }
+        try await ensureCurrent(context.stored)
+        let client = try await loadCallClient(context, generation: currentGeneration)
+        let invitation = try MeetIncomingInvitation(id: ring.id, clientID: ring.receiverClientID)
+        lines.append("ResolveMeetingSpace: resolving the offered incoming code (value withheld)")
+        let call = try await client.resolveIncoming(code: ring.callIdentifier, invitation: invitation)
+        try await ensureCurrent(context.stored)
+        try ensureGeneration(currentGeneration)
+        lines.append("ResolveMeetingSpace: offered incoming reference accepted (value withheld)")
+        lines.append(MeetIncomingReference.diagnostic(ring.callIdentifier, call: call))
+        guard call.resolvesIncomingReference(ring.callIdentifier) else {
+            throw MeetDMCallTrialError.callChanged
+        }
+        let ticket = UUID()
+        prepared = Prepared(
+            ticket: ticket, generation: currentGeneration, target: target, context: context,
+            client: client, call: call, ownerReportedBrowserJoin: false, permitsInvitation: false
+        )
+        lines
+            .append(
+                "Incoming call: offered reference matched; receiver invitation attached; invitations disabled"
+            )
+        return PreparedMeetDMCall(id: ticket, url: call.space.url)
     }
 }

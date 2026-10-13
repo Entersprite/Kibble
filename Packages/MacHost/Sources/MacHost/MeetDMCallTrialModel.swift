@@ -28,6 +28,13 @@ public final class MeetDMCallTrialModel {
     private var isReadyToRing = false
     private var nativeMedia: NativeCallMedia?
     private var nativeRevision = UUID()
+    private var incoming: MeetIncomingDMCalls?
+    private var listeningTask: Task<Void, Never>?
+    private var listeningRevision = UUID()
+    private var isReceivingCall = false
+    public private(set) var isListening = false
+    public private(set) var incomingStatus = "Incoming call listening is stopped."
+    public private(set) var incomingCall: IncomingMeetDMCall?
     public private(set) var isNativeCallActive = false
     public private(set) var isEndingNativeCall = false
 
@@ -38,7 +45,7 @@ public final class MeetDMCallTrialModel {
     }
 
     public var canPrepare: Bool {
-        selection != nil && !isBusy && !isNativeCallActive
+        selection != nil && !isBusy && !isNativeCallActive && incomingCall == nil
     }
 
     public var canRing: Bool {
@@ -54,7 +61,7 @@ public final class MeetDMCallTrialModel {
     }
 
     public var canJoinNative: Bool {
-        ticket != nil && !isBusy && !isNativeCallActive
+        ticket != nil && !isBusy && !isNativeCallActive && incomingCall == nil
     }
 
     public func select(_ person: UUID?) {
@@ -78,6 +85,8 @@ public final class MeetDMCallTrialModel {
         invitationAccepted = false
         hasOpenedBrowser = false
         isReadyToRing = false
+        await stopListening()
+        incoming = nil
         people = []
         status = "Loading people from your DMs…"
         do {
@@ -105,6 +114,7 @@ public final class MeetDMCallTrialModel {
         invitationAccepted = false
         hasOpenedBrowser = false
         isReadyToRing = false
+        isReceivingCall = false
         status = "Preparing the DM call…"
         do {
             let prepared = try await trial.prepare(person: selection)
@@ -136,8 +146,10 @@ public final class MeetDMCallTrialModel {
         do {
             try await trial.joinNative(preparedID: ticket, media: media)
             guard nativeRevision == revision else { return }
-            isReadyToRing = true
-            status = "Kibble's native device is joined. You can now ring the selected person."
+            isReadyToRing = !isReceivingCall
+            status = isReceivingCall
+                ? "Incoming call joined with native audio. Check audio both ways."
+                : "Kibble's native device is joined. You can now ring the selected person."
         } catch {
             guard nativeRevision == revision else { return }
             media.close()
@@ -171,7 +183,141 @@ public final class MeetDMCallTrialModel {
         nativeMedia?.setMuted(muted)
     }
 
-    public func confirmBrowserJoin() async {
+    public func close() async {
+        await stopListening()
+        incoming = nil
+        nativeRevision = UUID()
+        nativeMedia?.close()
+        nativeMedia = nil
+        isNativeCallActive = false
+        ticket = nil
+        link = nil
+        hasOpenedBrowser = false
+        isReadyToRing = false
+        await trial.close()
+    }
+
+    public var incomingPerson: MeetCallTrialPerson? {
+        people.first { $0.id == incomingCall?.person }
+    }
+
+    public func startListening() async {
+        guard !isListening, !isBusy, !people.isEmpty else { return }
+        let revision = UUID()
+        listeningRevision = revision
+        isListening = true
+        do {
+            if incoming == nil {
+                incoming = try await trial.incomingCalls()
+            }
+            guard listeningRevision == revision, let incoming else { return }
+            listeningTask = Task { [weak self] in
+                await incoming.run { [weak self] event in
+                    await self?.receiveIncoming(event, revision: revision)
+                }
+                guard let self, listeningRevision == revision else { return }
+                isListening = false
+                await saveReport()
+            }
+        } catch {
+            guard listeningRevision == revision else { return }
+            isListening = false
+            incomingStatus = MeetDMCallTrial.errorDescription(error)
+            await saveReport()
+        }
+    }
+
+    public func stopListening() async {
+        listeningRevision = UUID()
+        listeningTask?.cancel()
+        listeningTask = nil
+        isListening = false
+        incomingCall = nil
+        await incoming?.stop()
+        incomingStatus = "Incoming call listening stopped."
+    }
+
+    public func dismissIncoming() async {
+        guard !isBusy, let incomingCall else { return }
+        await incoming?.dismiss(incomingCall.id)
+        incomingStatus = "Dismissed locally. The caller receives no decline response."
+        await saveReport()
+    }
+
+    public func acceptIncoming() async {
+        guard !isBusy, !isNativeCallActive, let incomingCall, let incoming else { return }
+        let revision = listeningRevision
+        isBusy = true
+        ticket = nil
+        isReadyToRing = false
+        isReceivingCall = true
+        status = "Checking the incoming DM call…"
+        do {
+            let call = try await incoming.accept(incomingCall.id)
+            guard listeningRevision == revision else {
+                isBusy = false
+                return
+            }
+            ticket = call.id
+            link = call.url
+            selection = incomingCall.person
+            isBusy = false
+            await joinNative()
+        } catch {
+            isBusy = false
+            ticket = nil
+            status = MeetDMCallTrial.errorDescription(error)
+        }
+        await saveReport()
+    }
+
+    private func receiveIncoming(_ event: MeetIncomingDMCalls.Event, revision: UUID) async {
+        guard listeningRevision == revision else { return }
+        switch event {
+        case let .status(message): incomingStatus = message
+        case let .ring(call):
+            if isNativeCallActive || isBusy {
+                await incoming?.dismiss(call.id)
+            } else {
+                incomingCall = call
+                incomingStatus = "Incoming call from a loaded human DM."
+            }
+        case .cleared: incomingCall = nil
+        }
+        await saveReport()
+    }
+
+    public func copyReport() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(reportText, forType: .string)
+        reportStatus = "Report copied."
+    }
+
+    private func updateLoadProgress(_ step: MeetDMCallLoadStep) async {
+        status = step.rawValue
+        await saveReport()
+    }
+
+    private func saveReport() async {
+        let outgoingReport = await trial.report
+        let receivingReport = await incoming?.report ?? ""
+        let report = outgoingReport + "\n\n" + receivingReport
+        reportText = report
+        do {
+            let directory = try SystemLaunchServices.supportDirectory()
+            try Data(report.utf8).write(
+                to: directory.appendingPathComponent("meet-call-probe.txt"), options: .atomic
+            )
+            reportStatus = "Report saved: meet-call-probe.txt"
+        } catch {
+            reportStatus = "Could not save the trial report."
+        }
+    }
+}
+
+@MainActor
+public extension MeetDMCallTrialModel {
+    func confirmBrowserJoin() async {
         guard canConfirmBrowserJoin, let ticket else { return }
         isBusy = true
         defer { isBusy = false }
@@ -194,7 +340,7 @@ public final class MeetDMCallTrialModel {
         await saveReport()
     }
 
-    public func ring() async {
+    func ring() async {
         guard canRing, let ticket else { return }
         isBusy = true
         defer { isBusy = false }
@@ -218,7 +364,7 @@ public final class MeetDMCallTrialModel {
         await saveReport()
     }
 
-    public func openCallInBrowser() {
+    func openCallInBrowser() {
         guard canOpenBrowser, let link else { return }
         if NSWorkspace.shared.open(link) {
             hasOpenedBrowser = true
@@ -227,43 +373,6 @@ public final class MeetDMCallTrialModel {
                 : "Opened the call in your browser. Keep it joined while ringing; end the call in Meet."
         } else {
             status = "Could not open your default browser."
-        }
-    }
-
-    public func close() async {
-        nativeRevision = UUID()
-        nativeMedia?.close()
-        nativeMedia = nil
-        isNativeCallActive = false
-        ticket = nil
-        link = nil
-        hasOpenedBrowser = false
-        isReadyToRing = false
-        await trial.close()
-    }
-
-    public func copyReport() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(reportText, forType: .string)
-        reportStatus = "Report copied."
-    }
-
-    private func updateLoadProgress(_ step: MeetDMCallLoadStep) async {
-        status = step.rawValue
-        await saveReport()
-    }
-
-    private func saveReport() async {
-        let report = await trial.report
-        reportText = report
-        do {
-            let directory = try SystemLaunchServices.supportDirectory()
-            try Data(report.utf8).write(
-                to: directory.appendingPathComponent("meet-call-probe.txt"), options: .atomic
-            )
-            reportStatus = "Report saved: meet-call-probe.txt"
-        } catch {
-            reportStatus = "Could not save the trial report."
         }
     }
 }
