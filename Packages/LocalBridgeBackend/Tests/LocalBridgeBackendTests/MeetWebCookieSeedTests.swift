@@ -4,6 +4,45 @@ import Testing
 @testable import LocalBridgeBackend
 
 struct MeetWebCookieSeedTests {
+    private func selfStatus(_ id: String) throws -> Result<HTTPResponse, any Error> {
+        var response = GetSelfUserStatusResponse()
+        response.userStatus.userID.id = id
+        return try .success(HTTPResponse(
+            status: 200, headers: HTTPHeaders([]), body: response.serializedBytes()
+        ))
+    }
+
+    private func identityTransport(current: String, candidate: String) throws -> ScriptedTransport {
+        try ScriptedTransport([
+            ScriptedTransport.ok(LocalBridgeBackendTests.shell(app: "DynamiteWebUi")),
+            selfStatus(current),
+            ScriptedTransport.ok(LocalBridgeBackendTests.shell(app: "DynamiteWebUi")),
+            selfStatus(candidate)
+        ])
+    }
+
+    private final class FakeSecretStorage: SecretStorage, @unchecked Sendable {
+        var items: [String: Data] = [:]
+        func read(account: String) throws -> Data? {
+            items[account]
+        }
+
+        func write(_ data: Data, account: String) throws {
+            items[account] = data
+        }
+
+        func delete(account: String) throws {
+            items[account] = nil
+        }
+    }
+
+    private func captured(_ name: String, domain: String) -> CapturedCookie {
+        CapturedCookie(
+            name: name, value: "value-for-\(name)", domain: domain, path: "/",
+            isSecure: true, isHTTPOnly: true, expiresAt: nil
+        )
+    }
+
     private actor Store: CredentialStore {
         var session: StoredSession?
 
@@ -45,5 +84,185 @@ struct MeetWebCookieSeedTests {
         )
         let result = try await MeetWebCredentials.seeds(from: Store(session: session))
         #expect(result.isEmpty)
+    }
+
+    @Test func onlyMeetHostCookiesAreSelectedForSaving() {
+        let selected = MeetWebCredentials.meetCookies(from: [
+            captured("meet", domain: "meet.google.com"),
+            captured("meetDomain", domain: ".meet.google.com"),
+            captured("shared", domain: ".google.com"),
+            captured("accounts", domain: "accounts.google.com"),
+            captured("nearMiss", domain: "notmeet.google.com")
+        ])
+        #expect(selected.map(\.name) == ["meet", "meetDomain"])
+    }
+
+    @Test func savingMeetCookiesPreservesChatAndSurvivesChatRotation() async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "meet-test")
+        let original = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "chat-original", domain: ".google.com", path: "/"),
+            .init(name: "OSID", value: "chat-only", domain: "chat.google.com", path: "/")
+        ]))
+        let capturedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        try await store.store(StoredSession(credential: original, capturedAt: capturedAt, expiresAt: nil))
+
+        let transport = try identityTransport(current: "same-user", candidate: "same-user")
+        let saved = try await MeetWebCredentials.save(captured: [
+            captured("SID", domain: ".google.com"),
+            captured("OSID", domain: "chat.google.com"),
+            captured("MOSID", domain: "meet.google.com"),
+            captured("wrong", domain: "accounts.google.com")
+        ], to: store, transport: transport)
+        #expect(saved == 1)
+        let requests = await transport.sent
+        #expect(requests.count == 4)
+        #expect(requests[0].headers["Cookie"]?.contains("SID=chat-original") == true)
+        #expect(requests[2].headers["Cookie"]?.contains("SID=value-for-SID") == true)
+        #expect(requests[2].headers["Cookie"]?.contains("OSID=value-for-OSID") == true)
+        #expect(requests[2].headers["Cookie"]?.contains("OSID=chat-only") == false)
+        #expect(requests[2].headers["Cookie"]?.contains("MOSID=") == false)
+        let afterSave = try #require(try await store.currentSession())
+        #expect(afterSave.credential.cookies.map(\.name) == ["SID", "OSID", "MOSID"])
+        #expect(afterSave.credential["SID"] == "chat-original")
+        #expect(afterSave.capturedAt == capturedAt)
+
+        let rotatedChat = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "rotated", domain: ".google.com", path: "/"),
+            .init(name: "OSID", value: "chat-only", domain: "chat.google.com", path: "/")
+        ]))
+        try await store.replaceCredential(with: rotatedChat)
+        let afterRotation = try #require(try await store.currentSession())
+        #expect(afterRotation.credential.cookies.map(\.name) == ["SID", "OSID", "MOSID"])
+        #expect(afterRotation.credential["SID"] == "rotated")
+        #expect(afterRotation.capturedAt == capturedAt)
+
+        try await store.store(StoredSession(credential: rotatedChat, capturedAt: .now, expiresAt: nil))
+        #expect(try await store.currentSession()?.credential.cookies.map(\.name) == ["SID", "OSID"])
+    }
+
+    @Test func absentChatSessionCannotBeCreatedByMeetCapture() async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "empty-meet-test")
+        #expect(try await MeetWebCredentials.save(captured: [
+            captured("SID", domain: ".google.com"),
+            captured("MOSID", domain: "meet.google.com")
+        ], to: store) == 0)
+        #expect(try await store.currentSession() == nil)
+    }
+
+    @Test func differentAccountCannotBeSaved() async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "changed-meet-test")
+        let chat = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "chat-account", domain: ".google.com", path: "/")
+        ]))
+        try await store.store(StoredSession(credential: chat, capturedAt: .now, expiresAt: nil))
+        await #expect(throws: MeetWebCaptureError.accountMismatch) {
+            try await MeetWebCredentials.save(captured: [
+                captured("SID", domain: ".google.com"),
+                captured("MOSID", domain: "meet.google.com")
+            ], to: store, transport: identityTransport(current: "chat-user", candidate: "meet-user"))
+        }
+        #expect(try await store.currentSession()?.credential.cookies.map(\.name) == ["SID"])
+    }
+
+    @Test func capturedCookiesThatCannotSignIntoChatAreNotSaved() async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "unverified-meet-test")
+        let chat = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "chat-account", domain: ".google.com", path: "/")
+        ]))
+        try await store.store(StoredSession(credential: chat, capturedAt: .now, expiresAt: nil))
+        let transport = try ScriptedTransport([
+            ScriptedTransport.ok(LocalBridgeBackendTests.shell(app: "DynamiteWebUi")),
+            selfStatus("chat-user"),
+            ScriptedTransport.ok(LocalBridgeBackendTests.shell(app: "AccountsSignInUi"))
+        ])
+        await #expect(throws: MeetWebCaptureError.accountVerificationFailed(
+            source: .capturedBrowser, issue: .signedOut
+        )) {
+            try await MeetWebCredentials.save(captured: [
+                captured("SID", domain: ".google.com"),
+                captured("MOSID", domain: "meet.google.com")
+            ], to: store, transport: transport)
+        }
+        #expect(try await store.currentSession()?.credential.cookies.map(\.name) == ["SID"])
+    }
+
+    @Test func missingCapturedChatCookiesCannotBeVerified() async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "no-sid-test")
+        let chat = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "chat-account", domain: ".google.com", path: "/")
+        ]))
+        try await store.store(StoredSession(credential: chat, capturedAt: .now, expiresAt: nil))
+        await #expect(throws: MeetWebCaptureError.accountVerificationFailed(
+            source: .capturedBrowser, issue: .missingCookies
+        )) {
+            try await MeetWebCredentials.save(captured: [
+                captured("MOSID", domain: "meet.google.com")
+            ], to: store)
+        }
+        #expect(try await store.currentSession()?.credential.cookies.map(\.name) == ["SID"])
+    }
+
+    @Test func verificationIdentifiesTheFailingSourceWithoutExposingURLs() async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "redirect-meet-test")
+        let chat = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "chat-account", domain: ".google.com", path: "/")
+        ]))
+        try await store.store(StoredSession(credential: chat, capturedAt: .now, expiresAt: nil))
+        let url = try #require(URL(string: "https://accounts.google.com/signin?token=private-sentinel"))
+        let transport = ScriptedTransport([ScriptedTransport.ok("sign-in", url: url)])
+        let expected = MeetWebCaptureError.accountVerificationFailed(
+            source: .storedChat, issue: .signInRedirect
+        )
+        await #expect(throws: expected) {
+            try await MeetWebCredentials.save(captured: [
+                captured("SID", domain: ".google.com"),
+                captured("MOSID", domain: "meet.google.com")
+            ], to: store, transport: transport)
+        }
+        #expect(expected.verificationDescription == "Stored Chat: Chat redirected to Google sign-in.")
+        #expect(expected.verificationDescription?.contains("private-sentinel") == false)
+    }
+
+    @Test func aChangedStoredSessionCannotReceiveTheVerifiedMeetCookies() async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "race-meet-test")
+        let cookies = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "original", domain: ".google.com", path: "/")
+        ]))
+        let original = StoredSession(credential: cookies, capturedAt: .distantPast, expiresAt: nil)
+        try await store.store(original)
+        try await store.store(StoredSession(credential: cookies, capturedAt: .now, expiresAt: nil))
+        await #expect(throws: MeetWebCaptureError.sessionChangedDuringVerification) {
+            try await store.mergeMeetCookies([
+                .init(name: "MOSID", value: "meet", domain: "meet.google.com", path: "/")
+            ], expectedStored: original)
+        }
+        #expect(try await store.currentSession()?.credential.cookies.map(\.name) == ["SID"])
+    }
+
+    @Test func aCookieRotationDuringVerificationKeepsTheNewestChatCookiesAndSavesMeet() async throws {
+        let storage = FakeSecretStorage()
+        let store = KeychainCredentialStore(storage: storage, account: "rotation-meet-test")
+        let originalCookies = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "original", domain: ".google.com", path: "/"),
+            .init(name: "OSID", value: "chat", domain: "chat.google.com", path: "/")
+        ]))
+        let capturedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let original = StoredSession(credential: originalCookies, capturedAt: capturedAt, expiresAt: nil)
+        try await store.store(original)
+        let rotated = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "refreshed", domain: ".google.com", path: "/"),
+            .init(name: "OSID", value: "chat", domain: "chat.google.com", path: "/")
+        ]))
+        // A second instance models the running Chat connection writing back
+        // while the temporary sign-in view is checking the account.
+        try await KeychainCredentialStore(storage: storage, account: "rotation-meet-test")
+            .replaceCredential(with: rotated)
+        #expect(try await store.mergeMeetCookies([
+            .init(name: "MOSID", value: "meet", domain: "meet.google.com", path: "/")
+        ], expectedStored: original))
+        let saved = try #require(try await store.currentSession())
+        #expect(saved.credential["SID"] == "refreshed")
+        #expect(saved.credential.cookies.map(\.name) == ["SID", "OSID", "MOSID"])
+        #expect(saved.capturedAt == capturedAt)
     }
 }

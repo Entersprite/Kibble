@@ -108,6 +108,14 @@ enum LaunchProbes {
         return write(text, to: name)
     }
 
+    /// `--probe=meet-resolve` checks only the current Meet shell and one human
+    /// DM. It cannot ring a recipient. The report withholds ids, keys and links.
+    static func meetResolveProbe() async -> String {
+        let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
+            ?? .mostRecentDirectMessage
+        return await write(MeetCallProbeReport.run(conversation: choice), to: "meet-resolve-probe.txt")
+    }
+
     static func punctualProbe() async -> String {
         let name = "punctual-probe.txt"
         guard let directory = try? SystemLaunchServices.supportDirectory() else {

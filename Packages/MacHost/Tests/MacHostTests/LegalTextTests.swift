@@ -213,7 +213,8 @@ struct LegalTextTests {
             "swift-protobuf ",
             "Unicode emoji data ",
             "hangups",
-            "googlechat.proto"
+            "googlechat.proto",
+            "WebRTC "
         ]
         #expect(headings.count == expected.count)
         for (heading, prefix) in zip(headings, expected) {

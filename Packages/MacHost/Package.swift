@@ -26,7 +26,10 @@ let package = Package(
         .package(path: "../LocalBridgeBackend"),
         // The updater: check, download, EdDSA check, sandboxed install. Imported by
         // SparkleUpdater.swift alone (scripts/test.sh).
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
+        // Native peer connections stay in the platform host. Pin the binary
+        // distribution so a framework update is an explicit build decision.
+        .package(url: "https://github.com/stasel/WebRTC.git", exact: "154.0.0")
     ],
     targets: [
         .target(
@@ -38,7 +41,8 @@ let package = Package(
                 "DesignSystem",
                 "FixtureBackend",
                 "LocalBridgeBackend",
-                .product(name: "Sparkle", package: "Sparkle")
+                .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "WebRTC", package: "WebRTC")
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

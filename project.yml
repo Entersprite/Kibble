@@ -88,8 +88,8 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: NO
         # Xcode's debug dylib exists to serve SwiftUI Previews, which this
         # project never uses (no Xcode GUI). Turning it off removes
-        # Kibble.debug.dylib and __preview.dylib. Sparkle.framework is now the
-        # one library the app loads from its own bundle.
+        # Kibble.debug.dylib and __preview.dylib. The embedded runtime
+        # frameworks are Sparkle and native WebRTC.
         ENABLE_DEBUG_DYLIB: NO
       configs:
         # Hardened runtime enables library validation: the app loads only

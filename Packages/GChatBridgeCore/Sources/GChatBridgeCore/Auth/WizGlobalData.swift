@@ -134,12 +134,7 @@ public extension WizGlobalData {
     /// the object is located by counting brackets rather than by regex: the blob
     /// contains braces inside string values.
     init?(html: String) {
-        guard
-            let assignmentRange = html.range(of: Self.assignment),
-            let object = Self.objectText(in: html, after: assignmentRange.upperBound),
-            let parsed = try? JSONSerialization.jsonObject(with: Data(object.utf8)),
-            let fields = parsed as? [String: Any]
-        else { return nil }
+        guard let fields = Self.fields(in: html) else { return nil }
 
         let appName = fields[Self.appNameKey] as? String
         self.init(
@@ -153,6 +148,16 @@ public extension WizGlobalData {
             keyCount: fields.count,
             signInState: Self.state(ofApp: appName)
         )
+    }
+
+    /// Shared shell parsing for provider configuration. Kept internal: callers
+    /// outside this core receive only the selected fields, never the raw blob.
+    internal static func fields(in html: String) -> [String: Any]? {
+        guard let assignmentRange = html.range(of: assignment),
+              let object = objectText(in: html, after: assignmentRange.upperBound),
+              let parsed = try? JSONSerialization.jsonObject(with: Data(object.utf8))
+        else { return nil }
+        return parsed as? [String: Any]
     }
 
     private static func state(ofApp appName: String?) -> SignInState {

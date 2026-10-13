@@ -5,19 +5,27 @@
     import SwiftUI
     import WebKit
 
-    /// A local media test. It neither creates a meeting nor rings anyone: the
-    /// person supplies a Meet link and decides whether to join inside Meet.
+    /// A temporary Meet sign-in and media view. It neither creates a meeting
+    /// nor rings anyone: the person decides what to open and whether to join.
     @MainActor
     struct MeetWebKitProbeView: View {
         @State private var cookies: [MeetWebProbeCookie]?
         @State private var link = ""
         @State private var destination: URL?
         @State private var status = "Loading the stored session…"
+        @State private var cookieStore: WKHTTPCookieStore?
+        @State private var meetPageLoaded = false
+        @State private var isSaving = false
 
         var body: some View {
             VStack(spacing: 0) {
                 if let cookies {
-                    MeetProbeWebView(cookies: cookies, destination: destination) { status = $0 }
+                    MeetProbeWebView(
+                        cookies: cookies, destination: destination,
+                        onCookieStore: { cookieStore = $0 },
+                        onLoadedHost: { meetPageLoaded = $0 == "meet.google.com" },
+                        status: { status = $0 }
+                    )
                 } else {
                     ProgressView("Preparing Meet…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -27,7 +35,12 @@
                     TextField("Meet link or meeting code", text: $link)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(openLink)
+                    Button("Open Chat") { destination = URL(string: "https://chat.google.com/") }
+                        .disabled(isSaving)
                     Button("Open Meet") { destination = URL(string: "https://meet.google.com/") }
+                        .disabled(isSaving)
+                    Button("Save Meet Sign-In", action: saveMeetSignIn)
+                        .disabled(!meetPageLoaded || cookieStore == nil || isSaving)
                     Button("Open Link", action: openLink)
                     Button("Open in Browser", action: openInBrowser)
                     Button("Close View") { destination = nil }
@@ -44,8 +57,8 @@
                 do {
                     cookies = try await MeetWebProbeSession.cookies()
                     status = cookies?.isEmpty == true
-                        ? "No Meet-scoped cookies in Kibble's session. Use Open Meet to check sign-in."
-                        : "Ready. Paste a Meet link. Leave the call in Meet before closing."
+                        ? "No Meet-scoped cookies in Kibble's session. Open Meet to sign in."
+                        : "Open Chat in this view, then Open Meet and save the Meet sign-in."
                 } catch {
                     cookies = []
                     status = "Could not read Kibble's stored session."
@@ -59,6 +72,33 @@
                 return
             }
             destination = url
+        }
+
+        private func saveMeetSignIn() {
+            guard let cookieStore, meetPageLoaded, !isSaving else { return }
+            isSaving = true
+            status = "Checking the Chat accounts…"
+            Task { @MainActor in
+                defer { isSaving = false }
+                do {
+                    let captured = await cookieStore.allCookies()
+                    let count = try await MeetWebProbeSession.saveMeetCookies(captured)
+                    status = count == 0
+                        ? "No Meet-host cookies were saved. Finish Meet sign-in, then try again."
+                        : "Saved \(count) Meet-host cookies. Close this window, then rerun the Resolve probe."
+                } catch let error as MeetWebProbeSaveError {
+                    switch error {
+                    case let .accountVerificationFailed(detail):
+                        status = "\(detail) Nothing was saved."
+                    case .accountMismatch:
+                        status = "Meet is signed into a different Google account. Nothing was saved."
+                    case .sessionChangedDuringVerification:
+                        status = "The Chat session changed during verification. Try saving again."
+                    }
+                } catch {
+                    status = "Could not save Meet sign-in. The Chat session was left unchanged."
+                }
+            }
         }
 
         private func openInBrowser() {
@@ -90,10 +130,12 @@
     private struct MeetProbeWebView: NSViewRepresentable {
         let cookies: [MeetWebProbeCookie]
         let destination: URL?
+        let onCookieStore: @MainActor (WKHTTPCookieStore) -> Void
+        let onLoadedHost: @MainActor (String?) -> Void
         let status: @MainActor (String) -> Void
 
         func makeCoordinator() -> Coordinator {
-            Coordinator(status: status)
+            Coordinator(onLoadedHost: onLoadedHost, status: status)
         }
 
         func makeNSView(context: Context) -> WKWebView {
@@ -101,10 +143,12 @@
             configuration.websiteDataStore = .nonPersistent()
             configuration.defaultWebpagePreferences.allowsContentJavaScript = true
             let view = WKWebView(frame: .zero, configuration: configuration)
+            view.customUserAgent = LoginWebViewConfiguration.chat.userAgent
             view.uiDelegate = context.coordinator
             view.navigationDelegate = context.coordinator
             context.coordinator.view = view
             context.coordinator.destination = destination
+            Task { @MainActor in onCookieStore(configuration.websiteDataStore.httpCookieStore) }
             Task { @MainActor in
                 let jar = configuration.websiteDataStore.httpCookieStore
                 var seeded = 0
@@ -143,15 +187,21 @@
             var ready = false
             var destination: URL?
             private var loaded: URL?
+            let onLoadedHost: @MainActor (String?) -> Void
             let status: @MainActor (String) -> Void
 
-            init(status: @escaping @MainActor (String) -> Void) {
+            init(
+                onLoadedHost: @escaping @MainActor (String?) -> Void,
+                status: @escaping @MainActor (String) -> Void
+            ) {
+                self.onLoadedHost = onLoadedHost
                 self.status = status
             }
 
             func loadIfNeeded() {
                 guard ready, let view, destination != loaded else { return }
                 loaded = destination
+                onLoadedHost(nil)
                 if let destination {
                     view.load(URLRequest(url: destination))
                     status("Opening Meet…")
@@ -163,8 +213,16 @@
             }
 
             func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
-                let host = webView.url?.host() ?? "page"
-                status("Loaded \(host). Check the page above for Meet's compatibility result.")
+                let host = webView.url?.host()
+                onLoadedHost(host)
+                switch host {
+                case "meet.google.com":
+                    status("Meet loaded. Save Meet Sign-In when the account shown is correct.")
+                case "chat.google.com":
+                    status("Chat loaded. Confirm your Chat account, then Open Meet and save the sign-in.")
+                default:
+                    status("Loaded \(host ?? "page"). Continue sign-in in the page above.")
+                }
             }
 
             func webView(
@@ -172,6 +230,7 @@
                 didFailProvisionalNavigation _: WKNavigation!,
                 withError _: Error
             ) {
+                onLoadedHost(nil)
                 status("Meet page failed to load.")
             }
 

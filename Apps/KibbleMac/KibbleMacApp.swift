@@ -170,7 +170,9 @@ struct KibbleMacApp: App {
     @ViewBuilder
     private var content: some View {
         #if DEBUG
-            if CommandLine.arguments.contains("--probe=meet-webkit") {
+            if CommandLine.arguments.contains("--probe=meet-call") {
+                MeetDMCallTrialView()
+            } else if CommandLine.arguments.contains("--probe=meet-webkit") {
                 MeetWebKitProbeView()
             } else {
                 normalContent

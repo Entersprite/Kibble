@@ -159,8 +159,8 @@ public struct Conversation: Codable, Hashable, Sendable {
 public extension Conversation {
     /// A conversation identifier.
     ///
-    /// Unlike `Message.ID`, this one has a documented shape: `"dm:<id>"` or
-    /// `"space:<id>"`, mirroring the internal protocol's `GroupId`, which is a
+    /// Unlike `Message.ID`, this one has a documented shape: `"dm/<id>"` or
+    /// `"space/<id>"`, mirroring the internal protocol's `GroupId`, which is a
     /// `oneof` of exactly `space_id` and `dm_id`. The prefix is part of the
     /// identifier because the two id spaces are separate — a bare id does not
     /// say which one it came from — and because a group DM and an app DM are

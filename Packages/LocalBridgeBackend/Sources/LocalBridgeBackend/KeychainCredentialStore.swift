@@ -62,6 +62,10 @@ public actor KeychainCredentialStore: CredentialStore {
     }
 
     public func currentSession() async throws -> StoredSession? {
+        try readCurrentSession()
+    }
+
+    private func readCurrentSession() throws -> StoredSession? {
         if let data = try storage.read(account: account) {
             return try Self.decode(data)
         }
@@ -97,6 +101,27 @@ public actor KeychainCredentialStore: CredentialStore {
 
     public func store(_ session: StoredSession) async throws {
         try storage.write(Self.encoder.encode(session), account: account)
+    }
+
+    /// Adds Meet-host cookies to the active Chat credential atomically with
+    /// respect to rotations. A missing Chat session is never created here.
+    func mergeMeetCookies(
+        _ cookies: [SessionCookies.Cookie], expectedStored: StoredSession
+    ) throws -> Bool {
+        guard let existing = try readCurrentSession() else { return false }
+        // Rotations replace cookies while preserving the original sign-in's
+        // capture metadata. A fresh login replaces that metadata as well.
+        guard existing.capturedAt == expectedStored.capturedAt,
+              existing.expiresAt == expectedStored.expiresAt
+        else { throw MeetWebCaptureError.sessionChangedDuringVerification }
+        let retained = existing.credential.cookies.filter {
+            !MeetWebCredentials.isMeetSpecific(domain: $0.domain)
+        }
+        guard let merged = SessionCookies(cookies: retained + cookies) else { return false }
+        try storage.write(Self.encoder.encode(StoredSession(
+            credential: merged, capturedAt: existing.capturedAt, expiresAt: existing.expiresAt
+        )), account: account)
+        return true
     }
 
     /// The old service first: a session left there would come back through
@@ -283,13 +308,25 @@ public extension KeychainCredentialStore {
     /// session; without one there is nothing for it to be a rotation *of*, and
     /// inventing a record would store a credential nobody signed in for.
     func replaceCredential(with cookies: SessionCookies) async throws {
-        guard let existing = try await currentSession() else { return }
-        try await store(
-            StoredSession(
-                credential: cookies,
-                capturedAt: existing.capturedAt,
-                expiresAt: existing.expiresAt
-            )
-        )
+        guard let existing = try readCurrentSession() else { return }
+        let merged = MeetWebCredentials.preservingMeetCookies(from: existing.credential, in: cookies)
+        try storage.write(Self.encoder.encode(StoredSession(
+            credential: merged, capturedAt: existing.capturedAt, expiresAt: existing.expiresAt
+        )), account: account)
+    }
+
+    /// A diagnostic session may outlive a sign-out while awaiting a response.
+    /// Its rotations belong only to the capture from which it was created.
+    internal func replaceCredential(
+        with cookies: SessionCookies,
+        belongingTo expected: StoredSession
+    ) throws {
+        guard let existing = try readCurrentSession(),
+              existing.capturedAt == expected.capturedAt, existing.expiresAt == expected.expiresAt
+        else { return }
+        let merged = MeetWebCredentials.preservingMeetCookies(from: existing.credential, in: cookies)
+        try storage.write(Self.encoder.encode(StoredSession(
+            credential: merged, capturedAt: existing.capturedAt, expiresAt: existing.expiresAt
+        )), account: account)
     }
 }

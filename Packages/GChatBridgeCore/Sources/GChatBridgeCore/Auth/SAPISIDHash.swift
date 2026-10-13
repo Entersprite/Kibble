@@ -62,6 +62,30 @@ public enum SAPISIDHash {
         }
     }
 
+    /// Meet's web client signs with the primary cookie (falling back to the
+    /// third-party cookie) and adds each available first/third-party proof.
+    /// This matches its `Pkb([])` builder; missing optional cookies do not
+    /// suppress the primary proof.
+    public static func browserAuthorization(for input: Input, sha1: (String) -> String) -> String? {
+        func proof(_ label: String, cookie: String) -> String {
+            "\(label) \(input.timestamp)_\(sha1("\(input.timestamp) \(cookie) \(input.origin)"))"
+        }
+        func cookie(_ name: String) -> String? {
+            input.cookies.first { $0.name == name && $0.isSent(to: input.url) }?.value
+        }
+        var parts: [String] = []
+        if let primary = cookie("SAPISID") ?? cookie("__Secure-3PAPISID") {
+            parts.append(proof("SAPISIDHASH", cookie: primary))
+        }
+        if let first = cookie("__Secure-1PAPISID") {
+            parts.append(proof("SAPISID1PHASH", cookie: first))
+        }
+        if let third = cookie("__Secure-3PAPISID") {
+            parts.append(proof("SAPISID3PHASH", cookie: third))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
     /// The named cookie as this URL's host would be sent it: scoped like a
     /// browser, so a same-named cookie for another host is never hashed.
     public static func value(of name: String, in cookies: [SessionCookies.Cookie], for url: URL) -> String? {

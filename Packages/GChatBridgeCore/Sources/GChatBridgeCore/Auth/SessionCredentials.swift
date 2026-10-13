@@ -86,4 +86,19 @@ public actor SessionCredentials {
         )
         return request
     }
+
+    /// Cookie header and proof come from one actor-isolated snapshot, so a
+    /// concurrent rotation cannot sign one cookie and send another.
+    func authorising(
+        _ request: HTTPRequest,
+        authorization: @Sendable (SessionCookies, URL) -> String?
+    ) -> HTTPRequest {
+        var authorised = authorising(request)
+        if let snapshot = jar.snapshot, let proof = authorization(snapshot, request.url) {
+            authorised.headers = HTTPHeaders(fields:
+                authorised.headers.fields + [HTTPHeaders.Field(name: "Authorization", value: proof)]
+            )
+        }
+        return authorised
+    }
 }
