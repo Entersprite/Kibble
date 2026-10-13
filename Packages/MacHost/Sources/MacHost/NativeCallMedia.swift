@@ -12,15 +12,20 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         return RTCInitializeSSL()
     }()
 
-    private var peer: RTCPeerConnection?
+    var peer: RTCPeerConnection?
     private var audio: RTCAudioTrack?
+    private var audioSender: RTCRtpSender?
     private var bootstrapChannel: RTCDataChannel?
     private var controlChannel: RTCDataChannel?
     private var expectedControlChannel: String?
-    private var generation = UUID()
+    var generation = UUID()
+    var streamChannel: RTCDataChannel?
+    var streamReplies: [Data] = []
+    var isExchangingStream = false
     private var isNegotiating = false
     private var connectionState: RTCPeerConnectionState = .new
     private var muted = false
+    private var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
     private let microphoneAccess: @MainActor @Sendable () async -> Bool
 
     public init(
@@ -35,6 +40,17 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     public var isConnected: Bool {
         peer != nil && connectionState == .connected
             && (expectedControlChannel == nil || controlChannel?.readyState == .open)
+    }
+
+    public var supportsStreamControl: Bool {
+        true
+    }
+
+    public var isMicrophoneMuted: Bool {
+        if let track = audioSender?.track {
+            return !track.isEnabled
+        }
+        return audio.map { !$0.isEnabled } ?? muted
     }
 
     public func makeAudioOffer(serverControlChannel: String?) async throws -> CallAudioOffer {
@@ -118,16 +134,28 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         throw CallMediaError.timedOut
     }
 
+    public func setEventHandler(_ handler: (@Sendable (CallMediaEvent) async -> Void)?) {
+        eventHandler = handler
+    }
+
     public func setMuted(_ muted: Bool) {
         self.muted = muted
         audio?.isEnabled = !muted
+        audioSender?.track?.isEnabled = !muted
     }
 
     public func close() {
         generation = UUID()
         isNegotiating = false
         audio?.isEnabled = false
+        audioSender?.track?.isEnabled = false
         audio = nil
+        audioSender = nil
+        streamChannel?.delegate = nil
+        streamChannel?.close()
+        streamChannel = nil
+        streamReplies.removeAll()
+        isExchangingStream = false
         controlChannel?.delegate = nil
         controlChannel?.close()
         controlChannel = nil
@@ -170,9 +198,10 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         let track = factory.audioTrack(withTrackId: UUID().uuidString)
         track.isEnabled = !muted
         audio = track
-        guard connection.add(track, streamIds: [UUID().uuidString]) != nil else {
+        guard let sender = connection.add(track, streamIds: [UUID().uuidString]) else {
             throw CallMediaError.negotiationFailed
         }
+        audioSender = sender
         try Self.configureAudioCodecs(connection, factory: factory)
         if serverControlChannel != nil {
             // The browser also creates an ignored channel before its
@@ -241,6 +270,12 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         Task { @MainActor [weak self] in
             guard let self, let peer, ObjectIdentifier(peer) == identity else { return }
             connectionState = state
+            switch state {
+            case .connected: await eventHandler?(.connected)
+            case .disconnected: await eventHandler?(.disconnected)
+            case .failed, .closed: await eventHandler?(.failed)
+            default: break
+            }
         }
     }
 }
@@ -276,8 +311,20 @@ extension NativeCallMedia: RTCPeerConnectionDelegate {
     ) {
         let identity = ObjectIdentifier(peerConnection)
         Task { @MainActor [weak self] in
-            guard let self, let peer, ObjectIdentifier(peer) == identity,
-                  let expectedControlChannel, channel.label == expectedControlChannel else {
+            guard let self, let peer, ObjectIdentifier(peer) == identity else {
+                channel.close()
+                return
+            }
+            if channel.label == "dcrpc" {
+                if streamChannel == nil {
+                    streamChannel = channel
+                    channel.delegate = self
+                } else if streamChannel !== channel {
+                    channel.close()
+                }
+                return
+            }
+            guard let expectedControlChannel, channel.label == expectedControlChannel else {
                 channel.close()
                 return
             }
@@ -294,11 +341,35 @@ extension NativeCallMedia: RTCPeerConnectionDelegate {
 }
 
 extension NativeCallMedia: RTCDataChannelDelegate {
-    public nonisolated func dataChannelDidChangeState(_: RTCDataChannel) {}
+    public nonisolated func dataChannelDidChangeState(_ channel: RTCDataChannel) {
+        let identity = ObjectIdentifier(channel)
+        Task { @MainActor [weak self] in
+            guard let self, let controlChannel, ObjectIdentifier(controlChannel) == identity else { return }
+            if controlChannel.readyState == .closed || controlChannel.readyState == .closing {
+                await eventHandler?(.failed)
+            }
+        }
+    }
 
-    public nonisolated func dataChannel(_: RTCDataChannel, didReceiveMessageWith _: RTCDataBuffer) {
-        // The initial audio trial keeps the push transport open. Collection
-        // state reconciliation and incoming-call handling are separate work;
-        // never retain or log these private server payloads here.
+    public nonisolated func dataChannel(
+        _ channel: RTCDataChannel,
+        didReceiveMessageWith buffer: RTCDataBuffer
+    ) {
+        guard buffer.isBinary, !buffer.data.isEmpty, buffer.data.count <= 1_000_000 else { return }
+        let data = buffer.data
+        let identity = ObjectIdentifier(channel)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let streamChannel, ObjectIdentifier(streamChannel) == identity {
+                if isExchangingStream, streamReplies.count < 16 {
+                    streamReplies.append(data)
+                }
+                return
+            }
+            guard let controlChannel, ObjectIdentifier(controlChannel) == identity else { return }
+            // Coalesce invalidations in the bridge and fetch versioned full
+            // snapshots. No server payload is retained or logged by the host.
+            await eventHandler?(.collectionsChanged)
+        }
     }
 }

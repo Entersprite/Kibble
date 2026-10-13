@@ -18,6 +18,7 @@ enum NativeMeetFixture {
 
     static func session(
         _ transport: any HTTPTransport, media: any CallMediaEngine,
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         validate: @escaping @Sendable () async throws -> Void = {}
     ) async throws -> NativeMeetCallSession {
         let configuration = try #require(MeetCallConfiguration(
@@ -32,7 +33,13 @@ enum NativeMeetFixture {
             configuration: configuration, sha1: { _ in "synthetic" }
         )
         let call = try await client.resolve(dmID: "synthetic-dm")
-        return NativeMeetCallSession(client: client, call: call, media: media, validateAccount: validate)
+        return NativeMeetCallSession(
+            client: client,
+            call: call,
+            media: media,
+            validateAccount: validate,
+            now: now
+        )
     }
 
     static func responses(
@@ -54,6 +61,7 @@ enum NativeMeetFixture {
         }
         if includeInvite {
             responses.append(ok(string(1, "synthetic-invite")))
+            responses.append(ok(Data(), token: "35;cancelled"))
         }
         responses.append(device(6, token: "40;left"))
         return responses
@@ -74,22 +82,22 @@ enum NativeMeetFixture {
         ok(string(1, "spaces/demo/devices/one") + number(4, state), token: token)
     }
 
-    private static func ok(_ data: Data, token: String? = nil) -> Result<HTTPResponse, any Error> {
+    static func ok(_ data: Data, token: String? = nil) -> Result<HTTPResponse, any Error> {
         .success(HTTPResponse(
             status: 200, headers: HTTPHeaders(token.map { [("x-goog-meeting-token", $0)] } ?? []),
             body: Data(data.base64EncodedString().utf8)
         ))
     }
 
-    private static func string(_ field: UInt64, _ value: String) -> Data {
+    static func string(_ field: UInt64, _ value: String) -> Data {
         bytes(field, Data(value.utf8))
     }
 
-    private static func bytes(_ field: UInt64, _ value: Data) -> Data {
+    static func bytes(_ field: UInt64, _ value: Data) -> Data {
         unsigned(field << 3 | 2) + unsigned(UInt64(value.count)) + value
     }
 
-    private static func number(
+    static func number(
         _ field: UInt64,
         _ value: UInt64
     ) -> Data {

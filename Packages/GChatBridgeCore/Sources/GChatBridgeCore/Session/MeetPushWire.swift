@@ -7,9 +7,12 @@ public enum MeetPushWire {
         public let id: String
         public let callIdentifier: String
         public let dmID: String
-        public let notificationContext: String?
+        /// Original Ring7 seeds the browser's meeting-token interceptor.
+        public let meetingToken: String?
         public let receiverClientID: String?
         public let kind: UInt64
+        /// Chat maps Ring18 into the browser's notification-source selector.
+        public let notificationSource: UInt64
     }
 
     public enum Event: Sendable {
@@ -97,9 +100,10 @@ public enum MeetPushWire {
             id: identifier(1, data, maximum: 4096),
             callIdentifier: identifier(2, data, maximum: 4096),
             dmID: identifier(11, data, maximum: 256),
-            notificationContext: optionalIdentifier(7, data, maximum: 4096),
+            meetingToken: optionalIdentifier(7, data, maximum: 16384),
             receiverClientID: optionalIdentifier(8, data, maximum: 4096),
-            kind: kind
+            kind: kind,
+            notificationSource: optionalNumber(18, data) ?? 0
         ))
     }
 

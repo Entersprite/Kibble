@@ -26,6 +26,7 @@ public actor MeetIncomingDMCalls {
     private let people: [String: UUID]
     private let validate: @Sendable () async throws -> Void
     private let prepare: @Sendable (UUID, MeetPushWire.Ring) async throws -> PreparedMeetDMCall
+    private let decline: @Sendable (MeetPushWire.Ring) async throws -> Void
     private let discard: @Sendable (UUID) async -> Void
     private var watch: Task<Void, Never>?
     private var expiry: Task<Void, Never>?
@@ -40,6 +41,9 @@ public actor MeetIncomingDMCalls {
         requests: PunctualRequests, topic: PunctualTopic, client: PunctualClient, people: [String: UUID],
         validate: @escaping @Sendable () async throws -> Void,
         prepare: @escaping @Sendable (UUID, MeetPushWire.Ring) async throws -> PreparedMeetDMCall,
+        decline: @escaping @Sendable (MeetPushWire.Ring) async throws -> Void = { _ in
+            throw MeetDMCallTrialError.callNotPrepared
+        },
         discard: @escaping @Sendable (UUID) async -> Void = { _ in }
     ) {
         self.requests = requests
@@ -49,6 +53,7 @@ public actor MeetIncomingDMCalls {
         self.validate = validate
         self.prepare = prepare
         self.discard = discard
+        self.decline = decline
     }
 
     var offeredCall: IncomingMeetDMCall? {
@@ -106,6 +111,39 @@ public actor MeetIncomingDMCalls {
         expiry?.cancel()
         record("Incoming call: dismissed locally; no Decline RPC sent")
         await receive?(.cleared)
+    }
+
+    public func decline(_ handle: UUID) async throws {
+        guard let offered = pending, offered.handle.id == handle, accepting == nil else {
+            throw MeetDMCallTrialError.callNotPrepared
+        }
+        let current = scope
+        accepting = handle
+        defer {
+            if accepting == handle {
+                accepting = nil
+            }
+        }
+        try await validate()
+        try Task.checkCancellation()
+        guard scope == current, pending?.handle.id == handle else { throw MeetDMCallTrialError.superseded }
+        // Consume before the mutation. An ambiguous failure must not permit a
+        // repeated click to send the same decline twice.
+        retire(offered.ring.id)
+        pending = nil
+        expiry?.cancel()
+        await receive?(.cleared)
+        guard scope == current else { throw MeetDMCallTrialError.superseded }
+        do {
+            try await decline(offered.ring)
+            try await validate()
+            guard scope == current else { throw MeetDMCallTrialError.superseded }
+            record("DeclineMeetingInvite: accepted")
+            record("Incoming decline: sent; caller ringing termination is not confirmed")
+        } catch {
+            record("DeclineMeetingInvite: unconfirmed; " + MeetDMCallTrial.errorDescription(error))
+            throw error
+        }
     }
 
     public func accept(_ handle: UUID) async throws -> PreparedMeetDMCall {

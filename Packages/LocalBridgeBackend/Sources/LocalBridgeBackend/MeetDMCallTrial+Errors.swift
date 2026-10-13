@@ -65,7 +65,7 @@ public extension MeetDMCallTrial {
         switch error {
         case let .httpStatus(status, refusal): "HTTP \(status); \(refusal.safeDescription)"
         case .missingSessionProof: "No scoped Google session proof; request was not sent."
-        case .missingMeetingToken: "Resolve did not return a meeting token."
+        case .missingMeetingToken: "Meet did not supply a valid meeting token."
         case .inviteRejected: "The invitation response lacked an acknowledgement."
         }
     }
@@ -97,6 +97,8 @@ public extension MeetDMCallTrial {
         case .negotiationFailed: "Native audio negotiation failed."
         case .connectionFailed: "Native audio transport failed."
         case .timedOut: "Native audio did not connect within 20 seconds."
+        case .signalingTimedOut: "Native audio stream signaling timed out."
+        case .outgoingAudioUnconfirmed: "Outgoing audio registration was not confirmed. Copy Report."
         }
     }
 
@@ -108,6 +110,8 @@ public extension MeetDMCallTrial {
         case .noDevice: "Meet has no registered native caller device."
         case .mediaNotConnected: "Native audio is not connected."
         case .notJoined: "Meet has not confirmed the native caller as joined."
+        case .invitationCancellationUnconfirmed:
+            "The invitation result was ambiguous; cancellation cannot be confirmed."
         case .leaveUnconfirmed: "Meet did not confirm that the caller device left."
         }
     }

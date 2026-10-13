@@ -2,6 +2,7 @@ import Foundation
 
 public enum MeetDeviceSessionError: Error, Sendable, Equatable {
     case busy, closed, deviceExists, noDevice, mediaNotConnected, notJoined, leaveUnconfirmed
+    case invitationCancellationUnconfirmed
 }
 
 /// One native caller's device and rolling token. The provider adapter must
@@ -19,6 +20,59 @@ public actor MeetDeviceSession {
     private var mediaConnected = false
     private var didInvite = false
     private var didRegister = false
+    private var invitationID: String?
+    private var cancellationAttempted = false
+    private var invitationCompleted = false
+    public private(set) var conferenceID: String?
+
+    public var outgoingInvitationID: String? {
+        invitationID
+    }
+
+    public var localDeviceName: String? {
+        device?.name
+    }
+
+    public func cancelInvitation() async throws {
+        guard !busy else { throw MeetDeviceSessionError.busy }
+        guard !invitationCompleted else { return }
+        if cancellationAttempted {
+            if invitationID != nil {
+                throw MeetDeviceSessionError.invitationCancellationUnconfirmed
+            }
+            return
+        }
+        guard let invitationID else {
+            if didInvite {
+                throw MeetDeviceSessionError.invitationCancellationUnconfirmed
+            }
+            return
+        }
+        busy = true
+        cancellationAttempted = true
+        defer { busy = false }
+        _ = try await send(
+            "MeetingInviteService/CancelMeetingInvite", body: MeetInvitationWire.cancel(id: invitationID)
+        )
+        self.invitationID = nil
+    }
+
+    /// An observed peer join completes the ringing lifecycle, independently
+    /// of the lifetime of either media device.
+    public func completeInvitation() {
+        invitationCompleted = true
+        invitationID = nil
+    }
+
+    public func collections() async throws -> MeetCallCollectionsWire.Snapshot {
+        try begin()
+        defer { busy = false }
+        let response = try await send(
+            "MeetingSpaceService/SyncMeetingSpaceCollections",
+            body: MeetCallCollectionsWire.sync(space: space.name)
+        )
+        return try MeetCallCollectionsWire.snapshot(from: response.body, in: space.name)
+    }
 
     public init(client: MeetCallClient, call: MeetResolvedCall) {
         self.client = client
@@ -57,19 +111,21 @@ public actor MeetDeviceSession {
         let joined = try MeetDeviceWire.device(from: response.body, in: space.name)
         guard joined.name == device.name else { throw MeetCallWire.WireError.malformedResponse }
         self.device = joined
-        guard joined.joinState == 1 else { throw MeetDeviceSessionError.notJoined }
+        guard joined.joinState == 1, !joined.isDeleted else { throw MeetDeviceSessionError.notJoined }
     }
 
     public func invite(calleeID: String, requestID: UUID) async throws {
         try begin()
         defer { busy = false }
-        guard mediaConnected, device?.joinState == 1, !didInvite else {
+        guard incomingInvitation == nil, mediaConnected, device?.joinState == 1, !didInvite else {
             throw MeetDeviceSessionError.notJoined
         }
         let body = try MeetCallWire.invite(spaceName: space.name, calleeID: calleeID, requestID: requestID)
         didInvite = true
         let response = try await send("MeetingInviteService/CreateMeetingInvite", body: body)
-        guard try MeetCallWire.acceptedInvite(from: response.body) else {
+        do {
+            invitationID = try MeetInvitationWire.invitationID(from: response.body)
+        } catch {
             throw MeetCallClientError.inviteRejected
         }
     }
@@ -117,11 +173,15 @@ public actor MeetDeviceSession {
             ])
         }
         return try await client.send(request, received: { [weak self] response in
-            await self?.absorb(response.headers["x-goog-meeting-token"])
+            await self?.absorb(response.headers)
         })
     }
 
-    private func absorb(_ value: String?) {
-        token.absorb(value)
+    private func absorb(_ headers: HTTPHeaders) {
+        token.absorb(headers["x-goog-meeting-token"])
+        if let value = headers["x-goog-meeting-debugid"], !value.isEmpty,
+           value.utf8.count <= 128, value.utf8.allSatisfy({ (33 ... 126).contains($0) }) {
+            conferenceID = value
+        }
     }
 }

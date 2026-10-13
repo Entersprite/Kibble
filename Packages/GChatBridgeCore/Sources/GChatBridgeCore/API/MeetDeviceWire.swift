@@ -6,6 +6,7 @@ public enum MeetDeviceWire {
     public struct Device: Sendable, Equatable {
         public let name: String
         public let joinState: UInt64
+        public let isDeleted: Bool
     }
 
     /// The web source's request extension specifies client RPC semantics.
@@ -50,12 +51,25 @@ public enum MeetDeviceWire {
 
     /// The RPC returns MeetingDevice directly, not a wrapper around field 1.
     public static func device(from body: Data, in space: String) throws -> Device {
-        let data = try MeetProto.decode(body)
+        try devicePayload(MeetProto.decode(body), in: space)
+    }
+
+    static func devicePayload(_ data: Data, in space: String) throws -> Device {
         let name = try MeetProto.text(1, data)
         guard validSpace(space), validDevice(name), name.hasPrefix(space + "/devices/") else {
             throw MeetCallWire.WireError.malformedResponse
         }
-        return try Device(name: name, joinState: MeetProto.value(4, data))
+        let deleted: Bool
+        if ProtoFieldScan.fields(in: data).fields.contains(where: { $0.number == 9 }) {
+            let value = try MeetProto.value(9, data)
+            guard value <= 1 else { throw MeetCallWire.WireError.malformedResponse }
+            deleted = value == 1
+        } else {
+            deleted = false
+        }
+        let state = try ProtoFieldScan.fields(in: data).fields.contains(where: { $0.number == 4 })
+            ? MeetProto.value(4, data) : 0
+        return Device(name: name, joinState: state, isDeleted: deleted)
     }
 
     static func validSpace(_ value: String) -> Bool {

@@ -12,7 +12,6 @@ struct MeetICEDiagnosticTests {
             "Native ICE password: bytes 28; alphabet Base64; padding terminal 1; supported yes"
         ])
         for (value, alphabet, padding) in [
-            ("private_ufrag-sentinel", "URL-safe Base64", "none"),
             ("private:credential!sentinel", "other ASCII", "none"),
             ("private credential\r\nsentinel", "whitespace/control or non-ASCII", "none"),
             ("privateécredential", "whitespace/control or non-ASCII", "none"),
@@ -30,6 +29,18 @@ struct MeetICEDiagnosticTests {
         }
         #expect(!first.joined().contains(padded))
         #expect(!first.joined().contains(password))
+    }
+
+    @Test func ownerReportedURLSafeShapeIsSupportedWithoutReportingTheCredential() {
+        let fragment = String(repeating: "U", count: 26) + "-_"
+        let password = String(repeating: "P", count: 27) + "="
+        let report = MeetAudioOffer.iceDiagnostics(serverConfiguration: configuration(fragment, password))
+        #expect(report == [
+            "Native ICE ufrag: bytes 28; alphabet URL-safe Base64; padding none; supported yes",
+            "Native ICE password: bytes 28; alphabet Base64; padding terminal 1; supported yes"
+        ])
+        #expect(!report.joined().contains(fragment))
+        #expect(!report.joined().contains(password))
     }
 
     @Test func malformedAndDuplicateFieldsStayDistinctWithoutRawParserErrors() {

@@ -11,6 +11,8 @@ public struct MeetCallConfiguration: Sendable {
     /// Base64 client descriptor protobuf from the shell, not an opaque ID.
     public let rtcClientID: String
     public let debugID: String
+    let streamApplication: UInt64?
+    let streamClientVersion: String?
 
     public init?(
         apiKey: String,
@@ -18,18 +20,28 @@ public struct MeetCallConfiguration: Sendable {
         referer: URL,
         userAgent: String,
         rtcClientID: String,
-        debugID: String
+        debugID: String,
+        streamApplication: UInt64? = nil,
+        streamClientVersion: String? = nil
     ) {
         guard !apiKey.isEmpty, accountIndex >= 0,
               referer.scheme == "https", referer.host == "meet.google.com", referer.path == "/call",
               !userAgent.isEmpty, MeetCallRTCClient.isValid(rtcClientID), !debugID.isEmpty
         else { return nil }
+        if streamApplication != nil || streamClientVersion != nil {
+            guard let streamApplication, streamApplication <= UInt64(Int32.max),
+                  let streamClientVersion, !streamClientVersion.isEmpty,
+                  streamClientVersion.utf8.count <= 128,
+                  streamClientVersion.utf8.allSatisfy({ (33 ... 126).contains($0) }) else { return nil }
+        }
         self.apiKey = apiKey
         self.accountIndex = accountIndex
         self.referer = referer
         self.userAgent = userAgent
         self.rtcClientID = rtcClientID
         self.debugID = debugID
+        self.streamApplication = streamApplication
+        self.streamClientVersion = streamClientVersion
     }
 
     func request(method: String, body: Data, token: String? = nil) -> HTTPRequest {
@@ -124,6 +136,31 @@ public struct MeetCallClient: Sendable {
         self.now = now
     }
 
+    /// YNc's HNc layout: current shell application metadata when available,
+    /// otherwise this native implementation's unspecified application/version.
+    /// Instance identity is always fresh; account fields and capabilities are
+    /// never copied. Registration, not header construction, confirms acceptance.
+    public func streamControlHeader() throws -> Data {
+        guard let descriptor = Data(base64Encoded: configuration.rtcClientID),
+              MeetCallRTCClient.isValid(configuration.rtcClientID) else {
+            throw MeetCallWire.WireError.invalidIdentifier
+        }
+        let client = MeetProto.string(1, configuration.streamClientVersion ?? "KibbleNative")
+            + MeetProto.string(4, configuration.debugID)
+        return MeetProto.bytes(1, MeetProto.number(1, configuration.streamApplication ?? 0)) + MeetProto
+            .bytes(
+                2,
+                client
+            )
+            + MeetProto.string(4, "en") + MeetProto.bytes(7, descriptor)
+    }
+
+    public var streamHeaderSource: String {
+        configuration.streamApplication == nil
+            ? "native application metadata"
+            : "current shell application metadata"
+    }
+
     public func resolve(dmID: String) async throws -> MeetResolvedCall {
         let request = try configuration.request(
             method: "MeetingSpaceService/ResolveForHangoutsChat",
@@ -167,6 +204,16 @@ public struct MeetCallClient: Sendable {
         guard try MeetCallWire.acceptedInvite(from: response.body) else {
             throw MeetCallClientError.inviteRejected
         }
+    }
+
+    /// The explicit receiver action uses the notification's credential and
+    /// the browser's receipt-before-decline sequence, without media or lookup.
+    public func decline(
+        _ invitation: MeetIncomingInvitation, meetingToken: String, recordsReceipt: Bool = true,
+        validate: @escaping @Sendable () async throws -> Void = {}
+    ) async throws -> MeetDeclineReceipt {
+        let session = try MeetDeclineSession(client: self, token: meetingToken, validate: validate)
+        return try await session.run(invitation, recordsReceipt: recordsReceipt)
     }
 
     /// Media bootstrap is exempt from the space token interceptor in the web

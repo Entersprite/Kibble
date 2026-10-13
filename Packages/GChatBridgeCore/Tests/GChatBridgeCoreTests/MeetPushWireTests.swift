@@ -7,7 +7,7 @@ struct MeetPushWireTests {
         MeetProto.bytes(
             1,
             MeetProto.string(1, "ring-secret") + MeetProto.string(2, "abc-defg-hij")
-                + MeetProto.number(4, 1) + MeetProto.string(7, "context-secret")
+                + MeetProto.number(4, 1) + MeetProto.string(7, "70;notification-token")
                 + MeetProto.string(8, "receiver-secret") + MeetProto.string(11, "dm/known") + MeetProto
                 .number(
                     12,
@@ -29,7 +29,7 @@ struct MeetPushWireTests {
         #expect(value.id == "ring-secret")
         #expect(value.callIdentifier == "abc-defg-hij")
         #expect(value.dmID == "dm/known")
-        #expect(value.notificationContext == "context-secret")
+        #expect(value.meetingToken == "70;notification-token")
         #expect(value.receiverClientID == "receiver-secret")
         #expect(try MeetPushWire.events(in: push(ring(), sequence: "2")).isEmpty)
         let noObject: PBLiteValue = [[["1", [nil, [[[nil, .string(ring().base64EncodedString()), "42"]]]]]]]
@@ -121,5 +121,20 @@ extension MeetPushWireTests {
         #expect(MeetPushWire.envelopeSummary(["noop"]) == "control or unrecognized envelope")
         #expect(MeetPushWire
             .envelopeSummary([[["other-secret"]]]) == "watch responses 1; matching sequence 0")
+    }
+}
+
+extension MeetPushWireTests {
+    @Test func notificationSourceEighteenIsIndependentOfAudioCallKindTwelve() throws {
+        for source in [UInt64(0), 1, 2] {
+            guard case let .ring(value) = try MeetPushWire.payload(ring(MeetProto.number(18, source))) else {
+                Issue.record("Missing ring"); return
+            }
+            #expect(value.notificationSource == source)
+            #expect(value.kind == 1)
+        }
+        #expect(throws: MeetCallWire.WireError.malformedResponse) {
+            try MeetPushWire.payload(ring(MeetProto.number(18, 1) + MeetProto.number(18, 2)))
+        }
     }
 }

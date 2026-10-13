@@ -119,18 +119,16 @@ extension MeetAudioOffer {
     }
 
     static func validRemoteCredential(_ value: String, minimum: Int) -> Bool {
-        if validCredential(value, minimum: minimum) {
-            return true
-        }
-        // The server converter preserves both opaque ICE strings. Its
-        // accepted reference includes padding; apply the remote alphabet
-        // consistently to fragments and passwords, retaining exact values.
-        // Keep its exact opaque value; allow only terminal one/two '=' bytes,
-        // bounded length and the already supported Base64 alphabet.
+        // Google's converter preserves these opaque strings. Server replies
+        // use both Base64 alphabets; never translate '-'/'_' or strip padding.
+        guard (minimum ... 256).contains(value.utf8.count) else { return false }
         let padding = value.utf8.reversed().prefix { $0 == 61 }.count
-        return (minimum ... 256).contains(value.utf8.count) && value.utf8.count.isMultiple(of: 4)
-            && (1 ... 2).contains(padding)
-            && validCredential(String(value.dropLast(padding)), minimum: 1)
+        guard padding <= 2, padding == 0 || value.utf8.count.isMultiple(of: 4) else { return false }
+        let body = String(value.dropLast(padding))
+        return validCredential(body, minimum: 1) || body.utf8.allSatisfy {
+            (48 ... 57).contains($0) || (65 ... 90).contains($0) || (97 ... 122).contains($0)
+                || $0 == 45 || $0 == 95
+        }
     }
 
     private func acceptedCodecs(_ data: Data) throws -> [NegotiatedCodec] {

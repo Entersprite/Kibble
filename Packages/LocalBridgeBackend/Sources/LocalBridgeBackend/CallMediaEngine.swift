@@ -5,16 +5,45 @@ import Foundation
 @MainActor
 public protocol CallMediaEngine: AnyObject, Sendable {
     var isConnected: Bool { get }
+    var supportsStreamControl: Bool { get }
+    var isMicrophoneMuted: Bool { get }
     /// Prepare bundled SCTP when a server-created control channel is expected.
     /// isConnected stays false until that channel is open as well as the peer.
     func makeAudioOffer(serverControlChannel: String?) async throws -> CallAudioOffer
     func applyAnswer(_ sdp: String) async throws
     func waitUntilConnected(timeout: Duration) async throws
+    func setEventHandler(_ handler: (@Sendable (CallMediaEvent) async -> Void)?)
     func setMuted(_ muted: Bool)
+    func exchangeStreamControl(
+        _ request: Data, matches: @escaping @Sendable (Data) -> Bool, timeout: Duration
+    ) async throws -> Data
     func close()
 }
 
+public enum CallMediaEvent: Sendable {
+    case collectionsChanged
+    case connected
+    case disconnected
+    case failed
+}
+
 public extension CallMediaEngine {
+    var supportsStreamControl: Bool {
+        false
+    }
+
+    var isMicrophoneMuted: Bool {
+        false
+    }
+
+    func exchangeStreamControl(
+        _: Data, matches _: @escaping @Sendable (Data) -> Bool, timeout _: Duration
+    ) async throws -> Data {
+        throw CallMediaError.connectionFailed
+    }
+
+    func setEventHandler(_: (@Sendable (CallMediaEvent) async -> Void)?) {}
+
     func makeAudioOffer() async throws -> CallAudioOffer {
         try await makeAudioOffer(serverControlChannel: nil)
     }
@@ -41,4 +70,5 @@ public struct CallAudioOffer: Sendable {
 
 public enum CallMediaError: Error, Sendable, Equatable {
     case microphoneDenied, busy, closed, negotiationFailed, connectionFailed, timedOut
+    case outgoingAudioUnconfirmed, signalingTimedOut
 }

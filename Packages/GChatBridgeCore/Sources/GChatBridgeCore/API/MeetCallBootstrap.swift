@@ -76,11 +76,13 @@ public struct MeetCallBootstrap: Sendable {
         guard response.status == 200 else { throw MeetCallBootstrapError.httpStatus(response.status) }
         guard let key = MeetCallPageKey.extract(from: response.body)
         else { throw MeetCallBootstrapError.missingClientKey }
+        let streamMetadata = MeetStreamClientMetadata.extract(response.body)
         guard let rtcClient = MeetCallRTCClient.extract(from: response.body),
               let configuration = MeetCallConfiguration(
                   apiKey: key, accountIndex: accountIndex,
                   referer: page, userAgent: userAgent,
-                  rtcClientID: rtcClient, debugID: randomDebugID()
+                  rtcClientID: rtcClient, debugID: randomDebugID(),
+                  streamApplication: streamMetadata?.application, streamClientVersion: streamMetadata?.version
               )
         else { throw MeetCallBootstrapError.invalidRTCClientMetadata }
         return configuration

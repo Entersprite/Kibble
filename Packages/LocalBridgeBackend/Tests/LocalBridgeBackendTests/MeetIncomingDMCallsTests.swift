@@ -34,7 +34,8 @@ struct MeetIncomingDMCallsTests {
 
     private func receiver(
         _ preparation: Preparation = Preparation(),
-        validate: @escaping @Sendable () async throws -> Void = {}
+        validate: @escaping @Sendable () async throws -> Void = {},
+        decline: @escaping @Sendable (MeetPushWire.Ring) async throws -> Void = { _ in }
     ) throws -> (MeetIncomingDMCalls, ScriptedTransport) {
         let configuration = try #require(MeetPushConfiguration(
             key: "key-secret",
@@ -53,7 +54,8 @@ struct MeetIncomingDMCallsTests {
                 credentials: credentials
             ),
             people: ["known-dm": person], validate: validate,
-            prepare: { _, _ in await preparation.run() }, discard: { _ in await preparation.discard() }
+            prepare: { _, _ in await preparation.run() }, decline: decline,
+            discard: { _ in await preparation.discard() }
         )
         return (receiver, transport)
     }
@@ -121,6 +123,56 @@ struct MeetIncomingDMCallsTests {
         #expect(await preparation.attempts == 0)
         #expect(await transport.sent.isEmpty)
         await receiver.stop()
+    }
+
+    private actor Declines {
+        var attempts = 0
+        func send() {
+            attempts += 1
+        }
+    }
+
+    @Test func explicitDeclineRetiresTheRingWithoutPreparingAndCannotBeRepeated() async throws {
+        let preparation = Preparation()
+        let declines = Declines()
+        let (receiver, transport) = try receiver(preparation, decline: { _ in await declines.send() })
+        await receiver.handle(.notification(.ring(ring())))
+        let offered = try #require(await receiver.offeredCall)
+        try await receiver.decline(offered.id)
+        await #expect(throws: MeetDMCallTrialError.callNotPrepared) { try await receiver.decline(offered.id) }
+        await receiver.handle(.notification(.ring(ring())))
+        #expect(await receiver.offeredCall == nil)
+        #expect(await preparation.attempts == 0)
+        #expect(await declines.attempts == 1)
+        #expect(await transport.sent.isEmpty)
+        #expect(await receiver.report.contains("DeclineMeetingInvite: accepted"))
+        await receiver.stop()
+    }
+
+    @Test func ambiguousDeclineIsNotRetriedAndChangedAccountCannotSend() async throws {
+        let declines = Declines()
+        let (receiver, _) = try receiver(decline: { _ in
+            await declines.send()
+            throw MeetDMCallTrialError.callChanged
+        })
+        await receiver.handle(.notification(.ring(ring())))
+        let offered = try #require(await receiver.offeredCall)
+        await #expect(throws: MeetDMCallTrialError.callChanged) { try await receiver.decline(offered.id) }
+        await #expect(throws: MeetDMCallTrialError.callNotPrepared) { try await receiver.decline(offered.id) }
+        #expect(await declines.attempts == 1)
+        #expect(await receiver.report.contains("DeclineMeetingInvite: unconfirmed"))
+        await receiver.stop()
+        let (changed, _) = try self.receiver(
+            validate: { throw MeetDMCallTrialError.accountChanged },
+            decline: { _ in await declines.send() }
+        )
+        await changed.handle(.notification(.ring(ring())))
+        let changedCall = try #require(await changed.offeredCall)
+        await #expect(throws: MeetDMCallTrialError.accountChanged) {
+            try await changed.decline(changedCall.id)
+        }
+        #expect(await declines.attempts == 1)
+        await changed.stop()
     }
 
     @Test func ownerAcceptPreparesExactlyOnceAndRetiresTheRing() async throws {

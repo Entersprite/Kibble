@@ -6,7 +6,6 @@
     struct MeetDMCallTrialView: View {
         @State private var model = MeetDMCallTrialModel()
         @State private var query = ""
-        @State private var muted = false
 
         private var people: [MeetCallTrialPerson] {
             guard !query.isEmpty else { return model.people }
@@ -30,7 +29,7 @@
                     HStack {
                         Button("Accept with Native Audio") { Task { await model.acceptIncoming() } }
                             .disabled(model.isBusy || model.isNativeCallActive)
-                        Button("Dismiss Locally") { Task { await model.dismissIncoming() } }
+                        Button("Decline") { Task { await model.declineIncoming() } }
                             .disabled(model.isBusy)
                     }
                 }
@@ -79,9 +78,13 @@
                             .disabled(!model.canJoinNative)
                         Button("3. Ring Person") { Task { await model.ring() } }
                             .disabled(!model.canRing)
-                        Toggle("Mute microphone", isOn: $muted)
-                            .onChange(of: muted) { _, value in model.setNativeMuted(value) }
-                            .disabled(!model.isNativeCallActive)
+                        Toggle("Mute microphone", isOn: Binding(
+                            get: { model.nativeMicrophoneMuted }, set: { model.setNativeMuted($0) }
+                        ))
+                        .disabled(!model.isNativeCallActive || model.isBusy || model.isEndingNativeCall)
+                        Text(model.microphoneStatus).font(.caption).foregroundStyle(.secondary)
+                        Button("Cancel Ringing") { Task { await model.cancelNativeRing() } }
+                            .disabled(!model.canCancelNativeRing)
                         Button("End Native Call") { Task { await model.endNativeCall() } }
                             .disabled(!model.isNativeCallActive || model.isEndingNativeCall)
                         Divider()
@@ -110,11 +113,6 @@
             .padding(24)
             .frame(minWidth: 820, minHeight: 570)
             .task { await model.load() }
-            .onChange(of: model.isNativeCallActive) { _, active in
-                if !active {
-                    muted = false
-                }
-            }
             .onDisappear { Task { await model.close() } }
         }
     }

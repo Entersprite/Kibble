@@ -27,7 +27,10 @@ public struct MeetAudioOffer: Sendable {
         }
     }
 
-    public init(sdp: String, srtpSuite: SRTPSuite = .aes128SHA180, collections: Bool = false) throws {
+    public init(
+        sdp: String, srtpSuite: SRTPSuite = .aes128SHA180, collections: Bool = false,
+        streamControl: Bool = false
+    ) throws {
         guard sdp.utf8.count < 100_000, !sdp.contains("\0") else {
             throw MeetCallWire.WireError.malformedResponse
         }
@@ -70,6 +73,13 @@ public struct MeetAudioOffer: Sendable {
             // Source q4g/s4g: PROTOBUF=1, COMPRESSION_NONE=1. This is the
             // server-created push channel; no unsupported local channels.
             configuration += MeetProto.bytes(8, MeetProto.number(1, 1) + MeetProto.number(2, 1))
+        }
+        if streamControl {
+            guard collections, dataMid != nil else { throw MeetCallWire.WireError.invalidIdentifier }
+            // Source pVg/kVg: supported dcrpc channel, ordered/reliable/NONE.
+            let channel = MeetProto.string(1, "dcrpc") + MeetProto.number(2, 1)
+                + MeetProto.number(4, 1) + MeetProto.number(7, 1)
+            configuration += MeetProto.bytes(17, channel)
         }
         // pVg always writes selector 36=2. Field 44 is the inverse of
         // audio output enabled (T6c.1 -> H9c.5). Leave that disable flag

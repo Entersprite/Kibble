@@ -90,14 +90,44 @@ struct MeetAudioNegotiationTests {
         }
     }
 
+    @Test func remoteURLSafeCredentialsArePreservedWithoutChangingTheLocalOfferRules() throws {
+        let parsed = try MeetAudioOffer(sdp: offer)
+        for fragment in [
+            String(repeating: "U", count: 26) + "-_",
+            String(repeating: "U", count: 25) + "-_="
+        ] {
+            for password in [
+                String(repeating: "P", count: 26) + "-_",
+                String(repeating: "P", count: 25) + "-_="
+            ] {
+                let answer = try parsed.answer(serverConfiguration: server(
+                    password: password,
+                    ufrag: fragment
+                ))
+                #expect(answer.contains("a=ice-ufrag:\(fragment)\r\n"))
+                #expect(answer.contains("a=ice-pwd:\(password)\r\n"))
+                #expect(throws: MeetCallWire.WireError.malformedResponse) {
+                    try MeetAudioOffer(sdp: offer.replacingOccurrences(
+                        of: "a=ice-ufrag:test", with: "a=ice-ufrag:" + fragment
+                    ))
+                }
+                #expect(throws: MeetCallWire.WireError.malformedResponse) {
+                    try MeetAudioOffer(sdp: offer.replacingOccurrences(
+                        of: "syntheticpassword12345678", with: password
+                    ))
+                }
+            }
+        }
+    }
+
     @Test func unsafeOrMalformedPasswordPaddingIsRejectedWithAFixedStage() throws {
         let parsed = try MeetAudioOffer(sdp: offer)
         for password in [
             "=AAAAAAAAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAA=AAAAAAAAAAAA=",
             "AAAAAAAAAAAAAAAAAAAAAAAAA===", "AAAAAAAAAAAAAAAAAAAAAAAAAAA= ",
             "AAAAAAAAAAAAAAAAAAAAAAAAAAA=\r\na=setup:active", "short=",
-            String(repeating: "A", count: 259) + "=", "AAAAAAAAAAAAAAAAAAAAAAAAAA-=",
-            "AAAAAAAAAAAAAAAAAAAAAAAAAA_="
+            String(repeating: "A", count: 259) + "=", "AAAAAAAAAAAAAAAAAAAAAAAAA+-=",
+            "AAAAAAAAAAAAAAAAAAAAAAAAA/_="
         ] {
             #expect(throws: MeetAudioOffer.AnswerFailure.ice) {
                 try parsed.answer(serverConfiguration: server(password: password))

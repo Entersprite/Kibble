@@ -16,7 +16,7 @@ struct NativeMeetCallSessionTests {
         await session.close()
         #expect(media.calls.last == "close")
         let sent = await transport.sent
-        #expect(sent.count == 6)
+        #expect(sent.count == 7)
         #expect(sent[1].url.path.hasSuffix("CreateMediaSession"))
         #expect(sent[1].headers["x-goog-meeting-token"] == nil)
         let body = try #require(sent[1].body)
@@ -30,7 +30,9 @@ struct NativeMeetCallSessionTests {
         #expect(ProtoFieldScan.varintValues(ofField: 2, in: collections) == [1])
         #expect(sent[4].url.path.hasSuffix("CreateMeetingInvite"))
         #expect(sent[4].headers["x-goog-meeting-token"] == "30;joined")
+        #expect(sent[5].url.path.hasSuffix("CancelMeetingInvite"))
         #expect(sent[5].headers["x-goog-meeting-token"] == "30;joined")
+        #expect(sent[6].headers["x-goog-meeting-token"] == "35;cancelled")
         let report = await session.takeReport().joined(separator: "\n")
         #expect(report.contains("audio output enabled; SRTP AEAD_AES_256_GCM"))
         for secret in [
@@ -116,14 +118,14 @@ struct NativeMeetCallSessionTests {
     }
 
     @Test func iceFailureIncludesShapesWithoutCredentialsOrRegistration() async throws {
-        let secret = "private_ufrag-sentinel"
+        let secret = "private:ufrag!sentinel"
         let transport = ScriptedTransport(NativeMeetFixture.responses(ufrag: secret))
         let media = NativeFakeMedia()
         let session = try await NativeMeetFixture.session(transport, media: media)
         await #expect(throws: MeetAudioOffer.AnswerFailure.ice) { try await session.connect() }
         let report = await session.takeReport().joined(separator: "\n")
         #expect(report.contains("Native ICE ufrag:"))
-        #expect(report.contains("alphabet URL-safe Base64; padding none; supported no"))
+        #expect(report.contains("alphabet other ASCII; padding none; supported no"))
         #expect(report
             .contains("Native ICE password: bytes 28; alphabet Base64; padding terminal 1; supported yes"))
         #expect(!report.contains(secret))
@@ -171,7 +173,7 @@ struct NativeMeetCallSessionTests {
         await transport.release()
         await close.value
         await #expect(throws: CancellationError.self) { try await ring.value }
-        #expect(await base.sent.count == 6)
+        #expect(await base.sent.count == 7)
         #expect(await session.takeReport()
             .contains("Native cleanup: local media closed; device leave settled"))
     }
@@ -180,9 +182,9 @@ struct NativeMeetCallSessionTests {
         let base = ScriptedTransport(NativeMeetFixture.responses(join: false))
         let transport = NativeHoldRegistration(base)
         let account = NativeAccountGate()
-        let session = try await NativeMeetFixture.session(transport, media: NativeFakeMedia()) {
+        let session = try await NativeMeetFixture.session(transport, media: NativeFakeMedia(), validate: {
             try await account.validate()
-        }
+        })
         let join = Task { try await session.connect() }
         while await !(transport.started) {
             await Task.yield()
@@ -198,6 +200,8 @@ struct NativeMeetCallSessionTests {
 final class NativeFakeMedia: CallMediaEngine {
     var isConnected = false
     var calls: [String] = []
+    var answer: String?
+    var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
     let failConnection: Bool
 
     init(failConnection: Bool = false) {
@@ -214,6 +218,7 @@ final class NativeFakeMedia: CallMediaEngine {
         #expect(sdp.contains("a=setup:passive"))
         #expect(sdp.contains("a=group:BUNDLE 0 1"))
         #expect(sdp.contains("m=application 9 UDP/DTLS/SCTP webrtc-datachannel"))
+        answer = sdp
         calls.append("answer")
     }
 
@@ -223,6 +228,10 @@ final class NativeFakeMedia: CallMediaEngine {
         }
         calls.append("connected")
         isConnected = true
+    }
+
+    func setEventHandler(_ handler: (@Sendable (CallMediaEvent) async -> Void)?) {
+        eventHandler = handler
     }
 
     func setMuted(_: Bool) {}
