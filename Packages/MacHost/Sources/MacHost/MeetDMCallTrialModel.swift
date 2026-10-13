@@ -297,6 +297,7 @@ public final class MeetDMCallTrialModel {
         guard listeningRevision == revision else { return }
         switch event {
         case let .status(message): incomingStatus = message
+        case .listening, .listeningFailed: break
         case let .ring(call):
             if isNativeCallActive || isBusy {
                 await incoming?.dismiss(call.id)

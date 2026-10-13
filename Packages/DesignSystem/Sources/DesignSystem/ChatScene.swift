@@ -46,6 +46,8 @@ public struct ChatSceneState: Sendable, Equatable {
     /// offering an action a backend cannot perform is worse than not offering
     /// it.
     public var capabilities: Capabilities
+    /// Conversations the current call service can call. An empty set hides Call.
+    public var callableConversations: Set<Conversation.ID>
 
     /// A send that was not accepted, mentions and all, for the composer to
     /// adopt. `nil` in every ordinary frame.
@@ -138,7 +140,8 @@ public struct ChatSceneState: Sendable, Equatable {
         search: SearchSceneState = SearchSceneState(),
         highlightedMessage: Message.ID? = nil,
         searchOpenGeneration: Int = 0,
-        collapsedSections: Set<String> = []
+        collapsedSections: Set<String> = [],
+        callableConversations: Set<Conversation.ID> = []
     ) {
         self.conversations = conversations
         self.directory = directory
@@ -171,6 +174,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.highlightedMessage = highlightedMessage
         self.searchOpenGeneration = searchOpenGeneration
         self.collapsedSections = collapsedSections
+        self.callableConversations = callableConversations
     }
 
     public var selectedConversation: Conversation? {

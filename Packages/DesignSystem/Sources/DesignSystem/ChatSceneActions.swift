@@ -151,6 +151,8 @@ public struct ChatSceneActions {
     /// and how to show them (on the Mac, SwiftUI's `openSettings`, which only a
     /// view can read).
     public var showSettings: (() -> Void)?
+    /// Starts a DM audio call, or brings the existing call window forward.
+    public var call: ((Conversation.ID) -> Void)?
 
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
@@ -183,7 +185,8 @@ public struct ChatSceneActions {
         threads: ThreadActions? = nil,
         search: SearchActions? = nil,
         setSectionCollapsed: ((String, Bool) -> Void)? = nil,
-        showSettings: (() -> Void)? = nil
+        showSettings: (() -> Void)? = nil,
+        call: ((Conversation.ID) -> Void)? = nil
     ) {
         self.select = select
         self.send = send
@@ -216,5 +219,6 @@ public struct ChatSceneActions {
         self.search = search
         self.setSectionCollapsed = setSectionCollapsed
         self.showSettings = showSettings
+        self.call = call
     }
 }

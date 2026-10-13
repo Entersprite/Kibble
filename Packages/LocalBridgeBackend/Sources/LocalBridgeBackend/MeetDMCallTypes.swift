@@ -1,7 +1,10 @@
+import ChatKit
 import Foundation
 
 public struct MeetDMCallPerson: Sendable, Identifiable {
     public let id: UUID
+    public let conversationID: Conversation.ID
+    public let memberID: ChatKit.Member.ID
     public let name: String
     public let email: String?
 }

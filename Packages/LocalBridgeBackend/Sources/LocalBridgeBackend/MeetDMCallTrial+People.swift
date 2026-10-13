@@ -3,6 +3,16 @@ import Foundation
 import GChatBridgeCore
 
 extension MeetDMCallTrial {
+    func loadStoredSession() async throws -> StoredSession {
+        guard let stored = try await store.currentSession() else { throw MeetDMCallTrialError.noSession }
+        if let expectedSession {
+            guard stored.capturedAt == expectedSession.capturedAt,
+                  stored.expiresAt == expectedSession.expiresAt
+            else { throw MeetDMCallTrialError.accountChanged }
+        }
+        return stored
+    }
+
     static func candidates(
         _ conversations: [Conversation], selfID: String
     ) -> (targets: [Target], diagnostics: [String]) {
@@ -28,7 +38,7 @@ extension MeetDMCallTrial {
             guard
                 let callee = members.first(where: { $0 != selfID }), seen.insert(callee).inserted
             else { return nil }
-            return Target(dmID: dmID, calleeID: callee)
+            return Target(conversationID: conversation.id, dmID: dmID, calleeID: callee)
         }
         return (targets, [
             "Human DM filters: \(direct) human DMs; \(pairs) with two listed members; "
@@ -69,7 +79,10 @@ extension MeetDMCallTrial {
             guard let name = member.displayName ?? member.email, !name.isEmpty
             else { continue }
             let id = UUID()
-            people.append(MeetDMCallPerson(id: id, name: name, email: member.email))
+            people.append(MeetDMCallPerson(
+                id: id, conversationID: target.conversationID, memberID: member.id,
+                name: name, email: member.email
+            ))
             selected[id] = target
         }
         lines.append(

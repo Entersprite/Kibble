@@ -52,6 +52,7 @@ public extension AppEnvironment {
             connection: model.connectionState,
             connectionService: connectionService,
             lastError: model.lastError,
+            notice: calls.listenerFailure,
             capabilities: model.capabilities,
             failedDraft: model.failedDraft,
             unreadHidden: Set(rules.filter { !$0.1.showsUnread }.map(\.0)),
@@ -74,7 +75,10 @@ public extension AppEnvironment {
             search: Self.searchScene(model.search),
             highlightedMessage: model.search.highlight,
             searchOpenGeneration: model.search.openGeneration,
-            collapsedSections: collapsedSections
+            collapsedSections: collapsedSections,
+            callableConversations: Set(model.conversations.filter {
+                calls.canCall(conversation: $0, members: Array(model.directory.values), me: model.me)
+            }.map(\.id))
         )
     }
 
@@ -234,7 +238,12 @@ public extension AppEnvironment {
                 ? { [weak self] in self?.runningModel?.setAvailability($0) } : nil,
             threads: threadActions,
             search: searchActions,
-            setSectionCollapsed: { [weak self] in self?.setSection($0, collapsed: $1) }
+            setSectionCollapsed: { [weak self] in self?.setSection($0, collapsed: $1) },
+            call: calls.isAvailable ? { [weak self] id in
+                guard let self, let model = runningModel,
+                      let conversation = model.conversations.first(where: { $0.id == id }) else { return }
+                calls.startCall(in: conversation, members: Array(model.directory.values), me: model.me)
+            } : nil
         )
     }
 

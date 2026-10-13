@@ -5,6 +5,16 @@ import SwiftUI
 /// indicator spec §6.3). Moved out of `ChatWindow.swift`, which sits at
 /// `file_length`; `headerClock` is not `private` for this file's sake.
 extension ChatWindow {
+    var callConversation: Conversation.ID? {
+        guard !state.showingMentions, !state.threads.showingList,
+              actions.call != nil,
+              let conversation = state.selectedConversation,
+              conversation.kind == .directMessage,
+              state.callableConversations.contains(conversation.id)
+        else { return nil }
+        return conversation.id
+    }
+
     var title: String {
         if state.showingMentions {
             return "Mentions"

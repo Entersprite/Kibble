@@ -11,6 +11,7 @@ public struct IncomingMeetDMCall: Sendable, Identifiable, Equatable {
 public actor MeetIncomingDMCalls {
     public enum Event: Sendable {
         case status(String)
+        case listening, listeningFailed
         case ring(IncomingMeetDMCall)
         case cleared
     }
@@ -199,9 +200,11 @@ public actor MeetIncomingDMCalls {
         case let .failed(message):
             record(message)
             await receive?(.status(message))
+            await receive?(.listeningFailed)
         case .notification(.started):
             record("Meet watch: subscription started")
             await receive?(.status("Listening for calls from loaded human DMs."))
+            await receive?(.listening)
         case let .notification(.ring(ring)): await offer(ring)
         case let .notification(.ended(id, reason)):
             retire(id)

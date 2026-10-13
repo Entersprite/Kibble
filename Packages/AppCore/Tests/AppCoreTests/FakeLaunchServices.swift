@@ -38,6 +38,7 @@ final class FakeLaunchServices: LaunchServices {
     /// `nil` is the wall clock, `SessionSelection`'s own default.
     var sessionNow: (@Sendable () -> Date)?
     var sessionConnectionService: ConnectionService?
+    var sessionAudioCalls: (any AudioCallService)?
 
     var hasStoredSessionFailure: (any Error)?
     var forgetFailure: (any Error)?
@@ -141,7 +142,8 @@ final class FakeLaunchServices: LaunchServices {
         }
         return SessionSelection(
             backend: backend, me: nil, driver: driver,
-            connectionService: sessionConnectionService, now: sessionNow ?? { Date() }
+            connectionService: sessionConnectionService, audioCalls: sessionAudioCalls,
+            now: sessionNow ?? { Date() }
         )
     }
 

@@ -106,6 +106,7 @@ actor NativeMeetCallSession {
     }
 
     private func performClose(reason: MeetNativeCallEndReason) async {
+        let mediaWasClosed = closed
         closed = true
         ready = false
         monitor?.cancel()
@@ -116,7 +117,9 @@ actor NativeMeetCallSession {
         refresh?.cancel()
         streamTask?.cancel()
         await media.setEventHandler(nil)
-        await media.close()
+        if !mediaWasClosed {
+            await media.close()
+        }
         await publish(.ending)
         _ = await task?.result
         _ = await refresh?.result
@@ -180,10 +183,12 @@ actor NativeMeetCallSession {
         }
         lines.append("Native join: " + MeetDMCallTrial.errorDescription(error))
         ready = false
-        closed = true
+        if !closed {
+            closed = true
+            await media.close()
+        }
         audioStream = nil
         mediaSessionName = ""
-        await media.close()
         await cleanup()
     }
 

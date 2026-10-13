@@ -25,6 +25,8 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private var deviceTask: Task<Void, Never>?
     private var memoryTask: Task<Void, Never>?
     private var windowObservers: [NSObjectProtocol] = []
+    var callWindowHost: AudioCallWindowHost?
+    var terminationRequested = false
     /// Filters the minimise observers to the main window, which the shell's
     /// `reportsMainWindow(to:)` names.
     let mainWindowMinimising: MainWindowMinimising
@@ -64,6 +66,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationDidFinishLaunching(_: Notification) {
+        startCallWindowObservation()
         diagnostics.start()
         diagnostics.sampleMemory()
         memoryTask = Task { [diagnostics] in

@@ -104,7 +104,15 @@ public struct ChatWindow: View {
             .task(id: nextHeaderRedraw) { await waitForHeaderRedraw() }
             // Draws nothing; keeps the toolbar, so its band is 52 pt and two
             // rows, and the thread's section (session 65, `ThreadColumnBridge`).
-            .toolbar { ToolbarSpacer(.flexible) }
+            .toolbar {
+                ToolbarSpacer(.flexible)
+                if let callConversation, let call = actions.call {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Call", systemImage: "phone") { call(callConversation) }
+                            .help("Start audio call")
+                    }
+                }
+            }
             .navigationSplitViewColumnWidth(min: ThreadColumnLayout.minimumWidth, ideal: 640)
         } detail: {
             threadColumn

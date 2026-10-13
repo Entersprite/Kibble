@@ -14,6 +14,8 @@ import SyncEngine
 @Observable
 public final class AppEnvironment {
     public private(set) var phase: LaunchPhase = .loading
+    /// One audio owner for every window belonging to this app session.
+    public let calls = AudioCallController()
 
     let services: any LaunchServices
     private var driver: (any DemoDriver)?
@@ -185,22 +187,14 @@ public final class AppEnvironment {
             followIdentity(of: model)
 
             try await model.start()
+            calls.start(service: selection.audioCalls)
             // Only now: a launching "Mark as Read" submitted mid-connect is lost.
             notifications?.replayPending(for: model)
             phase = .running(model)
             model.reportActivity(deviceInUse)
             notifications?.requestAuthorizationOnce()
 
-            if services.diagnosticsRequested {
-                try services.startDiagnostics()
-            }
-
-            if let driver = selection.driver {
-                // The demo world does not move on its own. The driver is what
-                // makes a launched app look alive rather than like a screenshot.
-                await driver.start()
-                self.driver = driver
-            }
+            try await startSessionActivities(driver: selection.driver)
         } catch ChatError.notAuthenticated {
             // The one error that is not a failure: the credential is there and
             // Google has stopped accepting it. Expiry never proves this and
@@ -217,7 +211,21 @@ public final class AppEnvironment {
                 reason: "Your Google session stopped working. Sign in again."
             )
         } catch {
+            await calls.stop()
             phase = .failed(String(describing: error))
+        }
+    }
+
+    /// Optional host activities begin only after the chat session is running.
+    /// A diagnostics failure still returns through startup's cleanup path.
+    private func startSessionActivities(driver: (any DemoDriver)?) async throws {
+        if services.diagnosticsRequested {
+            try services.startDiagnostics()
+        }
+        if let driver {
+            // The demo world advances only while this session owns its driver.
+            await driver.start()
+            self.driver = driver
         }
     }
 
@@ -303,6 +311,7 @@ public final class AppEnvironment {
     /// ask; erasing an already-empty store is a cheap no-op, which is the
     /// point - nothing here has to know whether there is anything to erase.
     private func enterNeedsSignIn(reason: String?) async {
+        await calls.stop()
         identityTask?.cancel()
         identityTask = nil
         // Nothing is deleted: the account's settings wait for it to sign in again.

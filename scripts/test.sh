@@ -199,8 +199,9 @@ FIXTURE=Packages/FixtureBackend/Sources/FixtureBackend
 if [ -d "$FIXTURE" ]; then
     # FixtureDemoDriver is the one file allowed to wait: it plays a script at
     # human speed for the app's Debug backend. Nothing else may.
+    # UUID() generates randomness; UUID(uuid:) can encode a deterministic counter.
     hits=$(swift_files "$FIXTURE" | xargs -0 grep -nE \
-             '\bDate\(\)|\bDate\.now\b|\bUUID\(|Task\.sleep|\.random' 2>/dev/null \
+             '\bDate\(\)|\bDate\.now\b|\bUUID[[:space:]]*\([[:space:]]*\)|Task\.sleep|\.random' 2>/dev/null \
            | grep -v '/FixtureDemoDriver\.swift:' || true)
     if [ -n "$hits" ]; then
         note "a clock, randomness or sleeping outside FixtureDemoDriver"

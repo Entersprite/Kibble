@@ -106,6 +106,7 @@ public final class SystemLaunchServices: LaunchServices {
                 backend: fixture,
                 me: Acme.alex,
                 driver: FixtureDemoDriver(backend: fixture),
+                audioCalls: FixtureAudioCallService(),
                 now: { demoNow }
             )
         case .local:
@@ -116,33 +117,27 @@ public final class SystemLaunchServices: LaunchServices {
         // text inside the container was the developer escape hatch, and the
         // login window is what retired it.
         let backend: LocalBridgeBackend?
+        let store = KeychainCredentialStore()
+        let sessionSummary: StoredSessionSummary?
         do {
+            sessionSummary = try await store.summary(at: Date())
             backend = try await LocalBridgeBackend.using(
-                KeychainCredentialStore(),
+                store,
                 tracingChannelTo: Self.channelTraceFile()
             )
-            // Before `connect()`, so the tally sees the channel's first event.
-            if let eventFile = Self.eventTallyFile() {
-                await backend?.tallyEvents(to: eventFile)
+            let currentSummary = try await store.summary(at: Date())
+            guard currentSummary?.capturedAt == sessionSummary?.capturedAt,
+                  currentSummary?.expiresAt == sessionSummary?.expiresAt else {
+                throw MeetDMCallTrialError.accountChanged
             }
-            if let diagnostics {
-                await backend?.observeConversationActions { [diagnostics] observation in
-                    diagnostics.recordConversationAction(observation)
-                }
-                await backend?.observeReadStateFailures { [diagnostics] failure in
-                    diagnostics.recordReadStateFailure(failure)
-                }
-                await backend?.observeHistoryResponses { [diagnostics] response in
-                    diagnostics.recordHistoryResponse(response)
-                }
-            }
+            await configureDiagnostics(for: backend)
         } catch {
             // A Keychain that refuses is not an absent credential, and
             // reporting it as one would send someone through a two-factor
             // login that cannot fix it.
             throw ChatError.unknown(KeychainDiagnosis.explain(error))
         }
-        guard let backend else {
+        guard let backend, let sessionSummary else {
             throw ChatError.unknown(
                 "No session in the Keychain. Open the login window and sign in."
             )
@@ -154,8 +149,29 @@ public final class SystemLaunchServices: LaunchServices {
         // a session-long "wrong-looking".
         return SessionSelection(
             backend: backend, me: nil, driver: nil,
-            connectionService: ConnectionService(name: "Google Chat", operatorName: "Google")
+            connectionService: ConnectionService(name: "Google Chat", operatorName: "Google"),
+            audioCalls: LocalBridgeAudioCallService(
+                store: store, expectedSession: sessionSummary, mediaFactory: { NativeCallMedia() }
+            )
         )
+    }
+
+    /// Installed before connect so diagnostics see the session's first events.
+    private func configureDiagnostics(for backend: LocalBridgeBackend?) async {
+        if let eventFile = Self.eventTallyFile() {
+            await backend?.tallyEvents(to: eventFile)
+        }
+        if let diagnostics {
+            await backend?.observeConversationActions { [diagnostics] observation in
+                diagnostics.recordConversationAction(observation)
+            }
+            await backend?.observeReadStateFailures { [diagnostics] failure in
+                diagnostics.recordReadStateFailure(failure)
+            }
+            await backend?.observeHistoryResponses { [diagnostics] response in
+                diagnostics.recordHistoryResponse(response)
+            }
+        }
     }
 
     public func runLaunchReport() async -> String {

@@ -121,6 +121,8 @@ public struct SessionSelection {
     public let me: Member.ID?
     /// The endpoint named by this backend's connection failures.
     public let connectionService: ConnectionService?
+    /// Optional audio capability; media and provider ownership remain in the host's service.
+    public let audioCalls: (any AudioCallService)?
     /// Non-nil only for the fixture, which is the one that needs driving.
     public let driver: (any DemoDriver)?
 
@@ -132,12 +134,14 @@ public struct SessionSelection {
     public init(
         backend: any ChatBackend, me: Member.ID?, driver: (any DemoDriver)? = nil,
         connectionService: ConnectionService? = nil,
+        audioCalls: (any AudioCallService)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.backend = backend
         self.me = me
         self.driver = driver
         self.connectionService = connectionService
+        self.audioCalls = audioCalls
         self.now = now
     }
 }

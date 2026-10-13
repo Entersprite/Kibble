@@ -12,6 +12,8 @@ extension MeetDMCallTrialTests {
 
     private func incomingSetup(
         native: Bool = false,
+        streamControl: Bool = false,
+        nativeCalls: Int = 1,
         decline: Bool = false,
         recordsReceipt: Bool = true
     ) async throws -> IncomingSetup {
@@ -32,8 +34,20 @@ extension MeetDMCallTrialTests {
             }
             responses.append(.success(HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data())))
         } else if native {
-            responses.append(preparingResponses()[0])
-            responses.append(contentsOf: NativeMeetFixture.responses())
+            for _ in 0 ..< nativeCalls {
+                responses.append(preparingResponses()[0])
+                responses.append(contentsOf: NativeMeetFixture.responses().map { value in
+                    value.map { response in
+                        var response = response
+                        if streamControl {
+                            response.headers = HTTPHeaders(fields: response.headers.fields + [.init(
+                                name: "X-Goog-Meeting-Debugid", value: "conference-sentinel"
+                            )])
+                        }
+                        return response
+                    }
+                })
+            }
         } else {
             responses.append(contentsOf: preparingResponses())
         }
@@ -44,13 +58,14 @@ extension MeetDMCallTrialTests {
     }
 
     private func incomingRing(
+        id: String = "ring-secret",
         code: String = "abc-defg-hij", meetingToken: String? = "70;notification-token",
         notificationSource: UInt8? = nil
     ) throws -> MeetPushWire.Ring {
         func string(_ field: UInt8, _ value: String) -> Data {
             Data([field << 3 | 2, UInt8(value.utf8.count)]) + Data(value.utf8)
         }
-        var ring = string(1, "ring-secret") + string(2, code) + Data([0x20, 1])
+        var ring = string(1, id) + string(2, code) + Data([0x20, 1])
             + string(8, "receiver-secret") + string(11, "dm/valid-dm") + Data([0x60, 2])
         if let meetingToken {
             ring += string(7, meetingToken)
@@ -63,6 +78,72 @@ extension MeetDMCallTrialTests {
             throw MeetCallWire.WireError.malformedResponse
         }
         return value
+    }
+
+    @MainActor
+    @Test func incomingStreamRegistrationMuteAndRepeatRetainReceiverAndCallScopes() async throws {
+        let setup = try await incomingSetup(native: true, streamControl: true, nativeCalls: 2)
+        var previousScope: UUID?
+        var previousMedia: StreamFakeMedia?
+        for index in 0 ..< 2 {
+            let invitation = "incoming-secret-\(index)"
+            try await setup.incoming.handle(.notification(.ring(incomingRing(id: invitation))))
+            let offered = try #require(await setup.incoming.offeredCall)
+            let call = try await setup.incoming.accept(offered.id)
+            #expect(await setup.incoming.offeredCall == nil)
+            let media = StreamFakeMedia()
+            media.omitParentContext = true
+            let scope = UUID()
+            try await setup.trial.joinNative(preparedID: call.id, media: media, scope: scope)
+            #expect(await setup.trial.nativeOutgoingAudioReady(scope: scope))
+            #expect(media.requests.count == 1)
+            if let previousScope {
+                await #expect(throws: MeetDMCallTrialError.superseded) {
+                    try await setup.trial.setNativeMuted(true, scope: previousScope, sequence: 3)
+                }
+                #expect(media.requests.count == 1)
+                #expect(!media.isMicrophoneMuted)
+                #expect(previousMedia?.closed == true)
+                #expect(previousMedia?.requests.count == 3)
+            }
+            #expect(try await setup.trial.setNativeMuted(true, scope: scope, sequence: 1))
+            #expect(media.isMicrophoneMuted)
+            #expect(try await setup.trial.setNativeMuted(false, scope: scope, sequence: 2))
+            #expect(!media.isMicrophoneMuted)
+            #expect(media.requests.count == 3)
+            await #expect(throws: MeetDMCallTrialError.callNotPrepared) {
+                try await setup.trial.ring(preparedID: call.id)
+            }
+            let registrations = await setup.transport.sent.filter {
+                $0.url.path.hasSuffix("CreateMeetingDevice")
+            }
+            let registration = try #require(registrations.last?.body)
+            #expect(ProtoFieldScan.payloads(ofField: 4, in: registration) == [Data(invitation.utf8)])
+            #expect(ProtoFieldScan.payloads(ofField: 5, in: registration) == [Data("receiver-secret".utf8)])
+            await setup.trial.endNativeCall()
+            #expect(media.closed)
+            #expect(await !setup.trial.nativeOutgoingAudioReady(scope: scope))
+            previousScope = scope
+            previousMedia = media
+        }
+        await checkRepeatedIncomingReport(setup)
+        await setup.incoming.stop()
+        await setup.trial.close()
+    }
+
+    private func checkRepeatedIncomingReport(_ setup: IncomingSetup) async {
+        let sent = await setup.transport.sent
+        #expect(sent.count == 16)
+        #expect(sent.filter { $0.url.path.hasSuffix("ResolveMeetingSpace") }.count == 2)
+        #expect(sent.allSatisfy { !$0.url.path.hasSuffix("CreateMeetingInvite") })
+        let report = await setup.trial.report
+        #expect(report.contains("upstream registration accepted"))
+        #expect(report.contains("provider mute confirmed"))
+        #expect(report.contains("provider unmute confirmed"))
+        #expect(report.contains("device leave settled"))
+        for secret in ["incoming-secret", "receiver-secret", "conference-sentinel", "4242"] {
+            #expect(!report.contains(secret))
+        }
     }
 
     @Test func incomingAcceptResolvesTheOfferedDMAndCannotInvite() async throws {

@@ -7,6 +7,7 @@ import URLSessionTransport
 /// IDs/tokens stay in this actor and public UUIDs are temporary handles.
 public actor MeetDMCallTrial {
     struct Target: Sendable {
+        let conversationID: Conversation.ID
         let dmID: String
         let calleeID: String
     }
@@ -32,6 +33,7 @@ public actor MeetDMCallTrial {
     let store: KeychainCredentialStore
     let transport: any HTTPTransport
     let endpoints: ChatEndpoints
+    let expectedSession: StoredSessionSummary?
     var targets: [UUID: Target] = [:]
     var context: Context?
     var prepared: Prepared?
@@ -46,11 +48,13 @@ public actor MeetDMCallTrial {
     public init(
         store: KeychainCredentialStore = KeychainCredentialStore(),
         transport: any HTTPTransport = URLSessionTransport(),
-        endpoints: ChatEndpoints = ChatEndpoints()
+        endpoints: ChatEndpoints = ChatEndpoints(),
+        expectedSession: StoredSessionSummary? = nil
     ) {
         self.store = store
         self.transport = transport
         self.endpoints = endpoints
+        self.expectedSession = expectedSession
     }
 
     public var report: String {
@@ -70,7 +74,7 @@ public actor MeetDMCallTrial {
         do {
             lines.append("Load people: started")
             try await loadProgress(.storedSession, generation: currentGeneration, progress: progress)
-            guard let stored = try await store.currentSession() else { throw MeetDMCallTrialError.noSession }
+            let stored = try await loadStoredSession()
             lines.append("Stored Chat session: present")
             try await loadProgress(.chatBootstrap, generation: currentGeneration, progress: progress)
             let wiz = try await Bootstrap(transport: transport).run(
@@ -222,6 +226,7 @@ public actor MeetDMCallTrial {
         receive: (@Sendable (MeetNativeCallState) async -> Void)? = nil
     ) async throws {
         guard let call = prepared, call.ticket == preparedID, native == nil else {
+            await media.close()
             throw MeetDMCallTrialError.callNotPrepared
         }
         let session = NativeMeetCallSession(
