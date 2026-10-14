@@ -186,39 +186,44 @@
         /// last answer is kept, because SwiftUI asks the same question
         /// repeatedly.
         func fittingSize(forWidth width: CGFloat?) -> CGSize {
-            let width = width.flatMap { $0.isFinite ? $0 : nil }
-            let current = attributedString()
-            if let last = lastMeasurement, last.width == width, last.insets == Insets(insets),
-               last.text.isEqual(to: current) {
-                return last.size
+            // SwiftUI can perform many measurements before returning to the
+            // event loop. Release temporary TextKit objects after each answer,
+            // even during a long layout transaction.
+            autoreleasepool {
+                let width = width.flatMap { $0.isFinite ? $0 : nil }
+                let current = attributedString()
+                if let last = lastMeasurement, last.width == width, last.insets == Insets(insets),
+                   last.text.isEqual(to: current) {
+                    return last.size
+                }
+                // Keep an immutable copy only on a cache miss. The live storage
+                // changes in place, so retaining it would make later text appear
+                // equal to the previous measurement.
+                let text = NSAttributedString(attributedString: current)
+                let horizontal = insets.left + insets.right
+                let available = width.map { max(1, $0 - horizontal) } ?? CGFloat.greatestFiniteMagnitude
+                let storage = NSTextStorage(attributedString: text)
+                let layout = NSLayoutManager()
+                storage.addLayoutManager(layout)
+                let container = NSTextContainer(size: NSSize(
+                    width: available,
+                    height: CGFloat.greatestFiniteMagnitude
+                ))
+                container.lineFragmentPadding = 0
+                layout.addTextContainer(container)
+                layout.ensureLayout(for: container)
+                let used = layout.usedRect(for: container)
+                let lineHeight = layout.defaultLineHeight(for: NSFont.preferredFont(forTextStyle: .body))
+                var fitted = CGSize(
+                    width: (used.width + horizontal).rounded(.up),
+                    height: (max(used.height, lineHeight) + insets.top + insets.bottom).rounded(.up)
+                )
+                if let width {
+                    fitted.width = min(fitted.width, width)
+                }
+                lastMeasurement = Measurement(text: text, width: width, insets: Insets(insets), size: fitted)
+                return fitted
             }
-            // Keep an immutable copy only on a cache miss. The live storage
-            // changes in place, so retaining it would make later text appear
-            // equal to the previous measurement.
-            let text = NSAttributedString(attributedString: current)
-            let horizontal = insets.left + insets.right
-            let available = width.map { max(1, $0 - horizontal) } ?? CGFloat.greatestFiniteMagnitude
-            let storage = NSTextStorage(attributedString: text)
-            let layout = NSLayoutManager()
-            storage.addLayoutManager(layout)
-            let container = NSTextContainer(size: NSSize(
-                width: available,
-                height: CGFloat.greatestFiniteMagnitude
-            ))
-            container.lineFragmentPadding = 0
-            layout.addTextContainer(container)
-            layout.ensureLayout(for: container)
-            let used = layout.usedRect(for: container)
-            let lineHeight = layout.defaultLineHeight(for: NSFont.preferredFont(forTextStyle: .body))
-            var fitted = CGSize(
-                width: (used.width + horizontal).rounded(.up),
-                height: (max(used.height, lineHeight) + insets.top + insets.bottom).rounded(.up)
-            )
-            if let width {
-                fitted.width = min(fitted.width, width)
-            }
-            lastMeasurement = Measurement(text: text, width: width, insets: Insets(insets), size: fitted)
-            return fitted
         }
 
         /// `NSEdgeInsets` is not `Equatable`.

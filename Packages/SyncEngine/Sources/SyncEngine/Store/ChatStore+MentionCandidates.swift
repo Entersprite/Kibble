@@ -11,7 +11,7 @@ extension ChatStore {
     func observeMentionCandidates(in conversation: Conversation.ID) -> AsyncValueObservation<[Member]> {
         ValueObservation
             .tracking { db in try Self.fetchMentionCandidates(conversation, db) }
-            .values(in: database)
+            .snapshotValues(in: database)
     }
 
     /// The conversation's members, or, while it lists nobody, the people who

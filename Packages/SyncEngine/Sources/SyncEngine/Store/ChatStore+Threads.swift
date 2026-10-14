@@ -49,7 +49,7 @@ public extension ChatStore {
     ) -> AsyncValueObservation<[Message]> {
         ValueObservation
             .tracking { db in try Self.fetchThreadMessages(thread, conversation, db) }
-            .values(in: database)
+            .snapshotValues(in: database)
     }
 
     /// Every thread of one conversation that has a stored reply or a `thread`
@@ -65,7 +65,7 @@ public extension ChatStore {
     ) -> AsyncValueObservation<[MessageThread.ID: MessageThread]> {
         ValueObservation
             .tracking { db in try Self.fetchThreadSummaries(conversation, only: nil, db) }
-            .values(in: database)
+            .snapshotValues(in: database)
     }
 
     /// One summary, read now: exactly `threadSummaries(in:)[thread]`. For the
@@ -113,7 +113,7 @@ public extension ChatStore {
         ValueObservation
             .tracking { db in try Self.fetchFollowedThreadsOverview(limit: limit, db) }
             .removeDuplicates()
-            .values(in: database)
+            .snapshotValues(in: database)
     }
 }
 

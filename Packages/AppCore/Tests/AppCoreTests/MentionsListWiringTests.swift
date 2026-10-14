@@ -40,7 +40,12 @@ struct MentionsListWiringTests {
         services.backend.emit(.selfIdentified(me))
         services.backend.emit(.membersResolved([alice]))
         services.backend.emit(.conversationsChanged([space]))
-        #expect(await eventually { environment.sceneState.mentions.count == 1 })
+        // The list and badge arrive through independent store observations.
+        // A delivered list does not prove that the badge has caught up yet.
+        #expect(await eventually {
+            let state = environment.sceneState
+            return state.mentions.count == 1 && state.unreadMentionCount == 1
+        })
         return (environment, services)
     }
 

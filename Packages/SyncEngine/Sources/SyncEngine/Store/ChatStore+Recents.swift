@@ -40,7 +40,7 @@ extension ChatStore {
     func observeRecentReactions(limit: Int) -> AsyncValueObservation<[ReactionChoice]> {
         ValueObservation
             .tracking { db in try Self.fetchRecentReactions(limit: limit, db) }
-            .values(in: database)
+            .snapshotValues(in: database)
     }
 
     private static func fetchRecentReactions(limit: Int, _ db: Database) throws -> [ReactionChoice] {

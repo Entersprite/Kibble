@@ -43,7 +43,7 @@ public extension ChatStore {
     func observeMentionsOfMe(limit: Int = 200) -> AsyncValueObservation<[MentionOfMe]> {
         ValueObservation
             .tracking { db in try Self.fetchMentionsOfMe(limit: limit, db) }
-            .values(in: database)
+            .snapshotValues(in: database)
     }
 
     func observeUnreadMentionCount() -> AsyncValueObservation<Int> {

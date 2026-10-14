@@ -118,7 +118,8 @@ public extension ChatStore {
     /// **Duplicates are dropped.** Other store writes may still invalidate
     /// this observation without changing the conversation list.
     func observeConversations() -> AsyncValueObservation<[Conversation]> {
-        ValueObservation.tracking(Self.fetchStoredConversations).removeDuplicates().values(in: database)
+        ValueObservation.tracking(Self.fetchStoredConversations)
+            .removeDuplicates().snapshotValues(in: database)
     }
 
     /// The directory, re-emitted when a member changes: a name, a photo,
@@ -129,14 +130,14 @@ public extension ChatStore {
     /// `clearEphemeralState` and a snapshot that names nobody new re-run the
     /// read and change no entry.
     func observeMembers() -> AsyncValueObservation<[Member]> {
-        ValueObservation.tracking(Self.fetchMembers).removeDuplicates().values(in: database)
+        ValueObservation.tracking(Self.fetchMembers).removeDuplicates().snapshotValues(in: database)
     }
 
     /// The transcript, observed. Replies are left out (`fetchMessages`).
     func observeMessages(in conversation: Conversation.ID) -> AsyncValueObservation<[Message]> {
         ValueObservation
             .tracking { db in try Self.fetchMessages(conversation, db) }
-            .values(in: database)
+            .snapshotValues(in: database)
     }
 
     func observeTypingMembers(
@@ -144,7 +145,7 @@ public extension ChatStore {
     ) -> AsyncValueObservation<[Member.ID]> {
         ValueObservation
             .tracking { db in try Self.fetchTyping(conversation, db) }
-            .values(in: database)
+            .snapshotValues(in: database)
     }
 
     /// For the connection banner. A UI that reads this instead of asking a
