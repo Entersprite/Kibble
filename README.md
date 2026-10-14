@@ -43,9 +43,10 @@ replaced by hand once.
 
 ## How it was made
 
-Kibble was written with [Claude Code](https://claude.com/claude-code), Anthropic's
-AI coding agent, working with its owner. Most commits carry a
-`Co-Authored-By: Claude` trailer saying so.
+Kibble is built by its owner with [Claude Code](https://claude.com/claude-code),
+Anthropic's AI coding agent, and [Codex](https://openai.com/codex/), OpenAI's AI
+coding agent. Both contribute to development and maintenance. Most commits
+carry a `Co-Authored-By: Claude` trailer crediting Claude's contributions.
 
 ## License
 
