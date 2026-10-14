@@ -1,31 +1,32 @@
+import ChatKit
 import Foundation
 
-/// Small scroll-geometry values avoid propagating the full geometry through
-/// presentation state. Paging requires user movement toward an edge; initial
-/// placement and programmatic search jumps never start a paging cascade.
-struct TranscriptViewport: Equatable {
-    let offset: CGFloat
-    let contentHeight: CGFloat
-    let visibleHeight: CGFloat
-
-    var nearBottom: Bool {
-        contentHeight - visibleHeight - offset <= 100
-    }
-
+/// Paging uses visible stable IDs rather than the lazy stack's estimated offset.
+/// Visibility changes caused by initial placement or search do not request pages.
+@MainActor
+final class TranscriptPaging {
     enum Page: Equatable {
         case older
         case newer
     }
 
-    static func page(
-        previous: Self, current: Self, userScrolling: Bool
-    ) -> Page? {
-        guard userScrolling else { return nil }
-        if current.offset < previous.offset, current.offset < 240 {
+    // Visibility delivery can trail the end of a gesture. Keep its intent until
+    // a programmatic position, window change or resize establishes a new baseline.
+    var hasUserIntent = false
+    private var visibleIDs: Set<Message.ID> = []
+
+    func update(visibleIDs ids: [Message.ID], messages: [Message]) -> Page? {
+        let previous = visibleIDs
+        visibleIDs = Set(ids)
+        guard hasUserIntent else { return nil }
+        let indices = messages.indices.filter { visibleIDs.contains(messages[$0].id) }
+        let oldIndices = messages.indices.filter { previous.contains(messages[$0].id) }
+        guard let first = indices.first, let last = indices.last,
+              let oldFirst = oldIndices.first, let oldLast = oldIndices.last else { return nil }
+        if first < oldFirst, first < 5 {
             return .older
         }
-        if current.offset > previous.offset,
-           current.contentHeight - current.visibleHeight - current.offset < 240 {
+        if last > oldLast, last >= messages.count - 5 {
             return .newer
         }
         return nil

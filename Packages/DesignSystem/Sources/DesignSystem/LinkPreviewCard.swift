@@ -11,6 +11,7 @@ enum LinkCardLayout {
     static let width: CGFloat = AttachmentLayout.maxSide
     static let minImageHeight: CGFloat = 80
     static let maxImageHeight: CGFloat = 240
+    static let fallbackImageHeight: CGFloat = 180
 
     static func title(for link: MessageLink) -> String {
         link.preview?.title ?? link.url.host() ?? link.url.absoluteString
@@ -27,8 +28,7 @@ enum LinkCardLayout {
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
-    /// The declared aspect at `width`, clamped; `nil` when unknown, which
-    /// draws no reserved space before the bytes arrive.
+    /// The declared aspect at `width`, clamped; `nil` when unknown.
     static func imageHeight(width: CGFloat, pixelWidth: Int?, pixelHeight: Int?) -> CGFloat? {
         guard let pixelWidth, let pixelHeight, pixelWidth > 0, pixelHeight > 0 else { return nil }
         let height = (width * CGFloat(pixelHeight) / CGFloat(pixelWidth)).rounded()
@@ -78,27 +78,22 @@ struct LinkPreviewCard: View {
                 width: LinkCardLayout.width,
                 pixelWidth: link.preview?.imageWidth,
                 pixelHeight: link.preview?.imageHeight
-            )
+            ) ?? LinkCardLayout.fallbackImageHeight
             RemoteImageView(url: imageURL, load: load) { phase in
                 switch phase {
                 case .loading:
-                    if let declared {
-                        Rectangle().fill(.quaternary).frame(height: declared)
-                    }
+                    Rectangle().fill(.quaternary).frame(height: declared)
                 case let .loaded(image):
                     Image(image, scale: 1, label: Text(LinkCardLayout.title(for: link)))
                         .resizable()
                         .scaledToFill()
                         .frame(
                             width: LinkCardLayout.width,
-                            height: declared ?? LinkCardLayout.imageHeight(
-                                width: LinkCardLayout.width, pixelWidth: image.width,
-                                pixelHeight: image.height
-                            )
+                            height: declared
                         )
                         .clipped()
                 case .failed:
-                    EmptyView()
+                    Rectangle().fill(.quaternary).frame(height: declared)
                 }
             }
         }

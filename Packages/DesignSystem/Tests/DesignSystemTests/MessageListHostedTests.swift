@@ -169,6 +169,46 @@
             capture(host, name: "after-bidirectional-trim")
         }
 
+        @Test(arguments: [false, true])
+        func userWheelNearOlderRowsPagesOnceAndRespectsAnOppositeLoad(loadingNewer: Bool) async throws {
+            var state = state(100 ..< 200)
+            state.scrollTarget = Message.ID("row-120")
+            state.hasOlderMessages = true
+            state.isLoadingNewerMessages = loadingNewer
+            let (window, host) = host(state)
+            defer { window.close() }
+            let scroll = try #require(scrollView(in: host))
+            var requests = 0
+            host.rootView = MessageList(state: state, loadOlderMessages: { requests += 1 })
+            #expect(await settle(host) { scroll.documentVisibleRect.minY > 200 })
+            #expect(requests == 0, "Search placement must not page")
+            let before = scroll.documentVisibleRect.minY
+            let point = window.convertPoint(toScreen: NSPoint(x: 240, y: 160))
+            let screen = try #require(NSScreen.screens.first)
+            for index in 0 ..< 35 {
+                let event = try #require(CGEvent(
+                    scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                    wheel1: 60, wheel2: 0, wheel3: 0
+                ))
+                event.location = CGPoint(x: point.x, y: screen.frame.maxY - point.y)
+                event.setIntegerValueField(
+                    .mouseEventWindowUnderMousePointer,
+                    value: Int64(window.windowNumber)
+                )
+                event.setIntegerValueField(
+                    .mouseEventWindowUnderMousePointerThatCanHandleThisEvent,
+                    value: Int64(window.windowNumber)
+                )
+                event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                event.setIntegerValueField(.scrollWheelEventScrollPhase, value: index == 0 ? 1 : 2)
+                try scroll.scrollWheel(with: #require(NSEvent(cgEvent: event)))
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            #expect(scroll.documentVisibleRect.minY < before - 200, "Wheel events must actually move content")
+            #expect(await settle(host) { loadingNewer || requests == 1 })
+            #expect(requests == (loadingNewer ? 0 : 1))
+        }
+
         @Test(arguments: [2000 ..< 2100, 140 ..< 240, 100 ..< 200])
         func explicitLatestJumpOpensAtTheBottomForDisjointAndOverlappingWindows(
             latest: Range<Int>

@@ -100,11 +100,9 @@ enum AttachmentLayout {
 /// One uploaded image inside a message.
 ///
 /// Sized from the declared dimensions before anything loads, so the
-/// transcript does not jump when the bytes arrive, and from the decoded image
-/// once it has: the decode applies the EXIF orientation, and a declared size
-/// taken before rotation would otherwise crop a portrait photo `[Verify]`
-/// against an iPhone upload. Clicking fetches the original and hands it to
-/// Quick Look.
+/// transcript does not jump when the bytes arrive. Unknown dimensions keep a
+/// fallback square; aspect-fit draws the decoded orientation without cropping
+/// or resizing that slot. Clicking opens the original in Quick Look.
 struct AttachmentImage: View {
     let attachment: Attachment
     let load: (Attachment, AttachmentSize) async throws -> Data
@@ -123,10 +121,7 @@ struct AttachmentImage: View {
     @State private var openFailed = false
 
     private var size: CGSize {
-        if case let .loaded(image) = phase {
-            return AttachmentLayout.displaySize(width: image.width, height: image.height)
-        }
-        return AttachmentLayout.displaySize(width: attachment.width, height: attachment.height)
+        AttachmentLayout.displaySize(width: attachment.width, height: attachment.height)
     }
 
     var body: some View {
@@ -175,7 +170,7 @@ struct AttachmentImage: View {
     @ViewBuilder private func loaded(_ image: CGImage) -> some View {
         let picture = Image(image, scale: 1, label: Text(AttachmentLayout.label(for: attachment)))
             .resizable()
-            .scaledToFill()
+            .scaledToFit()
             .frame(width: size.width, height: size.height)
             .overlay {
                 if opening {

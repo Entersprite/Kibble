@@ -56,6 +56,7 @@ private struct CardHeaderView: View {
                             )
                     }
                 }
+                .frame(width: 32, height: 32)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(RichTextAttributes.attributed(header.title)).font(.headline)
@@ -118,6 +119,7 @@ private struct CardWidgetView: View {
                         )
                     }
                 }
+                .frame(width: 24, height: 24)
             }
             VStack(alignment: .leading, spacing: 2) {
                 if let top = row.top {
@@ -145,23 +147,30 @@ private struct CardWidgetView: View {
     @ViewBuilder private func image(_ picture: AppCard.Picture) -> some View {
         if let load {
             RemoteImageView(url: picture.url, load: load) { phase in
-                if case let .loaded(image) = phase {
-                    Image(image, scale: 1, label: Text(picture.altText ?? ""))
-                        .resizable()
-                        .aspectRatio(
-                            picture.aspectRatio ?? Double(image.width) / Double(max(1, image.height)),
-                            contentMode: .fit
-                        )
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .onTapGesture {
-                            if let link = picture.link {
-                                openURL(link)
-                            }
+                Rectangle().fill(.quaternary)
+                    .aspectRatio(CardImageLayout.aspect(picture.aspectRatio), contentMode: .fit)
+                    .overlay {
+                        if case let .loaded(image) = phase {
+                            Image(image, scale: 1, label: Text(picture.altText ?? ""))
+                                .resizable()
+                                .scaledToFit()
+                                .onTapGesture {
+                                    if let link = picture.link {
+                                        openURL(link)
+                                    }
+                                }
                         }
-                }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
+    }
+}
+
+enum CardImageLayout {
+    static func aspect(_ declared: Double?) -> Double {
+        guard let declared, declared.isFinite, declared > 0 else { return 16.0 / 9.0 }
+        return declared
     }
 }
 

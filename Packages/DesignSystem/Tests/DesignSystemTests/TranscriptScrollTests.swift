@@ -105,17 +105,35 @@ struct TranscriptScrollTests {
         ) == .message(Message.ID("m:1")))
     }
 
-    @Test func onlyUserMovementTowardAnEdgePagesAndBottomToleranceIsBounded() {
-        let top = TranscriptViewport(offset: 80, contentHeight: 2000, visibleHeight: 600)
-        let up = TranscriptViewport(offset: 60, contentHeight: 2000, visibleHeight: 600)
-        #expect(TranscriptViewport.page(previous: top, current: up, userScrolling: false) == nil)
-        #expect(TranscriptViewport.page(previous: top, current: up, userScrolling: true) == .older)
-        #expect(TranscriptViewport.page(previous: up, current: top, userScrolling: true) == nil)
-        #expect(TranscriptViewport.page(previous: top, current: top, userScrolling: true) == nil)
-        let bottom = TranscriptViewport(offset: 1340, contentHeight: 2000, visibleHeight: 600)
-        #expect(bottom.nearBottom)
-        #expect(!TranscriptViewport(offset: 1250, contentHeight: 2000, visibleHeight: 600).nearBottom)
-        #expect(TranscriptViewport.page(previous: up, current: bottom, userScrolling: true) == .newer)
+    @MainActor
+    @Test func onlyUserVisibilityMovementTowardAnEdgePages() {
+        let rows = (0 ..< 30).map { message("m:\($0)") }
+        let paging = TranscriptPaging()
+        func visible(_ range: Range<Int>) -> [Message.ID] {
+            range.map { rows[$0].id }
+        }
+        #expect(paging.update(visibleIDs: visible(5 ..< 8), messages: rows) == nil)
+        #expect(paging.update(visibleIDs: visible(3 ..< 6), messages: rows) == nil)
+        paging.hasUserIntent = true
+        #expect(paging.update(visibleIDs: visible(2 ..< 5), messages: rows) == .older)
+        #expect(paging.update(visibleIDs: visible(2 ..< 5), messages: rows) == nil)
+        #expect(paging.update(visibleIDs: visible(3 ..< 6), messages: rows) == nil)
+        #expect(paging.update(visibleIDs: visible(25 ..< 28), messages: rows) == .newer)
+        paging.hasUserIntent = false
+        #expect(paging.update(visibleIDs: visible(0 ..< 3), messages: rows) == nil)
+    }
+
+    @Test func theBottomOfATallRowMustBeVisibleBeforeArrivalsFollow() {
+        #expect(!TranscriptEndTracking.isNearBottom(
+            rowHeight: 2000, viewport: CGRect(x: 0, y: 0, width: 600, height: 500)
+        ))
+        #expect(TranscriptEndTracking.isNearBottom(
+            rowHeight: 2000, viewport: CGRect(x: 0, y: 1500, width: 600, height: 500)
+        ))
+        #expect(!TranscriptEndTracking.isNearBottom(
+            rowHeight: 100, viewport: CGRect(x: 0, y: 200, width: 600, height: 500)
+        ))
+        #expect(!TranscriptEndTracking.isNearBottom(rowHeight: 100, viewport: nil))
     }
 
     @Test func completingALatestJumpChangesTheTriggerEvenWhenNewestAndTargetStayTheSame() {

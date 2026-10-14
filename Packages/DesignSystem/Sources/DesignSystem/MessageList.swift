@@ -100,7 +100,7 @@ public struct MessageList: View {
     @State private var hasPlacedMessages = false
     @State private var readingAnchor = TranscriptReadingAnchor()
     @State private var nearBottom = true
-    @State private var userScrolling = false
+    @State private var paging = TranscriptPaging()
     @State private var lastOlderBoundary: Message.ID?
     @State private var lastNewerBoundary: Message.ID?
     @State private var latestJumpRequested = false
@@ -169,6 +169,9 @@ public struct MessageList: View {
                         )
                         .id(message.id)
                         .modifier(TranscriptAnchorTracking(id: message.id, anchor: readingAnchor))
+                        .modifier(TranscriptEndTracking(
+                            isLast: message.id == state.messages.last?.id, nearBottom: $nearBottom
+                        ))
                     }
                     if state.hasNewerMessages, let loadNewerMessages {
                         Button(state.newerMessagesAreLatestJump ? "Jump to latest" : "Load newer messages") {
@@ -195,25 +198,21 @@ public struct MessageList: View {
             }
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onScrollPhaseChange { _, phase in
-                userScrolling = phase == .interacting || phase == .decelerating
+                if phase == .interacting || phase == .decelerating {
+                    paging.hasUserIntent = true
+                }
                 if phase == .interacting {
                     readingAnchor.cancel()
                 }
             }
-            .onScrollGeometryChange(for: TranscriptViewport.self) { geometry in
-                TranscriptViewport(
-                    offset: geometry.contentOffset.y + geometry.contentInsets.top,
-                    contentHeight: geometry.contentSize.height,
-                    visibleHeight: geometry.containerSize.height - geometry.contentInsets.top - geometry
-                        .contentInsets.bottom
-                )
-            } action: { previous, current in
-                if nearBottom != current.nearBottom {
-                    nearBottom = current.nearBottom
-                }
-                pageIfNeeded(previous: previous, current: current)
+            .onScrollGeometryChange(for: CGSize.self) { $0.containerSize } action: { _, _ in
+                paging.hasUserIntent = false
+            }
+            .onScrollTargetVisibilityChange(idType: Message.ID.self, threshold: 0.01) { ids in
+                pageIfNeeded(paging.update(visibleIDs: ids, messages: state.messages))
             }
             .onChange(of: state.messages.first?.id) { previous, current in
+                paging.hasUserIntent = false
                 if !latestJumpRequested, hasPlacedMessages, previous != nil, current != nil {
                     _ = readingAnchor.restore(in: state.messages)
                 }
@@ -250,15 +249,20 @@ public struct MessageList: View {
                 switch TranscriptScroll.destination(
                     messages: state.messages, target: state.scrollTarget,
                     generation: state.searchOpenGeneration, honoured: honoured,
-                    followNewest: !hasPlacedMessages || (nearBottom && !state.hasNewerMessages)
+                    followNewest: !hasPlacedMessages || (
+                        nearBottom && !state.hasNewerMessages && readingAnchor.restoringID == nil
+                    )
                 ) {
                 case let .message(id)?:
+                    paging.hasUserIntent = false
+                    nearBottom = false
                     readingAnchor.cancel()
                     latestJumpRequested = false
                     honoured = TranscriptScroll.Request(id: id, generation: state.searchOpenGeneration)
                     hasPlacedMessages = true
                     proxy.scrollTo(id, anchor: .center)
                 case let .newest(id)?:
+                    paging.hasUserIntent = false
                     latestJumpRequested = false
                     // The first delivery is placed immediately; later arrivals
                     // follow only while the person is reading the latest edge.
@@ -273,6 +277,7 @@ public struct MessageList: View {
                 }
             }
             .onDisappear {
+                paging.hasUserIntent = false
                 readingAnchor.cancel()
                 latestJumpRequested = false
             }
@@ -304,10 +309,10 @@ public struct MessageList: View {
         }
     }
 
-    private func pageIfNeeded(previous: TranscriptViewport, current: TranscriptViewport) {
-        switch TranscriptViewport.page(previous: previous, current: current, userScrolling: userScrolling) {
+    private func pageIfNeeded(_ page: TranscriptPaging.Page?) {
+        switch page {
         case .older:
-            guard state.hasOlderMessages, !state.isLoadingOlderMessages,
+            guard state.hasOlderMessages, !state.isLoadingOlderMessages, !state.isLoadingNewerMessages,
                   let boundary = state.messages.first?.id, boundary != lastOlderBoundary,
                   let loadOlderMessages else { return }
             lastOlderBoundary = boundary
@@ -315,7 +320,7 @@ public struct MessageList: View {
             loadOlderMessages()
         case .newer:
             guard !state.newerMessagesAreLatestJump,
-                  state.hasNewerMessages, !state.isLoadingNewerMessages,
+                  state.hasNewerMessages, !state.isLoadingNewerMessages, !state.isLoadingOlderMessages,
                   let boundary = state.messages.last?.id, boundary != lastNewerBoundary,
                   let loadNewerMessages else { return }
             lastNewerBoundary = boundary
