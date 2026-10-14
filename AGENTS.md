@@ -10,6 +10,12 @@ otherwise use `../kibbledocs` next to the main Kibble checkout. In a Git worktre
 find the main checkout from `git rev-parse --git-common-dir` and look beside it.
 Resolve paths from the checkout, not from a package's working directory.
 
+Before editing application or package code, read the private checkout's
+`docs/design/current-architecture-and-rules.md` and the relevant module section
+of `docs/design/module-architecture-guide.md`. Follow that guide's pre-edit and
+completion checklist. These references apply to every maintainer code change,
+not only work described as an architecture change.
+
 On a fresh machine, clone both repositories as sibling folders:
 
 ```sh
