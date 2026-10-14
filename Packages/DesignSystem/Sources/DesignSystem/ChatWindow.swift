@@ -80,9 +80,12 @@ public struct ChatWindow: View {
                         downloads: state.downloads,
                         attachmentFiles: actions.attachmentFiles,
                         reactions: actions.reactions,
-                        threads: offeredThreadActions
+                        threads: offeredThreadActions,
+                        loadOlderMessages: actions.loadOlderMessages,
+                        loadNewerMessages: actions.loadNewerMessages
                     )
                     .ownMessages(transcriptHandlers)
+                    .id(conversation.id)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 0) {
                             TypingStrip(state: state)

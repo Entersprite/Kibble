@@ -172,6 +172,8 @@ struct MarkReadNowTests {
 
         model.markRead(dm, from: .notification)
 
+        let marking = try #require(model.markTasks[dm])
+        await marking.value
         guard case let .read(conversation, upTo)? = await firstAnnouncement(of: model.engine) else {
             Issue.record("the refused mark announced no local read")
             return

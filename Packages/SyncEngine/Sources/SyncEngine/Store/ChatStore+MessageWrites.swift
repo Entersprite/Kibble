@@ -18,11 +18,38 @@ extension ChatStore {
                 arguments: [localID, message.id.rawValue]
             )
         }
-        try MessageRow(message).upsert(db)
+        let incoming = try MessageRow(message)
+        if let stored = try MessageRow.fetchOne(db, key: incoming.id) {
+            // Raw columns are the fast path. JSON object ordering is not
+            // semantic, so differently encoded collections still compare
+            // against the entire domain value before publishing a change.
+            if incoming == stored {
+                return
+            }
+            if try stored.message == message {
+                return
+            }
+        }
+        try incoming.upsert(db)
     }
 
     static func insertUnclearedMessageIfAbsent(_ message: Message, in db: Database) throws {
         guard try !isClearedHistory(message, in: db) else { return }
         try MessageRow(message).insert(db, onConflict: .ignore)
+    }
+
+    static func setMentionBackfill(_ status: MentionBackfillStatus, in db: Database) throws {
+        try db.execute(
+            sql: """
+            UPDATE syncState SET mentionBackfillRunning = ?, mentionBackfillFailed = ?
+            WHERE id = 1 AND (mentionBackfillRunning <> ? OR mentionBackfillFailed <> ?)
+            """,
+            arguments: [
+                status.running,
+                status.failedConversations,
+                status.running,
+                status.failedConversations
+            ]
+        )
     }
 }

@@ -42,7 +42,7 @@ extension SyncEngine {
                 let conversations = try await backend.loadConversations()
                 guard version == conversationMutationVersion else { return }
                 try store.apply([.replaceConversations(conversations)])
-                worldLoaded()
+                worldLoaded(forceMentionBackfill: true)
             case let .reloadMessages(conversation):
                 try await loadMoreMessages(in: conversation)
             case let .announceArrival(message):

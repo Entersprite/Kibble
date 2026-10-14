@@ -10,7 +10,7 @@ import GRDB
 /// `ChatKit` depends on nothing, and a `PersistableRecord` conformance there
 /// would drag a database into the seam. The cost is this mapping; the benefit
 /// is that the domain stays the domain.
-struct ConversationRow: Codable, FetchableRecord, PersistableRecord {
+struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     static let databaseTableName = "conversation"
 
     /// `lastActivity` and `lastReadAt` to the microsecond - see `StoredDate`.
@@ -144,7 +144,7 @@ struct MembershipRow: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Message
 
-struct MessageRow: Codable, FetchableRecord, PersistableRecord {
+struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     static let databaseTableName = "message"
 
     /// `createdAt` and `editedAt` to the microsecond - see `StoredDate`. A

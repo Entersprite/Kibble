@@ -20,10 +20,12 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// (`KibbleUpdatesEnabled`), so a dev build never replaces itself.
     public let updates: UpdateSettingsModel
     public let diagnostics: DiagnosticReportStore
+    let callDiagnostics: AudioCallDiagnosticExporter
     private let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
     private var deviceTask: Task<Void, Never>?
     private var memoryTask: Task<Void, Never>?
+    var memoryPressureSource: (any DispatchSourceMemoryPressure)?
     private var windowObservers: [NSObjectProtocol] = []
     var callWindowHost: AudioCallWindowHost?
     var terminationRequested = false
@@ -40,6 +42,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
         let services = SystemLaunchServices(arguments: .fromCommandLine())
+        callDiagnostics = services.callDiagnostics
         let diagnostics = DiagnosticReportStore(directory: try? SystemLaunchServices.supportDirectory())
         services.diagnostics = diagnostics
         let environment = AppEnvironment(
@@ -77,6 +80,12 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         let environment = environment
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        pressure.setEventHandler { [weak environment] in
+            MainActor.assumeIsolated { environment?.releasePresentationCaches() }
+        }
+        memoryPressureSource = pressure
+        pressure.activate()
         Task { await environment.start() }
 
         // Read once so a launch that is already frontmost says so; every

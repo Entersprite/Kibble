@@ -25,6 +25,11 @@ public struct ChatSceneState: Sendable, Equatable {
     public var availability: Availability?
     public var selected: Conversation.ID?
     public var messages: [Message]
+    public var hasOlderMessages: Bool
+    public var isLoadingOlderMessages: Bool
+    public var newerMessagesAreLatestJump: Bool
+    public var hasNewerMessages: Bool
+    public var isLoadingNewerMessages: Bool
     public var typing: [Member.ID]
     public var connection: ConnectionState
     /// Supplied by the host for connection diagnostics; `nil` uses neutral wording.
@@ -116,6 +121,11 @@ public struct ChatSceneState: Sendable, Equatable {
         availability: Availability? = nil,
         selected: Conversation.ID? = nil,
         messages: [Message] = [],
+        hasOlderMessages: Bool = false,
+        isLoadingOlderMessages: Bool = false,
+        hasNewerMessages: Bool = false,
+        newerMessagesAreLatestJump: Bool = false,
+        isLoadingNewerMessages: Bool = false,
         typing: [Member.ID] = [],
         connection: ConnectionState = .idle,
         connectionService: ConnectionService? = nil,
@@ -149,6 +159,11 @@ public struct ChatSceneState: Sendable, Equatable {
         self.availability = availability
         self.selected = selected
         self.messages = messages
+        self.hasOlderMessages = hasOlderMessages
+        self.isLoadingOlderMessages = isLoadingOlderMessages
+        self.hasNewerMessages = hasNewerMessages
+        self.newerMessagesAreLatestJump = newerMessagesAreLatestJump
+        self.isLoadingNewerMessages = isLoadingNewerMessages
         self.typing = typing
         self.connection = connection
         self.connectionService = connectionService

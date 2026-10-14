@@ -271,9 +271,21 @@ struct CookieCaptureModelTests {
         let view = FakeLoginWebView(url: "https://chat.google.com/")
         view.cookies = [FakeLoginWebView.chatCookie()]
         let completions = SignInCompletions()
-        let model = model(autoSaveAllowed: true, onSaved: { completions.count += 1 })
+        let model = model(autoSaveAllowed: true, onSaved: {
+            try? await Task.sleep(for: .milliseconds(100))
+            completions.count += 1
+        })
 
         try await settle(model, view)
+        // Completion can still be awaiting startup after cookies were saved.
+        // Wait for that handoff rather than the capture helper's fixed delay.
+        for _ in 0 ..< 1000 {
+            let completionCount = completions.count
+            if completionCount > 0 {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
         #expect(completions.count == 1)
         // A completed login cannot perform another credential write.
         #expect(!model.showsManualControls)

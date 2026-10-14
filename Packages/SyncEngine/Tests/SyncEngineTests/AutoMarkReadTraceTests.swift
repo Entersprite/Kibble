@@ -164,12 +164,11 @@ struct AutoMarkReadTraceTests {
         await harness.model.stop()
     }
 
-    /// The redelivery sequence `AutoMarkReadTests.aRedeliveryAtTheSamePositionMarksNothing`
-    /// already proves marks nothing - this proves it is *reported* as
-    /// `watermarkNotAdvanced` rather than being indistinguishable from a
-    /// second submission.
+    /// A metadata update at an already published position still reaches
+    /// the transcript, but is reported as `watermarkNotAdvanced`. An exact
+    /// redelivery now performs no write or observation query at all.
     @MainActor
-    @Test func aRedeliveryAtTheSamePositionIsReportedAsWatermarkNotAdvanced() async throws {
+    @Test func aMetadataUpdateAtTheSamePositionIsReportedAsWatermarkNotAdvanced() async throws {
         let harness = try harness()
         try await harness.model.start()
         await settle()
@@ -178,13 +177,16 @@ struct AutoMarkReadTraceTests {
         await settle()
         #expect(harness.sink.triggers.map(\.outcome) == [.noServerMessages, .scheduled, .submitted])
 
-        let redelivered = try #require(
+        var redelivered = try #require(
             FixtureWorld.minimal.messages
                 .filter { $0.conversationID == conversation }
                 .max { $0.createdAt < $1.createdAt }
         )
+        redelivered.reactions.append(Reaction(emoji: "🧪", count: 1))
         try harness.store.apply([.upsertMessage(redelivered)])
         await settle()
+        #expect(harness.model.messages.contains(redelivered))
+        #expect(await harness.backend.markReadCount == 1)
 
         #expect(harness.sink.triggers.map(\.outcome) == [
             .noServerMessages,

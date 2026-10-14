@@ -1,6 +1,7 @@
 import ChatKit
 import DesignSystem
 import Foundation
+import SyncEngine
 import Testing
 @testable import AppCore
 
@@ -40,6 +41,53 @@ struct SceneMappingTests {
         #expect(environment.sceneState.conversations.isEmpty)
         #expect(environment.sceneState.lastError == nil)
         #expect(environment.sceneState.notice == nil)
+    }
+
+    @Test func pagingAndCacheTrimmingPreserveTheRunningTranscript() async throws {
+        let services = try FakeLaunchServices()
+        let conversation = Conversation.ID("opaque/history")
+        let messages = (0 ..< 150).map { index in
+            Message(
+                id: Message.ID("message/\(index)"), conversationID: conversation,
+                threadID: MessageThread.ID("thread/\(index)"), sender: Member.ID("sender"),
+                text: "Message \(index)", createdAt: Date(timeIntervalSince1970: Double(index))
+            )
+        }
+        try services.store.apply([.replaceConversations([
+            Conversation(id: conversation, kind: .space, title: "History")
+        ])] + messages.map(StoreWrite.upsertMessage))
+        let environment = AppEnvironment(services: services)
+        await environment.start()
+        environment.actions.select(conversation)
+        for _ in 0 ..< 1000 {
+            if environment.sceneState.messages.count == 100 {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        let visible = environment.sceneState.messages
+        #expect(visible == Array(messages.suffix(100)))
+        #expect(environment.sceneState.hasOlderMessages)
+        #expect(!environment.sceneState.hasNewerMessages)
+        #expect(environment.actions.loadOlderMessages != nil)
+        #expect(environment.actions.loadNewerMessages != nil)
+
+        environment.releasePresentationCaches()
+        #expect(environment.sceneState.messages == visible)
+        #expect(environment.sceneState.hasOlderMessages)
+        #expect(try services.store.messages(in: conversation) == messages)
+        environment.actions.openMention?(conversation, messages[0].id)
+        for _ in 0 ..< 1000 {
+            if environment.sceneState.messages.first?.id == messages[0].id {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(environment.sceneState.messages.first?.id == messages[0].id)
+        #expect(environment.sceneState.newerMessagesAreLatestJump)
+        await environment.signOut()
+        #expect(environment.actions.loadOlderMessages == nil)
+        #expect(environment.actions.loadNewerMessages == nil)
     }
 
     @Test func aRunningSceneCarriesTheSessionsConnectionServiceAndSignOutClearsIt() async throws {

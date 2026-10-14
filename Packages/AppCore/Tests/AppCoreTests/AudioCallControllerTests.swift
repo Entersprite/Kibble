@@ -38,14 +38,18 @@ struct AudioCallControllerTests {
 
     @Test func outgoingRequiresActualSupportAndHumanOneToOneMembership() async {
         let (controller, _) = await ready()
+        #expect(controller.canCall(conversation: conversation, directory: [peer.id: peer], me: me))
         var unsupported = conversation
         unsupported.id = Conversation.ID("unavailable")
         #expect(!controller.canCall(conversation: unsupported, members: [peer], me: me))
+        #expect(!controller.canCall(conversation: unsupported, directory: [peer.id: peer], me: me))
         #expect(!controller.canCall(conversation: conversation, members: [peer], me: nil))
         #expect(!controller.canCall(conversation: conversation, members: [], me: me))
+        #expect(!controller.canCall(conversation: conversation, directory: [:], me: me))
         var bot = peer
         bot.kind = .app
         #expect(!controller.canCall(conversation: conversation, members: [bot], me: me))
+        #expect(!controller.canCall(conversation: conversation, directory: [bot.id: bot], me: me))
         var group = conversation
         group.kind = .groupDirectMessage
         #expect(!controller.canCall(conversation: group, members: [peer], me: me))

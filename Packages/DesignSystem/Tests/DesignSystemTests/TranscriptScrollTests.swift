@@ -91,4 +91,43 @@ struct TranscriptScrollTests {
         state.messages.insert(message("m:1"), at: 0)
         #expect(TranscriptScroll.Trigger(state) != before)
     }
+
+    @Test func arrivalsAndAnHonouredSearchDoNotPullSomeoneAwayFromReading() {
+        #expect(TranscriptScroll.destination(
+            messages: messages, target: nil, honoured: nil, followNewest: false
+        ) == nil)
+        #expect(TranscriptScroll.destination(
+            messages: messages, target: Message.ID("m:1"),
+            honoured: TranscriptScroll.Request(id: Message.ID("m:1")), followNewest: false
+        ) == nil)
+        #expect(TranscriptScroll.destination(
+            messages: messages, target: Message.ID("m:1"), honoured: nil, followNewest: false
+        ) == .message(Message.ID("m:1")))
+    }
+
+    @Test func onlyUserMovementTowardAnEdgePagesAndBottomToleranceIsBounded() {
+        let top = TranscriptViewport(offset: 80, contentHeight: 2000, visibleHeight: 600)
+        let up = TranscriptViewport(offset: 60, contentHeight: 2000, visibleHeight: 600)
+        #expect(TranscriptViewport.page(previous: top, current: up, userScrolling: false) == nil)
+        #expect(TranscriptViewport.page(previous: top, current: up, userScrolling: true) == .older)
+        #expect(TranscriptViewport.page(previous: up, current: top, userScrolling: true) == nil)
+        #expect(TranscriptViewport.page(previous: top, current: top, userScrolling: true) == nil)
+        let bottom = TranscriptViewport(offset: 1340, contentHeight: 2000, visibleHeight: 600)
+        #expect(bottom.nearBottom)
+        #expect(!TranscriptViewport(offset: 1250, contentHeight: 2000, visibleHeight: 600).nearBottom)
+        #expect(TranscriptViewport.page(previous: up, current: bottom, userScrolling: true) == .newer)
+    }
+
+    @Test func completingALatestJumpChangesTheTriggerEvenWhenNewestAndTargetStayTheSame() {
+        var state = ChatSceneState(
+            messages: messages, hasNewerMessages: true, newerMessagesAreLatestJump: true,
+            isLoadingNewerMessages: true
+        )
+        let before = TranscriptScroll.Trigger(state)
+        state.isLoadingNewerMessages = false
+        #expect(TranscriptScroll.Trigger(state) != before)
+        let afterLoading = TranscriptScroll.Trigger(state)
+        state.newerMessagesAreLatestJump = false
+        #expect(TranscriptScroll.Trigger(state) != afterLoading)
+    }
 }

@@ -1,0 +1,194 @@
+import ChatKit
+import Foundation
+
+@MainActor
+final class TranscriptWork {
+    var watcher: Task<Void, Never>?
+    var pageTask: Task<Void, Never>?
+    var generation = 0
+    var serverExhausted = false
+    var cachedOlder = false
+    var cachedNewer = false
+    var isTargeted = false
+    var latestPageNewestID: Message.ID?
+}
+
+public extension ChatSessionModel {
+    func releasePresentationCaches() {
+        store.decodedTranscriptCache.removeAll()
+    }
+
+    /// Adds an older page while retaining at most 500 rendered messages.
+    func loadOlderMessages() {
+        guard let selected, hasOlderMessages, !isLoadingOlderMessages, !isLoadingNewerMessages,
+              transcriptWork.pageTask == nil,
+              let first = messages.first else { return }
+        isLoadingOlderMessages = true
+        let current = messages
+        let before = first.id
+        let generation = transcriptWork.generation
+        transcriptWork.pageTask = Task { @MainActor [weak self, engine] in
+            let page = await engine.requestMoreMessages(in: selected, before: before)
+            guard !Task.isCancelled, let self, self.selected == selected,
+                  transcriptWork.generation == generation else { return }
+            transcriptWork.pageTask = nil
+            guard let page else {
+                isLoadingOlderMessages = false
+                return
+            }
+            let older = page.filter {
+                !$0
+                    .isReply &&
+                    ($0.createdAt < first
+                        .createdAt || ($0.createdAt == first.createdAt && $0.id.rawValue < first.id.rawValue))
+            }.sorted {
+                $0.createdAt == $1.createdAt ? $0.id.rawValue < $1.id.rawValue : $0.createdAt < $1.createdAt
+            }
+            guard let lower = older.first else {
+                isLoadingOlderMessages = false
+                transcriptWork.serverExhausted = !transcriptWork.cachedOlder
+                hasOlderMessages = transcriptWork.cachedOlder
+                return
+            }
+            let trim = max(0, current.count + older.count - 500)
+            let upper = current[max(0, current.count - 1 - trim)]
+            // The oldest returned root is the verified boundary. Filling a
+            // short page from arbitrary older cached search context can jump
+            // across messages that have never been fetched.
+            observeTranscript(
+                in: selected,
+                request: .between(TranscriptCursor(lower), TranscriptCursor(upper), 500)
+            )
+        }
+    }
+
+    /// Restores newer locally stored messages after paging into older history.
+    func loadNewerMessages() {
+        guard let selected, hasNewerMessages, !isLoadingOlderMessages, !isLoadingNewerMessages,
+              transcriptWork.pageTask == nil,
+              let first = messages.first else { return }
+        isLoadingNewerMessages = true
+        if transcriptWork.isTargeted {
+            refreshLatestTranscript(in: selected)
+            return
+        }
+        let lower = messages.count >= 500 ? messages[100] : first
+        observeTranscript(
+            in: selected,
+            request: .starting(TranscriptCursor(lower), min(500, messages.count + 100))
+        )
+    }
+}
+
+extension ChatSessionModel {
+    func resetTranscript() {
+        transcriptWork.generation += 1
+        transcriptWork.watcher?.cancel()
+        transcriptWork.watcher = nil
+        transcriptWork.pageTask?.cancel()
+        transcriptWork.pageTask = nil
+        transcriptWork.serverExhausted = false
+        transcriptWork.cachedOlder = false
+        transcriptWork.cachedNewer = false
+        transcriptWork.isTargeted = false
+        transcriptWork.latestPageNewestID = nil
+        hasOlderMessages = false
+        hasNewerMessages = false
+        newerMessagesAreLatestJump = false
+        isLoadingOlderMessages = false
+        isLoadingNewerMessages = false
+        transcriptIncludesLatest = true
+    }
+
+    func observeTranscript(in conversation: Conversation.ID, request: TranscriptWindowRequest) {
+        transcriptWork.watcher?.cancel()
+        transcriptWork.pageTask?.cancel()
+        transcriptWork.pageTask = nil
+        transcriptWork.generation += 1
+        let generation = transcriptWork.generation
+        // Until this authoritative window arrives, a target-centered window
+        // must never mark a years-old position as the latest conversation read.
+        switch request {
+        case .around:
+            transcriptWork.isTargeted = true
+            transcriptIncludesLatest = false
+        case .latest, .tail: transcriptWork.isTargeted = false
+        default: break
+        }
+        transcriptWork.watcher = observe(store.observeTranscriptWindow(
+            in: conversation,
+            request: request
+        )) { [weak self] window in
+            guard let self, selected == conversation, transcriptWork.generation == generation else { return }
+            messages = window.messages
+            transcriptWork.cachedOlder = window.hasOlder
+            hasOlderMessages = window.hasOlder || (!transcriptWork.serverExhausted && !messages.isEmpty)
+            transcriptWork.cachedNewer = window.hasNewer
+            let awaitingTail = transcriptWork.isTargeted && !targetContainsConfirmedTail
+            hasNewerMessages = window.hasNewer || awaitingTail
+            newerMessagesAreLatestJump = transcriptWork.isTargeted && hasNewerMessages
+            transcriptIncludesLatest = !window.hasNewer && !awaitingTail
+            if transcriptWork.pageTask == nil {
+                isLoadingOlderMessages = false
+                isLoadingNewerMessages = false
+            }
+            // Once the window reaches the tail, keep observing newest messages
+            // so incoming events and optimistic sends remain visible.
+            if transcriptIncludesLatest, transcriptWork.pageTask == nil, let first = messages.first {
+                switch request {
+                case .latest, .tail: break
+                default:
+                    observeTranscript(
+                        in: conversation,
+                        request: .tail(TranscriptCursor(first), max(100, messages.count))
+                    )
+                }
+            }
+            markSelectedReadIfNeeded()
+        }
+    }
+}
+
+extension ChatSessionModel {
+    private var targetContainsConfirmedTail: Bool {
+        guard let newest = transcriptWork.latestPageNewestID else { return false }
+        return messages.contains { $0.id == newest }
+    }
+
+    func latestTranscriptPageLoaded(_ page: [Message], in conversation: Conversation.ID) {
+        guard selected == conversation else { return }
+        transcriptWork.latestPageNewestID = page.filter { !$0.isReply }.max {
+            $0.createdAt == $1.createdAt ? $0.id.rawValue < $1.id.rawValue : $0.createdAt < $1.createdAt
+        }?.id
+        if transcriptWork.isTargeted {
+            let awaitingTail = !targetContainsConfirmedTail
+            hasNewerMessages = transcriptWork.cachedNewer || awaitingTail
+            newerMessagesAreLatestJump = hasNewerMessages
+            transcriptIncludesLatest = !transcriptWork.cachedNewer && !awaitingTail
+            if transcriptIncludesLatest, transcriptWork.pageTask == nil, let first = messages.first {
+                observeTranscript(
+                    in: conversation,
+                    request: .tail(TranscriptCursor(first), max(100, messages.count))
+                )
+            }
+        }
+    }
+
+    private func refreshLatestTranscript(in conversation: Conversation.ID) {
+        historyTask?.cancel()
+        let generation = transcriptWork.generation
+        transcriptWork.pageTask = Task { @MainActor [weak self, engine] in
+            let page = await engine.requestMoreMessages(in: conversation, verifyCachedRoots: true)
+            guard !Task.isCancelled, let self, selected == conversation,
+                  transcriptWork.generation == generation else { return }
+            transcriptWork.pageTask = nil
+            guard let page, page.contains(where: { !$0.isReply }) else {
+                isLoadingNewerMessages = false
+                return
+            }
+            latestTranscriptPageLoaded(page, in: conversation)
+            scrollTarget = nil
+            observeTranscript(in: conversation, request: .latest(100))
+        }
+    }
+}

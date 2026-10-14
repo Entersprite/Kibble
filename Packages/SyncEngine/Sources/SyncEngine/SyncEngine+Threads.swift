@@ -85,8 +85,8 @@ extension SyncEngine {
     /// fetched after a gap: the Mentions backfill and, for providers that need
     /// it, the Threads list. A provider whose events keep followed threads
     /// current need not issue a separate list request on each world load.
-    func worldLoaded() {
-        startMentionBackfill()
+    func worldLoaded(forceMentionBackfill: Bool = false) {
+        startMentionBackfill(force: forceMentionBackfill)
         startFollowedThreadsLoad()
     }
 

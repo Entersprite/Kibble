@@ -17,6 +17,9 @@ public protocol CallMediaEngine: AnyObject, Sendable {
     func exchangeStreamControl(
         _ request: Data, matches: @escaping @Sendable (Data) -> Bool, timeout: Duration
     ) async throws -> Data
+    /// On-demand, bounded media-flow diagnostics. Fixed labels and aggregate
+    /// counters only; no device names, identifiers, signaling or audio samples.
+    func diagnosticReport() async -> [String]
     func close()
 }
 
@@ -28,6 +31,10 @@ public enum CallMediaEvent: Sendable {
 }
 
 public extension CallMediaEngine {
+    func diagnosticReport() async -> [String] {
+        []
+    }
+
     var supportsStreamControl: Bool {
         false
     }

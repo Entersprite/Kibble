@@ -12,6 +12,7 @@ extension ChatStore {
         INSERT INTO conversationActionState (id, historyClearedBefore) VALUES (?, ?)
         ON CONFLICT(id) DO UPDATE SET historyClearedBefore =
             MAX(COALESCE(historyClearedBefore, excluded.historyClearedBefore), excluded.historyClearedBefore)
+        WHERE historyClearedBefore IS NULL OR historyClearedBefore < excluded.historyClearedBefore
         """, arguments: [id.rawValue, StoredDate.value(before)])
         try db.execute(
             sql: "DELETE FROM message WHERE conversationID = ? AND createdAt <= ?",

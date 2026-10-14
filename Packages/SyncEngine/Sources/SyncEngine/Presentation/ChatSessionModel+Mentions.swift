@@ -59,6 +59,7 @@ extension ChatSessionModel {
         conversationWatchers = []
         historyTask?.cancel()
         historyTask = nil
+        resetTranscript()
         closeThread()
         threads.summaries = [:]
     }

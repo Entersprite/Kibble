@@ -88,12 +88,25 @@ public final class AudioCallController {
     }
 
     public func canCall(conversation: Conversation, members: [Member], me: Member.ID?) -> Bool {
+        guard let recipient = eligibleRecipient(in: conversation, me: me) else { return false }
+        return members.first(where: { $0.id == recipient })?.kind == .human
+    }
+
+    /// Scene projection already has a keyed directory; avoid copying and
+    /// scanning every member for each conversation on every UI update.
+    public func canCall(
+        conversation: Conversation, directory: [Member.ID: Member], me: Member.ID?
+    ) -> Bool {
+        guard let recipient = eligibleRecipient(in: conversation, me: me) else { return false }
+        return directory[recipient]?.kind == .human
+    }
+
+    private func eligibleRecipient(in conversation: Conversation, me: Member.ID?) -> Member.ID? {
         guard isAvailable, conversation.kind == .directMessage,
               let me, let recipient = recipients[conversation.id],
-              Set(conversation.members) == Set([me, recipient.memberID]), me != recipient.memberID,
-              members.first(where: { $0.id == recipient.memberID })?.kind == .human
-        else { return false }
-        return true
+              Set(conversation.members) == Set([me, recipient.memberID]), me != recipient.memberID
+        else { return nil }
+        return recipient.memberID
     }
 
     public func startCall(in conversation: Conversation, members: [Member], me: Member.ID?) {

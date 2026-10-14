@@ -153,6 +153,9 @@ public struct ChatSceneActions {
     public var showSettings: (() -> Void)?
     /// Starts a DM audio call, or brings the existing call window forward.
     public var call: ((Conversation.ID) -> Void)?
+    /// Page the selected transcript. Missing callbacks draw no paging controls.
+    public var loadOlderMessages: (() -> Void)?
+    public var loadNewerMessages: (() -> Void)?
 
     public init(
         select: @escaping (Conversation.ID) -> Void = { _ in },
@@ -186,7 +189,9 @@ public struct ChatSceneActions {
         search: SearchActions? = nil,
         setSectionCollapsed: ((String, Bool) -> Void)? = nil,
         showSettings: (() -> Void)? = nil,
-        call: ((Conversation.ID) -> Void)? = nil
+        call: ((Conversation.ID) -> Void)? = nil,
+        loadOlderMessages: (() -> Void)? = nil,
+        loadNewerMessages: (() -> Void)? = nil
     ) {
         self.select = select
         self.send = send
@@ -220,5 +225,7 @@ public struct ChatSceneActions {
         self.setSectionCollapsed = setSectionCollapsed
         self.showSettings = showSettings
         self.call = call
+        self.loadOlderMessages = loadOlderMessages
+        self.loadNewerMessages = loadNewerMessages
     }
 }

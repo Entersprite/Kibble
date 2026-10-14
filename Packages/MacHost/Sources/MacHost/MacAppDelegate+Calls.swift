@@ -8,8 +8,12 @@ extension MacAppDelegate {
     /// of the main chat window's selection and lifetime.
     func startCallWindowObservation() {
         let calls = environment.calls
+        let callDiagnostics = callDiagnostics
         callWindowHost = AudioCallWindowHost(actions: { id in
-            AudioCallActions(
+            let copy: (() async -> Bool)? = callDiagnostics.isAvailable ? {
+                await callDiagnostics.copy(callID: id) { calls.call?.id == id }
+            } : nil
+            return AudioCallActions(
                 accept: {
                     if calls.call?.id == id {
                         calls.accept()
@@ -29,7 +33,8 @@ extension MacAppDelegate {
                     if calls.call?.id == id {
                         calls.hangUp()
                     }
-                }
+                },
+                copyDiagnostics: copy
             )
         }, windowClosed: { id in
             if calls.call?.id == id {
@@ -55,6 +60,8 @@ extension MacAppDelegate {
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !terminationRequested else { return .terminateLater }
         terminationRequested = true
+        memoryPressureSource?.cancel()
+        environment.releasePresentationCaches()
         Task { @MainActor [environment] in
             await environment.calls.stop()
             sender.reply(toApplicationShouldTerminate: true)

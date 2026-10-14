@@ -135,6 +135,7 @@ public final class AppEnvironment {
         if case .running = phase {
             return
         }
+        releasePresentationCaches()
         if services.launchReportRequested {
             phase = await .report(services.runLaunchReport())
             return
@@ -311,6 +312,7 @@ public final class AppEnvironment {
     /// ask; erasing an already-empty store is a cheap no-op, which is the
     /// point - nothing here has to know whether there is anything to erase.
     private func enterNeedsSignIn(reason: String?) async {
+        defer { releasePresentationCaches() }
         await calls.stop()
         identityTask?.cancel()
         identityTask = nil
@@ -371,30 +373,5 @@ public final class AppEnvironment {
     public func requestSignIn() {
         guard case let .failed(message) = phase else { return }
         Task { await enterNeedsSignIn(reason: message) }
-    }
-
-    /// Forwarded to the session model, which decides what to do with it.
-    /// `AppEnvironment` names no platform API here - see `MacHost`'s
-    /// `AppActivityMonitor` for where the macOS signal actually comes from.
-    ///
-    /// **Stored, not dropped, before a model exists** (`.loading`,
-    /// `.needsSignIn`, `.failed`, `.report`). This used to forward straight to
-    /// `model?.` and silently discard anything told while `model` was `nil` -
-    /// `ChatSessionModel.isActive` defaults to `true`, so a resign during the
-    /// real backend's bootstrap (a full HTTP shell fetch plus channel
-    /// registration) or during the entire web-view login before `signedIn()`
-    /// rebuilds the model left the app backgrounded with the gate reading
-    /// `true`, publishing a read receipt for every conversation opened and
-    /// message arriving. Spec §3.2 explicitly rejected always-publishing;
-    /// that drop was the rejected alternative arriving by accident. Now the
-    /// value is kept in `pendingActive` and applied the moment `start()`
-    /// builds a model - see that property's doc comment.
-    ///
-    /// **This is now one of three inputs**, not the model's value itself: the
-    /// model is told `isViewing` (`AppEnvironment+Viewing.swift`), so frontmost
-    /// with the window closed or minimised is not viewing.
-    public func setActive(_ active: Bool) {
-        pendingActive = active
-        applyViewing()
     }
 }

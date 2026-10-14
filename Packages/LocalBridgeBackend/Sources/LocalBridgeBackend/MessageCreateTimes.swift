@@ -8,8 +8,8 @@ import Foundation
 ///
 /// Filled from every message this bridge maps on the way out - history
 /// pages, pushes and search hits - and emptied by `disconnect()`. An id it
-/// never mapped this session is unknown, and history then sends its newest
-/// page, as it did before anchoring existed.
+/// never mapped this session is unknown; a backward history request resolves
+/// a cached root with a bounded provider lookup before anchoring.
 ///
 /// **Derived from `createdAt`, and exact.** Every mapped `createdAt` is
 /// `Microseconds.date` of the wire's own microseconds, held in memory, and

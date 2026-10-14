@@ -167,22 +167,21 @@ struct LoadMessagesTests {
         #expect(messages.map(\.id.rawValue) == ["m-old", "m-new"])
     }
 
-    /// A `before:` this session never mapped has no known time to anchor on,
-    /// so the first page comes back, unfiltered - the identical result `nil`
-    /// would give. A known one anchors (`LoadMessagesAnchorTests`).
-    @Test func anUnknownBeforeReturnsTheFirstPage() async throws {
+    /// An unknown cursor needs a root lookup; this transport supplies none,
+    /// so the adapter refuses instead of returning unrelated newest history.
+    @Test func anUnknownUnresolvedBeforeRefusesTheFirstPage() async throws {
         let group = spaceGroupID("s-1")
         let response = try topicsResponse([
             topic(replies: [reply(id: "m-1", groupID: group)])
         ])
         let backend = backend(RoutingTransport(shell: shellResponse(), listTopicsResponse: response))
         try await backend.connect()
-
-        let messages = try await backend.loadMessages(
-            in: Conversation.ID("space/s-1"),
-            before: ChatKit.Message.ID("some-cursor-that-does-not-exist")
-        )
-        #expect(messages.map(\.id.rawValue) == ["m-1"])
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.loadMessages(
+                in: Conversation.ID("space/s-1"),
+                before: ChatKit.Message.ID("some-cursor-that-does-not-exist")
+            )
+        }
     }
 
     /// The request actually sent is `TopicsRequestLadder.history(for:)`

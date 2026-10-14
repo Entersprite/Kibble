@@ -16,32 +16,6 @@ import Foundation
 /// unchanged either way, since nothing outside this module could see past
 /// `private` or `internal` regardless.
 extension ChatSessionModel {
-    /// Told by the app shell whether the app is frontmost.
-    ///
-    /// Becoming frontmost marks the open conversation, and the thread the
-    /// panel shows, because otherwise everything that arrived while the user
-    /// was away stays unread until a *new* message happens to arrive and
-    /// trigger it.
-    public func setActive(_ active: Bool) {
-        guard active != isActive else { return }
-        isActive = active
-        if active {
-            // Another client can mark a message unread, post a new root, or
-            // delete one while this window is away. The channel does not
-            // guarantee replay of those changes, so foregrounding refreshes
-            // the server's read state and the visible transcript together.
-            if case .connected = connectionState {
-                historyTask?.cancel()
-                let visible = selected
-                historyTask = Task { [engine] in
-                    await engine.refreshVisibleConversation(visible)
-                }
-            }
-            markSelectedReadIfNeeded()
-            markOpenThreadReadIfNeeded()
-        }
-    }
-
     /// `markSelectedReadIfNeeded()`'s own tracing call, factored out to a
     /// proper method rather than a nested function so that function stays
     /// under swiftlint's `function_body_length` ceiling. A `nil`
@@ -123,7 +97,8 @@ extension ChatSessionModel {
         guard isActive else { traceTrigger(.notFrontmost); return }
         guard capabilities.canMarkRead else { traceTrigger(.cannotMarkRead); return }
         guard let selected else { traceTrigger(.nothingSelected); return }
-        guard !unreadHolds.contains(selected), conversationActionTasks[selected] == nil else { return }
+        guard transcriptIncludesLatest, !unreadHolds.contains(selected),
+              conversationActionTasks[selected] == nil else { return }
         // `max` rather than `messages.last`, so the trigger does not depend on
         // the observation's ordering. Excludes this file's own `local/`-
         // prefixed optimistic rows (see `send(_:)`): they carry `Date()`, not
@@ -241,7 +216,7 @@ extension ChatSessionModel {
             return
         }
         var position: Date
-        if selected == conversation {
+        if selected == conversation, transcriptIncludesLatest {
             let recomputed = messages
                 .filter { !$0.id.rawValue.hasPrefix("local/") }
                 .map(\.createdAt).max()
@@ -319,6 +294,7 @@ extension ChatSessionModel {
         // message that landed during the submit and server ids carry no
         // `local/` prefix. Covered by
         // `MarkReadDebounceGuardSequenceTests.aFailedMarkWithAnUnackedLocalRowDoesNotLoop`.
+        guard transcriptIncludesLatest else { return }
         let freshest = messages
             .filter { !$0.id.rawValue.hasPrefix("local/") }
             .map(\.createdAt).max()

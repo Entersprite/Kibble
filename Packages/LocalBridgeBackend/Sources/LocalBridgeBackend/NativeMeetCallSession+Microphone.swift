@@ -14,8 +14,9 @@ extension NativeMeetCallSession {
                     )
                 return
             }
+            // The provider's microphone stream key is separate from the native SDP track ID.
             let stream = try MeetAudioStreamWire.Stream(
-                mediaSession: mediaSessionName, conferenceID: conference, streamID: source.streamID
+                mediaSession: mediaSessionName, conferenceID: conference, streamID: "audio"
             )
             let id = nextStreamRequest()
             lines

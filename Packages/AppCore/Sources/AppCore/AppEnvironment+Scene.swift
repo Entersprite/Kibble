@@ -48,6 +48,11 @@ public extension AppEnvironment {
             availability: model.availability,
             selected: model.selected,
             messages: model.messages,
+            hasOlderMessages: model.hasOlderMessages,
+            isLoadingOlderMessages: model.isLoadingOlderMessages,
+            hasNewerMessages: model.hasNewerMessages,
+            newerMessagesAreLatestJump: model.newerMessagesAreLatestJump,
+            isLoadingNewerMessages: model.isLoadingNewerMessages,
             typing: model.typing,
             connection: model.connectionState,
             connectionService: connectionService,
@@ -77,7 +82,7 @@ public extension AppEnvironment {
             searchOpenGeneration: model.search.openGeneration,
             collapsedSections: collapsedSections,
             callableConversations: Set(model.conversations.filter {
-                calls.canCall(conversation: $0, members: Array(model.directory.values), me: model.me)
+                calls.canCall(conversation: $0, directory: model.directory, me: model.me)
             }.map(\.id))
         )
     }
@@ -243,7 +248,13 @@ public extension AppEnvironment {
                 guard let self, let model = runningModel,
                       let conversation = model.conversations.first(where: { $0.id == id }) else { return }
                 calls.startCall(in: conversation, members: Array(model.directory.values), me: model.me)
-            } : nil
+            } : nil,
+            loadOlderMessages: runningModel == nil ? nil : { [weak self] in
+                self?.runningModel?.loadOlderMessages()
+            },
+            loadNewerMessages: runningModel == nil ? nil : { [weak self] in
+                self?.runningModel?.loadNewerMessages()
+            }
         )
     }
 

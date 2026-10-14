@@ -36,13 +36,14 @@ public extension LocalBridgeBackend {
     /// the stored one; its read state is a snapshot all the same, and clears
     /// a stale mark.
     ///
-    /// **`before:` anchors on a time when this session mapped that message.**
+    /// **`before:` anchors on the message's exact create time.**
     /// `list_topics` has no message cursor, but every request the web client
     /// sent carried `filter.anchor.time_usec` and `sort_option: 2`
     /// (`findings.md` §65.9), so a known `before` sends
     /// `TopicsRequestLadder.history(for:anchoredAt:)` at its own create time,
-    /// to the microsecond (`messageTimes`). An unknown one, or `nil`, first
-    /// sends the plain page. If that page ends before the world's newest
+    /// to the microsecond (`messageTimes`). A cached root not mapped this
+    /// session first resolves its timestamp with one bounded root lookup.
+    /// `nil` sends the plain page. If that page ends before the world's newest
     /// head, a second request anchors there and merges its window. A full
     /// plain page, or one explicitly marked as not containing the last topic,
     /// also asks for a window at the present time. A busy space can stop
@@ -80,11 +81,15 @@ public extension LocalBridgeBackend {
                     + "this backend produces, so no list_topics request can be built for it"
             )
         }
-        let anchor = before.flatMap { messageTimes.micros(of: $0) }
-        let rung = anchor.map { TopicsRequestLadder.history(for: group, anchoredAt: $0) }
-            ?? TopicsRequestLadder.history(for: group)
+        let generation = directoryGeneration
         do {
+            let anchor = try await historyCursorAnchor(
+                before, in: conversationID, group: group, client: apiClient, generation: generation
+            )
+            let rung = anchor.map { TopicsRequestLadder.history(for: group, anchoredAt: $0) }
+                ?? TopicsRequestLadder.history(for: group)
             let response = try await apiClient.call(.listTopics, rung.request)
+            try requireHistorySession(generation)
             let mapped = recordHistory(
                 response, in: conversationID, anchored: anchor != nil,
                 replyCap: Int(rung.request.pageSizeForReplies),
@@ -96,9 +101,10 @@ public extension LocalBridgeBackend {
             if before == nil {
                 page = await retryNewestIfNeeded(
                     page, response: response, group: group, conversationID: conversationID,
-                    pageSize: Int(rung.request.pageSizeForTopics)
+                    generation: generation
                 )
             }
+            try requireHistorySession(generation)
             page = retainingUnclearedHistory(page, in: conversationID)
             // Resolve only senders in messages the caller will store. An
             // anchored backward page may have returned newer messages that
@@ -106,6 +112,12 @@ public extension LocalBridgeBackend {
             resolveUnknownMembers(page.map(\.sender))
             return page
         } catch {
+            if error is CancellationError {
+                throw error
+            }
+            if let mapped = error as? ChatError {
+                throw mapped
+            }
             throw Self.chatError(fromAPI: error, call: "the /api/ list_topics call")
         }
     }
@@ -115,17 +127,19 @@ public extension LocalBridgeBackend {
     /// be stale, so the retry anchors at the present time in those cases.
     private func retryNewestIfNeeded(
         _ page: [ChatKit.Message], response: ListTopicsResponse, group: GroupId,
-        conversationID: Conversation.ID, pageSize: Int
+        conversationID: Conversation.ID, generation: Int
     ) async -> [ChatKit.Message] {
         guard let apiClient else { return page }
         guard let retryAnchor = latestRetryAnchor(
-            for: conversationID, topicsCount: response.topics.count, pageSize: pageSize,
+            for: conversationID, topicsCount: response.topics.count,
+            pageSize: Int(TopicsRequestLadder.history(for: group).request.pageSizeForTopics),
             didReachNewest: response.hasContainsLastTopic ? response.containsLastTopic : nil,
             messages: page
         ) else { return page }
         do {
             let retry = TopicsRequestLadder.history(for: group, anchoredAt: retryAnchor)
             let answer = try await apiClient.call(.listTopics, retry.request)
+            try requireHistorySession(generation)
             let newer = recordHistory(
                 answer, in: conversationID, anchored: true,
                 replyCap: Int(retry.request.pageSizeForReplies), phase: "latest-retry"
@@ -135,7 +149,7 @@ public extension LocalBridgeBackend {
             // Selection changes and teardown deliberately cancel this request.
             // Its nested retry must not bypass the caller's cancellation guard
             // by publishing an error directly into the shared event stream.
-            guard !Task.isCancelled else { return page }
+            guard !Task.isCancelled, generation == directoryGeneration else { return page }
             // The first page still has useful history. Report the failed
             // retry without discarding what already loaded.
             emit(.backendError(Self.chatError(fromAPI: error, call: "the newest /api/ list_topics call")))

@@ -135,16 +135,15 @@ struct LoadMessagesAnchorTests {
         #expect(sent == expectedBytes)
     }
 
-    /// A message this session never mapped has no known time, so the page is
-    /// the newest one, exactly the request plain history sends.
-    @Test func anUnknownMessageSendsThePlainNewestPage() async throws {
+    /// A missing cursor cannot safely become a newest page. The bounded
+    /// root lookup fails rather than claiming that backward paging ended.
+    @Test func anUnknownUnresolvedMessageDoesNotSendThePlainNewestPage() async throws {
         let (backend, transport) = try await Self.connected(then: [Self.answer([])])
         _ = try await backend.loadMessages(in: Self.space, before: nil)
-        _ = try await backend.loadMessages(in: Self.space, before: ChatKit.Message.ID("never-seen"))
-
-        let sent = try #require(await transport.listTopicsRequests.last?.body)
-        let expected: Data = try TopicsRequestLadder.history(for: Self.group()).request.serializedBytes()
-        #expect(sent == expected)
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.loadMessages(in: Self.space, before: ChatKit.Message.ID("never-seen"))
+        }
+        #expect(await transport.listTopicsRequests.count == 1)
     }
 
     // MARK: - Only what is older comes back
@@ -312,12 +311,14 @@ struct LoadMessagesAnchorTests {
         try #require(await !backend.messageTimes.isEmpty)
         await backend.disconnect()
         #expect(await backend.messageTimes.isEmpty)
-        // So a new session asks for the newest page, not an old session's anchor.
+        // A replacement session must resolve the persisted cursor again;
+        // this transport supplies no lookup answer, so it refuses safely.
         try await backend.connect()
-        _ = try await backend.loadMessages(in: Self.space, before: ChatKit.Message.ID("m-anchor"))
-        let sent = try #require(await transport.listTopicsRequests.last?.body)
-        let expected: Data = try TopicsRequestLadder.history(for: Self.group()).request.serializedBytes()
-        #expect(sent == expected)
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.loadMessages(in: Self.space, before: ChatKit.Message.ID("m-anchor"))
+        }
+        #expect(await transport.listTopicsRequests.count == 1)
+        #expect(await backend.messageTimes.isEmpty)
         await backend.disconnect()
     }
 }

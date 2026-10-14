@@ -74,7 +74,24 @@ public final class ChatSessionModel {
     public internal(set) var showingMentions = false
     /// The message `open(conversation:message:)` asked the transcript to
     /// scroll to, until the next selection. `internal(set)` for `+Mentions.swift`.
-    public internal(set) var scrollTarget: Message.ID?
+    public internal(set) var scrollTarget: Message.ID? {
+        didSet {
+            if let scrollTarget, let selected {
+                observeTranscript(
+                    in: selected,
+                    request: .around(scrollTarget, 100)
+                )
+            }
+        }
+    }
+
+    public internal(set) var hasOlderMessages = false
+    public internal(set) var hasNewerMessages = false
+    public internal(set) var newerMessagesAreLatestJump = false
+    public internal(set) var isLoadingOlderMessages = false
+    public internal(set) var isLoadingNewerMessages = false
+    var transcriptIncludesLatest = true
+    @ObservationIgnored var transcriptWork = TranscriptWork()
     public internal(set) var threads = ThreadSessionState() // the panel and the list, +Threads.swift
 
     /// Whether the app is frontmost. Fed by the app shell; `true` by default
@@ -256,6 +273,7 @@ public final class ChatSessionModel {
     ///
     /// Not `private`: `clearSelection()` in `ChatSessionModel+Mentions.swift` cancels it.
     var historyTask: Task<Void, Never>?
+    var foregroundRefreshTask: Task<Void, Never>?
 
     /// The last connection state this model acted on, so that a repeated
     /// `.connected` delivery does not refetch again. The observation can
@@ -328,12 +346,8 @@ public final class ChatSessionModel {
             watcher.cancel()
         }
         conversationWatchers = []
-        conversationWatchers.append(
-            observe(store.observeMessages(in: id)) { [weak self] in
-                self?.messages = $0
-                self?.markSelectedReadIfNeeded()
-            }
-        )
+        resetTranscript()
+        observeTranscript(in: id, request: .latest(100))
         selectionMoved(to: id)
 
         // Not `try?`. A dead channel, a rejected `/api/` call or a timeout
@@ -348,8 +362,12 @@ public final class ChatSessionModel {
         // looking at anymore is not worth keeping, and `historyTask` is the
         // one this session's own `stop()` needs to find later.
         historyTask?.cancel()
-        historyTask = Task { [engine] in
-            await engine.requestMoreMessages(in: id, verifyCachedRoots: true)
+        historyTask = Task { [weak self, engine] in
+            let page = await engine.requestMoreMessages(in: id, verifyCachedRoots: true)
+            guard !Task.isCancelled else { return }
+            if let page {
+                self?.latestTranscriptPageLoaded(page, in: id)
+            }
         }
         // Untracked: a late one reaches a backend that drops it once
         // disconnected (`LocalBridgeBackend.watchPresence`).

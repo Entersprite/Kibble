@@ -23,6 +23,7 @@ actor GatedHistoryBackend: ChatBackend {
     private var holdingWorld = false
     private var parkedWorld: CheckedContinuation<Void, Never>?
 
+    private(set) var worldRequests = 0
     private(set) var requested: [Conversation.ID] = []
     private(set) var inFlight = 0
     private(set) var maxInFlight = 0
@@ -55,6 +56,10 @@ actor GatedHistoryBackend: ChatBackend {
 
     func fail(_ conversation: Conversation.ID) {
         failing.insert(conversation)
+    }
+
+    func recover(_ conversation: Conversation.ID) {
+        failing.remove(conversation)
     }
 
     /// Resumes the fetches parked for one conversation. Later ones still park.
@@ -90,6 +95,7 @@ actor GatedHistoryBackend: ChatBackend {
     func setNotificationSetting(_: NotificationLevel, for _: Conversation.ID) async throws {}
 
     func loadConversations() async throws -> [Conversation] {
+        worldRequests += 1
         if holdingWorld {
             await withCheckedContinuation { parkedWorld = $0 }
         }

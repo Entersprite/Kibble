@@ -238,6 +238,9 @@ struct MarkReadDebounceTests {
         await settleAutoMarkRead(until: "the failed mark is recorded") {
             await markReadPositions(from: harness.backend).count >= 1
         }
+        await settleAutoMarkRead(until: "the failed mark has settled") {
+            harness.model.markTasks[autoMarkReadConversation] == nil
+        }
         let afterFailure = await markReadPositions(from: harness.backend).count
         #expect(afterFailure == 1)
         #expect(harness.model.published[autoMarkReadConversation] == nil)

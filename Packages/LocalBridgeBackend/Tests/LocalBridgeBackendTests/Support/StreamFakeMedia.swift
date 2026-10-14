@@ -12,6 +12,8 @@ final class StreamFakeMedia: CallMediaEngine {
     }
 
     var requests: [Data] = []
+    var trackID = "track-sentinel"
+    var registrationEchoStreamID: String?
     var failRegistration = false
     var omitEcho = false
     var omitParentContext = false
@@ -25,7 +27,7 @@ final class StreamFakeMedia: CallMediaEngine {
         let sdp = NativeMeetFixture.offer.replacingOccurrences(
             of: "a=mid:0\r\n",
             with:
-            "a=mid:0\r\na=msid:stream-sentinel track-sentinel\r\na=ssrc:4242 cname:synthetic\r\n"
+            "a=mid:0\r\na=msid:stream-sentinel \(trackID)\r\na=ssrc:4242 cname:synthetic\r\n"
         )
         return CallAudioOffer(sdp: sdp, srtpProfile: .aeadAES256GCM)
     }
@@ -62,6 +64,12 @@ final class StreamFakeMedia: CallMediaEngine {
         }
         let operation = try #require(ProtoFieldScan.payloads(ofField: registering ? 4 : 2, in: request).first)
         var stream = try #require(ProtoFieldScan.payloads(ofField: 4, in: operation).first)
+        if registering, let registrationEchoStreamID {
+            let key = try #require(ProtoFieldScan.payloads(ofField: 4, in: stream).first)
+            let original = NativeMeetFixture.bytes(4, key)
+            let range = try #require(stream.range(of: original))
+            stream.replaceSubrange(range, with: NativeMeetFixture.string(4, registrationEchoStreamID))
+        }
         if omitParentContext {
             var sparse = NativeMeetFixture.number(1, 2) + NativeMeetFixture.number(2, 1)
             for field in [4, 8, 10] {

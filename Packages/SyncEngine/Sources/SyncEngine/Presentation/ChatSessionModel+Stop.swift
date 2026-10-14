@@ -14,6 +14,10 @@ public extension ChatSessionModel {
         // return - see `historyTask`'s doc comment.
         historyTask?.cancel()
         historyTask = nil
+        foregroundRefreshTask?.cancel()
+        foregroundRefreshTask = nil
+        resetTranscript()
+        store.decodedTranscriptCache.removeAll()
         directorySearch.reset()
         searchWork.reset()
         search = SearchSessionState()

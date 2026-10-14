@@ -8,17 +8,21 @@ public struct AudioCallActions {
     public var decline: () -> Void
     public var toggleMute: () -> Void
     public var hangUp: () -> Void
+    /// Optional host-owned collection and copying; false reports unavailable.
+    public var copyDiagnostics: (() async -> Bool)?
 
     public init(
         accept: @escaping () -> Void,
         decline: @escaping () -> Void,
         toggleMute: @escaping () -> Void,
-        hangUp: @escaping () -> Void
+        hangUp: @escaping () -> Void,
+        copyDiagnostics: (() async -> Bool)? = nil
     ) {
         self.accept = accept
         self.decline = decline
         self.toggleMute = toggleMute
         self.hangUp = hangUp
+        self.copyDiagnostics = copyDiagnostics
     }
 }
 
@@ -26,6 +30,9 @@ public struct AudioCallActions {
 public struct AudioCallView: View {
     private let call: AudioCallSnapshot
     private let actions: AudioCallActions
+    @State private var copyState = AudioCallCopyState.idle
+    @State private var requestedCall: UUID?
+    @State private var copyRequest = 0
 
     public init(call: AudioCallSnapshot, actions: AudioCallActions) {
         self.call = call
@@ -78,6 +85,37 @@ public struct AudioCallView: View {
         .padding(32)
         .frame(width: 380)
         .frame(minHeight: 300)
+        .overlay(alignment: .bottom) {
+            if let copyDiagnostics = actions.copyDiagnostics {
+                Button(copyState.title, systemImage: "doc.on.clipboard") {
+                    requestedCall = call.id
+                    copyState = .collecting
+                    copyRequest += 1
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .disabled(copyState == .collecting)
+                .accessibilityLabel("Copy Diagnostics")
+                .help("Copy call diagnostics")
+                .padding(.bottom, 10)
+                .task(id: CopyRequest(call: call.id, sequence: copyRequest)) {
+                    guard requestedCall == call.id, copyState == .collecting else { return }
+                    let copied = await copyDiagnostics()
+                    guard !Task.isCancelled, requestedCall == call.id else { return }
+                    copyState = copied ? .copied : .unavailable
+                }
+            }
+        }
+        .onChange(of: call.id) {
+            requestedCall = nil
+            copyState = .idle
+        }
+    }
+
+    private struct CopyRequest: Hashable {
+        let call: UUID
+        let sequence: Int
     }
 }
 
@@ -101,5 +139,20 @@ enum AudioCallPresentation {
 
     static func canHangUp(_ phase: AudioCallPhase) -> Bool {
         phase == .connecting || phase == .ringing || phase == .connected
+    }
+}
+
+/// Collection feedback belongs to presentation; diagnostics contents stay in
+/// the host and never enter the call view's state.
+enum AudioCallCopyState {
+    case idle, collecting, copied, unavailable
+
+    var title: String {
+        switch self {
+        case .idle: "Copy Diagnostics"
+        case .collecting: "Collecting…"
+        case .copied: "Copied"
+        case .unavailable: "Unavailable"
+        }
     }
 }

@@ -13,9 +13,10 @@
     /// own, so SwiftUI's `Color.accentColor` is the same system colour.
     enum MessageTextAttributes {
         static func attributed(
-            _ text: String, mentions: [Mention], links: [MessageLink], me: Member.ID?, inOwnBubble: Bool
+            _ text: String, mentions: [Mention], links: [MessageLink], me: Member.ID?, inOwnBubble: Bool,
+            font: NSFont = .preferredFont(forTextStyle: .body), accent: NSColor = .controlAccentColor
         ) -> NSAttributedString {
-            let base = NSFont.preferredFont(forTextStyle: .body)
+            let base = font
             let result = NSMutableAttributedString(string: text, attributes: [
                 .font: base,
                 .foregroundColor: inOwnBubble ? NSColor.white : NSColor.labelColor
@@ -27,11 +28,11 @@
                 guard !inOwnBubble else { continue }
                 if isMe {
                     result.addAttribute(
-                        .backgroundColor, value: NSColor.controlAccentColor.withAlphaComponent(0.25),
+                        .backgroundColor, value: accent.withAlphaComponent(0.25),
                         range: span
                     )
                 } else {
-                    result.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: span)
+                    result.addAttribute(.foregroundColor, value: accent, range: span)
                 }
             }
             let mentionRanges = MentionHighlight.ranges(in: text, mentions: mentions, me: me)

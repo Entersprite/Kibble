@@ -72,7 +72,7 @@
         /// so a menu always acts on what the bubble shows now.
         @MainActor
         final class Coordinator: NSObject, NSTextViewDelegate {
-            let textCache = MessageTextCache()
+            let textCache = MessageTextCache.shared
             private(set) var message: Message
             private(set) var actions: ReactionActions?
             private(set) var onMore: (() -> Void)?
@@ -200,6 +200,16 @@
                 // changes in place, so retaining it would make later text appear
                 // equal to the previous measurement.
                 let text = NSAttributedString(attributedString: current)
+                let key = MessageMeasurementCache.Key(text: text, width: width, insets: insets)
+                if let fitted = MessageMeasurementCache.shared.value(for: key) {
+                    lastMeasurement = Measurement(
+                        text: text,
+                        width: width,
+                        insets: Insets(insets),
+                        size: fitted
+                    )
+                    return fitted
+                }
                 let horizontal = insets.left + insets.right
                 let available = width.map { max(1, $0 - horizontal) } ?? CGFloat.greatestFiniteMagnitude
                 let storage = NSTextStorage(attributedString: text)
@@ -221,6 +231,7 @@
                 if let width {
                     fitted.width = min(fitted.width, width)
                 }
+                MessageMeasurementCache.shared.insert(fitted, for: key)
                 lastMeasurement = Measurement(text: text, width: width, insets: Insets(insets), size: fitted)
                 return fitted
             }

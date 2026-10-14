@@ -63,5 +63,50 @@
             let plain = cache.attributed(message: unmentioned, me: me, inOwnBubble: false)
             #expect(plain.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
         }
+
+        @Test func recreatedCoordinatorsReuseFormattingAndImmutableResults() {
+            let firstCoordinator = MessageTextView.Coordinator(message: message, actions: nil)
+            let first = firstCoordinator.textCache.attributed(message: message, me: me, inOwnBubble: false)
+            let secondCoordinator = MessageTextView.Coordinator(message: message, actions: nil)
+            let second = secondCoordinator.textCache.attributed(message: message, me: me, inOwnBubble: false)
+            #expect(first === second)
+            #expect(!(first is NSMutableAttributedString))
+        }
+
+        @Test func fontAndAccentChangeFormattingAndAnEvictedValueIsRebuilt() {
+            let cache = MessageTextCache(countLimit: 2)
+            let first = cache.attributed(message: message, me: me, inOwnBubble: false)
+            let larger = cache.attributed(
+                message: message, me: me, inOwnBubble: false, font: .systemFont(ofSize: 30)
+            )
+            #expect((larger.attribute(.font, at: 5, effectiveRange: nil) as? NSFont)?.pointSize == 30)
+            let red = cache.attributed(message: message, me: me, inOwnBubble: false, accent: .red)
+            #expect(red.attribute(.backgroundColor, at: 0, effectiveRange: nil) as? NSColor
+                == NSColor.red.withAlphaComponent(0.25))
+            let rebuilt = cache.attributed(message: message, me: me, inOwnBubble: false)
+            #expect(first !== rebuilt)
+            #expect(first.isEqual(to: rebuilt))
+            #expect(cache.misses == 4)
+            cache.removeAll()
+            let cleared = cache.attributed(message: message, me: me, inOwnBubble: false)
+            #expect(cleared !== rebuilt)
+        }
+
+        @Test func sessionAndPressureClearDropsSharedReusableWork() {
+            let first = MessageTextCache.shared.attributed(message: message, me: me, inOwnBubble: false)
+            let view = BubbleTextView.make()
+            view.show(first)
+            _ = view.fittingSize(forWidth: 293)
+            MessageRenderingCache.clear()
+            let second = MessageTextCache.shared.attributed(message: message, me: me, inOwnBubble: false)
+            #expect(first !== second)
+            #expect(first.isEqual(to: second))
+            #expect(MessageTextCache.shared.misses == 1)
+            #expect(MessageMeasurementCache.shared.hits == 0)
+            let recreated = BubbleTextView.make()
+            recreated.show(second)
+            _ = recreated.fittingSize(forWidth: 293)
+            #expect(MessageMeasurementCache.shared.hits == 0)
+        }
     }
 #endif

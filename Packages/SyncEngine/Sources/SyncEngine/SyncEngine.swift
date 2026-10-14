@@ -72,9 +72,12 @@ public actor SyncEngine {
     /// Not `private`, for that file.
     let mentionClock: (@Sendable () -> Date)?
 
-    /// The backfill run in flight, if any. Tracked so that a new world load
-    /// and `stop()` can cancel it.
+    /// The backfill run in flight, if any. Changed worlds, real gaps and
+    /// `stop()` can cancel it; unchanged foreground worlds retain it.
     var mentionBackfillTask: Task<Void, Never>?
+    var mentionBackfillGeneration = 0
+    var mentionBackfillHeads: [Conversation.ID: MentionBackfillHead] = [:]
+    var mentionBackfillCandidates: [Conversation.ID: MentionBackfillHead] = [:]
 
     /// Conversations whose members this session has asked for
     /// (`SyncEngine+Members.swift`). Forgotten on failure and on `stop()`.
@@ -82,7 +85,7 @@ public actor SyncEngine {
 
     /// Roots already checked against their own server topic this session.
     /// History pages are windows, so absence from a page alone proves nothing.
-    private var checkedMissingRoots: Set<Message.ID> = []
+    var checkedMissingRoots: Set<Message.ID> = []
 
     /// The Threads list fetch a world load started (`SyncEngine+Threads.swift`),
     /// canceled by the next world load and by `stop()`.
@@ -131,6 +134,9 @@ public actor SyncEngine {
         // reason: a fetch that ignores cancellation would hang sign-out with
         // it. `loadMoreMessages`' own check is what keeps a late page out.
         mentionBackfillTask?.cancel()
+        mentionBackfillGeneration += 1
+        mentionBackfillHeads = [:]
+        mentionBackfillCandidates = [:]
         membersLoaded = []
         checkedMissingRoots = []
         mentionBackfillTask = nil
@@ -145,10 +151,11 @@ public actor SyncEngine {
     /// mean an unbounded read on every launch for a workspace with hundreds of
     /// conversations. A view calls this when the user opens a conversation, and
     /// again with the oldest message it holds when they scroll up.
+    @discardableResult
     public func loadMoreMessages(
         in conversation: Conversation.ID, before: Message.ID? = nil,
         verifyCachedRoots: Bool = false
-    ) async throws {
+    ) async throws -> [Message] {
         let version = conversationVersions[conversation, default: 0]
         let page = try await backend.loadMessages(in: conversation, before: before)
         // The caller may have stopped caring while `backend.loadMessages`
@@ -161,46 +168,12 @@ public actor SyncEngine {
         // erased the store would repopulate it with the account that just
         // left.
         try Task.checkCancellation()
-        guard version == conversationVersions[conversation, default: 0] else { return }
+        guard version == conversationVersions[conversation, default: 0] else { return [] }
         try store.apply(page.map { .upsertMessage($0) })
         if verifyCachedRoots, before == nil {
             await verifyMissingRoots(in: conversation, against: page)
         }
-    }
-
-    /// A bounded, read-only server check for cached roots inside the page's
-    /// time span. Topic windows can overlap or move when a reply arrives, so
-    /// only a complete direct thread listing authorizes removing a row.
-    private func verifyMissingRoots(in conversation: Conversation.ID, against page: [Message]) async {
-        let roots = page.filter { !$0.isReply }
-        guard roots.count > 1,
-              let oldest = roots.map(\.createdAt).min(),
-              let newest = roots.map(\.createdAt).max(),
-              let cached = try? store.messages(in: conversation) else { return }
-        let seen = Set(roots.map(\.id))
-        let candidates = cached.filter {
-            !$0.id.rawValue.hasPrefix("local/") && !seen.contains($0.id)
-                && !checkedMissingRoots.contains($0.id)
-                && $0.createdAt >= oldest && $0.createdAt <= newest
-        }.suffix(6)
-        for message in candidates {
-            guard !Task.isCancelled else { return }
-            do {
-                let snapshot = try await backend.loadThreadSnapshot(message.threadID, in: conversation)
-                try Task.checkCancellation()
-                guard snapshot.isComplete,
-                      snapshot.messages.allSatisfy({ $0.conversationID == conversation
-                              && $0.threadID == message.threadID }) else { continue }
-                if !snapshot.messages.contains(where: { $0.id == message.id }) {
-                    try store.apply([.removeMessage(id: message.id)])
-                }
-                checkedMissingRoots.insert(message.id)
-            } catch {
-                // A refused verification proves nothing about the cached row.
-                // The ordinary history page has already loaded successfully.
-                continue
-            }
-        }
+        return page
     }
 }
 
@@ -357,12 +330,13 @@ public extension SyncEngine {
     /// handle it - the reducer's `.reloadMessages` effect is one - but the
     /// UI path had been swallowing that throw with `try?`, so a dead channel
     /// rendered as an empty transcript with no explanation.
+    @discardableResult
     func requestMoreMessages(
         in conversation: Conversation.ID, before: Message.ID? = nil,
         verifyCachedRoots: Bool = false
-    ) async {
+    ) async -> [Message]? {
         do {
-            try await loadMoreMessages(
+            return try await loadMoreMessages(
                 in: conversation, before: before, verifyCachedRoots: verifyCachedRoots
             )
         } catch {
@@ -387,8 +361,9 @@ public extension SyncEngine {
             // *looks* like a cancellation - thrown while nobody here
             // cancelled anything - still falls through to `record` below,
             // exactly as it should.
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return nil }
             record(error)
+            return nil
         }
     }
 }

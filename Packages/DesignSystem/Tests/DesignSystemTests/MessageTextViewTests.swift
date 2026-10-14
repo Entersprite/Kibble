@@ -224,5 +224,23 @@
             ))
             #expect(try opened == [#require(URL(string: "https://acme.example"))])
         }
+
+        @Test func recreatedViewsReuseMeasurementsButEditsInsetsAndWidthInvalidate() {
+            let text = "distinct cached measurement " + String(repeating: "wrapping words ", count: 20)
+            let first = Self.view(text)
+            let beforeHits = MessageMeasurementCache.shared.hits
+            let narrow = first.fittingSize(forWidth: 135)
+            let recreated = Self.view(text)
+            #expect(recreated.fittingSize(forWidth: 135) == narrow)
+            #expect(MessageMeasurementCache.shared.hits > beforeHits)
+            #expect(recreated.fittingSize(forWidth: 400).height < narrow.height)
+            recreated.insets.bottom = 0
+            #expect(recreated.fittingSize(forWidth: 135).height == narrow.height - 7)
+            recreated.show(MessageTextAttributes.attributed(
+                "edited short", mentions: [], links: [], me: nil, inOwnBubble: false
+            ))
+            #expect(recreated.fittingSize(forWidth: 135).height < narrow.height)
+            #expect(first.fittingSize(forWidth: 135) == narrow)
+        }
     }
 #endif

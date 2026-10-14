@@ -17,6 +17,7 @@ public final class SystemLaunchServices: LaunchServices {
     public let arguments: LaunchArguments
     private let launchProbe: MacLaunchProbe?
     public var diagnostics: DiagnosticReportStore?
+    let callDiagnostics = AudioCallDiagnosticExporter()
 
     public var launchReportRequested: Bool {
         launchProbe != nil
@@ -44,6 +45,7 @@ public final class SystemLaunchServices: LaunchServices {
     }
 
     public func forgetStoredSession() async throws {
+        callDiagnostics.install(nil)
         try await KeychainCredentialStore().invalidate()
     }
 
@@ -95,6 +97,7 @@ public final class SystemLaunchServices: LaunchServices {
     /// through `LocalBridgeBackend`, using whatever session
     /// `hasStoredSession()` already confirmed is in the Keychain.
     public func makeSession() async throws -> SessionSelection {
+        callDiagnostics.install(nil)
         switch arguments.backend {
         case .fixture:
             let fixture = FakeBackend(world: .acme, directory: FixtureWorld.acmeDirectory)
@@ -147,12 +150,16 @@ public final class SystemLaunchServices: LaunchServices {
         // `ChatSessionModel.me` watches the store for it, so a message renders
         // as incoming for one heartbeat and then correctly as outgoing - never
         // a session-long "wrong-looking".
-        return await SessionSelection(
+        let audioCalls = await backend.makeAudioCallService(
+            store: store, expectedSession: sessionSummary, mediaFactory: { NativeCallMedia() }
+        )
+        callDiagnostics.install { [weak audioCalls] id in
+            await audioCalls?.diagnosticReport(callID: id)
+        }
+        return SessionSelection(
             backend: backend, me: nil, driver: nil,
             connectionService: ConnectionService(name: "Google Chat", operatorName: "Google"),
-            audioCalls: backend.makeAudioCallService(
-                store: store, expectedSession: sessionSummary, mediaFactory: { NativeCallMedia() }
-            )
+            audioCalls: audioCalls
         )
     }
 

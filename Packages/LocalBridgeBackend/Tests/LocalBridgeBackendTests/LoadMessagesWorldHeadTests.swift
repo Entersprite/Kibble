@@ -226,7 +226,13 @@ struct LoadMessagesWorldHeadTests {
             caller.cancel()
         }
         await transport.failHeldLatestRetry()
-        let page = try await caller.value
+        let page: [ChatKit.Message]
+        if cancelCaller {
+            await #expect(throws: CancellationError.self) { _ = try await caller.value }
+            page = []
+        } else {
+            page = try await caller.value
+        }
         let requests = await transport.topicRequests
         #expect(requests.count == 2)
         let anchored = try ListTopicsRequest(serializedBytes: #require(requests.last?.body))
@@ -246,7 +252,7 @@ struct LoadMessagesWorldHeadTests {
 
     @Test func cancelledLatestRetryDoesNotPublishAConnectionProblemForIntentionalTeardown() async throws {
         let (page, events) = try await heldLatestFailure(cancelCaller: true)
-        #expect(page.map(\.id.rawValue) == ["m-old"])
+        #expect(page.isEmpty)
         #expect(newestRetryErrors(events).isEmpty)
     }
 
