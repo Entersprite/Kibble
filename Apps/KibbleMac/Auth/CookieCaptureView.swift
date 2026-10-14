@@ -36,7 +36,9 @@ struct CookieCaptureView: View {
         self.reason = reason
         self.onSaved = onSaved
         _model = State(
-            initialValue: CookieCaptureModel(autoSaveAllowed: autoSaveAllowed, onSaved: onSaved)
+            initialValue: CookieCaptureModel(
+                autoSaveAllowed: autoSaveAllowed, preparesCalls: true, onSaved: onSaved
+            )
         )
     }
 
@@ -58,7 +60,9 @@ struct CookieCaptureView: View {
                         .font(.callout)
                         .foregroundStyle(.orange)
                 }
-                Text(model.status).font(.callout)
+                Text(model.callSetup?.isActive == true ? model.callSetup?.status ?? model.status : model
+                    .status)
+                    .font(.callout)
                 Text(model.pageURL)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -74,6 +78,12 @@ struct CookieCaptureView: View {
                 }
             }
             Spacer()
+            if let setup = model.callSetup, setup.isActive {
+                Button("Try Again") { setup.retry() }
+                    .disabled(setup.isSaving || setup.isFinishing)
+                Button("Continue to Chat") { Task { await setup.continueToChat() } }
+                    .disabled(setup.isFinishing)
+            }
             // Hidden while auto-save is still working towards a session -
             // see `CookieCaptureModel.showsManualControls`. They reappear the
             // moment that path can no longer finish on its own, so a failed

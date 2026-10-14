@@ -115,9 +115,9 @@ struct CookieCaptureModelTests {
         // which passes when the latch never fires at all and so would have
         // told us nothing.
         #expect(custody.saveCount == 1)
-        // Every settle still reads the cookies - the latch gates the save,
-        // not the capture, because the report is worth writing each time.
-        #expect(view.cookieReadCount == 3)
+        // Once the login completes, late navigation cannot recapture or write
+        // credentials behind the newly started app session.
+        #expect(view.cookieReadCount == 1)
     }
 
     /// Defaults to `false` - the safe behaviour - so a call site that forgets
@@ -173,7 +173,12 @@ struct CookieCaptureModelTests {
         #expect(!automatic.showsManualControls)
 
         try await settle(automatic, view)
-        #expect(automatic.showsManualControls)
+        #expect(!automatic.showsManualControls)
+        let custody = FakeCaptureCustody()
+        custody.saveSucceeds = false
+        let refused = model(autoSaveAllowed: true, custody: custody)
+        try await settle(refused, view)
+        #expect(refused.showsManualControls)
     }
 
     @Test func aNavigationFailureIsSurfacedRatherThanSwallowed() async {
@@ -260,14 +265,8 @@ struct CookieCaptureModelTests {
         #expect(osid[6] == "yes")
     }
 
-    /// The two routes out of this window, both live at once.
-    ///
-    /// `hasAutoSaved` latches synchronously, so `showsManualControls` - and
-    /// with it "Save and continue" - is already true while the automatic
-    /// attempt's own Keychain write is still in flight. Both routes finished
-    /// by completing sign-in, and two `AppEnvironment.signedIn()` calls built
-    /// two engines and two models over one store with the first leaked and
-    /// never stopped.
+    /// Both save routes converge on one completion. A completed window also
+    /// refuses further writes, which could otherwise replace startup's capture.
     @Test func signInCompletesOnceEvenWhenBothRoutesFinish() async throws {
         let view = FakeLoginWebView(url: "https://chat.google.com/")
         view.cookies = [FakeLoginWebView.chatCookie()]
@@ -276,9 +275,9 @@ struct CookieCaptureModelTests {
 
         try await settle(model, view)
         #expect(completions.count == 1)
-        // The button is on screen by now, and pressing it really does save.
-        #expect(model.showsManualControls)
-        #expect(await model.save())
+        // A completed login cannot perform another credential write.
+        #expect(!model.showsManualControls)
+        #expect(await model.save() == false)
 
         #expect(completions.count == 1)
     }

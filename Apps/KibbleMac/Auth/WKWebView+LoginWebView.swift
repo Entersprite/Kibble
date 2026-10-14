@@ -10,6 +10,10 @@ import WebKit
 /// where it is covered. Same shape as the `SecItem` calls behind
 /// `SecretStorage`.
 extension WKWebView: MacHost.LoginWebView {
+    public func navigate(to url: URL) {
+        load(URLRequest(url: url))
+    }
+
     public var currentURL: URL? {
         url
     }

@@ -3,6 +3,16 @@ import Foundation
 import GChatBridgeCore
 
 extension MeetDMCallTrial {
+    func currentCookies(for stored: StoredSession) async -> SessionCookies {
+        await sharedCredentials?.snapshot ?? stored.credential
+    }
+
+    func liveCredentials(for stored: StoredSession) -> SessionCredentials {
+        sharedCredentials ?? SessionCredentials(stored.credential, onRotation: { [store] rotated in
+            try? await store.replaceCredential(with: rotated, belongingTo: stored)
+        })
+    }
+
     func loadStoredSession() async throws -> StoredSession {
         guard let stored = try await store.currentSession() else { throw MeetDMCallTrialError.noSession }
         if let expectedSession {

@@ -135,7 +135,7 @@ extension LocalBridgeBackend {
                 // login would keep resetting the age of a credential that is no
                 // younger - which would make the nine-day `COMPASS` fuse look
                 // like it never burned down.
-                try? await store.replaceCredential(with: rotated)
+                try? await store.replaceCredential(with: rotated, belongingTo: session)
             },
             reachability: reachability
         )

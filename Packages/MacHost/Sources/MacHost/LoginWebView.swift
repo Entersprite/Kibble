@@ -1,7 +1,7 @@
 import Foundation
 import LocalBridgeBackend
 
-/// The three things the capture model needs from a web view.
+/// The browser operations the capture model needs from a web view.
 ///
 /// Narrow on purpose, and returning `HTTPCookie` rather than a WebKit type:
 /// `HTTPCookie` is Foundation, so the `HTTPCookie` to `CapturedCookie` mapping
@@ -14,6 +14,7 @@ public protocol LoginWebView: AnyObject {
     var currentURL: URL? { get }
     var currentTitle: String? { get }
     func allCookies() async -> [HTTPCookie]
+    func navigate(to url: URL)
 }
 
 /// What the login web view is pointed at, and what it claims to be.
@@ -48,5 +49,10 @@ public struct LoginWebViewConfiguration: Sendable {
         // must not be recoverable, and it is covered by every test that uses
         // `.chat`.
         startURL: URL(string: "https://chat.google.com/")!
+    )
+
+    public static let calls = LoginWebViewConfiguration(
+        userAgent: LocalBridgeBackend.captureUserAgent,
+        startURL: URL(string: "https://meet.google.com/")!
     )
 }

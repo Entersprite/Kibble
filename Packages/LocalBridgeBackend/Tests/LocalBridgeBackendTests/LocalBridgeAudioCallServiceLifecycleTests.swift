@@ -94,7 +94,7 @@ extension LocalBridgeAudioCallServiceTests {
         }
         #expect(setup.media.engines.first?.closed == true)
         #expect(setup.service.snapshot?.phase == .failed)
-        #expect(setup.service.snapshot?.failureMessage == "The call could not connect.")
+        #expect(setup.service.snapshot?.failureMessage == "Call setup was refused (HTTP 500).")
         #expect(await setup.base.sent.filter { $0.url.path.hasSuffix("UpdateMeetingDevice") }.count == 2)
         #expect(await !(setup.service.report).contains("private-provider-text"))
         await setup.service.stop()

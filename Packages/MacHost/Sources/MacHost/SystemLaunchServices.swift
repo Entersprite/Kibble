@@ -147,10 +147,10 @@ public final class SystemLaunchServices: LaunchServices {
         // `ChatSessionModel.me` watches the store for it, so a message renders
         // as incoming for one heartbeat and then correctly as outgoing - never
         // a session-long "wrong-looking".
-        return SessionSelection(
+        return await SessionSelection(
             backend: backend, me: nil, driver: nil,
             connectionService: ConnectionService(name: "Google Chat", operatorName: "Google"),
-            audioCalls: LocalBridgeAudioCallService(
+            audioCalls: backend.makeAudioCallService(
                 store: store, expectedSession: sessionSummary, mediaFactory: { NativeCallMedia() }
             )
         )

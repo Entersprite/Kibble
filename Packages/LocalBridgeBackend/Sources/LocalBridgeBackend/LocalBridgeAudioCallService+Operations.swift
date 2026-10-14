@@ -88,7 +88,10 @@ public extension LocalBridgeAudioCallService {
     internal func runOperation(
         id: UUID, scope: UUID, perform: @escaping @MainActor @Sendable () async throws -> Void
     ) async throws {
-        let task = Task { try await perform() }
+        let task = Task {
+            try Task.checkCancellation()
+            try await perform()
+        }
         operation = task
         defer {
             if callScope == scope {
@@ -109,9 +112,7 @@ public extension LocalBridgeAudioCallService {
                 await incoming?.dismiss(handle)
             }
             incomingHandle = nil
-            let message = error as? CallMediaError == .microphoneDenied
-                ? "Microphone access is required to answer or place a call."
-                : "The call could not connect."
+            let message = Self.failureMessage(error)
             if let current = snapshot {
                 publish(phase: .failed, snapshot: current, failure: message)
             }

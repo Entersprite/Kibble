@@ -57,6 +57,8 @@ public final class CookieCaptureModel {
     public private(set) var pageURL = ""
 
     public private(set) var canSave = false
+    /// Optional call sign-in uses this login's fresh browser and saved Chat account.
+    public let callSetup: CallSignInSetup?
 
     /// What is already in the Keychain, for the window to show. Refreshed after
     /// a save so the person sees the thing they just created.
@@ -116,38 +118,20 @@ public final class CookieCaptureModel {
 
     /// Latches the one `onSaved()` this window will ever send.
     ///
-    /// A **second** latch rather than a reuse of `hasAutoSaved`, whose meaning
-    /// is deliberately narrower: that one marks the single *automatic attempt*
-    /// having been spent, and `showsManualControls` depends on it flipping the
-    /// instant `attemptAutoSave` starts - before the Keychain write it started
-    /// has returned. That gap is the bug: "Save and continue" is clickable
-    /// while the automatic save is still in flight, and both routes finish by
-    /// completing sign-in. Two `onSaved()` calls meant two
-    /// `AppEnvironment.signedIn()` calls, which built two engines and two
-    /// models over one store with the first leaked and never stopped.
-    ///
-    /// `AppEnvironment.signedIn()` is now idempotent too. Both guards are
-    /// wanted: this one stops the duplicate at its source, and that one holds
-    /// for any future caller that reaches it another way.
+    /// Separate from the automatic-attempt latch: both save paths converge
+    /// here. `isSaving` also prevents overlapping credential writes, and
+    /// completed windows reject late captures so they cannot replace the
+    /// session the app has already started.
     private var hasCompleted = false
+    private var isSaving = false
 
     /// Whether `CookieCaptureView` should show its manual "Capture now" /
     /// "Save and continue" buttons.
     ///
-    /// Auto-save exists precisely so those buttons need no press; while it is
-    /// still working towards one, they are confusing furniture. But they are
-    /// also the only fallback for the one thing auto-save cannot recover
-    /// from itself - a capture that never turns into a session, reported on
-    /// `status` as "Could not save: ..." or "Nothing to save: ...". No
-    /// second flag is needed to notice that: `hasAutoSaved` already marks the
-    /// moment the one automatic attempt this window will ever make has been
-    /// spent (see its own doc comment), which is exactly when either outcome
-    /// is now knowable. If it is about to succeed, `onSaved()` is already
-    /// replacing this whole window, so the buttons reappearing for a moment
-    /// costs nothing; if it did not, they are the way forward that keeps
-    /// this from being a dead end.
+    /// A failed automatic save exposes the manual fallback. Pending writes,
+    /// optional call setup and completed sign-ins offer no second Chat write.
     public var showsManualControls: Bool {
-        !autoSaveAllowed || hasAutoSaved
+        !hasCompleted && !isSaving && callSetup?.isActive != true && (!autoSaveAllowed || hasAutoSaved)
     }
 
     public init(
@@ -155,6 +139,7 @@ public final class CookieCaptureModel {
         configuration: LoginWebViewConfiguration = .chat,
         custody: any CaptureCustody = KeychainCaptureCustody(),
         reportDirectory: URL? = try? SystemLaunchServices.supportDirectory(),
+        preparesCalls: Bool = false,
         onSaved: @escaping () async -> Void = {}
     ) {
         self.autoSaveAllowed = autoSaveAllowed
@@ -162,6 +147,7 @@ public final class CookieCaptureModel {
         self.custody = custody
         self.reportDirectory = reportDirectory
         self.onSaved = onSaved
+        callSetup = preparesCalls ? CallSignInSetup(custody: custody) : nil
     }
 
     public func attach(_ webView: any LoginWebView) {
@@ -197,6 +183,11 @@ public final class CookieCaptureModel {
         // `accounts.google.com` navigation settles here too, and those are
         // exactly the URLs whose query strings carry the one-time tokens.
         pageURL = LoginTrace.redact(webView.currentURL)
+        if callSetup?.isActive == true {
+            callSetup?.pageSettled(webView)
+            return
+        }
+        guard !hasCompleted else { return }
         guard let host = webView.currentURL?.host(), Self.accepts(host: host, for: configuration) else {
             status = "Signing in… (waiting for Chat itself to load)"
             return
@@ -207,6 +198,10 @@ public final class CookieCaptureModel {
 
     public func failed(_ webView: any LoginWebView, _ error: any Error) {
         pageURL = LoginTrace.redact(webView.currentURL)
+        if callSetup?.isActive == true {
+            callSetup?.navigationFailed()
+            return
+        }
         // Worth surfacing rather than swallowing: if Google refuses an embedded
         // web view, this is where it shows up.
         status = "Navigation failed: \(error.localizedDescription)"
@@ -219,7 +214,7 @@ public final class CookieCaptureModel {
     /// refused to fire would be no escape - which is why the URL is redacted
     /// here rather than trusted to be Chat's own.
     public func capture() {
-        guard let webView else { return }
+        guard !hasCompleted, !isSaving, callSetup?.isActive != true, let webView else { return }
         let title = webView.currentTitle ?? ""
         let url = LoginTrace.redact(webView.currentURL)
         Task { @MainActor in
@@ -237,6 +232,7 @@ public final class CookieCaptureModel {
     /// belongs somewhere it can be tested against the real inventory, and the
     /// excluded cookies stay in the report so the next such defect is visible.
     private func record(_ cookies: [HTTPCookie], url: String, title: String) {
+        guard !hasCompleted, !isSaving, callSetup?.isActive != true else { return }
         let capture = CookieCapture(
             cookies: cookies.map {
                 CapturedCookie(
@@ -272,14 +268,24 @@ public final class CookieCaptureModel {
     /// about to replace this whole window. This writes the credential and,
     /// on success, goes straight to `onSaved()` with no message in between.
     private func attemptAutoSave(_ capture: CookieCapture) {
-        guard autoSaveAllowed, capture.session != nil, !hasAutoSaved else { return }
+        guard autoSaveAllowed, capture.session != nil, !hasAutoSaved, !isSaving, !hasCompleted else { return }
         hasAutoSaved = true
+        isSaving = true
         // Overwrites `capture.report.verdict`, which is a diagnostic line -
         // "PASS", "TOO EARLY" - meant for a person deciding whether to click
         // the button, not for someone watching sign-in complete on its own.
         status = "Signing in…"
         Task {
+            defer { isSaving = false }
             guard await writeToKeychain(capture) else { return }
+            await continueAfterChatSave(capture)
+        }
+    }
+
+    private func continueAfterChatSave(_ capture: CookieCapture) async {
+        if let callSetup, let webView {
+            callSetup.begin(webView, belongingTo: capture) { [weak self] in await self?.completeSignIn() }
+        } else {
             await completeSignIn()
         }
     }
@@ -315,14 +321,17 @@ public final class CookieCaptureModel {
     /// save is still in flight cannot exit this window twice.
     @discardableResult
     public func save() async -> Bool {
-        guard let capture = lastCapture else { return false }
+        guard !hasCompleted, !isSaving, callSetup?.isActive != true,
+              let capture = lastCapture else { return false }
+        isSaving = true
+        defer { isSaving = false }
         let saved = await writeToKeychain(capture)
         if saved {
             status = "Saved to the Keychain."
         }
         await refreshStoredSession()
         if saved {
-            await completeSignIn()
+            await continueAfterChatSave(capture)
         }
         return saved
     }

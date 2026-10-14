@@ -22,6 +22,7 @@ public enum MeetWebCaptureError: Error, Sendable, Equatable {
     case accountVerificationFailed(source: VerificationSource, issue: VerificationIssue)
     case accountMismatch
     case sessionChangedDuringVerification
+    case callSignInVerificationFailed
 
     public enum VerificationSource: String, Sendable {
         case storedChat = "Stored Chat"
@@ -61,6 +62,9 @@ public enum MeetWebCaptureError: Error, Sendable, Equatable {
     /// Fixed descriptions and status numbers only. Underlying errors may carry
     /// credential-bearing URLs, so they never become part of this text.
     public var verificationDescription: String? {
+        if self == .callSignInVerificationFailed {
+            return "Calling sign-in could not be verified."
+        }
         guard case let .accountVerificationFailed(source, issue) = self else { return nil }
         return "\(source.rawValue): \(issue.description)."
     }
@@ -86,15 +90,25 @@ public enum MeetWebCredentials {
 
     /// Saves only Meet-host cookies. Shared Google cookies still come from the
     /// Chat session, so a temporary WebKit sign-in cannot replace that account.
+    /// Normal login pins the exact preceding Chat capture; cookie rotations
+    /// may continue, but another login must not adopt this browser's cookies.
     public static func save(
         captured: [CapturedCookie],
         to store: KeychainCredentialStore,
+        expectedCapture: CookieCapture? = nil,
+        validatesCallSignIn: Bool = false,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints()
     ) async throws -> Int {
-        let selected = meetCookies(from: captured)
+        var selected = meetCookies(from: captured)
         guard !selected.isEmpty else { return 0 }
         guard let existing = try await store.currentSession() else { return 0 }
+        if let expectedCapture {
+            guard let expected = expectedCapture.session,
+                  expected.capturedAt == existing.capturedAt,
+                  expected.expiresAt == existing.expiresAt
+            else { throw MeetWebCaptureError.sessionChangedDuringVerification }
+        }
         guard let candidate = chatCookies(from: captured) else {
             throw MeetWebCaptureError.accountVerificationFailed(
                 source: .capturedBrowser, issue: .missingCookies
@@ -110,6 +124,11 @@ public enum MeetWebCredentials {
             for: candidate, source: .capturedBrowser, transport: transport, endpoints: endpoints
         )
         guard currentID == candidateID else { throw MeetWebCaptureError.accountMismatch }
+        if validatesCallSignIn {
+            selected = try await validatedCallCookies(
+                selected, expected: existing, store: store, transport: transport, endpoints: endpoints
+            )
+        }
         return try await store.mergeMeetCookies(selected, expectedStored: existing) ? selected.count : 0
     }
 

@@ -34,6 +34,7 @@ public actor MeetDMCallTrial {
     let transport: any HTTPTransport
     let endpoints: ChatEndpoints
     let expectedSession: StoredSessionSummary?
+    var sharedCredentials: SessionCredentials?
     var targets: [UUID: Target] = [:]
     var context: Context?
     var prepared: Prepared?
@@ -78,14 +79,12 @@ public actor MeetDMCallTrial {
             lines.append("Stored Chat session: present")
             try await loadProgress(.chatBootstrap, generation: currentGeneration, progress: progress)
             let wiz = try await Bootstrap(transport: transport).run(
-                cookies: stored.credential,
+                cookies: currentCookies(for: stored),
                 endpoints: endpoints
             )
             guard wiz.isSignedIn else { throw MeetDMCallTrialError.signedOut }
             lines.append("Chat bootstrap: accepted")
-            let credentials = SessionCredentials(stored.credential, onRotation: { [store] rotated in
-                try? await store.replaceCredential(with: rotated, belongingTo: stored)
-            })
+            let credentials = liveCredentials(for: stored)
             let chat = ProtoAPIClient(
                 transport: transport, endpoints: endpoints, credentials: credentials, xsrfToken: wiz.xsrfToken
             )

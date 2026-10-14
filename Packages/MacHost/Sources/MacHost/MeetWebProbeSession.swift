@@ -36,7 +36,7 @@ public enum MeetWebProbeSession {
             return try await MeetWebCredentials.save(captured: captured, to: KeychainCredentialStore())
         } catch let error as MeetWebCaptureError {
             switch error {
-            case .accountVerificationFailed:
+            case .accountVerificationFailed, .callSignInVerificationFailed:
                 throw MeetWebProbeSaveError.accountVerificationFailed(
                     detail: error.verificationDescription ?? "Account verification failed."
                 )

@@ -9,6 +9,7 @@ final class FakeLoginWebView: LoginWebView {
     var currentTitle: String?
     var cookies: [HTTPCookie] = []
     private(set) var cookieReadCount = 0
+    private(set) var destinations: [URL] = []
 
     init(url: String? = nil, title: String? = "Google Chat") {
         currentURL = url.flatMap(URL.init(string:))
@@ -18,6 +19,10 @@ final class FakeLoginWebView: LoginWebView {
     func allCookies() async -> [HTTPCookie] {
         cookieReadCount += 1
         return cookies
+    }
+
+    func navigate(to url: URL) {
+        destinations.append(url)
     }
 
     /// A cookie the capture report will accept as Chat's own. `COMPASS` and

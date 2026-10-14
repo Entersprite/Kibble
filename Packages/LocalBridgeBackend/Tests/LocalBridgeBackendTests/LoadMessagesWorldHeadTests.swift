@@ -14,10 +14,23 @@ private actor WorldHeadTransport: HTTPTransport {
     let world: HTTPResponse
     var topics: [HTTPResponse]
     private(set) var topicRequests: [HTTPRequest] = []
+    private let holdLatestRetry: Bool
+    private var latestRetry: CheckedContinuation<HTTPResponse, any Error>?
 
-    init(world: HTTPResponse, topics: [HTTPResponse]) {
+    var hasPendingLatestRetry: Bool {
+        latestRetry != nil
+    }
+
+    init(world: HTTPResponse, topics: [HTTPResponse], holdLatestRetry: Bool = false) {
         self.world = world
         self.topics = topics
+        self.holdLatestRetry = holdLatestRetry
+    }
+
+    func failHeldLatestRetry() {
+        let pending = latestRetry
+        latestRetry = nil
+        pending?.resume(throwing: ClassifiedTransportFailure(.other(domain: "NSURLErrorDomain", code: -999)))
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -31,6 +44,11 @@ private actor WorldHeadTransport: HTTPTransport {
         }
         if path.contains("/api/list_topics") {
             topicRequests.append(request)
+            if holdLatestRetry, topicRequests.count == 2 {
+                // Deliberately ignores cancellation until the test releases the
+                // classified result, as a transport callback can arrive later.
+                return try await withCheckedThrowingContinuation { latestRetry = $0 }
+            }
             guard !topics.isEmpty else { throw Exhausted() }
             return topics.removeFirst()
         }
@@ -173,5 +191,70 @@ struct LoadMessagesWorldHeadTests {
         let anchored = try ListTopicsRequest(serializedBytes: #require(requests.last?.body))
         #expect(anchored.hasFilter)
         #expect(anchored.filter.anchor.timeUsec > Self.headTime)
+    }
+
+    private func heldLatestFailure(cancelCaller: Bool) async throws -> ([ChatKit.Message], [ChatEvent]) {
+        let transport = try WorldHeadTransport(
+            world: Self.worldResponse(), topics: [Self.topicsResponse([Self.message(
+                "m-old",
+                at: Self.oldTime
+            )])],
+            holdLatestRetry: true
+        )
+        let backend = try LocalBridgeBackend(
+            cookies: #require(SessionCookies(header: "SID=a; COMPASS=b; OSID=c")), transport: transport
+        )
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+        let collected = Task { () -> [ChatEvent] in
+            var events: [ChatEvent] = []
+            for await event in backend.events {
+                events.append(event)
+                // A stream barrier: every retry event precedes explicit teardown.
+                if case .connectionStateChanged(.disconnected(reason: nil, issue: nil)) = event {
+                    return events
+                }
+            }
+            return events
+        }
+        let caller = Task { try await backend.loadMessages(in: Self.space, before: nil) }
+        for _ in 0 ..< 400 where await !transport.hasPendingLatestRetry {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await transport.hasPendingLatestRetry)
+        if cancelCaller {
+            caller.cancel()
+        }
+        await transport.failHeldLatestRetry()
+        let page = try await caller.value
+        let requests = await transport.topicRequests
+        #expect(requests.count == 2)
+        let anchored = try ListTopicsRequest(serializedBytes: #require(requests.last?.body))
+        #expect(anchored.filter.anchor.timeUsec == Self.headTime)
+        await backend.disconnect()
+        return await (page, collected.value)
+    }
+
+    private func newestRetryErrors(_ events: [ChatEvent]) -> [ChatError] {
+        events.compactMap {
+            guard case let .backendError(error) = $0,
+                  case let .transport(message) = error,
+                  message.contains("the newest /api/ list_topics call") else { return nil }
+            return error
+        }
+    }
+
+    @Test func cancelledLatestRetryDoesNotPublishAConnectionProblemForIntentionalTeardown() async throws {
+        let (page, events) = try await heldLatestFailure(cancelCaller: true)
+        #expect(page.map(\.id.rawValue) == ["m-old"])
+        #expect(newestRetryErrors(events).isEmpty)
+    }
+
+    @Test func uncancelledLatestRetryStillReportsSameTransportCodeAndKeepsFirstPage() async throws {
+        let (page, events) = try await heldLatestFailure(cancelCaller: false)
+        #expect(page.map(\.id.rawValue) == ["m-old"])
+        #expect(newestRetryErrors(events) == [.transport(
+            "the newest /api/ list_topics call: transport error (NSURLErrorDomain -999)"
+        )])
     }
 }

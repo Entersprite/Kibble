@@ -266,3 +266,56 @@ struct MeetWebCookieSeedTests {
         #expect(saved.capturedAt == capturedAt)
     }
 }
+
+extension MeetWebCookieSeedTests {
+    @Test(arguments: [false, true])
+    func anotherSameAccountLoginBeforeVerificationCannotAdoptOldBrowserCookies(
+        changesExpiry: Bool
+    ) async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "pinned-meet-test")
+        let capture = CookieCapture(
+            cookies: [captured("SID", domain: ".google.com")],
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            pageURL: "https://chat.google.com/", pageTitle: "Google Chat"
+        )
+        #expect(try await capture.save(to: store))
+        let original = try #require(try await store.currentSession())
+        let replacement = StoredSession(
+            credential: original.credential,
+            capturedAt: changesExpiry ? original.capturedAt : original.capturedAt.addingTimeInterval(1),
+            expiresAt: changesExpiry ? original.capturedAt.addingTimeInterval(9 * 86400) : nil
+        )
+        try await store.store(replacement)
+        let transport = try identityTransport(current: "same-user", candidate: "same-user")
+        await #expect(throws: MeetWebCaptureError.sessionChangedDuringVerification) {
+            try await MeetWebCredentials.save(captured: [
+                captured("SID", domain: ".google.com"), captured("MOSID", domain: "meet.google.com")
+            ], to: store, expectedCapture: capture, transport: transport)
+        }
+        #expect(await transport.sent.isEmpty)
+        #expect(try await store.currentSession() == replacement)
+    }
+
+    @Test func thePinnedLoginCanRotateAndStillMergeOnlyFreshMeetCookies() async throws {
+        let store = KeychainCredentialStore(storage: FakeSecretStorage(), account: "pinned-rotated-meet-test")
+        let capture = CookieCapture(
+            cookies: [captured("SID", domain: ".google.com")],
+            capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            pageURL: "https://chat.google.com/", pageTitle: "Google Chat"
+        )
+        #expect(try await capture.save(to: store))
+        let rotated = try #require(SessionCookies(cookies: [
+            .init(name: "SID", value: "current-chat", domain: ".google.com", path: "/")
+        ]))
+        try await store.replaceCredential(with: rotated)
+        let transport = try identityTransport(current: "same-user", candidate: "same-user")
+        #expect(try await MeetWebCredentials.save(captured: [
+            captured("SID", domain: ".google.com"), captured("MOSID", domain: "meet.google.com")
+        ], to: store, expectedCapture: capture, transport: transport) == 1)
+        let stored = try #require(try await store.currentSession())
+        #expect(stored.credential["SID"] == "current-chat")
+        #expect(stored.credential.cookies.map(\.name) == ["SID", "MOSID"])
+        #expect(stored.capturedAt == capture.report.capturedAt)
+        #expect(await transport.sent.count == 4)
+    }
+}

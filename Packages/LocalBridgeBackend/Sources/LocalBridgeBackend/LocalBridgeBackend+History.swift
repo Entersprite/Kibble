@@ -132,6 +132,10 @@ public extension LocalBridgeBackend {
             )
             return Self.merged(page, newer.messages)
         } catch {
+            // Selection changes and teardown deliberately cancel this request.
+            // Its nested retry must not bypass the caller's cancellation guard
+            // by publishing an error directly into the shared event stream.
+            guard !Task.isCancelled else { return page }
             // The first page still has useful history. Report the failed
             // retry without discarding what already loaded.
             emit(.backendError(Self.chatError(fromAPI: error, call: "the newest /api/ list_topics call")))
