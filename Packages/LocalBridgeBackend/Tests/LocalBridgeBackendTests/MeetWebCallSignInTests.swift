@@ -27,7 +27,7 @@ struct MeetWebCallSignInTests {
         }
     }
 
-    private func cookie(_ name: String, domain: String) -> CapturedCookie {
+    private func cookie(_ name: String, domain: String, expiresAt: Date? = nil) -> CapturedCookie {
         CapturedCookie(
             name: name,
             value: "fresh-" + name,
@@ -35,11 +35,15 @@ struct MeetWebCallSignInTests {
             path: "/",
             isSecure: true,
             isHTTPOnly: true,
-            expiresAt: nil
+            expiresAt: expiresAt
         )
     }
 
-    private func setup(_ shell: Result<HTTPResponse, any Error>) async throws -> Setup {
+    private func setup(
+        _ shell: Result<HTTPResponse, any Error>,
+        capturedAt: Date = Date(timeIntervalSince1970: 1_700_000_000),
+        expiresAt: Date? = nil
+    ) async throws -> Setup {
         var status = GetSelfUserStatusResponse()
         status.userStatus.userID.id = "same-account"
         let identity = try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: status.serializedBytes())
@@ -49,8 +53,8 @@ struct MeetWebCallSignInTests {
             shell
         ])
         let capture = CookieCapture(
-            cookies: [cookie("SID", domain: ".google.com")],
-            capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            cookies: [cookie("SID", domain: ".google.com", expiresAt: expiresAt)],
+            capturedAt: capturedAt,
             pageURL: "https://chat.google.com/", pageTitle: "Google Chat"
         )
         let store = KeychainCredentialStore(storage: Storage(), account: "call-sign-in")
@@ -109,6 +113,58 @@ struct MeetWebCallSignInTests {
         let request = try #require(await setup.transport.sent.last)
         #expect(request.headers["Cookie"]?.contains("OTZ=fresh-OTZ") == true)
         #expect(request.headers["Cookie"]?.contains("SID=fresh-SID") == true)
+    }
+
+    @Test(arguments: [false, true])
+    func fractionalCaptureSurvivesKeychainDateEncodingDuringCallSetup(expiry: Bool) async throws {
+        // Adding the Unix epoch offset loses one bit at current capture dates.
+        let fractional = Date(timeIntervalSinceReferenceDate: 813_683_184.0000001)
+        let setup = try await setup(
+            MeetDMCallTrialTests().preparingResponses()[0],
+            capturedAt: expiry ? Date(timeIntervalSinceReferenceDate: 813_683_184) : fractional,
+            expiresAt: expiry ? fractional : nil
+        )
+        let originalCapture = try #require(setup.capture.session)
+        if expiry {
+            #expect(originalCapture.expiresAt != setup.original.expiresAt)
+        } else {
+            #expect(originalCapture.capturedAt != setup.original.capturedAt)
+        }
+        #expect(originalCapture.capturedAt.timeIntervalSince1970
+            == setup.original.capturedAt.timeIntervalSince1970)
+        #expect(originalCapture.expiresAt?.timeIntervalSince1970
+            == setup.original.expiresAt?.timeIntervalSince1970)
+        let count = try await MeetWebCredentials.save(
+            captured: setup.cookies, to: setup.store, expectedCapture: setup.capture,
+            validatesCallSignIn: true, transport: setup.transport
+        )
+        #expect(count == 1)
+        #expect(await setup.transport.sent.count == 5)
+        let stored = try #require(try await setup.store.currentSession())
+        #expect(stored.capturedAt == setup.original.capturedAt)
+        #expect(stored.credential["OTZ"] == "fresh-OTZ")
+    }
+
+    @Test(arguments: [false, true])
+    func distinctStoredMetadataStillRejectsCallCookiesBeforeVerification(expiry: Bool) async throws {
+        let date = Date(timeIntervalSinceReferenceDate: 813_683_184)
+        let setup = try await setup(
+            MeetDMCallTrialTests().preparingResponses()[0], capturedAt: date, expiresAt: date
+        )
+        let replacement = StoredSession(
+            credential: setup.original.credential,
+            capturedAt: expiry ? date : date.addingTimeInterval(0.000001),
+            expiresAt: expiry ? date.addingTimeInterval(0.000001) : date
+        )
+        try await setup.store.store(replacement)
+        await #expect(throws: MeetWebCaptureError.sessionChangedDuringVerification) {
+            try await MeetWebCredentials.save(
+                captured: setup.cookies, to: setup.store, expectedCapture: setup.capture,
+                validatesCallSignIn: true, transport: setup.transport
+            )
+        }
+        #expect(await setup.transport.sent.isEmpty)
+        #expect(try await setup.store.currentSession() == replacement)
     }
 
     @Test func anotherLoginDuringCallingShellValidationCannotReceiveVerifiedCookies() async throws {

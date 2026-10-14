@@ -104,9 +104,12 @@ public enum MeetWebCredentials {
         guard !selected.isEmpty else { return 0 }
         guard let existing = try await store.currentSession() else { return 0 }
         if let expectedCapture {
+            // Compare the Unix seconds actually encoded by the Keychain store.
+            // Converting Date's reference epoch to Unix seconds can round away
+            // one bit; a raw Date comparison would reject the same saved login.
             guard let expected = expectedCapture.session,
-                  expected.capturedAt == existing.capturedAt,
-                  expected.expiresAt == existing.expiresAt
+                  expected.capturedAt.timeIntervalSince1970 == existing.capturedAt.timeIntervalSince1970,
+                  expected.expiresAt?.timeIntervalSince1970 == existing.expiresAt?.timeIntervalSince1970
             else { throw MeetWebCaptureError.sessionChangedDuringVerification }
         }
         guard let candidate = chatCookies(from: captured) else {
