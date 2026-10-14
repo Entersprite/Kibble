@@ -27,9 +27,12 @@ Fixtures/raw/
 *cookies*.json
 *.p12
 
-# Kept on this machine, never published: project notes, agent instructions,
-# spikes, and brainstorming scratch
+# Private material lives in the separate KibbleDocs repository. Local links
+# created by scripts/setup-private-docs.sh must never enter this public tree.
 /docs/
-/CLAUDE.md
+/docs
 /Spikes/
+/Spikes
 /.superpowers/
+/.superpowers
+/reference
