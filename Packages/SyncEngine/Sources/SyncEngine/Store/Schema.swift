@@ -51,6 +51,7 @@ enum Schema {
             ) WHERE isRemoved = 1
             """)
         }
+        migrator.registerMigration("v17", migrate: addConversationActivity)
         return migrator
     }
 

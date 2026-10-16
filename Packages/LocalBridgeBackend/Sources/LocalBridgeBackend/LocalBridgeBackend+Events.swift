@@ -14,6 +14,9 @@ extension LocalBridgeBackend {
         if case let .conversationUnreadMarkChanged(id, at) = event {
             conversationDetails[id]?.readState.markAsUnreadTimestampUsec = at.map(Microseconds.from) ?? 0
         }
+        if case let .readReceiptsChanged(update) = event {
+            receiptRevisions[update.conversationID, default: 0] += 1
+        }
         continuation.yield(event)
     }
 }

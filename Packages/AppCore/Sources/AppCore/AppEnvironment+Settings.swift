@@ -8,10 +8,13 @@ extension AppEnvironment {
     /// Points the engine's receipts gate at the settings, now and on every
     /// change. `nil` settings - no account - withholds (spec §3.1).
     func beginSettingsSession(engine: SyncEngine) {
+        let typingGate = engine.typingPrivacy
         let gate = engine.readReceipts
         receiptGate = gate
         let apply: @MainActor (NotificationSettings?) -> Void = { current in
             gate.set(current.map(ReadReceiptPolicy.resolve) ?? .withhold)
+            typingGate.set(current)
+            Task { await engine.typingSettingsChanged() }
         }
         apply(settings.account == nil ? nil : settings.settings)
         settings.onChange = apply

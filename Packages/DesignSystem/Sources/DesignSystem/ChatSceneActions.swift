@@ -5,6 +5,7 @@ import Foundation
 /// wire them to anything, including nothing.
 @MainActor
 public struct ChatSceneActions {
+    public var typingActivity: ((Conversation.ID, MessageThread.ID?, Bool) -> Void)?
     public var select: (Conversation.ID) -> Void
     public var send: (ComposedMessage) -> Void
 
@@ -158,6 +159,7 @@ public struct ChatSceneActions {
     public var loadNewerMessages: (() -> Void)?
 
     public init(
+        typingActivity: ((Conversation.ID, MessageThread.ID?, Bool) -> Void)? = nil,
         select: @escaping (Conversation.ID) -> Void = { _ in },
         send: @escaping (ComposedMessage) -> Void = { _ in },
         signIn: (() -> Void)? = nil,
@@ -193,6 +195,7 @@ public struct ChatSceneActions {
         loadOlderMessages: (() -> Void)? = nil,
         loadNewerMessages: (() -> Void)? = nil
     ) {
+        self.typingActivity = typingActivity
         self.select = select
         self.send = send
         self.signIn = signIn

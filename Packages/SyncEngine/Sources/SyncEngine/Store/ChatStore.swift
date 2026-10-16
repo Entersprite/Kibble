@@ -46,6 +46,8 @@ public extension ChatStore {
 
     private static func perform(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case .setScopedTyping, .setReadReceipts, .clearActivityTyping:
+            try performActivityWrite(write, in: db)
         case .removeConversation, .setConversationUnreadMark:
             try performConversationActionWrite(write, in: db)
         case .replaceConversations, .upsertConversation, .restoreConversation, .upsertMembers, .setMembership:
@@ -255,6 +257,9 @@ public extension ChatStore {
         case let .setMentionBackfill(status):
             try setMentionBackfill(status, in: db)
         case .clearEphemeralState:
+            try db.execute(sql: "DELETE FROM activityTyping")
+            try db.execute(sql: "DELETE FROM receiptAvailability")
+            try db.execute(sql: "DELETE FROM readReceipt")
             try db.execute(sql: "DELETE FROM typing")
             try db.execute(sql: "UPDATE member SET presence = NULL, status = NULL, calendar = NULL")
             // The connection state, the last error, your availability and the

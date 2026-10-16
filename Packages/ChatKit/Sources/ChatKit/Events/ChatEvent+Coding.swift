@@ -11,6 +11,7 @@ import Foundation
 /// `WireEncoding.unhandled` plus a test per case is what replaces that.
 extension ChatEvent {
     enum CodingKeys: String, CodingKey {
+        case activity
         case type
         case state
         case conversations
@@ -52,6 +53,8 @@ extension ChatEvent {
         case messageUpdated
         case messageDeleted
         case reactionChanged
+        case scopedTypingChanged
+        case readReceiptsChanged
         case typingChanged
         case readStateChanged
         case membersChanged
@@ -155,6 +158,10 @@ extension ChatEvent {
         from container: KeyedDecodingContainer<CodingKeys>
     ) throws -> ChatEvent? {
         switch tag {
+        case Tag.scopedTypingChanged.rawValue:
+            try .scopedTypingChanged(container.decode(TypingUpdate.self, forKey: .activity))
+        case Tag.readReceiptsChanged.rawValue:
+            try .readReceiptsChanged(container.decode(ReadReceiptUpdate.self, forKey: .activity))
         case Tag.typingChanged.rawValue:
             try .typingChanged(
                 conversationID: container.decode(
@@ -306,6 +313,12 @@ extension ChatEvent {
         into container: inout KeyedEncodingContainer<CodingKeys>
     ) throws -> Bool {
         switch self {
+        case let .scopedTypingChanged(update):
+            try container.encode(Tag.scopedTypingChanged.rawValue, forKey: .type)
+            try container.encode(update, forKey: .activity)
+        case let .readReceiptsChanged(update):
+            try container.encode(Tag.readReceiptsChanged.rawValue, forKey: .type)
+            try container.encode(update, forKey: .activity)
         case let .typingChanged(conversationID, member, isTyping):
             try container.encode(Tag.typingChanged.rawValue, forKey: .type)
             try container.encode(conversationID, forKey: .conversationID)

@@ -30,6 +30,8 @@ public struct ChatSceneState: Sendable, Equatable {
     public var newerMessagesAreLatestJump: Bool
     public var hasNewerMessages: Bool
     public var isLoadingNewerMessages: Bool
+    public var activity: ConversationActivity
+    public var pendingMessages: Set<Message.ID>
     public var typing: [Member.ID]
     public var connection: ConnectionState
     /// Supplied by the host for connection diagnostics; `nil` uses neutral wording.
@@ -127,6 +129,7 @@ public struct ChatSceneState: Sendable, Equatable {
         newerMessagesAreLatestJump: Bool = false,
         isLoadingNewerMessages: Bool = false,
         typing: [Member.ID] = [],
+        activity: ConversationActivity = ConversationActivity(), pendingMessages: Set<Message.ID> = [],
         connection: ConnectionState = .idle,
         connectionService: ConnectionService? = nil,
         lastError: ChatError? = nil,
@@ -165,6 +168,8 @@ public struct ChatSceneState: Sendable, Equatable {
         self.newerMessagesAreLatestJump = newerMessagesAreLatestJump
         self.isLoadingNewerMessages = isLoadingNewerMessages
         self.typing = typing
+        self.activity = activity
+        self.pendingMessages = pendingMessages
         self.connection = connection
         self.connectionService = connectionService
         self.lastError = lastError

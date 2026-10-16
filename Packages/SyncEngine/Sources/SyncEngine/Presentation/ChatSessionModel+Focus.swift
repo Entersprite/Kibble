@@ -11,6 +11,9 @@ public extension ChatSessionModel {
     func setActive(_ active: Bool) {
         guard active != isActive else { return }
         isActive = active
+        if !active {
+            stopTyping()
+        }
         if active {
             // Another client can mark a message unread, post a new root, or
             // delete one while this window is away. The channel does not

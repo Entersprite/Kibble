@@ -108,6 +108,7 @@ struct ThreadPanel: View {
         if state.capabilities.canSendMessages, let conversation = state.selectedConversation {
             Composer(
                 placeholder: "the thread",
+                activity: { actions.typingActivity?(panel.thread.conversationID, panel.thread.id, $0) },
                 attachments: panel.stagedAttachments,
                 attachmentActions: threads.attachments,
                 mentions: state.capabilities.canMention
@@ -209,6 +210,18 @@ struct ThreadPanelList: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .environment(\.openURL, LinkPolicy.openURLAction)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if state.capabilities.receivesTypingState {
+                    HStack {
+                        let typists = ActivityPresentation.typists(state, thread: panel.thread.id)
+                        if !typists.isEmpty {
+                            TypingIndicator(members: typists, directory: state.directory, namesVisible: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
+                    .padding(.horizontal, 12)
+                }
             }
             .onChange(of: TranscriptScroll.Trigger(panel), initial: true) {
                 switch ThreadPanelScroll.destination(panel: panel, honored: honored) {

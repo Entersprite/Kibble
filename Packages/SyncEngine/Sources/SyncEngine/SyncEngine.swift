@@ -18,6 +18,17 @@ public actor SyncEngine {
     /// Not `private`: `SyncEngine+MentionBackfill.swift` reads and writes it.
     let store: ChatStore
     private var consumer: Task<Void, Never>?
+    let typingTiming: TypingTiming
+    var typingLeases: [TypingKey: TypingLease] = [:]
+    var typingExpiry: Task<Void, Never>?
+    var activityRunning = false
+    public nonisolated let typingPrivacy = TypingPrivacyGate()
+    var typingPublisher: Task<Void, Never>?
+    var typingPublisherGeneration = 0
+    var desiredTyping: TypingUpdate?
+    var typingLastSent: ContinuousClock.Instant?
+    var sentTyping: TypingUpdate?
+    var typingIdle: Task<Void, Never>?
 
     /// Whether this client is refusing to publish anything about itself.
     ///
@@ -26,10 +37,9 @@ public actor SyncEngine {
     /// `readReceipts` field, read at submit time through the gate below
     /// (`ReadReceiptGate`); the old hidden `ghostMode` preference migrates
     /// into the first real account's global rule (`NotificationSettingsModel`,
-    /// in `AppCore`). The switch is kept, unused, as the hook a future
-    /// typing-indicator slice needs: it still suppresses `.setTyping`, which no
-    /// rule field covers yet. See `GhostModeTests`' own doc comment for what it
-    /// does and does not cover - in particular the `PingEvent` fields it
+    /// in `AppCore`). The switch remains for legacy callers: it still suppresses `.setTyping`; the current
+    /// account rule and submission-time typing gate govern ordinary composition.
+    /// See `GhostModeTests` for what it does and does not cover - in particular the `PingEvent` fields it
     /// cannot reach.
     private var ghostMode = false
     var conversationMutationVersion = 0
@@ -92,8 +102,10 @@ public actor SyncEngine {
     var followedThreadsTask: Task<Void, Never>?
 
     public init(
-        backend: any ChatBackend, store: ChatStore, mentionClock: (@Sendable () -> Date)? = nil
+        backend: any ChatBackend, store: ChatStore, mentionClock: (@Sendable () -> Date)? = nil,
+        typingTiming: TypingTiming = TypingTiming()
     ) {
+        self.typingTiming = typingTiming
         self.backend = backend
         self.store = store
         self.mentionClock = mentionClock
@@ -108,6 +120,7 @@ public actor SyncEngine {
     public func start() async throws {
         guard consumer == nil else { return }
         try store.apply([.clearEphemeralState])
+        activityRunning = true
         let stream = backend.events
         consumer = Task { [weak self] in
             for await event in stream {
@@ -126,6 +139,16 @@ public actor SyncEngine {
     /// this returns no further event can reach the store. A test - or a window
     /// closing - can then rely on the store standing still.
     public func stop() async {
+        activityRunning = false
+        typingIdle?.cancel()
+        desiredTyping = nil
+        typingPublisher?.cancel()
+        typingPublisherGeneration += 1
+        typingPublisher = nil
+        sentTyping = nil
+        typingExpiry?.cancel()
+        typingLeases = [:]
+        try? store.apply([.clearActivityTyping])
         consumer?.cancel()
         await consumer?.value
         consumer = nil
@@ -280,6 +303,11 @@ public extension SyncEngine {
             return true
         }
         switch command {
+        case let .setTyping(id, _, true):
+            guard let conversation = (try? store.conversations())?.first(where: { $0.id == id }) else {
+                return true
+            }
+            return !typingPrivacy.allows(conversation)
         case let .markRead(conversationID, _), let .markThreadRead(conversationID, _, _),
              let .setThreadUnreadMark(conversationID, _, nil):
             return !receiptsAllowed(in: conversationID)
@@ -299,7 +327,7 @@ public extension SyncEngine {
             true
         case .sendMessage, .editMessage, .deleteMessage, .setReaction, .setThreadUnreadMark,
              .setNotificationLevel, .watchPresence, .loadMembers, .setStatus, .setAvailability,
-             .conversationAction, .unknown:
+             .conversationAction, .watchConversationActivity, .unknown:
             // `.watchPresence` and `.loadMembers` ask about other people and
             // say nothing about this one. Setting your own status is an act,
             // and an unread mark is yours alone.

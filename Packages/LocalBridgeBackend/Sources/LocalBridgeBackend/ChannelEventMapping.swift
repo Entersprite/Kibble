@@ -59,7 +59,7 @@ public enum ChannelEventMapping {
         case .blockStateChanged, .userRemovedFromGroup, .membershipChanged:
             .gap(scope: .everything, reason: "Conversation state changed on the service.")
         default:
-            threadEvent(in: body) ?? routed(body)
+            ActivityMapping.event(body) ?? threadEvent(in: body) ?? routed(body)
         }
     }
 

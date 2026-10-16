@@ -6,6 +6,10 @@ import SwiftUI
 struct MessageBubble: View {
     let message: Message
     let state: MessageRowState
+    var receiptDirectory: [Member.ID: Member] = [:]
+    var receiptReaders: [Member.ID] = []
+    var receiptSlot = false
+    var groupReceipt = false
     var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
     var openAttachment: ((Attachment) async throws -> URL)?
     var loadRemoteImage: ((URL) async throws -> Data)?
@@ -109,6 +113,19 @@ struct MessageBubble: View {
                         loadImage: reactions?.customImage,
                         onAdd: reactions == nil || message.isDeleted ? nil : { picking = true }
                     )
+                }
+                if receiptSlot, isMine, !message.isDeleted, !message.isReply {
+                    HStack {
+                        Spacer(minLength: 0)
+                        if !receiptReaders.isEmpty {
+                            ReadReceiptLabel(
+                                readers: receiptReaders,
+                                directory: receiptDirectory,
+                                group: groupReceipt
+                            )
+                        }
+                    }
+                    .frame(height: 14)
                 }
                 if let mark = ThreadMark(
                     thread: state.thread,

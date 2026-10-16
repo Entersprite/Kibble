@@ -2,6 +2,12 @@ import ChatKit
 import Foundation
 
 public extension SyncEngine {
+    /// Receive-only interest, independent of outgoing sharing and receipt preferences.
+    func watchConversationActivity(_ conversation: Conversation.ID?) async {
+        guard backend.capabilities.receivesTypingState, !Task.isCancelled else { return }
+        try? await backend.send(.watchConversationActivity(conversationID: conversation))
+    }
+
     /// Names `conversation`'s stored senders to the backend as on screen, so
     /// their presence is asked about now rather than never.
     ///

@@ -51,7 +51,7 @@ public extension FakeBackend {
         switch step {
         case .incomingMessage, .editMessage, .deleteMessage, .reaction:
             try applyContentStep(step)
-        case .typing, .presence, .readState:
+        case .scopedTyping, .receipts, .typing, .presence, .readState:
             try applyStateStep(step)
         case .gap, .drop, .reconnecting, .error, .delay:
             applyChannelStep(step)
@@ -89,6 +89,13 @@ private extension FakeBackend {
     /// Ephemeral state about people and conversations.
     func applyStateStep(_ step: FixtureStep) throws {
         switch step {
+        case let .scopedTyping(update):
+            try requireExists(update.conversationID)
+            try requireExists(update.member)
+            emit(.scopedTypingChanged(update))
+        case let .receipts(update):
+            try requireExists(update.conversationID)
+            emit(.readReceiptsChanged(update))
         case let .typing(conversation, member, isTyping):
             try requireExists(conversation)
             try requireExists(member)

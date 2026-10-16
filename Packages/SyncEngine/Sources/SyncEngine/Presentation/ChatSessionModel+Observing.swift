@@ -69,9 +69,14 @@ extension ChatSessionModel {
     /// belongs to the conversation it was opened in (threads spec §4.3,
     /// "switching conversation closes the panel").
     func selectionMoved(to id: Conversation.ID) {
+        watchConversationActivity()
+        stopTyping()
+        activity = ConversationActivity()
         closeThread()
         threads.showingList = false
         threads.summaries = [:]
+        conversationWatchers
+            .append(observe(store.observeActivity(in: id)) { [weak self] in self?.activity = $0 })
         conversationWatchers.append(
             observe(store.observeTypingMembers(in: id)) { [weak self] in self?.typing = $0 }
         )

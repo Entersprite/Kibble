@@ -64,6 +64,9 @@ extension ChatStore {
                 try clearConversationHistory(id, through: before, in: db)
             }
             try db.execute(sql: "DELETE FROM typing WHERE conversationID = ?", arguments: [id.rawValue])
+            for table in ["activityTyping", "receiptAvailability", "readReceipt"] {
+                try db.execute(sql: "DELETE FROM \(table) WHERE conversationID = ?", arguments: [id.rawValue])
+            }
         case let .setConversationUnreadMark(id, at):
             try db.execute(
                 sql: """

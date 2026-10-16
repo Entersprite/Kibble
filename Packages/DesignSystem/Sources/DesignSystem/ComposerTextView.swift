@@ -34,6 +34,7 @@
         var insertion: ComposerInsertion?
         /// Bumped to start system dictation in the field (the waveform).
         var dictationRequest = 0
+        var onActivity: ((Bool) -> Void)?
 
         static let maxLines = 6
 
@@ -181,9 +182,14 @@
                 if view.string != parent.draft.text {
                     parent.draft.edit(view.string)
                 }
+                parent.onActivity?(!view.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 ComposerStyle.apply(parent.draft.tokens, to: view)
                 parent.draft.moveCaret(to: view.selectedRange().location)
                 reportAnchor(in: view)
+            }
+
+            func textDidEndEditing(_ notification: Notification) {
+                parent.onActivity?(false)
             }
 
             func textViewDidChangeSelection(_ notification: Notification) {

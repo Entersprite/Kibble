@@ -11,6 +11,7 @@ import SwiftUI
 /// that cannot do anything is the mistake `ChatWindow` refuses to make with its
 /// "cannot send messages yet" text. Measurements are `ComposerLayout`'s.
 public struct Composer: View {
+    let activity: ((Bool) -> Void)?
     let placeholder: String
     let send: (ComposedMessage) -> Void
 
@@ -33,7 +34,7 @@ public struct Composer: View {
     /// `nil` draws no emoji button.
     let emoji: ReactionActions?
 
-    @State private var draft = ComposerDraft()
+    @State var draft = ComposerDraft()
     @FocusState private var isFocused: Bool
     /// Bumped to put the caret in the macOS field (`ComposerTextView`).
     @State private var focusRequest = 0
@@ -47,12 +48,13 @@ public struct Composer: View {
     /// meanwhile can hand it back.
     @State private var checking: ComposedMessage?
     /// The picked emoji, for the macOS field to put in (`ComposerTextView`).
-    @State private var insertion: ComposerInsertion?
+    @State var insertion: ComposerInsertion?
     /// Bumped by the waveform (`ComposerTextView`).
     @State private var dictationRequest = 0
 
     public init(
         placeholder: String,
+        activity: ((Bool) -> Void)? = nil,
         restoring: ComposedMessage? = nil,
         onRestored: (() -> Void)? = nil,
         attachments: [ComposerAttachment] = [],
@@ -62,6 +64,7 @@ public struct Composer: View {
         emoji: ReactionActions? = nil,
         send: @escaping (ComposedMessage) -> Void
     ) {
+        self.activity = activity
         self.placeholder = placeholder
         self.restoring = restoring
         self.onRestored = onRestored
@@ -129,6 +132,7 @@ public struct Composer: View {
         // mid-check, or with the confirmation up): it goes back to this
         // conversation's draft rather than being lost (review finding 2).
         .onDisappear {
+            activity?(false)
             if let unsent = pendingInvite?.message ?? checking {
                 mentions?.keepHere?(unsent)
             }
@@ -151,6 +155,11 @@ public struct Composer: View {
         } message: { _ in
             Text("Adding them lets them see this message.")
         }
+        .modifier(ComposerActivityReporting(
+            empty: draft.text.isEmpty,
+            editing: draft.editing != nil,
+            report: activity
+        ))
         .onChange(of: editing?.request, initial: true) { _, request in
             begin(request)
         }
@@ -207,14 +216,6 @@ public struct Composer: View {
     /// On macOS at the caret, through the text view, so it can be undone and
     /// mentions after it move (`ComposerTextView.Coordinator.insert`). The
     /// `TextField` elsewhere reports no caret, so `draft.caret` is the end.
-    private func insert(_ text: String) {
-        #if os(macOS)
-            insertion = ComposerInsertion(text: text)
-        #else
-            draft.replace(location: draft.caret, length: 0, with: text)
-        #endif
-    }
-
     /// The field: an `NSTextView` on macOS, for tokens and a caret the `@`
     /// list can follow; a `TextField` elsewhere, with no mentions.
     @ViewBuilder private var text: some View {
@@ -233,7 +234,8 @@ public struct Composer: View {
                 ),
                 escCancels: ComposerEditKeys.escCancels(draft: draft, listOpen: !suggestions.isEmpty),
                 insertion: insertion,
-                dictationRequest: dictationRequest
+                dictationRequest: dictationRequest,
+                onActivity: { activity?(draft.editing == nil && $0) }
             )
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
@@ -309,14 +311,13 @@ public struct Composer: View {
 
     private func pick(_ suggestion: MentionSuggestion) {
         draft.pick(suggestion.target, name: suggestion.name)
+        if draft.editing == nil {
+            activity?(!draft.composed().text.isEmpty)
+        }
         highlighted = 0
         if suggestion.outsideConversation, case let .user(id) = suggestion.target {
             mentions?.outsidePicked?(id)
         }
-    }
-
-    private var trimmed: String {
-        draft.composed().text
     }
 
     /// Text, or a staged file that is not already on its way.

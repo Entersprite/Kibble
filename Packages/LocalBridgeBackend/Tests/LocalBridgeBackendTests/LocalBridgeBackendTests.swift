@@ -140,6 +140,7 @@ struct LocalBridgeBackendTests {
         #expect(!backend.capabilities.needsFollowedThreadsBackfill)
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
+            canSendTypingState: true, receivesTypingState: true, receivesReadReceipts: true,
             canSetStatus: true, canMarkRead: true,
             canMarkUnread: true, canHideConversations: true, canBlockConversations: true,
             canLeaveConversations: true, canDeleteConversations: true, canOpenDirectConversations: true,

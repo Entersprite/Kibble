@@ -27,6 +27,8 @@ public enum FixtureStep: Sendable, Hashable {
     case editMessage(id: Message.ID, text: String)
     case deleteMessage(id: Message.ID)
     case reaction(messageID: Message.ID, emoji: String, by: Member.ID, add: Bool)
+    case scopedTyping(TypingUpdate)
+    case receipts(ReadReceiptUpdate)
     case typing(conversation: Conversation.ID, member: Member.ID, isTyping: Bool)
     case presence(member: Member.ID, presence: Presence)
 

@@ -50,6 +50,7 @@ public extension ChatSessionModel {
     /// because it covers what was on screen. A manual Mark as Unread's hold
     /// ends here (spec §4.3).
     func closeThread() {
+        stopTyping()
         for task in threads.work.panelTasks {
             task.cancel()
         }
