@@ -112,6 +112,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// Bumped by `disconnect()`, so an on-demand lookup that answers
     /// afterwards can tell its session has gone. A counter, not a held task:
     /// those lookups are many and short.
+    var receiptRevisions: [Conversation.ID: Int] = [:]
     var directoryGeneration = 0
     var discoverableManagementSpaces: Set<Conversation.ID> = []
     var managementOperations: [String: ManagementOperation] = [:]

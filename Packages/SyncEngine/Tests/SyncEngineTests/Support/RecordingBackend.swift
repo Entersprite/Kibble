@@ -22,10 +22,9 @@ actor RecordingBackend: ChatBackend {
 
     nonisolated let inner: FakeBackend
     private(set) var commands: [ChatCommand] = []
-    /// Every `.watchPresence`, kept out of `commands`: it is sent on every
-    /// selection, and would otherwise race a mark for `commands.last` in
-    /// tests that are about marks.
+    /// Receive hints stay separate from semantic commands, so selection cannot race mark assertions.
     private(set) var watches: [[Member.ID]] = []
+    private(set) var activityWatches: [Conversation.ID?] = []
     private var failing = false
     private var holding = false
     private var accepting = false
@@ -249,6 +248,10 @@ actor RecordingBackend: ChatBackend {
     }
 
     func send(_ command: ChatCommand) async throws {
+        if case let .watchConversationActivity(id) = command {
+            activityWatches.append(id)
+            return
+        }
         if case let .watchPresence(members) = command {
             watches.append(members)
             try await inner.send(command)

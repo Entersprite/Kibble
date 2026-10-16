@@ -54,6 +54,7 @@ public extension AppEnvironment {
             newerMessagesAreLatestJump: model.newerMessagesAreLatestJump,
             isLoadingNewerMessages: model.isLoadingNewerMessages,
             typing: model.typing,
+            activity: model.activity, pendingMessages: model.pendingMessageIDs,
             connection: model.connectionState,
             connectionService: connectionService,
             lastError: model.lastError,
@@ -153,7 +154,11 @@ public extension AppEnvironment {
     /// unconditional retry stays the only recovery path, which is the part
     /// that was actually asked for.
     var actions: ChatSceneActions {
+        let activityModel = runningModel
         var actions = ChatSceneActions(
+            typingActivity: { [weak activityModel] conversation, thread, active in
+                activityModel?.reportTyping(in: conversation, thread: thread, active: active)
+            },
             select: { [weak self] id in
                 guard case let .running(model) = self?.phase else { return }
                 model.select(id)

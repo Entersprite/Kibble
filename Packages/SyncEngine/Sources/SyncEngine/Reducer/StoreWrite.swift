@@ -134,6 +134,10 @@ public enum StoreWrite: Sendable, Equatable {
     /// stored threads.
     case setUnreadThreads(conversation: Conversation.ID, hasUnread: Bool)
 
+    case setScopedTyping(TypingUpdate)
+    case setReadReceipts(ReadReceiptUpdate)
+    case clearActivityTyping
+
     case setTyping(conversation: Conversation.ID, member: Member.ID, isTyping: Bool)
     case setPresence(member: Member.ID, presence: Presence)
     /// `nil` clears it. A claim about now, dropped by `clearEphemeralState`.

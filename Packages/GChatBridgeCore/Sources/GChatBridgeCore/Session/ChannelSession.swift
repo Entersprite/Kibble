@@ -59,9 +59,7 @@ import Foundation
 public actor ChannelSession {
     /// The arrays as they arrive, in order.
     ///
-    /// Unbounded on purpose: dropping an event here would silently desynchronise
-    /// the client from the server's `aid` numbering, which is worse than memory
-    /// pressure from a consumer that is briefly behind.
+    /// Unbounded to preserve every event and the server acknowledgement sequence.
     public nonisolated let events: AsyncStream<ChannelArray>
 
     /// Why the channel stopped, if it did.
@@ -76,10 +74,10 @@ public actor ChannelSession {
     private var pending: [QueuedEffect] = []
     private var task: Task<Void, Never>?
     var requestIdentifier: Int
-    /// The reference's `self._ofs` (`channel.py:326,336`) - reset then
-    /// incremented in `.sendInitialPing`, independent of `requestIdentifier`,
-    /// which the ping's `RID` shares with the handshake and never resets.
+    /// Stream offset resets for each SID; RID shares the handshake counter and never resets.
     var streamEventOfs = 0
+    var watchedGroup: GroupId?
+    var subscriptionReadySID: String?
     private var generator = SystemRandomNumberGenerator()
     /// The backoff between reconnect attempts.
     ///
@@ -273,6 +271,8 @@ public actor ChannelSession {
                 onHeaders: Self.onPingHeaders(pingURL: ping?.url, credentials: credentials),
                 onFailure: { await apply(.failed($0)) }
             )
+
+            await prepareGroupSubscription(sid: sid)
 
         case let .reopen(sid, aid):
             await openStream(requests.reopen(sid: sid, aid: aid, zx: nextCacheBuster()))

@@ -13,6 +13,8 @@ public extension ChatSessionModel {
         // hang with it. `SyncEngine.loadMoreMessages`'s own cancellation
         // check is what actually stops it from writing whenever it does
         // return - see `historyTask`'s doc comment.
+        activityWatchTask?.cancel()
+        activityWatchTask = nil
         historyTask?.cancel()
         historyTask = nil
         foregroundRefreshTask?.cancel()

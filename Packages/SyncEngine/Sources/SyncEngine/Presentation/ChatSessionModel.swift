@@ -23,6 +23,7 @@ public final class ChatSessionModel {
     public internal(set) var conversations: [Conversation] = [] // set from +AutoMarkRead.swift
     public internal(set) var directory: [Member.ID: Member] = [:] // set from +Observing.swift
     public internal(set) var messages: [Message] = [] // set from +Mentions.swift
+    public internal(set) var activity = ConversationActivity()
     public internal(set) var typing: [Member.ID] = [] // set from +Mentions.swift
     public private(set) var connectionState: ConnectionState = .idle
     /// The last thing that went wrong, from the store.
@@ -275,6 +276,7 @@ public final class ChatSessionModel {
     /// Not `private`: `clearSelection()` in `ChatSessionModel+Mentions.swift` cancels it.
     var historyTask: Task<Void, Never>?
     var foregroundRefreshTask: Task<Void, Never>?
+    var activityWatchTask: Task<Void, Never>?
 
     /// The last connection state this model acted on, so that a repeated
     /// `.connected` delivery does not refetch again. The observation can

@@ -190,6 +190,7 @@ public struct NotificationSettingsPane: View {
             Toggle("Show message previews", isOn: global(\.showsPreview, \.showsPreview))
             Toggle("Show unread indicator", isOn: global(\.showsUnread, \.showsUnread))
             Toggle("Count in Dock badge", isOn: global(\.countsInBadge, \.countsInBadge))
+            Toggle("Share typing activity", isOn: global(\.sharesTyping, \.sharesTyping))
             Toggle("Send read receipts", isOn: global(\.readReceipts, \.readReceipts))
         }
     }
@@ -280,6 +281,7 @@ public struct NotificationRuleEditor: View {
                 choice("Show message previews", \.showsPreview, inherited.showsPreview)
                 choice("Show unread indicator", \.showsUnread, inherited.showsUnread)
                 choice("Count in Dock badge", \.countsInBadge, inherited.countsInBadge)
+                choice("Share typing activity", \.sharesTyping, inherited.sharesTyping)
                 choice("Send read receipts", \.readReceipts, inherited.readReceipts)
             }
             Section {

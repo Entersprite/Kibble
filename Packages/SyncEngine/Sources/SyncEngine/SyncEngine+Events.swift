@@ -10,6 +10,7 @@ extension SyncEngine {
             invalidateConversationSnapshot(id)
         default: break
         }
+        processActivity(event)
         let reduction = SyncReducer.reduce(event)
         do {
             var restored = false

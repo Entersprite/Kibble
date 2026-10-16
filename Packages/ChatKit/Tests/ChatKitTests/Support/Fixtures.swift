@@ -232,6 +232,15 @@ extension Fixture {
         Sample("event-messageUpdated", .messageUpdated(message)),
         Sample("event-messageDeleted", .messageDeleted(id: messageID, in: spaceID)),
         Sample("event-reactionChanged", .reactionChanged(messageID: messageID, reactions: [reaction])),
+        Sample("event-scopedTypingChanged", .scopedTypingChanged(TypingUpdate(
+            conversationID: spaceID, threadID: threadID, member: humanID, isTyping: true, version: 42
+        ))),
+        Sample("event-readReceiptsChanged", .readReceiptsChanged(ReadReceiptUpdate(
+            conversationID: spaceID, enabled: true, positions: [ReadPosition(
+                member: humanID,
+                readThrough: readAt
+            )]
+        ))),
         Sample(
             "event-typingChanged",
             .typingChanged(conversationID: spaceID, member: humanID, isTyping: true)
@@ -339,6 +348,8 @@ extension Fixture {
             "command-setNotificationLevel",
             .setNotificationLevel(conversationID: spaceID, level: .never)
         ),
+        Sample("command-watchConversationActivity", .watchConversationActivity(conversationID: spaceID)),
+        Sample("command-watchConversationActivity-cleared", .watchConversationActivity(conversationID: nil)),
         Sample("command-watchPresence", .watchPresence(members: [humanID, botID])),
         Sample("command-unknown", .unknown(type: "somethingNewer", payload: unknownPayload))
     ]

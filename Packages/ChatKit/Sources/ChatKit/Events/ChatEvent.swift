@@ -86,6 +86,10 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// offer. The only push that changes a stored message's reactions.
     case reactionChanged(messageID: Message.ID, reactions: [Reaction])
 
+    /// Separate discriminator prevents older clients displaying thread activity in the main transcript.
+    case scopedTypingChanged(TypingUpdate)
+    case readReceiptsChanged(ReadReceiptUpdate)
+
     case typingChanged(conversationID: Conversation.ID, member: Member.ID, isTyping: Bool)
 
     /// `unread` is the count *after* the change, so a client never has to

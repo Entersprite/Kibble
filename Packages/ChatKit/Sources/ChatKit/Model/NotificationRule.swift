@@ -176,6 +176,7 @@ public struct NotificationRule: Hashable, Sendable {
     public var showsPreview: Bool?
     public var showsUnread: Bool?
     public var countsInBadge: Bool?
+    public var sharesTyping: Bool?
     public var readReceipts: Bool?
     /// What notifies (spec §3): every message, or only mentions. Delivery Off
     /// is Nothing, whatever this says.
@@ -191,6 +192,7 @@ public struct NotificationRule: Hashable, Sendable {
         showsPreview: Bool? = nil,
         showsUnread: Bool? = nil,
         countsInBadge: Bool? = nil,
+        sharesTyping: Bool? = nil,
         readReceipts: Bool? = nil,
         notifyAbout: NotifyAbout? = nil
     ) {
@@ -198,6 +200,7 @@ public struct NotificationRule: Hashable, Sendable {
         self.showsPreview = showsPreview
         self.showsUnread = showsUnread
         self.countsInBadge = countsInBadge
+        self.sharesTyping = sharesTyping
         self.readReceipts = readReceipts
         self.notifyAbout = notifyAbout
     }
@@ -205,13 +208,13 @@ public struct NotificationRule: Hashable, Sendable {
     /// Nothing overridden - what Reset to Defaults and Unmute leave behind.
     public var isEmpty: Bool {
         delivery == nil && showsPreview == nil && showsUnread == nil
-            && countsInBadge == nil && readReceipts == nil && notifyAbout == nil
+            && countsInBadge == nil && sharesTyping == nil && readReceipts == nil && notifyAbout == nil
     }
 }
 
 extension NotificationRule: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case delivery, showsPreview, showsUnread, countsInBadge, readReceipts, notifyAbout
+        case delivery, showsPreview, showsUnread, countsInBadge, sharesTyping, readReceipts, notifyAbout
     }
 
     struct AnyKey: CodingKey {
@@ -236,6 +239,7 @@ extension NotificationRule: Codable {
             showsPreview: container.decodeIfPresent(Bool.self, forKey: .showsPreview),
             showsUnread: container.decodeIfPresent(Bool.self, forKey: .showsUnread),
             countsInBadge: container.decodeIfPresent(Bool.self, forKey: .countsInBadge),
+            sharesTyping: container.decodeIfPresent(Bool.self, forKey: .sharesTyping),
             readReceipts: container.decodeIfPresent(Bool.self, forKey: .readReceipts),
             notifyAbout: container.decodeIfPresent(NotifyAbout.self, forKey: .notifyAbout)
         )
@@ -252,6 +256,7 @@ extension NotificationRule: Codable {
         try container.encodeIfPresent(showsPreview, forKey: .showsPreview)
         try container.encodeIfPresent(showsUnread, forKey: .showsUnread)
         try container.encodeIfPresent(countsInBadge, forKey: .countsInBadge)
+        try container.encodeIfPresent(sharesTyping, forKey: .sharesTyping)
         try container.encodeIfPresent(readReceipts, forKey: .readReceipts)
         try container.encodeIfPresent(notifyAbout, forKey: .notifyAbout)
         var extra = encoder.container(keyedBy: AnyKey.self)
@@ -268,6 +273,7 @@ public struct ResolvedRule: Hashable, Sendable {
     public var showsPreview: Bool
     public var showsUnread: Bool
     public var countsInBadge: Bool
+    public var sharesTyping: Bool
     public var readReceipts: Bool
     public var notifyAbout: NotifyAbout
     /// The first known delivery that is not Off in the chain this was
@@ -282,12 +288,14 @@ public struct ResolvedRule: Hashable, Sendable {
     public init(
         delivery: Delivery, showsPreview: Bool, showsUnread: Bool,
         countsInBadge: Bool, readReceipts: Bool, notifyAbout: NotifyAbout = .allMessages,
+        sharesTyping: Bool = false,
         audibleDelivery: Delivery = .bannerAndSound
     ) {
         self.delivery = delivery
         self.showsPreview = showsPreview
         self.showsUnread = showsUnread
         self.countsInBadge = countsInBadge
+        self.sharesTyping = sharesTyping
         self.readReceipts = readReceipts
         self.notifyAbout = notifyAbout
         self.audibleDelivery = audibleDelivery
@@ -346,6 +354,7 @@ public extension NotificationRule {
             countsInBadge: chain.lazy.compactMap(\.countsInBadge).first ?? fallback.countsInBadge,
             readReceipts: chain.lazy.compactMap(\.readReceipts).first ?? fallback.readReceipts,
             notifyAbout: chain.lazy.compactMap(\.notifyAbout).first(where: \.isKnown) ?? fallback.notifyAbout,
+            sharesTyping: chain.lazy.compactMap(\.sharesTyping).first ?? fallback.sharesTyping,
             audibleDelivery: audible
         )
     }

@@ -51,6 +51,9 @@ extension ChatSessionModel {
         threads.showingList = false
         scrollTarget = nil
         selected = nil
+        watchConversationActivity()
+        activity = ConversationActivity()
+        stopTyping()
         markReadTrace?.selectionChanged(to: nil, in: conversations)
         messages = []
         typing = []

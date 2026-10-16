@@ -32,8 +32,8 @@ public extension LocalBridgeBackend {
             )
         case .markRead, .markThreadRead, .setThreadUnreadMark, .conversationAction:
             try await markReadState(command)
-        case let .watchPresence(members):
-            watchPresence(members)
+        case .watchPresence, .watchConversationActivity:
+            await watchActivity(command)
         case let .reportActivity(active):
             reportActivity(active)
         case let .loadMembers(conversationID):
@@ -49,12 +49,12 @@ public extension LocalBridgeBackend {
             )
         case let .deleteMessage(id, conversationID, threadID):
             try await deleteMessage(id: id, conversationID: conversationID, threadID: threadID)
-        case .setStatus, .setAvailability:
-            try await setOwnStatus(command)
+        case .setStatus, .setAvailability, .setTyping:
+            try await sendOwnState(command)
         // Exhaustive with no `default`, the same idiom `ConnectionIssueMapping`
         // and `SyncReducer` use: a new `ChatCommand` case stops this compiling
         // until someone decides whether this backend can honour it.
-        case .setTyping, .setNotificationLevel, .unknown:
+        case .setNotificationLevel, .unknown:
             throw ChatError.unsupported(capability: Self.commandName(command))
         }
     }
@@ -207,7 +207,7 @@ public extension LocalBridgeBackend {
         case .setTyping: "canSendTypingState"
         case .markRead: "canMarkRead"
         case .setNotificationLevel: "canSetNotificationLevel"
-        case .watchPresence: "watchPresence"
+        case .watchPresence, .watchConversationActivity: "watchActivity"
         case .reportActivity: "reportActivity"
         case .loadMembers: "canMention"
         case .setStatus, .setAvailability: "canSetStatus"

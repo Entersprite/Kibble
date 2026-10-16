@@ -26,8 +26,9 @@ public extension LocalBridgeBackend {
     /// `mark_group_readstate` (`LocalBridgeBackend+ReadState.swift`) and the
     /// response's own `GroupReadState` becomes `.readStateChanged`.
     /// `[Verify]` until one deliberate call against live traffic confirms the
-    /// shape. `receivesReadReceipts` stays false and is a different claim -
-    /// it is about *other people's* read positions, which nothing here maps.
+    /// shape. `receivesReadReceipts` maps other people's positions from history
+    /// and channel events; conversation-level enabled state remains a separate gate.
+    /// Typing uses the provider's group/topic context. Live delivery remains [Verify].
     /// `canDownloadFiles` is backed by `findings.md` §52.10's live download.
     /// `canReact` is true: `.setReaction` posts through `update_reaction`
     /// (`LocalBridgeBackend+Reactions.swift`), `[Verify]` until a live toggle
@@ -53,6 +54,7 @@ public extension LocalBridgeBackend {
     nonisolated var capabilities: Capabilities {
         Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
+            canSendTypingState: true, receivesTypingState: true, receivesReadReceipts: true,
             canSetStatus: true, canMarkRead: true,
             canMarkUnread: true, canHideConversations: true, canBlockConversations: true,
             canLeaveConversations: true, canDeleteConversations: true,

@@ -230,8 +230,8 @@ struct SendMessageTests {
         ))
         try await backend.connect()
         await #expect(throws: ChatError.self) {
-            try await backend.send(.setTyping(
-                conversationID: Conversation.ID("space/s-1"), threadID: nil, isTyping: true
+            try await backend.send(.setNotificationLevel(
+                conversationID: Conversation.ID("space/s-1"), level: .always
             ))
         }
     }

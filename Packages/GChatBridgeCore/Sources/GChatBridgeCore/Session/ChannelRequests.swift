@@ -134,7 +134,22 @@ public struct ChannelRequests: Sendable {
         var streamEvent = StreamEventsRequest()
         streamEvent.pingEvent = event
 
-        guard let jsonBody = try? PBLiteEncoder.encodeJSON(streamEvent) else {
+        return streamRequest(streamEvent, sid: sid, aid: aid, rid: rid, ofs: ofs)
+    }
+
+    /// Receive activity for the open group on this channel. This carries no own typing/read state.
+    public func subscribe(group: GroupId, sid: String, aid: Int, rid: Int, ofs: Int) -> HTTPRequest? {
+        var subscription = GroupSubscriptionEvent()
+        subscription.groupIds = [group]
+        var event = StreamEventsRequest()
+        event.groupSubscriptionEvent = subscription
+        return streamRequest(event, sid: sid, aid: aid, rid: rid, ofs: ofs)
+    }
+
+    private func streamRequest(
+        _ event: StreamEventsRequest, sid: String, aid: Int, rid: Int, ofs: Int
+    ) -> HTTPRequest? {
+        guard let jsonBody = try? PBLiteEncoder.encodeJSON(event) else {
             return nil
         }
         let requestBody = QueryEncoding.query([
@@ -156,7 +171,7 @@ public struct ChannelRequests: Sendable {
             url: components.url!,
             headers: headers([("Content-Type", "application/x-www-form-urlencoded")]),
             body: Data(requestBody.utf8),
-            traceLabel: "ping"
+            traceLabel: event.hasGroupSubscriptionEvent ? "groupSubscription" : "ping"
         )
     }
 

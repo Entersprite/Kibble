@@ -19,6 +19,7 @@ extension ChatSessionModel {
             return
         }
         guard let selected else { return }
+        watchConversationActivity()
         // The same task the selection path owns, so a selection change
         // cancels this exactly as it cancels its own fetch - and so that this
         // refetch cannot outlive a selection change of its own, clobbering a

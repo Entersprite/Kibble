@@ -143,6 +143,7 @@ public struct MessageList: View {
     }
 
     public var body: some View {
+        let marker = ActivityPresentation.marker(state)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -161,6 +162,11 @@ public struct MessageList: View {
                                 message: message, scene: state, showsThread: threads != nil,
                                 downloads: downloads
                             ),
+                            receiptDirectory: marker?.messageID == message.id
+                                ? RowDirectory.avatars(marker?.readers ?? [], in: state.directory) : [:],
+                            receiptReaders: marker?.messageID == message.id ? marker?.readers ?? [] : [],
+                            receiptSlot: state.capabilities.receivesReadReceipts,
+                            groupReceipt: state.selectedConversation?.kind != .directMessage,
                             loadAttachment: loadAttachment, openAttachment: openAttachment,
                             loadRemoteImage: loadRemoteImage,
                             attachmentFiles: attachmentFiles,
@@ -195,6 +201,22 @@ public struct MessageList: View {
                     .padding(.vertical, 12)
                     // Every link under the transcript opens through one rule (links spec §7.1).
                     .environment(\.openURL, LinkPolicy.openURLAction)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if state.capabilities.receivesTypingState {
+                    HStack {
+                        let typists = ActivityPresentation.typists(state)
+                        if !typists.isEmpty {
+                            TypingIndicator(
+                                members: typists,
+                                directory: state.directory,
+                                namesVisible: state.selectedConversation?.kind != .directMessage
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
+                    .padding(.leading, 50).padding(.trailing, 16)
+                }
             }
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onScrollPhaseChange { _, phase in

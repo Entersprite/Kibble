@@ -171,6 +171,7 @@ public struct ChatWindow: View {
                     directory: state.directory,
                     me: state.me
                 ),
+                activity: { actions.typingActivity?(conversation.id, nil, $0) },
                 restoring: state.failedDraft,
                 onRestored: actions.draftRestored,
                 attachments: state.stagedAttachments,

@@ -111,6 +111,10 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     /// backend only learns of the senders on pages it fetched this session.
     case watchPresence(members: [Member.ID])
 
+    /// Receive activity for the open conversation when `receivesTypingState` is supported.
+    /// Nil clears local interest. This publishes no own typing or read position.
+    case watchConversationActivity(conversationID: Conversation.ID?)
+
     /// "List this conversation's members." The answer arrives as
     /// `.membersChanged`. A backend that already knows them, or cannot list
     /// them, accepts it and does nothing (mention composer spec §3.1).
@@ -181,6 +185,7 @@ extension ChatCommand {
         case conversationAction
         case setNotificationLevel
         case watchPresence
+        case watchConversationActivity
         case loadMembers
         case setStatus
         case setAvailability
@@ -242,50 +247,6 @@ extension ChatCommand {
                 threadID: container.decodeIfPresent(MessageThread.ID.self, forKey: .threadID),
                 customEmoji: container.decodeIfPresent(CustomEmojiRef.self, forKey: .customEmoji)
             )
-        default:
-            nil
-        }
-    }
-
-    private static func decodeStateCommand(
-        _ tag: String,
-        from container: KeyedDecodingContainer<CodingKeys>
-    ) throws -> ChatCommand? {
-        switch tag {
-        case Tag.setTyping.rawValue:
-            try .setTyping(
-                conversationID: container.decode(
-                    Conversation.ID.self, forKey: .conversationID
-                ),
-                threadID: container.decodeIfPresent(
-                    MessageThread.ID.self, forKey: .threadID
-                ),
-                isTyping: container.decode(Bool.self, forKey: .isTyping)
-            )
-        case Tag.markRead.rawValue:
-            try .markRead(
-                conversationID: container.decode(
-                    Conversation.ID.self, forKey: .conversationID
-                ),
-                upTo: container.decodeWire(Date.self, forKey: .upTo)
-            )
-        case Tag.setNotificationLevel.rawValue:
-            try .setNotificationLevel(
-                conversationID: container.decode(
-                    Conversation.ID.self, forKey: .conversationID
-                ),
-                level: container.decode(NotificationLevel.self, forKey: .level)
-            )
-        case Tag.watchPresence.rawValue:
-            try .watchPresence(members: container.decode([Member.ID].self, forKey: .members))
-        case Tag.loadMembers.rawValue:
-            try .loadMembers(conversationID: container.decode(Conversation.ID.self, forKey: .conversationID))
-        case Tag.setStatus.rawValue:
-            try .setStatus(container.decodeIfPresent(MemberStatus.self, forKey: .status))
-        case Tag.setAvailability.rawValue:
-            try .setAvailability(container.decode(Availability.self, forKey: .availability))
-        case Tag.reportActivity.rawValue:
-            try .reportActivity(active: container.decode(Bool.self, forKey: .active))
         default:
             nil
         }
@@ -367,6 +328,9 @@ extension ChatCommand {
             try container.encode(Tag.setNotificationLevel.rawValue, forKey: .type)
             try container.encode(conversationID, forKey: .conversationID)
             try container.encode(level, forKey: .level)
+        case let .watchConversationActivity(conversationID):
+            try container.encode(Tag.watchConversationActivity.rawValue, forKey: .type)
+            try container.encodeIfPresent(conversationID, forKey: .conversationID)
         case let .watchPresence(members):
             try container.encode(Tag.watchPresence.rawValue, forKey: .type)
             try container.encode(members, forKey: .members)

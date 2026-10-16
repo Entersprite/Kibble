@@ -22,6 +22,10 @@ public enum SyncReducer {
     /// someone decides what it means for the store.
     public static func reduce(_ event: ChatEvent) -> Reduction {
         switch event {
+        case let .scopedTypingChanged(update):
+            Reduction(writes: [.setScopedTyping(update)])
+        case let .readReceiptsChanged(update):
+            Reduction(writes: [.setReadReceipts(update)])
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged:
             supersedingStaleError(reduceMessageEvent(event))
         case .conversationRemoved, .conversationUnreadMarkChanged:

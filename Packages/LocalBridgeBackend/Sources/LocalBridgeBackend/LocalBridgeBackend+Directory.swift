@@ -148,18 +148,22 @@ extension LocalBridgeBackend {
         requestedMemberIDs = []
         memberEmails = [:]
         peopleKey = PeopleKeyState()
+        receiptRevisions = [:]
         directoryGeneration += 1
         managementOperations.removeAll()
         discoverableManagementSpaces.removeAll()
     }
 
     /// The member ids one channel event names, for `resolveUnknownMembers`.
-    /// Typing is included for when `ChannelEventMapping` maps it; today it
-    /// produces no `typingChanged`, so only senders reach this.
+    /// Typists and receipt readers use the same bounded directory resolution as message senders.
     static func memberIDs(in event: ChatEvent) -> [ChatKit.Member.ID] {
         switch event {
         case let .messageReceived(message), let .messageUpdated(message):
             [message.sender]
+        case let .scopedTypingChanged(update):
+            [update.member]
+        case let .readReceiptsChanged(update):
+            update.positions.map(\.member)
         case let .typingChanged(_, member, _):
             [member]
         default:

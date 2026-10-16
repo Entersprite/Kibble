@@ -88,12 +88,13 @@ public extension LocalBridgeBackend {
             )
             let rung = anchor.map { TopicsRequestLadder.history(for: group, anchoredAt: $0) }
                 ?? TopicsRequestLadder.history(for: group)
+            let receiptRevision = receiptRevisions[conversationID, default: 0]
             let response = try await apiClient.call(.listTopics, rung.request)
             try requireHistorySession(generation)
             let mapped = recordHistory(
                 response, in: conversationID, anchored: anchor != nil,
                 replyCap: Int(rung.request.pageSizeForReplies),
-                phase: anchor == nil ? "plain" : "backward"
+                phase: anchor == nil ? "plain" : "backward", receiptRevision: receiptRevision
             )
             var page = anchor.map { anchor in
                 mapped.messages.filter { Microseconds.from($0.createdAt) < anchor }
@@ -138,11 +139,13 @@ public extension LocalBridgeBackend {
         ) else { return page }
         do {
             let retry = TopicsRequestLadder.history(for: group, anchoredAt: retryAnchor)
+            let receiptRevision = receiptRevisions[conversationID, default: 0]
             let answer = try await apiClient.call(.listTopics, retry.request)
             try requireHistorySession(generation)
             let newer = recordHistory(
                 answer, in: conversationID, anchored: true,
-                replyCap: Int(retry.request.pageSizeForReplies), phase: "latest-retry"
+                replyCap: Int(retry.request.pageSizeForReplies), phase: "latest-retry",
+                receiptRevision: receiptRevision
             )
             return Self.merged(page, newer.messages)
         } catch {
@@ -187,7 +190,7 @@ public extension LocalBridgeBackend {
 
     private func recordHistory(
         _ response: ListTopicsResponse, in conversationID: Conversation.ID, anchored: Bool,
-        replyCap: Int, phase: String
+        replyCap: Int, phase: String, receiptRevision: Int? = nil
     ) -> HistoryMapping.Result {
         let mapped = HistoryMapping.map(response)
         let now = Date()
@@ -202,6 +205,13 @@ public extension LocalBridgeBackend {
             newestMainAgeSeconds: newest.map { Int(now.timeIntervalSince($0).rounded()) },
             worldHeadAgeSeconds: worldHead.map { Int(now.timeIntervalSince($0).rounded()) }
         ))
+        if response.hasReadReceiptSet {
+            var update = ActivityMapping.receipts(response.readReceiptSet, in: conversationID)
+            if receiptRevision != receiptRevisions[conversationID, default: 0] {
+                update.enabled = nil
+            }
+            emit(.readReceiptsChanged(update))
+        }
         messageTimes.remember(mapped.messages)
         // An anchored window may cut a topic's replies short, so it cannot
         // replace a complete thread count. Its read state is still a snapshot.
