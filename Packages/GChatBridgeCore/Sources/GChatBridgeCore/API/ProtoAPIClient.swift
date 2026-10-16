@@ -31,7 +31,8 @@ public actor ProtoAPIClient {
     private var counter: Int
 
     /// Which encoding the last response arrived in, or `nil` before the first
-    /// one. Evidence, not control flow: §3.6 contradicts the reference on this
+    /// one or for a declared empty acknowledgement. Evidence, not control flow: §3.6 contradicts the
+    /// reference on this
     /// and the next contradiction should be a measurement rather than an
     /// argument.
     public private(set) var lastEncoding: APIResponseEncoding?
@@ -62,6 +63,10 @@ public actor ProtoAPIClient {
     ) async throws -> Response {
         let body: Data = try request.serializedBytes()
         let raw = try await callRaw(method.name, body: body)
+        if raw.body.isEmpty, method.allowsEmptyResponse {
+            lastEncoding = nil
+            return Response()
+        }
         let candidates = APIResponseBody.candidates(raw.body)
         guard !candidates.isEmpty else { throw APIFailure.emptyBody }
 

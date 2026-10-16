@@ -17,6 +17,19 @@ import LocalBridgeBackend
 /// `@MainActor`, so this costs nothing and is not otherwise load-bearing.
 @MainActor
 enum LaunchProbes {
+    static func spacesProbe() async -> String {
+        let name = "spaces-probe.txt"
+        guard let directory = try? SystemLaunchServices.supportDirectory() else {
+            return "Could not resolve where to write \(name)."
+        }
+        let url = directory.appendingPathComponent(name)
+        let result = await SpaceDirectoryProbeReport.run(
+            query: argument("--probe-query=") ?? "",
+            flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
+        )
+        return write(result, to: name)
+    }
+
     static func keychainCheck() async -> String {
         let store = KeychainCredentialStore.forSelfCheck()
         let legacy = await store.selfCheck()
@@ -95,7 +108,10 @@ enum LaunchProbes {
     ///
     /// Rewritten after every step, as `peopleProbe` and `punctualProbe` are,
     /// so a run that hangs leaves a file ending where it hung.
-    static func searchProbe() async -> String {
+    static func searchProbe(spaces: Bool = false) async -> String {
+        if spaces {
+            return await spacesProbe()
+        }
         let name = "search-probe.txt"
         guard let directory = try? SystemLaunchServices.supportDirectory() else {
             return "Could not resolve where to write \(name)."

@@ -16,6 +16,16 @@ extension ChatWindow {
     }
 
     var title: String {
+        if state.browser.page == "spaceSpam" {
+            return "Spam invites"
+        }
+        if state.browser.page == "space" {
+            return "Browse spaces"
+        }
+        if let page = state.browser.page {
+            return page == "people" || page == "directMessage" ? "People" : SidebarSectionPreference(id: page)
+                .title
+        }
         if state.showingMentions {
             return "Mentions"
         }

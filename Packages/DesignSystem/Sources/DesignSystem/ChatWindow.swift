@@ -46,6 +46,11 @@ public struct ChatWindow: View {
                     ideal: SidebarColumnLayout.idealWidth
                 )
                 .toolbar(removing: .sidebarToggle)
+                .toolbar {
+                    if let browser = actions.browser {
+                        ConversationSidebarTools(capabilities: state.capabilities, actions: browser)
+                    }
+                }
         } content: {
             VStack(spacing: 0) {
                 StatusStrip(state: state, actions: actions)
@@ -53,53 +58,68 @@ public struct ChatWindow: View {
                    state.selectedConversation != nil {
                     SearchResultsBar(bar: bar, state: state, actions: search)
                 }
-                if state.showingMentions {
-                    MentionsPane(items: state.mentions, status: state.mentionsStatus, me: state.me) {
-                        actions.openMention?($0, $1)
+                ZStack {
+                    if state.browser.lastPage != nil {
+                        ConversationDirectoryView(state: state, actions: actions)
+                            .opacity(state.browser.page == nil ? 0 : 1)
+                            .allowsHitTesting(state.browser.page != nil)
+                            .disabled(state.browser.page == nil)
+                            .accessibilityHidden(state.browser.page == nil)
                     }
-                } else if state.threads.showingList, let threads = actions.threads {
-                    ThreadsPane(items: state.threads.items, me: state.me, directory: state.directory) {
-                        threads.openItem($0, $1)
-                    }
-                } else if let conversation = state.selectedConversation {
-                    // `safeAreaInset`, so the transcript scrolls under the
-                    // composer rather than being hidden behind it the way an
-                    // `overlay` would leave it.
-                    //
-                    // **A gradient, not a material.** Messages does not blur
-                    // behind its field - it fades the transcript into the
-                    // window's own background. Two earlier attempts got this
-                    // wrong from opposite directions: `.bar` drew a flat grey
-                    // slab, and `safeAreaBar` brought the system's blurred
-                    // backdrop. `ComposerScrim` is the fade itself.
-                    MessageList(
-                        state: state,
-                        loadAttachment: actions.loadAttachment,
-                        openAttachment: actions.openAttachment,
-                        loadRemoteImage: actions.loadRemoteImage,
-                        downloads: state.downloads,
-                        attachmentFiles: actions.attachmentFiles,
-                        reactions: actions.reactions,
-                        threads: offeredThreadActions,
-                        loadOlderMessages: actions.loadOlderMessages,
-                        loadNewerMessages: actions.loadNewerMessages
-                    )
-                    .ownMessages(transcriptHandlers)
-                    .id(conversation.id)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        VStack(spacing: 0) {
-                            TypingStrip(state: state)
-                            composer(for: conversation)
+                    if state.browser.page == nil {
+                        if state.showingMentions {
+                            MentionsPane(items: state.mentions, status: state.mentionsStatus, me: state.me) {
+                                actions.openMention?($0, $1)
+                            }
+                        } else if state.threads.showingList, let threads = actions.threads {
+                            ThreadsPane(
+                                items: state.threads.items,
+                                me: state.me,
+                                directory: state.directory
+                            ) {
+                                threads.openItem($0, $1)
+                            }
+                        } else if let conversation = state.selectedConversation {
+                            // `safeAreaInset`, so the transcript scrolls under the
+                            // composer rather than being hidden behind it the way an
+                            // `overlay` would leave it.
+                            //
+                            // **A gradient, not a material.** Messages does not blur
+                            // behind its field - it fades the transcript into the
+                            // window's own background. Two earlier attempts got this
+                            // wrong from opposite directions: `.bar` drew a flat grey
+                            // slab, and `safeAreaBar` brought the system's blurred
+                            // backdrop. `ComposerScrim` is the fade itself.
+                            MessageList(
+                                state: state,
+                                loadAttachment: actions.loadAttachment,
+                                openAttachment: actions.openAttachment,
+                                loadRemoteImage: actions.loadRemoteImage,
+                                downloads: state.downloads,
+                                attachmentFiles: actions.attachmentFiles,
+                                reactions: actions.reactions,
+                                threads: offeredThreadActions,
+                                loadOlderMessages: actions.loadOlderMessages,
+                                loadNewerMessages: actions.loadNewerMessages
+                            )
+                            .ownMessages(transcriptHandlers)
+                            .id(conversation.id)
+                            .safeAreaInset(edge: .bottom, spacing: 0) {
+                                VStack(spacing: 0) {
+                                    TypingStrip(state: state)
+                                    composer(for: conversation)
+                                }
+                                .background(alignment: .bottom) { ComposerScrim() }
+                            }
+                            .modifier(FileDropTarget(stage: dropStage))
+                        } else {
+                            ContentUnavailableView(
+                                "Pick a conversation",
+                                systemImage: "sidebar.left",
+                                description: Text("Choose one from the sidebar to read it.")
+                            )
                         }
-                        .background(alignment: .bottom) { ComposerScrim() }
                     }
-                    .modifier(FileDropTarget(stage: dropStage))
-                } else {
-                    ContentUnavailableView(
-                        "Pick a conversation",
-                        systemImage: "sidebar.left",
-                        description: Text("Choose one from the sidebar to read it.")
-                    )
                 }
             }
             .navigationTitle(title)
@@ -109,6 +129,15 @@ public struct ChatWindow: View {
             // rows, and the thread's section (session 65, `ThreadColumnBridge`).
             .toolbar {
                 ToolbarSpacer(.flexible)
+                if let conversation = state.selectedConversation, state.browser.page == nil,
+                   state.capabilities.canReadConversationDetails,
+                   let browser = actions.browser {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Conversation Details", systemImage: "info.circle") {
+                            browser.details(conversation.id, false)
+                        }
+                    }
+                }
                 if let callConversation, let call = actions.call {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Call", systemImage: "phone") { call(callConversation) }
@@ -130,6 +159,7 @@ public struct ChatWindow: View {
         .onChange(of: state.threads.panel?.thread.id) { forgetPanelEdit() }
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
         .overlay { searchOverlay }
+        .overlay { ConversationPanelOverlay(state: state, actions: actions) }
     }
 
     /// The bar's content: the field, or why there isn't one.

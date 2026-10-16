@@ -6,6 +6,9 @@ extension ChatStore {
     static func upsert(_ conversation: Conversation, in db: Database) throws {
         guard try mayRestoreConversation(conversation, in: db) else { return }
         var row = try ConversationRow(conversation)
+        if let previous = try ConversationRow.fetchOne(db, key: row.id)?.lastActivity {
+            row.lastActivity = max(row.lastActivity ?? previous, previous)
+        }
         // `lastReadAt` is `Conversation.readPosition` (the mentions-list spec
         // §1). A snapshot that carries one is authoritative: a world load's is
         // Google's current read state. One that carries none - a world item

@@ -113,6 +113,8 @@ public actor LocalBridgeBackend: ChatBackend {
     /// afterwards can tell its session has gone. A counter, not a held task:
     /// those lookups are many and short.
     var directoryGeneration = 0
+    var discoverableManagementSpaces: Set<Conversation.ID> = []
+    var managementOperations: [String: ManagementOperation] = [:]
 
     /// Email by member id, from every `get_members` answer this session, for
     /// the `invitee_info` a sent mention carries (`findings.md` §56.2). Never

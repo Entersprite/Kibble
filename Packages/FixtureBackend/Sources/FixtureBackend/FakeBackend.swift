@@ -57,6 +57,9 @@ public actor FakeBackend {
     var hiddenConversations: Set<Conversation.ID> = []
     var blockedDirectMembers: Set<Member.ID> = []
     var nextDirectConversationNumber = 0
+    var managedDetails: [Conversation.ID: ConversationDetails] = [:]
+    var managedParticipants: [Conversation.ID: [ConversationParticipant]] = [:]
+    var completedMutations: [String: FixtureManagementOperation] = [:]
     var world: FixtureWorld
 
     /// People outside the world's conversations, for `searchPeople` and an

@@ -6,7 +6,7 @@ struct MacLaunchProbeTests {
         let cases: [(String, MacLaunchProbe)] = [
             ("keychain", .keychain), ("api", .api), ("punctual", .punctual),
             ("upload", .upload), ("people", .people), ("edit", .edit),
-            ("search", .search), ("meet-resolve", .meetResolve)
+            ("search", .search), ("spaces", .spaces), ("meet-resolve", .meetResolve)
         ]
         for (flag, expected) in cases {
             #expect(MacLaunchProbe.parsing(["Kibble", "--probe=\(flag)"]) == expected)

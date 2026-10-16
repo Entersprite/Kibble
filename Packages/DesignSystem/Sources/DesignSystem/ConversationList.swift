@@ -83,8 +83,11 @@ public struct ConversationList: View {
 
     private var conversations: some View {
         List(selection: selectionBinding) {
-            ForEach(SidebarSections.build(state.conversations)) { section in
-                Section(section.title, isExpanded: expansion(of: section.id)) {
+            ForEach(SidebarProjection.build(
+                state.conversations, preferences: state.sidebarPreferences,
+                directory: state.directory, me: state.me
+            )) { section in
+                Section(isExpanded: expansion(of: section.id)) {
                     ForEach(section.conversations, id: \.id) { conversation in
                         let items = ConversationMenu.items(
                             for: conversation, state: state, offers: ConversationMenu.Offers(actions)
@@ -97,6 +100,31 @@ public struct ConversationList: View {
                         .contextMenu { [menuActions = rowActions(for: conversation)] in
                             ConversationRowMenu(id: conversation.id, items: items, actions: menuActions)
                         }
+                    }
+                    if let showDirectory = actions.showDirectory {
+                        Button { showDirectory(section.id) } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "ellipsis")
+                                    .frame(width: 20)
+                                Text("See all…")
+                                Spacer(minLength: 4)
+                            }
+                            .padding(.vertical, 1)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("See all \(section.title)")
+                    }
+                } header: {
+                    Text(section.title)
+                }
+                .sectionActions {
+                    if let update = actions.updateSidebar {
+                        SidebarSectionMenu(
+                            id: section.id, preferences: state.sidebarPreferences, update: update,
+                            showSettings: actions.showSidebarSettings
+                        )
                     }
                 }
             }

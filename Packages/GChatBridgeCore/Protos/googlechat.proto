@@ -1339,7 +1339,7 @@ message SpaceCreationInfo {
 	}
 	optional SpaceType space_type = 11;
 
-	// optional ?? space_details = 12;
+	optional GroupDetails space_details = 12;
 	optional SharedAttributeCheckerGroupType attribute_checker_group_type = 13;
 	optional string shared_drive_name = 14;
 }
@@ -1355,7 +1355,7 @@ message CreateGroupRequest {
 
 message CreateMembershipResult {
 	optional Membership membership = 1;
-	// optional FailureReason reason = 2;
+	optional int32 reason = 2;
 	// repeated SupplementalReason supplemental_reasons = 3;
 }
 
@@ -2314,6 +2314,8 @@ enum MembershipRole {
 	ROLE_INVITEE = 2;
 	ROLE_MEMBER = 3;
 	ROLE_OWNER = 4;
+	ROLE_APP_OWNER = 5;
+	ROLE_MANAGER = 6;
 }
 
 
@@ -2332,6 +2334,7 @@ enum MembershipState {
 	MEMBER_JOINED = 2;
 	MEMBER_NOT_A_MEMBER = 3;
 	MEMBER_FAILED = 4;
+	MEMBER_REQUESTED = 6;
 }
 
 // From reference/purple-googlechat-master/googlechat.proto, which is newer
@@ -2695,7 +2698,7 @@ message RemoveMembershipsRequest {
 message RemoveMembershipResult {
 	optional RequestHeader request_header = 100;
 	optional MemberId member_id = 1;
-	// optional FailureReason reason = 2;
+	optional int32 reason = 2;
 	// repeated RosterId attached_roster_ids = 3;
 	repeated string attached_roster_names = 4;
 }
@@ -2734,6 +2737,7 @@ message CreateMembershipRequest {
 	optional MembershipState membership_state = 3;
 	optional GroupId group_id = 4;
 	optional InviteNotificationSettings notification_settings = 5;
+	optional bool request_to_join = 9;
 }
 
 message CreateMembershipResponse {
@@ -2799,7 +2803,8 @@ message UpdateGroupRequest {
 	optional string name = 2;
 	optional GroupVisibility visibility = 5;
 	// optional AvatarInfo avatar_info = 6;
-	// optional ?? space_details = 7;
+	optional GroupDetails space_details = 7;
+	optional GroupId group_id = 11;
 }
 
 message UpdateGroupResponse {
@@ -2877,3 +2882,81 @@ message HeartbeatRequest {
 
 message HeartbeatResponse {
 }
+
+// Source-derived management messages. Unnamed permission fields remain unknown.
+message ManagementPermissions { repeated int32 capabilities = 1; }
+message GroupScopedCapabilities {
+ optional MembershipId id = 1;
+ repeated int32 capabilities = 2;
+ optional ManagementPermissions permissions = 3;
+}
+message GetGroupScopedCapabilitiesRequest {
+ optional RequestHeader request_header = 100;
+ repeated MembershipId membership_ids = 1;
+}
+message GetGroupScopedCapabilitiesResponse { repeated GroupScopedCapabilities capabilities = 1; }
+message UpdateMembershipRoleRequest {
+ optional RequestHeader request_header = 100;
+ message Change {
+  optional MembershipRole role = 2;
+  optional UserId user_id = 3;
+  optional GroupId group_id = 4;
+ }
+ repeated Change changes = 1;
+}
+message UpdateMembershipRoleResponse {
+ message Result { optional Membership membership = 1; optional int32 status = 2; }
+ repeated Result results = 1;
+}
+message SearchSpaceDirectoryRequest {
+ message MembershipCriterion {
+  optional int32 type = 1;
+  optional int32 value = 2;
+ }
+ message MembershipFilter { repeated MembershipCriterion criteria = 1; }
+ message Filter {
+  optional MembershipFilter membership = 1;
+  optional int32 organization = 2;
+ }
+ optional RequestHeader request_header = 100;
+ optional int32 page_size = 1;
+ optional string page_token = 2;
+ // Verified directory controls; numeric mode meanings remain provider-private.
+ optional int32 directory_mode = 4;
+ optional string query = 5;
+ optional string context = 6;
+ optional Filter filter = 8;
+ optional bool search_all = 9;
+}
+message SearchSpaceDirectoryResponse {
+ message Count {
+  optional int64 count = 1;
+  optional int32 member_type = 2;
+  optional MembershipState membership_state = 3;
+ }
+ message Counts { repeated Count counts = 1; }
+ message Summary {
+  optional GroupId group_id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional int32 member_count = 5;
+  optional MembershipState membership_state = 6;
+  optional Counts member_counts = 10;
+ }
+ repeated Summary spaces = 2;
+ optional string next_page_token = 1;
+}
+message ListInvitedRoomsRequest {
+ optional RequestHeader request_header = 100;
+ optional InviteCategory invite_category = 1;
+}
+message ListInvitedRoomsResponse {
+ message Invitation { optional string name = 1; optional GroupId group_id = 2; }
+ repeated Invitation invitations = 1;
+}
+message DeleteGroupV2Request {
+ optional RequestHeader request_header = 100;
+ optional GroupId group_id = 1;
+ optional bool preserve_linked_group = 2;
+}
+message DeleteGroupV2Response {}

@@ -2,6 +2,7 @@ import ChatKit
 
 public extension ChatSessionModel {
     func stop() async {
+        browser.stop()
         for watcher in watchers + conversationWatchers {
             watcher.cancel()
         }

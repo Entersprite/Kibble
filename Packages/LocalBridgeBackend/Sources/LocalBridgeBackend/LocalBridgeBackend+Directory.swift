@@ -149,6 +149,8 @@ extension LocalBridgeBackend {
         memberEmails = [:]
         peopleKey = PeopleKeyState()
         directoryGeneration += 1
+        managementOperations.removeAll()
+        discoverableManagementSpaces.removeAll()
     }
 
     /// The member ids one channel event names, for `resolveUnknownMembers`.

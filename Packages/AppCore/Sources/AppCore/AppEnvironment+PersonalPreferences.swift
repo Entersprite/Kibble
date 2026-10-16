@@ -15,6 +15,7 @@ extension AppEnvironment {
         settings.switchAccount(to: account)
         guard let account else {
             skinTone = .none
+            sidebarPreferences = .init()
             collapsedSections = []
             return
         }
@@ -37,13 +38,18 @@ extension AppEnvironment {
         let saved = preferences.dictionary(forKey: key) ?? [:]
         skinTone = SkinTone(rawValue: saved[Self.toneField] as? Int ?? 0) ?? .none
         collapsedSections = Set(saved[Self.sectionsField] as? [String] ?? [])
+        sidebarPreferences = (saved["sidebar"] as? Data).flatMap {
+            try? JSONDecoder().decode(SidebarPreferences.self, from: $0)
+        } ?? .init()
     }
 
     func savePersonalPreferences() {
         guard let account = settings.account else { return }
-        preferences.set([
-            Self.toneField: skinTone.rawValue,
-            Self.sectionsField: collapsedSections.sorted()
-        ], forKey: Self.accountPreferencesPrefix + account.rawValue)
+        let key = Self.accountPreferencesPrefix + account.rawValue
+        var saved = preferences.dictionary(forKey: key) ?? [:]
+        saved[Self.toneField] = skinTone.rawValue
+        saved[Self.sectionsField] = collapsedSections.sorted()
+        saved["sidebar"] = try? JSONEncoder().encode(sidebarPreferences)
+        preferences.set(saved, forKey: key)
     }
 }

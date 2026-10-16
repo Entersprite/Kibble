@@ -141,6 +141,13 @@ struct KibbleMacApp: App {
                     )
                     .frame(width: 560, height: 420)
                 }
+                Tab("Sidebar", systemImage: "sidebar.left", value: "sidebar") {
+                    SidebarSettingsPane(
+                        preferences: environment.sidebarPreferences,
+                        update: { environment.updateSidebar($0) }
+                    )
+                    .frame(width: 560, height: 440)
+                }
                 Tab("Downloads", systemImage: "arrow.down.circle", value: "downloads") {
                     DownloadSettingsPane(
                         state: environment.downloadSettingsState,
@@ -221,6 +228,7 @@ struct KibbleMacApp: App {
             ? { editingConversation = ConversationSelection(id: $0) }
             : nil
         actions.showSettings = showSettings
+        actions.showSidebarSettings = { settingsPane = "sidebar"; showSettings() }
         return actions
     }
 }

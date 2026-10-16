@@ -105,6 +105,7 @@ public final class AppEnvironment {
 
     /// Local preferences for the currently identified account.
     public internal(set) var skinTone: SkinTone = .none
+    public internal(set) var sidebarPreferences: SidebarPreferences = .init()
     public internal(set) var collapsedSections: Set<String> = []
 
     /// Local account preferences and one-time migration of the old global keys.

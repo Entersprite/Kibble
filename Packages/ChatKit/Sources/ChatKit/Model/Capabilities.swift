@@ -26,6 +26,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     public var canHideConversations: Bool
     public var canBlockConversations: Bool
     public var canLeaveConversations: Bool
+    public var canCreateConversations: Bool
+    public var canReadConversationDetails: Bool
+    public var canBrowseSpaces: Bool
     public var canOpenDirectConversations: Bool
     public var canDeleteConversations: Bool
 
@@ -99,6 +102,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canBlockConversations: Bool = false,
         canLeaveConversations: Bool = false,
         canDeleteConversations: Bool = false,
+        canCreateConversations: Bool = false,
+        canReadConversationDetails: Bool = false,
+        canBrowseSpaces: Bool = false,
         canOpenDirectConversations: Bool = false,
 
         supportsThreads: Bool = false,
@@ -132,6 +138,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canBlockConversations = canBlockConversations
         self.canLeaveConversations = canLeaveConversations
         self.canDeleteConversations = canDeleteConversations
+        self.canCreateConversations = canCreateConversations
+        self.canReadConversationDetails = canReadConversationDetails
+        self.canBrowseSpaces = canBrowseSpaces
         self.canOpenDirectConversations = canOpenDirectConversations
 
         self.supportsThreads = supportsThreads
@@ -171,6 +180,9 @@ public extension Capabilities {
         case canBlockConversations
         case canLeaveConversations
         case canDeleteConversations
+        case canCreateConversations
+        case canReadConversationDetails
+        case canBrowseSpaces
         case canOpenDirectConversations
 
         case supportsThreads
@@ -214,6 +226,9 @@ public extension Capabilities {
             canBlockConversations: flag(.canBlockConversations),
             canLeaveConversations: flag(.canLeaveConversations),
             canDeleteConversations: flag(.canDeleteConversations),
+            canCreateConversations: flag(.canCreateConversations),
+            canReadConversationDetails: flag(.canReadConversationDetails),
+            canBrowseSpaces: flag(.canBrowseSpaces),
             canOpenDirectConversations: flag(.canOpenDirectConversations),
 
             supportsThreads: flag(.supportsThreads),
@@ -263,6 +278,7 @@ public extension Capabilities {
         if canLeaveConversations {
             try container.encode(true, forKey: .canLeaveConversations)
         }
+        try encodeManagementFlags(to: &container)
         if canOpenDirectConversations {
             try container.encode(true, forKey: .canOpenDirectConversations)
         }
@@ -289,5 +305,15 @@ public extension Capabilities {
         try container.encode(canSearchMessages, forKey: .canSearchMessages)
         try container.encode(messageSearchFilters.map(\.wire).sorted(), forKey: .messageSearchFilters)
         try container.encode(extendedFlags.sorted(), forKey: .extendedFlags)
+    }
+
+    private func encodeManagementFlags(to container: inout KeyedEncodingContainer<CodingKeys>) throws {
+        for (enabled, key) in [
+            (canCreateConversations, CodingKeys.canCreateConversations),
+            (canReadConversationDetails, .canReadConversationDetails),
+            (canBrowseSpaces, .canBrowseSpaces)
+        ] where enabled {
+            try container.encode(true, forKey: key)
+        }
     }
 }

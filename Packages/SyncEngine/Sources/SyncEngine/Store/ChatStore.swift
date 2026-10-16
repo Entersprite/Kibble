@@ -155,6 +155,7 @@ public extension ChatStore {
                 kept.reactions = try Wire.value([Reaction].self, from: stored)
             }
             try performMessageWrite(.upsertMessage(kept), in: db)
+            try advanceConversationActivity(kept, in: db)
         case let .upsertMessage(message):
             try upsertUnclearedMessage(message, in: db)
         case let .insertMessageIfAbsent(message):

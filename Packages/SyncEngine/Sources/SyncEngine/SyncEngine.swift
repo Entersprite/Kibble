@@ -33,6 +33,7 @@ public actor SyncEngine {
     /// cannot reach.
     private var ghostMode = false
     var conversationMutationVersion = 0
+    var managementGeneration = 0
     var conversationVersions: [Conversation.ID: Int] = [:]
 
     public var isGhosting: Bool {
@@ -126,6 +127,7 @@ public actor SyncEngine {
     /// this returns no further event can reach the store. A test - or a window
     /// closing - can then rely on the store standing still.
     public func stop() async {
+        managementGeneration += 1
         consumer?.cancel()
         await consumer?.value
         consumer = nil

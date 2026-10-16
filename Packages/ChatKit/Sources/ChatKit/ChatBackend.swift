@@ -163,6 +163,22 @@ public protocol ChatBackend: Sendable {
     /// Restoring a deleted conversation preserves its history cutoff.
     func openDirectConversation(with member: Member.ID) async throws -> Conversation
 
+    /// Awaited to navigate to the confirmed conversation, including partial invitation results.
+    func createConversation(_ draft: ConversationDraft) async throws -> ConversationCreationResult
+    /// Awaited by the editor so a refused or uncertain edit remains visible. Implementations also emit
+    /// authoritative conversation/member events; a request result is not a second durable replica.
+    func mutateConversation(
+        _ mutation: ConversationMutation,
+        in conversation: Conversation.ID,
+        operationID: String,
+        expectedRevision: String?
+    ) async throws
+        -> ConversationMutationResult
+    func conversationDetails(_ conversation: Conversation.ID) async throws -> ConversationDetails
+    func participants(in conversation: Conversation.ID, after cursor: String?) async throws
+        -> ConversationParticipantPage
+    func browseSpaces(_ query: SpaceDirectoryQuery, after cursor: String?) async throws -> SpaceDirectoryPage
+
     /// Whether `member` is in `conversation` now. A requirement for the same
     /// reason.
     func membership(of member: Member.ID, in conversation: Conversation.ID) async throws

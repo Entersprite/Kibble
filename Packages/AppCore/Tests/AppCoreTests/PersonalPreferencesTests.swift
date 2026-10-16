@@ -79,3 +79,26 @@ struct PersonalPreferencesTests {
         #expect(later.collapsedSections.isEmpty)
     }
 }
+
+extension PersonalPreferencesTests {
+    @Test func sidebarPreferencesStayWithTheirAccountAndPreserveUnrelatedFields() async throws {
+        let preferences = try defaults()
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services, preferences: preferences)
+        await environment.start()
+        let configured = SidebarPreferences(sections: [.init(id: "space", maximumItems: 35, sort: .activity)])
+        environment.updateSidebar(configured)
+        #expect(environment.sidebarPreferences == SidebarPreferences())
+        await identify(alice, in: environment, services: services)
+        let key = "personalPreferences.v1.\(alice.id.rawValue)"
+        preferences.set(["futurePreference": "preserve-me"], forKey: key)
+        environment.updateSidebar(configured)
+        #expect(preferences.dictionary(forKey: key)?["futurePreference"] as? String == "preserve-me")
+        await identify(bob, in: environment, services: services)
+        #expect(environment.sidebarPreferences == SidebarPreferences())
+        await identify(alice, in: environment, services: services)
+        #expect(environment.sidebarPreferences.orderedSections == configured.orderedSections)
+        await environment.signOut()
+        #expect(environment.sidebarPreferences == SidebarPreferences())
+    }
+}

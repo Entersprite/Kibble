@@ -2,6 +2,18 @@ import ChatKit
 import GRDB
 
 extension ChatStore {
+    static func advanceConversationActivity(_ message: Message, in db: Database) throws {
+        guard !message.isDeleted, try !isClearedHistory(message, in: db) else { return }
+        let value = StoredDate.value(message.createdAt)
+        try db.execute(
+            sql: """
+            UPDATE conversation SET lastActivity = ?
+            WHERE id = ? AND (lastActivity IS NULL OR lastActivity < ?)
+            """,
+            arguments: [value, message.conversationID.rawValue, value]
+        )
+    }
+
     static func upsertUnclearedMessage(_ message: Message, in db: Database) throws {
         guard try !isClearedHistory(message, in: db) else { return }
         // An optimistic copy and its echo are the same message with two

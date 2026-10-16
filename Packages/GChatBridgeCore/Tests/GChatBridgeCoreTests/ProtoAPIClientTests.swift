@@ -167,6 +167,14 @@ struct ProtoAPIClientTests {
         }
     }
 
+    @Test func anEmptyDeletionAcknowledgementIsAcceptedOnlyForItsDeclaredResponse() async throws {
+        let transport = FakeHTTPTransport(responses: [ok(Data())])
+        let client = client(transport)
+        let response = try await client.call(.deleteGroupV2, DeleteGroupV2Request())
+        #expect(response == DeleteGroupV2Response())
+        #expect(await client.lastEncoding == nil)
+    }
+
     @Test func callRawHandsBackTheBytesWithoutDecoding() async throws {
         let body = Data([0x58, 0x15]) // field 11, value 21 - §3.6's world response
         let transport = FakeHTTPTransport(responses: [ok(body)])

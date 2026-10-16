@@ -18,6 +18,7 @@ public enum SidebarSelection: Hashable, Sendable {
 /// way renders from a literal in a preview or a test, and cannot accidentally
 /// reach past the seam for something it was not given.
 public struct ChatSceneState: Sendable, Equatable {
+    public var browser: ConversationBrowserScene = .init()
     public var conversations: [Conversation]
     public var directory: [Member.ID: Member]
     public var me: Member.ID?
@@ -112,6 +113,7 @@ public struct ChatSceneState: Sendable, Equatable {
     public var searchOpenGeneration: Int
     /// The sidebar sections a person has collapsed, by `SidebarSection.id`.
     /// The host keeps them across launches (`ChatSceneActions.setSectionCollapsed`).
+    public var sidebarPreferences: SidebarPreferences = .init()
     public var collapsedSections: Set<String>
 
     public init(
@@ -151,6 +153,7 @@ public struct ChatSceneState: Sendable, Equatable {
         highlightedMessage: Message.ID? = nil,
         searchOpenGeneration: Int = 0,
         collapsedSections: Set<String> = [],
+        sidebarPreferences: SidebarPreferences = .init(),
         callableConversations: Set<Conversation.ID> = []
     ) {
         self.conversations = conversations
@@ -189,6 +192,7 @@ public struct ChatSceneState: Sendable, Equatable {
         self.highlightedMessage = highlightedMessage
         self.searchOpenGeneration = searchOpenGeneration
         self.collapsedSections = collapsedSections
+        self.sidebarPreferences = sidebarPreferences
         self.callableConversations = callableConversations
     }
 

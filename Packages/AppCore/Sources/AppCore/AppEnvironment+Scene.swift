@@ -41,7 +41,7 @@ public extension AppEnvironment {
             }
         }
         let rules = model.conversations.map { ($0.id, settings.resolved(for: $0)) }
-        return ChatSceneState(
+        var state = ChatSceneState(
             conversations: model.conversations,
             directory: model.directory,
             me: model.me,
@@ -81,10 +81,13 @@ public extension AppEnvironment {
             highlightedMessage: model.search.highlight,
             searchOpenGeneration: model.search.openGeneration,
             collapsedSections: collapsedSections,
+            sidebarPreferences: sidebarPreferences,
             callableConversations: Set(model.conversations.filter {
                 calls.canCall(conversation: $0, directory: model.directory, me: model.me)
             }.map(\.id))
         )
+        state.browser = browserScene(model)
+        return state
     }
 
     /// The pure mapping beside the pane (`MentionItem.init`), fed from the
@@ -150,7 +153,7 @@ public extension AppEnvironment {
     /// unconditional retry stays the only recovery path, which is the part
     /// that was actually asked for.
     var actions: ChatSceneActions {
-        ChatSceneActions(
+        var actions = ChatSceneActions(
             select: { [weak self] id in
                 guard case let .running(model) = self?.phase else { return }
                 model.select(id)
@@ -256,6 +259,10 @@ public extension AppEnvironment {
                 self?.runningModel?.loadNewerMessages()
             }
         )
+        actions.updateSidebar = { [weak self] in self?.updateSidebar($0) }
+        actions.browser = browserActions
+        actions.showDirectory = browserActions?.show
+        return actions
     }
 
     /// Whether `signOut()` has a running session to act on. The menu command is

@@ -190,7 +190,7 @@ public final class SystemLaunchServices: LaunchServices {
         case .upload: await LaunchProbes.uploadProbe()
         case .people: await LaunchProbes.peopleProbe()
         case .edit: await LaunchProbes.editProbe()
-        case .search: await LaunchProbes.searchProbe()
+        case .search, .spaces: await LaunchProbes.searchProbe(spaces: launchProbe == .spaces)
         case .meetResolve: await LaunchProbes.meetResolveProbe()
         case .meetCall: "Use the native DM call trial window."
         }

@@ -13,9 +13,11 @@ public struct APIMethod<
     Response: SwiftProtobuf.Message & Sendable
 >: Sendable {
     public let name: String
+    public let allowsEmptyResponse: Bool
 
-    public init(_ name: String) {
+    public init(_ name: String, allowsEmptyResponse: Bool = false) {
         self.name = name
+        self.allowsEmptyResponse = allowsEmptyResponse
     }
 }
 

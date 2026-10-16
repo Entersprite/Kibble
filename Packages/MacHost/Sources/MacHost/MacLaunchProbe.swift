@@ -10,6 +10,7 @@ enum MacLaunchProbe: Sendable, Equatable {
     case people
     case edit
     case search
+    case spaces
     case meetResolve
     case meetCall
 
@@ -31,6 +32,9 @@ enum MacLaunchProbe: Sendable, Equatable {
         }
         if arguments.contains("--probe=search") {
             return .search
+        }
+        if arguments.contains("--probe=spaces") {
+            return .spaces
         }
         if arguments.contains("--probe=meet-resolve") {
             return .meetResolve

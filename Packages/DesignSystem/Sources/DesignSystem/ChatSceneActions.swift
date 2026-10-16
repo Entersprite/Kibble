@@ -5,6 +5,8 @@ import Foundation
 /// wire them to anything, including nothing.
 @MainActor
 public struct ChatSceneActions {
+    public var showSidebarSettings: (() -> Void)?
+    public var browser: ConversationBrowserActions?
     public var select: (Conversation.ID) -> Void
     public var send: (ComposedMessage) -> Void
 
@@ -145,6 +147,8 @@ public struct ChatSceneActions {
     /// `SidebarSection.id`; the host hands the set back in
     /// `ChatSceneState.collapsedSections`. **Optional**: a host that keeps none
     /// gets collapse the sidebar forgets at relaunch, as before.
+    public var updateSidebar: ((SidebarPreferences) -> Void)?
+    public var showDirectory: ((String) -> Void)?
     public var setSectionCollapsed: ((String, Bool) -> Void)?
     /// Opens the app's settings, from the sidebar footer's gear. **Optional,
     /// and `nil` draws no gear**: only the host knows whether it has settings

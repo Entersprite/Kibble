@@ -4,7 +4,7 @@ import GChatBridgeCore
 import Testing
 @testable import LocalBridgeBackend
 
-private actor ActionTransport: HTTPTransport {
+actor ActionTransport: HTTPTransport {
     struct NoStream: Error {}
     var item: WorldItemLite
     let reject: Bool

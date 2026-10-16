@@ -208,6 +208,7 @@ public final class ChatSessionModel {
     /// Not `private`: `ChatSessionModel+AutoMarkRead.swift`'s trigger submits
     /// through this directly, the same way `select(_:)` in this file and
     /// `send(_:)` in `ChatSessionModel+Send.swift` already do.
+    public let browser: ConversationBrowser
     let engine: SyncEngine
     /// `--probe=markread`'s recorder, `nil` otherwise; read from `+AutoMarkRead.swift`.
     let markReadTrace: MarkReadTraceRecorder?
@@ -296,6 +297,7 @@ public final class ChatSessionModel {
         searchWork = SearchWork(debounce: searchDebounce, historyPageLimit: searchHistoryPages)
         self.store = store
         self.engine = engine
+        browser = ConversationBrowser(engine: engine)
         self.me = me
         self.markReadTrace = markReadTrace.map(MarkReadTraceRecorder.init(sink:))
         self.markReadDebounce = markReadDebounce
@@ -329,6 +331,7 @@ public final class ChatSessionModel {
     /// Opens a conversation: swaps the observations over, then fetches a page
     /// of history, because connecting deliberately does not.
     public func select(_ id: Conversation.ID) {
+        browser.leaveDirectory()
         guard selected != id else { return }
         if conversationActionTasks[id] == nil {
             unreadHolds.remove(id)

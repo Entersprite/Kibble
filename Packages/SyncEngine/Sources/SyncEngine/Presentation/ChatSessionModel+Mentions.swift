@@ -46,6 +46,7 @@ extension ChatSessionModel {
     /// conversation or the thread that was open stays scheduled, as it does
     /// when switching conversations, because it covers what was on screen.
     func clearSelection() {
+        browser.leaveDirectory()
         showingMentions = false
         threads.showingList = false
         scrollTarget = nil
@@ -62,5 +63,28 @@ extension ChatSessionModel {
         resetTranscript()
         closeThread()
         threads.summaries = [:]
+    }
+}
+
+public extension ChatSessionModel {
+    func showConversationDirectory(_ id: String) {
+        clearSelection()
+        browser.onOpen = { [weak self] in self?.select($0) }
+        browser.showPage(id)
+    }
+
+    func reviewConversationCreation() {
+        clearSelection()
+        browser.reviewCreation()
+    }
+
+    func returnToConversationDirectory() {
+        clearSelection()
+        browser.returnToDirectory()
+    }
+
+    func beginConversationCreation(_ kind: Conversation.Kind) {
+        browser.onOpen = { [weak self] in self?.select($0) }
+        browser.beginCreation(kind)
     }
 }
