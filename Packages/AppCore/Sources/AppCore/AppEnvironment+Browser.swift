@@ -30,6 +30,19 @@ extension AppEnvironment {
         return state
     }
 
+    /// File › New Message…, New Group Chat… and New Space…: offered only
+    /// where the running backend can do what the sidebar's + would.
+    public func canBeginConversation(_ kind: NewConversationKind) -> Bool {
+        guard let capabilities = runningModel?.capabilities else { return false }
+        return kind == .message ? capabilities.canOpenDirectConversations
+            : capabilities.canCreateConversations
+    }
+
+    public func beginConversation(_ kind: NewConversationKind) {
+        guard canBeginConversation(kind) else { return }
+        runningModel?.beginConversationCreation(kind.conversationKind)
+    }
+
     var browserActions: ConversationBrowserActions? {
         guard let model = runningModel else { return nil }
         return ConversationBrowserActions(
@@ -52,5 +65,19 @@ extension AppEnvironment {
                 model.browser.search(model.browser.query, organization: $0)
             }
         )
+    }
+}
+
+/// What the menu bar's File › New items start, named here so the app shell
+/// needs no domain types.
+public enum NewConversationKind: Sendable {
+    case message, groupChat, space
+
+    var conversationKind: Conversation.Kind {
+        switch self {
+        case .message: .directMessage
+        case .groupChat: .groupDirectMessage
+        case .space: .space
+        }
     }
 }

@@ -102,19 +102,7 @@ public struct ConversationList: View {
                         }
                     }
                     if let showDirectory = actions.showDirectory {
-                        Button { showDirectory(section.id) } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "ellipsis")
-                                    .frame(width: 20)
-                                Text("See all…")
-                                Spacer(minLength: 4)
-                            }
-                            .padding(.vertical, 1)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel("See all \(section.title)")
+                        SidebarSeeAllRow(title: section.title) { showDirectory(section.id) }
                     }
                 } header: {
                     Text(section.title)

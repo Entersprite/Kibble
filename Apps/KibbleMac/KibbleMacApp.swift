@@ -79,7 +79,7 @@ struct KibbleMacApp: App {
                     HelpWindows.show(.acknowledgments)
                 }
             }
-            CommandGroup(replacing: .newItem) {}
+            NewConversationCommands(environment: environment)
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
                     appDelegate.updates.checkNow()
@@ -146,7 +146,7 @@ struct KibbleMacApp: App {
                         preferences: environment.sidebarPreferences,
                         update: { environment.updateSidebar($0) }
                     )
-                    .frame(width: 560, height: 440)
+                    .frame(width: 560, height: 540)
                 }
                 Tab("Downloads", systemImage: "arrow.down.circle", value: "downloads") {
                     DownloadSettingsPane(
@@ -230,5 +230,31 @@ struct KibbleMacApp: App {
         actions.showSettings = showSettings
         actions.showSidebarSettings = { settingsPane = "sidebar"; showSettings() }
         return actions
+    }
+}
+
+/// File › New Message…, New Group Chat… and New Space…, the menu bar's way
+/// to what the sidebar's + offers. Each opens the main window first, so the
+/// sheet has somewhere to appear.
+private struct NewConversationCommands: Commands {
+    let environment: AppEnvironment
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Message…") { begin(.message) }
+                .keyboardShortcut("n")
+                .disabled(!environment.canBeginConversation(.message))
+            Button("New Group Chat…") { begin(.groupChat) }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(!environment.canBeginConversation(.groupChat))
+            Button("New Space…") { begin(.space) }
+                .disabled(!environment.canBeginConversation(.space))
+        }
+    }
+
+    private func begin(_ kind: NewConversationKind) {
+        openWindow(id: MainWindow.id)
+        environment.beginConversation(kind)
     }
 }

@@ -17,10 +17,10 @@ extension ChatWindow {
 
     var title: String {
         if state.browser.page == "spaceSpam" {
-            return "Spam invites"
+            return "Spam Invitations"
         }
         if state.browser.page == "space" {
-            return "Browse spaces"
+            return "Browse Spaces"
         }
         if let page = state.browser.page {
             return page == "people" || page == "directMessage" ? "People" : SidebarSectionPreference(id: page)

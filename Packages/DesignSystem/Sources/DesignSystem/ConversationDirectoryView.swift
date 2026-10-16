@@ -1,26 +1,29 @@
 import ChatKit
 import SwiftUI
 
+/// A full list behind a sidebar section's See All: People, Group Chats,
+/// Apps, Meet Chats, or the Spaces browser.
+///
+/// Laid out like Mail and Photos: the list fills the column and scrolls
+/// under the toolbar, and the page's controls are toolbar items, in Liquid
+/// Glass: the system search field at the trailing edge, Sort, and the way
+/// to start a new conversation. The window shows this view only while a
+/// page is open, so its search field and items leave with it.
+///
+/// Native lists: a click selects, a double-click or Return opens, and the
+/// context menu says what opening does.
 struct ConversationDirectoryView: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
+    @State private var selectedPerson: Member.ID?
+    @State private var selectedConversation: Conversation.ID?
+
     private var page: String? {
         browser.page ?? browser.lastPage
     }
 
     private var browser: ConversationBrowserScene {
         state.browser
-    }
-
-    private var title: String {
-        switch page {
-        case "space": "Spaces"
-        case "spaceSpam": "Spam invites"
-        case "groupDirectMessage": "Group Chats"
-        case "appDirectMessage": "Apps"
-        case "meetChat": "Meet Chats"
-        default: "People"
-        }
     }
 
     private var isSpacePage: Bool {
@@ -31,157 +34,260 @@ struct ConversationDirectoryView: View {
         page == "people" || page == "directMessage"
     }
 
+    /// The sidebar section whose sort this page shares.
+    private var sectionID: String {
+        isSpacePage ? "space" : isPeoplePage ? "directMessage" : page ?? "directMessage"
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                TextField("Search \(title.lowercased())", text: Binding(
-                    get: { browser.query }, set: { actions.browser?.search($0, nil, false) }
-                ))
-                .textFieldStyle(.roundedBorder)
-                if browser.isLoading {
-                    ProgressView().controlSize(.small)
-                }
-                if let update = actions.updateSidebar {
-                    SidebarSectionMenu(
-                        id: isSpacePage ? "space" : isPeoplePage ? "directMessage" : page ?? "directMessage",
-                        preferences: state.sidebarPreferences,
-                        update: update
-                    )
-                }
-                creationButton
-            }.padding()
-            if let error = browser.error {
-                Text(error).foregroundStyle(.secondary).padding()
-            }
+        Group {
             if isSpacePage {
                 SpacesDirectoryContent(state: state, actions: actions)
+            } else if isPeoplePage {
+                peopleList
             } else {
-                List {
-                    if !isPeoplePage {
-                        ForEach(localConversations, id: \.id) { conversation in
-                            Button { actions.select(conversation.id) } label: {
-                                ConversationRow(
-                                    conversation: conversation,
-                                    state: ConversationRowState(
-                                        conversation: conversation,
-                                        scene: state
-                                    )
-                                )
-                            }.buttonStyle(.plain)
-                        }
-                    } else {
-                        Section(browser.query.isEmpty ? "Known People" : "Search Results") {
-                            ForEach(people, id: \.id) { person in
-                                Button {
-                                    actions.browser?.beginCreation(.directMessage)
-                                    actions.browser?.create(ConversationDraft(
-                                        kind: .directMessage,
-                                        members: [person.id]
-                                    ))
-                                } label: { personRow(person) }
-                                    .buttonStyle(.plain)
-                                    .disabled(!state.capabilities.canOpenDirectConversations)
-                            }
-                        }
-                        if browser.query.isEmpty {
-                            Text("Search by name or email to find more people.").foregroundStyle(.secondary)
-                        }
+                conversationList
+            }
+        }
+        .searchable(
+            text: Binding(get: { browser.query }, set: { actions.browser?.search($0, nil, false) }),
+            placement: .toolbar,
+            prompt: Text(searchPrompt)
+        )
+        .toolbar { toolbarItems }
+    }
+
+    // MARK: Toolbar
+
+    private var searchPrompt: String {
+        switch page {
+        case "space": "Search Spaces"
+        case "spaceSpam": "Search Invitations"
+        case "groupDirectMessage": "Search Group Chats"
+        case "appDirectMessage": "Search Apps"
+        case "meetChat": "Search Meet Chats"
+        default: "Search People"
+        }
+    }
+
+    /// Sort and New, each in a glass capsule of its own, before the search
+    /// field the system places at the trailing edge.
+    @ToolbarContentBuilder private var toolbarItems: some ToolbarContent {
+        if page != "spaceSpam", let update = actions.updateSidebar {
+            ToolbarItem(id: "directory.sort", placement: .primaryAction) {
+                Menu {
+                    SidebarSortMenuItems(section: state.sidebarPreferences.section(sectionID)) {
+                        update(state.sidebarPreferences.updating($0))
                     }
-                    if browser.hasMore {
-                        Button("Load More") { actions.browser?.search(browser.query, nil, true) }
-                            .disabled(browser.isLoading)
-                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
                 }
-                .overlay {
-                    if !browser.isLoading, browser.error == nil, let empty = emptyDirectory {
-                        ContentUnavailableView(
-                            empty.title,
-                            systemImage: empty.icon,
-                            description: Text(empty.message)
-                        )
-                    }
+                .menuIndicator(.hidden)
+                .help("Sort")
+            }
+        }
+        if let creation {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarItem(id: "directory.create", placement: .primaryAction) {
+                Button(creation.title, systemImage: creation.icon) {
+                    actions.browser?.beginCreation(creation.kind)
                 }
+                .help(creation.title)
             }
         }
     }
 
-    private var emptyDirectory: EmptyConversationDirectory? {
-        if page == "groupDirectMessage", localConversations.isEmpty {
-            return .init(
-                title: "No Group Chats",
-                icon: "person.3",
-                message: "Start a group chat to bring people together."
-            )
+    private struct Creation {
+        var title: String
+        var icon: String
+        var kind: Conversation.Kind
+    }
+
+    private var creation: Creation? {
+        let capabilities = state.capabilities
+        if page == "space", capabilities.canCreateConversations {
+            return Creation(title: "New Space", icon: "plus", kind: .space)
         }
-        if page == "appDirectMessage" || page == "meetChat", localConversations.isEmpty {
-            return .init(
-                title: browser.query.isEmpty ? "No \(title)" : "No Matching \(title)",
-                icon: page == "appDirectMessage" ? "app" : "video",
-                message: "These conversations will appear here when they sync."
-            )
+        if page == "groupDirectMessage", capabilities.canCreateConversations {
+            return Creation(title: "New Group Chat", icon: "plus", kind: .groupDirectMessage)
         }
-        if isPeoplePage, people.isEmpty {
-            return .init(
-                title: browser.query.isEmpty ? "No People" : "No Matching People",
-                icon: "person.2",
-                message: "Search by name or email to find someone."
-            )
+        if isPeoplePage, capabilities.canOpenDirectConversations {
+            return Creation(title: "New Message", icon: "square.and.pencil", kind: .directMessage)
         }
         return nil
     }
 
-    private var directoryPreferences: SidebarPreferences {
-        SidebarPreferences(sections: state.sidebarPreferences.orderedSections.map {
-            var section = $0; section.isVisible = true; return section
-        })
-    }
-
-    private var localConversations: [Conversation] {
-        let kind = isPeoplePage ? "directMessage" : page
-        return SidebarProjection.build(
-            state.conversations,
-            preferences: directoryPreferences,
-            directory: state.directory,
-            me: state.me,
-            limited: false
-        )
-        .first { $0.id == kind }?.conversations.filter {
-            browser.query.isEmpty || Display.title(of: $0, directory: state.directory, me: state.me)
-                .localizedCaseInsensitiveContains(browser.query)
-        } ?? []
-    }
+    // MARK: People
 
     private var people: [Member] {
         PeopleDirectoryProjection.build(state)
     }
 
-    @ViewBuilder private var creationButton: some View {
-        if page == "space" || page == "groupDirectMessage" {
-            if state.capabilities.canCreateConversations {
-                Button(page == "space" ? "New Space" : "New Group Chat", systemImage: "plus") {
-                    actions.browser?.beginCreation(page == "space" ? .space : .groupDirectMessage)
-                }
+    private var canMessage: Bool {
+        state.capabilities.canOpenDirectConversations
+    }
+
+    /// Opens the DM straight away, with no sheet sliding in and out on the
+    /// way. Only a failure shows one, to say what went wrong.
+    private func message(_ id: Member.ID) {
+        guard canMessage else { return }
+        actions.browser?.create(ConversationDraft(kind: .directMessage, members: [id]))
+    }
+
+    private var peopleList: some View {
+        List(selection: $selectedPerson) {
+            if !people.isEmpty {
+                DirectorySectionHeader(title: DirectorySectionHeader.count(
+                    people.count, browser.query.isEmpty ? ("Person", "People") : ("Result", "Results")
+                ))
             }
-        } else if isPeoplePage, state.capabilities.canOpenDirectConversations {
-            Button("New Direct Message", systemImage: "square.and.pencil") {
-                actions.browser?.beginCreation(.directMessage)
+            ForEach(people, id: \.id) { person in
+                DirectoryRow(isSelected: selectedPerson == person.id) { revealed in
+                    PersonRow(person: person, size: DirectoryLayout.pictureSize) {
+                        if canMessage {
+                            Button("Send Message", systemImage: "bubble.left.fill") { message(person.id) }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.glass)
+                                .help("Send Message")
+                                .opacity(revealed ? 1 : 0)
+                        }
+                    }
+                }
+                .tag(person.id)
+            }
+            status
+            if browser.query.isEmpty, !people.isEmpty {
+                Text("Search by name or email to find anyone in your directory.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 10)
+                    .listRowSeparator(.hidden)
+            }
+        }
+        .listStyle(.inset)
+        .contextMenu(forSelectionType: Member.ID.self) { ids in
+            if ids.count == 1, let id = ids.first, canMessage {
+                Button("Send Message") { message(id) }
+            }
+        } primaryAction: { ids in
+            if ids.count == 1, let id = ids.first {
+                message(id)
+            }
+        }
+        .overlay {
+            if people.isEmpty, !browser.isLoading, browser.error == nil {
+                if browser.query.isEmpty {
+                    ContentUnavailableView(
+                        "No People Yet",
+                        systemImage: "person.2",
+                        description: Text("Search by name or email to find someone.")
+                    )
+                } else {
+                    ContentUnavailableView.search(text: browser.query)
+                }
             }
         }
     }
 
-    private func personRow(_ person: Member) -> some View {
-        HStack {
-            Avatar(member: person.id, directory: [person.id: person], size: 28)
-            VStack(alignment: .leading) {
-                Text(person.displayName ?? person.email ?? "Unknown Person")
-                if let email = person.email {
-                    Text(email).font(.caption).foregroundStyle(.secondary)
+    // MARK: Group chats, apps and Meet chats
+
+    private var localConversations: [Conversation] {
+        let preferences = SidebarPreferences(sections: state.sidebarPreferences.orderedSections.map {
+            var section = $0
+            section.isVisible = true
+            return section
+        })
+        return SidebarProjection.build(
+            state.conversations,
+            preferences: preferences,
+            directory: state.directory,
+            me: state.me,
+            limited: false
+        )
+        .first { $0.id == page }?.conversations.filter {
+            browser.query.isEmpty || Display.title(of: $0, directory: state.directory, me: state.me)
+                .localizedCaseInsensitiveContains(browser.query)
+        } ?? []
+    }
+
+    private var conversationList: some View {
+        List(selection: $selectedConversation) {
+            if !localConversations.isEmpty {
+                DirectorySectionHeader(title: DirectorySectionHeader.count(
+                    localConversations.count, browser.query.isEmpty ? noun : ("Result", "Results")
+                ))
+            }
+            ForEach(localConversations, id: \.id) { conversation in
+                DirectoryConversationRow(conversation: conversation, state: state)
+                    .tag(conversation.id)
+            }
+        }
+        .listStyle(.inset)
+        .contextMenu(forSelectionType: Conversation.ID.self) { ids in
+            if ids.count == 1, let id = ids.first {
+                Button("Open") { actions.select(id) }
+                if state.capabilities.canReadConversationDetails, let browser = actions.browser {
+                    Button("Show Details…") { browser.details(id, false) }
                 }
             }
-        }.padding(.vertical, 3)
+        } primaryAction: { ids in
+            if ids.count == 1, let id = ids.first {
+                actions.select(id)
+            }
+        }
+        .overlay {
+            if localConversations.isEmpty {
+                if browser.query.isEmpty {
+                    emptyConversations
+                } else {
+                    ContentUnavailableView.search(text: browser.query)
+                }
+            }
+        }
+    }
+
+    private var noun: (String, String) {
+        switch page {
+        case "groupDirectMessage": ("Group Chat", "Group Chats")
+        case "appDirectMessage": ("App", "Apps")
+        default: ("Meet Chat", "Meet Chats")
+        }
+    }
+
+    @ViewBuilder private var emptyConversations: some View {
+        switch page {
+        case "groupDirectMessage":
+            ContentUnavailableView(
+                "No Group Chats",
+                systemImage: "person.3",
+                description: Text("Start a group chat to bring people together.")
+            )
+        case "appDirectMessage":
+            ContentUnavailableView(
+                "No Apps",
+                systemImage: "app",
+                description: Text("Conversations with apps appear here.")
+            )
+        default:
+            ContentUnavailableView(
+                "No Meet Chats",
+                systemImage: "video",
+                description: Text("Chats from meetings appear here.")
+            )
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        if let error = browser.error {
+            DirectoryErrorRow(message: error) { actions.browser?.search(browser.query, nil, false) }
+        } else if browser.isLoading {
+            DirectoryLoadingRow()
+        }
     }
 }
 
+/// The sidebar's + button: every way to start a conversation this backend
+/// offers. Each item opens a sheet that asks for more, hence the ellipses.
 struct ConversationSidebarTools: ToolbarContent {
     let capabilities: Capabilities
     let actions: ConversationBrowserActions
@@ -191,11 +297,15 @@ struct ConversationSidebarTools: ToolbarContent {
         ToolbarItem(id: "sidebar.create", placement: .primaryAction) {
             Menu {
                 if capabilities.canOpenDirectConversations {
-                    Button("New Direct Message") { actions.beginCreation(.directMessage) }
+                    Button("New Message…", systemImage: "square.and.pencil") {
+                        actions.beginCreation(.directMessage)
+                    }
                 }
                 if capabilities.canCreateConversations {
-                    Button("New Group Chat") { actions.beginCreation(.groupDirectMessage) }
-                    Button("New Space") { actions.beginCreation(.space) }
+                    Button("New Group Chat…", systemImage: "person.3") {
+                        actions.beginCreation(.groupDirectMessage)
+                    }
+                    Button("New Space…", systemImage: "number") { actions.beginCreation(.space) }
                 }
             } label: {
                 Label("New Conversation", systemImage: "plus")
@@ -207,10 +317,4 @@ struct ConversationSidebarTools: ToolbarContent {
             .help("New Conversation")
         }
     }
-}
-
-private struct EmptyConversationDirectory {
-    var title: String
-    var icon: String
-    var message: String
 }

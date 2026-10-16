@@ -59,14 +59,11 @@ public struct ChatWindow: View {
                     SearchResultsBar(bar: bar, state: state, actions: search)
                 }
                 ZStack {
-                    if state.browser.lastPage != nil {
+                    // Only while a page is open: its search field and toolbar
+                    // items belong to the page and leave with it.
+                    if state.browser.page != nil {
                         ConversationDirectoryView(state: state, actions: actions)
-                            .opacity(state.browser.page == nil ? 0 : 1)
-                            .allowsHitTesting(state.browser.page != nil)
-                            .disabled(state.browser.page == nil)
-                            .accessibilityHidden(state.browser.page == nil)
-                    }
-                    if state.browser.page == nil {
+                    } else {
                         if state.showingMentions {
                             MentionsPane(items: state.mentions, status: state.mentionsStatus, me: state.me) {
                                 actions.openMention?($0, $1)
@@ -159,7 +156,7 @@ public struct ChatWindow: View {
         .onChange(of: state.threads.panel?.thread.id) { forgetPanelEdit() }
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
         .overlay { searchOverlay }
-        .overlay { ConversationPanelOverlay(state: state, actions: actions) }
+        .modifier(ConversationPanelPresentation(state: state, actions: actions))
     }
 
     /// The bar's content: the field, or why there isn't one.

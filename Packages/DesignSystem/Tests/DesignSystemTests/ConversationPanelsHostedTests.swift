@@ -40,9 +40,10 @@
             sceneActions.updateSidebar = { _ in }
             for dark in [false, true] {
                 try await render(
-                    ConversationPanelOverlay(state: state, actions: sceneActions),
+                    ConversationPanelSheet(state: state, browser: actions, openNotifications: { _ in }),
                     dark: dark,
-                    name: "creation-\(dark ? "dark" : "light")"
+                    name: "creation-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 480, height: 560)
                 )
             }
             state.browser.creationKind = nil
@@ -54,11 +55,55 @@
             )
             for dark in [false, true] {
                 try await render(
-                    ConversationPanelOverlay(state: state, actions: sceneActions),
+                    ConversationPanelSheet(state: state, browser: actions, openNotifications: { _ in }),
                     dark: dark,
-                    name: "management-\(dark ? "dark" : "light")"
+                    name: "management-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 520, height: 580)
                 )
             }
+            try await renderPeopleAndPreview(state, people: people)
+        }
+
+        private func renderPeopleAndPreview(_ initial: ChatSceneState, people: [Member]) async throws {
+            var state = initial
+            state.browser.participants = people.prefix(4).enumerated().map { index, person in
+                ConversationParticipant(
+                    member: person,
+                    role: index == 0 ? .owner : .member,
+                    state: index == 3 ? .invited : .joined,
+                    allowedActions: index == 0 ? [] : ["setRole", "removePerson"],
+                    allowedRoles: [.member, .manager]
+                )
+            }
+            let details = try #require(state.browser.details)
+            try await render(
+                ConversationPeopleForm(details: details, state: state, actions: actions) { _ in },
+                dark: false,
+                name: "management-people",
+                size: NSSize(width: 520, height: 460)
+            )
+            state.browser.details = ConversationDetails(
+                conversation: Conversation(
+                    id: .init("open"),
+                    kind: .space,
+                    title: "Coffee Break",
+                    memberCount: 42
+                ),
+                description: "Everything but work",
+                membership: .unknown,
+                allowedActions: ["join"],
+                previewMessages: [Message(
+                    id: .init("m1"), conversationID: .init("open"), threadID: .init("t1"),
+                    sender: people[0].id,
+                    text: "Anyone up for a coffee at three?", createdAt: Date(timeIntervalSince1970: 0)
+                )]
+            )
+            try await render(
+                ConversationPanelSheet(state: state, browser: actions, openNotifications: nil),
+                dark: false,
+                name: "management-preview",
+                size: NSSize(width: 520, height: 580)
+            )
         }
 
         @Test func sidebarSettingsAndSpacesDirectoryRender() async throws {
@@ -88,9 +133,10 @@
                 )
             }
             try await render(
-                SidebarSettingsPane(preferences: .init(), update: { _ in }).frame(width: 560),
+                SidebarSettingsPane(preferences: .init(), update: { _ in }),
                 dark: false,
-                name: "sidebar-settings"
+                name: "sidebar-settings",
+                size: NSSize(width: 560, height: 540)
             )
         }
 
@@ -167,15 +213,20 @@
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews(in:))
         }
 
-        private func render(_ view: some View, dark: Bool, name: String) async throws {
+        private func render(
+            _ view: some View,
+            dark: Bool,
+            name: String,
+            size: NSSize = NSSize(width: 760, height: 460)
+        ) async throws {
             let host = NSHostingView(rootView: view
-                .frame(width: 760, height: 460)
+                .frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, dark ? .dark : .light))
             host.sizingOptions = []
             host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 760, height: 460),
+                contentRect: NSRect(origin: .zero, size: size),
                 styleMask: [],
                 backing: .buffered,
                 defer: false
@@ -183,11 +234,11 @@
             window.isReleasedWhenClosed = false
             defer { window.close() }
             window.contentView = host
-            host.frame = NSRect(x: 0, y: 0, width: 760, height: 460)
+            host.frame = NSRect(origin: .zero, size: size)
             host.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(40))
             host.layoutSubtreeIfNeeded()
-            #expect(host.bounds.size == NSSize(width: 760, height: 460))
+            #expect(host.bounds.size == size)
             let scrolls = scrollViews(in: host)
             #expect(
                 scrolls.contains { $0.frame.width >= 200 && $0.frame.height >= 100 },
