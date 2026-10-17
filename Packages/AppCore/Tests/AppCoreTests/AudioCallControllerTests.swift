@@ -272,6 +272,7 @@ final class RecordingAudioService: AudioCallService {
     let recipient: AudioCallRecipient
     var operations: [String] = []
     var listenCount = 0
+    var directoryUpdates: [[AudioCallRecipient]] = []
     var stopCount = 0
     var suspendAccept = false
     var suspendStop = false
@@ -296,6 +297,10 @@ final class RecordingAudioService: AudioCallService {
             throw ChatError.transport("private listener error")
         }
         continuation.yield(.recipientsChanged([recipient]))
+    }
+
+    func updateRecipients(_ recipients: [AudioCallRecipient]) async {
+        directoryUpdates.append(recipients)
     }
 
     func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {

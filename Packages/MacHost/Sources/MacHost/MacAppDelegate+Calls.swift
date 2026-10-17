@@ -3,10 +3,22 @@ import AppKit
 import DesignSystem
 import Observation
 
-extension MacAppDelegate {
+public extension MacAppDelegate {
+    var canSetUpCalls: Bool {
+        guard case .running = environment.phase else { return false }
+        return callSignIn.isAvailable && environment.calls.canRecover
+    }
+
+    func setUpCalls() {
+        guard canSetUpCalls else { return }
+        Task {
+            await environment.calls.recover { await callSignIn.present() }
+        }
+    }
+
     /// The call window observes the process-owned controller, independently
     /// of the main chat window's selection and lifetime.
-    func startCallWindowObservation() {
+    internal func startCallWindowObservation() {
         let calls = environment.calls
         let callDiagnostics = callDiagnostics
         callWindowHost = AudioCallWindowHost(actions: { id in
@@ -57,12 +69,13 @@ extension MacAppDelegate {
 
     /// Quit waits for the same media/watch teardown as sign-out. Merely
     /// closing the chat window keeps the session and incoming listener alive.
-    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !terminationRequested else { return .terminateLater }
         terminationRequested = true
         memoryPressureSource?.cancel()
         environment.releasePresentationCaches()
         Task { @MainActor [environment] in
+            await self.callSignIn.invalidate()
             await environment.calls.stop()
             sender.reply(toApplicationShouldTerminate: true)
         }

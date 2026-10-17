@@ -20,6 +20,7 @@ import Foundation
 public actor SessionCredentials {
     private var jar: CookieJar
     private let onRotation: (@Sendable (SessionCookies) async -> Void)?
+    private var persistence: Task<Void, Never>?
 
     public init(
         _ cookies: SessionCookies,
@@ -68,7 +69,29 @@ public actor SessionCredentials {
         let before = jar.rotations.count
         jar.absorb(setCookie: headers.setCookies, from: url)
         guard jar.rotations.count > before, let snapshot = jar.snapshot else { return }
-        await onRotation?(snapshot)
+        await persist(snapshot)
+    }
+
+    /// Installs already verified host credentials without replacing other
+    /// domains or racing older rotation writes to the credential store.
+    public func replaceCookies(_ cookies: [SessionCookies.Cookie], forDomains domains: Set<String>) async {
+        guard cookies.allSatisfy({ $0.domain.map(domains.contains) == true }),
+              jar.snapshot != nil else { return }
+        jar.replaceCookies(cookies, forDomains: domains)
+        if let snapshot = jar.snapshot {
+            await persist(snapshot)
+        }
+    }
+
+    private func persist(_ snapshot: SessionCookies) async {
+        guard let onRotation else { return }
+        let prior = persistence
+        let task = Task {
+            await prior?.value
+            await onRotation(snapshot)
+        }
+        persistence = task
+        await task.value
     }
 
     /// Returns the request with the cookies its URL admits attached, as they

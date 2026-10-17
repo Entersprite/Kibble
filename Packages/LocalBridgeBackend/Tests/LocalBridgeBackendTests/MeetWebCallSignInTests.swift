@@ -4,6 +4,37 @@ import Testing
 @testable import LocalBridgeBackend
 
 struct MeetWebCallSignInTests {
+    @Test func inSessionSetupRejectsAReplacementLoginBeforeAnyRequest() async throws {
+        let setup = try await setup(MeetDMCallTrialTests().preparingResponses()[0])
+        let summary = try #require(try await setup.store.summary(at: setup.original.capturedAt))
+        try await setup.store.store(StoredSession(
+            credential: setup.original.credential,
+            capturedAt: setup.original.capturedAt.addingTimeInterval(1), expiresAt: setup.original.expiresAt
+        ))
+        await #expect(throws: MeetWebCaptureError.sessionChangedDuringVerification) {
+            try await MeetWebCredentials.save(
+                captured: setup.cookies, to: setup.store, expectedSession: summary,
+                validatesCallSignIn: true, transport: setup.transport
+            )
+        }
+        #expect(await setup.transport.sent.isEmpty)
+    }
+
+    @Test func verifiedInSessionCookiesReachTheLiveJarWithoutReplacingChat() async throws {
+        let setup = try await setup(MeetDMCallTrialTests().preparingResponses()[0])
+        let summary = try #require(try await setup.store.summary(at: setup.original.capturedAt))
+        let credentials = SessionCredentials(setup.original.credential)
+        let count = try await MeetWebCredentials.save(
+            captured: setup.cookies, to: setup.store, expectedSession: summary,
+            validatesCallSignIn: true, liveCredentials: credentials, transport: setup.transport
+        )
+        #expect(count == 1)
+        let live = try #require(await credentials.snapshot)
+        #expect(live["OTZ"] == "fresh-OTZ")
+        #expect(live["SID"] == setup.original.credential["SID"])
+        #expect(try await setup.store.currentSession()?.capturedAt == setup.original.capturedAt)
+    }
+
     private struct Setup {
         let store: KeychainCredentialStore
         let capture: CookieCapture

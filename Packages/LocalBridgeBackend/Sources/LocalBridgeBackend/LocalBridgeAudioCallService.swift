@@ -22,6 +22,8 @@ public final class LocalBridgeAudioCallService: AudioCallService {
     var callScope = UUID()
     var muteSequence: UInt64 = 0
     var isStopping = false
+    var directoryRecipients: [AudioCallRecipient]?
+    var directoryRevision = 0
 
     public init(
         trial: MeetDMCallTrial = MeetDMCallTrial(),
@@ -79,10 +81,21 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         let loaded = try await trial.loadPeople()
         try checkSession(scope)
         people = Dictionary(uniqueKeysWithValues: loaded.map { ($0.id, $0) })
-        continuation.yield(.recipientsChanged(loaded.map(Self.recipient)))
+        if let directoryRecipients {
+            let revision = directoryRevision
+            let updated = await trial.updatePeople(directoryRecipients)
+            try checkSession(scope)
+            if directoryRevision == revision {
+                people = updated
+            }
+        }
+        continuation.yield(.recipientsChanged(people.values.map(Self.recipient)))
         let watcher = try await trial.incomingCalls()
         try checkSession(scope)
         incoming = watcher
+        // A directory delivery can arrive while the watcher bootstraps.
+        await watcher.updatePeople(trial.incomingPeople())
+        try checkSession(scope)
         listening = Task { [weak self] in
             while !Task.isCancelled {
                 await watcher.run { [weak self] event in
@@ -127,6 +140,7 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         incoming = nil
         media = nil
         people = [:]
+        directoryRecipients = nil
         incomingHandle = nil
         if let snapshot {
             publish(phase: .ended, snapshot: snapshot)

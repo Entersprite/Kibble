@@ -21,6 +21,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     public let updates: UpdateSettingsModel
     public let diagnostics: DiagnosticReportStore
     let callDiagnostics: AudioCallDiagnosticExporter
+    public let callSignIn: CallSignInRecovery
     private let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
     private var deviceTask: Task<Void, Never>?
@@ -42,6 +43,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
         let services = SystemLaunchServices(arguments: .fromCommandLine())
+        callSignIn = services.callSignIn
         callDiagnostics = services.callDiagnostics
         let diagnostics = DiagnosticReportStore(directory: try? SystemLaunchServices.supportDirectory())
         services.diagnostics = diagnostics

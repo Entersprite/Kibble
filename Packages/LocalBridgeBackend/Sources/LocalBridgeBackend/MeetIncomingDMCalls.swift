@@ -24,7 +24,7 @@ public actor MeetIncomingDMCalls {
     private let requests: PunctualRequests
     private let topic: PunctualTopic
     private let client: PunctualClient
-    private let people: [String: UUID]
+    private var people: [String: UUID]
     private let validate: @Sendable () async throws -> Void
     private let prepare: @Sendable (UUID, MeetPushWire.Ring) async throws -> PreparedMeetDMCall
     private let decline: @Sendable (MeetPushWire.Ring) async throws -> Void
@@ -63,6 +63,16 @@ public actor MeetIncomingDMCalls {
 
     public var report: String {
         lines.joined(separator: "\n")
+    }
+
+    func updatePeople(_ people: [String: UUID]) async {
+        self.people = people
+        if let pending, !people.values.contains(pending.handle.person) {
+            retire(pending.ring.id)
+            self.pending = nil
+            expiry?.cancel()
+            await receive?(.cleared)
+        }
     }
 
     public func run(receive: @escaping @Sendable (Event) async -> Void) async {

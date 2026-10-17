@@ -189,7 +189,7 @@ public final class AppEnvironment {
             followIdentity(of: model)
 
             try await model.start()
-            calls.start(service: selection.audioCalls)
+            startCalls(service: selection.audioCalls, model: model)
             // Only now: a launching "Mark as Read" submitted mid-connect is lost.
             notifications?.replayPending(for: model)
             phase = .running(model)

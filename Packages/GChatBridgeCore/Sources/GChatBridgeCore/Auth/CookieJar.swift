@@ -67,6 +67,11 @@ struct CookieJar: Sendable, CustomStringConvertible {
         SessionCookies(cookies: cookies)
     }
 
+    mutating func replaceCookies(_ replacements: [SessionCookies.Cookie], forDomains domains: Set<String>) {
+        cookies.removeAll { $0.domain.map(domains.contains) ?? false }
+        cookies.append(contentsOf: replacements)
+    }
+
     /// Names, counts and lengths only — never a value.
     var description: String {
         "CookieJar(\(count) cookies, \(rotations.count) rotations: "

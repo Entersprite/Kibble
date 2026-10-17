@@ -163,9 +163,10 @@ struct KibbleMacApp: App {
                     AccountSettingsPane(
                         state: environment.accountSettingsState,
                         signOut: environment.canSignOut ? { isConfirmingSignOutFromSettings = true } : nil,
-                        exportDiagnostics: { appDelegate.diagnostics.export() }
+                        exportDiagnostics: { appDelegate.diagnostics.export() },
+                        setUpCalls: appDelegate.canSetUpCalls ? { appDelegate.setUpCalls() } : nil
                     )
-                    .frame(width: 560, height: 350)
+                    .frame(width: 560, height: 440)
                 }
             }
             .signOutConfirmation(isPresented: $isConfirmingSignOutFromSettings) {

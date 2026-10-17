@@ -6,7 +6,7 @@ import Foundation
 public final class FixtureAudioCallService: AudioCallService {
     public let events: AsyncStream<AudioCallEvent>
     public private(set) var currentCall: AudioCallSnapshot?
-    public let recipients: [AudioCallRecipient]
+    public private(set) var recipients: [AudioCallRecipient]
     private let continuation: AsyncStream<AudioCallEvent>.Continuation
     private var listening = false
     private var sequence: UInt64 = 0
@@ -29,6 +29,13 @@ public final class FixtureAudioCallService: AudioCallService {
         listening = true
         continuation.yield(.recipientsChanged(recipients))
         continuation.yield(.listenerChanged(isListening: true))
+    }
+
+    public func updateRecipients(_ recipients: [AudioCallRecipient]) async {
+        self.recipients = recipients
+        if listening {
+            continuation.yield(.recipientsChanged(recipients))
+        }
     }
 
     public func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {

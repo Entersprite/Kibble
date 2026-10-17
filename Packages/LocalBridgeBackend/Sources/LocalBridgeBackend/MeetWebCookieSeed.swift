@@ -96,22 +96,16 @@ public enum MeetWebCredentials {
         captured: [CapturedCookie],
         to store: KeychainCredentialStore,
         expectedCapture: CookieCapture? = nil,
+        expectedSession: StoredSessionSummary? = nil,
         validatesCallSignIn: Bool = false,
+        liveCredentials: SessionCredentials? = nil,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints()
     ) async throws -> Int {
         var selected = meetCookies(from: captured)
         guard !selected.isEmpty else { return 0 }
         guard let existing = try await store.currentSession() else { return 0 }
-        if let expectedCapture {
-            // Compare the Unix seconds actually encoded by the Keychain store.
-            // Converting Date's reference epoch to Unix seconds can round away
-            // one bit; a raw Date comparison would reject the same saved login.
-            guard let expected = expectedCapture.session,
-                  expected.capturedAt.timeIntervalSince1970 == existing.capturedAt.timeIntervalSince1970,
-                  expected.expiresAt?.timeIntervalSince1970 == existing.expiresAt?.timeIntervalSince1970
-            else { throw MeetWebCaptureError.sessionChangedDuringVerification }
-        }
+        try validateLogin(existing, capture: expectedCapture, summary: expectedSession)
         guard let candidate = chatCookies(from: captured) else {
             throw MeetWebCaptureError.accountVerificationFailed(
                 source: .capturedBrowser, issue: .missingCookies
@@ -132,7 +126,35 @@ public enum MeetWebCredentials {
                 selected, expected: existing, store: store, transport: transport, endpoints: endpoints
             )
         }
-        return try await store.mergeMeetCookies(selected, expectedStored: existing) ? selected.count : 0
+        try Task.checkCancellation()
+        guard try await store.mergeMeetCookies(selected, expectedStored: existing) else { return 0 }
+        if let liveCredentials {
+            await liveCredentials.replaceCookies(
+                selected,
+                forDomains: ["meet.google.com", ".meet.google.com"]
+            )
+        }
+        return selected.count
+    }
+
+    private static func validateLogin(
+        _ existing: StoredSession, capture: CookieCapture?, summary: StoredSessionSummary?
+    ) throws {
+        if let summary {
+            guard existing.capturedAt == summary.capturedAt,
+                  existing.expiresAt == summary.expiresAt else {
+                throw MeetWebCaptureError.sessionChangedDuringVerification
+            }
+        }
+        if let capture {
+            // Compare the Unix seconds actually encoded by the Keychain store.
+            // Converting Date's reference epoch to Unix seconds can round away
+            // one bit; a raw Date comparison would reject the same saved login.
+            guard let expected = capture.session,
+                  expected.capturedAt.timeIntervalSince1970 == existing.capturedAt.timeIntervalSince1970,
+                  expected.expiresAt?.timeIntervalSince1970 == existing.expiresAt?.timeIntervalSince1970
+            else { throw MeetWebCaptureError.sessionChangedDuringVerification }
+        }
     }
 
     static func chatCookies(from captured: [CapturedCookie]) -> SessionCookies? {

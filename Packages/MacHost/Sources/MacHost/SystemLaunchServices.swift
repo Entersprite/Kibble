@@ -18,6 +18,7 @@ public final class SystemLaunchServices: LaunchServices {
     private let launchProbe: MacLaunchProbe?
     public var diagnostics: DiagnosticReportStore?
     let callDiagnostics = AudioCallDiagnosticExporter()
+    public let callSignIn = CallSignInRecovery()
 
     public var launchReportRequested: Bool {
         launchProbe != nil
@@ -45,6 +46,7 @@ public final class SystemLaunchServices: LaunchServices {
     }
 
     public func forgetStoredSession() async throws {
+        await callSignIn.invalidate()
         callDiagnostics.install(nil)
         try await KeychainCredentialStore().invalidate()
     }
@@ -105,6 +107,7 @@ public final class SystemLaunchServices: LaunchServices {
     /// through `LocalBridgeBackend`, using whatever session
     /// `hasStoredSession()` already confirmed is in the Keychain.
     public func makeSession() async throws -> SessionSelection {
+        await callSignIn.invalidate()
         callDiagnostics.install(nil)
         switch arguments.backend {
         case .fixture:
@@ -162,14 +165,28 @@ public final class SystemLaunchServices: LaunchServices {
         let audioCalls = await backend.makeAudioCallService(
             store: store, expectedSession: sessionSummary, mediaFactory: { NativeCallMedia() }
         )
-        callDiagnostics.install { [weak audioCalls] id in
-            await audioCalls?.diagnosticReport(callID: id)
-        }
+        await configureCallServices(audioCalls)
         return SessionSelection(
             backend: backend, me: nil, driver: nil,
             connectionService: ConnectionService(name: "Google Chat", operatorName: "Google"),
             audioCalls: audioCalls
         )
+    }
+
+    private func configureCallServices(_ audioCalls: LocalBridgeAudioCallService) async {
+        await callSignIn.install(
+            load: { [weak audioCalls] in
+                guard let audioCalls else { throw CancellationError() }
+                return try await audioCalls.callSignInCookies()
+            },
+            save: { [weak audioCalls] cookies in
+                guard let audioCalls else { throw CancellationError() }
+                return try await audioCalls.saveCallSignIn(cookies)
+            }
+        )
+        callDiagnostics.install { [weak audioCalls] id in
+            await audioCalls?.diagnosticReport(callID: id)
+        }
     }
 
     /// Installed before connect so diagnostics see the session's first events.

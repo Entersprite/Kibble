@@ -61,10 +61,10 @@ struct LocalBridgeAudioCallServiceTests {
         try #require(await setup.transport.started)
     }
 
-    func ring(_ setup: Setup, id: String = "ring-secret") async throws {
+    func ring(_ setup: Setup, id: String = "ring-secret", dmID: String = "valid-dm") async throws {
         let ring = NativeMeetFixture.string(1, id) + NativeMeetFixture.string(2, "abc-defg-hij")
             + NativeMeetFixture.number(4, 1) + NativeMeetFixture.string(8, "receiver-secret")
-            + NativeMeetFixture.string(11, "dm/valid-dm") + NativeMeetFixture.number(12, 2)
+            + NativeMeetFixture.string(11, "dm/" + dmID) + NativeMeetFixture.number(12, 2)
             + NativeMeetFixture.string(7, "70;notification-token")
         let watcher = try #require(setup.service.incoming)
         for _ in 0 ..< 10000 {

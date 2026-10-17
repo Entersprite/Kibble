@@ -36,6 +36,7 @@ public actor MeetDMCallTrial {
     let expectedSession: StoredSessionSummary?
     var sharedCredentials: SessionCredentials?
     var targets: [UUID: Target] = [:]
+    var selfID: String?
     var context: Context?
     var prepared: Prepared?
     var native: NativeMeetCallSession?
@@ -112,6 +113,7 @@ public actor MeetDMCallTrial {
                 pushDiagnostics: wiz.meetPushDiagnostics
             )
             targets = people.targets
+            self.selfID = selfID
             lines.append("Loaded \(people.people.count) named human DM recipients.")
             return people.people.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         } catch {
@@ -214,6 +216,7 @@ public actor MeetDMCallTrial {
         generation += 1
         watchScope = UUID()
         targets = [:]
+        selfID = nil
         context = nil
         prepared = nil
         await endNativeCall()

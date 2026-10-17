@@ -9,6 +9,9 @@ public protocol AudioCallService: AnyObject, Sendable {
     var events: AsyncStream<AudioCallEvent> { get }
     /// Publishes supported recipients before outgoing controls become available.
     func startListening() async throws
+    /// Current verified human DM recipients from the client replica. This hint
+    /// creates no media or invitations; providers may further restrict it.
+    func updateRecipients(_ recipients: [AudioCallRecipient]) async
     func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws
     func accept(callID: UUID) async throws
     func decline(callID: UUID) async throws
@@ -17,6 +20,10 @@ public protocol AudioCallService: AnyObject, Sendable {
     func setMuted(_ muted: Bool, callID: UUID) async throws
     /// Stops listening and settles all session-owned media and pending operations.
     func stop() async
+}
+
+public extension AudioCallService {
+    func updateRecipients(_: [AudioCallRecipient]) async {}
 }
 
 public struct AudioCallRecipient: Codable, Hashable, Sendable {

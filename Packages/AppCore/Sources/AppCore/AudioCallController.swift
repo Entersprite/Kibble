@@ -12,6 +12,7 @@ public final class AudioCallController {
     public private(set) var isAvailable = false
     public private(set) var isEnding = false
     public private(set) var isUpdatingMute = false
+    public private(set) var isRecovering = false
 
     private var recipients: [Conversation.ID: AudioCallRecipient] = [:]
     @ObservationIgnored private var service: (any AudioCallService)?
@@ -24,32 +25,33 @@ public final class AudioCallController {
     @ObservationIgnored private var muteTask: Task<Void, Never>?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
     @ObservationIgnored private var muteRevision = 0
+    @ObservationIgnored private var directoryTask: Task<Void, Never>?
+    @ObservationIgnored private var directorySource: (@MainActor () -> [AudioCallRecipient])?
 
     public init() {}
 
     /// The previous service must be stopped before installing a replacement.
-    public func start(service: (any AudioCallService)?) {
+    public func start(
+        service: (any AudioCallService)?,
+        directory: (@MainActor () -> [AudioCallRecipient])? = nil
+    ) {
         guard self.service == nil, stopTask == nil, let service else { return }
         generation += 1
         muteRevision += 1
         let scope = generation
         self.service = service
+        directorySource = directory
+        followDirectory(service: service, scope: scope)
         isAvailable = true
         eventTask = Task { [weak self] in
             for await event in service.events {
                 guard let self, !Task.isCancelled, generation == scope else { return }
-                receive(event)
+                if !isRecovering {
+                    receive(event)
+                }
             }
         }
-        listenerTask = Task { [weak self] in
-            guard self?.generation == scope, !Task.isCancelled else { return }
-            do {
-                try await service.startListening()
-            } catch {
-                guard let self, !Task.isCancelled, generation == scope else { return }
-                listenerFailure = "Incoming calls are unavailable."
-            }
-        }
+        listen(service: service, scope: scope)
     }
 
     public func stop() async {
@@ -58,6 +60,10 @@ public final class AudioCallController {
             return
         }
         generation += 1
+        isRecovering = false
+        directoryTask?.cancel()
+        directoryTask = nil
+        directorySource = nil
         let oldService = service
         service = nil
         eventTask?.cancel()
@@ -87,6 +93,56 @@ public final class AudioCallController {
         stopTask = nil
     }
 
+    public var canRecover: Bool {
+        isAvailable && !isEnding && !isRecovering && call?.phase.isTerminal != false
+    }
+
+    /// Pauses only calls while the host repairs authentication. Account teardown
+    /// invalidates the restart even if the host operation finishes late.
+    public func recover(using repair: @MainActor () async -> Bool) async {
+        guard canRecover, let previous = service else { return }
+        let scope = generation
+        isRecovering = true
+        recipients = [:]
+        call = nil
+        listenerTask?.cancel()
+        directoryTask?.cancel()
+        await previous.stop()
+        guard generation == scope, !Task.isCancelled else { return }
+        let mayRestart = await repair()
+        guard generation == scope, !Task.isCancelled else { return }
+        isRecovering = false
+        if mayRestart {
+            followDirectory(service: previous, scope: scope)
+            listen(service: previous, scope: scope)
+        }
+    }
+
+    private func followDirectory(service: any AudioCallService, scope: Int) {
+        guard let directorySource else { return }
+        directoryTask = Task { [weak self] in
+            var previous: [AudioCallRecipient]?
+            for await recipients in Observations(directorySource) {
+                guard !Task.isCancelled, self?.generation == scope else { return }
+                guard recipients != previous else { continue }
+                await service.updateRecipients(recipients)
+                previous = recipients
+            }
+        }
+    }
+
+    private func listen(service: any AudioCallService, scope: Int) {
+        listenerTask = Task { [weak self] in
+            guard self?.generation == scope, !Task.isCancelled else { return }
+            do {
+                try await service.startListening()
+            } catch {
+                guard let self, !Task.isCancelled, generation == scope else { return }
+                listenerFailure = "Incoming calls are unavailable."
+            }
+        }
+    }
+
     public func canCall(conversation: Conversation, members: [Member], me: Member.ID?) -> Bool {
         guard let recipient = eligibleRecipient(in: conversation, me: me) else { return false }
         return members.first(where: { $0.id == recipient })?.kind == .human
@@ -102,7 +158,7 @@ public final class AudioCallController {
     }
 
     private func eligibleRecipient(in conversation: Conversation, me: Member.ID?) -> Member.ID? {
-        guard isAvailable, conversation.kind == .directMessage,
+        guard isAvailable, !isRecovering, conversation.kind == .directMessage,
               let me, let recipient = recipients[conversation.id],
               Set(conversation.members) == Set([me, recipient.memberID]), me != recipient.memberID
         else { return nil }
