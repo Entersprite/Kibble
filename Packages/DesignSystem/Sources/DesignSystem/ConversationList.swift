@@ -88,24 +88,35 @@ public struct ConversationList: View {
                 directory: state.directory, me: state.me
             )) { section in
                 Section(isExpanded: expansion(of: section.id)) {
-                    ForEach(section.conversations, id: \.id) { conversation in
-                        let items = ConversationMenu.items(
-                            for: conversation, state: state, offers: ConversationMenu.Offers(actions)
-                        )
-                        ConversationRow(
-                            conversation: conversation,
-                            state: ConversationRowState(conversation: conversation, scene: state)
-                        )
-                        .tag(SidebarSelection.conversation(conversation.id))
-                        .contextMenu { [menuActions = rowActions(for: conversation)] in
-                            ConversationRowMenu(id: conversation.id, items: items, actions: menuActions)
+                    ForEach(section.items) { item in
+                        switch item {
+                        case let .meeting(series):
+                            MeetingSeriesRow(series: series, state: state)
+                                .tag(SidebarSelection.meetingSeries(series.id))
+                        case let .conversation(conversation):
+                            let items = ConversationMenu.items(
+                                for: conversation, state: state, offers: ConversationMenu.Offers(actions)
+                            )
+                            ConversationRow(
+                                conversation: conversation,
+                                state: ConversationRowState(conversation: conversation, scene: state)
+                            )
+                            .tag(SidebarSelection.conversation(conversation.id))
+                            .contextMenu { [menuActions = rowActions(for: conversation)] in
+                                ConversationRowMenu(id: conversation.id, items: items, actions: menuActions)
+                            }
                         }
                     }
                     if let showDirectory = actions.showDirectory {
                         SidebarSeeAllRow(title: section.title) { showDirectory(section.id) }
                     }
                 } header: {
-                    Text(section.title)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(section.title)
+                        if section.id == "meetChat", state.isLoadingMeetingMetadata {
+                            MeetingMetadataProgress()
+                        }
+                    }
                 }
                 .sectionActions {
                     if let update = actions.updateSidebar {
@@ -307,9 +318,7 @@ struct ConversationRow: View {
             // `video.fill` verified present via
             // `NSImage(systemSymbolName:accessibilityDescription:)` - a wrong
             // symbol name compiles and renders as empty space.
-            MonogramCircle(size: 20) {
-                Image(systemName: "video.fill").font(.system(size: 9))
-            }
+            MeetingPicture()
         case .unknown:
             Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
         }

@@ -3,10 +3,12 @@ import Foundation
 import GRDB
 
 struct TranscriptCursor: Equatable, Sendable {
+    var conversation: Conversation.ID
     var date: Date
     var id: Message.ID
 
     init(_ message: Message) {
+        conversation = message.conversationID
         date = message.createdAt
         id = message.id
     }

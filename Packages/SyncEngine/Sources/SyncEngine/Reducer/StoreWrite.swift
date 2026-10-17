@@ -18,6 +18,8 @@ public enum StoreWrite: Sendable, Equatable {
     case replaceConversations([Conversation])
 
     case upsertConversation(Conversation)
+    case setMeetingMetadataLoading(Bool)
+    case setMeetingMetadata(conversation: Conversation.ID, meeting: MeetingOccurrence?)
     /// An explicit user open may restore a removed conversation without new activity.
     case restoreConversation(Conversation)
     case removeConversation(conversation: Conversation.ID, historyBefore: Date?)

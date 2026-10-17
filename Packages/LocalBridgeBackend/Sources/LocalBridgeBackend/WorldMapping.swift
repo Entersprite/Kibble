@@ -54,9 +54,10 @@ public enum WorldMapping {
 
     static func conversation(from item: WorldItemLite) -> Conversation? {
         guard let id = ChannelEventMapping.conversationID(item.groupID) else { return nil }
+        let kind = kind(for: item)
         return Conversation(
             id: id,
-            kind: kind(for: item),
+            kind: kind,
             title: title(for: item),
             avatarURL: item.avatarURL.isEmpty ? nil : URL(string: item.avatarURL),
             lastActivity: item.hasSortTimestamp
@@ -76,7 +77,8 @@ public enum WorldMapping {
             historyClearedBefore: item.readState.clearHistoryTimestamp_p > 0
                 ? Microseconds.date(item.readState.clearHistoryTimestamp_p) : nil,
             latestMainMessageAt: item.readState.lastHeadMessageCreateTimeUsec > 0
-                ? Microseconds.date(item.readState.lastHeadMessageCreateTimeUsec) : nil
+                ? Microseconds.date(item.readState.lastHeadMessageCreateTimeUsec) : nil,
+            meeting: kind == .meetChat ? MeetingMapping.occurrence(in: item.spaceIntegrationPayloads) : nil
         )
     }
 

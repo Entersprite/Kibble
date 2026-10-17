@@ -97,6 +97,7 @@ public actor SyncEngine {
     /// Roots already checked against their own server topic this session.
     /// History pages are windows, so absence from a page alone proves nothing.
     var checkedMissingRoots: Set<Message.ID> = []
+    var meetingMetadataUpdates: [Conversation.ID: MeetingMetadataUpdate] = [:]
 
     /// The Threads list fetch a world load started (`SyncEngine+Threads.swift`),
     /// canceled by the next world load and by `stop()`.
@@ -136,9 +137,7 @@ public actor SyncEngine {
 
     /// Stops consuming and disconnects.
     ///
-    /// Awaits the consuming task rather than only cancelling it, so that after
-    /// this returns no further event can reach the store. A test - or a window
-    /// closing - can then rely on the store standing still.
+    /// Awaits the consumer so no further event can reach the store after this returns.
     public func stop() async {
         managementGeneration += 1
         activityRunning = false
@@ -154,6 +153,7 @@ public actor SyncEngine {
         consumer?.cancel()
         await consumer?.value
         consumer = nil
+        meetingMetadataUpdates = [:]
         // After the drain, so a run started by the consumer's last event is
         // cancelled too. Not awaited, for `ChatSessionModel.historyTask`'s
         // reason: a fetch that ignores cancellation would hang sign-out with

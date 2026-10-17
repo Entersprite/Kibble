@@ -114,7 +114,7 @@ extension ChatSessionModel {
         state.bar?.unreachable = nil
         state.bar?.isOpening = true
         search = state
-        if selected != hit.conversationID {
+        if selected != hit.conversationID || selectedMeetingSeries != nil {
             select(hit.conversationID)
         }
         let limit = searchWork.historyPageLimit
@@ -124,7 +124,7 @@ extension ChatSessionModel {
             var state = search
             state.bar?.isOpening = false
             // The person went elsewhere while history paged: stay there.
-            guard selected == hit.conversationID else {
+            guard isViewingConversation(hit.conversationID) else {
                 search = state
                 return
             }

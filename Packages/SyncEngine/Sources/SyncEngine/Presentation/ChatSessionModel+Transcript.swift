@@ -20,6 +20,9 @@ public extension ChatSessionModel {
 
     /// Adds an older page while retaining at most 500 rendered messages.
     func loadOlderMessages() {
+        if selectedMeetingSeries != nil {
+            loadOlderMeetingMessages(); return
+        }
         guard let selected, hasOlderMessages, !isLoadingOlderMessages, !isLoadingNewerMessages,
               transcriptWork.pageTask == nil,
               let first = messages.first else { return }
@@ -64,6 +67,9 @@ public extension ChatSessionModel {
 
     /// Restores newer locally stored messages after paging into older history.
     func loadNewerMessages() {
+        if selectedMeetingSeries != nil {
+            loadNewerMeetingMessages(); return
+        }
         guard let selected, hasNewerMessages, !isLoadingOlderMessages, !isLoadingNewerMessages,
               transcriptWork.pageTask == nil,
               let first = messages.first else { return }
@@ -112,19 +118,24 @@ extension ChatSessionModel {
         case .around:
             transcriptWork.isTargeted = true
             transcriptIncludesLatest = false
-        case .latest, .tail: transcriptWork.isTargeted = false
+        case .latest, .tail:
+            transcriptWork.isTargeted = selectedMeetingSeries != nil && meetingWork.included.last != selected
         default: break
         }
-        transcriptWork.watcher = observe(store.observeTranscriptWindow(
-            in: conversation,
-            request: request
-        )) { [weak self] window in
+        let observation = selectedMeetingSeries == nil
+            ? store.observeTranscriptWindow(in: conversation, request: request)
+            : store.observeMeetingTranscript(occurrences: meetingWork.included, request: request)
+        transcriptWork.watcher = observe(observation) { [weak self] window in
             guard let self, selected == conversation, transcriptWork.generation == generation else { return }
             messages = window.messages
             transcriptWork.cachedOlder = window.hasOlder
-            hasOlderMessages = window.hasOlder || (!transcriptWork.serverExhausted && !messages.isEmpty)
+            hasOlderMessages = window.hasOlder || hasOlderMeetingOccurrences ||
+                (!transcriptWork.serverExhausted && !messages.isEmpty &&
+                    !meetingWork.exhausted.contains(messages.first?.conversationID ?? conversation))
             transcriptWork.cachedNewer = window.hasNewer
-            let awaitingTail = transcriptWork.isTargeted && !targetContainsConfirmedTail
+            let awaitingTail = selectedMeetingSeries == nil
+                ? transcriptWork.isTargeted && !targetContainsConfirmedTail
+                : meetingWork.included.last != selected
             hasNewerMessages = window.hasNewer || awaitingTail
             newerMessagesAreLatestJump = transcriptWork.isTargeted && hasNewerMessages
             transcriptIncludesLatest = !window.hasNewer && !awaitingTail

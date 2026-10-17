@@ -15,6 +15,8 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// no name at all. An empty string is *not* the same thing: it is a title
     /// the server really sent, and deriving over it would be wrong.
     public var title: String?
+    /// Absent until the backend can establish the recurring-event relationship.
+    public var meeting: MeetingOccurrence?
     public var avatarURL: URL?
 
     /// Used for sidebar ordering. `nil` means "never, or not known yet", which
@@ -131,11 +133,13 @@ public struct Conversation: Codable, Hashable, Sendable {
         hasUnreadThread: Bool = false,
         markedUnreadAt: Date? = nil,
         historyClearedBefore: Date? = nil,
-        latestMainMessageAt: Date? = nil
+        latestMainMessageAt: Date? = nil,
+        meeting: MeetingOccurrence? = nil
     ) {
         self.id = id
         self.kind = kind
         self.title = title
+        self.meeting = meeting
         self.avatarURL = avatarURL
         self.lastActivity = lastActivity
         self.unreadCount = unreadCount
@@ -279,6 +283,7 @@ public extension Conversation {
         case markedUnreadAt
         case historyClearedBefore
         case latestMainMessageAt
+        case meeting
     }
 
     /// `id` and `kind` are required; everything else falls back to the same
@@ -311,7 +316,8 @@ public extension Conversation {
             hasUnreadThread: container.decodeIfPresent(Bool.self, forKey: .hasUnreadThread) ?? false,
             markedUnreadAt: container.decodeWireIfPresent(Date.self, forKey: .markedUnreadAt),
             historyClearedBefore: container.decodeWireIfPresent(Date.self, forKey: .historyClearedBefore),
-            latestMainMessageAt: container.decodeWireIfPresent(Date.self, forKey: .latestMainMessageAt)
+            latestMainMessageAt: container.decodeWireIfPresent(Date.self, forKey: .latestMainMessageAt),
+            meeting: container.decodeIfPresent(MeetingOccurrence.self, forKey: .meeting)
         )
     }
 
@@ -320,6 +326,7 @@ public extension Conversation {
         try container.encode(id, forKey: .id)
         try container.encode(kind, forKey: .kind)
         try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(meeting, forKey: .meeting)
         try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
         try container.encodeWireIfPresent(lastActivity, forKey: .lastActivity)
         try container.encode(unreadCount, forKey: .unreadCount)

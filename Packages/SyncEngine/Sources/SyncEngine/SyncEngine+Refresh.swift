@@ -12,7 +12,7 @@ public extension SyncEngine {
             let conversations = try await backend.loadConversations()
             try Task.checkCancellation()
             guard version == conversationMutationVersion else { return }
-            try store.apply([.replaceConversations(conversations)])
+            try applyConversationSnapshot(conversations)
             worldLoaded()
             if let conversation, conversations.contains(where: { $0.id == conversation }) {
                 try await loadMoreMessages(in: conversation)

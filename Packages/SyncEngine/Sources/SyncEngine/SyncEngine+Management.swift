@@ -6,7 +6,7 @@ public extension SyncEngine {
         let version = managementScope
         let conversations = try await backend.loadConversations()
         try checkManagementScope(version)
-        try store.apply([.replaceConversations(conversations)])
+        try applyConversationSnapshot(conversations)
         worldLoaded()
     }
 

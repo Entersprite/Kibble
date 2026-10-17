@@ -8,6 +8,14 @@ public struct SidebarSection: Identifiable, Sendable, Hashable {
     public let id: String
     public let title: String
     public let conversations: [Conversation]
+    public let items: [SidebarItem]
+
+    public init(id: String, title: String, conversations: [Conversation], items: [SidebarItem]? = nil) {
+        self.id = id
+        self.title = title
+        self.conversations = conversations
+        self.items = items ?? conversations.map(SidebarItem.conversation)
+    }
 }
 
 /// How the sidebar is grouped and ordered.

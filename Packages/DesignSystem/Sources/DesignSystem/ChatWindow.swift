@@ -100,7 +100,8 @@ public struct ChatWindow: View {
                                 loadNewerMessages: actions.loadNewerMessages
                             )
                             .ownMessages(transcriptHandlers)
-                            .id(conversation.id)
+                            .meetingVisibility(actions.visibleMeetingMessages)
+                            .id(state.sidebarSelection)
                             .safeAreaInset(edge: .bottom, spacing: 0) {
                                 VStack(spacing: 0) {
                                     TypingStrip(state: state)
@@ -130,7 +131,10 @@ public struct ChatWindow: View {
                    state.capabilities.canReadConversationDetails,
                    let browser = actions.browser {
                     ToolbarItem(placement: .primaryAction) {
-                        Button("Conversation Details", systemImage: "info.circle") {
+                        Button(
+                            state.meetingSeries == nil ? "Conversation Details" : "Latest Meeting Details",
+                            systemImage: "info.circle"
+                        ) {
                             browser.details(conversation.id, false)
                         }
                     }
@@ -163,7 +167,7 @@ public struct ChatWindow: View {
     @ViewBuilder private func composer(for conversation: Conversation) -> some View {
         if state.capabilities.canSendMessages {
             Composer(
-                placeholder: Display.title(
+                placeholder: state.meetingSeries?.title ?? Display.title(
                     of: conversation,
                     directory: state.directory,
                     me: state.me
@@ -197,7 +201,7 @@ public struct ChatWindow: View {
             // `@State draft` survives, and a half-typed line addressed to one
             // person posts to whoever was opened next. Cheap to miss,
             // expensive to send.
-            .id(conversation.id)
+            .id(state.sidebarSelection)
         } else {
             // Not a disabled field: a greyed-out composer invites the user to
             // keep clicking it. Saying why is kinder.

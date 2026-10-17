@@ -87,6 +87,7 @@ public struct MessageList: View {
     let threads: ThreadActions?
     let loadOlderMessages: (() -> Void)?
     let loadNewerMessages: (() -> Void)?
+    var visibleMeetingMessages: ((Set<Message.ID>) -> Void)?
     /// Reply in Thread, Mark as Unread, Edit… and Delete…; `nil` offers none
     /// (edit spec §5, threads spec §5). Set by `ChatWindow` through
     /// `ownMessages(_:)`: the handlers are the window's, and internal.
@@ -142,8 +143,17 @@ public struct MessageList: View {
         return list
     }
 
+    func meetingVisibility(_ action: ((Set<Message.ID>) -> Void)?) -> MessageList {
+        var list = self
+        list.visibleMeetingMessages = state.selectedMeetingSeries == nil ? nil : action
+        return list
+    }
+
     public var body: some View {
         let marker = ActivityPresentation.marker(state)
+        let dividers = MeetingTranscriptPresentation.dividers(
+            messages: state.messages, occurrences: state.meetingSeries?.occurrences ?? []
+        )
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -156,6 +166,9 @@ public struct MessageList: View {
                         .frame(maxWidth: .infinity)
                     }
                     ForEach(state.messages, id: \.id) { message in
+                        if let start = dividers[message.id] {
+                            MeetingOccurrenceDivider(start: start)
+                        }
                         MessageBubble(
                             message: message,
                             state: MessageRowState(
@@ -231,6 +244,7 @@ public struct MessageList: View {
                 paging.hasUserIntent = false
             }
             .onScrollTargetVisibilityChange(idType: Message.ID.self, threshold: 0.01) { ids in
+                visibleMeetingMessages?(Set(ids))
                 pageIfNeeded(paging.update(visibleIDs: ids, messages: state.messages))
             }
             .onChange(of: state.messages.first?.id) { previous, current in

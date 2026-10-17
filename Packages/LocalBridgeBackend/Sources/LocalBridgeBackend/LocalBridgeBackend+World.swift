@@ -21,10 +21,12 @@ public extension LocalBridgeBackend {
                     + "there is no verified session or xsrf token yet"
             )
         }
+        let generation = directoryGeneration
         let rung = WorldRequestLadder.minimumViable
         do {
             var response = try await apiClient.call(.paginatedWorld, rung.request)
             try Task.checkCancellation()
+            guard generation == directoryGeneration, isConnected else { throw CancellationError() }
             reconcileHistoryCutoffs(in: &response)
             reconcileHiddenWorld(in: &response)
             let mapped = WorldMapping.map(response)
@@ -41,6 +43,7 @@ public extension LocalBridgeBackend {
                     conversationHeads[id] = item.readState.lastHeadMessageCreateTimeUsec
                 }
             }
+            let conversations = hydrateMeetingMetadata(in: mapped.conversations)
             // `ChatBackend.loadConversations()` returns `[Conversation]` and
             // cannot carry `.skipped` alongside it, but silently returning a
             // shorter array is exactly the kind of loss `WorldMapping.Result`
@@ -77,7 +80,7 @@ public extension LocalBridgeBackend {
             startPresencePoll(using: apiClient, after: memberResolution)
             // The same, and it also waits for the local user's own lookup.
             startCalendarPoll(for: mapped.conversations, after: [memberResolution, selfIdentification])
-            return mapped.conversations
+            return conversations
         } catch {
             throw Self.chatError(fromAPI: error)
         }

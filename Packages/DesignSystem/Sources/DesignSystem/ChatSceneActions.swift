@@ -9,6 +9,8 @@ public struct ChatSceneActions {
     public var browser: ConversationBrowserActions?
     public var typingActivity: ((Conversation.ID, MessageThread.ID?, Bool) -> Void)?
     public var select: (Conversation.ID) -> Void
+    public var selectMeetingSeries: ((MeetingSeries.ID) -> Void)?
+    public var visibleMeetingMessages: ((Set<Message.ID>) -> Void)?
     public var send: (ComposedMessage) -> Void
 
     /// Take the person back to sign-in. **Optional, and its absence is the

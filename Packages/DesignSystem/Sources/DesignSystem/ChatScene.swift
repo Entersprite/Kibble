@@ -8,6 +8,7 @@ import Foundation
 /// become this.
 public enum SidebarSelection: Hashable, Sendable {
     case conversation(Conversation.ID)
+    case meetingSeries(MeetingSeries.ID)
     case mentions
     case threads
 }
@@ -19,6 +20,8 @@ public enum SidebarSelection: Hashable, Sendable {
 /// reach past the seam for something it was not given.
 public struct ChatSceneState: Sendable, Equatable {
     public var browser: ConversationBrowserScene = .init()
+    public var isLoadingMeetingMetadata = false
+    public var selectedMeetingSeries: MeetingSeries.ID?
     public var conversations: [Conversation]
     public var directory: [Member.ID: Member]
     public var me: Member.ID?
@@ -205,12 +208,20 @@ public struct ChatSceneState: Sendable, Equatable {
         conversations.first { $0.id == selected }
     }
 
+    public var meetingSeries: MeetingSeries? {
+        guard let selectedMeetingSeries else { return nil }
+        return MeetingSeries.build(conversations).first { $0.id == selectedMeetingSeries }
+    }
+
     public var sidebarSelection: SidebarSelection? {
         if showingMentions {
             return .mentions
         }
         if threads.showingList {
             return .threads
+        }
+        if let selectedMeetingSeries {
+            return .meetingSeries(selectedMeetingSeries)
         }
         return selected.map(SidebarSelection.conversation)
     }

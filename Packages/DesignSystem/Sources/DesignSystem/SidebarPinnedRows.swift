@@ -112,15 +112,16 @@ enum SidebarPinned {
         switch state.sidebarSelection {
         case .mentions?: .mentions
         case .threads?: .threads
-        case .conversation?, nil: nil
+        case .conversation?, .meetingSeries?, nil: nil
         }
     }
 
     static func conversationSelection(_ state: ChatSceneState) -> SidebarSelection? {
-        if case .conversation? = state.sidebarSelection {
-            return state.sidebarSelection
+        switch state.sidebarSelection {
+        case .conversation?, .meetingSeries?:
+            state.sidebarSelection
+        default: nil
         }
-        return nil
     }
 
     /// What choosing a row in either list asks the host for.
@@ -128,6 +129,8 @@ enum SidebarPinned {
         switch selection {
         case let .conversation(id)?:
             actions.select(id)
+        case let .meetingSeries(id)?:
+            actions.selectMeetingSeries?(id)
         case .mentions?:
             actions.showMentions?()
         case .threads?:

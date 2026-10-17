@@ -88,7 +88,7 @@ extension ChatSessionModel {
     /// is the single chokepoint by design - a second check here would be a
     /// second place to forget. The engine's dormant `ghostMode` switch is
     /// enforced there too.
-    func markSelectedReadIfNeeded() {
+    func markSingleConversationReadIfNeeded() {
         // Split from the original single compound guard
         // (`isActive, capabilities.canMarkRead, let selected`) into three,
         // in the same order, so `traceTrigger(_:)` can name which one declined -

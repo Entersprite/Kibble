@@ -383,6 +383,7 @@ public nonisolated enum SharedAttributeCheckerGroupType: Int, SwiftProtobuf.Enum
   case threadedRoom = 5
   case immutableMembershipHumanDm = 6
   case postRoom = 7
+  case meetingChat = 10
 
   public init() {
     self = .attributeCheckerGroupTypeUnspecified
@@ -5982,6 +5983,205 @@ public nonisolated struct GroupId: Sendable {
   public init() {}
 }
 
+/// The meeting integration envelope shared by Group29 and WorldItemLite17.
+/// Only the calendar payload used by meeting chats is described here.
+public nonisolated struct SpaceIntegrationPayload: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var type: Int32 {
+    get {_type ?? 0}
+    set {_type = newValue}
+  }
+  /// Returns true if `type` has been explicitly set.
+  public var hasType: Bool {self._type != nil}
+  /// Clears the value of `type`. Subsequent reads from it will return its default value.
+  public mutating func clearType() {self._type = nil}
+
+  public var meetingChat: MeetingChatIntegration {
+    get {_meetingChat ?? MeetingChatIntegration()}
+    set {_meetingChat = newValue}
+  }
+  /// Returns true if `meetingChat` has been explicitly set.
+  public var hasMeetingChat: Bool {self._meetingChat != nil}
+  /// Clears the value of `meetingChat`. Subsequent reads from it will return its default value.
+  public mutating func clearMeetingChat() {self._meetingChat = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _type: Int32? = nil
+  fileprivate var _meetingChat: MeetingChatIntegration? = nil
+}
+
+public nonisolated struct MeetingChatIntegration: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var calendarEvent: MeetingChatCalendarEvent {
+    get {_calendarEvent ?? MeetingChatCalendarEvent()}
+    set {_calendarEvent = newValue}
+  }
+  /// Returns true if `calendarEvent` has been explicitly set.
+  public var hasCalendarEvent: Bool {self._calendarEvent != nil}
+  /// Clears the value of `calendarEvent`. Subsequent reads from it will return its default value.
+  public mutating func clearCalendarEvent() {self._calendarEvent = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _calendarEvent: MeetingChatCalendarEvent? = nil
+}
+
+public nonisolated struct MeetingChatCalendarEvent: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var eventID: String {
+    get {_eventID ?? String()}
+    set {_eventID = newValue}
+  }
+  /// Returns true if `eventID` has been explicitly set.
+  public var hasEventID: Bool {self._eventID != nil}
+  /// Clears the value of `eventID`. Subsequent reads from it will return its default value.
+  public mutating func clearEventID() {self._eventID = nil}
+
+  public var title: String {
+    get {_title ?? String()}
+    set {_title = newValue}
+  }
+  /// Returns true if `title` has been explicitly set.
+  public var hasTitle: Bool {self._title != nil}
+  /// Clears the value of `title`. Subsequent reads from it will return its default value.
+  public mutating func clearTitle() {self._title = nil}
+
+  public var start: MeetingChatDateTime {
+    get {_start ?? MeetingChatDateTime()}
+    set {_start = newValue}
+  }
+  /// Returns true if `start` has been explicitly set.
+  public var hasStart: Bool {self._start != nil}
+  /// Clears the value of `start`. Subsequent reads from it will return its default value.
+  public mutating func clearStart() {self._start = nil}
+
+  public var end: MeetingChatDateTime {
+    get {_end ?? MeetingChatDateTime()}
+    set {_end = newValue}
+  }
+  /// Returns true if `end` has been explicitly set.
+  public var hasEnd: Bool {self._end != nil}
+  /// Clears the value of `end`. Subsequent reads from it will return its default value.
+  public mutating func clearEnd() {self._end = nil}
+
+  /// Preserve this opaque context in the identity partition; do not interpret
+  /// it as authorization, a user identity or a display title.
+  public var identityContext: String {
+    get {_identityContext ?? String()}
+    set {_identityContext = newValue}
+  }
+  /// Returns true if `identityContext` has been explicitly set.
+  public var hasIdentityContext: Bool {self._identityContext != nil}
+  /// Clears the value of `identityContext`. Subsequent reads from it will return its default value.
+  public mutating func clearIdentityContext() {self._identityContext = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _eventID: String? = nil
+  fileprivate var _title: String? = nil
+  fileprivate var _start: MeetingChatDateTime? = nil
+  fileprivate var _end: MeetingChatDateTime? = nil
+  fileprivate var _identityContext: String? = nil
+}
+
+public nonisolated struct MeetingChatDateTime: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var timestamp: ComGoogleProtobufTimestamp {
+    get {_timestamp ?? ComGoogleProtobufTimestamp()}
+    set {_timestamp = newValue}
+  }
+  /// Returns true if `timestamp` has been explicitly set.
+  public var hasTimestamp: Bool {self._timestamp != nil}
+  /// Clears the value of `timestamp`. Subsequent reads from it will return its default value.
+  public mutating func clearTimestamp() {self._timestamp = nil}
+
+  public var date: MeetingChatDate {
+    get {_date ?? MeetingChatDate()}
+    set {_date = newValue}
+  }
+  /// Returns true if `date` has been explicitly set.
+  public var hasDate: Bool {self._date != nil}
+  /// Clears the value of `date`. Subsequent reads from it will return its default value.
+  public mutating func clearDate() {self._date = nil}
+
+  public var timeZone: String {
+    get {_timeZone ?? String()}
+    set {_timeZone = newValue}
+  }
+  /// Returns true if `timeZone` has been explicitly set.
+  public var hasTimeZone: Bool {self._timeZone != nil}
+  /// Clears the value of `timeZone`. Subsequent reads from it will return its default value.
+  public mutating func clearTimeZone() {self._timeZone = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _timestamp: ComGoogleProtobufTimestamp? = nil
+  fileprivate var _date: MeetingChatDate? = nil
+  fileprivate var _timeZone: String? = nil
+}
+
+public nonisolated struct MeetingChatDate: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var year: Int32 {
+    get {_year ?? 0}
+    set {_year = newValue}
+  }
+  /// Returns true if `year` has been explicitly set.
+  public var hasYear: Bool {self._year != nil}
+  /// Clears the value of `year`. Subsequent reads from it will return its default value.
+  public mutating func clearYear() {self._year = nil}
+
+  public var month: Int32 {
+    get {_month ?? 0}
+    set {_month = newValue}
+  }
+  /// Returns true if `month` has been explicitly set.
+  public var hasMonth: Bool {self._month != nil}
+  /// Clears the value of `month`. Subsequent reads from it will return its default value.
+  public mutating func clearMonth() {self._month = nil}
+
+  public var day: Int32 {
+    get {_day ?? 0}
+    set {_day = newValue}
+  }
+  /// Returns true if `day` has been explicitly set.
+  public var hasDay: Bool {self._day != nil}
+  /// Clears the value of `day`. Subsequent reads from it will return its default value.
+  public mutating func clearDay() {self._day = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _year: Int32? = nil
+  fileprivate var _month: Int32? = nil
+  fileprivate var _day: Int32? = nil
+}
+
 public nonisolated struct Group: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -6167,7 +6367,11 @@ public nonisolated struct Group: @unchecked Sendable {
   public mutating func clearAvatarURL() {_uniqueStorage()._avatarURL = nil}
 
   ///optional DYNProtoGroupIntegrationSettings group_integration_settings = 36;
-  ///repeated ?? space_integration_payloads = 29;
+  public var spaceIntegrationPayloads: [SpaceIntegrationPayload] {
+    get {_storage._spaceIntegrationPayloads}
+    set {_uniqueStorage()._spaceIntegrationPayloads = newValue}
+  }
+
   ///optional DYNProtoAvatarInfo avatar_info = 30;
   public var attributeCheckerGroupType: SharedAttributeCheckerGroupType {
     get {_storage._attributeCheckerGroupType ?? .attributeCheckerGroupTypeUnspecified}
@@ -12704,7 +12908,11 @@ public nonisolated struct WorldItemLite: @unchecked Sendable {
   /// Clears the value of `avatarURL`. Subsequent reads from it will return its default value.
   public mutating func clearAvatarURL() {_uniqueStorage()._avatarURL = nil}
 
-  ///repeated ?? space_integration_payloads = 17;
+  public var spaceIntegrationPayloads: [SpaceIntegrationPayload] {
+    get {_storage._spaceIntegrationPayloads}
+    set {_uniqueStorage()._spaceIntegrationPayloads = newValue}
+  }
+
   ///optional GroupIntegrationSettings group_integration_settings = 22;
   /// optional AvatarInfo avatar_info = 18;
   public var attributeCheckerGroupType: SharedAttributeCheckerGroupType {
@@ -15139,7 +15347,7 @@ nonisolated extension SectionType: SwiftProtobuf._ProtoNameProviding {
 }
 
 nonisolated extension SharedAttributeCheckerGroupType: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ATTRIBUTE_CHECKER_GROUP_TYPE_UNSPECIFIED\0\u{1}ONE_TO_ONE_HUMAN_DM\0\u{1}ONE_TO_ONE_BOT_DM\0\u{1}IMMUTABLE_MEMBERSHIP_GROUP_DM\0\u{1}FLAT_ROOM\0\u{1}THREADED_ROOM\0\u{1}IMMUTABLE_MEMBERSHIP_HUMAN_DM\0\u{1}POST_ROOM\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ATTRIBUTE_CHECKER_GROUP_TYPE_UNSPECIFIED\0\u{1}ONE_TO_ONE_HUMAN_DM\0\u{1}ONE_TO_ONE_BOT_DM\0\u{1}IMMUTABLE_MEMBERSHIP_GROUP_DM\0\u{1}FLAT_ROOM\0\u{1}THREADED_ROOM\0\u{1}IMMUTABLE_MEMBERSHIP_HUMAN_DM\0\u{1}POST_ROOM\0\u{2}\u{3}MEETING_CHAT\0")
 }
 
 nonisolated extension UserId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -21744,9 +21952,224 @@ nonisolated extension GroupId: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
   }
 }
 
+nonisolated extension SpaceIntegrationPayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "SpaceIntegrationPayload"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{4}j\u{1}meeting_chat\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self._type) }()
+      case 107: try { try decoder.decodeSingularMessageField(value: &self._meetingChat) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._type {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._meetingChat {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 107)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: SpaceIntegrationPayload, rhs: SpaceIntegrationPayload) -> Bool {
+    if lhs._type != rhs._type {return false}
+    if lhs._meetingChat != rhs._meetingChat {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension MeetingChatIntegration: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "MeetingChatIntegration"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{3}calendar_event\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._calendarEvent) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._calendarEvent {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: MeetingChatIntegration, rhs: MeetingChatIntegration) -> Bool {
+    if lhs._calendarEvent != rhs._calendarEvent {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension MeetingChatCalendarEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "MeetingChatCalendarEvent"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}event_id\0\u{1}title\0\u{1}start\0\u{1}end\0\u{4}\u{3}identity_context\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self._eventID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._title) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._start) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._end) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self._identityContext) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._eventID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._title {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._start {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._end {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._identityContext {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 7)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: MeetingChatCalendarEvent, rhs: MeetingChatCalendarEvent) -> Bool {
+    if lhs._eventID != rhs._eventID {return false}
+    if lhs._title != rhs._title {return false}
+    if lhs._start != rhs._start {return false}
+    if lhs._end != rhs._end {return false}
+    if lhs._identityContext != rhs._identityContext {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension MeetingChatDateTime: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "MeetingChatDateTime"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}timestamp\0\u{1}date\0\u{3}time_zone\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._timestamp) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._date) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._timeZone) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._timestamp {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._date {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._timeZone {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: MeetingChatDateTime, rhs: MeetingChatDateTime) -> Bool {
+    if lhs._timestamp != rhs._timestamp {return false}
+    if lhs._date != rhs._date {return false}
+    if lhs._timeZone != rhs._timeZone {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension MeetingChatDate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "MeetingChatDate"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}year\0\u{1}month\0\u{1}day\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self._year) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self._month) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self._day) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._year {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._month {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._day {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: MeetingChatDate, rhs: MeetingChatDate) -> Bool {
+    if lhs._year != rhs._year {return false}
+    if lhs._month != rhs._month {return false}
+    if lhs._day != rhs._day {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Group: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "Group"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{1}name\0\u{2}\u{2}creator\0\u{3}create_time\0\u{3}last_modified_time\0\u{3}sort_time\0\u{4}\u{5}group_read_state\0\u{3}revision_time\0\u{3}retention_horizon_time\0\u{4}\u{2}retention_settings\0\u{3}is_flat\0\u{3}interop_enabled\0\u{3}retention_duration_seconds\0\u{4}\u{3}group_type\0\u{1}visibility\0\u{4}\u{2}roster_email\0\u{3}flat_group\0\u{3}threaded_group\0\u{3}avatar_url\0\u{4}\u{5}attribute_checker_group_type\0\u{3}name_users\0\u{4}\u{3}group_details\0\u{3}group_support_level\0\u{3}group_unsupported_reason\0\u{4}\u{4}typing_indicators_enabled\0\u{3}inline_threading_enabled\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{1}name\0\u{2}\u{2}creator\0\u{3}create_time\0\u{3}last_modified_time\0\u{3}sort_time\0\u{4}\u{5}group_read_state\0\u{3}revision_time\0\u{3}retention_horizon_time\0\u{4}\u{2}retention_settings\0\u{3}is_flat\0\u{3}interop_enabled\0\u{3}retention_duration_seconds\0\u{4}\u{3}group_type\0\u{1}visibility\0\u{4}\u{2}roster_email\0\u{3}flat_group\0\u{3}threaded_group\0\u{3}avatar_url\0\u{3}space_integration_payloads\0\u{4}\u{4}attribute_checker_group_type\0\u{3}name_users\0\u{4}\u{3}group_details\0\u{3}group_support_level\0\u{3}group_unsupported_reason\0\u{4}\u{4}typing_indicators_enabled\0\u{3}inline_threading_enabled\0")
 
   fileprivate class _StorageClass {
     var _groupID: GroupId? = nil
@@ -21767,6 +22190,7 @@ nonisolated extension Group: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
     var _rosterEmail: String? = nil
     var _threadedModel: Group.OneOf_ThreadedModel?
     var _avatarURL: String? = nil
+    var _spaceIntegrationPayloads: [SpaceIntegrationPayload] = []
     var _attributeCheckerGroupType: SharedAttributeCheckerGroupType? = nil
     var _nameUsers: NameUsers? = nil
     var _groupDetails: GroupDetails? = nil
@@ -21802,6 +22226,7 @@ nonisolated extension Group: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
       _rosterEmail = source._rosterEmail
       _threadedModel = source._threadedModel
       _avatarURL = source._avatarURL
+      _spaceIntegrationPayloads = source._spaceIntegrationPayloads
       _attributeCheckerGroupType = source._attributeCheckerGroupType
       _nameUsers = source._nameUsers
       _groupDetails = source._groupDetails
@@ -21870,6 +22295,7 @@ nonisolated extension Group: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
           }
         }()
         case 28: try { try decoder.decodeSingularStringField(value: &_storage._avatarURL) }()
+        case 29: try { try decoder.decodeRepeatedMessageField(value: &_storage._spaceIntegrationPayloads) }()
         case 33: try { try decoder.decodeSingularEnumField(value: &_storage._attributeCheckerGroupType) }()
         case 34: try { try decoder.decodeSingularMessageField(value: &_storage._nameUsers) }()
         case 37: try { try decoder.decodeSingularMessageField(value: &_storage._groupDetails) }()
@@ -21951,6 +22377,9 @@ nonisolated extension Group: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
       try { if let v = _storage._avatarURL {
         try visitor.visitSingularStringField(value: v, fieldNumber: 28)
       } }()
+      if !_storage._spaceIntegrationPayloads.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._spaceIntegrationPayloads, fieldNumber: 29)
+      }
       try { if let v = _storage._attributeCheckerGroupType {
         try visitor.visitSingularEnumField(value: v, fieldNumber: 33)
       } }()
@@ -21999,6 +22428,7 @@ nonisolated extension Group: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
         if _storage._rosterEmail != rhs_storage._rosterEmail {return false}
         if _storage._threadedModel != rhs_storage._threadedModel {return false}
         if _storage._avatarURL != rhs_storage._avatarURL {return false}
+        if _storage._spaceIntegrationPayloads != rhs_storage._spaceIntegrationPayloads {return false}
         if _storage._attributeCheckerGroupType != rhs_storage._attributeCheckerGroupType {return false}
         if _storage._nameUsers != rhs_storage._nameUsers {return false}
         if _storage._groupDetails != rhs_storage._groupDetails {return false}
@@ -29173,7 +29603,7 @@ nonisolated extension NameUsers: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
 
 nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "WorldItemLite"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}group_revision\0\u{3}sort_timestamp\0\u{3}read_state\0\u{3}room_name\0\u{3}dm_members\0\u{3}group_lite\0\u{3}retention_horizon_time_micros\0\u{3}retention_duration_seconds\0\u{2}\u{4}message\0\u{3}flat_group\0\u{3}threaded_group\0\u{3}avatar_url\0\u{4}\u{3}attribute_checker_group_type\0\u{3}name_users\0\u{4}\u{3}group_support_level\0\u{3}group_unsupported_reason\0\u{3}is_message_blocked\0\u{4}\u{2}inline_threading_enabled\0\u{4}\u{3}segmented_membership_counts\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}group_revision\0\u{3}sort_timestamp\0\u{3}read_state\0\u{3}room_name\0\u{3}dm_members\0\u{3}group_lite\0\u{3}retention_horizon_time_micros\0\u{3}retention_duration_seconds\0\u{2}\u{4}message\0\u{3}flat_group\0\u{3}threaded_group\0\u{3}avatar_url\0\u{3}space_integration_payloads\0\u{4}\u{2}attribute_checker_group_type\0\u{3}name_users\0\u{4}\u{3}group_support_level\0\u{3}group_unsupported_reason\0\u{3}is_message_blocked\0\u{4}\u{2}inline_threading_enabled\0\u{4}\u{3}segmented_membership_counts\0")
 
   fileprivate class _StorageClass {
     var _groupID: GroupId? = nil
@@ -29191,6 +29621,7 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
     var _flatGroup: WorldItemLite.FlatGroup? = nil
     var _threadedGroup: WorldItemLite.ThreadedGroup? = nil
     var _avatarURL: String? = nil
+    var _spaceIntegrationPayloads: [SpaceIntegrationPayload] = []
     var _attributeCheckerGroupType: SharedAttributeCheckerGroupType? = nil
     var _groupSupportLevel: GroupSupportLevel? = nil
     var _groupUnsupportedReason: GroupUnsupportedReason? = nil
@@ -29221,6 +29652,7 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
       _flatGroup = source._flatGroup
       _threadedGroup = source._threadedGroup
       _avatarURL = source._avatarURL
+      _spaceIntegrationPayloads = source._spaceIntegrationPayloads
       _attributeCheckerGroupType = source._attributeCheckerGroupType
       _groupSupportLevel = source._groupSupportLevel
       _groupUnsupportedReason = source._groupUnsupportedReason
@@ -29257,6 +29689,7 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
         case 14: try { try decoder.decodeSingularMessageField(value: &_storage._flatGroup) }()
         case 15: try { try decoder.decodeSingularMessageField(value: &_storage._threadedGroup) }()
         case 16: try { try decoder.decodeSingularStringField(value: &_storage._avatarURL) }()
+        case 17: try { try decoder.decodeRepeatedMessageField(value: &_storage._spaceIntegrationPayloads) }()
         case 19: try { try decoder.decodeSingularEnumField(value: &_storage._attributeCheckerGroupType) }()
         case 20: try { try decoder.decodeSingularMessageField(value: &_storage._nameUsers) }()
         case 23: try { try decoder.decodeSingularEnumField(value: &_storage._groupSupportLevel) }()
@@ -29315,6 +29748,9 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
       try { if let v = _storage._avatarURL {
         try visitor.visitSingularStringField(value: v, fieldNumber: 16)
       } }()
+      if !_storage._spaceIntegrationPayloads.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._spaceIntegrationPayloads, fieldNumber: 17)
+      }
       try { if let v = _storage._attributeCheckerGroupType {
         try visitor.visitSingularEnumField(value: v, fieldNumber: 19)
       } }()
@@ -29360,6 +29796,7 @@ nonisolated extension WorldItemLite: SwiftProtobuf.Message, SwiftProtobuf._Messa
         if _storage._flatGroup != rhs_storage._flatGroup {return false}
         if _storage._threadedGroup != rhs_storage._threadedGroup {return false}
         if _storage._avatarURL != rhs_storage._avatarURL {return false}
+        if _storage._spaceIntegrationPayloads != rhs_storage._spaceIntegrationPayloads {return false}
         if _storage._attributeCheckerGroupType != rhs_storage._attributeCheckerGroupType {return false}
         if _storage._groupSupportLevel != rhs_storage._groupSupportLevel {return false}
         if _storage._groupUnsupportedReason != rhs_storage._groupUnsupportedReason {return false}

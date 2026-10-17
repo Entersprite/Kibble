@@ -99,12 +99,19 @@ public extension LocalBridgeBackend {
         _ store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         reachability: (any ReachabilityMonitor)? = NWPathReachabilityMonitor(),
-        tracingChannelTo traceFile: URL? = nil
+        tracingChannelTo traceFile: URL? = nil,
+        meetingMetadataCacheURL: URL? = nil
     ) async throws -> LocalBridgeBackend? {
         let transport = traceFile
             .map { URLSessionTransport(channelTrace: ChannelTraceFileSink(writingTo: $0)) }
             ?? transport
-        return try await using(store, transport: transport, retry: .default, reachability: reachability)
+        return try await using(
+            store,
+            transport: transport,
+            retry: .default,
+            reachability: reachability,
+            meetingMetadataCacheURL: meetingMetadataCacheURL
+        )
     }
 }
 
@@ -118,10 +125,11 @@ extension LocalBridgeBackend {
         _ store: KeychainCredentialStore,
         transport: any HTTPTransport,
         retry: RetryPolicy,
-        reachability: (any ReachabilityMonitor)? = nil
+        reachability: (any ReachabilityMonitor)? = nil,
+        meetingMetadataCacheURL: URL? = nil
     ) async throws -> LocalBridgeBackend? {
         guard let session = try await store.currentSession() else { return nil }
-        return LocalBridgeBackend(
+        let backend = LocalBridgeBackend(
             cookies: session.credential,
             transport: transport,
             retry: retry,
@@ -139,6 +147,10 @@ extension LocalBridgeBackend {
             },
             reachability: reachability
         )
+        if let meetingMetadataCacheURL {
+            await backend.installMeetingMetadataCache(at: meetingMetadataCacheURL, scope: session.capturedAt)
+        }
+        return backend
     }
 }
 

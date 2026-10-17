@@ -51,6 +51,8 @@ extension ChatSessionModel {
         threads.showingList = false
         scrollTarget = nil
         selected = nil
+        selectedMeetingSeries = nil
+        meetingWork.reset()
         watchConversationActivity()
         activity = ConversationActivity()
         stopTyping()

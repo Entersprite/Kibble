@@ -33,13 +33,17 @@ extension ChatWindow {
             return ThreadsPresentation.title
         }
         guard let conversation = state.selectedConversation else { return "Kibble" }
+        if let series = state.meetingSeries {
+            return series.title
+        }
         return Display.title(of: conversation, directory: state.directory, me: state.me)
     }
 
     var subtitle: String {
         // An empty subtitle draws nothing, which is the answer when there is
         // no count worth showing.
-        guard !state.showingMentions, let conversation = state.selectedConversation else { return "" }
+        guard state.browser.page == nil, !state.showingMentions, !state.threads.showingList,
+              let conversation = state.selectedConversation else { return "" }
         // A DM has no count to show, so its subtitle is the other person's
         // presence and status - `Display` decides whether there is either.
         if conversation.kind == .directMessage {

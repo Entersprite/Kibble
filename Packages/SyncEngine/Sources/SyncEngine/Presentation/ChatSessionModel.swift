@@ -37,6 +37,8 @@ public final class ChatSessionModel {
     public internal(set) var lastError: ChatError?
     var conversationActionError: ChatError?
     public internal(set) var selected: Conversation.ID? // set from +Mentions.swift
+    public internal(set) var selectedMeetingSeries: MeetingSeries.ID?
+    @ObservationIgnored var meetingWork = MeetingTranscriptWork()
 
     /// Who the local user is.
     /// Fed by `store.observeMe()` in `watchSelf()`, the same way `conversations`
@@ -56,6 +58,7 @@ public final class ChatSessionModel {
     public private(set) var unreadMentionCount = 0
     /// Whether a backfill is running, and how many conversations it could not check.
     public private(set) var mentionBackfill = MentionBackfillStatus()
+    public internal(set) var isLoadingMeetingMetadata = false
     /// The 24 newest recent reactions, fed by `store.observeRecentReactions`.
     public private(set) var recentReactionChoices: [ReactionChoice] = []
     /// The `@` list's people for the selected conversation, observed
@@ -316,6 +319,7 @@ public final class ChatSessionModel {
             self?.catchUpIfReconnected($0)
         }
         watchSelf()
+        watch(store.observeMeetingMetadataLoading()) { [weak self] in self?.isLoadingMeetingMetadata = $0 }
         watchThreads()
         watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
         watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
@@ -332,9 +336,11 @@ public final class ChatSessionModel {
 
     /// Opens a conversation: swaps the observations over, then fetches a page
     /// of history, because connecting deliberately does not.
-    public func select(_ id: Conversation.ID) {
+    func selectSingleConversation(_ id: Conversation.ID) {
         browser.leaveDirectory()
-        guard selected != id else { return }
+        guard selected != id || selectedMeetingSeries != nil else { return }
+        selectedMeetingSeries = nil
+        meetingWork.reset()
         if conversationActionTasks[id] == nil {
             unreadHolds.remove(id)
         }

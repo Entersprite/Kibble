@@ -44,6 +44,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     var markedUnreadAt: Date?
     var historyClearedBefore: Date?
     var latestMainMessageAt: Date?
+    var meeting: String?
 
     init(_ conversation: Conversation) throws {
         id = conversation.id.rawValue
@@ -63,6 +64,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         markedUnreadAt = conversation.markedUnreadAt
         historyClearedBefore = conversation.historyClearedBefore
         latestMainMessageAt = conversation.latestMainMessageAt
+        meeting = try conversation.meeting.map(Wire.json)
     }
 
     func conversation(members: [Member.ID]) throws -> Conversation {
@@ -84,7 +86,8 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
             hasUnreadThread: hasUnreadThread,
             markedUnreadAt: markedUnreadAt,
             historyClearedBefore: historyClearedBefore,
-            latestMainMessageAt: latestMainMessageAt
+            latestMainMessageAt: latestMainMessageAt,
+            meeting: meeting.map { try Wire.value(MeetingOccurrence.self, from: $0) }
         )
     }
 }

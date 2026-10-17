@@ -17,7 +17,7 @@ extension SyncEngine {
             if case let .messageReceived(message) = event {
                 restored = try store.restoreConversationForArrival(message)
             }
-            try store.apply(reduction.writes)
+            try store.apply(reduction.writes + meetingMetadataWrites(for: event))
             if restored {
                 await perform(.reloadConversations)
             }
@@ -42,7 +42,7 @@ extension SyncEngine {
                 let version = conversationMutationVersion
                 let conversations = try await backend.loadConversations()
                 guard version == conversationMutationVersion else { return }
-                try store.apply([.replaceConversations(conversations)])
+                try applyConversationSnapshot(conversations)
                 worldLoaded(forceMentionBackfill: true)
             case let .reloadMessages(conversation):
                 try await loadMoreMessages(in: conversation)

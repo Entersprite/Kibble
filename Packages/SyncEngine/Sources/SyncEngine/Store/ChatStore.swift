@@ -46,6 +46,22 @@ public extension ChatStore {
 
     private static func perform(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case let .setMeetingMetadataLoading(loading):
+            try db.execute(
+                sql: """
+                UPDATE syncState SET meetingMetadataLoading = ?
+                WHERE id = 1 AND meetingMetadataLoading <> ?
+                """,
+                arguments: [loading, loading]
+            )
+        case let .setMeetingMetadata(id, meeting):
+            try db.execute(
+                sql: "UPDATE conversation SET meeting = ? WHERE id = ? AND kind = ? AND meeting IS NOT ?",
+                arguments: [
+                    meeting.map(Wire.json), id.rawValue,
+                    Wire.string(Conversation.Kind.meetChat), meeting.map(Wire.json)
+                ]
+            )
         case .setScopedTyping, .setReadReceipts, .clearActivityTyping:
             try performActivityWrite(write, in: db)
         case .removeConversation, .setConversationUnreadMark:
@@ -273,7 +289,7 @@ public extension ChatStore {
             try db.execute(
                 sql: """
                 UPDATE syncState SET connectionState = ?, lastError = NULL, availability = NULL,
-                    mentionBackfillRunning = 0, mentionBackfillFailed = 0
+                    mentionBackfillRunning = 0, mentionBackfillFailed = 0, meetingMetadataLoading = 0
                 WHERE id = 1
                 """,
                 arguments: [Wire.json(ConnectionState.idle)]

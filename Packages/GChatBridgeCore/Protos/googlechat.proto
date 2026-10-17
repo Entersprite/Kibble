@@ -1027,6 +1027,39 @@ message GroupId {
 	}
 }
 
+// The meeting integration envelope shared by Group29 and WorldItemLite17.
+// Only the calendar payload used by meeting chats is described here.
+message SpaceIntegrationPayload {
+	optional int32 type = 1;
+	optional MeetingChatIntegration meeting_chat = 107;
+}
+
+message MeetingChatIntegration {
+	optional MeetingChatCalendarEvent calendar_event = 3;
+}
+
+message MeetingChatCalendarEvent {
+	optional string event_id = 1;
+	optional string title = 2;
+	optional MeetingChatDateTime start = 3;
+	optional MeetingChatDateTime end = 4;
+	// Preserve this opaque context in the identity partition; do not interpret
+	// it as authorization, a user identity or a display title.
+	optional string identity_context = 7;
+}
+
+message MeetingChatDateTime {
+	optional ComGoogleProtobufTimestamp timestamp = 1;
+	optional MeetingChatDate date = 2;
+	optional string time_zone = 3;
+}
+
+message MeetingChatDate {
+	optional int32 year = 1;
+	optional int32 month = 2;
+	optional int32 day = 3;
+}
+
 message Group {
 	optional GroupId group_id = 1;
 	optional string name = 2;
@@ -1067,7 +1100,7 @@ message Group {
 
 	optional string avatar_url = 28;
 	//optional DYNProtoGroupIntegrationSettings group_integration_settings = 36;
-	//repeated ?? space_integration_payloads = 29;
+	repeated SpaceIntegrationPayload space_integration_payloads = 29;
 	//optional DYNProtoAvatarInfo avatar_info = 30;
 	optional SharedAttributeCheckerGroupType attribute_checker_group_type = 33;
 	optional NameUsers name_users = 34;
@@ -2567,7 +2600,7 @@ message WorldItemLite {
 	}
 	optional ThreadedGroup threaded_group = 15;
 	optional string avatar_url = 16;
-	//repeated ?? space_integration_payloads = 17;
+	repeated SpaceIntegrationPayload space_integration_payloads = 17;
 	//optional GroupIntegrationSettings group_integration_settings = 22;
 	// optional AvatarInfo avatar_info = 18;
 	optional SharedAttributeCheckerGroupType attribute_checker_group_type = 19;
@@ -2863,6 +2896,7 @@ enum SharedAttributeCheckerGroupType {
 	THREADED_ROOM = 5;
 	IMMUTABLE_MEMBERSHIP_HUMAN_DM = 6;
 	POST_ROOM = 7;
+	MEETING_CHAT = 10;
 }
 
 // From purple's googlechat.proto (3611-3626), for /api/heartbeat (active-presence spec §1).

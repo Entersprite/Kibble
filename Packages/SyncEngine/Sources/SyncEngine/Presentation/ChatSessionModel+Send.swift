@@ -27,7 +27,7 @@ public extension ChatSessionModel {
     /// The failed message, mentions and all, but only while its own
     /// conversation is open.
     var failedDraft: ComposedMessage? {
-        guard let failed, failed.conversationID == selected else { return nil }
+        guard let failed, isViewingConversation(failed.conversationID) else { return nil }
         return failed.draft
     }
 
@@ -56,6 +56,7 @@ public extension ChatSessionModel {
     func send(_ message: ComposedMessage) {
         guard let selected, capabilities.canSendMessages else { return }
         if stagedAttachments.contains(where: { !$0.isUploading }) {
+            followLatestMeetingForSend()
             sendStaged(message, in: StagingKey(conversation: selected, thread: nil))
             return
         }
@@ -63,6 +64,7 @@ public extension ChatSessionModel {
         // Only a staged file makes an empty send mean something. A composer
         // one frame behind its staged files must not post an empty message.
         guard !text.isEmpty else { return }
+        followLatestMeetingForSend()
         let localID = UUID().uuidString
         // Invented here, and therefore retracted from here. The `local/`
         // prefix is this file's convention and stays this file's business:

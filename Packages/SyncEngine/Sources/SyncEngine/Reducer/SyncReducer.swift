@@ -26,6 +26,10 @@ public enum SyncReducer {
             Reduction(writes: [.setScopedTyping(update)])
         case let .readReceiptsChanged(update):
             Reduction(writes: [.setReadReceipts(update)])
+        case let .meetingMetadataLoadingChanged(isLoading):
+            Reduction(writes: [.setMeetingMetadataLoading(isLoading)])
+        case let .meetingMetadataChanged(id, meeting):
+            Reduction(writes: [.setMeetingMetadata(conversation: id, meeting: meeting)])
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged:
             supersedingStaleError(reduceMessageEvent(event))
         case .conversationRemoved, .conversationUnreadMarkChanged:

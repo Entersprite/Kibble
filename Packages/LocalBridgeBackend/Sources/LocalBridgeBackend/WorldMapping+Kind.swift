@@ -48,9 +48,7 @@ extension WorldMapping {
         }
         let inferred = inferredKind(for: item)
         if inferred == .space, let raw = unrecognisedGroupType(in: item) {
-            return raw == meetChatGroupType
-                ? .meetChat
-                : .unknown("\(Self.groupTypeTokenPrefix)\(raw)")
+            return .unknown("\(Self.groupTypeTokenPrefix)\(raw)")
         }
         return inferred
     }
@@ -105,27 +103,8 @@ extension WorldMapping {
         !item.hasRoomName && item.hasNameUsers
     }
 
-    /// The `attribute_checker_group_type` of a space created for a scheduled
-    /// meeting - **187 of the real account's 220 conversations**, every one a
-    /// space and every one titled after a calendar event (`findings.md`
-    /// §37.4).
-    ///
-    /// Still a bare number, because no vendored reference proto names value
-    /// 10; `Conversation.Kind.meetChat`'s doc comment records that the *name*
-    /// is the owner's decision from visual confirmation while the wire
-    /// meaning stays `[Verify]`. Any **other** unrecognised space type still
-    /// becomes `.unknown` keyed on its number, which is the path that found
-    /// this one.
-    private static let meetChatGroupType: UInt64 = 10
-
     /// The prefix a `Kind.unknown` payload carries when the *only* thing this
     /// build knows about a conversation's type is field 19's number.
-    ///
-    /// A number, never an invented case name - the rule
-    /// `ChannelEventMapping` already follows for unmapped events, and the one
-    /// §12.1.1 exists to enforce. Google's own name for group type 10 is
-    /// unknown to all three vendored reference protos, so minting
-    /// `"calendarSpace"` here would be a fixture standing in for a capture.
     static let groupTypeTokenPrefix = "attributeCheckerGroupType"
 
     /// Field 19's raw value when the generated enum could not name it.
@@ -135,16 +114,14 @@ extension WorldMapping {
     /// scan showed field 19 present on every single item. Both are true
     /// because the proto is `syntax = "proto2"`: a closed enum rejects a value
     /// outside its generated set, leaves the presence bit clear, and keeps the
-    /// bytes in `unknownFields`. The values are **10** (187 items, every one a
-    /// space) and **11** (1 item, a DM).
+    /// bytes in `unknownFields`. That run found10 (187 spaces) and11 (one DM).
+    /// Meeting type10 is now declared, so only genuinely unknown values reach
+    /// this path; both binary and pblite can decode meetings as typed values.
     ///
     /// Read only for a space, and that is deliberate. Carrying an unnamed type
     /// into `Kind` costs the conversation its `.space`-ness at every call site
     /// that switches on it, which is the same objection that ruled out adding
-    /// a `.meetSpace` case. For a space that is an acceptable trade **while
-    /// the meaning of 10 is being established**, because the sidebar is the
-    /// only consumer that matters and the alternative is 187 conversations
-    /// that cannot be told apart from the 18 real ones. For a DM it is not:
+    /// a `.meetSpace` case. For a DM it is not:
     /// group type 11's single conversation reaches
     /// `LocalBridgeBackend.asAppDirectMessage` as `.directMessage` and is
     /// correctly promoted to `.appDirectMessage`, which is where the store's
@@ -164,14 +141,8 @@ extension WorldMapping {
 
     /// What field 19 says, or `nil` when it says nothing usable.
     ///
-    /// `[Verify]`: §20.4 recorded field 19's **presence and length, never its
-    /// value** - `ProtoFieldScan` reports field numbers, wire types and sizes
-    /// and deliberately never contents - so which of the seven values each
-    /// conversation actually carries is unobserved. Two readings here claim
-    /// more than has been established, and both pick the least invasive
-    /// answer: `immutableMembershipHumanDm` (6) is treated as a plain DM,
-    /// and `postRoom` (7) as a plain space. An announcement space may deserve
-    /// separating later; nothing has confirmed this account has one.
+    /// Meeting type10 is declared so the same classification survives JSON
+    /// decoding, which cannot retain an unknown enum value as binary bytes.
     private static func statedKind(
         for groupType: SharedAttributeCheckerGroupType
     ) -> Conversation.Kind? {
@@ -184,6 +155,8 @@ extension WorldMapping {
             .groupDirectMessage
         case .flatRoom, .threadedRoom, .postRoom:
             .space
+        case .meetingChat:
+            .meetChat
         case .attributeCheckerGroupTypeUnspecified:
             // The presence bit was set and the value still says nothing.
             nil
@@ -244,7 +217,7 @@ extension WorldMapping {
             switch item.attributeCheckerGroupType {
             case .threadedRoom:
                 return true
-            case .flatRoom:
+            case .flatRoom, .meetingChat:
                 return false
             case .oneToOneHumanDm, .oneToOneBotDm, .immutableMembershipGroupDm,
                  .immutableMembershipHumanDm, .postRoom,

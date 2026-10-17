@@ -10,10 +10,14 @@ public enum SidebarProjection {
     ) -> [SidebarSection] {
         preferences.orderedSections.filter(\.isVisible).map { section in
             let matching = conversations.filter { sectionID(for: $0.kind) == section.id }
-            let sorted = matching.sorted { left, right in
+            let groups = section.id == "meetChat" ? MeetingSeries.build(matching) : []
+            let grouped = Set(groups.flatMap { $0.occurrences.map(\.id) })
+            let items = matching.filter { !grouped.contains($0.id) }.map(SidebarItem.conversation)
+                + groups.map(SidebarItem.meeting)
+            let sorted = items.sorted { left, right in
                 if section.sort == .name {
-                    let comparison = Display.title(of: left, directory: directory, me: me)
-                        .localizedStandardCompare(Display.title(of: right, directory: directory, me: me))
+                    let comparison = left.title(directory: directory, me: me)
+                        .localizedStandardCompare(right.title(directory: directory, me: me))
                     if comparison != .orderedSame {
                         return section.sortsAscending ? comparison == .orderedAscending :
                             comparison == .orderedDescending
@@ -26,11 +30,23 @@ public enum SidebarProjection {
                     default: break
                     }
                 }
-                return left.id.rawValue < right.id.rawValue
+                let titleOrder = left.title(directory: directory, me: me)
+                    .localizedStandardCompare(right.title(directory: directory, me: me))
+                if titleOrder != .orderedSame {
+                    return titleOrder == .orderedAscending
+                }
+                return left.stableOrder < right.stableOrder
             }
+            let visible = limited ? Array(sorted.prefix(section.maximumItems)) : sorted
             return SidebarSection(
                 id: section.id, title: section.title,
-                conversations: limited ? Array(sorted.prefix(section.maximumItems)) : sorted
+                conversations: visible.compactMap {
+                    if case let .conversation(value) = $0 {
+                        return value
+                    }
+                    return nil
+                },
+                items: visible
             )
         }
     }

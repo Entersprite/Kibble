@@ -102,6 +102,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// racing it to emit `membersChanged` for a world that has moved on.
     /// Not `private`: the presence poll waits for it (`startPresencePoll`).
     var memberResolution: Task<Void, Never>?
+    var meetingMetadata = MeetingMetadataHydration()
+    var meetingMetadataCacheFile: MeetingMetadataCacheFile?
+    var meetingMetadataNow: @Sendable () -> Date = { Date() }
 
     /// Every member id this session has asked `get_members` about, or is
     /// asking about now, so a sender who appears on every page is looked up

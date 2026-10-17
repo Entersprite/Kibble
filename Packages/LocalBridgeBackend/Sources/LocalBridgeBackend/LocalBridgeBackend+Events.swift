@@ -3,6 +3,12 @@ import GChatBridgeCore
 
 extension LocalBridgeBackend {
     func emit(_ event: ChatEvent) {
+        if case let .conversationRemoved(id, _) = event {
+            meetingMetadata.targets[id] = nil
+            meetingMetadata.cache[id] = nil
+            meetingMetadata.pending.removeAll { $0.id == id }
+            updateMeetingMetadataLoading()
+        }
         switch event {
         case let .messageReceived(message), let .messageUpdated(message):
             if let cutoff = historyCutoffs[message.conversationID],

@@ -95,7 +95,7 @@ enum ActivityPresentation {
         guard state.capabilities.receivesReadReceipts,
               state.activity.receiptsEnabled == true else { return nil }
         return ReadReceiptMarker.latest(
-            in: state.messages,
+            in: state.messages.filter { $0.conversationID == state.selectedConversation?.id },
             positions: state.activity.receipts,
             me: state.me,
             excluding: state.pendingMessages

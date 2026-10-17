@@ -16,7 +16,7 @@ struct ConversationDirectoryView: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
     @State private var selectedPerson: Member.ID?
-    @State private var selectedConversation: Conversation.ID?
+    @State private var selectedConversation: SidebarSelection?
 
     private var page: String? {
         browser.page ?? browser.lastPage
@@ -191,7 +191,7 @@ struct ConversationDirectoryView: View {
 
     // MARK: Group chats, apps and Meet chats
 
-    private var localConversations: [Conversation] {
+    private var localConversations: [SidebarItem] {
         let preferences = SidebarPreferences(sections: state.sidebarPreferences.orderedSections.map {
             var section = $0
             section.isVisible = true
@@ -204,39 +204,43 @@ struct ConversationDirectoryView: View {
             me: state.me,
             limited: false
         )
-        .first { $0.id == page }?.conversations.filter {
-            browser.query.isEmpty || Display.title(of: $0, directory: state.directory, me: state.me)
+        .first { $0.id == page }?.items.filter {
+            browser.query.isEmpty || $0.title(directory: state.directory, me: state.me)
                 .localizedCaseInsensitiveContains(browser.query)
         } ?? []
     }
 
     private var conversationList: some View {
         List(selection: $selectedConversation) {
+            if page == "meetChat", state.isLoadingMeetingMetadata {
+                MeetingMetadataProgress()
+            }
             if !localConversations.isEmpty {
                 DirectorySectionHeader(title: DirectorySectionHeader.count(
                     localConversations.count, browser.query.isEmpty ? noun : ("Result", "Results")
                 ))
             }
-            ForEach(localConversations, id: \.id) { conversation in
-                DirectoryConversationRow(conversation: conversation, state: state)
-                    .tag(conversation.id)
+            ForEach(localConversations) { item in
+                DirectoryConversationRow(item: item, state: state)
+                    .tag(item.id)
             }
         }
         .listStyle(.inset)
-        .contextMenu(forSelectionType: Conversation.ID.self) { ids in
+        .contextMenu(forSelectionType: SidebarSelection.self) { ids in
             if ids.count == 1, let id = ids.first {
-                Button("Open") { actions.select(id) }
-                if state.capabilities.canReadConversationDetails, let browser = actions.browser {
-                    Button("Show Details…") { browser.details(id, false) }
+                Button("Open") { SidebarPinned.choose(id, actions: actions) }
+                if case let .conversation(conversation) = id,
+                   state.capabilities.canReadConversationDetails, let browser = actions.browser {
+                    Button("Show Details…") { browser.details(conversation, false) }
                 }
             }
         } primaryAction: { ids in
             if ids.count == 1, let id = ids.first {
-                actions.select(id)
+                SidebarPinned.choose(id, actions: actions)
             }
         }
         .overlay {
-            if localConversations.isEmpty {
+            if localConversations.isEmpty, !(page == "meetChat" && state.isLoadingMeetingMetadata) {
                 if browser.query.isEmpty {
                     emptyConversations
                 } else {

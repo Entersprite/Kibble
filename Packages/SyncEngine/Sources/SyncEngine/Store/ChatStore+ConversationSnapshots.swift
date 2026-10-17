@@ -6,8 +6,16 @@ extension ChatStore {
     static func upsert(_ conversation: Conversation, in db: Database) throws {
         guard try mayRestoreConversation(conversation, in: db) else { return }
         var row = try ConversationRow(conversation)
-        if let previous = try ConversationRow.fetchOne(db, key: row.id)?.lastActivity {
-            row.lastActivity = max(row.lastActivity ?? previous, previous)
+        if let previous = try ConversationRow.fetchOne(db, key: row.id) {
+            if let activity = previous.lastActivity {
+                row.lastActivity = max(row.lastActivity ?? activity, activity)
+            }
+            // Reduced summaries omit detail metadata. Only an explicit metadata
+            // event withdraws it; an ordinary refresh must preserve saved grouping.
+            if try row.kind == (Wire.string(Conversation.Kind.meetChat)), row.kind == previous.kind,
+               row.meeting == nil {
+                row.meeting = previous.meeting
+            }
         }
         // `lastReadAt` is `Conversation.readPosition` (the mentions-list spec
         // §1). A snapshot that carries one is authoritative: a world load's is

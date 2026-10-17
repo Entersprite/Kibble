@@ -23,6 +23,7 @@ extension ChatEvent {
         case reactions
         case member
         case isTyping
+        case isLoading
         case lastReadAt
         case unread
         case members
@@ -38,6 +39,7 @@ extension ChatEvent {
         case hasUnread
         case at
         case historyBefore
+        case meeting
     }
 
     /// The discriminators, in one place, so the encoder and decoder cannot
@@ -47,6 +49,8 @@ extension ChatEvent {
         case selfIdentified
         case conversationsChanged
         case conversationUpdated
+        case meetingMetadataChanged
+        case meetingMetadataLoadingChanged
         case conversationRemoved
         case conversationUnreadMarkChanged
         case messageReceived

@@ -62,6 +62,12 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// One conversation's snapshot has been replaced.
     case conversationUpdated(Conversation)
 
+    /// A metadata-only update; nil explicitly withdraws an earlier relationship.
+    /// It must not replace read positions, membership or conversation activity.
+    case meetingMetadataChanged(conversationID: Conversation.ID, meeting: MeetingOccurrence?)
+    /// Background discovery of meeting metadata with no cached result yet.
+    case meetingMetadataLoadingChanged(isLoading: Bool)
+
     /// Removes the account's sidebar entry. Only deletion clears cached history.
     case conversationRemoved(conversationID: Conversation.ID, historyBefore: Date?)
     /// A manual unread mark is independent of the ordinary read position.

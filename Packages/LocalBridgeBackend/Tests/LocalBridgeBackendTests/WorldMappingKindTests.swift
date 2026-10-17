@@ -89,14 +89,14 @@ struct WorldMappingKindTests {
 
     // MARK: - Field 19, when it cannot (§37.4: values outside the proto2 enum)
 
-    /// 187 of the real account's 220 conversations. The first expectation is
-    /// the premise, not the subject: if a regenerated proto ever names 10,
-    /// it goes red and forces a decision about this path.
+    /// Raw binary10 now has a typed declaration too, so pblite and binary
+    /// metadata classify meeting chats consistently.
     @Test func groupTypeTenOnASpaceIsAMeetChat() throws {
         let item = try Fixture.withRawGroupType(
             10, on: Fixture.item(groupID: Fixture.spaceGroupID("s-1"), roomName: "Weekly Sync - Sep 8")
         )
-        #expect(!item.hasAttributeCheckerGroupType)
+        #expect(item.hasAttributeCheckerGroupType)
+        #expect(item.attributeCheckerGroupType == .meetingChat)
         #expect(Fixture.mapped(item)?.kind == .meetChat)
     }
 

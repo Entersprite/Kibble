@@ -52,6 +52,14 @@ enum Schema {
             """)
         }
         migrator.registerMigration("v17", migrate: addConversationActivity)
+        migrator.registerMigration("v18") { db in
+            try db.alter(table: "conversation") { $0.add(column: "meeting", .text) }
+        }
+        migrator.registerMigration("v19") { db in
+            try db.alter(table: "syncState") {
+                $0.add(column: "meetingMetadataLoading", .boolean).notNull().defaults(to: false)
+            }
+        }
         return migrator
     }
 

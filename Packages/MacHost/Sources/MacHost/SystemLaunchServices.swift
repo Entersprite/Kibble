@@ -56,6 +56,9 @@ public final class SystemLaunchServices: LaunchServices {
     public func eraseStore() throws {
         try ChatStore.onDisk(at: Self.databasePath(for: arguments)).erase()
         try Self.removeAttachmentDirectory(attachmentCacheDirectory())
+        if arguments.backend == .local {
+            try Self.removeMeetingMetadataCache()
+        }
     }
 
     /// Removes the attachment cache's directory and everything in it. A
@@ -126,7 +129,8 @@ public final class SystemLaunchServices: LaunchServices {
             sessionSummary = try await store.summary(at: Date())
             backend = try await LocalBridgeBackend.using(
                 store,
-                tracingChannelTo: Self.channelTraceFile()
+                tracingChannelTo: Self.channelTraceFile(),
+                meetingMetadataCacheURL: Self.meetingMetadataCacheURL()
             )
             let currentSummary = try await store.summary(at: Date())
             guard currentSummary?.capturedAt == sessionSummary?.capturedAt,

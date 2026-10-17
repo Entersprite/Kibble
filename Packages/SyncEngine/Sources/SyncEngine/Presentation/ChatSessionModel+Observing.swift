@@ -45,6 +45,11 @@ extension ChatSessionModel {
         let previousMark = self.conversations.first { $0.id == selected }?.markedUnreadAt
         reconcileSearchVisibility(previous: self.conversations, current: conversations)
         self.conversations = conversations
+        if selectedMeetingSeries != nil, let selected,
+           !conversations.contains(where: { $0.id == selected }) {
+            clearSelection()
+        }
+        reconcileMeetingSelection()
         if selectionWasListed, let selected,
            !conversations.contains(where: { $0.id == selected }) {
             clearSelection()

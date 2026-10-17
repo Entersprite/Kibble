@@ -57,6 +57,8 @@ struct ConversationPicture: View {
             } else {
                 UnknownPersonGlyph(size: size)
             }
+        case .meetChat:
+            MeetingPicture(size: size)
         case .groupDirectMessage:
             MonogramCircle(size: size) {
                 Image(systemName: "person.3.fill").font(.system(size: size * 0.38))
@@ -217,39 +219,46 @@ struct DirectorySectionHeader: View {
 /// A conversation in a full list: bigger than a sidebar row, with what kind
 /// it is and when it last moved, the way Mail and Messages list them.
 struct DirectoryConversationRow: View {
-    let conversation: Conversation
-    let state: ChatSceneState
+    let row: ConversationItemRowState
+    let directory: [Member.ID: Member]
+    let me: Member.ID?
+
+    init(item: SidebarItem, state: ChatSceneState) {
+        row = ConversationItemRowState(item: item, scene: state)
+        me = state.me
+        directory = RowDirectory.avatars(row.conversation.members, in: state.directory)
+    }
 
     var body: some View {
-        let row = ConversationRowState(conversation: conversation, scene: state)
         HStack(spacing: 12) {
             ConversationPicture(
-                conversation: conversation,
-                directory: state.directory,
-                me: state.me,
+                conversation: row.conversation, directory: directory, me: me,
                 size: DirectoryLayout.pictureSize
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text(Display.title(of: conversation, directory: state.directory, me: state.me))
+                Text(row.title)
                     .fontWeight(row.showsUnread ? .semibold : .medium)
                     .lineLimit(1)
-                if let detail = Display.memberCountLabel(of: conversation) {
-                    Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                if let detail = row.detail {
+                    Text(detail).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
-            if let date = conversation.lastActivity {
+            if let date = row.lastActivity {
                 Text(SearchPresentation.shortDate(date))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .fixedSize()
             }
-            if row.showsUnread {
-                Circle().fill(.tint).frame(width: 8, height: 8).accessibilityLabel("Unread")
-            }
+            Circle().fill(.tint).frame(width: 8, height: 8)
+                .opacity(row.showsUnread ? 1 : 0)
+                .accessibilityLabel("Unread")
+                .accessibilityHidden(!row.showsUnread)
         }
         .padding(.vertical, DirectoryLayout.rowPadding)
         .padding(.horizontal, 4)
+        .contentShape(Rectangle())
         .opacity(row.dimmed ? 0.55 : 1)
     }
 }

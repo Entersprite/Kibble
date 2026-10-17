@@ -145,6 +145,12 @@ extension LocalBridgeBackend {
     /// generation that has gone, and the next session asks afresh. Called
     /// wherever a session ends - `disconnect()` and a channel that stopped.
     func forgetDirectory() {
+        meetingMetadata.task?.cancel()
+        saveMeetingMetadataCache()
+        if meetingMetadata.loading {
+            emit(.meetingMetadataLoadingChanged(isLoading: false))
+        }
+        meetingMetadata = MeetingMetadataHydration()
         requestedMemberIDs = []
         memberEmails = [:]
         peopleKey = PeopleKeyState()

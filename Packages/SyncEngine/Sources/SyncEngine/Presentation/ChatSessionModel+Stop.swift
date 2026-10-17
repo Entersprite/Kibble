@@ -20,6 +20,9 @@ public extension ChatSessionModel {
         foregroundRefreshTask?.cancel()
         foregroundRefreshTask = nil
         resetTranscript()
+        selectedMeetingSeries = nil
+        isLoadingMeetingMetadata = false
+        meetingWork.reset()
         store.decodedTranscriptCache.removeAll()
         directorySearch.reset()
         searchWork.reset()

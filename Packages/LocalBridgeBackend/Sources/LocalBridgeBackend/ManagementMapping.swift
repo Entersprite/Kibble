@@ -84,17 +84,7 @@ enum ManagementMapping {
         var result = fallback ?? Conversation(id: id, kind: .unknown("provider"))
         result.title = group.hasName ? group.name : result.title
         if fallback == nil {
-            let unknownType = ProtoFieldScan.varintValues(ofField: 33, in: group.unknownFields.data).last
-            if let unknownType {
-                result.kind = unknownType == 10 ? .meetChat :
-                    .unknown("\(WorldMapping.groupTypeTokenPrefix)\(unknownType)")
-            } else if group.hasAttributeCheckerGroupType {
-                switch group.attributeCheckerGroupType {
-                case .immutableMembershipGroupDm: result.kind = .groupDirectMessage
-                case .flatRoom, .threadedRoom, .postRoom: result.kind = .space
-                default: break
-                }
-            }
+            result.kind = initialKind(group)
         }
         if group.hasAvatarURL {
             result.avatarURL = URL(string: group.avatarURL)
@@ -105,7 +95,25 @@ enum ManagementMapping {
         if case .threadedGroup = group.threadedModel {
             result.isThreaded = true
         }
+        if result.kind != .meetChat {
+            result.meeting = nil
+        } else if !group.spaceIntegrationPayloads.isEmpty {
+            result.meeting = MeetingMapping.occurrence(in: group.spaceIntegrationPayloads)
+        }
         return result
+    }
+
+    private static func initialKind(_ group: Group) -> Conversation.Kind {
+        if let raw = ProtoFieldScan.varintValues(ofField: 33, in: group.unknownFields.data).last {
+            return .unknown("\(WorldMapping.groupTypeTokenPrefix)\(raw)")
+        }
+        guard group.hasAttributeCheckerGroupType else { return .unknown("provider") }
+        switch group.attributeCheckerGroupType {
+        case .immutableMembershipGroupDm: return .groupDirectMessage
+        case .flatRoom, .threadedRoom, .postRoom: return .space
+        case .meetingChat: return .meetChat
+        default: return .unknown("provider")
+        }
     }
 
     static func participant(

@@ -88,6 +88,8 @@ public extension AppEnvironment {
             }.map(\.id))
         )
         state.browser = browserScene(model)
+        state.selectedMeetingSeries = model.selectedMeetingSeries
+        state.isLoadingMeetingMetadata = model.isLoadingMeetingMetadata
         return state
     }
 
@@ -266,6 +268,8 @@ public extension AppEnvironment {
         )
         actions.updateSidebar = { [weak self] in self?.updateSidebar($0) }
         actions.browser = browserActions
+        actions.selectMeetingSeries = { [weak self] in self?.runningModel?.selectMeetingSeries($0) }
+        actions.visibleMeetingMessages = { [weak self] in self?.runningModel?.visibleMeetingMessages($0) }
         actions.showDirectory = browserActions?.show
         return actions
     }

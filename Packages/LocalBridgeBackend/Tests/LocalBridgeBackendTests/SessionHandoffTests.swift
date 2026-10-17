@@ -83,6 +83,17 @@ struct SessionHandoffTests {
         #expect(try await store.summary(at: now)?.cookieCount == 2)
     }
 
+    @Test func publicFactoryBindsMeetingCacheToTheStoredLoginCapture() async throws {
+        let store = store()
+        _ = try await capture([cookie("COMPASS"), cookie("OSID")]).save(to: store)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("unused-meeting-cache.json")
+        let backend = try #require(await LocalBridgeBackend.using(
+            store, transport: ScriptedTransport([]), reachability: nil, meetingMetadataCacheURL: url
+        ))
+        #expect(await backend.meetingMetadataCacheFile?.scope == now)
+        #expect(await backend.meetingMetadataCacheFile?.url == url)
+    }
+
     // MARK: - What the app can say about the session
 
     @Test func thereIsNoSummaryWhenNothingIsStored() async throws {
