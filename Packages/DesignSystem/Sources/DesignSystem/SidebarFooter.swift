@@ -14,8 +14,13 @@ struct SidebarFooter: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
 
-    /// The avatar's size, and the gear's, so the two line up.
-    static let controlSize: CGFloat = 28
+    /// The height of both glass controls, your account and the gear, so the
+    /// two line up.
+    static let controlSize: CGFloat = 36
+    static let avatarSize: CGFloat = 28
+    /// The avatar's inset from the capsule's edge on every side, so its circle
+    /// sits concentric with the capsule's rounded end.
+    static let avatarInset = (controlSize - avatarSize) / 2
 
     var body: some View {
         if actions.signOut != nil {
@@ -33,8 +38,13 @@ struct SidebarFooter: View {
                     // menu item rather than a button here: an accidental click
                     // costs a full two-factor login.
                     OwnAccountMenu(state: state, actions: actions) {
-                        HStack(spacing: 10) { identity }
+                        HStack(spacing: 8) { identity }
+                            .padding(.leading, Self.avatarInset)
+                            .padding(.trailing, 12)
+                            .frame(height: Self.controlSize)
+                            .contentShape(.capsule)
                     }
+                    .glassEffect(.regular.interactive(), in: .capsule)
                     Spacer(minLength: 8)
                     ownMarks
                     if let showSettings = actions.showSettings {
@@ -45,8 +55,10 @@ struct SidebarFooter: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            // 12 plus the capsule's inset puts your avatar in the rows' avatar
+            // column; 10 keeps the footer as tall as it was with 28-point controls.
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
     }
 
@@ -56,14 +68,14 @@ struct SidebarFooter: View {
     @ViewBuilder private var identity: some View {
         if let me = state.me {
             Avatar(
-                member: me, directory: state.directory, size: Self.controlSize,
+                member: me, directory: state.directory, size: Self.avatarSize,
                 presence: Display.ownPresence(
                     availability: state.availability, directory: state.directory, me: me,
                     connection: state.connection, now: .now
                 )
             )
         } else {
-            UnknownPersonGlyph(size: Self.controlSize)
+            UnknownPersonGlyph(size: Self.avatarSize)
         }
         Text(Display.signedInLabel(me: state.me, directory: state.directory))
             .font(.callout)
