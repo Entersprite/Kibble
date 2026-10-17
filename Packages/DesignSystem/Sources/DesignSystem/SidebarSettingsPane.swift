@@ -179,14 +179,20 @@ struct SidebarSectionMenu: View {
         } label: {
             // A borderless button draws its own label in the primary color,
             // ignoring any style here, so it read as white beside the system's
-            // secondary disclosure arrow. A plain button draws this label; the
-            // font and padding keep the borderless button's size and place.
+            // secondary disclosure arrow. A plain button draws this label.
             Label("\(section.title) Options", systemImage: "ellipsis")
                 .labelStyle(.iconOnly)
                 .font(.body)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 3)
-                .contentShape(Rectangle())
+                // The trailing padding is the gap to the disclosure arrow.
+                .padding(.leading, 3)
+                .padding(.trailing, 7)
+                // A click anywhere else on the header collapses the section,
+                // and the dots alone are about 8 pt tall in a 19-pt header, so
+                // a slight miss collapsed it. The target reaches past the label
+                // to the header's full height and up to the arrow, whose own
+                // button sits above it and still wins where the two overlap.
+                .contentShape(Rectangle().inset(by: -8))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
