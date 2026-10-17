@@ -44,7 +44,7 @@ enum NativeMeetFixture {
 
     static func responses(
         join: Bool = true, includeInvite: Bool = false, invalidMediaAnswer: Bool = false,
-        ufrag: String = String(repeating: "U", count: 27) + "="
+        ufrag: String = String(repeating: "U", count: 27) + "=", video: Bool = false
     ) -> [Result<HTTPResponse, any Error>] {
         var responses = [
             ok(
@@ -53,7 +53,10 @@ enum NativeMeetFixture {
                 token: "10;resolved"
             ),
             ok(string(1, "mediasessions/native")
-                + bytes(2, invalidMediaAnswer ? Data([0x08, 0x01]) : serverConfiguration(ufrag: ufrag))),
+                + bytes(
+                    2,
+                    invalidMediaAnswer ? Data([0x08, 0x01]) : serverConfiguration(ufrag: ufrag, video: video)
+                )),
             device(2, token: "20;registered")
         ]
         if join {
@@ -67,7 +70,7 @@ enum NativeMeetFixture {
         return responses
     }
 
-    private static func serverConfiguration(ufrag: String) -> Data {
+    private static func serverConfiguration(ufrag: String, video: Bool) -> Data {
         let fingerprint = string(1, "sha-256") + string(2, digest)
         let dtls = bytes(1, fingerprint) + number(2, 2)
         let stun = string(3, ufrag) + string(4, String(repeating: "R", count: 27) + "=")
@@ -75,7 +78,11 @@ enum NativeMeetFixture {
             + number(3, 3478) + number(4, 100) + number(5, 1)
         let codec = number(1, 111) + string(2, "opus")
             + number(3, 1) + number(4, 48000) + number(5, 2)
+        let vp8 = number(1, 96) + string(2, "VP8") + number(3, 2) + number(4, 90000) + number(5, 1)
+        let rtx = number(1, 97) + string(2, "rtx") + number(3, 2) + number(4, 90000) + number(5, 1)
+            + bytes(6, string(1, "apt") + string(2, "96"))
         return bytes(1, dtls) + bytes(2, stun) + bytes(3, candidate) + bytes(4, codec)
+            + (video ? bytes(4, vp8) + bytes(4, rtx) : Data())
     }
 
     private static func device(_ state: UInt64, token: String) -> Result<HTTPResponse, any Error> {

@@ -65,6 +65,7 @@ public extension LocalBridgeAudioCallService {
             try await decline(callID: callID); return
         }
         guard hasCall || operation != nil else { return }
+        let endingScope = callScope
         callScope = UUID()
         let pending = operation
         pending?.cancel()
@@ -75,6 +76,7 @@ public extension LocalBridgeAudioCallService {
             await trial.endNativeCall()
         }
         _ = await pending?.result
+        let cleanup = await trial.cleanupOutcome(for: endingScope)
         guard snapshot?.id == callID, !isStopping else { return }
         if let handle = incomingHandle {
             await incoming?.dismiss(handle)
@@ -82,7 +84,7 @@ public extension LocalBridgeAudioCallService {
         operation = nil
         media = nil
         incomingHandle = nil
-        publish(phase: .ended, snapshot: current)
+        publish(phase: .ended, snapshot: current, failure: cleanup.message)
     }
 
     internal func runOperation(
@@ -106,13 +108,15 @@ public extension LocalBridgeAudioCallService {
             // registered device before another call is permitted.
             media?.setMuted(true)
             await trial.endNativeCall()
+            let cleanup = await trial.cleanupOutcome(for: scope)
             media = nil
             guard snapshot?.id == id, callScope == scope, !isStopping else { throw CancellationError() }
             if let handle = incomingHandle {
                 await incoming?.dismiss(handle)
             }
             incomingHandle = nil
-            let message = Self.failureMessage(error)
+            let message = [Self.failureMessage(error), cleanup.message].compactMap(\.self)
+                .joined(separator: " ")
             if let current = snapshot {
                 publish(phase: .failed, snapshot: current, failure: message)
             }

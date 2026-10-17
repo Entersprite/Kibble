@@ -4,6 +4,11 @@ import SwiftUI
 /// Call controls are callbacks so the same window can serve any call service.
 @MainActor
 public struct AudioCallActions {
+    public var toggleScreenSharing: (() -> Void)?
+    public var toggleCamera: (() -> Void)?
+    public var selectCamera: ((String) -> Void)?
+    public var selectMicrophone: ((String) -> Void)?
+    public var selectSpeaker: ((String) -> Void)?
     public var accept: () -> Void
     public var decline: () -> Void
     public var toggleMute: () -> Void
@@ -16,8 +21,18 @@ public struct AudioCallActions {
         decline: @escaping () -> Void,
         toggleMute: @escaping () -> Void,
         hangUp: @escaping () -> Void,
-        copyDiagnostics: (() async -> Bool)? = nil
+        copyDiagnostics: (() async -> Bool)? = nil,
+        selectMicrophone: ((String) -> Void)? = nil,
+        selectSpeaker: ((String) -> Void)? = nil,
+        toggleCamera: (() -> Void)? = nil,
+        selectCamera: ((String) -> Void)? = nil,
+        toggleScreenSharing: (() -> Void)? = nil
     ) {
+        self.toggleScreenSharing = toggleScreenSharing
+        self.toggleCamera = toggleCamera
+        self.selectCamera = selectCamera
+        self.selectMicrophone = selectMicrophone
+        self.selectSpeaker = selectSpeaker
         self.accept = accept
         self.decline = decline
         self.toggleMute = toggleMute
@@ -30,21 +45,40 @@ public struct AudioCallActions {
 public struct AudioCallView: View {
     private let call: AudioCallSnapshot
     private let actions: AudioCallActions
+    private let devices: CallAudioDevices?
+    private let screenSharing: CallScreenShareState?
+    private let camera: CallCameraState?
+    private let video: AnyView?
     @State private var copyState = AudioCallCopyState.idle
     @State private var requestedCall: UUID?
     @State private var copyRequest = 0
 
-    public init(call: AudioCallSnapshot, actions: AudioCallActions) {
+    public init(
+        call: AudioCallSnapshot,
+        actions: AudioCallActions,
+        devices: CallAudioDevices? = nil,
+        camera: CallCameraState? = nil,
+        video: AnyView? = nil,
+        screenSharing: CallScreenShareState? = nil
+    ) {
+        self.screenSharing = screenSharing
+        self.camera = camera
+        self.video = video
+        self.devices = devices
         self.call = call
         self.actions = actions
     }
 
     public var body: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+        VStack(spacing: video == nil ? 24 : 16) {
+            if let video, !call.phase.isTerminal {
+                video
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
             VStack(spacing: 8) {
                 Text(call.recipient.displayName)
                     .font(.title2.weight(.semibold))
@@ -60,6 +94,18 @@ public struct AudioCallView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
+            }
+            if !call.phase.isTerminal, let devices,
+               let microphone = actions.selectMicrophone, let speaker = actions.selectSpeaker {
+                CallAudioDevicesView(devices: devices, selectMicrophone: microphone, selectSpeaker: speaker)
+            }
+            if AudioCallPresentation.canMute(call.phase), let camera,
+               let toggle = actions.toggleCamera, let select = actions.selectCamera {
+                CallCameraControls(camera: camera, toggle: toggle, select: select)
+            }
+            if AudioCallPresentation.canMute(call.phase), let screenSharing,
+               let toggle = actions.toggleScreenSharing {
+                CallScreenShareControls(state: screenSharing, toggle: toggle)
             }
             HStack(spacing: 16) {
                 if call.phase == .incoming {
@@ -82,8 +128,8 @@ public struct AudioCallView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
         }
-        .padding(32)
-        .frame(width: 380)
+        .padding(video == nil ? 32 : 24)
+        .frame(width: video != nil && !call.phase.isTerminal ? 640 : 380)
         .frame(minHeight: 300)
         .overlay(alignment: .bottom) {
             if let copyDiagnostics = actions.copyDiagnostics {

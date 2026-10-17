@@ -135,7 +135,9 @@ struct NativeMeetCallStateTests {
         #expect(sent.count == 7)
         #expect(sent[5].url.path.hasSuffix("CancelMeetingInvite"))
         #expect(sent[6].url.path.hasSuffix("UpdateMeetingDevice"))
-        #expect(await session.state == .ended(.ringCancelled))
+        #expect(await session.state == .endedUnconfirmed(
+            .ringCancelled, MeetNativeCallCleanup(invitationUnconfirmed: true)
+        ))
         let report = await session.takeReport().joined(separator: "\n")
         #expect(report.contains("invitation cancellation unconfirmed"))
         #expect(report.contains("device leave settled"))
@@ -202,6 +204,36 @@ struct NativeMeetCallStateTests {
         #expect(await session.state == .ringing)
         await session.close()
         #expect(await base.sent.count == 8)
+    }
+
+    @Test func presenterCannotCountAsARemoteParticipantOrKeepAnEndedPeerAlive() async throws {
+        func withPresenter(_ version: UInt64, peer: Bool) -> Result<HTTPResponse, any Error> {
+            let entries = [("one", ""), ("screen", "one")] + (peer ? [("peer", "")] : [])
+            let full = entries.reduce(NativeMeetFixture.bytes(1, NativeMeetFixture.number(1, version))) {
+                $0 + NativeMeetFixture.bytes(
+                    2,
+                    NativeMeetFixture.string(1, "spaces/demo/devices/" + $1.0)
+                        + NativeMeetFixture.number(4, 1)
+                        + ($1.1.isEmpty ? Data() : NativeMeetFixture.string(
+                            21,
+                            "spaces/demo/devices/" + $1.1
+                        ))
+                )
+            }
+            return NativeMeetFixture.ok(NativeMeetFixture.bytes(2, NativeMeetFixture.bytes(2, full)))
+        }
+        let setup = try await setup([
+            withPresenter(1, peer: false),
+            withPresenter(2, peer: true),
+            withPresenter(3, peer: false)
+        ])
+        try await setup.session.connect()
+        await setup.session.refreshState()
+        #expect(await setup.session.state == .ready)
+        await setup.session.refreshState()
+        #expect(await setup.session.state == .active)
+        await setup.session.refreshState()
+        #expect(await setup.session.state == .ended(.remoteEnded))
     }
 
     private struct Setup {

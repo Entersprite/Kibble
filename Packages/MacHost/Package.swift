@@ -29,7 +29,7 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
         // Native peer connections stay in the platform host. Pin the binary
         // distribution so a framework update is an explicit build decision.
-        .package(url: "https://github.com/stasel/WebRTC.git", exact: "154.0.0")
+        .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "150.7871.3")
     ],
     targets: [
         .target(
@@ -42,7 +42,7 @@ let package = Package(
                 "FixtureBackend",
                 "LocalBridgeBackend",
                 .product(name: "Sparkle", package: "Sparkle"),
-                .product(name: "WebRTC", package: "WebRTC")
+                .product(name: "LiveKitWebRTC", package: "webrtc-xcframework")
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

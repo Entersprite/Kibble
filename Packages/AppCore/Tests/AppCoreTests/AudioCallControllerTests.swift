@@ -281,6 +281,7 @@ final class RecordingAudioService: AudioCallService {
     var failListen = false
     var suspendMute = false
     var muteNotice: String?
+    var hangUpNotice: String?
     var latestSnapshot: AudioCallSnapshot?
     var muteContinuations: [CheckedContinuation<Void, Never>] = []
     var acceptContinuation: CheckedContinuation<Void, Never>?
@@ -327,6 +328,12 @@ final class RecordingAudioService: AudioCallService {
 
     func hangUp(callID: UUID) async throws {
         operations.append("hangup")
+        if let hangUpNotice {
+            emit(AudioCallSnapshot(
+                id: callID, recipient: recipient, direction: .outgoing,
+                phase: .ended, failureMessage: hangUpNotice
+            ))
+        }
     }
 
     func setMuted(_ muted: Bool, callID: UUID) async throws {

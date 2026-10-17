@@ -22,12 +22,16 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     public let diagnostics: DiagnosticReportStore
     let callDiagnostics: AudioCallDiagnosticExporter
     public let callSignIn: CallSignInRecovery
-    private let notifications: UserNotificationDelivery
+    let callVideo: CallVideoController
+    let callAudioDevices: CallAudioDeviceController
+    let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
     private var deviceTask: Task<Void, Never>?
     private var memoryTask: Task<Void, Never>?
     var memoryPressureSource: (any DispatchSourceMemoryPressure)?
     private var windowObservers: [NSObjectProtocol] = []
+    var callAlerts: IncomingCallAlerts?
+    var callResponseTask: Task<Void, Never>?
     var callWindowHost: AudioCallWindowHost?
     var terminationRequested = false
     /// Filters the minimise observers to the main window, which the shell's
@@ -43,6 +47,8 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
         let services = SystemLaunchServices(arguments: .fromCommandLine())
+        callAudioDevices = services.callAudioDevices
+        callVideo = services.callVideo
         callSignIn = services.callSignIn
         callDiagnostics = services.callDiagnostics
         let diagnostics = DiagnosticReportStore(directory: try? SystemLaunchServices.supportDirectory())

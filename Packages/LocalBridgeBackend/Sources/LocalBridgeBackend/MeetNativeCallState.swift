@@ -10,6 +10,14 @@ public enum MeetNativeCallEndReason: String, Sendable {
 public enum MeetNativeCallState: Sendable, Equatable {
     case ready, ringing, active, reconnecting, stateUnavailable, ending
     case ended(MeetNativeCallEndReason)
+    case endedUnconfirmed(MeetNativeCallEndReason, MeetNativeCallCleanup)
+
+    public var isTerminal: Bool {
+        switch self {
+        case .ended, .endedUnconfirmed: true
+        default: false
+        }
+    }
 
     public var message: String {
         switch self {
@@ -19,6 +27,7 @@ public enum MeetNativeCallState: Sendable, Equatable {
         case .reconnecting: "Audio connection interrupted. Waiting for it to recover…"
         case .stateUnavailable: "Call status is unavailable. You can still end the call."
         case .ending: "Ending the native call…"
+        case let .endedUnconfirmed(_, cleanup): cleanup.message ?? "Native call ended."
         case .ended(.joinFailed): "Native call could not connect."
         case .ended(.localEnded): "Native call ended."
         case .ended(.ringCancelled): "Ringing cancelled. Check the report for confirmation."

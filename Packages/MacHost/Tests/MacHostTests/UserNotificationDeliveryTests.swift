@@ -109,7 +109,9 @@ struct UserNotificationDeliveryTests {
     /// receipts carries Mark as Read. One set, registered in one call,
     /// because each `setNotificationCategories` replaces the last.
     @Test func everyCategoryOffersMuteAndOnlyOneOffersMarkAsRead() {
-        let categories = UserNotificationDelivery.categories()
+        let categories = UserNotificationDelivery.categories().filter {
+            $0.identifier != UserNotificationDelivery.callCategoryID
+        }
         #expect(Set(categories.map(\.identifier))
             == [UserNotificationDelivery.categoryID, UserNotificationDelivery.withoutMarkReadCategoryID])
         for category in categories {

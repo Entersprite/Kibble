@@ -24,18 +24,34 @@ extension NativeMeetCallSession {
         case .connected:
             disconnectedAt = nil
             needsRefresh = true
-            await publish(stableState)
+            if !isSuspended {
+                await publish(stableState)
+            }
         case .disconnected:
             if disconnectedAt == nil {
                 disconnectedAt = now()
             }
             await publish(.reconnecting)
         case .failed: await close(reason: .transportFailed)
+        case .suspended:
+            isSuspended = true
+            await publish(.reconnecting)
+        case .resumed: await resumeMedia()
         }
     }
 
+    private func resumeMedia() async {
+        guard isSuspended else { return }
+        isSuspended = false
+        let connected = await media.isConnected
+        guard ready, !closed else { return }
+        disconnectedAt = connected ? nil : now()
+        needsRefresh = true
+        await publish(connected ? stableState : .reconnecting)
+    }
+
     func monitorTick() async {
-        guard ready, !closed, connection == nil else { return }
+        guard ready, !closed, !isSuspended, connection == nil else { return }
         if let disconnectedAt {
             if now() - disconnectedAt >= .seconds(15) {
                 await close(reason: .transportFailed)
@@ -126,7 +142,7 @@ extension NativeMeetCallSession {
         }
         guard own.joinState == 1 else { await publish(.stateUnavailable); return }
         verifiedDeviceVersion = devices.version
-        let others = devices.values.filter { $0.name != local && !$0.isDeleted }
+        let others = devices.values.filter { $0.name != local && !$0.isDeleted && !$0.isPresentation }
         if others.isEmpty {
             verifiedAloneDeviceVersion = devices.version
         }

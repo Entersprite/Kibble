@@ -13,6 +13,7 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     private var callID: UUID?
     private var lastWindowRequest: Int?
     private var isClosingSilently = false
+    private var showsVideo = false
     private(set) var window: NSWindow?
 
     public convenience init(
@@ -46,7 +47,19 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    public func update(call: AudioCallSnapshot?, windowRequests: Int) {
+    public func show() {
+        if let window {
+            present(window)
+        }
+    }
+
+    public func update(
+        call: AudioCallSnapshot?,
+        windowRequests: Int,
+        devices: CallAudioDevices? = nil,
+        alertsIncoming: Bool = true,
+        video: CallVideoController? = nil
+    ) {
         guard let call else {
             callID = nil
             lastWindowRequest = nil
@@ -56,15 +69,29 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
             return
         }
         let isNewCall = call.id != callID
-        let shouldPresent = isNewCall || windowRequests != lastWindowRequest
+        let shouldPresent = isNewCall
+            ? (call.phase != .incoming || alertsIncoming)
+            : windowRequests != lastWindowRequest
         callID = call.id
         lastWindowRequest = windowRequests
         let window = window ?? makeWindow()
         self.window = window
-        window.title = "Audio Call"
-        let content = NSHostingView(rootView: AudioCallView(call: call, actions: actionsForCall(call.id)))
+        window.title = video?.camera == nil ? "Audio Call" : "Call"
+        let content = NSHostingView(rootView: AudioCallView(
+            call: call,
+            actions: actionsForCall(call.id),
+            devices: devices,
+            camera: video?.camera,
+            video: video?.camera != nil ? video.map { AnyView(CallVideoSurface(controller: $0)) } : nil,
+            screenSharing: video?.screenSharing.state
+        ))
         window.contentView = content
         window.setContentSize(content.fittingSize)
+        let showsVideo = video?.camera != nil && !call.phase.isTerminal
+        if showsVideo != self.showsVideo {
+            window.center()
+        }
+        self.showsVideo = showsVideo
         if shouldPresent {
             present(window)
             if isNewCall, call.phase == .incoming {

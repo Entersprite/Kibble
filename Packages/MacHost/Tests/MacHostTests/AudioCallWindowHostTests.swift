@@ -21,6 +21,23 @@ struct AudioCallWindowHostTests {
 
     private let actions = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})
 
+    @Test func pausedOrSilentIncomingDoesNotRaiseAWindowButExplicitOpenStillWorks() {
+        var presented = 0
+        var attention = 0
+        let host = AudioCallWindowHost(
+            actions: { _ in actions }, windowClosed: { _ in }, present: { _ in presented += 1 },
+            incomingAttention: { attention += 1 }
+        )
+        let incoming = call()
+        host.update(call: incoming, windowRequests: 1, alertsIncoming: false)
+        #expect(presented == 0)
+        #expect(attention == 0)
+        host.update(call: incoming, windowRequests: 2, alertsIncoming: false)
+        #expect(presented == 1)
+        #expect(attention == 0)
+        host.update(call: nil, windowRequests: 2)
+    }
+
     @Test func incomingAndExplicitRequestsRaiseTheSameWindow() throws {
         var presented: [NSWindow] = []
         var attentionRequests = 0

@@ -24,6 +24,8 @@ public final class LocalBridgeAudioCallService: AudioCallService {
     var isStopping = false
     var directoryRecipients: [AudioCallRecipient]?
     var directoryRevision = 0
+    var hasLoadedPeople = false
+    var retrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     public init(
         trial: MeetDMCallTrial = MeetDMCallTrial(),
@@ -62,7 +64,7 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         }
         guard listening == nil else { return }
         let scope = sessionScope
-        let task = Task { try await self.loadAndListen(scope: scope) }
+        let task = Task { try await self.loadAndListenWithRetry(scope: scope) }
         loading = task
         defer {
             if sessionScope == scope {
@@ -78,18 +80,9 @@ public final class LocalBridgeAudioCallService: AudioCallService {
     }
 
     func loadAndListen(scope: UUID) async throws {
-        let loaded = try await trial.loadPeople()
-        try checkSession(scope)
-        people = Dictionary(uniqueKeysWithValues: loaded.map { ($0.id, $0) })
-        if let directoryRecipients {
-            let revision = directoryRevision
-            let updated = await trial.updatePeople(directoryRecipients)
-            try checkSession(scope)
-            if directoryRevision == revision {
-                people = updated
-            }
+        if !hasLoadedPeople {
+            try await loadCallDirectory(scope: scope)
         }
-        continuation.yield(.recipientsChanged(people.values.map(Self.recipient)))
         let watcher = try await trial.incomingCalls()
         try checkSession(scope)
         incoming = watcher
@@ -112,6 +105,12 @@ public final class LocalBridgeAudioCallService: AudioCallService {
             await stopping.value; return
         }
         isStopping = true
+        // Cancel before yielding to teardown: a late bootstrap response must
+        // not begin another request once stop has been requested.
+        loading?.cancel()
+        operation?.cancel()
+        listening?.cancel()
+        media?.setMuted(true)
         let task = Task { await self.performStop() }
         stopping = task
         await task.value
@@ -140,6 +139,7 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         incoming = nil
         media = nil
         people = [:]
+        hasLoadedPeople = false
         directoryRecipients = nil
         incomingHandle = nil
         if let snapshot {

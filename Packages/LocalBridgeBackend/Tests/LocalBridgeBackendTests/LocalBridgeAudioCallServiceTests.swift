@@ -15,18 +15,20 @@ struct LocalBridgeAudioCallServiceTests {
     }
 
     func setup(
-        _ responses: [Result<HTTPResponse, any Error>] = [], hold: String? = nil
+        _ responses: [Result<HTTPResponse, any Error>] = [], hold: String? = nil,
+        prefix: [Result<HTTPResponse, any Error>] = [], pushConfiguration: Bool = true
     ) async throws -> Setup {
         let fixtures = MeetDMCallTrialTests()
         var loading = try fixtures.loadingResponses()
         var shell = try loading[0].get()
-        let html = String(decoding: shell.body, as: UTF8.self).replacingOccurrences(
+        let original = String(decoding: shell.body, as: UTF8.self)
+        let html = pushConfiguration ? original.replacingOccurrences(
             of: "\"qwAQke\"",
             with: "\"wU9aJb\":\"KEY\",\"pZ68sc\":\"PROJECT\",\"ttqQxf\":\"TOPIC\",\"qwAQke\""
-        )
+        ) : original
         shell.body = Data(html.utf8)
         loading[0] = .success(shell)
-        let base = ScriptedTransport(loading + responses)
+        let base = ScriptedTransport(prefix + loading + responses)
         let transport = CallServiceTransport(base, hold: hold)
         let (trial, store) = try await fixtures.trial(transport)
         let media = MediaFactory()

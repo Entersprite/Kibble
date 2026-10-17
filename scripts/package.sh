@@ -42,10 +42,10 @@ for item in "$sparkle"/Versions/B/XPCServices/*.xpc "$sparkle"/Versions/B/Autoup
 done
 # The native WebRTC distribution arrives signed by its builder. Re-sign the
 # embedded framework for the app's hardened library validation.
-webrtc=$app/Contents/Frameworks/WebRTC.framework
-[[ -d "$webrtc" ]] || fail "no WebRTC.framework in the app"
+webrtc=$app/Contents/Frameworks/LiveKitWebRTC.framework
+[[ -d "$webrtc" ]] || fail "no LiveKitWebRTC.framework in the app"
 codesign -f -s "$developer_id" -o runtime --timestamp "$webrtc" 2>/dev/null ||
-    fail "could not sign WebRTC.framework"
+    fail "could not sign LiveKitWebRTC.framework"
 codesign -f -s "$developer_id" -o runtime --timestamp --preserve-metadata=entitlements "$app" 2>/dev/null ||
     fail "could not sign the app"
 

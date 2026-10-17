@@ -6,6 +6,19 @@ import Foundation
 public protocol CallMediaEngine: AnyObject, Sendable {
     var isConnected: Bool { get }
     var supportsStreamControl: Bool { get }
+    var supportsVideo: Bool { get }
+    var supportsScreenSharing: Bool { get }
+    func configureScreenSharing(
+        start: (@Sendable (any CallMediaEngine) async throws -> Void)?,
+        stop: (@Sendable () async -> Bool)?
+    )
+    func showRemotePresentation(_ visible: Bool)
+    func renewVideoOffer() async throws -> CallAudioOffer
+    func applyVideoAnswer(_ sdp: String) async throws
+    func cancelVideoOffer() async
+    func configureCamera(announce: (@Sendable (Bool) async throws -> Void)?)
+    func reportVideoUnavailable()
+    func showRemoteVideo(_ visible: Bool)
     var isMicrophoneMuted: Bool { get }
     /// Prepare bundled SCTP when a server-created control channel is expected.
     /// isConnected stays false until that channel is open as well as the peer.
@@ -28,9 +41,39 @@ public enum CallMediaEvent: Sendable {
     case connected
     case disconnected
     case failed
+    /// Host suspension is distinct from an audio transport failure. A paired
+    /// resume gives the existing peer a fresh bounded opportunity to recover.
+    case suspended, resumed
 }
 
 public extension CallMediaEngine {
+    var supportsScreenSharing: Bool {
+        false
+    }
+
+    func configureScreenSharing(
+        start: (@Sendable (any CallMediaEngine) async throws -> Void)?,
+        stop: (@Sendable () async -> Bool)?
+    ) {}
+    func showRemotePresentation(_: Bool) {}
+
+    var supportsVideo: Bool {
+        false
+    }
+
+    func renewVideoOffer() async throws -> CallAudioOffer {
+        throw CallMediaError.negotiationFailed
+    }
+
+    func applyVideoAnswer(_ sdp: String) async throws {
+        try await applyAnswer(sdp)
+    }
+
+    func cancelVideoOffer() async {}
+    func configureCamera(announce: (@Sendable (Bool) async throws -> Void)?) {}
+    func reportVideoUnavailable() {}
+    func showRemoteVideo(_: Bool) {}
+
     func diagnosticReport() async -> [String] {
         []
     }

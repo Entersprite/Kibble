@@ -42,7 +42,7 @@ scan() { # dir, regex, description
 echo "Portability (GChatBridgeCore must compile on Linux):"
 # The loud class: a platform framework import.
 scan "$CORE" \
-  '^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*import[[:space:]]+(AppKit|UIKit|SwiftUI|WebKit|WebRTC|Security|CryptoKit|CoreFoundation|FoundationNetworking|Combine|OSLog|Darwin|Network)\b' \
+  '^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*import[[:space:]]+(AppKit|UIKit|SwiftUI|WebKit|WebRTC|LiveKitWebRTC|Security|CryptoKit|CoreFoundation|FoundationNetworking|Combine|OSLog|Darwin|Network)\b' \
   "no platform framework imports"
 # The quiet class: types that come from Foundation on Darwin but from
 # FoundationNetworking on Linux. An import ban alone would never catch these,

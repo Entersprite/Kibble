@@ -1,44 +1,62 @@
 import AVFoundation
 import Foundation
+@preconcurrency import LiveKitWebRTC
 import LocalBridgeBackend
-@preconcurrency import WebRTC
 
-/// Kibble's own libWebRTC peer. Does not load Meet, reuse a browser, or send an
-/// invitation. Hardware starts only after explicit audio offer preparation.
+/// Kibble's native media peer. Audio starts during explicit call preparation;
+/// camera capture starts only through the call window's camera action.
 @MainActor
 public final class NativeCallMedia: NSObject, CallMediaEngine {
     private static let sslReady: Bool = {
-        RTCSetMinDebugLogLevel(.none)
-        return RTCInitializeSSL()
+        LKRTCSetMinDebugLogLevel(.none)
+        return LKRTCInitializeSSL()
     }()
 
-    var peer: RTCPeerConnection?
-    private var audio: RTCAudioTrack?
-    private var audioSender: RTCRtpSender?
-    private var bootstrapChannel: RTCDataChannel?
-    private var controlChannel: RTCDataChannel?
-    private var expectedControlChannel: String?
+    var peer: LKRTCPeerConnection?
+    let isPresentation: Bool
+    var screenRoute: NativeCallScreenSharing?
+    var screenScope: UUID?
+    var presentationEnded: (() -> Void)?
+    private var audioDevices: CallAudioDeviceController?
+    private var audioRoute: NativeCallAudioRouting?
+    private var audioRouteScope: UUID?
+    private var audio: LKRTCAudioTrack?
+    private var audioSender: LKRTCRtpSender?
+    private var bootstrapChannel: LKRTCDataChannel?
+    var controlChannel: LKRTCDataChannel?
+    var expectedControlChannel: String?
     var generation = UUID()
-    var streamChannel: RTCDataChannel?
+    var streamChannel: LKRTCDataChannel?
     var streamReplies: [Data] = []
     var isExchangingStream = false
-    private var isNegotiating = false
-    private var connectionState: RTCPeerConnectionState = .new
+    var videoController: CallVideoController?
+    var video: NativeCallVideo?
+    var videoScope: UUID?
+    var isNegotiating = false
+    private var connectionState: LKRTCPeerConnectionState = .new
     private var muted = false
-    private var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
+    var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
+    private var recoveryMonitor: CallMediaRecoveryMonitor?
     private let microphoneAccess: @MainActor @Sendable () async -> Bool
 
     public init(
+        presentation: Bool = false,
+        audioDevices: CallAudioDeviceController? = nil,
+        videoController: CallVideoController? = nil,
         microphoneAccess: @escaping @MainActor @Sendable () async -> Bool = {
             await AVCaptureDevice.requestAccess(for: .audio)
         }
     ) {
+        isPresentation = presentation
+        muted = presentation
+        self.audioDevices = audioDevices
+        self.videoController = videoController
         self.microphoneAccess = microphoneAccess
         super.init()
     }
 
     public var isConnected: Bool {
-        peer != nil && connectionState == .connected
+        peer?.connectionState == .connected
             && (expectedControlChannel == nil || controlChannel?.readyState == .open)
     }
 
@@ -63,7 +81,7 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
             }
         }
         do {
-            let permitted = await microphoneAccess()
+            let permitted = isPresentation ? true : await microphoneAccess()
             try check(current)
             guard permitted else { throw CallMediaError.microphoneDenied }
             guard Self.sslReady else { throw CallMediaError.negotiationFailed }
@@ -136,6 +154,20 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
 
     public func setEventHandler(_ handler: (@Sendable (CallMediaEvent) async -> Void)?) {
         eventHandler = handler
+        if handler != nil, recoveryMonitor == nil {
+            let scope = generation
+            let monitor = CallMediaRecoveryMonitor()
+            recoveryMonitor = monitor
+            monitor.start { [weak self] event in await self?.recoveryEvent(event, scope: scope) }
+        } else if handler == nil {
+            recoveryMonitor?.stop()
+            recoveryMonitor = nil
+        }
+    }
+
+    private func recoveryEvent(_ event: CallMediaEvent, scope: UUID) async {
+        guard generation == scope, peer != nil else { return }
+        await eventHandler?(event)
     }
 
     public func setMuted(_ muted: Bool) {
@@ -145,6 +177,29 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     }
 
     public func close() {
+        let ended = presentationEnded
+        presentationEnded = nil
+        ended?()
+        screenRoute?.suppress()
+        if let screenScope {
+            videoController?.screenSharing.clear(ifCurrent: screenScope)
+        }
+        screenScope = nil
+        screenRoute = nil
+        video?.close()
+        if let videoScope {
+            videoController?.clear(ifCurrent: videoScope)
+        }
+        videoScope = nil
+        video = nil
+        audioRoute?.close()
+        audioRoute = nil
+        if let audioRouteScope {
+            audioDevices?.clear(ifCurrent: audioRouteScope)
+        }
+        audioRouteScope = nil
+        recoveryMonitor?.stop()
+        recoveryMonitor = nil
         generation = UUID()
         isNegotiating = false
         audio?.isEnabled = false
@@ -167,13 +222,13 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         connectionState = .closed
     }
 
-    private func check(_ expected: UUID) throws {
+    func check(_ expected: UUID) throws {
         try Task.checkCancellation()
         guard generation == expected else { throw CallMediaError.closed }
     }
 
-    private static func audioCryptoOptions() -> RTCCryptoOptions {
-        RTCCryptoOptions(
+    private static func audioCryptoOptions() -> LKRTCCryptoOptions {
+        LKRTCCryptoOptions(
             srtpEnableGcmCryptoSuites: true, srtpPreferGcmCryptoSuites: true,
             srtpEnableAes128Sha1_32CryptoCipher: false, srtpEnableAes128Sha1_80CryptoCipher: true,
             srtpEnableEncryptedRtpHeaderExtensions: false, sframeRequireFrameEncryption: false
@@ -182,32 +237,51 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
 
     private func preparePeer(
         serverControlChannel: String?
-    ) throws -> (RTCPeerConnection, RTCMediaConstraints) {
-        let factory = RTCPeerConnectionFactory()
-        let configuration = RTCConfiguration()
+    ) throws -> (LKRTCPeerConnection, LKRTCMediaConstraints) {
+        let factory = LKRTCPeerConnectionFactory(
+            audioDeviceModuleType: .platformDefault, bypassVoiceProcessing: false,
+            encoderFactory: supportsVideo ? LKRTCDefaultVideoEncoderFactory() : nil,
+            decoderFactory: supportsVideo ? LKRTCDefaultVideoDecoderFactory() : nil,
+            audioProcessingModule: nil
+        )
+        if !isPresentation {
+            let route = NativeCallAudioRouting(factory: factory)
+            audioRoute = route
+            audioRouteScope = audioDevices?.install(route)
+        }
+        let configuration = LKRTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan
         configuration.bundlePolicy = .maxBundle
         configuration.rtcpMuxPolicy = .require
         configuration.cryptoOptions = Self.audioCryptoOptions()
-        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let connection = factory.peerConnection(
             with: configuration, constraints: constraints, delegate: self
         ) else { throw CallMediaError.negotiationFailed }
         peer = connection
         expectedControlChannel = serverControlChannel
-        let track = factory.audioTrack(withTrackId: UUID().uuidString)
-        track.isEnabled = !muted
-        audio = track
-        guard let sender = connection.add(track, streamIds: [UUID().uuidString]) else {
-            throw CallMediaError.negotiationFailed
+        if isPresentation {
+            let receiving = LKRTCRtpTransceiverInit()
+            receiving.direction = .recvOnly
+            guard connection.addTransceiver(of: .audio, init: receiving) != nil else {
+                throw CallMediaError.negotiationFailed
+            }
+        } else {
+            let track = factory.audioTrack(withTrackId: UUID().uuidString)
+            track.isEnabled = !muted
+            audio = track
+            guard let sender = connection.add(track, streamIds: [UUID().uuidString]) else {
+                throw CallMediaError.negotiationFailed
+            }
+            audioSender = sender
         }
-        audioSender = sender
         try Self.configureAudioCodecs(connection, factory: factory)
+        try prepareVideo(factory: factory, peer: connection)
         if serverControlChannel != nil {
             // The browser also creates an ignored channel before its
             // initial offer, enabling the bundled SCTP m-line. The real
             // push channel arrives later from the server via DCEP.
-            let channelConfig = RTCDataChannelConfiguration()
+            let channelConfig = LKRTCDataChannelConfiguration()
             channelConfig.isOrdered = true
             channelConfig.isNegotiated = false
             guard let channel = connection.dataChannel(forLabel: "ignored", configuration: channelConfig)
@@ -219,33 +293,8 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         return (connection, constraints)
     }
 
-    private static func configureAudioCodecs(
-        _ connection: RTCPeerConnection, factory: RTCPeerConnectionFactory
-    ) throws {
-        // Meet's browser uses setCodecPreferences with audio/opus and audio/red.
-        // Apply that limit to the actual peer before generating or installing
-        // its offer; do not advertise the SDK's legacy telephony codecs.
-        let codecs = factory.rtpReceiverCapabilities(forKind: kRTCMediaStreamTrackKindAudio).codecs
-            .filter { codec in
-                ["audio/opus", "audio/red"].contains(codec.mimeType.lowercased())
-                    && codec.clockRate?.intValue == 48000 && codec.numChannels?.intValue == 2
-            }
-        guard codecs.contains(where: { $0.mimeType.lowercased() == "audio/opus" }),
-              connection.transceivers.count == 1,
-              let transceiver = connection.transceivers.first else {
-            throw CallMediaError.negotiationFailed
-        }
-        do {
-            // The empty error argument selects the throwing API; the one-
-            // argument overload is deprecated and discards native failures.
-            try transceiver.setCodecPreferences(codecs, error: ())
-        } catch {
-            throw CallMediaError.negotiationFailed
-        }
-    }
-
-    private func setDescription(_ sdp: String, local: Bool, connection: RTCPeerConnection) async throws {
-        let description = RTCSessionDescription(type: local ? .offer : .answer, sdp: sdp)
+    func setDescription(_ sdp: String, local: Bool, connection: LKRTCPeerConnection) async throws {
+        let description = LKRTCSessionDescription(type: local ? .offer : .answer, sdp: sdp)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             let completion: @Sendable (Error?) -> Void = { error in
                 if error != nil {
@@ -260,12 +309,12 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
                 connection.setRemoteDescription(description, completionHandler: completion)
             }
         }
-        if local {
-            connectionState = .new
-        }
     }
 
-    private nonisolated func received(_ state: RTCPeerConnectionState, from connection: RTCPeerConnection) {
+    nonisolated func received(
+        _ state: LKRTCPeerConnectionState,
+        from connection: LKRTCPeerConnection
+    ) {
         let identity = ObjectIdentifier(connection)
         Task { @MainActor [weak self] in
             guard let self, let peer, ObjectIdentifier(peer) == identity else { return }
@@ -276,100 +325,6 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
             case .failed, .closed: await eventHandler?(.failed)
             default: break
             }
-        }
-    }
-}
-
-extension NativeCallMedia: RTCPeerConnectionDelegate {
-    public nonisolated func peerConnection(
-        _ peerConnection: RTCPeerConnection, didChange newState: RTCPeerConnectionState
-    ) {
-        received(newState, from: peerConnection)
-    }
-
-    public nonisolated func peerConnection(
-        _: RTCPeerConnection, didChange _: RTCSignalingState
-    ) {}
-
-    public nonisolated func peerConnection(_: RTCPeerConnection, didAdd _: RTCMediaStream) {}
-    public nonisolated func peerConnection(_: RTCPeerConnection, didRemove _: RTCMediaStream) {}
-    public nonisolated func peerConnectionShouldNegotiate(_: RTCPeerConnection) {}
-
-    public nonisolated func peerConnection(
-        _: RTCPeerConnection, didChange _: RTCIceConnectionState
-    ) {}
-
-    public nonisolated func peerConnection(
-        _: RTCPeerConnection, didChange _: RTCIceGatheringState
-    ) {}
-
-    public nonisolated func peerConnection(_: RTCPeerConnection, didGenerate _: RTCIceCandidate) {}
-    public nonisolated func peerConnection(_: RTCPeerConnection, didRemove _: [RTCIceCandidate]) {}
-    public nonisolated func peerConnection(
-        _ peerConnection: RTCPeerConnection,
-        didOpen channel: RTCDataChannel
-    ) {
-        let identity = ObjectIdentifier(peerConnection)
-        Task { @MainActor [weak self] in
-            guard let self, let peer, ObjectIdentifier(peer) == identity else {
-                channel.close()
-                return
-            }
-            if channel.label == "dcrpc" {
-                if streamChannel == nil {
-                    streamChannel = channel
-                    channel.delegate = self
-                } else if streamChannel !== channel {
-                    channel.close()
-                }
-                return
-            }
-            guard let expectedControlChannel, channel.label == expectedControlChannel else {
-                channel.close()
-                return
-            }
-            if let controlChannel {
-                if ObjectIdentifier(controlChannel) != ObjectIdentifier(channel) {
-                    channel.close()
-                }
-                return
-            }
-            controlChannel = channel
-            channel.delegate = self
-        }
-    }
-}
-
-extension NativeCallMedia: RTCDataChannelDelegate {
-    public nonisolated func dataChannelDidChangeState(_ channel: RTCDataChannel) {
-        let identity = ObjectIdentifier(channel)
-        Task { @MainActor [weak self] in
-            guard let self, let controlChannel, ObjectIdentifier(controlChannel) == identity else { return }
-            if controlChannel.readyState == .closed || controlChannel.readyState == .closing {
-                await eventHandler?(.failed)
-            }
-        }
-    }
-
-    public nonisolated func dataChannel(
-        _ channel: RTCDataChannel,
-        didReceiveMessageWith buffer: RTCDataBuffer
-    ) {
-        guard buffer.isBinary, !buffer.data.isEmpty, buffer.data.count <= 1_000_000 else { return }
-        let data = buffer.data
-        let identity = ObjectIdentifier(channel)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            if let streamChannel, ObjectIdentifier(streamChannel) == identity {
-                if isExchangingStream, streamReplies.count < 16 {
-                    streamReplies.append(data)
-                }
-                return
-            }
-            guard let controlChannel, ObjectIdentifier(controlChannel) == identity else { return }
-            // Coalesce invalidations in the bridge and fetch versioned full
-            // snapshots. No server payload is retained or logged by the host.
-            await eventHandler?(.collectionsChanged)
         }
     }
 }

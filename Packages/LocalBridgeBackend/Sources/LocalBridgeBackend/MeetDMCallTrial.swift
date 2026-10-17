@@ -41,6 +41,8 @@ public actor MeetDMCallTrial {
     var prepared: Prepared?
     var native: NativeMeetCallSession?
     var nativeScope: UUID?
+    var cleanupScope: UUID?
+    var cleanupStatus = MeetNativeCallCleanup()
     var generation = 0
     var lines = [
         "kibble native DM call trial",
@@ -220,94 +222,6 @@ public actor MeetDMCallTrial {
         context = nil
         prepared = nil
         await endNativeCall()
-    }
-
-    public func joinNative(
-        preparedID: UUID, media: any CallMediaEngine,
-        scope: UUID = UUID(),
-        receive: (@Sendable (MeetNativeCallState) async -> Void)? = nil
-    ) async throws {
-        guard let call = prepared, call.ticket == preparedID, native == nil else {
-            await media.close()
-            throw MeetDMCallTrialError.callNotPrepared
-        }
-        let session = NativeMeetCallSession(
-            client: call.client, call: call.call, media: media,
-            validateAccount: { [weak self] in
-                guard let self else { throw MeetDMCallTrialError.superseded }
-                try await validateNative(call.context.stored, generation: call.generation)
-            }
-        )
-        native = session
-        nativeScope = scope
-        do {
-            try await session.connect()
-            if let receive {
-                await session.startMonitoring { [weak self, weak session] state in
-                    if let session {
-                        await self?.nativeStateChanged(state, session: session)
-                    }
-                    await receive(state)
-                }
-            }
-            await lines.append(contentsOf: session.takeReport())
-        } catch {
-            await lines.append(contentsOf: session.takeReport())
-            if native === session {
-                native = nil
-                nativeScope = nil
-            }
-            if prepared?.ticket == call.ticket {
-                prepared = nil
-            }
-            throw error
-        }
-    }
-
-    public func endNativeCall() async {
-        guard let session = native else { return }
-        native = nil
-        nativeScope = nil
-        await session.close()
-        await lines.append(contentsOf: session.takeReport())
-    }
-
-    public func cancelNativeRing() async {
-        guard let session = native else { return }
-        await session.close(reason: .ringCancelled)
-        await lines.append(contentsOf: session.takeReport())
-        if native === session {
-            native = nil
-            nativeScope = nil
-        }
-    }
-
-    private func nativeStateChanged(_ state: MeetNativeCallState, session: NativeMeetCallSession) async {
-        guard native === session else { return }
-        if case .ended = state {
-            await lines.append(contentsOf: session.takeReport())
-            native = nil
-            nativeScope = nil
-            prepared = nil
-        }
-    }
-
-    private func validateNative(_ stored: StoredSession, generation: Int) async throws {
-        try await ensureCurrent(stored)
-        try ensureGeneration(generation)
-    }
-
-    public func setNativeMuted(_ muted: Bool, scope: UUID, sequence: UInt64) async throws -> Bool {
-        guard nativeScope == scope, let session = native else { throw MeetDMCallTrialError.superseded }
-        let accepted = try await session.setMuted(muted, sequence: sequence)
-        guard nativeScope == scope, native === session else { throw MeetDMCallTrialError.superseded }
-        await lines.append(contentsOf: session.takeReport())
-        return accepted
-    }
-
-    public func nativeOutgoingAudioReady(scope: UUID) async -> Bool {
-        guard nativeScope == scope, let native else { return false }
-        return await native.audioStream != nil
     }
 
     func ensureCurrent(_ expected: StoredSession) async throws {

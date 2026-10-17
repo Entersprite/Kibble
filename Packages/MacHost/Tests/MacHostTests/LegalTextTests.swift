@@ -214,7 +214,8 @@ struct LegalTextTests {
             "Unicode emoji data ",
             "hangups",
             "googlechat.proto",
-            "WebRTC "
+            "webrtc-xcframework ",
+            "LiveKit WebRTC modifications"
         ]
         #expect(headings.count == expected.count)
         for (heading, prefix) in zip(headings, expected) {

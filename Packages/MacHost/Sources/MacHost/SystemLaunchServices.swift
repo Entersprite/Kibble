@@ -18,6 +18,8 @@ public final class SystemLaunchServices: LaunchServices {
     private let launchProbe: MacLaunchProbe?
     public var diagnostics: DiagnosticReportStore?
     let callDiagnostics = AudioCallDiagnosticExporter()
+    public let callAudioDevices = CallAudioDeviceController()
+    public let callVideo = CallVideoController()
     public let callSignIn = CallSignInRecovery()
 
     public var launchReportRequested: Bool {
@@ -46,8 +48,7 @@ public final class SystemLaunchServices: LaunchServices {
     }
 
     public func forgetStoredSession() async throws {
-        await callSignIn.invalidate()
-        callDiagnostics.install(nil)
+        await resetCallServices()
         try await KeychainCredentialStore().invalidate()
     }
 
@@ -107,8 +108,7 @@ public final class SystemLaunchServices: LaunchServices {
     /// through `LocalBridgeBackend`, using whatever session
     /// `hasStoredSession()` already confirmed is in the Keychain.
     public func makeSession() async throws -> SessionSelection {
-        await callSignIn.invalidate()
-        callDiagnostics.install(nil)
+        await resetCallServices()
         switch arguments.backend {
         case .fixture:
             let fixture = FakeBackend(world: .acme, directory: FixtureWorld.acmeDirectory)
@@ -163,7 +163,8 @@ public final class SystemLaunchServices: LaunchServices {
         // as incoming for one heartbeat and then correctly as outgoing - never
         // a session-long "wrong-looking".
         let audioCalls = await backend.makeAudioCallService(
-            store: store, expectedSession: sessionSummary, mediaFactory: { NativeCallMedia() }
+            store: store, expectedSession: sessionSummary,
+            mediaFactory: nativeCallMediaFactory()
         )
         await configureCallServices(audioCalls)
         return SessionSelection(
@@ -171,6 +172,19 @@ public final class SystemLaunchServices: LaunchServices {
             connectionService: ConnectionService(name: "Google Chat", operatorName: "Google"),
             audioCalls: audioCalls
         )
+    }
+
+    private func nativeCallMediaFactory() -> @MainActor @Sendable () -> any CallMediaEngine {
+        { [callAudioDevices, callVideo] in
+            NativeCallMedia(audioDevices: callAudioDevices, videoController: callVideo)
+        }
+    }
+
+    private func resetCallServices() async {
+        callAudioDevices.clear()
+        callVideo.clear()
+        await callSignIn.invalidate()
+        callDiagnostics.install(nil)
     }
 
     private func configureCallServices(_ audioCalls: LocalBridgeAudioCallService) async {

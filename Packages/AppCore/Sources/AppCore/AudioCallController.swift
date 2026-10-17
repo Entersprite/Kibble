@@ -21,6 +21,7 @@ public final class AudioCallController {
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var listenerTask: Task<Void, Never>?
     @ObservationIgnored private var operationTask: Task<Void, Never>?
+    @ObservationIgnored private var endingSnapshot: AudioCallSnapshot?
     @ObservationIgnored private var endingTask: Task<Void, Never>?
     @ObservationIgnored private var muteTask: Task<Void, Never>?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
@@ -78,6 +79,7 @@ public final class AudioCallController {
         endingTask = nil
         recipients = [:]
         retiredIDs = []
+        endingSnapshot = nil
         isAvailable = false
         isEnding = false
         isUpdatingMute = false
@@ -234,29 +236,43 @@ public final class AudioCallController {
             recipients = values.reduce(into: [:]) { $0[$1.conversationID] = $1 }
         case let .listenerChanged(isListening):
             listenerFailure = isListening ? nil : "Incoming calls are unavailable."
-        case let .snapshot(snapshot):
-            // A queued, safe failure reason may refine our operation-error fallback.
-            if call?.id == snapshot.id, call?.phase == .failed, snapshot.phase == .failed, !isEnding {
-                call = snapshot
-                return
-            }
-            guard !retiredIDs.contains(snapshot.id) else { return }
-            if call?.id == snapshot.id {
-                guard call?.phase.isTerminal == false, !isEnding else { return }
-                call = snapshot
-                if snapshot.phase.isTerminal {
-                    retiredIDs.insert(snapshot.id)
-                    operationTask?.cancel()
-                    muteTask?.cancel()
-                    isUpdatingMute = false
-                }
-            } else if snapshot.direction == .incoming, snapshot.phase == .incoming,
-                      call == nil || call?.phase.isTerminal == true, !isEnding {
-                call = snapshot
-                windowRequests += 1
-            }
+        case let .snapshot(snapshot): receiveSnapshot(snapshot)
         case .unknown: break
         }
+    }
+
+    private func receiveSnapshot(_ snapshot: AudioCallSnapshot) {
+        if receiveTerminalSnapshot(snapshot) {
+            return
+        }
+        guard !retiredIDs.contains(snapshot.id) else { return }
+        if call?.id == snapshot.id {
+            guard call?.phase.isTerminal == false, !isEnding else { return }
+            call = snapshot
+            if snapshot.phase.isTerminal {
+                retiredIDs.insert(snapshot.id)
+                operationTask?.cancel()
+                muteTask?.cancel()
+                isUpdatingMute = false
+            }
+        } else if snapshot.direction == .incoming, snapshot.phase == .incoming,
+                  call == nil || call?.phase.isTerminal == true, !isEnding {
+            call = snapshot
+            windowRequests += 1
+        }
+    }
+
+    private func receiveTerminalSnapshot(_ snapshot: AudioCallSnapshot) -> Bool {
+        guard call?.id == snapshot.id, snapshot.phase.isTerminal else { return false }
+        if isEnding {
+            endingSnapshot = snapshot
+            return true
+        }
+        // Terminal information can arrive after the awaited operation returns.
+        // Refining the same terminal phase cannot reactivate a retired call.
+        guard call?.phase == snapshot.phase else { return false }
+        call = snapshot
+        return true
     }
 
     private func runOperation(id: UUID, _ operation: @escaping @MainActor () async throws -> Void) {
@@ -281,6 +297,7 @@ public final class AudioCallController {
         guard let call, !call.phase.isTerminal, !isEnding, let service else { return }
         let scope = generation
         retiredIDs.insert(call.id)
+        endingSnapshot = nil
         self.call?.phase = .ended
         self.call?.failureMessage = nil
         isEnding = true
@@ -296,13 +313,21 @@ public final class AudioCallController {
                     try await service.hangUp(callID: call.id)
                 }
                 guard let self, generation == scope, self.call?.id == call.id else { return }
-                self.call?.phase = decline ? .declined : .ended
+                if let endingSnapshot {
+                    self.call = endingSnapshot
+                } else {
+                    self.call?.phase = decline ? .declined : .ended
+                }
                 isEnding = false
             } catch {
                 guard let self, generation == scope, self.call?.id == call.id else { return }
-                self.call?.phase = .failed
-                self.call?.failureMessage = decline
-                    ? "Decline could not be confirmed." : "Call cleanup failed."
+                if let endingSnapshot {
+                    self.call = endingSnapshot
+                } else {
+                    self.call?.phase = .failed
+                    self.call?.failureMessage = decline
+                        ? "Decline could not be confirmed." : "Call cleanup failed."
+                }
                 isEnding = false
             }
         }

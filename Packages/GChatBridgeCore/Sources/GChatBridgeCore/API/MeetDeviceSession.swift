@@ -12,6 +12,8 @@ public actor MeetDeviceSession {
     private let client: MeetCallClient
     private let space: MeetCallWire.Space
     private let incomingInvitation: MeetIncomingInvitation?
+    private var presentation = false
+    private var expectedPrimary: String?
     private var token = MeetMeetingToken()
     private var device: MeetDeviceWire.Device?
     private var mediaSession: String?
@@ -81,6 +83,31 @@ public actor MeetDeviceSession {
         token.absorb(call.token)
     }
 
+    /// Mint a secondary credential from this joined device. It remains separate
+    /// from parent token rotation and carries no incoming invitation or ring.
+    public func makePresenter() async throws -> MeetDeviceSession {
+        try Task.checkCancellation()
+        try begin()
+        defer { busy = false }
+        guard !presentation, mediaConnected, let device, device.joinState == 1 else {
+            throw MeetDeviceSessionError.notJoined
+        }
+        let response = try await send(
+            "MeetingDeviceService/CreateTokenForSecondary",
+            body: MeetDeviceWire.secondaryTokenRequest(space: space.name)
+        )
+        let secondaryToken = try MeetDeviceWire.secondaryToken(from: response.body)
+        try Task.checkCancellation()
+        guard !closed, mediaConnected else { throw MeetDeviceSessionError.closed }
+        let call = MeetResolvedCall(space: space, token: secondaryToken)
+        return MeetDeviceSession(client: client, call: call, primary: device.name)
+    }
+
+    private init(client: MeetCallClient, call: MeetResolvedCall, primary: String) {
+        self.client = client; space = call.space; incomingInvitation = nil
+        token.absorb(call.token); presentation = true; expectedPrimary = primary
+    }
+
     public func register(mediaSession: String) async throws {
         try begin()
         defer { busy = false }
@@ -92,8 +119,13 @@ public actor MeetDeviceSession {
         let response = try await request("CreateMeetingDevice", body: body)
         // Keep the device before checking cancellation, so the adapter can leave
         // after an accepted registration finishes during window closure.
-        device = try MeetDeviceWire.device(from: response.body, in: space.name)
+        let registered = try MeetDeviceWire.device(from: response.body, in: space.name)
+        guard registered.name != expectedPrimary else { throw MeetCallWire.WireError.malformedResponse }
+        device = registered
         self.mediaSession = mediaSession
+        if presentation, registered.primaryDevice != expectedPrimary {
+            throw MeetCallWire.WireError.malformedResponse
+        }
     }
 
     public func setMediaConnected(_ connected: Bool) {
@@ -106,18 +138,25 @@ public actor MeetDeviceSession {
         guard let device, let mediaSession else { throw MeetDeviceSessionError.noDevice }
         guard mediaConnected else { throw MeetDeviceSessionError.mediaNotConnected }
         let response = try await request(
-            "UpdateMeetingDevice", body: MeetDeviceWire.join(device: device.name, mediaSession: mediaSession)
+            "UpdateMeetingDevice", body: MeetDeviceWire.join(
+                device: device.name,
+                mediaSession: mediaSession,
+                presentation: presentation
+            )
         )
         let joined = try MeetDeviceWire.device(from: response.body, in: space.name)
         guard joined.name == device.name else { throw MeetCallWire.WireError.malformedResponse }
         self.device = joined
+        guard !presentation || (joined.primaryDevice == expectedPrimary && joined.captureType == 2)
+        else { throw MeetCallWire.WireError.malformedResponse }
         guard joined.joinState == 1, !joined.isDeleted else { throw MeetDeviceSessionError.notJoined }
     }
 
     public func invite(calleeID: String, requestID: UUID) async throws {
         try begin()
         defer { busy = false }
-        guard incomingInvitation == nil, mediaConnected, device?.joinState == 1, !didInvite else {
+        guard !presentation, incomingInvitation == nil, mediaConnected, device?.joinState == 1,
+              !didInvite else {
             throw MeetDeviceSessionError.notJoined
         }
         let body = try MeetCallWire.invite(spaceName: space.name, calleeID: calleeID, requestID: requestID)

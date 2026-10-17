@@ -12,6 +12,8 @@ import UserNotifications
 /// that is safe to share - the stream and its continuation are `Sendable`, and
 /// the center is only ever reached through `current()`.
 public final class UserNotificationDelivery: NSObject, NotificationDelivering, @unchecked Sendable {
+    let callResponses: AsyncStream<IncomingCallResponse>
+    private let callContinuation: AsyncStream<IncomingCallResponse>.Continuation
     public let responses: AsyncStream<NotificationResponse>
     private let continuation: AsyncStream<NotificationResponse>.Continuation
 
@@ -40,6 +42,7 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     override public init() {
         // Buffered so a click that launches the app is still there when the
         // coordinator starts listening a moment later.
+        (callResponses, callContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
         (responses, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
         super.init()
     }
@@ -58,13 +61,14 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
         center.setNotificationCategories(Self.categories())
     }
 
-    /// Both categories, registered together: each `setNotificationCategories`
-    /// call replaces the whole set. Neither action has `.foreground`: marking
+    /// Message and call categories, registered together: `setNotificationCategories`
+    /// replaces the whole set. Message actions have no `.foreground`: marking
     /// read or muting must not pull the app forward.
     static func categories() -> Set<UNNotificationCategory> {
         let markRead = UNNotificationAction(identifier: markReadActionID, title: "Mark as Read", options: [])
         let mute = UNNotificationAction(identifier: muteActionID, title: "Mute", options: [])
         return [
+            callCategory,
             UNNotificationCategory(
                 identifier: categoryID, actions: [markRead, mute], intentIdentifiers: [], options: []
             ),
@@ -215,6 +219,12 @@ extension UserNotificationDelivery: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         let userInfo = response.notification.request.content.userInfo
+        if response.notification.request.content.categoryIdentifier == Self.callCategoryID {
+            if let action = Self.callResponse(action: response.actionIdentifier, userInfo: userInfo) {
+                callContinuation.yield(action)
+            }
+            return
+        }
         guard let raw = userInfo[Self.conversationKey] as? String else { return }
         let conversation = Conversation.ID(raw)
         if let response = Self.response(

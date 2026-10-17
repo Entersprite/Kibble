@@ -40,13 +40,25 @@ extension LocalBridgeAudioCallService {
             publish(phase: .connecting, snapshot: current, failure: "Call status is unavailable.")
         case .ending: break
         case let .ended(reason):
-            media = nil
-            incomingHandle = nil
-            switch reason {
-            case .transportFailed, .joinFailed, .accountChanged:
-                publish(phase: .failed, snapshot: current, failure: "The call connection ended.")
-            default: publish(phase: .ended, snapshot: current)
-            }
+            receiveEnd(reason, cleanup: MeetNativeCallCleanup(), current: current)
+        case let .endedUnconfirmed(reason, cleanup):
+            receiveEnd(reason, cleanup: cleanup, current: current)
+        }
+    }
+
+    private func receiveEnd(
+        _ reason: MeetNativeCallEndReason, cleanup: MeetNativeCallCleanup, current: AudioCallSnapshot
+    ) {
+        media = nil
+        incomingHandle = nil
+        switch reason {
+        case .transportFailed, .joinFailed, .accountChanged:
+            publish(
+                phase: .failed,
+                snapshot: current,
+                failure: cleanup.message ?? "The call connection ended."
+            )
+        default: publish(phase: .ended, snapshot: current, failure: cleanup.message)
         }
     }
 

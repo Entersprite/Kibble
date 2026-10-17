@@ -1,5 +1,5 @@
 import Foundation
-@preconcurrency import WebRTC
+@preconcurrency import LiveKitWebRTC
 
 public extension NativeCallMedia {
     /// Read-only, on-demand sampling. This never creates a peer or audio track,
@@ -26,11 +26,11 @@ public extension NativeCallMedia {
         return diagnosticStates(connection) + second.report(comparedWith: first)
     }
 
-    private func diagnosticsAreCurrent(_ scope: UUID, _ connection: RTCPeerConnection) -> Bool {
+    private func diagnosticsAreCurrent(_ scope: UUID, _ connection: LKRTCPeerConnection) -> Bool {
         !Task.isCancelled && generation == scope && peer === connection
     }
 
-    private static func audioStatistics(_ connection: RTCPeerConnection) async -> NativeAudioStatistics? {
+    private static func audioStatistics(_ connection: LKRTCPeerConnection) async -> NativeAudioStatistics? {
         let waiter = NativeMediaDiagnosticWaiter()
         let localAudioSSRC = NativeAudioSourceMatch.localAudioSSRC(connection.localDescription?.sdp)
         return await withTaskCancellationHandler {
@@ -60,14 +60,14 @@ public extension NativeCallMedia {
         }
     }
 
-    private func diagnosticStates(_ connection: RTCPeerConnection) -> [String] {
+    private func diagnosticStates(_ connection: LKRTCPeerConnection) -> [String] {
         let senders = connection.senders.compactMap(\.track)
-            .filter { $0.kind == kRTCMediaStreamTrackKindAudio }
+            .filter { $0.kind == kLKRTCMediaStreamTrackKindAudio }
         let receivers = connection.receivers.compactMap(\.track)
-            .filter { $0.kind == kRTCMediaStreamTrackKindAudio }
+            .filter { $0.kind == kLKRTCMediaStreamTrackKindAudio }
         let transceivers = connection.transceivers.filter { $0.mediaType == .audio }
         let directions = transceivers.prefix(16).map { transceiver in
-            var current = RTCRtpTransceiverDirection.inactive
+            var current = LKRTCRtpTransceiverDirection.inactive
             return transceiver.currentDirection(&current) ? Self.directionLabel(current) : "not negotiated"
         }
         let negotiated = directions.isEmpty ? "none" : directions.joined(separator: ", ")
@@ -75,18 +75,20 @@ public extension NativeCallMedia {
             "Native media peer state: \(Self.peerLabel(connection.connectionState))",
             "Native media ICE state: \(Self.iceLabel(connection.iceConnectionState))",
             "Native media microphone muted: \(isMicrophoneMuted ? "yes" : "no")",
+            "Native media camera sending: \(video?.track.isEnabled == true ? "yes" : "no")",
+            "Native media remote video selected: \(videoController?.remoteVisible == true ? "yes" : "no")",
             Self.trackLine("senders", senders), Self.trackLine("receivers", receivers),
             "Native media audio negotiated directions: \(negotiated)"
         ]
     }
 
-    private static func trackLine(_ label: String, _ tracks: [RTCMediaStreamTrack]) -> String {
+    private static func trackLine(_ label: String, _ tracks: [LKRTCMediaStreamTrack]) -> String {
         let enabled = tracks.count { $0.isEnabled }
         let live = tracks.count { $0.readyState == .live }
         return "Native media audio \(label): tracks=\(tracks.count); enabled=\(enabled); live=\(live)"
     }
 
-    private static func peerLabel(_ state: RTCPeerConnectionState) -> String {
+    private static func peerLabel(_ state: LKRTCPeerConnectionState) -> String {
         switch state {
         case .new: "new"
         case .connecting: "connecting"
@@ -98,7 +100,7 @@ public extension NativeCallMedia {
         }
     }
 
-    private static func iceLabel(_ state: RTCIceConnectionState) -> String {
+    private static func iceLabel(_ state: LKRTCIceConnectionState) -> String {
         switch state {
         case .new: "new"
         case .checking: "checking"
@@ -112,7 +114,7 @@ public extension NativeCallMedia {
         }
     }
 
-    private static func directionLabel(_ direction: RTCRtpTransceiverDirection) -> String {
+    private static func directionLabel(_ direction: LKRTCRtpTransceiverDirection) -> String {
         switch direction {
         case .sendRecv: "send and receive"
         case .sendOnly: "send only"

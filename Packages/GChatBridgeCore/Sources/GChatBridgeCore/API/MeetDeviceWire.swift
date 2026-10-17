@@ -7,6 +7,23 @@ public enum MeetDeviceWire {
         public let name: String
         public let joinState: UInt64
         public let isDeleted: Bool
+        public let primaryDevice: String?
+        public let captureType: UInt64
+
+        public var isPresentation: Bool {
+            primaryDevice != nil || [2, 3, 4, 5].contains(captureType)
+        }
+
+        init(
+            name: String,
+            joinState: UInt64,
+            isDeleted: Bool,
+            primaryDevice: String? = nil,
+            captureType: UInt64 = 0
+        ) {
+            self.name = name; self.joinState = joinState; self.isDeleted = isDeleted
+            self.primaryDevice = primaryDevice; self.captureType = captureType
+        }
     }
 
     /// The web source's request extension specifies client RPC semantics.
@@ -32,15 +49,34 @@ public enum MeetDeviceWire {
         return body
     }
 
-    public static func join(device: String, mediaSession: String) throws -> Data {
+    public static func join(device: String, mediaSession: String, presentation: Bool = false) throws -> Data {
         guard validDevice(device), validMediaSession(mediaSession) else {
             throw MeetCallWire.WireError.invalidIdentifier
         }
         let value = MeetProto.string(1, device) + MeetProto.number(4, 1)
-            + MeetProto.string(22, cloudID(mediaSession)) + MeetProto.number(25, 1) + MeetProto.number(38, 1)
+            + MeetProto.string(22, cloudID(mediaSession)) + MeetProto
+            .number(25, presentation ? 2 : 1) + MeetProto.number(
+                38,
+                1
+            )
         let mask = ["cloud_session_id", "join_state", "media_capture_type", "participation_mode"]
             .reduce(into: Data()) { $0 += MeetProto.string(1, $1) }
         return MeetProto.bytes(1, value) + MeetProto.bytes(2, mask)
+    }
+
+    /// The secondary credential request names the meeting space, even though
+    /// the RPC belongs to MeetingDeviceService. Device names are invalid here.
+    public static func secondaryTokenRequest(space: String) throws -> Data {
+        guard validSpace(space) else { throw MeetCallWire.WireError.invalidIdentifier }
+        return MeetProto.string(1, space)
+    }
+
+    public static func secondaryToken(from body: Data) throws -> String {
+        let value = try MeetProto.text(1, MeetProto.decode(body))
+        var token = MeetMeetingToken()
+        token.absorb(value)
+        guard token.value == value else { throw MeetCallWire.WireError.malformedResponse }
+        return value
     }
 
     public static func leave(device: String) throws -> Data {
@@ -69,7 +105,29 @@ public enum MeetDeviceWire {
         }
         let state = try ProtoFieldScan.fields(in: data).fields.contains(where: { $0.number == 4 })
             ? MeetProto.value(4, data) : 0
-        return Device(name: name, joinState: state, isDeleted: deleted)
+        let fields = ProtoFieldScan.fields(in: data).fields
+        let primary: String?
+        if fields.contains(where: { $0.number == 21 }) {
+            let value = try MeetProto.text(21, data)
+            if value.isEmpty {
+                primary = nil
+            } else {
+                guard validDevice(value), value.hasPrefix(space + "/devices/"), value != name else {
+                    throw MeetCallWire.WireError.malformedResponse
+                }
+                primary = value
+            }
+        } else {
+            primary = nil
+        }
+        let capture = try fields.contains(where: { $0.number == 25 }) ? MeetProto.value(25, data) : 0
+        return Device(
+            name: name,
+            joinState: state,
+            isDeleted: deleted,
+            primaryDevice: primary,
+            captureType: capture
+        )
     }
 
     static func validSpace(_ value: String) -> Bool {

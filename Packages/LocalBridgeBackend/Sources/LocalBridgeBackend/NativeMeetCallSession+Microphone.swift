@@ -124,7 +124,7 @@ extension NativeMeetCallSession {
         }
     }
 
-    private func nextStreamRequest() -> UInt64 {
+    func nextStreamRequest() -> UInt64 {
         streamRequestID += 1
         return streamRequestID
     }

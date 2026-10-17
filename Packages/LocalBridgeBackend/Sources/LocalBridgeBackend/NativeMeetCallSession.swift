@@ -12,6 +12,7 @@ actor NativeMeetCallSession {
     var connection: Task<Void, any Error>?
     var ready = false
     var closed = false
+    var cleanupStatus = MeetNativeCallCleanup()
     private var cleanupAttempted = false
     private var registrationAttempted = false
     var lines: [String] = []
@@ -33,12 +34,24 @@ actor NativeMeetCallSession {
     var pollTicks = 0
     var ringingDeadline: ContinuousClock.Instant?
     var disconnectedAt: ContinuousClock.Instant?
+    var isSuspended = false
     var audioStream: MeetAudioStreamWire.Stream?
     var streamRequestID: UInt64 = 0
     var streamTask: Task<Bool, Never>?
     var muteRevision: UInt64 = 0
     var desiredMuted = false
     var mediaSessionName = ""
+    var ownPresentationSources: [MeetVideoSource] = []
+    var presentationStart: Task<Void, any Error>?
+    var presentation: NativeMeetPresentation?
+    var videoContext: MeetVideoStreamWire.Context?
+    var videoConfiguration: Data?
+    var receivingVideo: MeetVideoStreamWire.Downstream?
+    var videoPoll: Task<Void, Never>?
+    var cameraMuted = true
+    var viewedVideo: MeetVideoStreamWire.Downstream?
+    var videoSource: MeetVideoSource?
+    var videoStatus: String?
 
     init(
         client: MeetCallClient, call: MeetResolvedCall, media: any CallMediaEngine,
@@ -116,6 +129,12 @@ actor NativeMeetCallSession {
         task?.cancel()
         refresh?.cancel()
         streamTask?.cancel()
+        presentationStart?.cancel()
+        let videoPoll = videoPoll
+        self.videoPoll = nil
+        videoPoll?.cancel()
+        await media.configureScreenSharing(start: nil, stop: nil)
+        await media.configureCamera(announce: nil)
         await media.setEventHandler(nil)
         if !mediaWasClosed {
             await media.close()
@@ -124,10 +143,19 @@ actor NativeMeetCallSession {
         _ = await task?.result
         _ = await refresh?.result
         _ = await streamTask?.result
+        _ = await videoPoll?.result
         audioStream = nil
+        ownPresentationSources = []
+        videoContext = nil
+        videoSource = nil
+        videoConfiguration = nil
+        receivingVideo = nil
+        viewedVideo = nil
         mediaSessionName = ""
+        await stopPresentation()
+        ownPresentationSources = []
         await cleanup()
-        await publish(.ended(reason))
+        await publish(cleanupStatus.isConfirmed ? .ended(reason) : .endedUnconfirmed(reason, cleanupStatus))
         receiveState = nil
     }
 
@@ -137,7 +165,11 @@ actor NativeMeetCallSession {
             lines.append("Native audio: preparing local offer")
             let supportsStreamControl = await media.supportsStreamControl
             let local = try await media.makeAudioOffer(serverControlChannel: "collections")
-            let offer = try MeetAudioOffer(
+            let video = try await media.supportsVideo ? MeetVideoOffer(
+                sdp: local.sdp,
+                srtpSuite: Self.suite(local.srtpProfile)
+            ) : nil
+            let offer = try video?.audio ?? MeetAudioOffer(
                 sdp: local.sdp, srtpSuite: Self.suite(local.srtpProfile), collections: true,
                 streamControl: supportsStreamControl
             )
@@ -147,12 +179,15 @@ actor NativeMeetCallSession {
                 lines.append("Native control: dcrpc requested; ordered, reliable and uncompressed")
             }
             lines.append("CreateMediaSession: started")
-            let session = try await client.createMediaSession(clientConfiguration: offer.clientConfiguration)
+            let session = try await client
+                .createMediaSession(clientConfiguration: video?.clientConfiguration ?? offer
+                    .clientConfiguration)
             try await check()
             lines.append("CreateMediaSession: accepted (media credentials withheld)")
             mediaSessionName = session.name
             lines.append("Native audio: converting server answer")
-            let answer = try serverAnswer(offer, configuration: session.serverConfiguration)
+            let answer = try video?.answer(serverConfiguration: session.serverConfiguration)
+                ?? serverAnswer(offer, configuration: session.serverConfiguration)
             lines.append("CreateMeetingDevice: started")
             registrationAttempted = true
             try await device.register(mediaSession: session.name)
@@ -170,6 +205,7 @@ actor NativeMeetCallSession {
             try await check()
             guard await media.isConnected else { throw CallMediaError.connectionFailed }
             try await finishConnect(offer, streamControl: supportsStreamControl)
+            try await prepareOptionalMedia(video, configuration: session.serverConfiguration)
         } catch {
             await handleConnectFailure(error)
             throw error
@@ -188,6 +224,12 @@ actor NativeMeetCallSession {
             await media.close()
         }
         audioStream = nil
+        ownPresentationSources = []
+        videoContext = nil
+        videoSource = nil
+        videoConfiguration = nil
+        receivingVideo = nil
+        viewedVideo = nil
         mediaSessionName = ""
         await cleanup()
     }
@@ -247,6 +289,7 @@ actor NativeMeetCallSession {
             try await Task.detached { try await device.cancelInvitation() }.value
             lines.append("Native cleanup: invitation cancellation settled or no invitation remained")
         } catch {
+            cleanupStatus.invitationUnconfirmed = true
             lines.append("Native cleanup: invitation cancellation unconfirmed; "
                 + MeetDMCallTrial.errorDescription(error))
         }
@@ -256,6 +299,7 @@ actor NativeMeetCallSession {
                 ? "Native cleanup: local media closed; device leave settled"
                 : "Native cleanup: local media closed; caller device registration was not attempted")
         } catch {
+            cleanupStatus.leaveUnconfirmed = true
             lines
                 .append("Native cleanup: device leave unconfirmed; " + MeetDMCallTrial
                     .errorDescription(error))

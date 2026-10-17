@@ -351,7 +351,7 @@ extension MeetDMCallTrialModel {
         guard nativeRevision == revision else { return }
         nativeCallState = state
         status = state.message
-        if case .ended = state {
+        if state.isTerminal {
             microphoneRevision = UUID()
             microphoneTask?.cancel()
             microphoneTask = nil

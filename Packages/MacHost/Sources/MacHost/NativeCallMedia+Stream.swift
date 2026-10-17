@@ -1,6 +1,6 @@
 import Foundation
+@preconcurrency import LiveKitWebRTC
 import LocalBridgeBackend
-@preconcurrency import WebRTC
 
 public extension NativeCallMedia {
     /// Opaque, bounded transport only. The bridge supplies request IDs and
@@ -11,8 +11,8 @@ public extension NativeCallMedia {
         guard isConnected, let peer, !request.isEmpty, request.count <= 1_000_000 else {
             throw CallMediaError.connectionFailed
         }
-        guard !isExchangingStream else { throw CallMediaError.busy }
         let current = generation
+        try await waitForStreamTurn(current, timeout: timeout)
         isExchangingStream = true
         streamReplies.removeAll()
         defer {
@@ -33,7 +33,7 @@ public extension NativeCallMedia {
                 throw CallMediaError.connectionFailed
             }
             if !sent, channel.readyState == .open {
-                guard channel.sendData(RTCDataBuffer(data: request, isBinary: true)) else {
+                guard channel.sendData(LKRTCDataBuffer(data: request, isBinary: true)) else {
                     throw CallMediaError.connectionFailed
                 }
                 sent = true
@@ -49,9 +49,20 @@ public extension NativeCallMedia {
         throw CallMediaError.signalingTimedOut
     }
 
-    private func prepareStreamChannel(_ peer: RTCPeerConnection) throws {
+    private func waitForStreamTurn(_ current: UUID, timeout: Duration) async throws {
+        let queueDeadline = ContinuousClock.now.advanced(by: timeout)
+        while isExchangingStream {
+            try Task.checkCancellation()
+            guard generation == current else { throw CallMediaError.closed }
+            guard ContinuousClock.now < queueDeadline else { throw CallMediaError.signalingTimedOut }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        guard generation == current else { throw CallMediaError.closed }
+    }
+
+    private func prepareStreamChannel(_ peer: LKRTCPeerConnection) throws {
         guard streamChannel == nil else { return }
-        let config = RTCDataChannelConfiguration()
+        let config = LKRTCDataChannelConfiguration()
         config.isOrdered = true
         config.isNegotiated = false
         guard let channel = peer.dataChannel(forLabel: "dcrpc", configuration: config) else {
