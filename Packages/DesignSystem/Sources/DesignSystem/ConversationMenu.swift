@@ -61,6 +61,41 @@ enum ConversationMenu {
     }
 }
 
+extension ConversationMenu {
+    /// One menu item and the original chats it acts on.
+    struct Entry: Hashable {
+        let item: Item
+        let targets: [Conversation.ID]
+    }
+
+    /// A series with one original offers that chat's own menu. Across several,
+    /// Mark as Read reads each unread original that may publish, and Mute or
+    /// Unmute applies to all of them, by the same records the row's own menu
+    /// reads. One chat's notification editor is not offered for several.
+    static func entries(for series: MeetingSeries, state: ChatSceneState, offers: Offers) -> [Entry] {
+        let originals = series.occurrences
+        guard originals.count > 1 else {
+            return items(for: series.latest, state: state, offers: offers).map {
+                Entry(item: $0, targets: [series.latest.id])
+            }
+        }
+        var entries: [Entry] = []
+        let unread = originals.filter { $0.hasUnread && !state.receiptsWithheld.contains($0.id) }.map(\.id)
+        if offers.markRead, !unread.isEmpty {
+            entries.append(Entry(item: .markAsRead, targets: unread))
+        }
+        let unmuted = originals.map(\.id).filter { !state.muted.contains($0) }
+        if unmuted.isEmpty {
+            if offers.unmute {
+                entries.append(Entry(item: .unmute, targets: originals.map(\.id)))
+            }
+        } else if offers.mute {
+            entries.append(Entry(item: .mute, targets: unmuted))
+        }
+        return entries
+    }
+}
+
 extension ConversationMenu.Offers {
     @MainActor init(_ actions: ChatSceneActions) {
         self.init(

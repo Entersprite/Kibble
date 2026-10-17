@@ -46,7 +46,7 @@ struct ConversationDirectoryView: View {
             } else if isPeoplePage {
                 peopleList
             } else {
-                conversationList
+                conversationList(localConversations)
             }
         }
         .searchable(
@@ -210,7 +210,9 @@ struct ConversationDirectoryView: View {
         } ?? []
     }
 
-    private var conversationList: some View {
+    /// Takes the projected rows once per render: projecting sorts and groups
+    /// every conversation, and the list reads its rows four times.
+    private func conversationList(_ localConversations: [SidebarItem]) -> some View {
         List(selection: $selectedConversation) {
             if page == "meetChat", state.isLoadingMeetingMetadata {
                 MeetingMetadataProgress()

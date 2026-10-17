@@ -98,6 +98,7 @@ public actor SyncEngine {
     /// History pages are windows, so absence from a page alone proves nothing.
     var checkedMissingRoots: Set<Message.ID> = []
     var meetingMetadataUpdates: [Conversation.ID: MeetingMetadataUpdate] = [:]
+    var meetingMetadataSequence = 0
 
     /// The Threads list fetch a world load started (`SyncEngine+Threads.swift`),
     /// canceled by the next world load and by `stop()`.

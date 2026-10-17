@@ -28,15 +28,38 @@ struct CalendarMeetingIdentity {
         return Self(base: base, slot: slot)
     }
 
-    func originalStart(timeZone: String) -> Date? {
-        let timed = slot.count == 16
-        guard let zone = TimeZone(identifier: timed ? "UTC" : timeZone) else { return nil }
+    func originalStart(timeZone: String, floatingZone: TimeZone = .current) -> Date? {
+        guard slot.count == 16 else {
+            guard let zone = Self.zone(timeZone, floating: floatingZone) else { return nil }
+            return Self.day(
+                year: number(0 ..< 4),
+                month: number(4 ..< 6),
+                day: number(6 ..< 8),
+                timeZone: zone
+            )
+        }
         return Self.date(
             year: number(0 ..< 4), month: number(4 ..< 6), day: number(6 ..< 8),
-            hour: timed ? number(9 ..< 11) : 0,
-            minute: timed ? number(11 ..< 13) : 0,
-            second: timed ? number(13 ..< 15) : 0, timeZone: zone
+            hour: number(9 ..< 11), minute: number(11 ..< 13), second: number(13 ..< 15),
+            timeZone: .gmt
         )
+    }
+
+    /// A date-only value with no zone floats with the reader, so the caller's
+    /// zone orders it. An unrecognized zone name is still refused.
+    static func zone(_ identifier: String, floating: TimeZone) -> TimeZone? {
+        identifier.isEmpty ? floating : TimeZone(identifier: identifier)
+    }
+
+    /// The first instant of a calendar day. A clock change can skip midnight,
+    /// so the day is validated at noon and its start taken from the calendar.
+    static func day(year: Int, month: Int, day: Int, timeZone: TimeZone) -> Date? {
+        guard let noon = date(year: year, month: month, day: day, hour: 12, timeZone: timeZone) else {
+            return nil
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar.startOfDay(for: noon)
     }
 
     static func date(

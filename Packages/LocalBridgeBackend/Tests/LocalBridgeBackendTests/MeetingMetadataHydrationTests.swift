@@ -79,6 +79,8 @@ struct MeetingMetadataHydrationTests {
         let cached = await backend.meetingMetadata.cache[.init("space/meeting-0")]
         #expect(cached?.key.revision == 2)
         #expect(cached?.meeting != nil)
+        #expect(await backend.meetingMetadata.pending.isEmpty)
+        #expect(await !backend.meetingMetadata.loading)
         await backend.disconnect()
     }
 

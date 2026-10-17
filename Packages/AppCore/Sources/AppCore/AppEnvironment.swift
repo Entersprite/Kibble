@@ -338,6 +338,8 @@ public final class AppEnvironment {
                 // Center after the store holding it is gone.
                 await notifications?.detach()
                 try await model.stopAndEraseStore()
+                // After the stop: the backend may save these as it disconnects.
+                try services.eraseBackendCaches()
             } else {
                 // No session in this process, but this still ends one: the
                 // previous process's banners, and the click that launched

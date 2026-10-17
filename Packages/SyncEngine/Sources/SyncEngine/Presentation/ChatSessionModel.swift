@@ -338,6 +338,11 @@ public final class ChatSessionModel {
     /// of history, because connecting deliberately does not.
     func selectSingleConversation(_ id: Conversation.ID) {
         browser.leaveDirectory()
+        showSingleConversation(id)
+    }
+
+    /// Opens one original chat without leaving a directory page being browsed.
+    func showSingleConversation(_ id: Conversation.ID) {
         guard selected != id || selectedMeetingSeries != nil else { return }
         selectedMeetingSeries = nil
         meetingWork.reset()

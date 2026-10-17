@@ -156,6 +156,33 @@ struct MeetingMetadataCacheTests {
         await backend.disconnect()
     }
 
+    @Test func resultsSavedWithoutAGroupingScopeAreLookedUpAgain() async throws {
+        let url = try temporaryCache()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await seed(url)
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let entries = try #require(json["entries"] as? [[String: Any]])
+        #expect(entries.contains { ($0["meeting"] as? [String: Any])?["seriesScope"] != nil })
+        json["entries"] = entries.map { entry in
+            var entry = entry
+            if var meeting = entry["meeting"] as? [String: Any] {
+                meeting["seriesScope"] = nil
+                entry["meeting"] = meeting
+            }
+            return entry
+        }
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+        let transport = MeetingDetailTransport()
+        await transport.release()
+        let warm = try await connected(transport, url: url, at: now.addingTimeInterval(60))
+        _ = try await warm.loadConversations()
+        try await wait { await warm.meetingMetadata.task == nil }
+        #expect(await transport.requests == 2)
+        let scopes = await warm.meetingMetadata.cache.values.map { $0.meeting?.seriesScope }
+        #expect(scopes.count == 2 && scopes.allSatisfy { $0 != nil })
+        await warm.disconnect()
+    }
+
     @Test func lateResponseCannotRecreateErasedCache() async throws {
         let url = try temporaryCache()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

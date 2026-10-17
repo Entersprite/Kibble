@@ -56,8 +56,13 @@ public final class SystemLaunchServices: LaunchServices {
     public func eraseStore() throws {
         try ChatStore.onDisk(at: Self.databasePath(for: arguments)).erase()
         try Self.removeAttachmentDirectory(attachmentCacheDirectory())
-        if arguments.backend == .local {
-            try Self.removeMeetingMetadataCache()
+        try eraseBackendCaches()
+    }
+
+    public func eraseBackendCaches() throws {
+        switch arguments.backend {
+        case .local: try Self.removeMeetingMetadataCache()
+        case .fixture: break
         }
     }
 

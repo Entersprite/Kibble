@@ -33,9 +33,12 @@ struct MeetingMetadataCacheFile {
               contents.entries.count <= 1024 else { return [:] }
         var result: [Conversation.ID: MeetingMetadataHydration.Cached] = [:]
         for entry in contents.entries {
+            // A result saved before its grouping scope was recorded is looked
+            // up again, so it cannot combine with another context's meeting.
             guard entry.checkedAt.timeIntervalSince1970.isFinite,
                   entry.checkedAt <= now.addingTimeInterval(300),
                   entry.meeting?.isValid != false,
+                  entry.meeting.map({ $0.seriesScope != nil }) != false,
                   let integrations = try? entry.integrations
                   .map({ try SpaceIntegrationPayload(serializedBytes: $0) })
             else { continue }

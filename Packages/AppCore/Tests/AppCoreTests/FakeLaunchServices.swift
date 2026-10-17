@@ -17,6 +17,7 @@ final class FakeLaunchServices: LaunchServices {
         case forgetStoredSession
         case openStore
         case eraseStore
+        case eraseBackendCaches
         case makeSession
         case runLaunchReport
         case startDiagnostics
@@ -45,6 +46,10 @@ final class FakeLaunchServices: LaunchServices {
     var forgetFailure: (any Error)?
     var openStoreFailure: (any Error)?
     var eraseFailure: (any Error)?
+    var eraseBackendCachesFailure: (any Error)?
+    /// The backend's disconnect count at each backend-cache erase, because a
+    /// backend may save its caches while it disconnects.
+    private(set) var disconnectsWhenBackendCachesErased: [Int] = []
     var makeSessionFailure: (any Error)?
 
     /// The knob this fake was missing, and its absence hid half a finding.
@@ -133,6 +138,14 @@ final class FakeLaunchServices: LaunchServices {
             throw eraseFailure
         }
         try store.erase()
+    }
+
+    func eraseBackendCaches() throws {
+        calls.append(.eraseBackendCaches)
+        disconnectsWhenBackendCachesErased.append(backend.disconnectCount)
+        if let eraseBackendCachesFailure {
+            throw eraseBackendCachesFailure
+        }
     }
 
     func makeSession() async throws -> SessionSelection {

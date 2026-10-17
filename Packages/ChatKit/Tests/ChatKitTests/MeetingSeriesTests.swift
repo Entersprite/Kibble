@@ -58,6 +58,37 @@ struct MeetingSeriesTests {
         #expect(withoutRecreatedParent.first?.id == planning.id)
     }
 
+    @Test func sameTitleSeriesCombineOnlyWithinOneProviderScope() throws {
+        func scoped(_ id: String, series: String, start: Double, scope: String?) -> Conversation {
+            var value = occurrence(id, series: series, start: start)
+            value.meeting?.seriesScope = scope
+            return value
+        }
+        let first = scoped("a-1", series: "a", start: 100, scope: "team-a")
+        let recreated = scoped("a-2", series: "a-recreated", start: 200, scope: "team-a")
+        let otherScope = scoped("b-1", series: "b", start: 300, scope: "team-b")
+        let unscoped = scoped("u-1", series: "u", start: 400, scope: nil)
+        let groups = MeetingSeries.build([first, recreated, otherScope, unscoped])
+        #expect(groups.count == 3)
+        #expect(Set(groups.map(\.id)).count == 3)
+        let combined = try #require(groups.first { $0.latest.id == recreated.id })
+        #expect(combined.occurrences.map(\.id) == [first.id, recreated.id])
+        #expect(groups.contains { $0.occurrences.map(\.id) == [otherScope.id] })
+        let legacy = try #require(groups.first { $0.latest.id == unscoped.id })
+        #expect(legacy.occurrences.map(\.id) == [unscoped.id])
+        #expect(legacy.id == MeetingSeries.ID("title:Planning"))
+    }
+
+    @Test func seriesScopeRoundTripsAndStaysAbsentWhenUnknown() throws {
+        var value = occurrence("original", series: "parent", start: 100)
+        value.meeting?.seriesScope = "context"
+        try expectWireStable(value, golden: "conversation-recurring-meeting-scoped")
+        let unscoped = try JSONEncoder().encode(occurrence("original", series: "parent", start: 100))
+        let json = try #require(JSONSerialization.jsonObject(with: unscoped) as? [String: Any])
+        let metadata = try #require(json["meeting"] as? [String: Any])
+        #expect(metadata["seriesScope"] == nil)
+    }
+
     @Test func missingOrInvalidMetadataNeverGroupsAndNonMeetingKindsStaySeparate() {
         let unknown = Conversation(id: Conversation.ID("unknown"), kind: .meetChat, title: "Planning - Oct 2")
         var invalid = occurrence("invalid", series: "", start: 100)

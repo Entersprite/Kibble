@@ -74,4 +74,50 @@ struct ConversationMenuTests {
         let settings = ChatSceneActions(showNotificationSettings: { _ in })
         #expect(Offers(settings) == Offers(notificationSettings: true))
     }
+
+    private func meeting(_ id: String, start: Double, unread: Bool = false) -> Conversation {
+        Conversation(
+            id: .init(id), kind: .meetChat, title: "Planning", hasUnread: unread,
+            meeting: MeetingOccurrence(
+                seriesID: .init("parent-\(id)"), occurrenceID: id, seriesTitle: "Planning",
+                scheduledStart: Date(timeIntervalSince1970: start)
+            )
+        )
+    }
+
+    private func entries(_ conversations: [Conversation], state: ChatSceneState = .init()) throws
+        -> [ConversationMenu.Entry] {
+        let series = try #require(MeetingSeries.build(conversations).first)
+        return ConversationMenu.entries(for: series, state: state, offers: all)
+    }
+
+    @Test func aSeriesWithOneOccurrenceOffersThatChatsOwnMenu() throws {
+        let only = meeting("only", start: 100, unread: true)
+        #expect(try entries([only]) == [
+            .init(item: .markAsRead, targets: [only.id]),
+            .init(item: .mute, targets: [only.id]),
+            .init(item: .notificationSettings, targets: [only.id])
+        ])
+    }
+
+    @Test func aSeriesReadsEachUnreadOriginalAndMutesAllOfThem() throws {
+        let old = meeting("old", start: 100, unread: true)
+        let withheld = meeting("withheld", start: 200, unread: true)
+        let read = meeting("read", start: 300)
+        let latest = meeting("latest", start: 400, unread: true)
+        let state = ChatSceneState(muted: [read.id], receiptsWithheld: [withheld.id])
+        #expect(try entries([old, withheld, read, latest], state: state) == [
+            .init(item: .markAsRead, targets: [old.id, latest.id]),
+            .init(item: .mute, targets: [old.id, withheld.id, latest.id])
+        ])
+    }
+
+    @Test func aFullyMutedSeriesUnmutesEveryOriginal() throws {
+        let old = meeting("old", start: 100)
+        let latest = meeting("latest", start: 200)
+        let state = ChatSceneState(muted: [old.id, latest.id])
+        #expect(try entries([old, latest], state: state) == [
+            .init(item: .unmute, targets: [old.id, latest.id])
+        ])
+    }
 }

@@ -73,11 +73,18 @@ extension ChatSessionModel {
 
     func reconcileMeetingSelection() {
         guard selectedMeetingSeries != nil else { return }
-        let groups = MeetingSeries.build(conversations)
-        guard let series = groups
-            .first(where: { group in group.occurrences.contains { $0.id == selected } }) ??
-            groups.first(where: { $0.id == selectedMeetingSeries })
-        else { clearSelection(); return }
+        guard let series = MeetingSeries.build(conversations)
+            .first(where: { group in group.occurrences.contains { $0.id == selected } })
+        else {
+            // The open chat is no longer a known occurrence. It stays open on
+            // its own; the composer never moves into a different chat.
+            if let selected {
+                showSingleConversation(selected)
+            } else {
+                clearSelection()
+            }
+            return
+        }
         let identityChanged = selectedMeetingSeries != series.id
         selectedMeetingSeries = series.id
         let oldIncluded = meetingWork.included

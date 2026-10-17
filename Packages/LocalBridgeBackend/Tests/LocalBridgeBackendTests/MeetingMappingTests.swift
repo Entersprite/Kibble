@@ -68,6 +68,39 @@ struct MeetingMappingTests {
             ManagementMapping.conversation(other)?.meeting?.seriesID)
     }
 
+    @Test func sameTitleParentsInDifferentOpaqueContextsStaySeparateForNavigation() throws {
+        let first = try group(id: "chat-current", event: "series_alpha_20261012T090000Z")
+        var other = try group(id: "chat-other", event: "series_beta_20261012T090000Z")
+        other.spaceIntegrationPayloads[1].meetingChat.calendarEvent.identityContext = "another-context"
+        let current = try #require(ManagementMapping.conversation(first))
+        let separate = try #require(ManagementMapping.conversation(other))
+        #expect(current.meeting?.seriesScope == "opaque-context")
+        #expect(separate.meeting?.seriesScope == "another-context")
+        #expect(MeetingSeries.build([current, separate]).count == 2)
+    }
+
+    @Test func allDayOccurrencesSurviveASkippedMidnightAndAMissingTimeZone() throws {
+        var value = try group(id: "chat-current", event: "base_20240908")
+        var start = MeetingChatDateTime()
+        start.date.year = 2024
+        start.date.month = 9
+        start.date.day = 8
+        start.timeZone = "America/Santiago"
+        value.spaceIntegrationPayloads[1].meetingChat.calendarEvent.start = start
+        let santiago = try #require(ManagementMapping.conversation(value)?.meeting)
+        #expect(santiago.scheduledStart == Date(timeIntervalSince1970: 1_725_768_000))
+        #expect(santiago.originalStart == santiago.scheduledStart)
+        start.clearTimeZone()
+        value.spaceIntegrationPayloads[1].meetingChat.calendarEvent.start = start
+        let utc = try #require(TimeZone(identifier: "UTC"))
+        let floating = try #require(MeetingMapping.occurrence(
+            in: value.spaceIntegrationPayloads,
+            floatingZone: utc
+        ))
+        #expect(floating.scheduledStart == Date(timeIntervalSince1970: 1_725_753_600))
+        #expect(floating.originalStart == floating.scheduledStart)
+    }
+
     @Test func absentAndMalformedMetadataNeverGroupsByTitle() throws {
         let valid = try group(id: "chat-current", event: "base_20261012T090000Z")
         var variants = [Group]()

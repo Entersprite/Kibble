@@ -91,8 +91,14 @@ public struct ConversationList: View {
                     ForEach(section.items) { item in
                         switch item {
                         case let .meeting(series):
+                            let entries = ConversationMenu.entries(
+                                for: series, state: state, offers: ConversationMenu.Offers(actions)
+                            )
                             MeetingSeriesRow(series: series, state: state)
                                 .tag(SidebarSelection.meetingSeries(series.id))
+                                .contextMenu { [menuActions = rowActions(for: series.latest)] in
+                                    ConversationRowMenu(entries: entries, actions: menuActions)
+                                }
                         case let .conversation(conversation):
                             let items = ConversationMenu.items(
                                 for: conversation, state: state, offers: ConversationMenu.Offers(actions)

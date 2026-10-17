@@ -187,6 +187,35 @@ struct MeetingTranscriptTests {
     }
 
     @MainActor
+    @Test func withdrawnMetadataKeepsTheOpenChatOnItsOwnInsteadOfMovingTheComposer() async throws {
+        let (model, _) = try await model()
+        model.selectMeetingSeries(.init("title:Planning"))
+        try await wait { model.messages.count == 3 }
+        model.browser.page = "meetChat"
+        var withdrawn = world.conversations
+        withdrawn[1].meeting = nil
+        model.conversationsObserved(withdrawn)
+        #expect(model.selected == latest)
+        #expect(model.selectedMeetingSeries == nil)
+        #expect(model.browser.page == "meetChat")
+        try await wait {
+            model.messages.count == 3 && model.messages.allSatisfy { $0.conversationID == latest }
+        }
+
+        let single = Conversation.ID("other-planning")
+        model.select(single)
+        #expect(model.selectedMeetingSeries == .init("title:Other Planning"))
+        withdrawn[2].meeting = nil
+        model.conversationsObserved(withdrawn)
+        #expect(model.selected == single)
+        #expect(model.selectedMeetingSeries == nil)
+        try await wait {
+            model.messages.count == 3 && model.messages.allSatisfy { $0.conversationID == single }
+        }
+        await model.stop()
+    }
+
+    @MainActor
     @Test func hiddenOccurrenceStopsAppearingAndCanceledReadCannotReachTheBackend() async throws {
         let (model, backend) = try await model(debounce: .seconds(10))
         model.select(first)

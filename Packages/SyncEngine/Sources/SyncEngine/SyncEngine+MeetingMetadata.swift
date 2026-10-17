@@ -2,6 +2,8 @@ import ChatKit
 
 struct MeetingMetadataUpdate: Sendable {
     let meeting: MeetingOccurrence?
+    /// Arrival order, so a full overlay drops its oldest update.
+    var sequence = 0
 }
 
 extension SyncEngine {
@@ -10,10 +12,14 @@ extension SyncEngine {
     func meetingMetadataWrites(for event: ChatEvent) -> [StoreWrite] {
         switch event {
         case let .meetingMetadataChanged(id, meeting):
-            meetingMetadataUpdates[id] = MeetingMetadataUpdate(meeting: meeting)
+            meetingMetadataSequence += 1
+            meetingMetadataUpdates[id] = MeetingMetadataUpdate(
+                meeting: meeting,
+                sequence: meetingMetadataSequence
+            )
             if meetingMetadataUpdates.count > 1024,
-               let oldestKey = meetingMetadataUpdates.keys.min(by: { $0.rawValue < $1.rawValue }) {
-                meetingMetadataUpdates[oldestKey] = nil
+               let oldest = meetingMetadataUpdates.min(by: { $0.value.sequence < $1.value.sequence })?.key {
+                meetingMetadataUpdates[oldest] = nil
             }
             return []
         case let .conversationsChanged(conversations):

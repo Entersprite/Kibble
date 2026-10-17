@@ -3,25 +3,40 @@ import SwiftUI
 
 /// Only the row's offered items and callbacks, so the menu closure does
 /// not retain a sidebar snapshot containing the transcript and directory.
+/// A meeting series row's items can act on several original chats.
 struct ConversationRowMenu: View {
-    let id: Conversation.ID
-    let items: [ConversationMenu.Item]
+    let entries: [ConversationMenu.Entry]
     let actions: ChatSceneActions
 
+    init(id: Conversation.ID, items: [ConversationMenu.Item], actions: ChatSceneActions) {
+        self.init(entries: items.map { ConversationMenu.Entry(item: $0, targets: [id]) }, actions: actions)
+    }
+
+    init(entries: [ConversationMenu.Entry], actions: ChatSceneActions) {
+        self.entries = entries
+        self.actions = actions
+    }
+
     var body: some View {
-        ForEach(items, id: \.self) { item in
-            switch item {
+        ForEach(entries, id: \.self) { entry in
+            switch entry.item {
             case let .action(action):
-                Button(action.menuTitle) { actions.conversationActions?.perform(action, id) }
+                Button(action.menuTitle) {
+                    for id in entry.targets {
+                        actions.conversationActions?.perform(action, id)
+                    }
+                }
             case .markAsRead:
-                Button("Mark as Read") { actions.markRead?(id) }
+                Button("Mark as Read") { entry.targets.forEach { actions.markRead?($0) } }
                 Divider()
             case .mute:
-                Button("Mute") { actions.mute?(id) }
+                Button("Mute") { entry.targets.forEach { actions.mute?($0) } }
             case .unmute:
-                Button("Unmute") { actions.unmute?(id) }
+                Button("Unmute") { entry.targets.forEach { actions.unmute?($0) } }
             case .notificationSettings:
-                Button("Notification Settings…") { actions.showNotificationSettings?(id) }
+                Button("Notification Settings…") {
+                    entry.targets.forEach { actions.showNotificationSettings?($0) }
+                }
             }
         }
     }

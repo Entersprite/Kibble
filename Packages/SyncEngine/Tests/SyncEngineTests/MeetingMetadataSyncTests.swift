@@ -77,6 +77,24 @@ struct MeetingMetadataSyncTests {
         #expect(await engine.meetingMetadataUpdates.isEmpty)
     }
 
+    @Test func fullOverlayEvictsTheOldestUpdateNotTheFirstIdentifier() async throws {
+        let store = try ChatStore.inMemory()
+        let backend = GatedHistoryBackend(world: [], needsMentionBackfill: false)
+        let engine = SyncEngine(backend: backend, store: store)
+        let older = (0 ..< 1024).map { Conversation.ID(String(format: "c-%04d", $0)) }
+        for id in older {
+            await engine.handle(.meetingMetadataChanged(conversationID: id, meeting: metadata))
+        }
+        // Sorts before every older identifier, so a first-identifier eviction drops it.
+        let newest = Conversation.ID("a-newest")
+        await engine.handle(.meetingMetadataChanged(conversationID: newest, meeting: metadata))
+        let kept = await engine.meetingMetadataUpdates
+        #expect(kept.count == 1024)
+        #expect(kept[newest] != nil)
+        #expect(kept[older[0]] == nil)
+        #expect(kept[older[1]] != nil)
+    }
+
     private func wait(_ condition: () throws -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(3))
         while try !condition(), ContinuousClock.now < deadline {

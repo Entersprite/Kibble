@@ -35,7 +35,13 @@ public protocol LaunchServices: AnyObject {
 
     /// Erases the store at the standard path, with no live model to ask.
     /// Erasing an already-empty store is a cheap no-op, which is the point.
+    /// It includes `eraseBackendCaches()`.
     func eraseStore() throws
+
+    /// Erases what the backend keeps outside the store, such as lookup
+    /// results. Called once a live session has stopped, because a backend may
+    /// save these while it disconnects. Erasing nothing is a no-op.
+    func eraseBackendCaches() throws
 
     func makeSession() async throws -> SessionSelection
 

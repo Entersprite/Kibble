@@ -245,6 +245,36 @@ struct SignOutAndEraseTests {
         #expect(services.calls.filter { $0 == .forgetStoredSession }.count == 1)
     }
 
+    /// A backend can keep lookup results outside the store and save them while
+    /// it disconnects, so they are erased only once the session has stopped.
+    @Test func signingOutErasesBackendCachesAfterTheBackendHasDisconnected() async throws {
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services)
+        await environment.start()
+
+        await environment.signOut()
+
+        #expect(services.disconnectsWhenBackendCachesErased == [1])
+        if case .needsSignIn = environment.phase {} else {
+            Issue.record("expected .needsSignIn after signOut")
+        }
+    }
+
+    @Test func backendCachesThatCannotBeErasedShowTheFailureRatherThanALoginWindow() async throws {
+        let services = try FakeLaunchServices()
+        services.eraseBackendCachesFailure = ChatError.unknown("the cache is locked")
+        let environment = AppEnvironment(services: services)
+        await environment.start()
+
+        await environment.signOut()
+
+        guard case let .failed(message) = environment.phase else {
+            Issue.record("expected .failed when backend caches could not be erased")
+            return
+        }
+        #expect(message.contains("the cache is locked"))
+    }
+
     @Test func anEraseThatFailsShowsTheFailureRatherThanALoginWindow() async throws {
         let services = try FakeLaunchServices()
         services.storedSessionExists = false
