@@ -44,6 +44,8 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "LiveKitWebRTC", package: "webrtc-xcframework")
             ],
+            // Kibble's own ringtone (`Ringtone.bundled`).
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

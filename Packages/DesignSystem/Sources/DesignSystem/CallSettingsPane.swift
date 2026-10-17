@@ -5,17 +5,36 @@ public enum CallFocusAccess: Equatable, Sendable {
     case notDetermined, allowed, denied
 }
 
+/// What an incoming call rings with: Kibble's own sound, or the audio file
+/// the person last chose.
+public enum CallRingtone: Hashable, Sendable {
+    case kibble
+    case custom
+}
+
 public struct CallSettingsState: Equatable, Sendable {
     public var showsPanel: Bool
     public var rings: Bool
     public var focus: CallFocusAccess
     public var closesFinishedCalls: Bool
+    public var ringtone: CallRingtone
+    /// The chosen file's name, offered in the menu beside Kibble's own;
+    /// `nil` until one is chosen.
+    public var customRingtoneName: String?
+    /// Why the last chosen file could not be used, drawn under the menu.
+    public var ringtoneNotice: String?
 
-    public init(showsPanel: Bool, rings: Bool, focus: CallFocusAccess, closesFinishedCalls: Bool) {
+    public init(
+        showsPanel: Bool, rings: Bool, focus: CallFocusAccess, closesFinishedCalls: Bool,
+        ringtone: CallRingtone = .kibble, customRingtoneName: String? = nil, ringtoneNotice: String? = nil
+    ) {
         self.showsPanel = showsPanel
         self.rings = rings
         self.focus = focus
         self.closesFinishedCalls = closesFinishedCalls
+        self.ringtone = ringtone
+        self.customRingtoneName = customRingtoneName
+        self.ringtoneNotice = ringtoneNotice
     }
 }
 
@@ -26,17 +45,25 @@ public struct CallSettingsActions {
     public var allowFocus: () -> Void
     public var openFocusSettings: () -> Void
     public var setClosesFinishedCalls: (Bool) -> Void
+    /// Keeps the choice; the host plays it once, as a preview.
+    public var setRingtone: (CallRingtone) -> Void
+    /// Opens a file picker. The picker and the copy Kibble keeps are the
+    /// host's; this pane only offers the choice.
+    public var chooseRingtoneFile: () -> Void
 
     public init(
         setShowsPanel: @escaping (Bool) -> Void, setRings: @escaping (Bool) -> Void,
         allowFocus: @escaping () -> Void, openFocusSettings: @escaping () -> Void,
-        setClosesFinishedCalls: @escaping (Bool) -> Void
+        setClosesFinishedCalls: @escaping (Bool) -> Void,
+        setRingtone: @escaping (CallRingtone) -> Void, chooseRingtoneFile: @escaping () -> Void
     ) {
         self.setShowsPanel = setShowsPanel
         self.setRings = setRings
         self.allowFocus = allowFocus
         self.openFocusSettings = openFocusSettings
         self.setClosesFinishedCalls = setClosesFinishedCalls
+        self.setRingtone = setRingtone
+        self.chooseRingtoneFile = chooseRingtoneFile
     }
 }
 
@@ -64,6 +91,18 @@ public struct CallSettingsPane: View {
                 )
                 Toggle("Ring", isOn: Binding(get: { state.rings }, set: actions.setRings))
                     .disabled(!state.showsPanel)
+                Picker("Ringtone", selection: ringtoneSelection) {
+                    Text("Kibble").tag(RingtoneMenuItem.kibble)
+                    if let name = state.customRingtoneName {
+                        Text(name).tag(RingtoneMenuItem.custom)
+                    }
+                    Divider()
+                    Text("Select Audio File…").tag(RingtoneMenuItem.chooseFile)
+                }
+                .disabled(!state.showsPanel || !state.rings)
+                if let notice = state.ringtoneNotice {
+                    Text(notice).foregroundStyle(.secondary).font(.callout)
+                }
                 LabeledContent("Focus") { focus }
             } header: {
                 Text("Incoming Calls")
@@ -95,6 +134,22 @@ public struct CallSettingsPane: View {
         .formStyle(.grouped)
     }
 
+    private var ringtoneSelection: Binding<RingtoneMenuItem> {
+        Binding(
+            get: { state.ringtone == .custom && state.customRingtoneName != nil ? .custom : .kibble },
+            set: { item in
+                switch item {
+                case .kibble:
+                    actions.setRingtone(.kibble)
+                case .custom:
+                    actions.setRingtone(.custom)
+                case .chooseFile:
+                    actions.chooseRingtoneFile()
+                }
+            }
+        )
+    }
+
     @ViewBuilder private var focus: some View {
         switch state.focus {
         case .notDetermined:
@@ -110,6 +165,13 @@ public struct CallSettingsPane: View {
             }
         }
     }
+}
+
+/// The ringtone menu's rows: the two sounds, and the row that picks a file.
+private enum RingtoneMenuItem: Hashable {
+    case kibble
+    case custom
+    case chooseFile
 }
 
 /// A colored status glyph beside secondary text, as System Settings shows a

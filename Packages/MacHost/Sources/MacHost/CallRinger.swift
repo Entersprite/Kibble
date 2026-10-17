@@ -1,50 +1,47 @@
-import AppKit
 import Foundation
 
-/// Rings while the incoming call panel is up: two notes every three seconds,
-/// played by Kibble itself at the output volume, as call apps ring.
+/// Rings while the incoming call panel is up: the ringtone chosen in Settings
+/// › Calls, looped without a pause, played by Kibble itself at the output
+/// volume, as call apps ring.
 @MainActor
 final class CallRinger {
-    static let sound = "Glass"
-    private let play: @MainActor () -> Void
-    private let interval: Duration
-    private let gap: Duration
-    private var task: Task<Void, Never>?
+    private let player: any RingtonePlaying
+    private let ringtone: @MainActor () -> URL?
+    private(set) var isRinging = false
 
     init(
-        interval: Duration = .seconds(3), gap: Duration = .milliseconds(350),
-        play: @escaping @MainActor () -> Void = CallRinger.playSystemSound
+        player: any RingtonePlaying = RingtonePlayer(),
+        ringtone: @escaping @MainActor () -> URL? = { Ringtone.bundled }
     ) {
-        self.interval = interval
-        self.gap = gap
-        self.play = play
-    }
-
-    var isRinging: Bool {
-        task != nil
+        self.player = player
+        self.ringtone = ringtone
     }
 
     func start() {
-        guard task == nil else { return }
-        let play = play, interval = interval, gap = gap
-        task = Task { @MainActor in
-            while !Task.isCancelled {
-                play()
-                do { try await Task.sleep(for: gap) } catch { return }
-                play()
-                do { try await Task.sleep(for: interval) } catch { return }
+        guard !isRinging else { return }
+        isRinging = true
+        // A chosen file that can no longer be played rings with Kibble's own
+        // sound rather than not at all.
+        for url in [ringtone(), Ringtone.bundled].compactMap(\.self) {
+            do {
+                try player.play(url, loops: true)
+                return
+            } catch {
+                continue
             }
         }
     }
 
     func stop() {
-        task?.cancel()
-        task = nil
+        guard isRinging else { return }
+        isRinging = false
+        player.stop()
     }
 
-    /// A fresh copy each time, so the second note plays while the first one
-    /// is still sounding.
-    static func playSystemSound() {
-        (NSSound(named: sound)?.copy() as? NSSound)?.play()
+    /// Plays a sound once, as Settings › Calls does on a choice; never over a
+    /// ringing call.
+    func preview(_ url: URL) {
+        guard !isRinging else { return }
+        try? player.play(url, loops: false)
     }
 }

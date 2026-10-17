@@ -207,22 +207,6 @@ struct IncomingCallPanelTests {
         #expect(visible.maxY - (frame.maxY - IncomingCallPanelLayout.margin) == 12)
     }
 
-    @Test func theRingerPlaysTwoNotesARoundAndStops() async {
-        var plays = 0
-        let ringer = CallRinger(interval: .milliseconds(30), gap: .milliseconds(5)) { plays += 1 }
-        ringer.start()
-        ringer.start()
-        for _ in 0 ..< 200 where plays < 4 {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        #expect(plays >= 4)
-        ringer.stop()
-        #expect(!ringer.isRinging)
-        let stopped = plays
-        try? await Task.sleep(for: .milliseconds(80))
-        #expect(plays == stopped)
-    }
-
     @Test func callSettingsDefaultOnAndPersist() throws {
         let suite = "IncomingCallPanelTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

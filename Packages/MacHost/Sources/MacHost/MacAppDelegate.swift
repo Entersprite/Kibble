@@ -22,7 +22,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// Settings › Calls: the incoming call panel, its ring and Focus access.
     public let callSettings: CallSettingsModel
     let callPanel = IncomingCallPanelHost()
-    let callRinger = CallRinger()
+    let callRinger: CallRinger
     public let diagnostics: DiagnosticReportStore
     let callDiagnostics: AudioCallDiagnosticExporter
     public let callSignIn: CallSignInRecovery
@@ -72,8 +72,15 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             version: info["CFBundleShortVersionString"] as? String ?? "unknown"
         )
         self.diagnostics = diagnostics
-        callSettings = CallSettingsModel(defaults: .standard)
+        let callSettings = CallSettingsModel(
+            defaults: .standard,
+            ringtoneDirectory: try? SystemLaunchServices.supportDirectory()
+                .appendingPathComponent("Ringtones", isDirectory: true)
+        )
+        self.callSettings = callSettings
+        callRinger = CallRinger { callSettings.ringtoneURL }
         super.init()
+        callSettings.previewRingtone = { [weak callRinger] in callRinger?.preview($0) }
     }
 
     public func applicationWillFinishLaunching(_: Notification) {
