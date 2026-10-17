@@ -32,44 +32,27 @@ public struct CallAudioDevices: Equatable, Sendable {
     }
 }
 
-struct CallAudioDevicesView: View {
+/// Microphone and speaker choices, as sections of the call's device menu.
+/// Each lists System Default first and checks the current choice. An inline
+/// picker heads its own section; wrapping it in a `Section` as well draws a
+/// rule under the heading that native menus do not have.
+struct CallAudioDeviceSections: View {
     let devices: CallAudioDevices
     let selectMicrophone: (String) -> Void
     let selectSpeaker: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                GridRow {
-                    Text("Microphone").gridColumnAlignment(.trailing)
-                    Picker(
-                        "Microphone",
-                        selection: Binding(get: { devices.microphone }, set: { selectMicrophone($0) })
-                    ) {
-                        Text("System Default").tag("")
-                        ForEach(devices.microphones) { Text($0.name).tag($0.id) }
-                    }
-                }
-                GridRow {
-                    Text("Speaker")
-                    Picker(
-                        "Speaker",
-                        selection: Binding(get: { devices.speaker }, set: { selectSpeaker($0) })
-                    ) {
-                        Text("System Default").tag("")
-                        ForEach(devices.speakers) { Text($0.name).tag($0.id) }
-                    }
-                }
-            }
-            .labelsHidden()
-            if let notice = devices.notice {
-                Text(notice).font(.caption).foregroundStyle(.secondary).fixedSize(
-                    horizontal: false,
-                    vertical: true
-                )
-            }
+        Picker("Microphone", selection: Binding(get: { devices.microphone }, set: { selectMicrophone($0) })) {
+            Text("System Default").tag("")
+            ForEach(devices.microphones) { Text($0.name).tag($0.id) }
         }
+        .pickerStyle(.inline)
         .disabled(devices.isUpdating)
-        .controlSize(.regular)
+        Picker("Speaker", selection: Binding(get: { devices.speaker }, set: { selectSpeaker($0) })) {
+            Text("System Default").tag("")
+            ForEach(devices.speakers) { Text($0.name).tag($0.id) }
+        }
+        .pickerStyle(.inline)
+        .disabled(devices.isUpdating)
     }
 }

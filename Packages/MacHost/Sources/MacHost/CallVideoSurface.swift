@@ -1,47 +1,44 @@
 import AppKit
+import DesignSystem
 @preconcurrency import LiveKitWebRTC
 import SwiftUI
 
-struct CallVideoSurface: View {
+/// The host's video renderers, handed to the shared call layout. The layout
+/// reads which ones exist from this value; each renderer observes its own
+/// track, so a new frame source does not rebuild the window's content.
+@MainActor
+enum CallVideoSurface {
+    static func content(for controller: CallVideoController) -> CallVideoContent? {
+        guard controller.camera != nil else { return nil }
+        let remote = controller.remoteVisible && controller.remoteTrack != nil
+        let preview = controller.camera?.isOn == true && controller.localTrack != nil
+        return CallVideoContent(
+            remote: remote ? AnyView(RemoteVideo(controller: controller)) : nil,
+            remoteIsScreen: controller.remotePresentation,
+            preview: preview ? AnyView(LocalPreview(controller: controller)) : nil
+        )
+    }
+}
+
+private struct RemoteVideo: View {
     let controller: CallVideoController
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            ZStack {
-                Color.black
-                if controller.remoteVisible, let track = controller.remoteTrack {
-                    NativeVideoView(track: track)
-                        .accessibilityLabel(controller.remotePresentation ? "Shared screen" : "Remote camera")
-                } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "video.slash").font(.largeTitle)
-                        Text("Waiting for video").font(.callout)
-                    }.foregroundStyle(.white.opacity(0.7))
-                }
-            }
-            if controller.remoteVisible, controller.remotePresentation {
-                Text("Shared screen").font(.caption.weight(.semibold))
-                    .padding(8).background(.black.opacity(0.7), in: Capsule())
-                    .foregroundStyle(.white).frame(
-                        maxWidth: .infinity,
-                        maxHeight: .infinity,
-                        alignment: .topLeading
-                    )
-                    .padding(12)
-            }
-            if controller.camera?.isOn == true, let track = controller.localTrack {
-                NativeVideoView(track: track)
-                    .scaleEffect(x: -1, y: 1)
-                    .frame(width: 144, height: 108)
-                    .background(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(12)
-                    .accessibilityLabel("Your camera preview")
-            }
+        if let track = controller.remoteTrack {
+            NativeVideoView(track: track)
+                .accessibilityLabel(controller.remotePresentation ? "Shared screen" : "Remote camera")
         }
-        .frame(height: 320)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .accessibilityLabel("Call video")
+    }
+}
+
+/// Mirrored, the way a camera preview is shown everywhere on the Mac.
+private struct LocalPreview: View {
+    let controller: CallVideoController
+
+    var body: some View {
+        if let track = controller.localTrack {
+            NativeVideoView(track: track).scaleEffect(x: -1, y: 1)
+        }
     }
 }
 

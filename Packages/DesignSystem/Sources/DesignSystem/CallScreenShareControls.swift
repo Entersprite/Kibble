@@ -12,26 +12,20 @@ public struct CallScreenShareState: Equatable, Sendable {
     }
 }
 
-struct CallScreenShareControls: View {
+/// Starts sharing through the system picker, and stops or cancels it. Lit
+/// in the accent color from the moment the picker opens until sharing ends.
+struct CallScreenShareButton: View {
     let state: CallScreenShareState
     let toggle: () -> Void
 
     var body: some View {
-        VStack(spacing: 6) {
-            Button(
-                title,
-                systemImage: state.phase == .idle ? "rectangle.on.rectangle" : "stop.circle.fill",
-                action: toggle
-            )
-            .disabled(state.phase == .stopping)
-            if state.phase == .preparing {
-                Text("Choose a window or display in the system picker.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if let notice = state.notice {
-                Text(notice).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
-        }
+        CallRoundButton(
+            title: title,
+            symbol: "rectangle.on.rectangle",
+            tone: state.phase == .idle ? .plain : .active,
+            action: toggle
+        )
+        .disabled(state.phase == .stopping)
     }
 
     private var title: String {

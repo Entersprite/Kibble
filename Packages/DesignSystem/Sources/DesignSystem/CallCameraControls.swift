@@ -27,30 +27,33 @@ public struct CallCameraState: Equatable, Sendable {
     }
 }
 
-struct CallCameraControls: View {
+/// Turns the camera on and off. The glyph shows the camera's state; your
+/// preview appearing is the stronger signal that it is on.
+struct CallCameraButton: View {
     let camera: CallCameraState
     let toggle: () -> Void
+
+    var body: some View {
+        CallRoundButton(
+            title: camera.isOn ? "Turn Camera Off" : "Turn Camera On",
+            symbol: camera.isOn ? "video.fill" : "video.slash.fill",
+            action: toggle
+        )
+        .disabled(camera.isUpdating)
+    }
+}
+
+/// The camera choice, as a section of the call's device menu.
+struct CallCameraSection: View {
+    let camera: CallCameraState
     let select: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Button(
-                    camera.isOn ? "Turn Camera Off" : "Turn Camera On",
-                    systemImage: camera.isOn ? "video.fill" : "video.slash.fill",
-                    action: toggle
-                )
-                Picker("Camera", selection: Binding(get: { camera.selected }, set: { select($0) })) {
-                    Text("Default Camera").tag("")
-                    ForEach(camera.devices) { Text($0.name).tag($0.id) }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 220)
-            }
-            .disabled(camera.isUpdating)
-            if let notice = camera.notice {
-                Text(notice).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
+        Picker("Camera", selection: Binding(get: { camera.selected }, set: { select($0) })) {
+            Text("Default Camera").tag("")
+            ForEach(camera.devices) { Text($0.name).tag($0.id) }
         }
+        .pickerStyle(.inline)
+        .disabled(camera.isUpdating)
     }
 }

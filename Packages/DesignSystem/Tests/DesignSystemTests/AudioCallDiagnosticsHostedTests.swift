@@ -44,23 +44,30 @@
             )
         }
 
+        /// Hosted the way the call window hosts it: content under a
+        /// transparent titlebar, sized to fit.
         private func host(_ view: AudioCallView) -> (NSWindow, NSHostingView<AudioCallView>) {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 380, height: 300),
-                styleMask: [.titled], backing: .buffered, defer: false
+                contentRect: NSRect(origin: .zero, size: CallLayout.compact),
+                styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false
             )
+            window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             let host = NSHostingView(rootView: view)
             window.contentView = host
+            window.setContentSize(host.fittingSize)
             window.orderFront(nil)
             window.displayIfNeeded()
             return (window, host)
         }
 
+        /// A finished call's footnote sits on the stage's 22-point bottom
+        /// margin, centered.
         private func clickCopy(_ window: NSWindow) throws {
+            let point = NSPoint(x: CallLayout.compact.width / 2, y: 30)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 let event = try #require(NSEvent.mouseEvent(
-                    with: type, location: NSPoint(x: 190, y: 17), modifierFlags: [], timestamp: 0,
+                    with: type, location: point, modifierFlags: [], timestamp: 0,
                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
                     pressure: 1
                 ))
@@ -79,8 +86,10 @@
             return false
         }
 
-        @Test(arguments: [AudioCallPhase.connected, .failed, .ended])
-        func activeAndTerminalCallsCollectOnlyOnClickAndCanRetry(phase: AudioCallPhase) async throws {
+        /// A live call offers the same request from its device menu, which a
+        /// posted click cannot open; a finished call shows it as a footnote.
+        @Test(arguments: [AudioCallPhase.failed, .ended, .declined])
+        func finishedCallsCollectOnlyOnClickAndCanRetry(phase: AudioCallPhase) async throws {
             let collector = Collector()
             let (window, host) = host(view(call(phase), collector: collector))
             defer { collector.finish(false); window.close() }
@@ -106,7 +115,7 @@
             host.layoutSubtreeIfNeeded()
             try clickCopy(window)
             #expect(await settle(host) { previous.requests == 1 })
-            host.rootView = view(call(.connected), collector: next)
+            host.rootView = view(call(.failed), collector: next)
             host.layoutSubtreeIfNeeded()
             previous.finish(true)
             await withCheckedContinuation { continuation in
@@ -122,12 +131,11 @@
         @Test func optionalFooterKeepsTheSameViewSizeAndRendersWithoutClipping() throws {
             let call = call(.failed)
             for offered in [false, true] {
-                let renderer = ImageRenderer(content: view(call, collector: offered ? Collector() : nil)
-                    .background(Color.white).environment(\.colorScheme, .light))
-                renderer.proposedSize = ProposedViewSize(width: 380, height: 300)
+                let renderer = ImageRenderer(content: view(call, collector: offered ? Collector() : nil))
+                renderer.proposedSize = ProposedViewSize(CallLayout.compact)
                 let image = try #require(renderer.cgImage)
-                #expect(image.width == 380)
-                #expect(image.height == 300)
+                #expect(image.width == Int(CallLayout.compact.width))
+                #expect(image.height == Int(CallLayout.compact.height))
                 if let directory = ProcessInfo.processInfo.environment["KIBBLE_CALL_CAPTURE_DIR"] {
                     let bitmap = NSBitmapImageRep(cgImage: image)
                     let png = try #require(bitmap.representation(using: .png, properties: [:]))
