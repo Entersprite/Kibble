@@ -18,6 +18,23 @@ enum CallVideoSurface {
             preview: preview ? AnyView(LocalPreview(controller: controller)) : nil
         )
     }
+
+    /// What you are sharing, once capture has started.
+    static func screen(for controller: CallVideoController) -> AnyView? {
+        controller.screenSharing
+            .preview == nil ? nil : AnyView(SharedScreen(sharing: controller.screenSharing))
+    }
+}
+
+/// Not mirrored: a shared screen reads the same way for both people.
+private struct SharedScreen: View {
+    let sharing: CallScreenShareController
+
+    var body: some View {
+        if let track = sharing.preview {
+            NativeVideoView(track: track)
+        }
+    }
 }
 
 private struct RemoteVideo: View {

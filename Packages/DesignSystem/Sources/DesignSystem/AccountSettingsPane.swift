@@ -13,17 +13,14 @@ public struct AccountSettingsPane: View {
     private let state: AccountSettingsState
     private let signOut: (() -> Void)?
     private let exportDiagnostics: (() -> Void)?
-    private let setUpCalls: (() -> Void)?
 
     public init(
         state: AccountSettingsState, signOut: (() -> Void)?,
-        exportDiagnostics: (() -> Void)? = nil,
-        setUpCalls: (() -> Void)? = nil
+        exportDiagnostics: (() -> Void)? = nil
     ) {
         self.state = state
         self.signOut = signOut
         self.exportDiagnostics = exportDiagnostics
-        self.setUpCalls = setUpCalls
     }
 
     public var body: some View {
@@ -37,13 +34,6 @@ public struct AccountSettingsPane: View {
             if let signOut {
                 Section {
                     Button("Sign Out…", action: signOut)
-                }
-            }
-            if let setUpCalls {
-                Section {
-                    Button("Set Up Calls…", action: setUpCalls)
-                } footer: {
-                    Text("Sign in for calls again while keeping Chat signed in.")
                 }
             }
             if let exportDiagnostics {

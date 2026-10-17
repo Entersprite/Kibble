@@ -19,6 +19,10 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// process like everything else here. No updater in a development build
     /// (`KibbleUpdatesEnabled`), so a dev build never replaces itself.
     public let updates: UpdateSettingsModel
+    /// Settings › Calls: the incoming call panel, its ring and Focus access.
+    public let callSettings: CallSettingsModel
+    let callPanel = IncomingCallPanelHost()
+    let callRinger = CallRinger()
     public let diagnostics: DiagnosticReportStore
     let callDiagnostics: AudioCallDiagnosticExporter
     public let callSignIn: CallSignInRecovery
@@ -68,6 +72,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             version: info["CFBundleShortVersionString"] as? String ?? "unknown"
         )
         self.diagnostics = diagnostics
+        callSettings = CallSettingsModel(defaults: .standard)
         super.init()
     }
 

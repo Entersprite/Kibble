@@ -39,10 +39,13 @@ public extension MacAppDelegate {
             if calls.call?.id == id {
                 calls.windowClosed()
             }
-        })
+        }, closesFinishedCalls: { [callSettings] in callSettings.closesFinishedCalls })
         callAlerts = IncomingCallAlerts(
             post: { [notifications] in await notifications.postCall($0) },
-            withdraw: { [notifications] in notifications.withdrawCall($0) }
+            withdraw: { [notifications] in notifications.withdrawCall($0) },
+            showPanel: { [weak self] in self?.showCallPanel($0) },
+            hidePanel: { [callPanel] in callPanel.hide() },
+            ring: { [callRinger] in $0 ? callRinger.start() : callRinger.stop() }
         )
         startCallResponseObservation()
         observeCallWindow()
@@ -116,6 +119,34 @@ public extension MacAppDelegate {
         }
     }
 
+    /// The panel's buttons act on the call they were shown for, and only while
+    /// it is still ringing, like a notification's actions.
+    private func showCallPanel(_ content: IncomingCallPanelContent) {
+        let id = content.callID
+        callPanel.show(content, actions: IncomingCallPanelHost.Actions(
+            accept: { [weak self] in self?.respondFromPanel(.answer(id)) },
+            decline: { [weak self] in self?.respondFromPanel(.decline(id)) },
+            open: { [weak self] in self?.respondFromPanel(.show(id)) },
+            dismiss: { [weak self] in self?.callAlerts?.dismiss() }
+        ))
+    }
+
+    private func respondFromPanel(_ response: IncomingCallResponse) {
+        let calls = environment.calls
+        guard !calls.isEnding, IncomingCallAlerts.isCurrent(response, call: calls.call) else { return }
+        switch response {
+        case .show:
+            callWindowHost?.show()
+            NSApp.activate()
+        case .answer:
+            callWindowHost?.show()
+            NSApp.activate()
+            calls.accept()
+        case .decline:
+            calls.decline()
+        }
+    }
+
     private func startCallResponseObservation() {
         callResponseTask = Task { [weak self, notifications] in
             for await response in notifications.callResponses {
@@ -136,7 +167,7 @@ public extension MacAppDelegate {
         // presence update, which alone is no reason to rebuild the call window.
         let person = callPerson()
         withObservationTracking {
-            let alertsIncoming = updateCallAlert()
+            let alertsIncoming = updateCallAlert(person: person)
             callWindowHost?.update(
                 call: environment.calls.call,
                 windowRequests: environment.calls.windowRequests,
@@ -174,7 +205,8 @@ public extension MacAppDelegate {
         }
     }
 
-    private func updateCallAlert() -> Bool {
+    /// Returns whether the call window should rise for a new incoming call.
+    private func updateCallAlert(person: Member?) -> Bool {
         var rule: ResolvedRule?
         if case let .running(model) = environment.phase,
            environment.settings.account != nil,
@@ -183,8 +215,16 @@ public extension MacAppDelegate {
             rule = environment.settings.resolved(for: conversation)
         }
         let paused = environment.settings.isPaused || environment.calls.isEnding
-        callAlerts?.update(call: environment.calls.call, rule: rule, paused: paused)
-        return !paused && (rule?.delivery == .banner || rule?.delivery == .bannerAndSound)
+        let call = environment.calls.call
+        var surface = IncomingCallSurface.notificationsOnly
+        // Focus and mirroring are read only while a call rings.
+        if call?.direction == .incoming, call?.phase == .incoming {
+            surface = IncomingCallSurface(
+                showsPanel: callSettings.showsPanel, rings: callSettings.rings,
+                focused: callSettings.isFocused, mirrored: DisplayMirroring.isActive(), person: person
+            )
+        }
+        return callAlerts?.update(call: call, rule: rule, paused: paused, surface: surface) ?? false
     }
 
     /// Quit waits for the same media/watch teardown as sign-out. Merely

@@ -87,6 +87,8 @@ public struct CallTiming: Equatable, Sendable {
 /// floating at the bottom. Passing `video` switches to the stage a video call
 /// uses: the other person's video fills the window and your camera sits in a
 /// corner. The host decides when that happens and how big the window is.
+/// `screenPreview` is what you are sharing: it takes the person's place in
+/// the audio layout and a corner tile in the video layout.
 public struct AudioCallView: View {
     private let call: AudioCallSnapshot
     private let actions: AudioCallActions
@@ -96,6 +98,7 @@ public struct AudioCallView: View {
     private let screenSharing: CallScreenShareState?
     private let camera: CallCameraState?
     private let video: CallVideoContent?
+    private let screenPreview: AnyView?
     @State private var copyState = AudioCallCopyState.idle
     @State private var requestedCall: UUID?
     @State private var copyRequest = 0
@@ -108,7 +111,8 @@ public struct AudioCallView: View {
         devices: CallAudioDevices? = nil,
         camera: CallCameraState? = nil,
         video: CallVideoContent? = nil,
-        screenSharing: CallScreenShareState? = nil
+        screenSharing: CallScreenShareState? = nil,
+        screenPreview: AnyView? = nil
     ) {
         self.call = call
         self.actions = actions
@@ -118,6 +122,7 @@ public struct AudioCallView: View {
         self.camera = camera
         self.video = video
         self.screenSharing = screenSharing
+        self.screenPreview = screenPreview
     }
 
     public var body: some View {
@@ -128,7 +133,10 @@ public struct AudioCallView: View {
             }
             VStack(spacing: 0) {
                 Spacer(minLength: 12)
-                if liveVideo?.remote == nil {
+                if let screen = liveScreen, video == nil {
+                    CallSharingHeader(call: call, timing: timing, content: screen, stop: stopSharing)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                } else if liveVideo?.remote == nil {
                     CallPersonHeader(
                         call: call, directory: directory, timing: timing,
                         avatarSize: video == nil ? 104 : 128
@@ -149,12 +157,18 @@ public struct AudioCallView: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if let preview = liveVideo?.preview {
-                CallSelfView(content: preview)
-                    .padding(.top, CallLayout.titlebarClearance)
-                    .padding(.trailing, 16)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
+            VStack(alignment: .trailing, spacing: 10) {
+                if let preview = liveVideo?.preview {
+                    CallSelfView(content: preview)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
+                }
+                if video != nil, let screen = liveScreen {
+                    CallSharingPreview(content: screen, width: 192, stop: stopSharing)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
+                }
             }
+            .padding(.top, CallLayout.titlebarClearance)
+            .padding(.trailing, 16)
         }
         .modifier(CallFrame(isVideo: video != nil))
         .ignoresSafeArea()
@@ -206,6 +220,15 @@ public struct AudioCallView: View {
         call.phase.isTerminal ? nil : video
     }
 
+    private var liveScreen: AnyView? {
+        call.phase.isTerminal ? nil : screenPreview
+    }
+
+    /// The preview's own Stop Sharing, offered once sharing has started.
+    private var stopSharing: (() -> Void)? {
+        screenSharing?.phase == .sharing ? actions.toggleScreenSharing : nil
+    }
+
     /// The directory `Avatar` reads: the person's own entry, or a stand-in
     /// built from the call's name so initials still show.
     private var directory: [Member.ID: Member] {
@@ -235,7 +258,7 @@ public struct AudioCallView: View {
     private var animationKey: CallAnimationKey {
         CallAnimationKey(
             phase: call.phase, isMuted: call.isMuted,
-            remote: liveVideo?.remote != nil, preview: liveVideo?.preview != nil,
+            remote: liveVideo?.remote != nil, preview: liveVideo?.preview != nil, screen: liveScreen != nil,
             notices: notices.map(\.id), sharing: screenSharing?.phase,
             camera: camera.map { [$0.isOn, $0.isUpdating] }
         )
@@ -253,6 +276,7 @@ private struct CallAnimationKey: Equatable {
     let isMuted: Bool
     let remote: Bool
     let preview: Bool
+    let screen: Bool
     let notices: [String]
     let sharing: CallScreenShareState.Phase?
     let camera: [Bool]?
@@ -286,99 +310,6 @@ private struct CallFrame: ViewModifier {
             content
                 .frame(width: CallLayout.compact.width)
                 .frame(minHeight: CallLayout.compact.height)
-        }
-    }
-}
-
-enum AudioCallPresentation {
-    static func status(for phase: AudioCallPhase) -> String {
-        switch phase {
-        case .incoming: "Incoming call"
-        case .connecting: "Connecting…"
-        case .ringing: "Ringing…"
-        case .connected: "Connected"
-        case .declined: "Decline sent"
-        case .failed: "Call failed"
-        case .ended: "Call ended"
-        case .unknown: "Call unavailable"
-        }
-    }
-
-    static func canMute(_ phase: AudioCallPhase) -> Bool {
-        phase == .ringing || phase == .connected
-    }
-
-    static func canHangUp(_ phase: AudioCallPhase) -> Bool {
-        phase == .connecting || phase == .ringing || phase == .connected
-    }
-
-    /// The halo pulses while the call is waiting for someone to answer.
-    static func isWaiting(_ phase: AudioCallPhase) -> Bool {
-        phase == .incoming || phase == .connecting || phase == .ringing
-    }
-
-    static func failureMessage(for call: AudioCallSnapshot) -> String? {
-        if let message = call.failureMessage {
-            return message
-        }
-        return call.phase == .failed ? "The call couldn't be completed. Please try again." : nil
-    }
-
-    /// "4:12", or "1:04:12" past an hour.
-    static func duration(_ seconds: TimeInterval) -> String {
-        let value = Duration.seconds(max(0, Int(seconds)))
-        return seconds >= 3600
-            ? value.formatted(.time(pattern: .hourMinuteSecond))
-            : value.formatted(.time(pattern: .minuteSecond))
-    }
-
-    /// Device and sharing messages, shown above the controls only while the
-    /// controls they belong to are usable.
-    static func notices(
-        phase: AudioCallPhase, devices: CallAudioDevices?, camera: CallCameraState?,
-        screenSharing: CallScreenShareState?
-    ) -> [CallNotice] {
-        var notices: [CallNotice] = []
-        if !phase.isTerminal, let notice = devices?.notice {
-            notices.append(CallNotice(id: "audio", text: notice, kind: .warning))
-        }
-        guard canMute(phase) else { return notices }
-        if let notice = camera?.notice {
-            notices.append(CallNotice(id: "camera", text: notice, kind: .warning))
-        }
-        if screenSharing?.phase == .preparing {
-            notices.append(CallNotice(
-                id: "share-picker", text: "Choose a window or display to share.", kind: .info
-            ))
-        }
-        if let notice = screenSharing?.notice {
-            notices.append(CallNotice(id: "share", text: notice, kind: .warning))
-        }
-        return notices
-    }
-}
-
-/// Collection feedback belongs to presentation; diagnostics contents stay in
-/// the host and never enter the call view's state.
-enum AudioCallCopyState {
-    case idle, collecting, copied, unavailable
-
-    var title: String {
-        switch self {
-        case .idle: "Copy Diagnostics"
-        case .collecting: "Collecting…"
-        case .copied: "Copied"
-        case .unavailable: "Unavailable"
-        }
-    }
-
-    /// What a live call shows above its controls after the menu item is chosen.
-    var notice: CallNotice? {
-        switch self {
-        case .idle: nil
-        case .collecting: CallNotice(id: "diagnostics", text: "Collecting diagnostics…", kind: .progress)
-        case .copied: CallNotice(id: "diagnostics", text: "Diagnostics copied", kind: .success)
-        case .unavailable: CallNotice(id: "diagnostics", text: "Diagnostics unavailable", kind: .warning)
         }
     }
 }

@@ -24,6 +24,8 @@
 	<string>Copyright © 2026 Mark Guzmics. MIT License.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Kibble uses your camera during calls you choose to join.</string>
+	<key>NSFocusStatusUsageDescription</key>
+	<string>Kibble checks whether a Focus is on when a call comes in, and sends a notification instead of its call panel so macOS can decide whether to show it.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Kibble uses your microphone during calls you choose to join.</string>
 	<!-- Updates (Sparkle). YES in Release only, so a development build never

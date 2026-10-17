@@ -1,22 +1,54 @@
 import ChatKit
 import SwiftUI
 
-/// One round glass control. The glass is drawn by `glassEffect` on a plain
-/// button rather than by the glass button styles, which pad an icon label to
-/// a size of their own; a call bar needs every circle the same.
+/// One round control. A plain control is glass, drawn by `glassEffect` on a
+/// plain button rather than by the glass button styles, which pad an icon
+/// label to a size of their own; a call bar needs every circle the same.
+/// A control whose color carries meaning is a solid fill instead: AppKit draws
+/// glass in a window that is not key without its tint, so End would turn gray
+/// exactly when the person is sharing from another app, and the incoming call
+/// panel is never key at all.
 struct CallRoundButton: View {
     let title: String
     let symbol: String
     var tone = CallControlTone.plain
     var size = CallLayout.button
     let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        Button(action: action) {
-            CallRoundFace(title: title, symbol: symbol, tone: tone, size: size)
+        if tone != .plain {
+            Button(action: action) {
+                Label(title, systemImage: symbol)
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: (size * 0.39).rounded(), weight: .semibold))
+                    .foregroundStyle(tone.foreground)
+                    .frame(width: size, height: size)
+                    .background(tone.fill, in: .circle)
+                    .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
+                    .compositingGroup()
+                    .opacity(isEnabled ? 1 : 0.4)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(CallSolidButtonStyle())
+            .help(title)
+        } else {
+            Button(action: action) {
+                CallRoundFace(title: title, symbol: symbol, tone: tone, size: size)
+            }
+            .buttonStyle(.plain)
+            .help(title)
         }
-        .buttonStyle(.plain)
-        .help(title)
+    }
+}
+
+/// Dims while pressed, as glass's own interactive response would.
+private struct CallSolidButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .brightness(configuration.isPressed ? -0.12 : 0)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
@@ -25,21 +57,22 @@ struct CallRoundButton: View {
 enum CallControlTone {
     case plain, highlighted, active, end, accept
 
-    var glass: Glass {
-        switch self {
-        case .plain: .regular
-        case .highlighted: .regular.tint(.white)
-        case .active: .regular.tint(.accentColor)
-        case .end: .regular.tint(.red)
-        case .accept: .regular.tint(.green)
-        }
-    }
-
     var foreground: Color {
         self == .highlighted ? .black : .white
     }
+
+    var fill: Color {
+        switch self {
+        case .plain: .gray
+        case .highlighted: .white
+        case .active: .accentColor
+        case .end: .red
+        case .accept: .green
+        }
+    }
 }
 
+/// The glass face, shared with the device menu's label.
 struct CallRoundFace: View {
     let title: String
     let symbol: String
@@ -54,7 +87,7 @@ struct CallRoundFace: View {
             .foregroundStyle(tone.foreground)
             .opacity(isEnabled ? 1 : 0.35)
             .frame(width: size, height: size)
-            .glassEffect(tone.glass.interactive(isEnabled), in: .circle)
+            .glassEffect(.regular.interactive(isEnabled), in: .circle)
             .contentShape(Circle())
     }
 }

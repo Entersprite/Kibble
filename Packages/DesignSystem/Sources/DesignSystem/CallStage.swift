@@ -176,6 +176,72 @@ struct CallSelfView: View {
     }
 }
 
+/// What you are sharing, as the other person receives it: shown whole on
+/// black, labeled "Sharing", with Stop Sharing on hover.
+struct CallSharingPreview: View {
+    let content: AnyView
+    let width: CGFloat
+    let stop: (() -> Void)?
+    @State private var isHovering = false
+
+    var body: some View {
+        content
+            .frame(width: width, height: (width * 10 / 16).rounded())
+            .background(.black)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+            }
+            .overlay(alignment: .topLeading) {
+                Label("Sharing", systemImage: "rectangle.on.rectangle")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor, in: .capsule)
+                    .padding(8)
+                    .accessibilityHidden(true)
+            }
+            .overlay {
+                if isHovering, let stop {
+                    Button("Stop Sharing", systemImage: "stop.fill", action: stop)
+                        .buttonStyle(.glass)
+                        .transition(.opacity)
+                }
+            }
+            .shadow(color: .black.opacity(0.35), radius: 14, y: 5)
+            .onHover { isHovering = $0 }
+            .animation(.easeOut(duration: 0.15), value: isHovering)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Preview of your shared screen")
+    }
+}
+
+/// The audio layout while sharing: the preview where the avatar was, the
+/// name and timer beneath it.
+struct CallSharingHeader: View {
+    let call: AudioCallSnapshot
+    let timing: CallTiming
+    let content: AnyView
+    let stop: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 14) {
+            CallSharingPreview(content: content, width: 300, stop: stop)
+            VStack(spacing: 4) {
+                Text(call.recipient.displayName)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .accessibilityAddTraits(.isHeader)
+                CallStatusText(call: call, timing: timing)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 /// Name and timer over the other person's video, in the titlebar's band.
 /// Text only: content in that band takes no clicks.
 struct CallVideoTitle: View {

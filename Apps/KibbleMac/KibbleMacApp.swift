@@ -132,6 +132,15 @@ struct KibbleMacApp: App {
                     )
                     .frame(width: 560, height: 540)
                 }
+                Tab("Calls", systemImage: "phone", value: "calls") {
+                    CallSettingsPane(
+                        state: appDelegate.callSettings.state,
+                        actions: appDelegate.callSettings.actions,
+                        setUpCalls: appDelegate.canSetUpCalls ? { appDelegate.setUpCalls() } : nil
+                    )
+                    .frame(width: 560, height: 500)
+                    .onAppear { appDelegate.callSettings.refreshFocusAccess() }
+                }
                 Tab("Conversations", systemImage: "bubble.left.and.bubble.right", value: "conversations") {
                     ConversationSettingsPane(
                         state: environment.notificationSettingsState,
@@ -163,10 +172,9 @@ struct KibbleMacApp: App {
                     AccountSettingsPane(
                         state: environment.accountSettingsState,
                         signOut: environment.canSignOut ? { isConfirmingSignOutFromSettings = true } : nil,
-                        exportDiagnostics: { appDelegate.diagnostics.export() },
-                        setUpCalls: appDelegate.canSetUpCalls ? { appDelegate.setUpCalls() } : nil
+                        exportDiagnostics: { appDelegate.diagnostics.export() }
                     )
-                    .frame(width: 560, height: 440)
+                    .frame(width: 560, height: 360)
                 }
             }
             .signOutConfirmation(isPresented: $isConfirmingSignOutFromSettings) {

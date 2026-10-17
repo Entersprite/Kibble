@@ -211,4 +211,69 @@ struct AudioCallWindowHostTests {
         let kept = AudioCallWindowHost.frame(of: CallLayout.video, around: corner, on: screen)
         #expect(screen.visibleFrame.contains(kept))
     }
+
+    @Test func onlyCleanEndsCloseThemselves() {
+        var call = call(phase: .ended)
+        #expect(AudioCallWindowHost.closesAutomatically(call))
+        call.phase = .declined
+        #expect(AudioCallWindowHost.closesAutomatically(call))
+        call.failureMessage = "Leaving the call could not be confirmed."
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
+        for phase in [AudioCallPhase.failed, .unknown("future"), .connected, .incoming, .ringing] {
+            call.phase = phase
+            call.failureMessage = nil
+            #expect(!AudioCallWindowHost.closesAutomatically(call))
+        }
+    }
+
+    @Test func anEndedCallsWindowClosesItselfAndWaitsForThePointer() async throws {
+        var closed: [UUID] = []
+        var pointerInside = true
+        let host = AudioCallWindowHost(
+            actions: { _ in actions }, windowClosed: { closed.append($0) },
+            closesFinishedCalls: { true }, closeDelay: .milliseconds(20),
+            pointerIsInside: { _ in pointerInside }, present: { $0.orderFront(nil) }
+        )
+        var outgoing = call(phase: .connected)
+        host.update(call: outgoing, windowRequests: 1)
+        let window = try #require(host.window)
+        outgoing.phase = .ended
+        host.update(call: outgoing, windowRequests: 1)
+        try await Task.sleep(for: .milliseconds(150))
+        // The pointer is over the window: it waits.
+        #expect(window.isVisible)
+        pointerInside = false
+        for _ in 0 ..< 100 where window.isVisible {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!window.isVisible)
+        #expect(closed == [outgoing.id])
+        host.update(call: nil, windowRequests: 1)
+    }
+
+    @Test func theSettingOffAFailureOrANewCallKeepTheWindowOpen() async throws {
+        var enabled = false
+        let host = AudioCallWindowHost(
+            actions: { _ in actions }, windowClosed: { _ in },
+            closesFinishedCalls: { enabled }, closeDelay: .milliseconds(20),
+            pointerIsInside: { _ in false }, present: { $0.orderFront(nil) }
+        )
+        var first = call(phase: .ended)
+        host.update(call: first, windowRequests: 1)
+        let window = try #require(host.window)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(window.isVisible)
+        enabled = true
+        let failed = call(phase: .failed)
+        host.update(call: failed, windowRequests: 2)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(window.isVisible)
+        // Call Back right after an end: the new call keeps the window.
+        first = call(phase: .ended)
+        host.update(call: first, windowRequests: 3)
+        host.update(call: call(phase: .connecting), windowRequests: 4)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(window.isVisible)
+        host.update(call: nil, windowRequests: 4)
+    }
 }

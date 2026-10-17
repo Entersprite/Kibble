@@ -9,7 +9,8 @@ import SwiftUI
 /// window buttons floating over it. A call starts in the compact audio size
 /// and grows into a resizable video window, around its own center, the first
 /// time video appears. It stays that size until the call is over, so a camera
-/// switched off for a moment does not make the window jump.
+/// switched off for a moment does not make the window jump. When the person
+/// has it on, the window closes itself a few seconds after a call ends.
 @MainActor
 public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     private let actionsForCall: (UUID) -> AudioCallActions
@@ -17,6 +18,10 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     private let present: (NSWindow) -> Void
     private let incomingAttention: () -> Void
     private let now: () -> Date
+    private let closesFinishedCalls: () -> Bool
+    private let closeDelay: Duration
+    private let pointerIsInside: (NSWindow) -> Bool
+    private var closing: Task<Void, Never>?
     private var callID: UUID?
     private var lastWindowRequest: Int?
     private var isClosingSilently = false
@@ -27,11 +32,13 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
 
     public convenience init(
         actions: @escaping (UUID) -> AudioCallActions,
-        windowClosed: @escaping (UUID) -> Void
+        windowClosed: @escaping (UUID) -> Void,
+        closesFinishedCalls: @escaping () -> Bool = { false }
     ) {
         self.init(
             actions: actions,
             windowClosed: windowClosed,
+            closesFinishedCalls: closesFinishedCalls,
             present: { window in
                 if window.isMiniaturized {
                     window.deminiaturize(nil)
@@ -46,12 +53,18 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     init(
         actions: @escaping (UUID) -> AudioCallActions,
         windowClosed: @escaping (UUID) -> Void,
+        closesFinishedCalls: @escaping () -> Bool = { false },
+        closeDelay: Duration = .seconds(3),
+        pointerIsInside: @escaping (NSWindow) -> Bool = { $0.frame.contains(NSEvent.mouseLocation) },
         present: @escaping (NSWindow) -> Void,
         incomingAttention: @escaping () -> Void = {},
         now: @escaping () -> Date = Date.init
     ) {
         actionsForCall = actions
         self.windowClosed = windowClosed
+        self.closesFinishedCalls = closesFinishedCalls
+        self.closeDelay = closeDelay
+        self.pointerIsInside = pointerIsInside
         self.present = present
         self.incomingAttention = incomingAttention
         self.now = now
@@ -73,6 +86,7 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         person: Member? = nil
     ) {
         guard let call else {
+            cancelClosing()
             callID = nil
             lastWindowRequest = nil
             isClosingSilently = true
@@ -87,6 +101,7 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         callID = call.id
         lastWindowRequest = windowRequests
         if isNewCall {
+            cancelClosing()
             timing = CallTiming()
         }
         timing = Self.timing(timing, for: call.phase, now: now)
@@ -102,6 +117,38 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
                 incomingAttention()
             }
         }
+        scheduleClose(after: call)
+    }
+
+    /// An ended or declined call's window closes after `closeDelay`, later if
+    /// the pointer is over it, so a reach for Call Back is not cut off. A failed
+    /// call, or one ending with a cleanup warning, stays open to be read.
+    static func closesAutomatically(_ call: AudioCallSnapshot) -> Bool {
+        (call.phase == .ended || call.phase == .declined) && call.failureMessage == nil
+    }
+
+    private func scheduleClose(after call: AudioCallSnapshot) {
+        guard Self.closesAutomatically(call), closesFinishedCalls() else {
+            cancelClosing()
+            return
+        }
+        guard closing == nil else { return }
+        let id = call.id, delay = closeDelay, pointerIsInside = pointerIsInside
+        let poll = min(delay, .seconds(1))
+        closing = Task { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            while let window = self?.window, self?.callID == id, window.isVisible, pointerIsInside(window) {
+                do { try await Task.sleep(for: poll) } catch { return }
+            }
+            guard let self, !Task.isCancelled, callID == id else { return }
+            closing = nil
+            window?.close()
+        }
+    }
+
+    private func cancelClosing() {
+        closing?.cancel()
+        closing = nil
     }
 
     /// Updates the one hosting view in place, so the view keeps its own state
@@ -124,7 +171,8 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
             devices: devices,
             camera: video?.camera,
             video: layout.isVideo ? videoContent ?? CallVideoContent() : nil,
-            screenSharing: video?.screenSharing.state
+            screenSharing: video?.screenSharing.state,
+            screenPreview: video.flatMap(CallVideoSurface.screen(for:))
         )
         if let content {
             content.rootView = view
@@ -167,6 +215,7 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         window.backgroundColor = .black
         window.tabbingMode = .disallowed
         window.collectionBehavior = [.fullScreenNone]
+        window.identifier = CallSurface.callWindow
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
@@ -228,5 +277,17 @@ struct CallWindowLayout: Equatable {
             return self
         }
         return Self(videoCall: hasVideo && !call.phase.isTerminal ? call.id : nil)
+    }
+}
+
+/// Kibble's call windows, which a whole-display share leaves out.
+@MainActor
+enum CallSurface {
+    static let callWindow = NSUserInterfaceItemIdentifier("KibbleCallWindow")
+    static let incomingPanel = NSUserInterfaceItemIdentifier("KibbleIncomingCallPanel")
+
+    static func contains(windowNumber: Int) -> Bool {
+        guard let identifier = NSApp.window(withWindowNumber: windowNumber)?.identifier else { return false }
+        return identifier == callWindow || identifier == incomingPanel
     }
 }

@@ -1,10 +1,14 @@
 import DesignSystem
 import Foundation
+@preconcurrency import LiveKitWebRTC
 import Observation
 
 @MainActor
 protocol CallScreenShareRouting: AnyObject {
     var ended: (() -> Void)? { get set }
+    /// The track being sent while sharing, which the call window previews;
+    /// `nil` before capture starts and from the moment it is suppressed.
+    var preview: LKRTCVideoTrack? { get }
     func start() async throws -> Bool
     func suppress()
     func stop() async -> Bool
@@ -16,6 +20,8 @@ protocol CallScreenShareRouting: AnyObject {
 @Observable
 final class CallScreenShareController {
     private(set) var state: CallScreenShareState?
+    /// What is being shared, for the call window's preview; only while sharing.
+    private(set) var preview: LKRTCVideoTrack?
     private var route: (any CallScreenShareRouting)?
     private var scope = UUID()
     private var operation: Task<Void, Never>?
@@ -42,7 +48,7 @@ final class CallScreenShareController {
             route.suppress()
             Task { _ = await previous?.result; _ = await route.stop() }
         }
-        route = nil; state = nil
+        route = nil; state = nil; preview = nil
     }
 
     func toggle() {
@@ -59,6 +65,7 @@ final class CallScreenShareController {
                 try Task.checkCancellation()
                 guard let self, self.scope == scope else { route.suppress(); return }
                 state?.phase = started ? .sharing : .idle
+                preview = started ? route.preview : nil
                 operation = nil
             } catch {
                 route.suppress()
@@ -75,6 +82,7 @@ final class CallScreenShareController {
     private func stop(notice: String? = nil) {
         guard let route, state?.phase != .stopping else { return }
         route.suppress()
+        preview = nil
         let previous = operation
         previous?.cancel()
         let scope = scope

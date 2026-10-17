@@ -1,3 +1,4 @@
+import CoreGraphics
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -10,6 +11,7 @@ import LocalBridgeBackend
 @MainActor
 final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
     var ended: (() -> Void)?
+    private(set) var preview: LKRTCVideoTrack?
     private let startPresenter: @Sendable (any CallMediaEngine) async throws -> Void
     private let stopPresenter: @Sendable () async -> Bool
     private var selection: CheckedContinuation<NativeScreenSelection?, any Error>?
@@ -33,7 +35,7 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         cleanupConfirmed = true
         let revision = revision
         guard let selected = try await pick() else { return false }
-        let filter = selected.filter
+        let filter = await Self.excludingCallSurfaces(selected.filter)
         try check(revision)
         let child = NativeCallMedia(presentation: true)
         self.child = child
@@ -57,11 +59,13 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         try check(revision)
         output.enable()
         video.send(true)
+        preview = video.track
         return true
     }
 
     func suppress() {
         revision += 1
+        preview = nil
         output?.disable()
         child?.video?.suppress()
         if let selection {
@@ -85,6 +89,21 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         let confirmed = await stopPresenter()
         cleanupConfirmed = cleanupConfirmed && confirmed
         return cleanupConfirmed
+    }
+
+    /// A whole display is shared without Kibble's call window and incoming
+    /// panel, so neither the preview nor the other person sees the call
+    /// window inside itself. Only when Screen Recording access is already
+    /// granted: a filter built here is not covered by the picker's one-time
+    /// consent, and a permission prompt mid-call is worse than the mirror.
+    private static func excludingCallSurfaces(_ filter: SCContentFilter) async -> SCContentFilter {
+        guard filter.style == .display, CGPreflightScreenCaptureAccess(),
+              let display = filter.includedDisplays.first,
+              let own = try? await SCShareableContent.currentProcess
+        else { return filter }
+        let surfaces = own.windows.filter { CallSurface.contains(windowNumber: Int($0.windowID)) }
+        guard !surfaces.isEmpty else { return filter }
+        return SCContentFilter(display: display, excludingWindows: surfaces)
     }
 
     private func check(_ expected: Int) throws {

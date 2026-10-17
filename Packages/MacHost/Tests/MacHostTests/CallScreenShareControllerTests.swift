@@ -1,5 +1,6 @@
 import DesignSystem
 import Foundation
+@preconcurrency import LiveKitWebRTC
 import Testing
 @testable import MacHost
 
@@ -20,6 +21,35 @@ struct CallScreenShareControllerTests {
         route.finishStop()
         await wait { controller.state?.phase == .idle }
         controller.clear()
+    }
+
+    @Test func thePreviewIsPublishedOnlyWhileSharingAndGoesWithStop() async {
+        LKRTCInitializeSSL()
+        let factory = LKRTCPeerConnectionFactory()
+        let track = factory.videoTrack(with: factory.videoSource(forScreenCast: true), trackId: "preview")
+        let controller = CallScreenShareController(), route = ScreenRoute()
+        route.preview = track
+        _ = controller.install(route)
+        #expect(controller.preview == nil)
+        route.holdStart = true
+        controller.toggle()
+        await wait { route.startContinuation != nil }
+        // Choosing in the picker is not sharing yet.
+        #expect(controller.preview == nil)
+        route.finishStart()
+        await wait { controller.state?.phase == .sharing }
+        #expect(controller.preview === track)
+        route.holdStop = true
+        controller.toggle()
+        #expect(controller.preview == nil)
+        await wait { route.stops == 1 }
+        route.finishStop()
+        await wait { controller.state?.phase == .idle }
+        controller.toggle()
+        await wait { controller.state?.phase == .sharing }
+        #expect(controller.preview === track)
+        controller.clear()
+        #expect(controller.preview == nil)
     }
 
     @Test func pickerCancellationAndStartFailureLeaveRetryAvailable() async {
@@ -109,6 +139,7 @@ struct CallScreenShareControllerTests {
 @MainActor
 private final class ScreenRoute: CallScreenShareRouting {
     var ended: (() -> Void)?
+    var preview: LKRTCVideoTrack?
     var starts = 0, stops = 0
     var sending = false, fail = false, cancelPicker = false, confirmed = true
     var holdStart = false, holdStop = false
