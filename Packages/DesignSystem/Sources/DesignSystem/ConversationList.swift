@@ -24,6 +24,9 @@ public struct ConversationList: View {
     }
 
     @State private var pendingAction: PendingConversationAction?
+    /// How far the conversations have scrolled under the pinned rows, up to
+    /// the fade's height (`SidebarFade`).
+    @State private var scrolledUnderPins: CGFloat = 0
 
     /// Two lists: the pinned rows, which never scroll (`PinnedList`), and the
     /// conversations below them. A second list rather than a bar over the
@@ -135,6 +138,12 @@ public struct ConversationList: View {
             }
         }
         .listStyle(.sidebar)
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            min(max(geometry.contentOffset.y + geometry.contentInsets.top, 0), SidebarFade.height)
+        } action: { _, depth in
+            scrolledUnderPins = depth
+        }
+        .mask { SidebarFade(depth: scrolledUnderPins) }
         .overlay {
             if state.conversations.isEmpty {
                 ContentUnavailableView(
@@ -327,6 +336,25 @@ struct ConversationRow: View {
             MeetingPicture()
         case .unknown:
             Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
+        }
+    }
+}
+
+/// Conversations fade into the pinned rows above them as they scroll under
+/// them. A mask, so the sidebar's own glass shows through; it starts only once
+/// the list moves, so the first section's header is drawn in full at rest.
+struct SidebarFade: View {
+    static let height: CGFloat = 14
+    let depth: CGFloat
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LinearGradient(
+                colors: [.black.opacity(1 - depth / Self.height), .black],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: Self.height)
+            Color.black
         }
     }
 }

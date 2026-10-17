@@ -127,8 +127,7 @@ public struct ChatWindow: View {
             // rows, and the thread's section (session 65, `ThreadColumnBridge`).
             .toolbar {
                 ToolbarSpacer(.flexible)
-                if let conversation = state.selectedConversation, state.browser.page == nil,
-                   state.capabilities.canReadConversationDetails,
+                if showsDetailsButton, let conversation = state.selectedConversation,
                    let browser = actions.browser {
                     ToolbarItem(placement: .primaryAction) {
                         Button(
@@ -138,6 +137,10 @@ public struct ChatWindow: View {
                             browser.details(conversation.id, false)
                         }
                     }
+                }
+                // Each its own round glass: neighboring items share one capsule.
+                if showsDetailsButton, callConversation != nil, actions.call != nil {
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
                 }
                 if let callConversation, let call = actions.call {
                     ToolbarItem(placement: .primaryAction) {

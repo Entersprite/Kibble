@@ -314,10 +314,10 @@ struct ConversationSidebarTools: ToolbarContent {
                     Button("New Space…", systemImage: "number") { actions.beginCreation(.space) }
                 }
             } label: {
+                // No frame: the toolbar's glass stays round only at the icon's
+                // own size, and its whole circle already takes the click.
                 Label("New Conversation", systemImage: "plus")
                     .labelStyle(.iconOnly)
-                    .frame(minWidth: 32, minHeight: 32)
-                    .contentShape(Rectangle())
             }
             .menuIndicator(.hidden)
             .help("New Conversation")

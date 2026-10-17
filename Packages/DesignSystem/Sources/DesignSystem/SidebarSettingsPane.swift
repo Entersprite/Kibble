@@ -177,11 +177,19 @@ struct SidebarSectionMenu: View {
                 Button("Sidebar Settings…", action: showSettings)
             }
         } label: {
+            // A borderless button draws its own label in the primary color,
+            // ignoring any style here, so it read as white beside the system's
+            // secondary disclosure arrow. A plain button draws this label; the
+            // font and padding keep the borderless button's size and place.
             Label("\(section.title) Options", systemImage: "ellipsis")
                 .labelStyle(.iconOnly)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 3)
+                .contentShape(Rectangle())
         }
         .menuStyle(.button)
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Section Options")
