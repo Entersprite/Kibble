@@ -8,9 +8,15 @@ public enum SidebarProjection {
         directory: [Member.ID: Member] = [:], me: Member.ID? = nil,
         limited: Bool = true
     ) -> [SidebarSection] {
-        preferences.orderedSections.filter(\.isVisible).map { section in
-            let matching = conversations.filter { sectionID(for: $0.kind) == section.id }
-            let groups = section.id == "meetChat" ? MeetingSeries.build(matching) : []
+        let meetings = MeetingSeries.build(conversations)
+        return preferences.displaySections.filter(\.isVisible).compactMap { section in
+            let isFavorites = section.id == "favorites"
+            let matching = conversations.filter {
+                isFavorites ? preferences.favoriteConversations
+                    .contains($0.id) : sectionID(for: $0.kind) == section.id
+            }
+            let groups = isFavorites ? meetings.filter { preferences.favoriteMeetings.contains($0.id) } :
+                section.id == "meetChat" ? meetings : []
             let grouped = Set(groups.flatMap { $0.occurrences.map(\.id) })
             let items = matching.filter { !grouped.contains($0.id) }.map(SidebarItem.conversation)
                 + groups.map(SidebarItem.meeting)
@@ -37,7 +43,8 @@ public enum SidebarProjection {
                 }
                 return left.stableOrder < right.stableOrder
             }
-            let visible = limited ? Array(sorted.prefix(section.maximumItems)) : sorted
+            guard !isFavorites || !sorted.isEmpty else { return nil }
+            let visible = limited && !isFavorites ? Array(sorted.prefix(section.maximumItems)) : sorted
             return SidebarSection(
                 id: section.id, title: section.title,
                 conversations: visible.compactMap {

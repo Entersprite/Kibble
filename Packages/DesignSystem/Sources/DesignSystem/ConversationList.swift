@@ -82,7 +82,8 @@ public struct ConversationList: View {
     }
 
     private var conversations: some View {
-        List(selection: selectionBinding) {
+        let preferences = state.sidebarPreferences
+        return List(selection: selectionBinding) {
             ForEach(SidebarProjection.build(
                 state.conversations, preferences: state.sidebarPreferences,
                 directory: state.directory, me: state.me
@@ -91,15 +92,21 @@ public struct ConversationList: View {
                     ForEach(section.items) { item in
                         switch item {
                         case let .meeting(series):
+                            let menuActions = rowActions(for: series.latest)
+                            let favoriteTarget = SidebarSelection.meetingSeries(series.id)
                             let entries = ConversationMenu.entries(
                                 for: series, state: state, offers: ConversationMenu.Offers(actions)
                             )
                             MeetingSeriesRow(series: series, state: state)
                                 .tag(SidebarSelection.meetingSeries(series.id))
-                                .contextMenu { [menuActions = rowActions(for: series.latest)] in
-                                    ConversationRowMenu(entries: entries, actions: menuActions)
+                                .contextMenu { [menuActions, preferences] in
+                                    ConversationRowMenu(
+                                        entries: entries, favoriteTarget: favoriteTarget,
+                                        preferences: preferences, actions: menuActions
+                                    )
                                 }
                         case let .conversation(conversation):
+                            let menuActions = rowActions(for: conversation)
                             let items = ConversationMenu.items(
                                 for: conversation, state: state, offers: ConversationMenu.Offers(actions)
                             )
@@ -108,12 +115,15 @@ public struct ConversationList: View {
                                 state: ConversationRowState(conversation: conversation, scene: state)
                             )
                             .tag(SidebarSelection.conversation(conversation.id))
-                            .contextMenu { [menuActions = rowActions(for: conversation)] in
-                                ConversationRowMenu(id: conversation.id, items: items, actions: menuActions)
+                            .contextMenu { [menuActions, preferences] in
+                                ConversationRowMenu(
+                                    id: conversation.id, items: items,
+                                    preferences: preferences, actions: menuActions
+                                )
                             }
                         }
                     }
-                    if let showDirectory = actions.showDirectory {
+                    if section.id != "favorites", let showDirectory = actions.showDirectory {
                         SidebarSeeAllRow(title: section.title) { showDirectory(section.id) }
                     }
                 } header: {

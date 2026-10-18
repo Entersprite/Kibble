@@ -168,6 +168,13 @@ struct ConversationDirectoryView: View {
         .contextMenu(forSelectionType: Member.ID.self) { ids in
             if ids.count == 1, let id = ids.first, canMessage {
                 Button("Send Message") { message(id) }
+                if let chat = state.conversations.first(where: {
+                    $0.kind == .directMessage && $0.members.contains(id) && id != state.me
+                }), let update = actions.updateSidebar {
+                    FavoriteMenuButton(
+                        target: .conversation(chat.id), preferences: state.sidebarPreferences, update: update
+                    )
+                }
             }
         } primaryAction: { ids in
             if ids.count == 1, let id = ids.first {
@@ -231,6 +238,9 @@ struct ConversationDirectoryView: View {
         .contextMenu(forSelectionType: SidebarSelection.self) { ids in
             if ids.count == 1, let id = ids.first {
                 Button("Open") { SidebarPinned.choose(id, actions: actions) }
+                if let update = actions.updateSidebar {
+                    FavoriteMenuButton(target: id, preferences: state.sidebarPreferences, update: update)
+                }
                 if case let .conversation(conversation) = id,
                    state.capabilities.canReadConversationDetails, let browser = actions.browser {
                     Button("Show Details…") { browser.details(conversation, false) }

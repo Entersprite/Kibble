@@ -102,3 +102,36 @@ extension PersonalPreferencesTests {
         #expect(environment.sidebarPreferences == SidebarPreferences())
     }
 }
+
+extension PersonalPreferencesTests {
+    @Test func favoritesSurviveRelaunchAndStayWithTheirAccount() async throws {
+        let preferences = try defaults()
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services, preferences: preferences)
+        await environment.start()
+        let saved = SidebarPreferences(
+            sections: [.init(id: "favorites", sort: .name, isAscending: false)],
+            favoriteConversations: [.init("chat")], favoriteMeetings: [.init("meeting")]
+        )
+        environment.updateSidebar(saved)
+        #expect(environment.sidebarPreferences.favoriteConversations.isEmpty)
+        await identify(alice, in: environment, services: services)
+        environment.actions.updateSidebar?(saved)
+        await identify(bob, in: environment, services: services)
+        #expect(environment.sidebarPreferences.favoriteConversations.isEmpty)
+        await identify(alice, in: environment, services: services)
+        #expect(environment.sidebarPreferences.favoriteConversations == saved.favoriteConversations)
+        await environment.signOut()
+        #expect(environment.sidebarPreferences.favoriteConversations.isEmpty)
+
+        let nextServices = try FakeLaunchServices()
+        let next = AppEnvironment(services: nextServices, preferences: preferences)
+        await next.start()
+        await identify(alice, in: next, services: nextServices)
+        #expect(next.sidebarPreferences.favoriteConversations == saved.favoriteConversations)
+        #expect(next.sidebarPreferences.favoriteMeetings == saved.favoriteMeetings)
+        #expect(next.sidebarPreferences.favoritesSection.sort == .name)
+        #expect(!next.sidebarPreferences.favoritesSection.sortsAscending)
+        await next.signOut()
+    }
+}

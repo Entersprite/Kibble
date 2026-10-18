@@ -163,7 +163,7 @@ struct SidebarSortMenuItems: View {
 
 extension SidebarPreferences {
     func section(_ id: String) -> SidebarSectionPreference {
-        orderedSections.first { $0.id == id } ?? SidebarSectionPreference(id: id)
+        displaySections.first { $0.id == id } ?? SidebarSectionPreference(id: id)
     }
 
     func updating(_ section: SidebarSectionPreference) -> SidebarPreferences {

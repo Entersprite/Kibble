@@ -3,9 +3,45 @@ import Foundation
 /// Personal navigation choices. These do not change a conversation's kind or notification rules.
 public struct SidebarPreferences: Codable, Equatable, Sendable {
     public var sections: [SidebarSectionPreference]
+    public var favoriteConversations: Set<Conversation.ID>
+    public var favoriteMeetings: Set<MeetingSeries.ID>
 
-    public init(sections: [SidebarSectionPreference] = []) {
+    public init(
+        sections: [SidebarSectionPreference] = [],
+        favoriteConversations: Set<Conversation.ID> = [],
+        favoriteMeetings: Set<MeetingSeries.ID> = []
+    ) {
         self.sections = sections
+        self.favoriteConversations = favoriteConversations
+        self.favoriteMeetings = favoriteMeetings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sections, favoriteConversations, favoriteMeetings
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        sections = try values.decodeIfPresent([SidebarSectionPreference].self, forKey: .sections) ?? []
+        favoriteConversations = try values.decodeIfPresent(
+            Set<Conversation.ID>.self,
+            forKey: .favoriteConversations
+        ) ?? []
+        favoriteMeetings = try values
+            .decodeIfPresent(Set<MeetingSeries.ID>.self, forKey: .favoriteMeetings) ?? []
+    }
+
+    /// Favorites is always first, visible when populated, and unlimited.
+    /// Only its sorting choices are configurable.
+    public var favoritesSection: SidebarSectionPreference {
+        var section = sections.first { $0.id == "favorites" } ?? .init(id: "favorites")
+        section.isVisible = true
+        section.maximumItems = Int.max
+        return section
+    }
+
+    public var displaySections: [SidebarSectionPreference] {
+        [favoritesSection] + orderedSections
     }
 
     public var orderedSections: [SidebarSectionPreference] {
@@ -37,7 +73,8 @@ public struct SidebarPreferences: Codable, Equatable, Sendable {
     ]
 
     public mutating func update(_ section: SidebarSectionPreference) {
-        sections = orderedSections.map { $0.id == section.id ? section : $0 }
+        let favorites = section.id == "favorites" ? section : favoritesSection
+        sections = [favorites] + orderedSections.map { $0.id == section.id ? section : $0 }
     }
 }
 
@@ -68,6 +105,7 @@ public struct SidebarSectionPreference: Codable, Equatable, Identifiable, Sendab
 
     public var title: String {
         switch id {
+        case "favorites": "Favorites"
         case "directMessage": "Direct Messages"
         case "groupDirectMessage": "Group Chats"
         case "space": "Spaces"

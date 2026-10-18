@@ -53,6 +53,32 @@ struct ConversationManagementCodingTests {
         })
     }
 
+    @Test func favoritesDecodeOlderPreferencesAndPreserveSortChoices() throws {
+        let old = try JSONDecoder().decode(SidebarPreferences.self, from: Data(#"{"sections":[]}"#.utf8))
+        #expect(old.favoriteConversations.isEmpty && old.favoriteMeetings.isEmpty)
+        var saved = SidebarPreferences(
+            sections: [.init(id: "space"), .init(
+                id: "favorites",
+                isVisible: false,
+                maximumItems: 1,
+                sort: .name,
+                isAscending: false
+            )],
+            favoriteConversations: [.init("opaque-chat")], favoriteMeetings: [.init("opaque-series")]
+        )
+        saved.update(.init(id: "appDirectMessage", isVisible: false))
+        let restored = try JSONDecoder().decode(SidebarPreferences.self, from: JSONEncoder().encode(saved))
+        #expect(restored == saved)
+        #expect(restored.displaySections.first?.id == "favorites")
+        #expect(restored.favoritesSection.isVisible)
+        #expect(restored.favoritesSection.maximumItems == Int.max)
+        #expect(restored.favoritesSection.sort == .name)
+        #expect(!restored.favoritesSection.sortsAscending)
+        #expect(restored.orderedSections.first?.id == "space")
+        #expect(restored.favoriteConversations == [.init("opaque-chat")])
+        #expect(restored.favoriteMeetings == [.init("opaque-series")])
+    }
+
     @Test func unfamiliarRolesRetainTheirEntirePayload() throws {
         let data = Data(#"{"type":"moderator","permissions":{"future":true}}"#.utf8)
         let role = try JSONDecoder().decode(ConversationRole.self, from: data)

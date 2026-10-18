@@ -140,6 +140,31 @@
             )
         }
 
+        @Test func favoritesRenderAboveOtherSectionsWithMixedRowsAndNoDirectory() async throws {
+            let chats = [
+                Conversation(id: .init("dm"), kind: .directMessage, title: "Alex Lee"),
+                Conversation(id: .init("space"), kind: .space, title: "Design Team"),
+                Conversation(id: .init("app"), kind: .appDirectMessage, title: "Calendar"),
+                Conversation(id: .init("group"), kind: .groupDirectMessage, title: "Launch Planning")
+            ]
+            var state = ChatSceneState(conversations: chats)
+            state.sidebarPreferences = SidebarPreferences(favoriteConversations: Set(chats.map(\.id)))
+            var sceneActions = ChatSceneActions()
+            sceneActions.updateSidebar = { _ in }
+            sceneActions.showDirectory = { _ in }
+            for dark in [false, true] {
+                try await render(
+                    ConversationList(state: state, actions: sceneActions).frame(width: 280),
+                    dark: dark, name: "favorites-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 280, height: 760)
+                )
+            }
+            try await render(
+                SidebarSettingsPane(preferences: state.sidebarPreferences, update: { _ in }),
+                dark: false, name: "favorites-settings", size: NSSize(width: 560, height: 780)
+            )
+        }
+
         private func renderDirectoryPages(
             _ initial: ChatSceneState,
             actions sceneActions: ChatSceneActions

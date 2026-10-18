@@ -19,7 +19,8 @@ extension AppEnvironment {
 public extension AppEnvironment {
     func updateSidebar(_ value: SidebarPreferences) {
         guard settings.account != nil else { return }
-        sidebarPreferences = SidebarPreferences(sections: value.orderedSections)
+        sidebarPreferences = value
+        sidebarPreferences.sections = value.displaySections
         savePersonalPreferences()
     }
 }

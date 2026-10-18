@@ -28,7 +28,7 @@ public struct SidebarSettingsPane: View {
             } footer: {
                 Text("Turn off a section to hide it. Use the arrows to change the order sections appear in.")
             }
-            ForEach(sections.filter(\.isVisible)) { section in
+            ForEach(preferences.displaySections.filter(\.isVisible)) { section in
                 Section(section.title) {
                     Picker("Sort By", selection: Binding(
                         get: { section.sort },
@@ -46,11 +46,13 @@ public struct SidebarSettingsPane: View {
                             Text(SidebarSortTitles.order(section.sort, ascending: ascending)).tag(ascending)
                         }
                     }
-                    LabeledContent("Conversations Shown") {
-                        SidebarLimitField(title: section.title, value: section.maximumItems) {
-                            var changed = section
-                            changed.maximumItems = $0
-                            change(changed)
+                    if section.id != "favorites" {
+                        LabeledContent("Conversations Shown") {
+                            SidebarLimitField(title: section.title, value: section.maximumItems) {
+                                var changed = section
+                                changed.maximumItems = $0
+                                change(changed)
+                            }
                         }
                     }
                 }
@@ -90,7 +92,9 @@ public struct SidebarSettingsPane: View {
         guard let index = rows.firstIndex(where: { $0.id == id }),
               rows.indices.contains(index + step) else { return }
         rows.swapAt(index, index + step)
-        update(SidebarPreferences(sections: rows))
+        var next = preferences
+        next.sections = [preferences.favoritesSection] + rows
+        update(next)
     }
 }
 
@@ -168,10 +172,12 @@ struct SidebarSectionMenu: View {
         Menu {
             SidebarSortMenuItems(section: section) { update(preferences.updating($0)) }
             Divider()
-            Button("Hide \(section.title)") {
-                var hidden = section
-                hidden.isVisible = false
-                update(preferences.updating(hidden))
+            if id != "favorites" {
+                Button("Hide \(section.title)") {
+                    var hidden = section
+                    hidden.isVisible = false
+                    update(preferences.updating(hidden))
+                }
             }
             if let showSettings {
                 Button("Sidebar Settings…", action: showSettings)

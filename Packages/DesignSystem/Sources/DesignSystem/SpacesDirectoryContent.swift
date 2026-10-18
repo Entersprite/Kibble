@@ -46,6 +46,12 @@ struct SpacesDirectoryContent: View {
         .contextMenu(forSelectionType: Conversation.ID.self) { ids in
             if ids.count == 1, let detail = detail(ids.first) {
                 Button(detail.membership == .joined ? "Open" : "Show Preview…") { open(detail) }
+                if detail.membership == .joined, let update = actions.updateSidebar {
+                    FavoriteMenuButton(
+                        target: .conversation(detail.conversation.id), preferences: state.sidebarPreferences,
+                        update: update
+                    )
+                }
                 if detail.membership == .joined, state.capabilities.canReadConversationDetails {
                     Button("Show Details…") { actions.browser?.details(detail.conversation.id, false) }
                 }

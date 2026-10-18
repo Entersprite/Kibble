@@ -7,14 +7,27 @@ import SwiftUI
 struct ConversationRowMenu: View {
     let entries: [ConversationMenu.Entry]
     let actions: ChatSceneActions
+    let preferences: SidebarPreferences
+    let favoriteTarget: SidebarSelection?
 
-    init(id: Conversation.ID, items: [ConversationMenu.Item], actions: ChatSceneActions) {
-        self.init(entries: items.map { ConversationMenu.Entry(item: $0, targets: [id]) }, actions: actions)
+    init(
+        id: Conversation.ID, items: [ConversationMenu.Item], preferences: SidebarPreferences,
+        actions: ChatSceneActions
+    ) {
+        self.init(
+            entries: items.map { ConversationMenu.Entry(item: $0, targets: [id]) },
+            favoriteTarget: .conversation(id), preferences: preferences, actions: actions
+        )
     }
 
-    init(entries: [ConversationMenu.Entry], actions: ChatSceneActions) {
+    init(
+        entries: [ConversationMenu.Entry], favoriteTarget: SidebarSelection,
+        preferences: SidebarPreferences, actions: ChatSceneActions
+    ) {
         self.entries = entries
         self.actions = actions
+        self.preferences = preferences
+        self.favoriteTarget = favoriteTarget
     }
 
     var body: some View {
@@ -43,6 +56,12 @@ struct ConversationRowMenu: View {
                     entry.targets.forEach { actions.showNotificationSettings?($0) }
                 }
             }
+        }
+        if let favoriteTarget, let update = actions.updateSidebar {
+            if !entries.isEmpty {
+                Divider()
+            }
+            FavoriteMenuButton(target: favoriteTarget, preferences: preferences, update: update)
         }
     }
 }
