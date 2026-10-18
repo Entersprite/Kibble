@@ -78,8 +78,8 @@ public extension FakeBackend {
 // MARK: - Attachments
 
 public extension FakeBackend {
-    /// `FixtureImage.png` for any attachment some message in the world
-    /// carries, or this fake has uploaded, at either size. No connection needed, like the other reads.
+    /// Bundled showcase files, or the legacy sample image for attachments the
+    /// world carries or this fake uploaded. No connection needed, like the other reads.
     /// An attachment the world does not hold is refused rather than invented,
     /// the same rule `FakeHTTPTransport` follows for a script that ran out.
     func attachmentData(_ attachment: Attachment, size _: AttachmentSize) async throws -> Data {
@@ -89,16 +89,16 @@ public extension FakeBackend {
         guard held else {
             throw ChatError.unknown("the fixture world holds no attachment \(attachment.id)")
         }
-        return FixtureImage.png
+        return try ShowcaseMedia.attachmentData(attachment) ?? FixtureImage.png
     }
 
-    /// The fixture's one picture, for `acme.example` URLs only, so a demo card
+    /// Bundled showcase artwork or the legacy sample image, for `acme.example` URLs only, so a demo card
     /// never reaches the network and a stray URL fails loudly (links spec §7.6).
     func remoteImage(_ url: URL) async throws -> Data {
         try require(capabilities.canFetchRemoteImages, "canFetchRemoteImages")
         guard let host = url.host()?.lowercased(), host == "acme.example" || host.hasSuffix(".acme.example")
         else { throw ChatError.unknown("the fixture serves no image from this host") }
-        return FixtureImage.png
+        return try ShowcaseMedia.imageData(url) ?? FixtureImage.png
     }
 }
 

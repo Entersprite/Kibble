@@ -98,7 +98,7 @@ public final class SystemLaunchServices: LaunchServices {
     static func attachmentDirectoryName(for arguments: LaunchArguments) -> String {
         switch arguments.backend {
         case .local: "attachments-local"
-        case .fixture: "attachments-fixture"
+        case .fixture: "attachments-showcase"
         }
     }
 
@@ -111,16 +111,16 @@ public final class SystemLaunchServices: LaunchServices {
         await resetCallServices()
         switch arguments.backend {
         case .fixture:
-            let fixture = FakeBackend(world: .acme, directory: FixtureWorld.acmeDirectory)
-            // The demo world's dates are literals (2026-08-31), so the mention
+            let fixture = FakeBackend(world: .showcase, directory: Showcase.directory)
+            // The demo world's dates are literals, so the mention
             // backfill's window is anchored at the world's own start rather
             // than the wall clock, which would leave it empty.
-            let demoNow = FixtureWorld.acme.startedAt
+            let demoNow = FixtureWorld.showcase.startedAt
             return SessionSelection(
                 backend: fixture,
-                me: Acme.alex,
-                driver: FixtureDemoDriver(backend: fixture),
-                audioCalls: FixtureAudioCallService(),
+                me: Showcase.alex,
+                driver: FixtureDemoDriver(backend: fixture, script: .showcaseDemo, repeats: false),
+                audioCalls: FixtureAudioCallService(world: .showcase),
                 now: { demoNow }
             )
         case .local:
@@ -327,7 +327,7 @@ public final class SystemLaunchServices: LaunchServices {
     static func databaseName(for arguments: LaunchArguments) -> String {
         switch arguments.backend {
         case .local: "chat-local.sqlite"
-        case .fixture: "chat-fixture.sqlite"
+        case .fixture: "chat-showcase.sqlite"
         }
     }
 

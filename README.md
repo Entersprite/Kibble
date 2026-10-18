@@ -41,6 +41,19 @@ replaced by hand once.
 `./scripts/test.sh` runs the architecture checks and every package's tests, and
 `./scripts/lint.sh` runs SwiftLint. Both must pass.
 
+## Demo mode
+
+After a Debug build, open Kibble with a fictional studio workspace:
+
+```sh
+open -n DerivedData/Build/Products/Debug/Kibble.app --args --backend=fixture
+```
+
+The demo includes conversations, threads, meetings, reactions, mentions, link
+previews, app cards and bundled images/documents. It needs no Google account
+and keeps its database and attachment cache separate from live chats. Calls
+are simulated without microphone, camera or screen capture.
+
 ## How it was made
 
 Kibble is built by its owner with [Claude Code](https://claude.com/claude-code),

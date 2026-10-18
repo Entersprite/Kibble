@@ -9,7 +9,7 @@ import PackageDescription
 /// cannot be written that way, a bridge concept has leaked into the domain and
 /// this manifest stops compiling - which is a better alarm than a code review.
 ///
-/// It is also not test-only. The Mac app consumes it in Debug (`--backend=fake`)
+/// It is also not test-only. The Mac app consumes it through `--backend=fixture`
 /// so the UI can be built and demonstrated with no Google account, no cookies
 /// and no network, which is why it does not live inside ChatKitTests.
 let package = Package(
@@ -27,6 +27,7 @@ let package = Package(
         .target(
             name: "FixtureBackend",
             dependencies: ["ChatKit"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

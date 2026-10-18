@@ -19,7 +19,7 @@ public extension FakeBackend {
         guard !FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) else {
             throw ChatError.unknown("the destination already exists")
         }
-        let bytes = FixtureFile.bytes(for: attachment)
+        let bytes = try ShowcaseMedia.attachmentData(attachment) ?? FixtureFile.bytes(for: attachment)
         for step in 1 ... 4 {
             progress(AttachmentProgress(bytesReceived: bytes.count * step / 4, totalBytes: bytes.count))
         }
