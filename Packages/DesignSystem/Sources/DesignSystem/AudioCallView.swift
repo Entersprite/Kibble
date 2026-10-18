@@ -149,6 +149,9 @@ public struct AudioCallView: View {
             .padding(.top, CallLayout.titlebarClearance)
             .padding(.horizontal, 20)
             .padding(.bottom, 22)
+            // The audio layout's column keeps the compact width in a larger
+            // window, a full-screen one, while the backdrop fills it.
+            .frame(width: video == nil ? CallLayout.compact.width : nil)
         }
         .overlay(alignment: .top) {
             if let live = liveVideo, live.remote != nil {
@@ -296,20 +299,17 @@ public enum CallLayout {
     static let answerButton: CGFloat = 62
 }
 
-/// The audio layout has a fixed width; the video layout fills the window.
+/// Both layouts fill the window, so either can go full screen. The audio
+/// layout's ideal size is still the compact one, which is what the host sizes
+/// its window to; its column keeps that width (`body`).
 private struct CallFrame: ViewModifier {
     let isVideo: Bool
 
     func body(content: Content) -> some View {
-        if isVideo {
-            content.frame(
-                minWidth: CallLayout.videoMinimum.width, maxWidth: .infinity,
-                minHeight: CallLayout.videoMinimum.height, maxHeight: .infinity
-            )
-        } else {
-            content
-                .frame(width: CallLayout.compact.width)
-                .frame(minHeight: CallLayout.compact.height)
-        }
+        let minimum = isVideo ? CallLayout.videoMinimum : CallLayout.compact
+        content.frame(
+            minWidth: minimum.width, maxWidth: .infinity,
+            minHeight: minimum.height, maxHeight: .infinity
+        )
     }
 }

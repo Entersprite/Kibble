@@ -86,6 +86,22 @@ struct CallVideoControllerTests {
         controller.clear()
     }
 
+    @Test func turnOnOnlyEverTurnsTheCameraOn() async {
+        let controller = CallVideoController(), route = CameraRoute()
+        controller.turnOn()
+        _ = controller.install(route)
+        controller.select("second")
+        controller.turnOn()
+        await wait { controller.camera?.isOn == true }
+        #expect(route.starts == ["second"])
+        // Unlike `toggle`, a second call leaves it on.
+        controller.turnOn()
+        #expect(controller.camera?.isOn == true)
+        #expect(route.sending)
+        #expect(route.starts == ["second"])
+        controller.clear()
+    }
+
     private func wait(_ condition: () -> Bool) async {
         for _ in 0 ..< 1000 {
             if condition() {
@@ -98,7 +114,7 @@ struct CallVideoControllerTests {
 }
 
 @MainActor
-private final class CameraRoute: CallCameraRouting {
+final class CameraRoute: CallCameraRouting {
     var activeDevice = "first"
     var starts: [String] = []
     var announcements: [Bool] = []

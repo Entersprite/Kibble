@@ -148,6 +148,13 @@ public struct ChatWindow: View {
                             .help("Start audio call")
                     }
                 }
+                if let videoCallConversation, let videoCall = actions.videoCall {
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Video Call", systemImage: "video") { videoCall(videoCallConversation) }
+                            .help("Start video call")
+                    }
+                }
             }
             .navigationSplitViewColumnWidth(min: ThreadColumnLayout.minimumWidth, ideal: 640)
         } detail: {

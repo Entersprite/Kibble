@@ -27,6 +27,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     let callDiagnostics: AudioCallDiagnosticExporter
     public let callSignIn: CallSignInRecovery
     let callVideo: CallVideoController
+    let callCamera = CallCameraRequest()
     let callAudioDevices: CallAudioDeviceController
     let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?

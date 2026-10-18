@@ -183,11 +183,14 @@ public final class SystemLaunchServices: LaunchServices {
     private func resetCallServices() async {
         callAudioDevices.clear()
         callVideo.clear()
+        callVideo.isAvailable = false
         await callSignIn.invalidate()
         callDiagnostics.install(nil)
     }
 
     private func configureCallServices(_ audioCalls: LocalBridgeAudioCallService) async {
+        // Its media engines are `NativeCallMedia`, which has the camera.
+        callVideo.isAvailable = true
         await callSignIn.install(
             load: { [weak audioCalls] in
                 guard let audioCalls else { throw CancellationError() }

@@ -73,6 +73,27 @@ struct ConversationMenuTests {
         #expect(Offers(ChatSceneActions(markRead: { _ in })) == Offers(markRead: true))
         let settings = ChatSceneActions(showNotificationSettings: { _ in })
         #expect(Offers(settings) == Offers(notificationSettings: true))
+        #expect(Offers(ChatSceneActions(call: { _ in })) == Offers(call: true))
+    }
+
+    @Test func callLeadsTheMenuOfADMTheHeaderWouldCall() {
+        var offers = all
+        offers.call = true
+        let callable = ChatSceneState(callableConversations: [id])
+        let dm = Conversation(id: id, kind: .directMessage, hasUnread: true)
+        #expect(ConversationMenu.items(for: dm, state: callable, offers: offers)
+            == [.call, .markAsRead, .mute, .notificationSettings])
+        // Ahead of Mark as Unread too, which otherwise goes first.
+        offers.conversationActions = Capabilities(canMarkUnread: true)
+        let first = Array(ConversationMenu.items(for: dm, state: callable, offers: offers).prefix(2))
+        #expect(first == [.call, .action(.markUnread)])
+        // Not for a DM calls cannot reach, nor without the host's action.
+        #expect(!ConversationMenu.items(for: dm, state: ChatSceneState(), offers: offers).contains(.call))
+        #expect(!ConversationMenu.items(for: dm, state: callable, offers: all).contains(.call))
+        for kind in [Conversation.Kind.groupDirectMessage, .appDirectMessage, .space, .meetChat] {
+            let other = Conversation(id: id, kind: kind)
+            #expect(!ConversationMenu.items(for: other, state: callable, offers: offers).contains(.call))
+        }
     }
 
     private func meeting(_ id: String, start: Double, unread: Bool = false) -> Conversation {

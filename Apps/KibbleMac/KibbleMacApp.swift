@@ -238,6 +238,8 @@ struct KibbleMacApp: App {
             : nil
         actions.showSettings = showSettings
         actions.showSidebarSettings = { settingsPane = "sidebar"; showSettings() }
+        // The camera is the Mac host's, so the host offers the video call.
+        actions.videoCall = appDelegate.videoCall
         return actions
     }
 }

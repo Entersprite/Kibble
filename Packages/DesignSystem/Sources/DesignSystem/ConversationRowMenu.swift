@@ -20,6 +20,11 @@ struct ConversationRowMenu: View {
     var body: some View {
         ForEach(entries, id: \.self) { entry in
             switch entry.item {
+            case .call:
+                Button("Call") { entry.targets.forEach { actions.call?($0) } }
+                if entry != entries.last {
+                    Divider()
+                }
             case let .action(action):
                 Button(action.menuTitle) {
                     for id in entry.targets {

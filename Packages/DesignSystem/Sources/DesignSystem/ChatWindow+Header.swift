@@ -5,8 +5,11 @@ import SwiftUI
 /// indicator spec §6.3). Moved out of `ChatWindow.swift`, which sits at
 /// `file_length`; `headerClock` is not `private` for this file's sake.
 extension ChatWindow {
+    /// Not for a one-to-one DM: its details are only the person's name and the
+    /// notification settings its sidebar menu already offers.
     var showsDetailsButton: Bool {
-        state.selectedConversation != nil && state.browser.page == nil &&
+        guard let conversation = state.selectedConversation else { return false }
+        return conversation.kind != .directMessage && state.browser.page == nil &&
             state.capabilities.canReadConversationDetails && actions.browser != nil
     }
 
@@ -18,6 +21,11 @@ extension ChatWindow {
               state.callableConversations.contains(conversation.id)
         else { return nil }
         return conversation.id
+    }
+
+    /// Where Video Call goes: beside Call, for a host whose calls carry video.
+    var videoCallConversation: Conversation.ID? {
+        actions.videoCall == nil ? nil : callConversation
     }
 
     var title: String {

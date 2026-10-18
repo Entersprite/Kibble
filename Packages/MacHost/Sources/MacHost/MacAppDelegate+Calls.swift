@@ -17,6 +17,27 @@ public extension MacAppDelegate {
         }
     }
 
+    /// Starts a DM call with the camera on, for the conversation header's
+    /// Video Call button. `nil`, which draws no button, while this session's
+    /// calls cannot carry video.
+    var videoCall: ((Conversation.ID) -> Void)? {
+        guard callVideo.isAvailable, environment.calls.isAvailable else { return nil }
+        return { [weak self] id in self?.startVideoCall(in: id) }
+    }
+
+    /// The same start as the header's Call button. Only a call this starts
+    /// gets the camera: a click while another call is going on raises that
+    /// call's window and leaves its camera alone.
+    private func startVideoCall(in id: Conversation.ID) {
+        let calls = environment.calls
+        guard case let .running(model) = environment.phase,
+              let conversation = model.conversations.first(where: { $0.id == id })
+        else { return }
+        let members = Array(model.directory.values)
+        guard let call = calls.startCall(in: conversation, members: members, me: model.me) else { return }
+        callCamera.request(for: call, calls: calls, video: callVideo)
+    }
+
     /// The call window observes the process-owned controller, independently
     /// of the main chat window's selection and lifetime.
     internal func startCallWindowObservation() {
@@ -234,6 +255,7 @@ public extension MacAppDelegate {
         terminationRequested = true
         callAlerts?.update(call: nil, rule: nil, paused: true)
         callResponseTask?.cancel()
+        callCamera.cancel()
         memoryPressureSource?.cancel()
         environment.releasePresentationCaches()
         Task { @MainActor [environment] in

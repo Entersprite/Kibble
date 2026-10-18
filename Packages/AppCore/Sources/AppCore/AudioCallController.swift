@@ -167,19 +167,24 @@ public final class AudioCallController {
         return recipient.memberID
     }
 
-    public func startCall(in conversation: Conversation, members: [Member], me: Member.ID?) {
+    /// Returns the new call's ID, or nil when no call started: one is already
+    /// going on, and its window was raised instead, or this conversation
+    /// cannot be called.
+    @discardableResult
+    public func startCall(in conversation: Conversation, members: [Member], me: Member.ID?) -> UUID? {
         if isEnding || call.map({ !$0.phase.isTerminal }) == true {
             windowRequests += 1
-            return
+            return nil
         }
         guard canCall(conversation: conversation, members: members, me: me),
-              let service, let recipient = recipients[conversation.id] else { return }
+              let service, let recipient = recipients[conversation.id] else { return nil }
         let snapshot = AudioCallSnapshot(
             id: UUID(), recipient: recipient, direction: .outgoing, phase: .connecting
         )
         call = snapshot
         windowRequests += 1
         runOperation(id: snapshot.id) { try await service.startOutgoing(to: recipient, callID: snapshot.id) }
+        return snapshot.id
     }
 
     public func accept() {

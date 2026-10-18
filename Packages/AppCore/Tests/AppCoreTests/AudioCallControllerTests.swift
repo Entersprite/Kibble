@@ -25,11 +25,14 @@ struct AudioCallControllerTests {
     @Test func outgoingIsExplicitAndRepeatedClickRaisesTheSameCall() async throws {
         let (controller, service) = await ready()
         #expect(service.operations.isEmpty)
-        controller.startCall(in: conversation, members: [peer], me: me)
+        let started = controller.startCall(in: conversation, members: [peer], me: me)
         let id = try #require(controller.call?.id)
+        #expect(started == id)
         #expect(controller.call?.phase == .connecting)
         #expect(await eventually { service.operations == ["outgoing"] })
-        controller.startCall(in: conversation, members: [peer], me: me)
+        // The second click raises the call it started; it starts none.
+        let again = controller.startCall(in: conversation, members: [peer], me: me)
+        #expect(again == nil)
         #expect(controller.call?.id == id)
         #expect(controller.windowRequests == 2)
         #expect(service.operations == ["outgoing"])
@@ -42,6 +45,8 @@ struct AudioCallControllerTests {
         var unsupported = conversation
         unsupported.id = Conversation.ID("unavailable")
         #expect(!controller.canCall(conversation: unsupported, members: [peer], me: me))
+        #expect(controller.startCall(in: unsupported, members: [peer], me: me) == nil)
+        #expect(controller.call == nil)
         #expect(!controller.canCall(conversation: unsupported, directory: [peer.id: peer], me: me))
         #expect(!controller.canCall(conversation: conversation, members: [peer], me: nil))
         #expect(!controller.canCall(conversation: conversation, members: [], me: me))

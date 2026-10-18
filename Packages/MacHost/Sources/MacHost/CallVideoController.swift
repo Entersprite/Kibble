@@ -8,6 +8,9 @@ import Observation
 @MainActor
 @Observable
 public final class CallVideoController {
+    /// Whether this session's calls can carry video: true for the native media
+    /// engine, which brings a camera. The fixture's calls have none.
+    public internal(set) var isAvailable = false
     public private(set) var camera: CallCameraState?
     var localTrack: LKRTCVideoTrack?
     var remoteTrack: LKRTCVideoTrack?
@@ -80,6 +83,12 @@ public final class CallVideoController {
         } else {
             turnOn(camera.selected)
         }
+    }
+
+    /// Turns the chosen camera on; does nothing while it is on or changing.
+    public func turnOn() {
+        guard let camera, !camera.isOn, !camera.isUpdating else { return }
+        turnOn(camera.selected)
     }
 
     public func select(_ id: String) {

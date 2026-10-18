@@ -9,8 +9,10 @@ import SwiftUI
 /// window buttons floating over it. A call starts in the compact audio size
 /// and grows into a resizable video window, around its own center, the first
 /// time video appears. It stays that size until the call is over, so a camera
-/// switched off for a moment does not make the window jump. When the person
-/// has it on, the window closes itself a few seconds after a call ends.
+/// switched off for a moment does not make the window jump. Either size can
+/// go full screen; a change of layout while it is full screen resizes the
+/// window when it leaves. When the person has it on, the window closes itself
+/// a few seconds after a call ends.
 @MainActor
 public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     private let actionsForCall: (UUID) -> AudioCallActions
@@ -21,10 +23,16 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     private let closesFinishedCalls: () -> Bool
     private let closeDelay: Duration
     private let pointerIsInside: (NSWindow) -> Bool
+    private let isFullScreen: (NSWindow) -> Bool
     private var closing: Task<Void, Never>?
     private var callID: UUID?
     private var lastWindowRequest: Int?
     private var isClosingSilently = false
+    /// Between asking for full screen, or to leave it, and AppKit finishing.
+    private var isChangingFullScreen = false
+    /// What the window's frame was last sized for. Kept apart from `layout`,
+    /// which can change while the window is full screen and not resized.
+    private var isSizedForVideo = false
     private(set) var timing = CallTiming()
     private(set) var layout = CallWindowLayout()
     private(set) var window: NSWindow?
@@ -56,6 +64,7 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         closesFinishedCalls: @escaping () -> Bool = { false },
         closeDelay: Duration = .seconds(3),
         pointerIsInside: @escaping (NSWindow) -> Bool = { $0.frame.contains(NSEvent.mouseLocation) },
+        isFullScreen: @escaping (NSWindow) -> Bool = { $0.styleMask.contains(.fullScreen) },
         present: @escaping (NSWindow) -> Void,
         incomingAttention: @escaping () -> Void = {},
         now: @escaping () -> Date = Date.init
@@ -65,6 +74,7 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         self.closesFinishedCalls = closesFinishedCalls
         self.closeDelay = closeDelay
         self.pointerIsInside = pointerIsInside
+        self.isFullScreen = isFullScreen
         self.present = present
         self.incomingAttention = incomingAttention
         self.now = now
@@ -108,9 +118,8 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         let window = window ?? makeWindow()
         self.window = window
         window.title = call.recipient.displayName
-        let wasVideo = layout.isVideo
         render(call, in: window, devices: devices, video: video, person: person)
-        resize(window, from: wasVideo, isNewCall: isNewCall)
+        resize(window, isNewCall: isNewCall)
         if shouldPresent {
             present(window)
             if isNewCall, call.phase == .incoming {
@@ -188,6 +197,40 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         windowClosed(callID)
     }
 
+    /// AppKit leaves a window that cannot be resized at its own size in the
+    /// full-screen space, so the audio size is lent `.resizable` until
+    /// `resize` takes it back on the way out.
+    public func windowWillEnterFullScreen(_ notification: Notification) {
+        isChangingFullScreen = true
+        window?.styleMask.insert(.resizable)
+    }
+
+    public func windowDidEnterFullScreen(_ notification: Notification) {
+        isChangingFullScreen = false
+    }
+
+    public func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        isChangingFullScreen = false
+        resize(window, isNewCall: false)
+    }
+
+    public func windowWillExitFullScreen(_ notification: Notification) {
+        isChangingFullScreen = true
+    }
+
+    /// AppKit has put back the frame from before full screen, which is the
+    /// wrong size if the call switched to video, or a new call began, meanwhile.
+    public func windowDidExitFullScreen(_ notification: Notification) {
+        isChangingFullScreen = false
+        if let window {
+            resize(window, isNewCall: false)
+        }
+    }
+
+    public func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        isChangingFullScreen = false
+    }
+
     /// The connected moment is the first connected snapshot this window saw;
     /// the end is the first finished one after that.
     static func timing(_ timing: CallTiming, for phase: AudioCallPhase, now: () -> Date) -> CallTiming {
@@ -214,7 +257,9 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = .black
         window.tabbingMode = .disallowed
-        window.collectionBehavior = [.fullScreenNone]
+        // Not resizable at the audio size, and full screen all the same: the
+        // stage fills whatever window it is in.
+        window.collectionBehavior = [.fullScreenPrimary]
         window.identifier = CallSurface.callWindow
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -224,20 +269,22 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
 
     /// The audio size follows the content, keeping the top edge where it was.
     /// The video size is set once, on the switch, and is the person's after that.
-    private func resize(_ window: NSWindow, from wasVideo: Bool, isNewCall: Bool) {
-        guard !window.styleMask.contains(.fullScreen) else { return }
+    /// Full screen owns the frame; leaving it calls this again.
+    private func resize(_ window: NSWindow, isNewCall: Bool) {
+        guard !isChangingFullScreen, !isFullScreen(window) else { return }
+        let wasVideo = isSizedForVideo
+        isSizedForVideo = layout.isVideo
         if layout.isVideo {
             guard !wasVideo else { return }
             window.styleMask.insert(.resizable)
-            window.collectionBehavior = [.fullScreenPrimary]
             window.contentMinSize = CallLayout.videoMinimum
             let frame = Self.frame(of: CallLayout.video, around: window.frame, on: window.screen)
             window.setFrame(frame, display: true)
             return
         }
+        // Also after full screen, which lent it.
+        window.styleMask.remove(.resizable)
         if wasVideo {
-            window.styleMask.remove(.resizable)
-            window.collectionBehavior = [.fullScreenNone]
             window.contentMinSize = .zero
         }
         guard let content else { return }

@@ -160,6 +160,10 @@ public struct ChatSceneActions {
     public var showSettings: (() -> Void)?
     /// Starts a DM audio call, or brings the existing call window forward.
     public var call: ((Conversation.ID) -> Void)?
+    /// Starts a DM call with the camera on. **Optional**, beside `call`: only
+    /// a host whose calls can carry video supplies it, and `nil` draws no
+    /// Video Call button.
+    public var videoCall: ((Conversation.ID) -> Void)?
     /// Page the selected transcript. Missing callbacks draw no paging controls.
     public var loadOlderMessages: (() -> Void)?
     public var loadNewerMessages: (() -> Void)?

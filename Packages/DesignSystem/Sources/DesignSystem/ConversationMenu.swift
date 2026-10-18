@@ -7,6 +7,7 @@ import ChatKit
 /// nowhere else checks it. `ConversationList` draws exactly these items.
 enum ConversationMenu {
     enum Item: Hashable {
+        case call
         case markAsRead
         case action(ConversationAction)
         case mute
@@ -17,6 +18,7 @@ enum ConversationMenu {
     /// Which of the menu's actions the host supplied - `ChatSceneActions`'
     /// optional closures, as presence only.
     struct Offers: Equatable {
+        var call = false
         var markRead = false
         var mute = false
         var unmute = false
@@ -24,8 +26,9 @@ enum ConversationMenu {
         var conversationActions: Capabilities = .init()
     }
 
-    /// Mark as Read where it can publish, Mute or Unmute by the conversation's
-    /// own record, then its editor - each only where the host offered it.
+    /// Call first, for a DM the header would offer it for. Then Mark as Read
+    /// where it can publish, Mute or Unmute by the conversation's own record,
+    /// then its editor - each only where the host offered it.
     ///
     /// `hasUnread`, not the drawn indicator: a muted conversation looks read
     /// and still is not, for its sender. Mute versus Unmute reads `muted`, the
@@ -56,6 +59,9 @@ enum ConversationMenu {
             } else {
                 items.append(.action(action))
             }
+        }
+        if offers.call, conversation.kind == .directMessage, state.callableConversations.contains(id) {
+            items.insert(.call, at: 0)
         }
         return items
     }
@@ -99,6 +105,7 @@ extension ConversationMenu {
 extension ConversationMenu.Offers {
     @MainActor init(_ actions: ChatSceneActions) {
         self.init(
+            call: actions.call != nil,
             markRead: actions.markRead != nil,
             mute: actions.mute != nil,
             unmute: actions.unmute != nil,
