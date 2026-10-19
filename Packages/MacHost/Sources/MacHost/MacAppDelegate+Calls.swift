@@ -260,6 +260,7 @@ public extension MacAppDelegate {
         environment.releasePresentationCaches()
         Task { @MainActor [environment] in
             await self.callSignIn.invalidate()
+            await self.accountFixture?.stop()
             await environment.calls.stop()
             sender.reply(toApplicationShouldTerminate: true)
         }

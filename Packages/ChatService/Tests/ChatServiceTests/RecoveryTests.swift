@@ -1,9 +1,9 @@
 import ChatAPI
 import ChatKit
-import ChatService
 import ChatServiceStorage
 import Foundation
 import Testing
+@testable import ChatService
 
 struct RecoveryTests {
     private struct PartialStorage: ServiceStorageFactory {
@@ -96,7 +96,8 @@ struct RecoveryTests {
     @Test func disabledAccountPolicyAndOperationStatusDoNotStartAProvider() async throws {
         let harness = try await ServiceHarness.make()
         let operation = ServiceOperationID("durable")
-        let store = try SQLiteServiceStorageFactory(directory: harness.directory).open(harness.first.id)
+        let runtime = try #require(await harness.service.runtimes[harness.first.id])
+        let store = await runtime.storage
         let request = try ServiceRequest(
             header: ServiceRequestHeader(
                 requestID: ServiceRequestID("reserved"),

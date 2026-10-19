@@ -14,7 +14,12 @@ import Foundation
 /// or not.
 @MainActor
 public final class MacAppDelegate: NSObject, NSApplicationDelegate {
-    public let environment: AppEnvironment
+    private let legacyEnvironment: AppEnvironment
+    public let accountFixture: SystemAccountFixtureHost?
+    public var environment: AppEnvironment {
+        accountFixture?.workspace?.selectedEnvironment ?? legacyEnvironment
+    }
+
     /// Settings › Updates and the updater behind it, for the life of the
     /// process like everything else here. No updater in a development build
     /// (`KibbleUpdatesEnabled`), so a dev build never replaces itself.
@@ -51,7 +56,11 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         let settingsStore: any NotificationSettingsStore =
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
-        let services = SystemLaunchServices(arguments: .fromCommandLine())
+        let fixture = Self.fixtureHost()
+        accountFixture = fixture
+        let services =
+            SystemLaunchServices(arguments: fixture == nil ? .fromCommandLine() :
+                LaunchArguments(backend: .fixture))
         callAudioDevices = services.callAudioDevices
         callVideo = services.callVideo
         callSignIn = services.callSignIn
@@ -60,11 +69,17 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         services.diagnostics = diagnostics
         let environment = AppEnvironment(
             services: services,
-            notifications: notifications,
+            notifications: fixture == nil ? notifications : nil,
             settingsStore: settingsStore
         )
-        self.environment = environment
-        mainWindowMinimising = MainWindowMinimising { environment.setWindowMinimized($0) }
+        legacyEnvironment = environment
+        mainWindowMinimising = MainWindowMinimising {
+            if let fixture {
+                fixture.setViewing(minimized: $0)
+            } else {
+                environment.setWindowMinimized($0)
+            }
+        }
         let info = Bundle.main.infoDictionary ?? [:]
         updates = UpdateSettingsModel(
             updater: UpdateSettingsModel
@@ -84,39 +99,54 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         callSettings.previewRingtone = { [weak callRinger] in callRinger?.preview($0) }
     }
 
+    private static func fixtureHost() -> SystemAccountFixtureHost? {
+        #if DEBUG
+            CommandLine.arguments.contains("--multi-account-fixture") ? SystemAccountFixtureHost() : nil
+        #else
+            nil
+        #endif
+    }
+
     public func applicationWillFinishLaunching(_: Notification) {
         // Before launch completes, or the click that launched the app is lost.
-        notifications.install()
+        if accountFixture == nil {
+            notifications.install()
+        }
     }
 
     public func applicationDidFinishLaunching(_: Notification) {
-        startCallWindowObservation()
-        diagnostics.start()
-        diagnostics.sampleMemory()
-        memoryTask = Task { [diagnostics] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                guard !Task.isCancelled else { return }
-                diagnostics.sampleMemory()
+        if accountFixture == nil {
+            startCallWindowObservation()
+            diagnostics.start()
+            diagnostics.sampleMemory()
+        }
+        startMemoryMonitoring()
+        let environment = legacyEnvironment
+        let fixture = accountFixture
+        Task {
+            if let fixture {
+                await fixture.start()
+            } else {
+                await environment.start()
             }
         }
-        let environment = environment
-        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        pressure.setEventHandler { [weak environment] in
-            MainActor.assumeIsolated { environment?.releasePresentationCaches() }
-        }
-        memoryPressureSource = pressure
-        pressure.activate()
-        Task { await environment.start() }
 
         // Read once so a launch that is already frontmost says so; every
         // later value is a real transition (`AppActivityMonitor`'s doc).
         let monitor = AppActivityMonitor()
-        environment.setActive(monitor.isActive)
+        if let fixture {
+            fixture.setViewing(active: monitor.isActive)
+        } else {
+            environment.setActive(monitor.isActive)
+        }
         let changes = monitor.changes
         activityTask = Task {
             for await active in changes {
-                environment.setActive(active)
+                if let fixture {
+                    fixture.setViewing(active: active)
+                } else {
+                    environment.setActive(active)
+                }
             }
         }
 
@@ -125,13 +155,25 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         let deviceChanges = DeviceActivityMonitor().changes
         deviceTask = Task {
             for await inUse in deviceChanges {
-                environment.setDeviceActive(inUse)
+                if let fixture {
+                    fixture.setDeviceActive(inUse)
+                } else {
+                    environment.setDeviceActive(inUse)
+                }
             }
         }
 
         // A minimised window's views do not disappear, so `.onDisappear`
         // cannot report it. `[Verify]` on macOS 26 - the shell's live check.
         // Every window posts these; `MainWindowMinimising` keeps the main one's.
+        startWindowMonitoring()
+
+        if accountFixture == nil {
+            updates.start()
+        }
+    }
+
+    private func startWindowMonitoring() {
         let center = NotificationCenter.default
         let minimising = mainWindowMinimising
         windowObservers = [NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification]
@@ -141,8 +183,40 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
                     MainActor.assumeIsolated { minimising.handle(name, object: window) }
                 }
             }
+    }
 
-        updates.start()
+    private func startMemoryMonitoring() {
+        if accountFixture == nil {
+            memoryTask = Task { [diagnostics] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    guard !Task.isCancelled else { return }
+                    diagnostics.sampleMemory()
+                }
+            }
+        }
+        let environment = legacyEnvironment
+        let fixture = accountFixture
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        pressure.setEventHandler { [weak environment] in
+            MainActor.assumeIsolated {
+                if let fixture {
+                    fixture.workspace?.releasePresentationCaches()
+                } else {
+                    environment?.releasePresentationCaches()
+                }
+            }
+        }
+        memoryPressureSource = pressure
+        pressure.activate()
+    }
+
+    public func setMainWindowOpen(_ open: Bool) {
+        if let accountFixture {
+            accountFixture.setViewing(open: open)
+        } else {
+            legacyEnvironment.setWindowOpen(open)
+        }
     }
 
     /// Closing the window must not quit: notifications only arrive while the

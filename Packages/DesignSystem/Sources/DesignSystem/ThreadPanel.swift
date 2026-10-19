@@ -119,6 +119,14 @@ struct ThreadPanel: View {
                     : nil,
                 editing: editing,
                 emoji: actions.reactions,
+                initialDraft: state.composerDrafts[ComposerDraftAddress(
+                    conversation: panel.thread.conversationID, thread: panel.thread.id
+                )] ?? .init(),
+                preserveDraft: actions.preserveDraft.map { preserve in
+                    { preserve(ComposerDraftAddress(
+                        conversation: panel.thread.conversationID, thread: panel.thread.id
+                    ), $0) }
+                },
                 // The thread open at call time, not captured as `sendHere` is: safe only
                 // while these mentions have no `nonMembers`, so nothing is awaited first.
                 send: threads.sendReply

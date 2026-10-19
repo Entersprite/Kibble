@@ -42,12 +42,19 @@ public struct ChatDelivery: Codable, Hashable, Sendable {
     public let events: [ChatEvent]
     public let isSnapshot: Bool
     public let isLive: Bool
+    /// Local transport health, independent of the provider's connection/error.
+    /// Missing values leave that client state unchanged.
+    public let clientTransportAvailable: Bool?
 
-    public init(checkpoint: ReplicaCheckpoint?, events: [ChatEvent], isSnapshot: Bool, isLive: Bool) {
+    public init(
+        checkpoint: ReplicaCheckpoint?, events: [ChatEvent], isSnapshot: Bool, isLive: Bool,
+        clientTransportAvailable: Bool? = nil
+    ) {
         self.checkpoint = checkpoint
         self.events = events
         self.isSnapshot = isSnapshot
         self.isLive = isLive
+        self.clientTransportAvailable = clientTransportAvailable
     }
 }
 

@@ -14,6 +14,7 @@ public struct Composer: View {
     let activity: ((Bool) -> Void)?
     let placeholder: String
     let send: (ComposedMessage) -> Void
+    let preserveDraft: ((ComposerDraft) -> Void)?
 
     /// A failed send, mentions and all, offered back for this composer to
     /// adopt. `nil` in every ordinary frame - see `ComposerDraft`.
@@ -62,6 +63,8 @@ public struct Composer: View {
         mentions: ComposerMentions? = nil,
         editing: ComposerEditing? = nil,
         emoji: ReactionActions? = nil,
+        initialDraft: ComposerDraft = ComposerDraft(),
+        preserveDraft: ((ComposerDraft) -> Void)? = nil,
         send: @escaping (ComposedMessage) -> Void
     ) {
         self.activity = activity
@@ -74,6 +77,8 @@ public struct Composer: View {
         self.editing = editing
         self.emoji = emoji
         self.send = send
+        _draft = State(initialValue: initialDraft)
+        self.preserveDraft = preserveDraft
     }
 
     public var body: some View {
@@ -132,11 +137,13 @@ public struct Composer: View {
         // mid-check, or with the confirmation up): it goes back to this
         // conversation's draft rather than being lost (review finding 2).
         .onDisappear {
+            preserveDraft?(draft.compositionOnly)
             activity?(false)
             if let unsent = pendingInvite?.message ?? checking {
                 mentions?.keepHere?(unsent)
             }
         }
+        .onChange(of: draft) { _, draft in preserveDraft?(draft.compositionOnly) }
         .confirmationDialog(
             pendingInvite.map(\.title) ?? "",
             isPresented: Binding(get: { pendingInvite != nil }, set: {
@@ -383,16 +390,5 @@ public struct Composer: View {
     private func cancelEdit() {
         guard draft.endEditing() != nil else { return }
         editing?.ended()
-    }
-
-    private func finish(_ message: ComposedMessage) {
-        if ComposerSendGate.clears(draft: draft.composed(), sent: message) {
-            draft.clear()
-        }
-        if let sendHere = mentions?.sendHere {
-            sendHere(message)
-        } else {
-            send(message)
-        }
     }
 }

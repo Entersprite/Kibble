@@ -60,19 +60,22 @@ extension ChatService {
         records.values.sorted { $0.id.rawValue < $1.id.rawValue }.compactMap { record in
             guard record.principalID == context.principalID, context.allowsAccount(record.id)
             else { return nil }
-            let status = runtimeStatuses[record.id]
-            let active = record.isEnabled && !record.isRemoving && record.authenticationState == nil &&
-                status?.instanceID == runtimes[record.id]?.instanceID &&
-                status?.revision == record.currentRevision
-            return AccountSummary(
-                id: record.id, selfID: record.selfID, label: record.label,
-                connection: active ? status?.status.connection ?? .idle :
-                    .disconnected(reason: nil, issue: nil),
-                isEnabled: record.isEnabled, isRemoving: record.isRemoving,
-                capabilities: active ? status?.status.capabilities ?? .init() : .init(),
-                revision: record.currentRevision, authenticationState: record.authenticationState
-            )
+            return accountSummary(record)
         }
+    }
+
+    func accountSummary(_ record: AccountRecord) -> AccountSummary {
+        let status = runtimeStatuses[record.id]
+        let active = record.isEnabled && !record.isRemoving && record.authenticationState == nil &&
+            status?.instanceID == runtimes[record.id]?.instanceID && status?.revision == record
+            .currentRevision
+        return AccountSummary(
+            id: record.id, selfID: record.selfID, label: record.label,
+            connection: active ? status?.status.connection ?? .idle : .disconnected(reason: nil, issue: nil),
+            isEnabled: record.isEnabled, isReady: active, isRemoving: record.isRemoving,
+            capabilities: active ? status?.status.capabilities ?? .init() : .init(),
+            revision: record.currentRevision, authenticationState: record.authenticationState
+        )
     }
 
     func accountStateChanged() {

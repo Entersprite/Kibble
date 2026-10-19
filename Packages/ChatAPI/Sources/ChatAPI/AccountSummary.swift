@@ -9,6 +9,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
     public let authenticationState: String?
     public let isRemoving: Bool
     public let isEnabled: Bool
+    public let isReady: Bool
     public let capabilities: Capabilities
     public let connection: ConnectionState
 
@@ -18,6 +19,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         label: String,
         connection: ConnectionState,
         isEnabled: Bool = true,
+        isReady: Bool = false,
         isRemoving: Bool = false,
         capabilities: Capabilities = .init(),
         revision: ServiceAccountRevision? = nil,
@@ -31,11 +33,13 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         self.authenticationState = authenticationState
         self.isRemoving = isRemoving
         self.isEnabled = isEnabled
+        self.isReady = isReady
         self.capabilities = capabilities
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, revision, selfID, label, connection, isEnabled, isRemoving, capabilities, authenticationState
+        case id, revision, selfID, label, connection, isReady, isEnabled, isRemoving, capabilities,
+             authenticationState
     }
 
     public init(from decoder: any Decoder) throws {
@@ -46,6 +50,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
             label: values.decode(String.self, forKey: .label),
             connection: values.decode(ConnectionState.self, forKey: .connection),
             isEnabled: values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true,
+            isReady: values.decodeIfPresent(Bool.self, forKey: .isReady) ?? false,
             isRemoving: values.decodeIfPresent(Bool.self, forKey: .isRemoving) ?? false,
             capabilities: values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init(),
             revision: values.decodeIfPresent(ServiceAccountRevision.self, forKey: .revision),

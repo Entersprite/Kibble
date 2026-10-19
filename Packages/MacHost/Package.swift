@@ -26,6 +26,7 @@ let package = Package(
         .package(path: "../LocalBridgeBackend"),
         .package(path: "../ChatAPI"),
         .package(path: "../ChatService"),
+        .package(path: "../ServiceClient"),
         // The updater: check, download, EdDSA check, sandboxed install. Imported by
         // SparkleUpdater.swift alone (scripts/test.sh).
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.0"),
@@ -44,7 +45,9 @@ let package = Package(
                 "FixtureBackend",
                 "LocalBridgeBackend",
                 "ChatAPI",
-                "ChatService",
+                "ChatService", "ServiceClient",
+                .product(name: "ChatServiceStorage", package: "ChatService"),
+                .product(name: "InProcessChatTransport", package: "ChatAPI"),
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "LiveKitWebRTC", package: "webrtc-xcframework")
             ],

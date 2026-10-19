@@ -4,6 +4,9 @@ import Foundation
 extension SyncEngine {
     func handleDelivery(_ delivery: ChatDelivery) async -> Bool {
         guard !Task.isCancelled else { return false }
+        if let available = delivery.clientTransportAvailable {
+            updateClientTransport(available)
+        }
         do {
             var writes: [StoreWrite] = []
             var effects: [SyncEffect] = []
@@ -29,16 +32,20 @@ extension SyncEngine {
                     worldLoaded()
                 }
             }
-            for effect in effects {
-                if case .announceArrival = effect, !delivery.isLive || delivery.isSnapshot {
-                    continue
-                }
-                await perform(effect)
-            }
+            await performDeliveryEffects(effects, delivery: delivery)
             return true
         } catch {
             record(error)
             return false
+        }
+    }
+
+    private func performDeliveryEffects(_ effects: [SyncEffect], delivery: ChatDelivery) async {
+        for effect in effects {
+            if case .announceArrival = effect, !delivery.isLive || delivery.isSnapshot {
+                continue
+            }
+            await perform(effect)
         }
     }
 }

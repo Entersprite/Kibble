@@ -8,6 +8,7 @@ public extension ChatSessionModel {
             watcher.cancel()
         }
         watchers = []
+        isClientTransportAvailable = true
         conversationWatchers = []
         // Cancelled, not joined: the request behind it may not itself be
         // abortable, and blocking `stop()` on a hung call would make sign-out

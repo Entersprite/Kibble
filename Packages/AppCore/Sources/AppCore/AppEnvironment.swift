@@ -13,12 +13,12 @@ import SyncEngine
 @MainActor
 @Observable
 public final class AppEnvironment {
-    public private(set) var phase: LaunchPhase = .loading
+    public internal(set) var phase: LaunchPhase = .loading
     /// One audio owner for every window belonging to this app session.
     public let calls = AudioCallController()
 
     let services: any LaunchServices
-    private var driver: (any DemoDriver)?
+    var driver: (any DemoDriver)?
 
     /// The session this launch built, held from the moment it exists rather
     /// than from the moment it is parked in `.running`.
@@ -44,12 +44,14 @@ public final class AppEnvironment {
     /// is still writing into it. That is precisely the interleaving
     /// `ChatSessionModel.stopAndEraseStore()` exists to make impossible, so
     /// the model has to be reachable before it is parked, not after.
-    private(set) var model: ChatSessionModel?
+    var model: ChatSessionModel?
     /// The active backend's connection label; cleared with its session.
     var connectionService: ConnectionService?
+    @ObservationIgnored var composerDrafts: [ComposerDraftAddress: ComposerDraft] = [:]
 
     /// This session's attachment cache (`AppEnvironment+Attachments.swift`).
     var attachments: AttachmentCache?
+    var retiredAttachments: AttachmentCache?
     /// This session's file downloads (`DownloadCoordinator`).
     var downloads: DownloadCoordinator?
 
@@ -357,6 +359,7 @@ public final class AppEnvironment {
         // `LaunchServices.eraseStore()` and a second one.
         model = nil
         connectionService = nil
+        composerDrafts = [:]
         phase = .needsSignIn(reason: reason)
     }
 

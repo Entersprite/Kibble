@@ -29,6 +29,8 @@ public actor SyncEngine {
     var desiredTyping: TypingUpdate?
     var typingLastSent: ContinuousClock.Instant?
     var sentTyping: TypingUpdate?
+    var clientTransportAvailable = true
+    var clientTransportObservers: [UUID: AsyncStream<Bool>.Continuation] = [:]
     var typingIdle: Task<Void, Never>?
 
     /// Whether this client is refusing to publish anything about itself.

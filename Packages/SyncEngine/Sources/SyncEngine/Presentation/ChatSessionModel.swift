@@ -36,6 +36,7 @@ public final class ChatSessionModel {
     ///
     /// Not `private(set)`: that catch lives in `ChatSessionModel+Observing.swift`.
     public internal(set) var lastError: ChatError?
+    public internal(set) var isClientTransportAvailable = true
     var conversationActionError: ChatError?
     public internal(set) var selected: Conversation.ID? // set from +Mentions.swift
     public internal(set) var selectedMeetingSeries: MeetingSeries.ID?
@@ -332,6 +333,7 @@ public final class ChatSessionModel {
         watch(store.observeLastError()) { [weak self] in
             self?.lastError = $0 ?? self?.conversationActionError
         }
+        watchClientTransport()
         try await engine.start()
     }
 

@@ -1,6 +1,18 @@
+import ChatKit
 import SwiftUI
 
 extension Composer {
+    func finish(_ message: ComposedMessage) {
+        if ComposerSendGate.clears(draft: draft.composed(), sent: message) {
+            draft.clear()
+        }
+        if let sendHere = mentions?.sendHere {
+            sendHere(message)
+        } else {
+            send(message)
+        }
+    }
+
     var trimmed: String {
         draft.composed().text
     }

@@ -54,6 +54,14 @@ public struct ComposerDraft: Equatable, Sendable {
 
     public init() {}
 
+    /// A destroyed composer cancels its edit. Keep the unsent composition it
+    /// set aside, so edited message text cannot become a new outgoing draft.
+    public var compositionOnly: ComposerDraft {
+        var copy = self
+        _ = copy.endEditing()
+        return copy
+    }
+
     /// The whole text replaced at once: `TextField`'s binding, or anything
     /// the text view did that the edit routing did not see. Tokens survive
     /// only where the new text still reads `@name` at their offsets.

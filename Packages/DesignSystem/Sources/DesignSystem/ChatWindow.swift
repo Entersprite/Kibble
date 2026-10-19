@@ -204,6 +204,11 @@ public struct ChatWindow: View {
                     : nil,
                 editing: composerEditing(),
                 emoji: actions.reactions,
+                initialDraft: state
+                    .composerDrafts[ComposerDraftAddress(conversation: conversation.id)] ?? .init(),
+                preserveDraft: actions.preserveDraft.map { preserve in
+                    { preserve(ComposerDraftAddress(conversation: conversation.id), $0) }
+                },
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without

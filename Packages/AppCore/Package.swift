@@ -18,18 +18,20 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../ChatKit"),
+        .package(path: "../ChatAPI"),
+        .package(path: "../ServiceClient"),
         .package(path: "../SyncEngine"),
         .package(path: "../DesignSystem")
     ],
     targets: [
         .target(
             name: "AppCore",
-            dependencies: ["ChatKit", "SyncEngine", "DesignSystem"],
+            dependencies: ["ChatKit", "ChatAPI", "ServiceClient", "SyncEngine", "DesignSystem"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "AppCoreTests",
-            dependencies: ["AppCore", "ChatKit", "SyncEngine", "DesignSystem"],
+            dependencies: ["AppCore", "ChatKit", "ChatAPI", "ServiceClient", "SyncEngine", "DesignSystem"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ]

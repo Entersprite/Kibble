@@ -86,15 +86,7 @@ extension ChatService {
         }
         guard let current = records[record.id] else { throw ServiceFailure.accountNotFound }
         guard current.authenticationState != "erasing" else { throw ServiceFailure.accountCleanupPending }
-        return AccountSummary(
-            id: current.id,
-            selfID: current.selfID,
-            label: current.label,
-            connection: .disconnected(reason: nil, issue: nil),
-            isEnabled: current.isEnabled,
-            revision: current.currentRevision,
-            authenticationState: current.authenticationState
-        )
+        return accountSummary(current)
     }
 
     private func restartRuntime(_ record: AccountRecord) async throws {

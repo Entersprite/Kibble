@@ -216,14 +216,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
             runtimes[record.id] = runtime
             await runtime.start()
         }
-        return AccountSummary(
-            id: record.id,
-            selfID: record.selfID,
-            label: record.label,
-            connection: .idle,
-            isEnabled: enabled, revision: record.currentRevision,
-            authenticationState: record.authenticationState
-        )
+        return accountSummary(record)
     }
 
     private func remove(_ record: AccountRecord) async throws {

@@ -28,18 +28,24 @@ public enum MainWindow {
 /// live check; the fallback is an AppKit activate-and-reopen in this package.
 public struct MenuBarLabel: View {
     private let environment: AppEnvironment
+    private let aggregateBadgeCount: Int?
+    private var badgeTotal: Int {
+        aggregateBadgeCount ?? environment.badgeCount
+    }
+
     @Environment(\.openWindow) private var openWindow
 
-    public init(environment: AppEnvironment) {
+    public init(environment: AppEnvironment, aggregateBadgeCount: Int? = nil) {
         self.environment = environment
+        self.aggregateBadgeCount = aggregateBadgeCount
     }
 
     public var body: some View {
         // Checked with `NSImage(systemSymbolName:)` before use - a wrong
         // symbol name compiles and renders as nothing (`CLAUDE.md`).
         Group {
-            if environment.badgeCount > 0 {
-                Label("\(environment.badgeCount)", systemImage: "bubble.left.and.bubble.right")
+            if badgeTotal > 0 {
+                Label("\(badgeTotal)", systemImage: "bubble.left.and.bubble.right")
                     .labelStyle(.titleAndIcon)
             } else {
                 Label("Kibble", systemImage: "bubble.left.and.bubble.right")
@@ -49,7 +55,7 @@ public struct MenuBarLabel: View {
         .onChange(of: environment.windowRequests) {
             MainWindow.show(using: openWindow)
         }
-        .onChange(of: environment.badgeCount, initial: true) { _, count in
+        .onChange(of: badgeTotal, initial: true) { _, count in
             DockBadge.show(count)
         }
     }

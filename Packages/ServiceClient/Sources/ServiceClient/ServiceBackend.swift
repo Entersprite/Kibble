@@ -131,7 +131,7 @@ public actor ServiceBackend: ProjectedChatBackend {
                     return
                 }
                 failures = min(6, failures + 1)
-                emitTransient(.backendError(.transport("The account connection was interrupted. Retrying…")))
+                emitTransportUnavailable()
                 do {
                     try await Task.sleep(for: .milliseconds(250 * (1 << failures)))
                 } catch {
@@ -160,7 +160,7 @@ public actor ServiceBackend: ProjectedChatBackend {
                 checkpoint: page.checkpoint.replicaCheckpoint,
                 events: snapshot,
                 isSnapshot: true,
-                isLive: false
+                isLive: false, clientTransportAvailable: true
             ), generation: generation)
         } else {
             for event in page.events {
@@ -178,7 +178,13 @@ public actor ServiceBackend: ProjectedChatBackend {
                     checkpoint: event.cursor.replicaCheckpoint,
                     events: [event.event],
                     isSnapshot: false,
-                    isLive: event.isLiveArrival
+                    isLive: event.isLiveArrival, clientTransportAvailable: true
+                ), generation: generation)
+            }
+            if page.events.isEmpty {
+                try await deliver(ChatDelivery(
+                    checkpoint: page.checkpoint.replicaCheckpoint, events: [], isSnapshot: false,
+                    isLive: false, clientTransportAvailable: true
                 ), generation: generation)
             }
         }
@@ -241,6 +247,15 @@ public actor ServiceBackend: ProjectedChatBackend {
             ))
         } else {
             eventSink.yield(event)
+        }
+    }
+
+    private func emitTransportUnavailable() {
+        if checkpointed {
+            deliverySink?.yield(ChatDelivery(
+                checkpoint: nil, events: [], isSnapshot: false, isLive: false,
+                clientTransportAvailable: false
+            ))
         }
     }
 }

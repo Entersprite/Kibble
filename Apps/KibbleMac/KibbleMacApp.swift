@@ -19,7 +19,10 @@ struct KibbleMacApp: App {
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingSignOutFromSettings = false
+    @State private var signOutTarget: AppEnvironment?
+    @State private var settingsSignOutTarget: AppEnvironment?
     @State private var editingConversation: ConversationSelection?
+    @State private var conversationTarget: AppEnvironment?
     // HIG: reopen on the last pane.
     @AppStorage("settingsPane") private var settingsPane = "notifications"
 
@@ -35,22 +38,32 @@ struct KibbleMacApp: App {
             // A stable container, so a phase change swapping the content
             // below is not reported as the window closing and reopening.
             ZStack { content }
-                .frame(minWidth: 760, minHeight: 460)
+                .frame(minWidth: appDelegate.accountFixture == nil ? 760 : 832, minHeight: 460)
                 // Half of the viewing gate (`AppEnvironment.isViewing`); the
                 // frontmost half and minimising come from `MacAppDelegate`.
-                .onAppear { environment.setWindowOpen(true) }
-                .onDisappear { environment.setWindowOpen(false) }
+                .onAppear { appDelegate.setMainWindowOpen(true) }
+                .onDisappear { appDelegate.setMainWindowOpen(false) }
                 // So minimising another window is not read as this one.
                 .reportsMainWindow(to: appDelegate)
+                .onChange(of: appDelegate.accountFixture?.workspace?.selectedID?.rawValue) {
+                    editingConversation = nil
+                    conversationTarget = nil
+                    isConfirmingSignOut = false
+                    isConfirmingSignOutFromSettings = false
+                    signOutTarget = nil
+                    settingsSignOutTarget = nil
+                }
                 // A confirmation, not a plain button action: an accidental
                 // click here costs a full two-factor login, and
                 // `AppEnvironment.signOut()`'s own doc comment is where the
                 // honesty requirement lives - this dialog only restates it.
                 .signOutConfirmation(isPresented: $isConfirmingSignOut) {
-                    Task { await environment.signOut() }
+                    let target = signOutTarget
+                    signOutTarget = nil
+                    Task { await target?.signOut() }
                 }
                 .sheet(item: $editingConversation) { item in
-                    ConversationSheetHost(environment: environment, id: item.id)
+                    ConversationSheetHost(environment: conversationTarget ?? environment, id: item.id)
                 }
         }
         .defaultSize(width: 1100, height: 720)
@@ -87,6 +100,7 @@ struct KibbleMacApp: App {
                 .disabled(!appDelegate.updates.canCheck)
                 Divider()
                 Button("Sign Out…") {
+                    signOutTarget = environment
                     isConfirmingSignOut = true
                 }
                 .disabled(!environment.canSignOut)
@@ -114,7 +128,10 @@ struct KibbleMacApp: App {
         MenuBarExtra {
             MenuBarContent(environment: environment)
         } label: {
-            MenuBarLabel(environment: environment)
+            MenuBarLabel(
+                environment: environment,
+                aggregateBadgeCount: appDelegate.accountFixture?.workspace?.badgeCount
+            )
         }
         .menuBarExtraStyle(.menu)
 
@@ -171,14 +188,19 @@ struct KibbleMacApp: App {
                 Tab("Account", systemImage: "person.crop.circle", value: "account") {
                     AccountSettingsPane(
                         state: environment.accountSettingsState,
-                        signOut: environment.canSignOut ? { isConfirmingSignOutFromSettings = true } : nil,
+                        signOut: environment.canSignOut ? {
+                            settingsSignOutTarget = environment
+                            isConfirmingSignOutFromSettings = true
+                        } : nil,
                         exportDiagnostics: { appDelegate.diagnostics.export() }
                     )
                     .frame(width: 560, height: 360)
                 }
             }
             .signOutConfirmation(isPresented: $isConfirmingSignOutFromSettings) {
-                Task { await environment.signOut() }
+                let target = settingsSignOutTarget
+                settingsSignOutTarget = nil
+                Task { await target?.signOut() }
             }
         }
     }
@@ -200,6 +222,15 @@ struct KibbleMacApp: App {
 
     @ViewBuilder
     private var normalContent: some View {
+        if let fixture = appDelegate.accountFixture {
+            AccountFixtureContent(host: fixture) { sessionContent }
+        } else {
+            sessionContent
+        }
+    }
+
+    @ViewBuilder
+    private var sessionContent: some View {
         switch environment.phase {
         case .loading:
             ProgressView("Starting…")
@@ -208,8 +239,10 @@ struct KibbleMacApp: App {
             // there is nothing yet in the Keychain to overwrite, and that
             // fact belongs here rather than in `CookieCaptureView`'s default
             // parameter value.
-            CookieCaptureView(reason: reason, autoSaveAllowed: true) {
-                await environment.signedIn()
+            if appDelegate.accountFixture == nil {
+                CookieCaptureView(reason: reason, autoSaveAllowed: true) { await environment.signedIn() }
+            } else {
+                Text("This account is no longer connected.")
             }
         case .running, .failed, .report:
             // `.failed` and `.report` draw the same window with an empty
@@ -232,9 +265,10 @@ struct KibbleMacApp: App {
     /// has not already made through `canSignOut`.
     private func sceneActions(showSettings: @escaping () -> Void) -> ChatSceneActions {
         var actions = environment.actions
-        actions.signOut = environment.canSignOut ? { isConfirmingSignOut = true } : nil
+        let target = environment
+        actions.signOut = target.canSignOut ? { signOutTarget = target; isConfirmingSignOut = true } : nil
         actions.showNotificationSettings = environment.canEditNotificationRules
-            ? { editingConversation = ConversationSelection(id: $0) }
+            ? { conversationTarget = target; editingConversation = ConversationSelection(id: $0) }
             : nil
         actions.showSettings = showSettings
         actions.showSidebarSettings = { settingsPane = "sidebar"; showSettings() }

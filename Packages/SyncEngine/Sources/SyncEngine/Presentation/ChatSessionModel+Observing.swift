@@ -10,6 +10,16 @@ import GRDB
 /// `directory` and `lastError` are `internal` there for this file's sake,
 /// the same trade `+AutoMarkRead.swift` already made for `conversations`.
 extension ChatSessionModel {
+    func watchClientTransport() {
+        watchers.append(Task { @MainActor [weak self, engine] in
+            let states = await engine.clientTransportAvailability()
+            for await available in states {
+                guard !Task.isCancelled else { return }
+                self?.isClientTransportAvailable = available
+            }
+        })
+    }
+
     /// The directory, observed: one read per member write, never one per
     /// delivery.
     ///

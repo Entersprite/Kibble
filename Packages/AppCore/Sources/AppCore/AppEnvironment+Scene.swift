@@ -57,7 +57,8 @@ public extension AppEnvironment {
             activity: model.activity, pendingMessages: model.pendingMessageIDs,
             connection: model.connectionState,
             connectionService: connectionService,
-            lastError: model.lastError,
+            lastError: model.lastError ?? (model.isClientTransportAvailable ? nil :
+                .transport("The account connection was interrupted. Retrying…")),
             notice: calls.listenerFailure,
             capabilities: model.capabilities,
             failedDraft: model.failedDraft,
@@ -88,6 +89,7 @@ public extension AppEnvironment {
             }.map(\.id))
         )
         state.browser = browserScene(model)
+        state.composerDrafts = composerDrafts
         state.selectedMeetingSeries = model.selectedMeetingSeries
         state.isLoadingMeetingMetadata = model.isLoadingMeetingMetadata
         return state
@@ -271,6 +273,10 @@ public extension AppEnvironment {
         actions.selectMeetingSeries = { [weak self] in self?.runningModel?.selectMeetingSeries($0) }
         actions.visibleMeetingMessages = { [weak self] in self?.runningModel?.visibleMeetingMessages($0) }
         actions.showDirectory = browserActions?.show
+        actions.preserveDraft = { [weak self] address, draft in
+            guard let self, case .running = phase else { return }
+            composerDrafts[address] = draft.text.isEmpty ? nil : draft.compositionOnly
+        }
         return actions
     }
 
