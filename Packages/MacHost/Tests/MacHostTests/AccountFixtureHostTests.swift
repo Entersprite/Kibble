@@ -1,5 +1,6 @@
 import AppCore
 import ChatAPI
+import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
@@ -8,6 +9,43 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountFixtureHostTests {
+    @Test func canonicalNotificationChoicesRemainIsolatedAcrossDisableAndRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let host = SystemAccountFixtureHost(directory: directory)
+        await host.start()
+        let workspace = try #require(host.workspace)
+        try await ready(workspace, count: 2)
+        let first = try #require(workspace.accounts.first)
+        let second = try #require(workspace.accounts.last)
+        let firstEnvironment = try #require(workspace.environment(for: first.id))
+        let secondEnvironment = try #require(workspace.environment(for: second.id))
+        try await wait { firstEnvironment.isPolicyReady && secondEnvironment.isPolicyReady }
+        firstEnvironment.settings.update(NotificationRule(delivery: .off, readReceipts: false), for: .global)
+        #expect(!firstEnvironment.isPolicyReady)
+        try await wait { firstEnvironment.isPolicyReady }
+        #expect(secondEnvironment.settings.settings.resolvedGlobal.readReceipts)
+        #expect(secondEnvironment.settings.settings.resolvedGlobal.delivery == .bannerAndSound)
+        let revision = try #require(workspace.accounts.first { $0.id == first.id }?.policyRevision)
+        #expect(revision != "0")
+        await host.setEnabled(false, account: first.id.rawValue)
+        try await wait { workspace.environment(for: first.id) == nil }
+        await host.setEnabled(true, account: first.id.rawValue)
+        try await ready(workspace, count: 2)
+        let resumed = try #require(workspace.environment(for: first.id))
+        try await wait { resumed.isPolicyReady }
+        #expect(!resumed.settings.settings.resolvedGlobal.readReceipts)
+        #expect(resumed.settings.settings.resolvedGlobal.delivery == .off)
+        await host.stop()
+        await host.start()
+        let restarted = try #require(host.workspace)
+        try await ready(restarted, count: 2)
+        let restored = try #require(restarted.environment(for: first.id))
+        try await wait { restored.isPolicyReady }
+        #expect(!restored.settings.settings.resolvedGlobal.readReceipts)
+        #expect(restored.settings.settings.resolvedGlobal.delivery == .off)
+        await host.stop()
+    }
+
     @Test func bothNativeReplicasReceiveLiveMessagesAcrossSelectionChanges() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let host = SystemAccountFixtureHost(directory: directory)

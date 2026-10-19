@@ -56,13 +56,14 @@ public final class SystemAccountFixtureHost {
             let ownership = try FileServiceOwnership(file: directory.appendingPathComponent("service.lock"))
             let lease = try ownership.acquire()
             acquired = lease
+            let instanceID = try LocalServiceIdentity.loadOrCreate(in: directory)
             let registry = try SQLiteAccountRegistry(path: directory.appendingPathComponent("registry.sqlite")
                 .path)
             try seed(registry, directory: directory)
             let service = ChatService(
                 registry: registry,
                 storage: SQLiteServiceStorageFactory(directory: directory.appendingPathComponent("service")),
-                providers: providers, ownership: GrantedFixtureOwnership(lease: lease)
+                providers: providers, ownership: GrantedFixtureOwnership(lease: lease), instanceID: instanceID
             )
             self.service = service
             self.registry = registry

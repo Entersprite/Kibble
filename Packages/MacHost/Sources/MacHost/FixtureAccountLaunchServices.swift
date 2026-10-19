@@ -46,8 +46,12 @@ final class FixtureAccountLaunchServices: LaunchServices {
     }
 
     func eraseBackendCaches() throws {
-        for url in [attachmentCacheDirectory(), directory.appendingPathComponent("binding.json")]
-            .compactMap(\.self) {
+        for url in [
+            attachmentCacheDirectory(),
+            directory.appendingPathComponent("binding.json"),
+            directory.appendingPathComponent("policy.json")
+        ]
+        .compactMap(\.self) {
             do { try FileManager.default.removeItem(at: url) } catch CocoaError.fileNoSuchFile { continue }
         }
     }

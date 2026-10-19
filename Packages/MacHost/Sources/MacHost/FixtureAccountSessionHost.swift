@@ -38,7 +38,9 @@ final class FixtureAccountSessionHost: AccountSessionHost {
         }
     }
 
-    func makeEnvironment(for account: AccountSummary) throws -> AppEnvironment {
+    func makeEnvironment(for account: AccountSummary) async throws -> AppEnvironment {
+        guard let revision = account.revision else { throw ServiceFailure.staleAccount }
+        let info = try await client.serviceInfo()
         let folder = accountDirectory(account.id)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let manifest = folder.appendingPathComponent("binding.json")
@@ -55,7 +57,24 @@ final class FixtureAccountSessionHost: AccountSessionHost {
             downloads: downloads, transport: transport(account)
         )
         let preferences = UserDefaults(suiteName: "com.entersprite.kibble.multi-account-fixture") ?? .standard
-        return AppEnvironment(services: services, preferences: preferences)
+        let cache = try PolicyReplicaCache(
+            binding: PolicyReplicaBinding(
+                service: info.instanceID,
+                account: account.id,
+                revision: revision,
+                identity: account.selfID
+            ),
+            deviceID: "fixture-device",
+            storage: FilePolicyReplicaStorage(file: folder.appendingPathComponent("policy.json"))
+        )
+        let namespace = try ServiceCodec.encode(info.instanceID).base64EncodedString() + "."
+        return AppEnvironment(
+            services: services,
+            settingsStore: ServiceNotificationSettingsStore(cache: cache),
+            preferences: preferences,
+            policyReplica: PolicyReplicaController(client: client, cache: cache),
+            preferenceNamespace: namespace
+        )
     }
 
     func eraseReplica(for account: AccountSummary) throws {

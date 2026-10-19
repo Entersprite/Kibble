@@ -16,6 +16,8 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     var links: [AccountLinkID: AccountLinkRecord] = [:]
     var linkTasks: [AccountLinkID: Task<AccountLinkSummary, any Error>] = [:]
     let policies: any AccountPolicyStore
+    let instanceID: ServiceInstanceID
+    var policyRevisions: [ConnectedAccountID: String] = [:]
     private let ownership: (any ServiceOwnership)?
     private var lease: (any ServiceOwnershipLease)?
     private var drained: [CheckedContinuation<Void, Never>] = []
@@ -36,9 +38,11 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         linkCustody: (any AccountLinkCustody)? = nil,
         ownership: (any ServiceOwnership)? = nil,
         policies: (any AccountPolicyStore)? = nil,
-        maximumAccountSubscriptions: Int = 128
+        maximumAccountSubscriptions: Int = 128,
+        instanceID: ServiceInstanceID = ServiceInstanceID(UUID().uuidString)
     ) {
         self.maximumAccountSubscriptions = max(0, maximumAccountSubscriptions)
+        self.instanceID = instanceID
         self.registry = registry
         self.storage = storage
         self.providers = providers
@@ -152,6 +156,9 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     }
 
     private func route(_ request: ServiceRequest, context: ServiceSessionContext) async throws -> JSONValue {
+        if request.operation == GetServiceInfo.operation {
+            return try serviceInfo(request)
+        }
         if request.operation == ListAccounts.operation {
             _ = try request.decodePayload(ListAccounts.self)
             return try await listAccounts(context)
@@ -246,6 +253,8 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         try storage.erase(record.id)
         try registry.remove(record.id)
         records[record.id] = nil
+        policyRevisions[record.id] = nil
+        runtimeStatuses[record.id] = nil
         accountStateChanged()
     }
 

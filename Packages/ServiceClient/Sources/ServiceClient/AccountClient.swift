@@ -13,6 +13,10 @@ public struct AccountClient: Sendable {
         try await call(ListAccounts())
     }
 
+    public func serviceInfo() async throws -> ServiceInfo {
+        try await call(GetServiceInfo())
+    }
+
     public func pendingLinks() async throws -> [AccountLinkSummary] {
         try await call(ListAccountLinks())
     }

@@ -4,6 +4,7 @@ import Foundation
 public struct AccountSummary: Codable, Hashable, Sendable {
     public let id: ConnectedAccountID
     public let revision: ServiceAccountRevision?
+    public let policyRevision: String?
     public let selfID: Member.ID
     public let label: String
     public let authenticationState: String?
@@ -23,7 +24,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         isRemoving: Bool = false,
         capabilities: Capabilities = .init(),
         revision: ServiceAccountRevision? = nil,
-        authenticationState: String? = nil
+        authenticationState: String? = nil, policyRevision: String? = nil
     ) {
         self.id = id
         self.revision = revision
@@ -31,6 +32,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         self.label = label
         self.connection = connection
         self.authenticationState = authenticationState
+        self.policyRevision = policyRevision
         self.isRemoving = isRemoving
         self.isEnabled = isEnabled
         self.isReady = isReady
@@ -39,7 +41,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, revision, selfID, label, connection, isReady, isEnabled, isRemoving, capabilities,
-             authenticationState
+             authenticationState, policyRevision
     }
 
     public init(from decoder: any Decoder) throws {
@@ -54,7 +56,8 @@ public struct AccountSummary: Codable, Hashable, Sendable {
             isRemoving: values.decodeIfPresent(Bool.self, forKey: .isRemoving) ?? false,
             capabilities: values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init(),
             revision: values.decodeIfPresent(ServiceAccountRevision.self, forKey: .revision),
-            authenticationState: values.decodeIfPresent(String.self, forKey: .authenticationState)
+            authenticationState: values.decodeIfPresent(String.self, forKey: .authenticationState),
+            policyRevision: values.decodeIfPresent(String.self, forKey: .policyRevision)
         )
     }
 }

@@ -20,7 +20,7 @@ extension AppEnvironment {
             return
         }
 
-        let key = Self.accountPreferencesPrefix + account.rawValue
+        let key = Self.accountPreferencesPrefix + preferenceNamespace + account.rawValue
         let legacyTone = preferences.object(forKey: Self.skinToneKey)
         let legacySections = preferences.stringArray(forKey: Self.collapsedSectionsKey)
         if services.arguments.backend == .local,
@@ -45,7 +45,7 @@ extension AppEnvironment {
 
     func savePersonalPreferences() {
         guard let account = settings.account else { return }
-        let key = Self.accountPreferencesPrefix + account.rawValue
+        let key = Self.accountPreferencesPrefix + preferenceNamespace + account.rawValue
         var saved = preferences.dictionary(forKey: key) ?? [:]
         saved[Self.toneField] = skinTone.rawValue
         saved[Self.sectionsField] = collapsedSections.sorted()

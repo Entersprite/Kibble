@@ -86,6 +86,7 @@ public final class AccountWorkspace {
                 } catch {
                     guard !Task.isCancelled else { return }
                     self?.error = "Account updates are unavailable. Retrying…"
+                    self?.sessions.values.forEach { $0.environment.policyControlAvailable(false) }
                     do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 }
             }
@@ -217,6 +218,8 @@ public final class AccountWorkspace {
             selectionChanged(selectedID)
         }
         for account in accounts {
+            sessions[account.id]?.environment.policyControlAvailable(true)
+            sessions[account.id]?.environment.policyRevisionChanged(account.policyRevision)
             schedule(account, previous: previous[account.id])
         }
         let remaining = Set(accounts.map(\.id))

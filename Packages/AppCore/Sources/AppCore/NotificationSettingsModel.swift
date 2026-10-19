@@ -82,6 +82,17 @@ public final class NotificationSettingsModel {
         settings.rule(for: scope) ?? NotificationRule()
     }
 
+    /// A replica delivery is already persisted. It must not echo into the outbox.
+    func applyReplica(_ settings: NotificationSettings, for account: Member.ID) {
+        guard self.account == account else { return }
+        self.settings = settings
+        onChange?(settings)
+    }
+
+    func refreshPrivacy() {
+        onChange?(account == nil ? nil : settings)
+    }
+
     public func update(_ rule: NotificationRule, for scope: SettingsScope) {
         guard account != nil else { return }
         settings.setRule(rule, for: scope, at: now(), by: deviceID())

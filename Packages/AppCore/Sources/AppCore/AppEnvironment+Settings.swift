@@ -11,7 +11,8 @@ extension AppEnvironment {
         let typingGate = engine.typingPrivacy
         let gate = engine.readReceipts
         receiptGate = gate
-        let apply: @MainActor (NotificationSettings?) -> Void = { current in
+        let apply: @MainActor (NotificationSettings?) -> Void = { [weak self] current in
+            let current = self?.isPolicyReady == true ? current : nil
             gate.set(current.map(ReadReceiptPolicy.resolve) ?? .withhold)
             typingGate.set(current)
             Task { await engine.typingSettingsChanged() }
@@ -34,6 +35,7 @@ extension AppEnvironment {
             for await me in Observations({ model.me }) {
                 guard !Task.isCancelled else { return }
                 self?.switchAccount(to: me)
+                self?.applyPolicySnapshot()
             }
         }
     }
@@ -42,7 +44,7 @@ extension AppEnvironment {
 public extension AppEnvironment {
     /// The Dock and menu-bar count: unread conversations whose rule counts them.
     var badgeCount: Int {
-        guard case let .running(model) = phase else { return 0 }
+        guard case let .running(model) = phase, isPolicyReady else { return 0 }
         return settings.settings.badgeCount(of: model.conversations)
     }
 }
@@ -59,13 +61,13 @@ public extension AppEnvironment {
             resolved[section] = current.resolvedSection(section)
         }
         return NotificationSettingsState(
-            isAvailable: settings.account != nil,
+            isAvailable: settings.account != nil && (policyStatus?.canEdit ?? (policyReplica == nil)),
             globalRule: current.rule(for: .global) ?? NotificationRule(),
             global: current.resolvedGlobal,
             sections: sections,
             sectionInherited: inherited,
             sectionResolved: resolved,
-            lastError: settings.lastError,
+            lastError: settings.lastError ?? policyStatus?.error,
             pauseStatus: pauseStatus,
             conversations: current.customizedConversations.map(conversationRuleState(for:))
         )

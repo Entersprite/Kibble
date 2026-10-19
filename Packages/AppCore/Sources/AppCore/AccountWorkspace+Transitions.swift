@@ -88,6 +88,7 @@ extension AccountWorkspace {
             return
         }
         sessions[account.id] = AccountClientSession(account: account, environment: environment)
+        environment.policyRevisionChanged(accounts.first { $0.id == account.id }?.policyRevision)
         applyViewing()
     }
 

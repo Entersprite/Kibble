@@ -2,6 +2,7 @@ import ChatKit
 import DesignSystem
 import Foundation
 import Observation
+import ServiceClient
 import SyncEngine
 
 /// Wires one backend to one store to one window.
@@ -99,6 +100,10 @@ public final class AppEnvironment {
     var identityTask: Task<Void, Never>?
     /// The running engine's receipts gate, held for tests to read.
     var receiptGate: ReadReceiptGate?
+    @ObservationIgnored let policyReplica: PolicyReplicaController?
+    @ObservationIgnored var policyTask: Task<Void, Never>?
+    var policyStatus: PolicyReplicaSnapshot?
+    @ObservationIgnored let preferenceNamespace: String
 
     /// Guards `signOut()` against a second concurrent call: two scenes (the
     /// main window and the Settings window) each carry their own confirmation
@@ -117,10 +122,14 @@ public final class AppEnvironment {
         services: any LaunchServices,
         notifications delivery: (any NotificationDelivering)? = nil,
         settingsStore: any NotificationSettingsStore = InMemoryNotificationSettingsStore(),
-        preferences: UserDefaults = .standard
+        preferences: UserDefaults = .standard,
+        policyReplica: PolicyReplicaController? = nil,
+        preferenceNamespace: String = ""
     ) {
         self.services = services
         self.preferences = preferences
+        self.policyReplica = policyReplica
+        self.preferenceNamespace = preferenceNamespace
         // Only a real account may take the legacy ghost-mode key; the fixture
         // identifies a demo account of its own.
         settings = NotificationSettingsModel(
@@ -129,7 +138,9 @@ public final class AppEnvironment {
         notifications = delivery.map(NotificationCoordinator.init(delivery:))
         notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
         notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }
-        notifications?.isPaused = { [settings] in settings.isPaused }
+        notifications?.isPaused = { [weak self, settings] in
+            settings.isPaused || self?.isPolicyReady != true
+        }
         notifications?.onMute = { [settings] in settings.mute($0) }
         notifications?.start()
     }
@@ -144,6 +155,7 @@ public final class AppEnvironment {
             return
         }
         do {
+            await startPolicyReplica()
             // Asked before anything is built, and only for the real bridge: a
             // launch with no stored session is not an error and must not be
             // reported as one - it is a first run, and the only sensible thing
@@ -319,6 +331,7 @@ public final class AppEnvironment {
         await calls.stop()
         identityTask?.cancel()
         identityTask = nil
+        await stopPolicyReplica()
         // Nothing is deleted: the account's settings wait for it to sign in again.
         switchAccount(to: nil)
         // First, and on every path: an image needs no live model to be erased.

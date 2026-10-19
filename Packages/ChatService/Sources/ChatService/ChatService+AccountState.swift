@@ -74,7 +74,8 @@ extension ChatService {
             connection: active ? status?.status.connection ?? .idle : .disconnected(reason: nil, issue: nil),
             isEnabled: record.isEnabled, isReady: active, isRemoving: record.isRemoving,
             capabilities: active ? status?.status.capabilities ?? .init() : .init(),
-            revision: record.currentRevision, authenticationState: record.authenticationState
+            revision: record.currentRevision, authenticationState: record.authenticationState,
+            policyRevision: policyRevisions[record.id]
         )
     }
 
