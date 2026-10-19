@@ -4,20 +4,7 @@ import Foundation
 
 extension ChatService {
     func listAccounts(_ context: ServiceSessionContext) async throws -> JSONValue {
-        var accounts: [AccountSummary] = []
-        for record in records.values.sorted(by: { $0.id.rawValue < $1.id.rawValue })
-            where record.principalID == context.principalID && context
-            .allowsAccount(record.id) {
-            let runtime = runtimes[record.id]
-            await accounts.append(AccountSummary(
-                id: record.id, selfID: record.selfID, label: record.label,
-                connection: runtime?.connection ?? .disconnected(reason: nil, issue: nil),
-                isEnabled: record.isEnabled, isRemoving: record.isRemoving,
-                capabilities: runtime?.capabilities ?? .init(), revision: record.currentRevision,
-                authenticationState: record.authenticationState
-            ))
-        }
-        return try ServiceCodec.value(accounts)
+        try ServiceCodec.value(accountSummaries(context))
     }
 
     func accountPolicy(_ request: ServiceRequest, record: AccountRecord) throws -> JSONValue {

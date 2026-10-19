@@ -3,17 +3,18 @@ import Foundation
 
 /// Resolves the caller independently of an endpoint that ignores cancellation.
 /// Its underlying work remains charged to the connection until it really ends.
-actor RequestCompletion {
-    private var continuation: CheckedContinuation<Data, any Error>?
-    private var result: Result<Data, any Error>?
+actor RequestCompletion<Value: Sendable> {
+    private var continuation: CheckedContinuation<Value, any Error>?
+    private var result: Result<Value, any Error>?
     private var operation: Task<Void, Never>?
     private var timeout: Task<Void, Never>?
 
     func run(
         deadline: Duration?,
-        operation execute: @escaping @Sendable () async throws -> Data,
+        operation execute: @escaping @Sendable () async throws -> Value,
+        discard: @escaping @Sendable (Value) async -> Void = { _ in },
         finished: @escaping @Sendable () async -> Void
-    ) async throws -> Data {
+    ) async throws -> Value {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 if let result {
@@ -23,7 +24,7 @@ actor RequestCompletion {
                 }
                 self.continuation = continuation
                 operation = Task {
-                    let result: Result<Data, any Error>
+                    let result: Result<Value, any Error>
                     do {
                         result = try await .success(execute())
                     } catch is CancellationError {
@@ -33,8 +34,11 @@ actor RequestCompletion {
                     } catch {
                         result = .failure(ServiceFailure.internalFailure)
                     }
+                    let accepted = complete(result)
+                    if !accepted, case let .success(value) = result {
+                        await discard(value)
+                    }
                     await finished()
-                    complete(result)
                 }
                 if let deadline {
                     timeout = Task {
@@ -52,8 +56,9 @@ actor RequestCompletion {
         }
     }
 
-    private func complete(_ result: Result<Data, any Error>) {
-        guard self.result == nil else { return }
+    @discardableResult
+    private func complete(_ result: Result<Value, any Error>) -> Bool {
+        guard self.result == nil else { return false }
         self.result = result
         timeout?.cancel()
         timeout = nil
@@ -63,5 +68,6 @@ actor RequestCompletion {
         operation = nil
         continuation?.resume(with: result)
         continuation = nil
+        return true
     }
 }

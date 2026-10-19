@@ -13,6 +13,7 @@ struct RuntimeIncident: Sendable {
 
 actor AccountRuntime {
     nonisolated let instanceID: UUID
+    private let onStatus: @Sendable (RuntimeStatus) async -> Void
     private let onFault: @Sendable (RuntimeFault) async -> Void
     private var quarantined = false
     var quarantinedForSubscription: Bool {
@@ -38,9 +39,11 @@ actor AccountRuntime {
         record: AccountRecord,
         storage: any ServiceAccountStorage,
         factory: any AccountProviderFactory,
-        instanceID: UUID, onFault: @escaping @Sendable (RuntimeFault) async -> Void
+        instanceID: UUID, onStatus: @escaping @Sendable (RuntimeStatus) async -> Void,
+        onFault: @escaping @Sendable (RuntimeFault) async -> Void
     ) {
         self.instanceID = instanceID
+        self.onStatus = onStatus
         self.onFault = onFault
         self.record = record
         self.storage = storage
@@ -67,7 +70,7 @@ actor AccountRuntime {
         }
     }
 
-    private func install(_ backend: any ChatBackend, epoch: UUID) -> Bool {
+    private func install(_ backend: any ChatBackend, epoch: UUID) async -> Bool {
         guard self.epoch == epoch, !stopped, !Task.isCancelled else { return false }
         self.backend = backend
         capabilities = backend.capabilities
@@ -78,7 +81,12 @@ actor AccountRuntime {
                 await self?.ingest(event, epoch: epoch)
             }
         }
-        return true
+        await publishStatus()
+        return isCurrent(epoch)
+    }
+
+    private func publishStatus() async {
+        await onStatus(RuntimeStatus(connection: connection, capabilities: capabilities))
     }
 
     private func isCurrent(_ epoch: UUID) -> Bool {
@@ -98,6 +106,9 @@ actor AccountRuntime {
         }
         do {
             try appendAndPublish(event, live: true)
+            if case .connectionStateChanged = event {
+                await publishStatus()
+            }
         } catch {
             await quarantine(.storage)
         }
@@ -128,6 +139,7 @@ actor AccountRuntime {
         do {
             try appendAndPublish(.backendError(safe), live: false)
             try appendAndPublish(.connectionStateChanged(.disconnected(reason: nil, issue: nil)), live: false)
+            await publishStatus()
         } catch {
             await quarantine(.storage)
         }

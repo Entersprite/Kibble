@@ -24,6 +24,7 @@ extension ChatService {
         case .authentication:
             record.authenticationState = "erasing"
             records[id] = record
+            accountStateChanged()
             try? registry.save(record)
             scheduleAuthenticationRecovery(record)
         case .storage:
@@ -70,6 +71,7 @@ extension ChatService {
         record.authenticationState = "required"
         try registry.save(record)
         records[id] = record
+        accountStateChanged()
     }
 
     func retryAuthenticationRecovery(_ record: AccountRecord) async throws -> AccountSummary {

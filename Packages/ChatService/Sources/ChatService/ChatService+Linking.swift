@@ -139,6 +139,7 @@ extension ChatService {
         else { throw ServiceFailure.unsupportedOperation }
         try registry.saveLink(link)
         links[link.id] = link
+        accountStateChanged()
     }
 
     func advanceLink(_ id: AccountLinkID, cancel: Bool) async throws -> AccountLinkSummary {
@@ -214,6 +215,7 @@ extension ChatService {
             records[account.id] = account
             installing.phase = "committed"
             links[link.id] = installing
+            accountStateChanged()
             try await startLinkedAccount(account)
             return try await finalizeLink(installing, custody: custody)
         } catch {

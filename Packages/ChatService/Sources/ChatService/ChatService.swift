@@ -3,7 +3,7 @@ import ChatKit
 import Foundation
 
 /// Account runtimes belong to this host, independently of client subscriptions.
-public actor ChatService: ServiceEventEndpoint {
+public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     let registry: any AccountRegistry
     let storage: any ServiceStorageFactory
     let providers: any AccountProviderFactory
@@ -19,7 +19,14 @@ public actor ChatService: ServiceEventEndpoint {
     private let ownership: (any ServiceOwnership)?
     private var lease: (any ServiceOwnershipLease)?
     private var drained: [CheckedContinuation<Void, Never>] = []
+    var accountSubscribers: [UUID: AccountStateSubscriber] = [:]
+    var runtimeStatuses: [ConnectedAccountID: RuntimeStatusEntry] = [:]
+    let maximumAccountSubscriptions: Int
     private var restored = false
+    var restoredForSubscriptions: Bool {
+        restored
+    }
+
     var shuttingDown = false
 
     public init(
@@ -28,8 +35,10 @@ public actor ChatService: ServiceEventEndpoint {
         providers: any AccountProviderFactory,
         linkCustody: (any AccountLinkCustody)? = nil,
         ownership: (any ServiceOwnership)? = nil,
-        policies: (any AccountPolicyStore)? = nil
+        policies: (any AccountPolicyStore)? = nil,
+        maximumAccountSubscriptions: Int = 128
     ) {
+        self.maximumAccountSubscriptions = max(0, maximumAccountSubscriptions)
         self.registry = registry
         self.storage = storage
         self.providers = providers
@@ -89,6 +98,7 @@ public actor ChatService: ServiceEventEndpoint {
         }
         try registry.save(record)
         records[record.id] = record
+        accountStateChanged()
         if record.isEnabled {
             let runtime = try makeRuntime(record)
             runtimes[record.id] = runtime
@@ -140,6 +150,11 @@ public actor ChatService: ServiceEventEndpoint {
             _ = try request.decodePayload(ListAccounts.self)
             return try await listAccounts(context)
         }
+        if request.operation == ListAccountLinks.operation {
+            _ = try request.decodePayload(ListAccountLinks.self)
+            guard context.canLinkAccounts else { throw ServiceFailure.notAuthorized }
+            return try ServiceCodec.value(pendingLinks(context))
+        }
         if Self.linkOperations.contains(request.operation) {
             return try await routeLink(request, context: context)
         }
@@ -190,6 +205,7 @@ public actor ChatService: ServiceEventEndpoint {
         record.isEnabled = enabled
         try registry.save(record)
         records[record.id] = record
+        accountStateChanged()
         if !enabled {
             if let runtime = runtimes[record.id] {
                 await runtime.stop()
@@ -219,6 +235,7 @@ public actor ChatService: ServiceEventEndpoint {
         removing.isRemoving = true
         try registry.save(removing)
         records[record.id] = removing
+        accountStateChanged()
         if let runtime = runtimes[record.id] {
             await runtime.stop()
             runtimes[record.id] = nil
@@ -228,11 +245,16 @@ public actor ChatService: ServiceEventEndpoint {
         try storage.erase(record.id)
         try registry.remove(record.id)
         records[record.id] = nil
+        accountStateChanged()
     }
 
     public func shutdown() async {
         guard !shuttingDown else { return }
         shuttingDown = true
+        for subscriber in accountSubscribers.values {
+            subscriber.continuation.finish()
+        }
+        accountSubscribers.removeAll()
         let linking = Array(linkTasks.values)
         for task in linking {
             task.cancel()
@@ -254,6 +276,7 @@ public actor ChatService: ServiceEventEndpoint {
             }
         }
         runtimes.removeAll()
+        runtimeStatuses.removeAll()
         await awaitChanges()
         lease?.release()
         lease = nil
@@ -261,6 +284,10 @@ public actor ChatService: ServiceEventEndpoint {
 
     func finishChange(_ id: ConnectedAccountID) {
         changing.remove(id)
+        if runtimes[id] == nil {
+            runtimeStatuses[id] = nil
+        }
+        accountStateChanged()
         if let incident = deferredFaults.removeValue(forKey: id) {
             runtimeFailed(
                 id,
@@ -284,20 +311,5 @@ public actor ChatService: ServiceEventEndpoint {
 
     public var activeRuntimeCount: Int {
         runtimes.count
-    }
-
-    func makeRuntime(_ record: AccountRecord) throws -> AccountRuntime {
-        let instanceID = UUID()
-        return try AccountRuntime(
-            record: record, storage: storage.open(record.id), factory: providers, instanceID: instanceID,
-            onFault: { [weak self] fault in
-                await self?.runtimeFailed(
-                    record.id,
-                    generation: record.credentialGeneration,
-                    instanceID: instanceID,
-                    fault: fault
-                )
-            }
-        )
     }
 }

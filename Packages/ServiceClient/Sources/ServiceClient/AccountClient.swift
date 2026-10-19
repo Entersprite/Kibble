@@ -13,6 +13,22 @@ public struct AccountClient: Sendable {
         try await call(ListAccounts())
     }
 
+    public func pendingLinks() async throws -> [AccountLinkSummary] {
+        try await call(ListAccountLinks())
+    }
+
+    public func states() async throws -> AsyncThrowingStream<AccountStateSnapshot, any Error> {
+        guard let transport = transport as? any ServiceAccountStateTransport
+        else { throw ServiceFailure.unsupportedOperation }
+        let version = try await transport.negotiate(.current)
+        return try await transport.accountStates(ServiceRequest(
+            header: ServiceRequestHeader(
+                requestID: ServiceRequestID(UUID().uuidString),
+                deadline: Date().addingTimeInterval(60), version: version
+            ), payload: WatchAccounts()
+        ))
+    }
+
     public func setEnabled(_ enabled: Bool, account: ConnectedAccountID) async throws -> AccountSummary {
         try await call(SetAccountEnabled(enabled: enabled), account: account)
     }

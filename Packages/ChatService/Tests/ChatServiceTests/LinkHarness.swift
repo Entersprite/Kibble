@@ -85,7 +85,8 @@ struct LinkHarness {
 
     static func make(
         records: [AccountRecord] = [],
-        custody: TestLinkCustody = TestLinkCustody()
+        custody: TestLinkCustody = TestLinkCustody(),
+        maximumAccountSubscriptions: Int = 128
     ) async throws -> LinkHarness {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -99,7 +100,8 @@ struct LinkHarness {
             registry: registry,
             storage: SQLiteServiceStorageFactory(directory: directory),
             providers: providers,
-            linkCustody: custody
+            linkCustody: custody,
+            maximumAccountSubscriptions: maximumAccountSubscriptions
         )
         try await service.restore()
         let context = ServiceSessionContext(
