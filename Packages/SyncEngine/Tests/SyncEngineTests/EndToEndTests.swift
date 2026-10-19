@@ -82,7 +82,10 @@ struct EndToEndTests {
             .incomingMessage(conversation: dm, from: other, text: "you there?", thread: nil)
         )
 
-        try await eventually("the message to land") { try store.messages(in: dm).count == 1 }
+        try await eventually("the message and its unread update to land") {
+            try store.messages(in: dm).count == 1 &&
+                store.conversations().first { $0.id == dm }?.unreadCount == 1
+        }
         #expect(try store.messages(in: dm).first?.text == "you there?")
         // The conversationUpdated that follows it carries the unread count.
         #expect(try store.conversations().first { $0.id == dm }?.unreadCount == 1)

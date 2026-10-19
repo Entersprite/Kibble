@@ -10,9 +10,7 @@ extension ChatService {
         CancelAccountLink.operation
     ]
 
-    func restoreLinks() throws {
-        guard let registry = registry as? any AccountLinkRegistry else { return }
-        links = try Dictionary(uniqueKeysWithValues: registry.links().map { ($0.id, $0) })
+    func restoreLinks() {
         guard linkCustody != nil else { return }
         for link in links.values {
             let resumes = ["verified", "installing", "committed", "canceling", "duplicate"]
@@ -182,7 +180,7 @@ extension ChatService {
     ) async throws -> AccountLinkSummary {
         guard !changing.contains(link.accountID) else { throw ServiceFailure.overloaded }
         changing.insert(link.accountID)
-        defer { changing.remove(link.accountID) }
+        defer { finishChange(link.accountID) }
         try checkLinkActive()
         let account = try linkedAccount(link)
         if let runtime = runtimes[link.accountID] {

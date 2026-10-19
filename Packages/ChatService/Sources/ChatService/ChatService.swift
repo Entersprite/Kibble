@@ -14,6 +14,9 @@ public actor ChatService: ServiceEventEndpoint {
     let linkCustody: (any AccountLinkCustody)?
     var links: [AccountLinkID: AccountLinkRecord] = [:]
     var linkTasks: [AccountLinkID: Task<AccountLinkSummary, any Error>] = [:]
+    private let ownership: (any ServiceOwnership)?
+    private var lease: (any ServiceOwnershipLease)?
+    private var drained: [CheckedContinuation<Void, Never>] = []
     private var restored = false
     var shuttingDown = false
 
@@ -21,20 +24,35 @@ public actor ChatService: ServiceEventEndpoint {
         registry: any AccountRegistry,
         storage: any ServiceStorageFactory,
         providers: any AccountProviderFactory,
-        linkCustody: (any AccountLinkCustody)? = nil
+        linkCustody: (any AccountLinkCustody)? = nil,
+        ownership: (any ServiceOwnership)? = nil
     ) {
         self.registry = registry
         self.storage = storage
         self.providers = providers
         self.linkCustody = linkCustody
+        self.ownership = ownership
     }
 
     public func restore() async throws {
+        guard !shuttingDown else { throw ServiceFailure.overloaded }
         guard !restored else { return }
-        let accounts = try registry.accounts()
+        let acquired = try ownership?.acquire()
+        let accounts: [AccountRecord]
+        do {
+            accounts = try registry.accounts()
+            if let linkRegistry = registry as? any AccountLinkRegistry {
+                links = try Dictionary(uniqueKeysWithValues: linkRegistry.links().map { ($0.id, $0) })
+            }
+        } catch {
+            acquired?.release()
+            throw error
+        }
+        lease = acquired
         records = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
         restored = true
         for record in accounts where record.isEnabled && !record.isRemoving {
+            guard !shuttingDown else { return }
             // A damaged account cache must not prevent healthy accounts from
             // starting. Its next explicit enable request can retry the open.
             if let runtime = try? makeRuntime(record) {
@@ -42,10 +60,11 @@ public actor ChatService: ServiceEventEndpoint {
                 await runtime.start()
             }
         }
+        guard !shuttingDown else { return }
         for record in accounts where record.isRemoving {
             maintenance[record.id] = Task { await resumeRemoval(record) }
         }
-        try restoreLinks()
+        restoreLinks()
     }
 
     private func resumeRemoval(_ record: AccountRecord) async {
@@ -189,7 +208,7 @@ public actor ChatService: ServiceEventEndpoint {
     private func setEnabled(_ enabled: Bool, record: AccountRecord) async throws -> AccountSummary {
         guard !changing.contains(record.id) else { throw ServiceFailure.overloaded }
         changing.insert(record.id)
-        defer { changing.remove(record.id) }
+        defer { finishChange(record.id) }
         var record = record
         record.isEnabled = enabled
         try registry.save(record)
@@ -216,7 +235,7 @@ public actor ChatService: ServiceEventEndpoint {
     private func remove(_ record: AccountRecord) async throws {
         guard !changing.contains(record.id) else { throw ServiceFailure.overloaded }
         changing.insert(record.id)
-        defer { changing.remove(record.id) }
+        defer { finishChange(record.id) }
         var removing = record
         removing.isEnabled = false
         removing.isRemoving = true
@@ -256,6 +275,24 @@ public actor ChatService: ServiceEventEndpoint {
             }
         }
         runtimes.removeAll()
+        await awaitChanges()
+        lease?.release()
+        lease = nil
+    }
+
+    func finishChange(_ id: ConnectedAccountID) {
+        changing.remove(id)
+        guard changing.isEmpty else { return }
+        let waiting = drained
+        drained.removeAll()
+        for continuation in waiting {
+            continuation.resume()
+        }
+    }
+
+    private func awaitChanges() async {
+        guard !changing.isEmpty else { return }
+        await withCheckedContinuation { drained.append($0) }
     }
 
     public var activeRuntimeCount: Int {
