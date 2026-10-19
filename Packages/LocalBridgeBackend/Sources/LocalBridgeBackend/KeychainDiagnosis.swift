@@ -1,6 +1,5 @@
 import Foundation
 import GChatBridgeCore
-import Security
 
 /// What a Keychain refusal actually means, in a sentence.
 ///
@@ -17,9 +16,9 @@ public enum KeychainDiagnosis {
     /// access group from, and a self-signed certificate does not supply one -
     /// so every `SecItem` call comes back `-34018` and the app looks like it
     /// simply forgot the session.
-    public static let missingEntitlement: OSStatus = -34018
+    public static let missingEntitlement: Int32 = -34018
 
-    public static func explain(status: OSStatus) -> String {
+    public static func explain(status: Int32) -> String {
         switch status {
         case missingEntitlement:
             """
@@ -28,11 +27,11 @@ public enum KeychainDiagnosis {
             app needs a signing identity that grants it a Keychain access \
             group. Check KIBBLE_SIGN_IDENTITY and the app's entitlements.
             """
-        case errSecInteractionNotAllowed:
+        case -25308:
             "the Keychain is locked and cannot be read without interaction (-25308)."
-        case errSecUserCanceled:
+        case -128:
             "the Keychain prompt was cancelled, so the session was not read."
-        case errSecAuthFailed:
+        case -25293:
             "the Keychain refused authentication (-25293)."
         default:
             "the Keychain returned status \(status)."
@@ -47,8 +46,10 @@ public enum KeychainDiagnosis {
             the stored session could not be decoded, so it cannot be used. \
             Sign in again to replace it.
             """
+        case let error as SecretStorageUnavailable:
+            explain(status: Int32(clamping: error.status))
         case let CredentialStoreError.unavailable(status):
-            explain(status: OSStatus(status))
+            explain(status: Int32(status))
         default:
             String(describing: error)
         }

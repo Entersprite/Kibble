@@ -186,10 +186,10 @@ struct SessionHandoffTests {
     /// import`, and a future edit reverting the default to `nil` would then
     /// compile clean and pass every other test in this suite while the
     /// feature went silently inert.
-    @Test func theRealUsingOverloadSuppliesARealReachabilityMonitor() async throws {
+    @Test func explicitNativeConnectivitySuppliesARealReachabilityMonitor() async throws {
         let store = store()
         _ = try await capture([cookie("COMPASS"), cookie("OSID")]).save(to: store)
-        let backend = try #require(await LocalBridgeBackend.using(store))
+        let backend = try #require(await LocalBridgeBackend.using(store, connectivity: .native()))
         #expect(await backend.channelReachability != nil)
     }
 

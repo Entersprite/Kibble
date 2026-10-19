@@ -24,6 +24,7 @@ enum LaunchProbes {
         }
         let url = directory.appendingPathComponent(name)
         let result = await SpaceDirectoryProbeReport.run(
+            store: KeychainCredentialStore(),
             query: argument("--probe-query=") ?? "",
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
         )
@@ -54,6 +55,7 @@ enum LaunchProbes {
     static func apiProbe() async -> String {
         await write(
             APIProbeReport.run(
+                store: KeychainCredentialStore(),
                 conversation: probeConversation(),
                 threadWrites: CommandLine.arguments.contains("--probe-thread-writes")
             ),
@@ -67,7 +69,10 @@ enum LaunchProbes {
     static func uploadProbe() async -> String {
         let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
         return await write(
-            UploadProbeReport.run(conversation: choice ?? .mostRecentDirectMessage),
+            UploadProbeReport.run(
+                store: KeychainCredentialStore(),
+                conversation: choice ?? .mostRecentDirectMessage
+            ),
             to: "upload-probe.txt"
         )
     }
@@ -77,7 +82,10 @@ enum LaunchProbes {
     /// visible to the conversation's members (edit spec §3).
     static func editProbe() async -> String {
         let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
-        return await write(EditProbeReport.run(conversation: choice), to: "edit-probe.txt")
+        return await write(
+            EditProbeReport.run(store: KeychainCredentialStore(), conversation: choice),
+            to: "edit-probe.txt"
+        )
     }
 
     /// `--probe=punctual`. Long-running, so the report is rewritten after
@@ -97,6 +105,7 @@ enum LaunchProbes {
         }
         let url = directory.appendingPathComponent(name)
         let text = await PeopleProbeReport.run(
+            store: KeychainCredentialStore(),
             query: argument("--probe-query=") ?? PeopleProbeReport.defaultQuery,
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
         )
@@ -118,6 +127,7 @@ enum LaunchProbes {
         }
         let url = directory.appendingPathComponent(name)
         let text = await SearchProbeReport.run(
+            store: KeychainCredentialStore(),
             query: argument("--probe-query=") ?? SearchProbeReport.defaultQuery,
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
         )
@@ -129,7 +139,10 @@ enum LaunchProbes {
     static func meetResolveProbe() async -> String {
         let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
             ?? .mostRecentDirectMessage
-        return await write(MeetCallProbeReport.run(conversation: choice), to: "meet-resolve-probe.txt")
+        return await write(
+            MeetCallProbeReport.run(store: KeychainCredentialStore(), conversation: choice),
+            to: "meet-resolve-probe.txt"
+        )
     }
 
     static func punctualProbe() async -> String {
@@ -141,6 +154,7 @@ enum LaunchProbes {
         // Clamped: zero ends the run at once, and an absurd value traps.
         let minutes = argument("--probe-minutes=").flatMap(Int.init).map { min(max($0, 1), 120) }
         let text = await PunctualProbeReport.run(
+            store: KeychainCredentialStore(),
             serverPath: argument("--punctual-server="),
             duration: minutes.map { .seconds($0 * 60) } ?? PunctualProbeReport.defaultDuration,
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }

@@ -33,7 +33,7 @@ public extension LocalBridgeBackend {
         let request = PeopleRequests.listAutocompletions(
             query: query,
             key: key,
-            authorization: SAPISIDHash.authorization(.sapisidOnly, for: input, sha1: SHA1.hex),
+            authorization: SAPISIDHash.authorization(.sapisidOnly, for: input, sha1: proof.sha1Hex),
             endpoints: endpoints
         )
         let response = try await PunctualClient(transport: transport, credentials: credentials).send(request)

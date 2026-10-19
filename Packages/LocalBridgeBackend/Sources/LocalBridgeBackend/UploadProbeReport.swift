@@ -59,7 +59,7 @@ public enum UploadProbeReport {
     /// shape as `APIProbeReport.run`. The default conversation is the newest
     /// DM, where a run is most easily staged.
     public static func run(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
         conversation: ProbeConversation = .mostRecentDirectMessage

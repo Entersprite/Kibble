@@ -29,7 +29,7 @@ public enum EditProbeReport {
     /// Every parameter but `conversation` defaults, so `MacHost` names no core
     /// type.
     public static func run(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         conversation: ProbeConversation?
     ) async -> String {
         guard conversation != nil else { return refusal }

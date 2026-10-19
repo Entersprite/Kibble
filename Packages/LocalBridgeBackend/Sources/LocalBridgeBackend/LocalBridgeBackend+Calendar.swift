@@ -170,7 +170,7 @@ extension LocalBridgeBackend {
             [.init(keys: batch.map { .personID($0.rawValue) }, features: [.calendarStatus])],
             client: 1,
             key: key,
-            authorization: SAPISIDHash.authorization(.sapisidOnly, for: input, sha1: SHA1.hex),
+            authorization: SAPISIDHash.authorization(.sapisidOnly, for: input, sha1: proof.sha1Hex),
             endpoints: endpoints
         )
         let client = PunctualClient(transport: transport, credentials: credentials)

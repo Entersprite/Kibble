@@ -14,7 +14,13 @@ struct LocalBridgeAudioCallDiagnosticTests {
 
     @Test func matchingCurrentCallReturnsFixedStateAndOnDemandMediaReport() async throws {
         let engine = DiagnosticMedia()
-        let service = LocalBridgeAudioCallService(mediaFactory: { engine })
+        let service = LocalBridgeAudioCallService(
+            trial: MeetDMCallTrial(store: KeychainCredentialStore(
+                storage: AbsentTestSecrets(),
+                account: "test"
+            )),
+            mediaFactory: { engine }
+        )
         let id = UUID()
         service.snapshot = AudioCallSnapshot(
             id: id,
@@ -36,7 +42,13 @@ struct LocalBridgeAudioCallDiagnosticTests {
 
     @Test func missingWrongAndStoppingCallsDoNotRequestMediaDiagnostics() async throws {
         let engine = DiagnosticMedia()
-        let service = LocalBridgeAudioCallService(mediaFactory: { engine })
+        let service = LocalBridgeAudioCallService(
+            trial: MeetDMCallTrial(store: KeychainCredentialStore(
+                storage: AbsentTestSecrets(),
+                account: "test"
+            )),
+            mediaFactory: { engine }
+        )
         let id = UUID()
         #expect(await service.diagnosticReport(callID: id) == nil)
         service.snapshot = AudioCallSnapshot(
@@ -54,7 +66,13 @@ struct LocalBridgeAudioCallDiagnosticTests {
 
     @Test func unknownPhaseAndDirectionNeverExportTheirPayloads() async throws {
         let engine = DiagnosticMedia()
-        let service = LocalBridgeAudioCallService(mediaFactory: { engine })
+        let service = LocalBridgeAudioCallService(
+            trial: MeetDMCallTrial(store: KeychainCredentialStore(
+                storage: AbsentTestSecrets(),
+                account: "test"
+            )),
+            mediaFactory: { engine }
+        )
         let id = UUID()
         service.snapshot = AudioCallSnapshot(
             id: id, recipient: recipient, direction: .unknown("direction-secret"),
@@ -74,7 +92,10 @@ struct LocalBridgeAudioCallDiagnosticTests {
         let transport = ScriptedTransport([NativeMeetFixture.responses()[0]])
         let native = try await NativeMeetFixture.session(transport, media: engine)
         await native.seedDiagnosticLines(["Native stream registration: acknowledged"])
-        let trial = MeetDMCallTrial()
+        let trial = MeetDMCallTrial(store: KeychainCredentialStore(
+            storage: AbsentTestSecrets(),
+            account: "test"
+        ))
         await trial.seedDiagnosticNative(native)
         let service = LocalBridgeAudioCallService(trial: trial, mediaFactory: { engine })
         let id = UUID()
@@ -103,7 +124,13 @@ struct LocalBridgeAudioCallDiagnosticTests {
     func heldDiagnosticCannotEscapeReplacementTeardownOrCancellation(_ change: Change) async throws {
         let engine = DiagnosticMedia()
         engine.hold = true
-        let service = LocalBridgeAudioCallService(mediaFactory: { engine })
+        let service = LocalBridgeAudioCallService(
+            trial: MeetDMCallTrial(store: KeychainCredentialStore(
+                storage: AbsentTestSecrets(),
+                account: "test"
+            )),
+            mediaFactory: { engine }
+        )
         let id = UUID()
         service.snapshot = AudioCallSnapshot(
             id: id,

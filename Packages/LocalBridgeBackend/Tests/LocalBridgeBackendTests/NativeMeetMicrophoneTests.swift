@@ -207,7 +207,10 @@ struct NativeMeetMicrophoneTests {
         let media = StreamFakeMedia()
         let session = try await NativeMeetFixture.session(ScriptedTransport(responses()), media: media)
         try await session.connect()
-        let trial = MeetDMCallTrial()
+        let trial = MeetDMCallTrial(store: KeychainCredentialStore(
+            storage: AbsentTestSecrets(),
+            account: "test"
+        ))
         let scope = UUID()
         await trial.installMicrophoneFixture(session, scope: scope)
         await #expect(throws: MeetDMCallTrialError.superseded) {

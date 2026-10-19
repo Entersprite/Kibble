@@ -17,11 +17,11 @@ extension MeetDMCallTrial {
         let client = PunctualClient(
             transport: transport,
             credentials: context.credentials,
-            authorization: { jar, url in
+            authorization: { [proof] jar, url in
                 SAPISIDHash.browserAuthorization(for: .init(
                     cookies: jar.cookies, url: url, origin: "https://chat.google.com",
                     timestamp: Int(Date().timeIntervalSince1970)
-                ), sha1: SHA1.hex)
+                ), sha1: proof.sha1Hex)
             }
         )
         return MeetIncomingDMCalls(
@@ -118,7 +118,7 @@ extension MeetDMCallTrial {
         try ensureGeneration(generation)
         return MeetCallClient(
             transport: transport, credentials: context.credentials, configuration: configuration,
-            sha1: SHA1.hex
+            sha1: proof.sha1Hex
         )
     }
 

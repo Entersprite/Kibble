@@ -28,7 +28,7 @@ public final class LocalBridgeAudioCallService: AudioCallService {
     var retrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     public init(
-        trial: MeetDMCallTrial = MeetDMCallTrial(),
+        trial: MeetDMCallTrial,
         mediaFactory: @escaping @MainActor @Sendable () -> any CallMediaEngine
     ) {
         self.trial = trial

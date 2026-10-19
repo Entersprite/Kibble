@@ -37,7 +37,7 @@ public enum APIProbeReport {
     /// per `APIProbeReport+History.swift`'s own doc comment.
     /// `threadWrites` is `--probe-thread-writes` (`APIProbeReport+ThreadWrites.swift`).
     public static func run(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
         conversation: ProbeConversation = .mostRecent,

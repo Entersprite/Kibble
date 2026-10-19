@@ -51,6 +51,11 @@ scan "$CORE" \
   '\b(URLSession|URLRequest|URLProtocol|HTTPURLResponse|HTTPCookieStorage|HTTPCookie|URLCredential|NSLock|os_log)\b' \
   "no Darwin-only networking/locking types"
 
+echo "Provider host boundaries:"
+scan "Packages/LocalBridgeBackend/Sources/LocalBridgeBackend" \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(Security|CryptoKit|OSLog|AppKit|WebKit|SwiftUI|Network)\b' \
+  "provider imports no native custody, crypto or logging frameworks"
+
 echo "Seam purity (ChatKit is the domain; it depends on nothing):"
 if [ -d "$SEAM" ]; then
     hits=$(swift_files "$SEAM" | xargs -0 grep -nE '^[[:space:]]*import[[:space:]]+' 2>/dev/null \

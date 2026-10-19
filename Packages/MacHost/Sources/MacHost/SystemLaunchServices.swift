@@ -136,7 +136,7 @@ public final class SystemLaunchServices: LaunchServices {
         do {
             sessionSummary = try await store.summary(at: Date())
             backend = try await LocalBridgeBackend.using(
-                store,
+                store, connectivity: .native(), proof: .native, diagnostics: .native,
                 tracingChannelTo: Self.channelTraceFile(),
                 meetingMetadataCacheURL: Self.meetingMetadataCacheURL()
             )

@@ -2,19 +2,9 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
-/// The in-process bridge: `GChatBridgeCore` hosted inside the app.
-///
-/// **Incomplete on purpose, and explicit about it.** Today it can do exactly one
-/// thing - verify that a captured session still authenticates - because that is
-/// what the core can do today. `ChannelSession` does not exist yet, so there is
-/// no event channel, no history and no sending, and every one of those methods
-/// says so by name rather than failing vaguely.
-///
-/// It exists now rather than later because it answers a standing question from
-/// the architecture design: whether the reverse-engineered core embeds cleanly
-/// in a Swift macOS app target, in-process, with no bridging pain. It does, and
-/// this package is the proof - it is also the only package in the repo that
-/// imports the core, which is what keeps a future iOS binary free of it.
+/// Google protocol translation for one verified account. Network, credential
+/// storage, proof computation and optional reachability are injected by its host.
+/// Client code uses ChatBackend; provider/session objects stay behind that seam.
 public actor LocalBridgeBackend: ChatBackend {
     /// The capability name every unimplemented action reports.
     ///
@@ -38,6 +28,8 @@ public actor LocalBridgeBackend: ChatBackend {
     let continuation: AsyncStream<ChatEvent>.Continuation
     private let cookies: SessionCookies
     /// `internal`, not `private`: `+People.swift` sends the people search.
+    nonisolated let diagnostics: ProviderDiagnostics
+    nonisolated let proof: ProviderProof
     let endpoints: ChatEndpoints
     /// `internal` for the same reason.
     let transport: any HTTPTransport
@@ -49,24 +41,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// Handed to every `ChannelSession` this backend opens. Always `.default`
     /// outside tests - see the internal initialiser.
     private let channelRetry: RetryPolicy
-    /// Handed to every `ChannelSession` this backend opens, the same as
-    /// `channelRetry`. `nil` is a legitimate value everywhere - `ChannelSession`
-    /// itself degrades to its bounded fallback timer when there is no monitor -
-    /// so every existing call site keeps compiling unchanged. `SessionHandoff
-    /// .swift`'s `using(_:transport:)` is the one place this defaults to a real
-    /// `NWPathReachabilityMonitor`; every other entry point, including the
-    /// public initialiser below, leaves it `nil`.
-    ///
-    /// Not `private`, for the same reason `isConnected`, `channel` and
-    /// `channelTask` below are not: `private` blocks even `@testable import`
-    /// from another file in this target, and there would otherwise be no way
-    /// for a test to assert that the public `using(_:transport:)` call site
-    /// - the one `SystemLaunchServices` actually uses - produces a backend
-    /// carrying a real, non-nil monitor. `SessionHandoffTests
-    /// .theRealUsingOverloadSuppliesARealReachabilityMonitor` is that test;
-    /// without this relaxation, a future edit reverting that default to `nil`
-    /// would compile cleanly and every test would still pass while the whole
-    /// feature went silently inert.
+    /// Optional host-supplied recovery hints; nil retains the bounded timer.
     let channelReachability: (any ReachabilityMonitor)?
     /// Not `private`: `LocalBridgeBackend+ChannelStopped.swift` reads and
     /// writes it too, the same reason `apiClient` and `emit(_:)` are not
@@ -177,14 +152,16 @@ public actor LocalBridgeBackend: ChatBackend {
         cookies: SessionCookies,
         transport: any HTTPTransport,
         endpoints: ChatEndpoints = ChatEndpoints(),
-        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil
+        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
+        proof: ProviderProof = .portable,
+        diagnostics: ProviderDiagnostics = .init()
     ) {
         self.init(
             cookies: cookies,
             transport: transport,
             endpoints: endpoints,
             retry: .default,
-            onRotation: onRotation
+            onRotation: onRotation, proof: proof, diagnostics: diagnostics
         )
     }
 
@@ -219,8 +196,12 @@ public actor LocalBridgeBackend: ChatBackend {
         onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
         reachability: (any ReachabilityMonitor)? = nil,
         presencePollInterval: Duration = defaultPresencePollInterval,
-        reactionRefetchDelay: Duration = defaultReactionRefetchDelay
+        reactionRefetchDelay: Duration = defaultReactionRefetchDelay,
+        proof: ProviderProof = .portable,
+        diagnostics: ProviderDiagnostics = .init()
     ) {
+        self.proof = proof
+        self.diagnostics = diagnostics
         self.cookies = cookies
         self.endpoints = endpoints
         self.transport = transport

@@ -49,12 +49,16 @@ public actor MeetDMCallTrial {
         "Native audio/device trial; invitations are explicit and require a connected joined device.", ""
     ]
 
+    let proof: ProviderProof
+
     public init(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
-        expectedSession: StoredSessionSummary? = nil
+        expectedSession: StoredSessionSummary? = nil,
+        proof: ProviderProof = .portable
     ) {
+        self.proof = proof
         self.store = store
         self.transport = transport
         self.endpoints = endpoints

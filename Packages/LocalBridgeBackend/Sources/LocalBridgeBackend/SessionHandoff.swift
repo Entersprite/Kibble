@@ -73,14 +73,9 @@ public extension LocalBridgeBackend {
     /// still be accepted. The request that settles it costs a single round
     /// trip, and refusing to make it would promote a guess to a policy.
     ///
-    /// - Parameter reachability: The device's network-reachability signal.
-    /// Defaulted to a real `NWPathReachabilityMonitor` here, at the outermost
-    /// public entry point, so `SystemLaunchServices.swift` — the only file
-    /// allowed to name a concrete backend — stays a one-function change: it
-    /// calls this overload with nothing extra and gets the accelerant for
-    /// free. Pass `nil` explicitly to fall back to `ChannelSession`'s bounded
-    /// timer alone, which is what every test that reaches this does by
-    /// supplying its own transport and never asking for a monitor.
+    /// - Parameter reachability: Optional injected recovery hints. The portable
+    /// default uses the channel's bounded fallback timer. MacHost explicitly
+    /// supplies native connectivity; headless hosts need no platform monitor.
     /// - Parameter tracingChannelTo: A file to write the long poll's
     /// transport-level behaviour to - diagnostic instrumentation for
     /// `findings.md` §12.4, never anything that changes what the channel
@@ -98,7 +93,10 @@ public extension LocalBridgeBackend {
     static func using(
         _ store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
-        reachability: (any ReachabilityMonitor)? = NWPathReachabilityMonitor(),
+        reachability: (any ReachabilityMonitor)? = nil,
+        connectivity: ProviderConnectivity = .timerOnly,
+        proof: ProviderProof = .portable,
+        diagnostics: ProviderDiagnostics = .init(),
         tracingChannelTo traceFile: URL? = nil,
         meetingMetadataCacheURL: URL? = nil
     ) async throws -> LocalBridgeBackend? {
@@ -109,7 +107,8 @@ public extension LocalBridgeBackend {
             store,
             transport: transport,
             retry: .default,
-            reachability: reachability,
+            reachability: reachability ?? connectivity.monitor,
+            proof: proof, diagnostics: diagnostics,
             meetingMetadataCacheURL: meetingMetadataCacheURL
         )
     }
@@ -126,6 +125,8 @@ extension LocalBridgeBackend {
         transport: any HTTPTransport,
         retry: RetryPolicy,
         reachability: (any ReachabilityMonitor)? = nil,
+        proof: ProviderProof = .portable,
+        diagnostics: ProviderDiagnostics = .init(),
         meetingMetadataCacheURL: URL? = nil
     ) async throws -> LocalBridgeBackend? {
         guard let session = try await store.currentSession() else { return nil }
@@ -145,7 +146,7 @@ extension LocalBridgeBackend {
                 // like it never burned down.
                 try? await store.replaceCredential(with: rotated, belongingTo: session)
             },
-            reachability: reachability
+            reachability: reachability, proof: proof, diagnostics: diagnostics
         )
         if let meetingMetadataCacheURL {
             await backend.installMeetingMetadataCache(at: meetingMetadataCacheURL, scope: session.capturedAt)
@@ -161,11 +162,6 @@ public extension KeychainCredentialStore {
     /// somebody's live session - the check deletes what it wrote, and pointing
     /// it at the real account would make that deletion a logout.
     static let selfCheckAccount = "selfcheck"
-
-    /// A store aimed at the self-check account.
-    static func forSelfCheck() -> KeychainCredentialStore {
-        KeychainCredentialStore(account: selfCheckAccount)
-    }
 
     /// The account the data-protection probe writes to.
     ///
@@ -203,34 +199,6 @@ public extension KeychainCredentialStore {
             // probe behind would be litter.
             try? await invalidate()
             return "FAIL - \(KeychainDiagnosis.explain(error))"
-        }
-    }
-
-    /// Whether this build can use the **data-protection** keychain.
-    ///
-    /// Asked separately from `selfCheck()` because the answer decides a
-    /// migration, and the two failure modes are opposite: the legacy keychain
-    /// works today and can prompt for a password; the data-protection keychain
-    /// never prompts but needs an access group a self-signed certificate may
-    /// not supply, which returns as `-34018` (`findings.md` §19.1).
-    ///
-    /// Built on a concrete `KeychainSecretStorage` rather than the injected
-    /// `storage`, since `SecretStorage` stays a one-keychain protocol on
-    /// purpose — see `KeychainSecretStorage`'s own note on why.
-    func dataProtectionSelfCheck() async -> String {
-        let storage = KeychainSecretStorage(service: KeychainCredentialStore.defaultService)
-        let account = Self.dataProtectionSelfCheckAccount
-        let probe = Data("probe".utf8)
-        do {
-            try storage.write(probe, account: account, useDataProtection: true)
-            let read = try storage.read(account: account, useDataProtection: true)
-            try storage.delete(account: account, useDataProtection: true)
-            guard read == probe else {
-                return "FAIL - the data-protection keychain returned different bytes."
-            }
-            return "PASS - this build can also use the data-protection keychain."
-        } catch {
-            return "FAIL (data-protection) - \(KeychainDiagnosis.explain(error))"
         }
     }
 }

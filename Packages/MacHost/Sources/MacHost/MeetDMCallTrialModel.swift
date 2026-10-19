@@ -21,7 +21,7 @@ public final class MeetDMCallTrialModel {
     public internal(set) var invitationAccepted = false
     public private(set) var reportStatus = ""
     public private(set) var reportText = ""
-    let trial = MeetDMCallTrial()
+    let trial = MeetDMCallTrial(store: KeychainCredentialStore(), proof: .native)
     var ticket: UUID?
     var link: URL?
     var hasOpenedBrowser = false
