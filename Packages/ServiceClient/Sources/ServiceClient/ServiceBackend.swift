@@ -16,6 +16,12 @@ public actor ServiceBackend: ProjectedChatBackend {
     var projectionWaiters: [UUID: ProjectionWaiter] = [:]
     var connectionGeneration = UUID()
     var connecting = false
+    var attachment: ClientAttachment?
+    var attachmentGeneration: UInt64 = 0
+    var attachmentOpening: ClientAttachmentOpening?
+    var attachmentRenewal: Task<Void, Never>?
+    var interestRestoration: Task<Void, Never>?
+    var desiredInterests = ClientDesiredInterests()
     var cursor: ServiceCursor?
     var consumer: Task<Void, Never>?
     private var acknowledgement: PendingAcknowledgement?
@@ -64,7 +70,10 @@ public actor ServiceBackend: ProjectedChatBackend {
         _ = try await transport.negotiate(.current)
         try Task.checkCancellation()
         guard generation == connectionGeneration else { throw CancellationError() }
+        _ = try await openClientAttachment(generation: generation)
+        guard generation == connectionGeneration else { throw CancellationError() }
         consumer = Task { [weak self] in await self?.consume(generation: generation) }
+        startAttachmentRenewal(generation: generation)
     }
 
     public func disconnect() async {
@@ -74,20 +83,39 @@ public actor ServiceBackend: ProjectedChatBackend {
         let task = consumer
         consumer = nil
         task?.cancel()
+        let attached = attachment
+        attachment = nil
+        let opening = attachmentOpening?.task
+        attachmentOpening = nil
+        let renewal = attachmentRenewal
+        attachmentRenewal = nil
+        let restoration = interestRestoration
+        interestRestoration = nil
+        opening?.cancel(); renewal?.cancel(); restoration?.cancel()
         cancelAcknowledgement()
         failProjectionWaiters(CancellationError())
         await task?.value
+        await renewal?.value
+        await restoration?.value
+        if let opening, case let .success(opened) = await opening.result, opened.id != attached?.id {
+            _ = try? await call(DetachAccountClient(attachmentID: opened.id), timeout: 5)
+        }
+        if let attached {
+            _ = try? await call(DetachAccountClient(attachmentID: attached.id), timeout: 5)
+        }
         guard generation == connectionGeneration else { return }
         emitTransient(.connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
 
-    public func call<Payload: ServiceRequestPayload>(_ payload: Payload) async throws -> Payload.Response {
+    public func call<Payload: ServiceRequestPayload>(
+        _ payload: Payload, timeout: TimeInterval = 60
+    ) async throws -> Payload.Response {
         guard let accountRevision else { throw ServiceFailure.invalidResponse }
         do {
             return try await AccountClient(transport: transport).call(
                 payload,
                 account: accountID,
-                revision: accountRevision
+                revision: accountRevision, timeout: timeout
             )
         } catch let failure as ServiceFailure {
             if failure.code == "providerFailure", let details = failure.details {
@@ -100,12 +128,16 @@ public actor ServiceBackend: ProjectedChatBackend {
     private func consume(generation: UUID) async {
         var failures = 0
         while !Task.isCancelled, generation == connectionGeneration {
+            var subscribedAttachment: ClientAttachmentID?
             do {
+                let attached = try await openClientAttachment(generation: generation)
+                subscribedAttachment = attached.id
                 let request = try ServiceRequest(header: ServiceRequestHeader(
                     requestID: ServiceRequestID(UUID().uuidString), accountID: accountID,
-                    accountRevision: accountRevision
-                ), payload: ReadEvents(cursor: cursor, limit: 256))
+                    accountRevision: accountRevision, deadline: Date().addingTimeInterval(10)
+                ), payload: ReadEvents(cursor: cursor, limit: 256, clientAttachmentID: attached.id))
                 let stream = try await transport.events(request)
+                restoreClientInterests(attachment: attached.id, generation: generation)
                 for try await page in stream {
                     try Task.checkCancellation()
                     try await receive(page, generation: generation)
@@ -129,6 +161,10 @@ public actor ServiceBackend: ProjectedChatBackend {
                         .backendError(.unknown("The account sign-in has changed. Reconnect this client."))
                     )
                     return
+                }
+                if error as? ServiceFailure == .clientAttachmentExpired,
+                   attachment?.id == subscribedAttachment {
+                    attachment = nil
                 }
                 failures = min(6, failures + 1)
                 emitTransportUnavailable()

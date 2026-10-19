@@ -131,6 +131,10 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         guard bytes.count <= 4 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }
         let request = try ServiceCodec.decode(ServiceRequest.self, from: bytes)
         _ = try ServiceAPIVersion.current.negotiated(with: request.header.version)
+        if let deadline = request.header.deadline,
+           deadline <= Date() {
+            throw ServiceFailure.deadlineExceeded
+        }
         let payload = try request.decodePayload(ReadEvents.self)
         guard restored, !shuttingDown,
               let id = request.header.accountID, context.allowsAccount(id),
@@ -142,7 +146,9 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
             throw ServiceFailure.accountDisabled
         }
         guard let runtime = runtimes[id] else { throw ServiceFailure.overloaded }
-        return try await runtime.subscribe(after: payload.cursor)
+        return try await runtime.subscribe(
+            after: payload.cursor, attachment: payload.clientAttachmentID, context: context
+        )
     }
 
     private func route(_ request: ServiceRequest, context: ServiceSessionContext) async throws -> JSONValue {
@@ -166,10 +172,12 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         if record.isRemoving, request.operation != RemoveAccount.operation {
             throw ServiceFailure.accountDisabled
         }
-        return try await routeAccount(request, record: record)
+        return try await routeAccount(request, record: record, context: context)
     }
 
-    private func routeAccount(_ request: ServiceRequest, record: AccountRecord) async throws -> JSONValue {
+    private func routeAccount(
+        _ request: ServiceRequest, record: AccountRecord, context: ServiceSessionContext
+    ) async throws -> JSONValue {
         let id = record.id
         switch request.operation {
         case RetryAccountRecovery.operation:
@@ -184,7 +192,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
             return try ServiceCodec.value(ServiceUnit())
         case GetAccountPolicy.operation, SetAccountPolicy.operation:
             guard !changing.contains(id) else { throw ServiceFailure.overloaded }
-            return try accountPolicy(request, record: record)
+            return try await accountPolicy(request, record: record)
         case GetOperation.operation:
             try checkAuthentication(record)
             return try await accountOperationStatus(request, record: record)
@@ -192,7 +200,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
             try checkAuthentication(record)
             guard record.isEnabled, !changing.contains(id) else { throw ServiceFailure.accountDisabled }
             guard let runtime = runtimes[id] else { throw ServiceFailure.overloaded }
-            return try await runtime.handle(request)
+            return try await runtime.handle(request, context: context)
         }
     }
 

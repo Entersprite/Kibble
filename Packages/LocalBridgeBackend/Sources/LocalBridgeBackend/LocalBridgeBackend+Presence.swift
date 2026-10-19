@@ -29,6 +29,11 @@ extension LocalBridgeBackend {
         /// Who is asked about. Grown by `addPresenceTargets`, cleared with
         /// the session.
         var people: Set<ChatKit.Member.ID> = []
+        var clientPeople: Set<ChatKit.Member.ID> = []
+        var allPeople: Set<ChatKit.Member.ID> {
+            people.union(clientPeople)
+        }
+
         /// The last value emitted per person, so a poll that learns nothing
         /// new emits nothing. Cleared by `disconnect()`.
         var emitted: [ChatKit.Member.ID: ChatKit.Presence] = [:]
@@ -150,7 +155,7 @@ extension LocalBridgeBackend {
                 // `nil` once the backend has gone, which ends the loop rather
                 // than sleeping forever on behalf of nobody. Read fresh each
                 // run, because the set grows between runs.
-                guard let people = await self?.presencePoll.people else { return }
+                guard let people = await self?.presencePoll.allPeople else { return }
                 if !people.isEmpty {
                     let ids = people.sorted { $0.rawValue < $1.rawValue }
                     await self?.pollPresence(ids, using: apiClient, generation: generation)

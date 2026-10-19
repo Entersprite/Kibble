@@ -62,8 +62,9 @@ public struct AccountClient: Sendable {
 
     public func call<Payload: ServiceRequestPayload>(
         _ payload: Payload, account: ConnectedAccountID? = nil,
-        revision: ServiceAccountRevision? = nil
+        revision: ServiceAccountRevision? = nil, timeout: TimeInterval = 60
     ) async throws -> Payload.Response {
+        guard timeout.isFinite, timeout > 0, timeout <= 60 else { throw ServiceFailure.invalidRequest }
         let version = try await transport.negotiate(.current)
         var revision = revision
         if let account, revision == nil {
@@ -73,7 +74,7 @@ public struct AccountClient: Sendable {
         }
         let request = try ServiceRequest(header: ServiceRequestHeader(
             requestID: ServiceRequestID(UUID().uuidString), accountID: account, accountRevision: revision,
-            deadline: Date().addingTimeInterval(60), version: version
+            deadline: Date().addingTimeInterval(timeout), version: version
         ), payload: payload)
         return try await transport.exchange(request).value(for: Payload.self)
     }

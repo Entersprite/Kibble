@@ -8,9 +8,13 @@ public struct SendHint: ServiceRequestPayload {
     public static let operation = "sendHint"
     public static let requiresAccount = true
     public let command: ChatCommand
+    public let attachmentID: ClientAttachmentID?
+    public let sequence: String?
 
-    public init(command: ChatCommand) {
+    public init(command: ChatCommand, attachmentID: ClientAttachmentID? = nil, sequence: String? = nil) {
         self.command = command
+        self.attachmentID = attachmentID
+        self.sequence = sequence
     }
 
     public static func accepts(_ command: ChatCommand) -> Bool {

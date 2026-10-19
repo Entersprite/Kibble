@@ -56,8 +56,16 @@ private actor RecoveringTransport: ServiceEventTransport {
         version
     }
 
-    func exchange(_ request: ServiceRequest) -> ServiceResponse {
-        ServiceResponse(replyingTo: request, result: .failure(.unsupportedOperation))
+    func exchange(_ request: ServiceRequest) throws -> ServiceResponse {
+        switch request.operation {
+        case AttachAccountClient.operation:
+            try ServiceResponse(replyingTo: request, result: .success(ServiceCodec.value(ClientAttachment(
+                id: ClientAttachmentID("lease"), expiresAt: Date().addingTimeInterval(60)
+            ))))
+        case DetachAccountClient.operation:
+            try ServiceResponse(replyingTo: request, result: .success(ServiceCodec.value(ServiceUnit())))
+        default: ServiceResponse(replyingTo: request, result: .failure(.unsupportedOperation))
+        }
     }
 
     func events(_ request: ServiceRequest) -> AsyncThrowingStream<ServiceEventPage, any Error> {

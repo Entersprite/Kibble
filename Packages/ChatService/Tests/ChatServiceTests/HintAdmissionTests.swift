@@ -24,11 +24,17 @@ struct HintAdmissionTests {
         ]
         for _ in 0 ..< 20 {
             for hint in hints {
-                _ = try await harness.call(SendHint(command: hint))
+                try await harness.hint(hint)
             }
         }
         #expect(reservations.count == 1)
-        #expect(await harness.backend.sentCommands.count == 101)
+        let memberCalls = await harness.backend.sentCommands.filter {
+            if case .loadMembers = $0 {
+                return true
+            }; return false
+        }
+        #expect(memberCalls.count == 20)
+        try await authEventually { await harness.backend.receivePresence == [Member.ID("peer")] }
         await harness.service.shutdown()
     }
 
@@ -40,7 +46,7 @@ struct HintAdmissionTests {
             conversationID: ReconciliationBackend.conversation, threadID: nil, text: "No bypass", localID: nil
         )
         await #expect(throws: ServiceFailure.invalidRequest) {
-            try await harness.call(SendHint(command: mutation))
+            try await harness.hint(mutation)
         }
         await #expect(throws: ServiceFailure.invalidRequest) {
             try await harness.call(SendCommand(

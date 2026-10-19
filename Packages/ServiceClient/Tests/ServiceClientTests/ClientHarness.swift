@@ -125,7 +125,10 @@ struct ClientHarness {
     func backend(_ account: AccountSummary) -> ServiceBackend {
         ServiceBackend(
             account: account,
-            transport: InProcessChatTransport(endpoint: service, context: context)
+            transport: InProcessChatTransport(endpoint: service, context: ServiceSessionContext(
+                principalID: context.principalID, deviceID: context.deviceID,
+                sessionID: ClientSessionID(UUID().uuidString), accounts: context.accounts
+            ))
         )
     }
 }

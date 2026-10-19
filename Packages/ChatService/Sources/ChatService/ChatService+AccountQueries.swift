@@ -7,17 +7,19 @@ extension ChatService {
         try ServiceCodec.value(accountSummaries(context))
     }
 
-    func accountPolicy(_ request: ServiceRequest, record: AccountRecord) throws -> JSONValue {
+    func accountPolicy(_ request: ServiceRequest, record: AccountRecord) async throws -> JSONValue {
         if request.operation == GetAccountPolicy.operation {
             _ = try request.decodePayload(GetAccountPolicy.self)
             return try ServiceCodec.value(policies.policy(for: record))
         }
         let payload = try request.decodePayload(SetAccountPolicy.self)
-        return try ServiceCodec.value(policies.setPolicy(
+        let policy = try policies.setPolicy(
             payload.settings,
             for: record,
             expectedRevision: payload.expectedRevision
-        ))
+        )
+        try await runtimes[record.id]?.clientPolicyChanged()
+        return try ServiceCodec.value(policy)
     }
 
     func readDisabledAccount(

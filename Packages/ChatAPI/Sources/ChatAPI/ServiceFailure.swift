@@ -23,6 +23,7 @@ public struct ServiceFailure: Error, Codable, Hashable, Sendable {
     public static let revisionConflict = ServiceFailure(code: "revisionConflict")
     public static let privacyDenied = ServiceFailure(code: "privacyDenied")
     public static let policyUnavailable = ServiceFailure(code: "policyUnavailable")
+    public static let clientAttachmentExpired = ServiceFailure(code: "clientAttachmentExpired")
     public static let invalidRequest = ServiceFailure(code: "invalidRequest")
     public static let deviceBusy = ServiceFailure(code: "deviceBusy")
     public static let incompatibleVersion = ServiceFailure(code: "incompatibleVersion")

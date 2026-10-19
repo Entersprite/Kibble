@@ -8,6 +8,37 @@ import Testing
 /// event stream.
 @Suite(.timeLimit(.minutes(1)))
 struct PresencePollTests: PresencePollFixtures {
+    @Test func managedPresenceInterestIsWithdrawnWithoutRemovingAccountDirectoryPolling() async throws {
+        let transport = try transport([.people(["u-1": .active, "u-visible": .active])], dmMembers: ["u-1"])
+        let backend = backend(transport, interval: .milliseconds(20))
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+        try await awaitPolls(1, on: transport)
+        try await backend.setReceiveInterests(
+            presenceMembers: [ChatKit.Member.ID("u-visible")],
+            conversations: []
+        )
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline {
+            if await transport.polls
+                .contains(where: { Set($0.userIds.map(\.id)) == ["u-1", "u-visible"] }) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        let includesManaged = await transport.polls.contains { Set($0.userIds.map(\.id)) == [
+            "u-1",
+            "u-visible"
+        ] }
+        try #require(includesManaged)
+        try await backend.setReceiveInterests(presenceMembers: [], conversations: [])
+        let before = await transport.polls.count
+        try await awaitPolls(before + 2, on: transport)
+        let latest = try #require(await transport.polls.last)
+        #expect(Set(latest.userIds.map(\.id)) == ["u-1"])
+        await backend.disconnect()
+    }
+
     // MARK: - Who, and when
 
     @Test func theWorldLoadAsksAboutEveryDMPartnerAtOnce() async throws {

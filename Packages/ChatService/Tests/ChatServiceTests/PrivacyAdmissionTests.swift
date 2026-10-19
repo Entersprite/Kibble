@@ -74,23 +74,24 @@ struct PrivacyAdmissionTests {
         _ = try await harness.call(LoadConversations())
         let start = ChatCommand.setTyping(conversationID: conversation, threadID: nil, isTyping: true)
         await #expect(throws: ServiceFailure.privacyDenied) {
-            try await harness.call(SendHint(command: start))
+            try await harness.hint(start)
         }
         try await update(
             harness,
             rule: NotificationRule(sharesTyping: true),
             scope: .conversation(conversation)
         )
-        _ = try await harness.call(SendHint(command: start))
+        try await harness.hint(start)
+        try await authEventually { await harness.backend.sentCommands.contains(start) }
         try await update(
             harness,
             rule: NotificationRule(sharesTyping: false),
             scope: .conversation(conversation)
         )
         let stop = ChatCommand.setTyping(conversationID: conversation, threadID: nil, isTyping: false)
-        _ = try await harness.call(SendHint(command: stop))
+        try await harness.hint(stop)
         await #expect(throws: ServiceFailure.privacyDenied) {
-            try await harness.call(SendHint(command: start))
+            try await harness.hint(start)
         }
         #expect(await harness.backend.sentCommands == [start, stop])
         await harness.service.shutdown()

@@ -7,7 +7,11 @@ extension AccountRuntime {
     func scheduleEffects(for event: ChatEvent) async {
         switch event {
         case .conversationsChanged: requestBackfill()
-        case .connectionStateChanged(.connected): requestWorldRefresh()
+        case .connectionStateChanged(.connected):
+            requestWorldRefresh()
+            if aggregateClientInterests().hasAny || publishedInterests.hasAny {
+                clientInterestsChanged(force: true)
+            }
         default: break
         }
         for effect in SyncReducer.reduce(event).effects {

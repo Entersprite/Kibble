@@ -6,6 +6,7 @@ extension AccountRuntime {
     func dispatchProvider(
         _ request: ServiceRequest,
         backend: any ChatBackend,
+        context: ServiceSessionContext?,
         epoch: UUID
     ) async throws -> JSONValue {
         switch request.operation {
@@ -18,7 +19,7 @@ extension AccountRuntime {
             return try await dispatchDetails(request, backend: backend, epoch: epoch)
         case OpenDirectConversation.operation, CreateConversation.operation, MutateConversation.operation,
              SendCommand.operation, SendHint.operation:
-            return try await dispatchMutations(request, backend: backend, epoch: epoch)
+            return try await dispatchMutations(request, backend: backend, context: context, epoch: epoch)
         default: throw ServiceFailure.unsupportedOperation
         }
     }

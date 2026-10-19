@@ -76,8 +76,7 @@ public actor ChannelSession {
     var requestIdentifier: Int
     /// Stream offset resets for each SID; RID shares the handshake counter and never resets.
     var streamEventOfs = 0
-    var watchedGroup: GroupId?
-    var subscriptionReadySID: String?
+    var groupInterest = ChannelGroupInterest()
     private var generator = SystemRandomNumberGenerator()
     /// The backoff between reconnect attempts.
     ///

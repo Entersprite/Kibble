@@ -6,17 +6,12 @@ extension AccountRuntime {
     func dispatchMutations(
         _ request: ServiceRequest,
         backend: any ChatBackend,
+        context: ServiceSessionContext?,
         epoch: UUID
     ) async throws -> JSONValue {
         switch request.operation {
         case SendHint.operation:
-            let payload = try request.decodePayload(SendHint.self)
-            guard SendHint.accepts(payload.command) else { throw ServiceFailure.invalidRequest }
-            try authorizePrivacy(payload.command)
-            try checkEpoch(epoch)
-            try await backend.send(payload.command)
-            try checkEpoch(epoch)
-            return try ServiceCodec.value(ServiceUnit())
+            return try await dispatchHint(request, backend: backend, context: context, epoch: epoch)
         case OpenDirectConversation.operation:
             let payload = try request.decodePayload(OpenDirectConversation.self)
             return try await performOperation(payload.operationID, request: request, epoch: epoch) {

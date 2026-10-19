@@ -135,4 +135,33 @@ struct GroupSubscriptionTests {
         await session.stop()
         running.cancel()
     }
+
+    @Test func severalClientsReceiveInterestsReplayOnlyTheirCurrentUnion() async throws {
+        let transport = SubscriptionTransport()
+        let session = try ChannelSession(
+            cookies: #require(SessionCookies(header: "SID=a; COMPASS=b")), transport: transport,
+            retry: .immediate
+        )
+        await session.watchGroups([group("first"), group("second"), group("first")])
+        let running = Task { await session.start() }
+        try await waitFor(2, on: transport)
+        await session.watchGroups([group("first"), group("second")])
+        #expect(await transport.subscriptions().count == 2)
+        await session.watchGroups([group("second")])
+        try await waitFor(3, on: transport)
+        await transport.drop()
+        try await waitFor(4, on: transport)
+        let requests = await transport.subscriptions()
+        #expect(try requests.map { try decode($0).groupSubscriptionEvent.groupIds } == [
+            [group("first")], [group("second")], [group("second")], [group("second")]
+        ])
+        #expect(requests.map { query("SID", of: $0.url) } == [
+            "session-1",
+            "session-1",
+            "session-1",
+            "session-2"
+        ])
+        await session.stop()
+        running.cancel()
+    }
 }

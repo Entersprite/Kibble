@@ -2,10 +2,15 @@ import ChatAPI
 import Foundation
 
 extension AccountRuntime {
-    func subscribe(after cursor: ServiceCursor?) throws -> AsyncThrowingStream<Data, any Error> {
+    func subscribe(
+        after cursor: ServiceCursor?, attachment: ClientAttachmentID?, context: ServiceSessionContext
+    ) throws -> AsyncThrowingStream<Data, any Error> {
         guard !stopped else { throw ServiceFailure.accountDisabled }
         guard !quarantinedForSubscription else { throw ServiceFailure.accountCleanupPending }
         guard subscribers.count < 64 else { throw ServiceFailure.overloaded }
+        if let attachment {
+            _ = try validateAttachment(attachment, context: context)
+        }
         let id = UUID()
         let (stream, continuation) = AsyncThrowingStream<Data, any Error>
             .makeStream(bufferingPolicy: .bufferingOldest(8))
@@ -14,6 +19,7 @@ extension AccountRuntime {
         guard bytes.count <= 4 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }
         continuation.yield(bytes)
         subscribers[id] = continuation
+        subscriberAttachments[id] = attachment
         if page.snapshot != nil {
             requestBackfill(replay: true)
         }
@@ -25,6 +31,7 @@ extension AccountRuntime {
 
     private func unsubscribe(_ id: UUID) {
         subscribers[id] = nil
+        subscriberAttachments[id] = nil
     }
 
     func publish(_ page: ServiceEventPage) throws {
@@ -35,12 +42,15 @@ extension AccountRuntime {
             case .dropped:
                 subscriber.finish(throwing: ServiceFailure.overloaded)
                 subscribers[id] = nil
+                subscriberAttachments[id] = nil
             case .terminated:
                 subscribers[id] = nil
+                subscriberAttachments[id] = nil
             case .enqueued: break
             @unknown default:
                 subscriber.finish(throwing: ServiceFailure.invalidResponse)
                 subscribers[id] = nil
+                subscriberAttachments[id] = nil
             }
         }
     }
