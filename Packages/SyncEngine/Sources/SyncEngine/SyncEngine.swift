@@ -17,7 +17,8 @@ public actor SyncEngine {
     let backend: any ChatBackend
     /// Not `private`: `SyncEngine+MentionBackfill.swift` reads and writes it.
     let store: ChatStore
-    private var consumer: Task<Void, Never>?
+    var starting = false
+    var consumer: Task<Void, Never>?
     let typingTiming: TypingTiming
     var typingLeases: [TypingKey: TypingLease] = [:]
     var typingExpiry: Task<Void, Never>?
@@ -113,27 +114,6 @@ public actor SyncEngine {
         self.store = store
         self.mentionClock = mentionClock
         (announcements, announcer) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
-    }
-
-    /// Clears what was only true last time, starts consuming, then connects.
-    ///
-    /// Consuming starts *before* connecting so that nothing emitted during
-    /// connection can be missed. Calling this twice does nothing the second
-    /// time.
-    public func start() async throws {
-        guard consumer == nil else { return }
-        try store.apply([.clearEphemeralState])
-        activityRunning = true
-        let stream = backend.events
-        consumer = Task { [weak self] in
-            for await event in stream {
-                if Task.isCancelled {
-                    return
-                }
-                await self?.handle(event)
-            }
-        }
-        try await backend.connect()
     }
 
     /// Stops consuming and disconnects.

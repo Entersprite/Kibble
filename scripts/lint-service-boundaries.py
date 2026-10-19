@@ -13,6 +13,7 @@ GRAPHS = {
         "SyncEngine": {"ChatKit", "ChatRules", "ChatPersistence", "GRDB"},
     },
     "ChatRules": {"ChatRules": {"ChatKit"}},
+    "ServiceClient": {"ServiceClient": {"ChatKit", "ChatAPI"}},
 }
 
 

@@ -95,7 +95,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test
     || note "architecture checker tests"
 
 echo "Service and shared storage boundaries:"
-for package in ChatService SyncEngine ChatRules; do
+for package in ChatService SyncEngine ChatRules ServiceClient; do
     out=$(cd "Packages/$package" && swift package dump-package 2>/dev/null \
         | python3 ../../scripts/lint-service-boundaries.py "$package")
     if [ "$?" != 0 ]; then
@@ -113,6 +113,10 @@ done
 scan "Packages/SyncEngine/Sources/SyncEngine/Store" \
   '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(SyncEngine|AppCore|DesignSystem|ChatService|MacHost|LocalBridgeBackend)\b' \
   "shared persistence imports no client or service implementation"
+
+scan "Packages/ServiceClient/Sources/ServiceClient" \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(ChatService|ChatServiceStorage|SyncEngine|AppCore|MacHost|LocalBridgeBackend|GChatBridgeCore|Security|AppKit|WebKit|SwiftUI)\b' \
+  "service client imports only contracts and domain values"
 
 echo "Core containment (a future iOS binary must carry no protocol code):"
 # LocalBridgeBackend is the ONLY package allowed to import GChatBridgeCore, and

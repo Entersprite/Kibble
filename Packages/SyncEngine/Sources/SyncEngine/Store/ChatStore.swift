@@ -59,6 +59,12 @@ public extension ChatStore {
         }
     }
 
+    internal static func apply(_ writes: [StoreWrite], in db: Database) throws {
+        for write in writes {
+            try perform(write, in: db)
+        }
+    }
+
     private static func perform(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case let .setMeetingMetadataLoading(loading):

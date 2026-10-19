@@ -8,7 +8,8 @@ actor AccountRuntime {
     let storage: any ServiceAccountStorage
     private let factory: any AccountProviderFactory
     private var epoch = UUID()
-    private var stopped = false
+    var subscribers: [UUID: AsyncThrowingStream<Data, any Error>.Continuation] = [:]
+    var stopped = false
     private var backend: (any ChatBackend)?
     private var startup: Task<Void, Never>?
     private var consumer: Task<Void, Never>?
@@ -56,7 +57,17 @@ actor AccountRuntime {
     private func ingest(_ event: ChatEvent, epoch: UUID) {
         guard self.epoch == epoch, !stopped else { return }
         do {
-            _ = try storage.append(event, live: true)
+            let cursor = try storage.append(event, live: true)
+            try publish(ServiceEventPage(
+                checkpoint: cursor,
+                snapshot: nil,
+                events: [ServiceEvent(
+                    cursor: cursor,
+                    event: event,
+                    isLiveArrival: true
+                )],
+                hasMore: false
+            ))
             if case let .connectionStateChanged(state) = event {
                 connection = state
             }
@@ -79,6 +90,10 @@ actor AccountRuntime {
     func stop() async {
         guard !stopped else { return }
         stopped = true
+        for subscriber in subscribers.values {
+            subscriber.finish(throwing: ServiceFailure.accountDisabled)
+        }
+        subscribers.removeAll()
         epoch = UUID()
         startup?.cancel()
         consumer?.cancel()

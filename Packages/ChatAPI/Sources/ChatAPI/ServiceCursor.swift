@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 
 /// Account and stream identity are inseparable from sequence. Decimal strings
@@ -35,5 +36,19 @@ public struct ServiceCursor: Codable, Hashable, Sendable {
         try container.encode(accountID, forKey: .accountID)
         try container.encode(streamID, forKey: .streamID)
         try container.encode(String(sequence), forKey: .sequence)
+    }
+}
+
+public extension ServiceCursor {
+    var replicaCheckpoint: ReplicaCheckpoint {
+        ReplicaCheckpoint(account: accountID.rawValue, stream: streamID.rawValue, sequence: sequence)
+    }
+
+    init(_ checkpoint: ReplicaCheckpoint) {
+        self.init(
+            accountID: ConnectedAccountID(checkpoint.account),
+            streamID: ServiceStreamID(checkpoint.stream),
+            sequence: checkpoint.sequence
+        )
     }
 }

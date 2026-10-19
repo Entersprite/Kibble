@@ -3,7 +3,7 @@ import ChatKit
 import Foundation
 
 /// Account runtimes belong to this host, independently of client subscriptions.
-public actor ChatService: ServiceEndpoint {
+public actor ChatService: ServiceEventEndpoint {
     private let registry: any AccountRegistry
     private let storage: any ServiceStorageFactory
     private let providers: any AccountProviderFactory
@@ -68,6 +68,24 @@ public actor ChatService: ServiceEndpoint {
             result = .failure(serviceFailure(error))
         }
         return try ServiceCodec.encode(ServiceResponse(replyingTo: request, result: result))
+    }
+
+    public func events(
+        _ bytes: Data,
+        context: ServiceSessionContext
+    ) async throws -> AsyncThrowingStream<Data, any Error> {
+        guard bytes.count <= 4 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }
+        let request = try ServiceCodec.decode(ServiceRequest.self, from: bytes)
+        _ = try ServiceAPIVersion.current.negotiated(with: request.header.version)
+        let payload = try request.decodePayload(ReadEvents.self)
+        guard restored, !shuttingDown,
+              let id = request.header.accountID, context.accounts.contains(id),
+              let record = records[id], record.principalID == context.principalID,
+              !record.isRemoving else { throw ServiceFailure.notAuthorized }
+        guard record.isEnabled, !changing.contains(id), let runtime = runtimes[id] else {
+            throw ServiceFailure.accountDisabled
+        }
+        return try await runtime.subscribe(after: payload.cursor)
     }
 
     private func route(_ request: ServiceRequest, context: ServiceSessionContext) async throws -> JSONValue {
