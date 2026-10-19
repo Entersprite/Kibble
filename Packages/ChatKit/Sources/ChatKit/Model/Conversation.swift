@@ -91,10 +91,7 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// **Equality is read** (`findings.md` §42.2). A message at exactly this
     /// time is covered, and one a microsecond later is not.
     ///
-    /// **Microseconds in-process, milliseconds in a frame.** `RFC3339` writes
-    /// three fractional digits (see its own note), so a frame loses the
-    /// sub-millisecond part. No read position crosses a frame in-process
-    /// today. A server that sends one must widen that format first.
+    /// Microsecond precision is preserved in storage and RFC 3339 frames.
     public var readPosition: Date?
 
     /// Whether people can reply in threads here: true on spaces, DMs, group

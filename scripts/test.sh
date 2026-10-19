@@ -65,6 +65,35 @@ else
     pass "ChatKit imports only Foundation (no sources yet)"
 fi
 
+echo "Service API boundaries:"
+for target in ChatAPI InProcessChatTransport; do
+    api_sources="Packages/ChatAPI/Sources/$target"
+    if [ ! -d "$api_sources" ]; then
+        note "$target sources are missing"
+        continue
+    fi
+    if [ "$target" = ChatAPI ]; then allowed_imports='Foundation|ChatKit'; else allowed_imports='Foundation|ChatAPI'; fi
+    hits=$(swift_files "$api_sources" | xargs -0 grep -nE \
+        '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+' \
+        | grep -vE "import[[:space:]]+($allowed_imports)[[:space:]]*$" || true)
+    if [ -n "$hits" ]; then
+        note "$target imports outside the service contract"
+        printf '%s\n' "$hits"
+    else
+        pass "$target has no implementation or platform imports"
+    fi
+done
+out=$(cd Packages/ChatAPI && swift package dump-package 2>/dev/null \
+    | python3 ../../scripts/lint-chatapi.py)
+if [ "$?" != 0 ]; then
+    note "service API target dependencies"
+    printf '%s\n' "$out"
+else
+    pass "service API target dependencies"
+fi
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_*.py' \
+    || note "architecture checker tests"
+
 echo "Core containment (a future iOS binary must carry no protocol code):"
 # LocalBridgeBackend is the ONLY package allowed to import GChatBridgeCore, and
 # the app is not allowed to import it at all. That is the architecture's whole
