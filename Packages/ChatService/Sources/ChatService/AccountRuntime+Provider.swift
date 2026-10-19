@@ -10,6 +10,8 @@ extension AccountRuntime {
         epoch: UUID
     ) async throws -> JSONValue {
         switch request.operation {
+        case BeginUploadTransfer.operation, FinalizeUploadTransfer.operation, CancelTransfer.operation:
+            return try await dispatchUpload(request, backend: backend, context: context, epoch: epoch)
         case GetCapabilities.operation, LoadConversations.operation, LoadMessages.operation,
              SearchPeople.operation, SearchMessages.operation, LoadFollowedThreads.operation:
             return try await dispatchQueries(request, backend: backend, epoch: epoch)

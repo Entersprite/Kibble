@@ -37,7 +37,10 @@ extension AccountRuntime {
             guard !SendHint.accepts(payload.command) else { throw ServiceFailure.invalidRequest }
             let result = try await performOperation(
                 payload.operationID, request: request, epoch: epoch,
-                authorize: { try authorizePrivacy(payload.command) }, perform: {
+                authorize: {
+                    try authorizePrivacy(payload.command)
+                    try authorizeUploadedAttachments(payload.command)
+                }, perform: {
                     try await { try await backend.send(payload.command); return ServiceUnit() }()
                 }
             )

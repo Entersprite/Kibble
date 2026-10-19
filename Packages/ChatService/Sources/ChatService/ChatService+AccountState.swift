@@ -111,6 +111,8 @@ extension ChatService {
         return try AccountRuntime(
             record: record, storage: storage.open(record.id), factory: providers,
             policies: policies, instanceID: instanceID,
+            transferStorage: transferFiles?.open(record.id), transferLimits: transferLimits,
+            transferNow: transferNow,
             onStatus: { [weak self] status in
                 await self?.runtimeStatusChanged(
                     record.id, revision: record.currentRevision, instanceID: instanceID, status: status

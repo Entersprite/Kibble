@@ -7,6 +7,9 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     let registry: any AccountRegistry
     let storage: any ServiceStorageFactory
     let providers: any AccountProviderFactory
+    let transferFiles: (any ServiceTransferStorageFactory)?
+    let transferLimits: ServiceTransferLimits
+    let transferNow: @Sendable () -> Date
     var records: [ConnectedAccountID: AccountRecord] = [:]
     var runtimes: [ConnectedAccountID: AccountRuntime] = [:]
     var changing: Set<ConnectedAccountID> = []
@@ -35,6 +38,9 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         registry: any AccountRegistry,
         storage: any ServiceStorageFactory,
         providers: any AccountProviderFactory,
+        transferFiles: (any ServiceTransferStorageFactory)? = nil,
+        transferLimits: ServiceTransferLimits = ServiceTransferLimits(),
+        transferNow: @escaping @Sendable () -> Date = { Date() },
         linkCustody: (any AccountLinkCustody)? = nil,
         ownership: (any ServiceOwnership)? = nil,
         policies: (any AccountPolicyStore)? = nil,
@@ -46,6 +52,9 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         self.registry = registry
         self.storage = storage
         self.providers = providers
+        self.transferFiles = transferFiles
+        self.transferLimits = transferLimits
+        self.transferNow = transferNow
         self.linkCustody = linkCustody
         self.ownership = ownership
         self.policies = policies ?? (registry as? any AccountPolicyStore) ?? UnavailableAccountPolicyStore()
@@ -89,25 +98,6 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     private func resumeRemoval(_ record: AccountRecord) async {
         try? await remove(record)
         maintenance[record.id] = nil
-    }
-
-    /// Host-only admission after credential validation; no client DTO grants this authority.
-    public func registerVerified(_ record: AccountRecord) async throws {
-        guard restored, !shuttingDown, !record.isRemoving,
-              record.authenticationState == nil else { throw ServiceFailure.invalidRequest }
-        guard records[record.id] == nil,
-              !records.values
-              .contains(where: { $0.principalID == record.principalID && $0.selfID == record.selfID }) else {
-            throw ServiceFailure.operationConflict
-        }
-        try registry.save(record)
-        records[record.id] = record
-        accountStateChanged()
-        if record.isEnabled {
-            let runtime = try makeRuntime(record)
-            runtimes[record.id] = runtime
-            await runtime.start()
-        }
     }
 
     public func handle(_ bytes: Data, context: ServiceSessionContext) async throws -> Data {
@@ -250,6 +240,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         }
         try await finishLinksForRemoval(removing)
         try await providers.forgetCredentials(for: removing)
+        try transferFiles?.erase(record.id)
         try storage.erase(record.id)
         try registry.remove(record.id)
         records[record.id] = nil

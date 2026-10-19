@@ -24,6 +24,7 @@ public actor ServiceBackend: ProjectedChatBackend {
     var desiredInterests = ClientDesiredInterests()
     var cursor: ServiceCursor?
     var consumer: Task<Void, Never>?
+    var uploadTasks: [UUID: Task<Attachment, any Error>] = [:]
     private var acknowledgement: PendingAcknowledgement?
 
     public init(account: AccountSummary, transport: any ServiceEventTransport) {
@@ -36,7 +37,9 @@ public actor ServiceBackend: ProjectedChatBackend {
         capabilities.canDownloadFiles = false
         capabilities.canFetchCustomEmoji = false
         capabilities.canFetchRemoteImages = false
-        capabilities.canSendAttachments = false
+        if !(transport is any ServiceBinaryTransport) {
+            capabilities.canSendAttachments = false
+        }
         self.capabilities = capabilities
         (events, eventSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingOldest(256))
     }
@@ -83,6 +86,10 @@ public actor ServiceBackend: ProjectedChatBackend {
         let task = consumer
         consumer = nil
         task?.cancel()
+        let uploads = Array(uploadTasks.values)
+        for upload in uploads {
+            upload.cancel()
+        }
         let attached = attachment
         attachment = nil
         let opening = attachmentOpening?.task
@@ -95,6 +102,9 @@ public actor ServiceBackend: ProjectedChatBackend {
         cancelAcknowledgement()
         failProjectionWaiters(CancellationError())
         await task?.value
+        for upload in uploads {
+            _ = await upload.result
+        }
         await renewal?.value
         await restoration?.value
         if let opening, case let .success(opened) = await opening.result, opened.id != attached?.id {

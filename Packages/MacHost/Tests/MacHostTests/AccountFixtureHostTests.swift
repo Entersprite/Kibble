@@ -9,6 +9,44 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountFixtureHostTests {
+    @Test func bothNativeAccountComposersUploadThroughTheServiceWithoutMixingMessages() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".txt")
+        try Data(repeating: 42, count: 70000).write(to: file)
+        let host = SystemAccountFixtureHost(directory: directory)
+        await host.start()
+        let workspace = try #require(host.workspace)
+        try await ready(workspace, count: 2)
+        let first = try #require(workspace.accounts.first)
+        let second = try #require(workspace.accounts.last)
+        let personal = try #require(workspace.environment(for: first.id))
+        let studio = try #require(workspace.environment(for: second.id))
+        personal.actions.select(Acme.priceEngine)
+        studio.actions.select(Acme.priceEngine)
+        try await wait { !personal.sceneState.messages.isEmpty && !studio.sceneState.messages.isEmpty }
+        let personalFiles = try #require(personal.actions.composerAttachments)
+        let studioFiles = try #require(studio.actions.composerAttachments)
+        personalFiles.stage([file])
+        #expect(personal.sceneState.stagedAttachments.count == 1)
+        #expect(studio.sceneState.stagedAttachments.isEmpty)
+        personal.actions.send(ComposedMessage(text: "Personal file caption"))
+        try await wait {
+            personal.sceneState.messages
+                .contains { $0.text == "Personal file caption" && !$0.attachments.isEmpty }
+                && personal.sceneState.stagedAttachments.isEmpty
+        }
+        #expect(!studio.sceneState.messages.contains { $0.text == "Personal file caption" })
+        studioFiles.stage([file])
+        studio.actions.send(ComposedMessage(text: "Studio file caption"))
+        try await wait {
+            studio.sceneState.messages
+                .contains { $0.text == "Studio file caption" && !$0.attachments.isEmpty }
+                && studio.sceneState.stagedAttachments.isEmpty
+        }
+        #expect(!personal.sceneState.messages.contains { $0.text == "Studio file caption" })
+        await host.stop()
+    }
+
     @Test func canonicalNotificationChoicesRemainIsolatedAcrossDisableAndRelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let host = SystemAccountFixtureHost(directory: directory)

@@ -68,7 +68,10 @@ public final class SystemAccountFixtureHost {
             let service = ChatService(
                 registry: registry,
                 storage: SQLiteServiceStorageFactory(directory: directory.appendingPathComponent("service")),
-                providers: providers, ownership: GrantedFixtureOwnership(lease: lease), instanceID: instanceID
+                providers: providers,
+                transferFiles: DirectoryTransferStorageFactory(directory: directory
+                    .appendingPathComponent("transfers")),
+                ownership: GrantedFixtureOwnership(lease: lease), instanceID: instanceID
             )
             self.service = service
             self.registry = registry

@@ -11,7 +11,7 @@ extension AccountRuntime {
         switch request.operation {
         case GetCapabilities.operation:
             _ = try request.decodePayload(GetCapabilities.self)
-            let value = backend.capabilities
+            let value = capabilities
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         case LoadConversations.operation:

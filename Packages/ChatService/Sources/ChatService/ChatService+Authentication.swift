@@ -67,6 +67,7 @@ extension ChatService {
         // recovery data or publish permission to sign in.
         try registry.save(record)
         try await providers.forgetCredentials(for: record)
+        try transferFiles?.erase(id)
         try storage.erase(id)
         record.authenticationState = "required"
         try registry.save(record)

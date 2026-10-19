@@ -61,7 +61,13 @@ actor AccountRuntime {
     var backfillHeads: [Conversation.ID: MentionBackfillHead] = [:]
     private var startup: Task<Void, Never>?
     private var consumer: Task<Void, Never>?
-    private var requests: [UUID: Task<JSONValue, any Error>] = [:]
+    var requests: [UUID: Task<JSONValue, any Error>] = [:]
+    var binaryRequests: [UUID: Task<ServiceBinaryFrame, any Error>] = [:]
+    var transferStorage: (any ServiceTransferStorage)?
+    let transferLimits: ServiceTransferLimits
+    let transferNow: @Sendable () -> Date
+    var uploads: [ServiceTransferID: UploadSlot] = [:]
+    var uploadExpiry: Task<Void, Never>?
     private(set) var connection: ConnectionState = .idle
     private(set) var capabilities = Capabilities()
 
@@ -70,10 +76,17 @@ actor AccountRuntime {
         storage: any ServiceAccountStorage,
         factory: any AccountProviderFactory,
         policies: any AccountPolicyStore,
-        instanceID: UUID, onStatus: @escaping @Sendable (RuntimeStatus) async -> Void,
+        instanceID: UUID,
+        transferStorage: (any ServiceTransferStorage)? = nil,
+        transferLimits: ServiceTransferLimits = ServiceTransferLimits(),
+        transferNow: @escaping @Sendable () -> Date = { Date() },
+        onStatus: @escaping @Sendable (RuntimeStatus) async -> Void,
         onFault: @escaping @Sendable (RuntimeFault) async -> Void
     ) {
         self.instanceID = instanceID
+        self.transferStorage = transferStorage
+        self.transferLimits = transferLimits
+        self.transferNow = transferNow
         self.onStatus = onStatus
         self.onFault = onFault
         self.record = record
@@ -113,6 +126,18 @@ actor AccountRuntime {
             clientInterestsChanged()
         }
         capabilities = backend.capabilities
+        capabilities.canFetchAttachments = false
+        capabilities.canDownloadFiles = false
+        capabilities.canFetchCustomEmoji = false
+        capabilities.canFetchRemoteImages = false
+        if transferStorage == nil || !(storage is any ServiceUploadReferences) {
+            capabilities.canSendAttachments = false
+        } else {
+            capabilities.maximumAttachmentBytes = min(
+                capabilities.maximumAttachmentBytes ?? transferLimits.maximumFileBytes,
+                transferLimits.maximumFileBytes
+            )
+        }
         let events = backend.events
         consumer = Task { [weak self] in
             for await event in events {
@@ -198,6 +223,10 @@ actor AccountRuntime {
             request.cancel()
         }
         _ = cancelClientInterestJobs()
+        _ = cancelUploadJobs()
+        for request in binaryRequests.values {
+            request.cancel()
+        }
         for subscriber in subscribers
             .values {
             subscriber.finish(throwing: ServiceFailure.accountCleanupPending)
@@ -228,18 +257,15 @@ actor AccountRuntime {
             task.cancel()
         }
         let pending = Array(requests.values)
+        let binaries = Array(binaryRequests.values)
+        let expiry = cancelUploadJobs()
+        for request in binaries {
+            request.cancel()
+        }
         for request in pending {
             request.cancel()
         }
-        await backend?.disconnect()
-        for request in pending {
-            _ = await request.result
-        }
-        await startup?.value
-        await consumer?.value
-        for task in effects {
-            await task.value
-        }
+        await drainRequests(pending, binaries: binaries, expiry: expiry, effects: effects)
         worldRefresh = nil; historyRefresh = nil; backfill = nil
         pendingHistory.removeAll(); backfillHeads.removeAll(); historyVersions.removeAll()
         clientInterests.removeAll(); subscriberAttachments.removeAll()
@@ -257,58 +283,24 @@ actor AccountRuntime {
         }
     }
 
-    func handle(_ request: ServiceRequest, context: ServiceSessionContext? = nil) async throws -> JSONValue {
-        guard !stopped else { throw ServiceFailure.accountDisabled }
-        guard !quarantined else { throw ServiceFailure.accountCleanupPending }
-        guard requests.count < 32 else { throw ServiceFailure.overloaded }
-        let id = UUID()
-        let epoch = epoch
-        let work = Task { try await dispatch(request, context: context, epoch: epoch) }
-        requests[id] = work
-        defer { requests[id] = nil }
-        return try await withTaskCancellationHandler {
-            do {
-                return try await work.value
-            } catch {
-                if error as? ChatError == .sessionExpired {
-                    await quarantine(.authentication)
-                    throw ServiceFailure.accountCleanupPending
-                }
-                throw error
-            }
-        } onCancel: {
-            work.cancel()
+    private func drainRequests(
+        _ pending: [Task<JSONValue, any Error>], binaries: [Task<ServiceBinaryFrame, any Error>],
+        expiry: Task<Void, Never>?, effects: [Task<Void, Never>]
+    ) async {
+        await backend?.disconnect()
+        for request in pending {
+            _ = await request.result
         }
-    }
-
-    private func dispatch(
-        _ request: ServiceRequest, context: ServiceSessionContext?, epoch: UUID
-    ) async throws -> JSONValue {
-        try Task.checkCancellation()
-        if let deadline = request.header.deadline,
-           deadline <= Date() {
-            throw ServiceFailure.deadlineExceeded
+        for request in binaries {
+            _ = await request.result
         }
-        switch request.operation {
-        case AttachAccountClient.operation, DetachAccountClient.operation:
-            guard let context else { throw ServiceFailure.notAuthorized }
-            return try dispatchClientAttachment(request, context: context)
-        case ReadEvents.operation:
-            let payload = try request.decodePayload(ReadEvents.self)
-            return try ServiceCodec.value(storage.readEvents(after: payload.cursor, limit: payload.limit))
-        case GetProjectionCheckpoint.operation:
-            _ = try request.decodePayload(GetProjectionCheckpoint.self)
-            return try ServiceCodec.value(storage.checkpoint())
-        case GetOperation.operation:
-            let payload = try request.decodePayload(GetOperation.self)
-            guard let result = try storage.operation(payload.operationID)
-            else { throw ServiceFailure.operationUnknown }
-            return try ServiceCodec.value(result)
-        default: break
+        await expiry?.value
+        await closeUploadStorage()
+        await startup?.value
+        await consumer?.value
+        for task in effects {
+            await task.value
         }
-        guard let backend else { throw ServiceFailure.overloaded }
-        guard !stopped, self.epoch == epoch else { throw ServiceFailure.accountDisabled }
-        return try await dispatchProvider(request, backend: backend, context: context, epoch: epoch)
     }
 
     func checkEpoch(_ epoch: UUID) throws {

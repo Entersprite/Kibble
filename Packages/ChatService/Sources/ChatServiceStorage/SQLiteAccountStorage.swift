@@ -8,7 +8,7 @@ import GRDB
 
 public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
     private let account: ConnectedAccountID
-    private let database: DatabaseQueue
+    let database: DatabaseQueue
     private let projection: ChatStore
     private let retention: Int
 
@@ -37,6 +37,11 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
             CREATE TABLE IF NOT EXISTS serviceOperation (
                 id TEXT PRIMARY KEY, request BLOB NOT NULL, value BLOB NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS serviceUploadReference (
+                id TEXT NOT NULL, conversationID TEXT NOT NULL, value BLOB NOT NULL, expiresAt REAL NOT NULL,
+                PRIMARY KEY(id, conversationID)
+            );
+            CREATE INDEX IF NOT EXISTS serviceUploadReferenceExpiry ON serviceUploadReference(expiresAt);
             """)
             // A crash after dispatch is ambiguous. Never automatically dispatch it again.
             let rows = try Row.fetchAll(db, sql: "SELECT id, value FROM serviceOperation")

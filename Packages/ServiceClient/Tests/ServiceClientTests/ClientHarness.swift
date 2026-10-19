@@ -10,6 +10,12 @@ import Testing
 @testable import ChatService
 
 actor Providers: AccountProviderFactory {
+    let uploadMembership: Bool
+
+    init(uploadMembership: Bool = false) {
+        self.uploadMembership = uploadMembership
+    }
+
     private var backends: [ConnectedAccountID: FakeBackend] = [:]
 
     func makeProvider(for account: AccountRecord) -> AccountProvider {
@@ -22,7 +28,8 @@ actor Providers: AccountProviderFactory {
             conversations: [Conversation(
                 id: Conversation.ID("same"),
                 kind: .space,
-                title: account.label
+                title: account.label,
+                members: uploadMembership ? [account.selfID, Member.ID("peer")] : []
             )],
             messages: [],
             startedAt: Date(timeIntervalSince1970: 1_700_000_000)
@@ -59,7 +66,10 @@ struct ClientHarness {
     let second: AccountSummary
     let context: ServiceSessionContext
 
-    static func make(linkCustody: (any AccountLinkCustody)? = nil) async throws -> ClientHarness {
+    static func make(
+        linkCustody: (any AccountLinkCustody)? = nil, uploads: Bool = false,
+        transferLimits: ServiceTransferLimits = .init()
+    ) async throws -> ClientHarness {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let registry = try SQLiteAccountRegistry(path: folder.appendingPathComponent("registry.sqlite").path)
@@ -79,12 +89,16 @@ struct ClientHarness {
         )
         try registry.save(first)
         try registry.save(second)
-        let providers = Providers()
+        let providers = Providers(uploadMembership: uploads)
         let storage = SQLiteServiceStorageFactory(directory: folder)
         let service = ChatService(
             registry: registry,
             storage: storage,
             providers: providers,
+            transferFiles: uploads ? DirectoryTransferStorageFactory(
+                directory: folder.appendingPathComponent("files")
+            ) : nil,
+            transferLimits: transferLimits,
             linkCustody: linkCustody
         )
         try await service.restore()
