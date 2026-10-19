@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Files staged in the composer: per conversation, uploaded in turn, each

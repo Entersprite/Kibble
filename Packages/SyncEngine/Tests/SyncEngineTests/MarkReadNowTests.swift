@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// `ChatSessionModel.markRead(_:from:)` - the explicit mark, from a banner or

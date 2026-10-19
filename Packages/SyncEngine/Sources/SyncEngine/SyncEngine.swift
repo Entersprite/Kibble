@@ -3,8 +3,8 @@ import Foundation
 
 /// Drives one backend into one store.
 ///
-/// The **single consumer** of `backend.events`. `ChatBackend` documents that an
-/// `AsyncStream` distributes elements unpredictably across concurrent
+/// The **single consumer** of `backend.events`. `AsyncStream` distributes
+/// elements unpredictably across concurrent
 /// iterations, so exactly one place in a client may iterate it - and this is
 /// that place. Anything else that wants events reads the store.
 ///

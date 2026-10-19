@@ -1,3 +1,4 @@
+import ChatRules
 import GRDB
 
 public extension ChatStore {

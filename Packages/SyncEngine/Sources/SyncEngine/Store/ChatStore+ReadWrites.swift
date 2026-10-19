@@ -1,8 +1,9 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     /// Read state and the unread flag - the two writes that move `hasUnread`.
     ///
     /// Split from `performConversationWrite(_:in:)` because adding

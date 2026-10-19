@@ -1,7 +1,8 @@
 import ChatKit
+import ChatRules
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     static func advanceConversationActivity(_ message: Message, in db: Database) throws {
         guard !message.isDeleted, try !isClearedHistory(message, in: db) else { return }
         let value = StoredDate.value(message.createdAt)

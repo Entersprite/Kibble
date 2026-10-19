@@ -1,3 +1,4 @@
+import ChatPersistence
 import Foundation
 
 public struct TypingTiming: Sendable {

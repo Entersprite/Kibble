@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -12,7 +13,11 @@ import GRDB
 /// batch**, because a batch is one event: a sidebar must never render a
 /// conversation whose messages have not landed yet.
 public final class ChatStore: Sendable {
-    let database: any DatabaseWriter
+    package func releaseDecodedTranscripts() {
+        decodedTranscriptCache.removeAll()
+    }
+
+    package let database: any DatabaseWriter
     let decodedTranscriptCache = DecodedTranscriptCache()
 
     /// Opens or creates the database at `path` and migrates it.
@@ -26,7 +31,7 @@ public final class ChatStore: Sendable {
         try ChatStore(DatabaseQueue())
     }
 
-    init(_ database: any DatabaseWriter) throws {
+    public init(_ database: any DatabaseWriter) throws {
         self.database = database
         try Schema.migrator.migrate(database)
     }
@@ -37,10 +42,20 @@ public final class ChatStore: Sendable {
 public extension ChatStore {
     /// Applies a batch atomically. Either every write lands or none does.
     func apply(_ writes: [StoreWrite]) throws {
+        try apply(writes, committing: { _ in })
+    }
+
+    /// A separate owner can atomically checkpoint its journal with projection writes.
+    /// The closure must use only the supplied transaction, never re-enter this store.
+    func apply<Value>(
+        _ writes: [StoreWrite],
+        committing commit: @Sendable (Database) throws -> Value
+    ) throws -> Value {
         try database.write { db in
             for write in writes {
                 try Self.perform(write, in: db)
             }
+            return try commit(db)
         }
     }
 

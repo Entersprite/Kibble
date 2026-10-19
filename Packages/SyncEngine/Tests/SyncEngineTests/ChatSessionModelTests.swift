@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// `ChatSessionModel.me`, which session 9 slice 3 turned from an injected

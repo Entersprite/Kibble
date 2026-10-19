@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// The provider's newest activity hints, not a fingerprint of message content.

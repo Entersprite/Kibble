@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 // MARK: - The thread panel and the Threads list

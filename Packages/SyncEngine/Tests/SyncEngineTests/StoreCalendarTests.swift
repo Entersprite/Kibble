@@ -2,6 +2,7 @@ import ChatKit
 import Foundation
 import GRDB
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// `Member.calendar` through the store, with `status`'s life: written by an

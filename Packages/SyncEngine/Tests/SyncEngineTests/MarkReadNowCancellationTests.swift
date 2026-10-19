@@ -1,6 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The explicit mark's post-fetch `guard !Task.isCancelled`, which the final

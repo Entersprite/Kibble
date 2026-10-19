@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 struct ConversationActionStoreTests {

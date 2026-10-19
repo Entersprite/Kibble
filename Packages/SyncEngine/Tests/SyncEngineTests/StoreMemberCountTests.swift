@@ -2,6 +2,7 @@ import ChatKit
 import Foundation
 import GRDB
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// `Conversation.memberCount` through the store, and across the v6 migration.

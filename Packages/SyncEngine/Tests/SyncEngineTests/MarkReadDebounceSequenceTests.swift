@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The sequences the whole-change review of the debounce set out to settle,

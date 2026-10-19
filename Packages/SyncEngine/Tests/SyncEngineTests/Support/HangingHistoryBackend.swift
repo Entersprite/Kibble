@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+@testable import ChatPersistence
 
 /// A backend whose `loadMessages` blocks until the test releases it - the
 /// shape of a hung `list_topics` call, which nothing at the `ChatSessionModel`

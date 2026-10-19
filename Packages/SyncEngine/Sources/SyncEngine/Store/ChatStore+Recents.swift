@@ -1,11 +1,12 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
 /// Recent reactions and the custom emoji this account has seen (reactions
 /// slice 2): what the picker's Recent and Custom sections and the quick row
 /// are built from.
-extension ChatStore {
+package extension ChatStore {
     /// One more use of `choice`, at `date`. A token arriving with a later use
     /// replaces none with one, never one with none.
     public func recordReactionUse(_ choice: ReactionChoice, at date: Date) throws {

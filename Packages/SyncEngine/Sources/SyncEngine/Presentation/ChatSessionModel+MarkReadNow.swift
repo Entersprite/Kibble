@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Which "Mark as Read" was pressed, because the two trust the store

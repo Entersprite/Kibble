@@ -1,8 +1,9 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     /// Occurrences are ordered by their schedule; a late message stays in its
     /// original occurrence. Only the bounded result rows are decoded.
     func observeMeetingTranscript(

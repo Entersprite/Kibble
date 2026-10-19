@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -30,9 +31,14 @@ public struct UnreadThreads: Sendable, Equatable {
 /// One thread's address. A topic id is unique only inside its conversation,
 /// which is why the `thread` table is keyed by the pair. Also the model's key
 /// for its per-thread bookkeeping (Task 8), hence `Sendable`.
-struct ThreadKey: Hashable, Sendable {
-    var conversation: Conversation.ID
-    var thread: MessageThread.ID
+package struct ThreadKey: Hashable, Sendable {
+    package var conversation: Conversation.ID
+    package var thread: MessageThread.ID
+
+    package init(conversation: Conversation.ID, thread: MessageThread.ID) {
+        self.conversation = conversation
+        self.thread = thread
+    }
 }
 
 // MARK: - Reading
@@ -130,7 +136,7 @@ public struct FollowedThreadsOverview: Equatable, Sendable {
 
 // MARK: - The queries
 
-extension ChatStore {
+package extension ChatStore {
     static func fetchThreadMessages(
         _ thread: MessageThread.ID, _ conversation: Conversation.ID, _ db: Database
     ) throws -> [Message] {

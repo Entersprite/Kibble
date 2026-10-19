@@ -1,6 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Recent searches (search spec §1.2): the newest ten, on this Mac, erased

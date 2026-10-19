@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// One thread's summary read from the store now, for a caller outside this

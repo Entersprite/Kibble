@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 // MARK: - Editing and deleting the person's own messages

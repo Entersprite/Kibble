@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Setting your own status and availability (set-your-status spec §4).

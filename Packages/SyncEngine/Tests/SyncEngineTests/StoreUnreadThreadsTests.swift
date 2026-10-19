@@ -1,6 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The server's `Conversation.hasUnreadThread` flag and the separate rule

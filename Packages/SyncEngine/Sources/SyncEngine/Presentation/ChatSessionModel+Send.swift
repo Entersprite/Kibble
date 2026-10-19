@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 // MARK: - Sending, and the draft a refused send hands back

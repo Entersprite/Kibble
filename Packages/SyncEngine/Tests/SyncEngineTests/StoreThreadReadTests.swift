@@ -1,6 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The thread reads (threads spec §4.1): the transcript without replies, one

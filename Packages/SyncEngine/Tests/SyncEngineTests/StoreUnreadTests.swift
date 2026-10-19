@@ -1,6 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The unread flag's lifecycle - set on arrival, cleared on read.

@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Search's engine half (search spec §3, §1.3).

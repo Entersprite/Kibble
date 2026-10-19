@@ -1,4 +1,5 @@
 import ChatKit
+@testable import ChatPersistence
 
 extension RecordingBackend {
     func holdDirectOpens(_ held: Bool) {

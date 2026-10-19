@@ -15,10 +15,12 @@ let package = Package(
     name: "SyncEngine",
     platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
-        .library(name: "SyncEngine", targets: ["SyncEngine"])
+        .library(name: "SyncEngine", targets: ["SyncEngine"]),
+        .library(name: "ChatPersistence", targets: ["ChatPersistence"])
     ],
     dependencies: [
         .package(path: "../ChatKit"),
+        .package(path: "../ChatRules"),
         // Pinned to a major version: GRDB is the store, and a silent major
         // upgrade would rewrite migration semantics under a shipped database.
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -26,13 +28,24 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "ChatPersistence",
+            dependencies: ["ChatKit", "ChatRules", .product(name: "GRDB", package: "GRDB.swift")],
+            path: "Sources/SyncEngine/Store"
+        ),
+        .target(
             name: "SyncEngine",
-            dependencies: ["ChatKit", .product(name: "GRDB", package: "GRDB.swift")],
+            dependencies: [
+                "ChatKit",
+                "ChatRules",
+                "ChatPersistence",
+                .product(name: "GRDB", package: "GRDB.swift")
+            ],
+            exclude: ["Store"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "SyncEngineTests",
-            dependencies: ["SyncEngine", "ChatKit", "FixtureBackend"],
+            dependencies: ["SyncEngine", "ChatKit", "ChatPersistence", "FixtureBackend"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ]

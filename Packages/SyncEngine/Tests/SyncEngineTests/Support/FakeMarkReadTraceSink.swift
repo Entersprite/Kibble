@@ -1,4 +1,5 @@
 import Foundation
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Records every call verbatim, in order - what `AutoMarkReadTraceTests`

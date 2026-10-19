@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Synchronization
 
 /// Whether a read position may be published, and for which conversations.

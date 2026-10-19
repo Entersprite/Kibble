@@ -1,8 +1,9 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     static func clearConversationHistory(
         _ id: Conversation.ID,
         through before: Date,
@@ -92,7 +93,7 @@ public extension ChatStore {
     }
 }
 
-extension ChatStore {
+package extension ChatStore {
     static func mayRestoreConversation(_ conversation: Conversation, in db: Database) throws -> Bool {
         guard let row = try Row
             .fetchOne(

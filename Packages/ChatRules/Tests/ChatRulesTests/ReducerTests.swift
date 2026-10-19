@@ -1,7 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
-@testable import SyncEngine
+@testable import ChatRules
 
 /// The reducer is pure, so these tests need no database, no async and no
 /// backend. That is the point of separating it: the rules about what an event

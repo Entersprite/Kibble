@@ -1,8 +1,9 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     static func performActivityWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case let .setScopedTyping(update):
@@ -81,7 +82,7 @@ public extension ChatStore {
     }
 }
 
-extension ChatStore {
+package extension ChatStore {
     static func fetchActivity(
         _ conversation: Conversation.ID,
         in db: Database

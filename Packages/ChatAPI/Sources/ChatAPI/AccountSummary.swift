@@ -5,13 +5,40 @@ public struct AccountSummary: Codable, Hashable, Sendable {
     public let id: ConnectedAccountID
     public let selfID: Member.ID
     public let label: String
+    public let isEnabled: Bool
+    public let capabilities: Capabilities
     public let connection: ConnectionState
 
-    public init(id: ConnectedAccountID, selfID: Member.ID, label: String, connection: ConnectionState) {
+    public init(
+        id: ConnectedAccountID,
+        selfID: Member.ID,
+        label: String,
+        connection: ConnectionState,
+        isEnabled: Bool = true,
+        capabilities: Capabilities = .init()
+    ) {
         self.id = id
         self.selfID = selfID
         self.label = label
         self.connection = connection
+        self.isEnabled = isEnabled
+        self.capabilities = capabilities
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, selfID, label, connection, isEnabled, capabilities
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: values.decode(ConnectedAccountID.self, forKey: .id),
+            selfID: values.decode(Member.ID.self, forKey: .selfID),
+            label: values.decode(String.self, forKey: .label),
+            connection: values.decode(ConnectionState.self, forKey: .connection),
+            isEnabled: values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true,
+            capabilities: values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init()
+        )
     }
 }
 

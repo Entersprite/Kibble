@@ -1,4 +1,5 @@
 import Foundation
+@testable import ChatPersistence
 
 /// A hold that a canceled caller tears down: a held call whose task is
 /// canceled resumes at once by throwing `CancellationError`.

@@ -1,7 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
-@testable import SyncEngine
+@testable import ChatRules
 
 /// `ThreadUnreadRule` (threads spec §4.2). Pure, so no store: the summary
 /// read is checked against it in `StoreThreadReadTests`.

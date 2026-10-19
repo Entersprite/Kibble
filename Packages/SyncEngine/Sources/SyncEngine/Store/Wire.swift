@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 
 /// How a ChatKit value becomes a column and back.

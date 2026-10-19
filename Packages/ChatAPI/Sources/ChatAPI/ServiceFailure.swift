@@ -12,6 +12,13 @@ public struct ServiceFailure: Error, Codable, Hashable, Sendable {
         self.details = details
     }
 
+    public static let accountDisabled = ServiceFailure(code: "accountDisabled")
+    public static let accountNotFound = ServiceFailure(code: "accountNotFound")
+    public static let operationUnknown = ServiceFailure(code: "operationUnknown")
+    public static let operationConflict = ServiceFailure(code: "operationConflict")
+    public static let revisionConflict = ServiceFailure(code: "revisionConflict")
+    public static let invalidRequest = ServiceFailure(code: "invalidRequest")
+    public static let deviceBusy = ServiceFailure(code: "deviceBusy")
     public static let incompatibleVersion = ServiceFailure(code: "incompatibleVersion")
     public static let handshakeRequired = ServiceFailure(code: "handshakeRequired")
     public static let notAuthorized = ServiceFailure(code: "notAuthorized")

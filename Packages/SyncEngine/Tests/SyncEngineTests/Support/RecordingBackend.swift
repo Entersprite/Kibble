@@ -1,6 +1,7 @@
 import ChatKit
 import FixtureBackend
 import Foundation
+@testable import ChatPersistence
 
 /// A backend that forwards to `FakeBackend` and remembers what it was handed.
 ///

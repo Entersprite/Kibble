@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Synchronization
 
 /// Checked at submission, including after a slow prior request. Unknown account settings withhold.

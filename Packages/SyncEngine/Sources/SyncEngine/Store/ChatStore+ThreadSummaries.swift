@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -8,7 +9,7 @@ import GRDB
 ///
 /// **No `Date` is bound here**: every date is read out of a REAL column
 /// (`StoredDate`'s rule).
-extension ChatStore {
+package extension ChatStore {
     /// How many repliers a summary names: the mark draws three avatars.
     static let recentReplierLimit = 3
 

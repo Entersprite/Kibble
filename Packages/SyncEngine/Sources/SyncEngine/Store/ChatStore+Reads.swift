@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -181,7 +182,7 @@ public extension ChatStore {
 
 // MARK: - The queries themselves
 
-extension ChatStore {
+package extension ChatStore {
     /// The conversations as stored. The server's `hasUnreadThread` is kept for
     /// callers that need it; the sidebar uses the followed-thread overview's
     /// own badge rather than deriving a second flag on every message write.

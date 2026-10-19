@@ -1,3 +1,4 @@
+import ChatRules
 import GRDB
 
 extension Schema {

@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 
 public extension ChatSessionModel {
     func stop() async {
@@ -23,7 +24,7 @@ public extension ChatSessionModel {
         selectedMeetingSeries = nil
         isLoadingMeetingMetadata = false
         meetingWork.reset()
-        store.decodedTranscriptCache.removeAll()
+        store.releaseDecodedTranscripts()
         directorySearch.reset()
         searchWork.reset()
         search = SearchSessionState()

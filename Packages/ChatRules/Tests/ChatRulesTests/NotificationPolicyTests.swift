@@ -1,7 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
-@testable import SyncEngine
+@testable import ChatRules
 
 /// `NotificationPolicy` and the two reducer effects that feed it.
 struct NotificationPolicyTests {

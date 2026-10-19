@@ -1,20 +1,21 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-struct TranscriptCursor: Equatable, Sendable {
-    var conversation: Conversation.ID
-    var date: Date
-    var id: Message.ID
+package struct TranscriptCursor: Equatable, Sendable {
+    package var conversation: Conversation.ID
+    package var date: Date
+    package var id: Message.ID
 
-    init(_ message: Message) {
+    package init(_ message: Message) {
         conversation = message.conversationID
         date = message.createdAt
         id = message.id
     }
 }
 
-enum TranscriptWindowRequest: Sendable {
+package enum TranscriptWindowRequest: Sendable {
     case latest(Int)
     case tail(TranscriptCursor, Int)
     case ending(TranscriptCursor, Int)
@@ -23,13 +24,13 @@ enum TranscriptWindowRequest: Sendable {
     case between(TranscriptCursor, TranscriptCursor, Int)
 }
 
-struct TranscriptWindow: Equatable, Sendable {
-    var messages: [Message]
-    var hasOlder: Bool
-    var hasNewer: Bool
+package struct TranscriptWindow: Equatable, Sendable {
+    package var messages: [Message]
+    package var hasOlder: Bool
+    package var hasNewer: Bool
 }
 
-extension ChatStore {
+package extension ChatStore {
     func observeTranscriptWindow(
         in conversation: Conversation.ID, request: TranscriptWindowRequest
     ) -> AsyncValueObservation<TranscriptWindow> {
@@ -80,7 +81,7 @@ extension ChatStore {
         }
     }
 
-    static func fetchTranscriptWindow(
+    internal static func fetchTranscriptWindow(
         in conversation: Conversation.ID, request: TranscriptWindowRequest,
         cache: DecodedTranscriptCache, db: Database
     ) throws -> TranscriptWindow {

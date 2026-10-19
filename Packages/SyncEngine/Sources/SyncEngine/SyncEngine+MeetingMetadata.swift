@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 
 struct MeetingMetadataUpdate: Sendable {
     let meeting: MeetingOccurrence?

@@ -1,7 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
-@testable import SyncEngine
+@testable import ChatRules
 
 /// What a reply's arrival and a thread's events mean for the store (threads
 /// spec §4.1, §4.3). Pure: no database.

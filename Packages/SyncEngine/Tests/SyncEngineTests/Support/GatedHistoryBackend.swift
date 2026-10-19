@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+@testable import ChatPersistence
 
 /// A backend for the mention backfill. Every `loadMessages` parks until the
 /// test releases its conversation, or opens the gate for all of them, and

@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Search's query half (search spec §3): sections at once, messages after a

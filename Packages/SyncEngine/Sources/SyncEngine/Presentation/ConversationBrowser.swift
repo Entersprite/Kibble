@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 import Observation
 

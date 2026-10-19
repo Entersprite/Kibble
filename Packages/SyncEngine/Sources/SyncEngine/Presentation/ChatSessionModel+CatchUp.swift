@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Split out of `ChatSessionModel.swift` for swiftlint's `file_length`, the

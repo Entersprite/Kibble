@@ -94,6 +94,26 @@ fi
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_*.py' \
     || note "architecture checker tests"
 
+echo "Service and shared storage boundaries:"
+for package in ChatService SyncEngine ChatRules; do
+    out=$(cd "Packages/$package" && swift package dump-package 2>/dev/null \
+        | python3 ../../scripts/lint-service-boundaries.py "$package")
+    if [ "$?" != 0 ]; then
+        note "$package target dependencies"
+        printf '%s\n' "$out"
+    else
+        pass "$package target dependencies"
+    fi
+done
+for service_target in ChatService ChatServiceStorage; do
+    scan "Packages/ChatService/Sources/$service_target" \
+      '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(SyncEngine|AppCore|DesignSystem|MacHost|LocalBridgeBackend|GChatBridgeCore|Security|AppKit|WebKit|SwiftUI)\b' \
+      "$service_target imports no client, provider or native implementation"
+done
+scan "Packages/SyncEngine/Sources/SyncEngine/Store" \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(SyncEngine|AppCore|DesignSystem|ChatService|MacHost|LocalBridgeBackend)\b' \
+  "shared persistence imports no client or service implementation"
+
 echo "Core containment (a future iOS binary must carry no protocol code):"
 # LocalBridgeBackend is the ONLY package allowed to import GChatBridgeCore, and
 # the app is not allowed to import it at all. That is the architecture's whole
@@ -137,7 +157,7 @@ APPCORE=Packages/AppCore/Sources/AppCore
 # own reason as well: views live in DesignSystem, and AppCore's stated
 # dependencies are ChatKit, SyncEngine and DesignSystem only.
 scan "$APPCORE" \
-  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security|UserNotifications|AppKit|Cocoa|SwiftUI)\b' \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(ChatService|ChatServiceStorage|LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security|UserNotifications|AppKit|Cocoa|SwiftUI)\b' \
   "AppCore imports no backend, no credential store, no web view, no notification center, no AppKit and no SwiftUI"
 
 # The app target is a shell. This was the one structure rule in CLAUDE.md with
@@ -214,7 +234,7 @@ echo "Reducer purity (the bridge server runs this file verbatim):"
 # sources of truth is that the server reduces events with THIS reducer rather
 # than one written to match it. The moment the reducer knows about GRDB, the
 # server needs its own copy. Only the Store/ half may import a database.
-REDUCER=Packages/SyncEngine/Sources/SyncEngine/Reducer
+REDUCER=Packages/ChatRules/Sources/ChatRules
 scan "$REDUCER" '^[[:space:]]*import[[:space:]]+(GRDB|SQLite3)\b' \
   "the sync reducer imports no database"
 

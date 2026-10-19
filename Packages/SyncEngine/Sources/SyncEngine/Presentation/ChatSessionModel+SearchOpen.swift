@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Search's opening half (search spec §1.3, §1.4): a hit, a conversation, a

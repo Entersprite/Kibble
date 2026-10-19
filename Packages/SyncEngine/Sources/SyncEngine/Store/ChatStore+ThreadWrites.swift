@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -9,7 +10,7 @@ import GRDB
 /// **No `Date` is bound here, only `StoredDate.value(_:)`** (`StoredDate`'s
 /// rule): a bound `Date` is GRDB's text, and every comparison in these
 /// statements is between REAL seconds.
-extension ChatStore {
+package extension ChatStore {
     static func performThreadWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case let .applyThreadChange(thread, conversation, change):

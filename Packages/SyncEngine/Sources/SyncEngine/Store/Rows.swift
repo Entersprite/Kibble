@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -22,7 +23,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         StoredDate.decoding
     }
 
-    var id: String
+    package var id: String
     var kind: String
     var title: String?
     var avatarURL: String?
@@ -97,7 +98,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
 struct MemberRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "member"
 
-    var id: String
+    package var id: String
     var kind: String
     var displayName: String?
     var email: String?
@@ -160,7 +161,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         StoredDate.decoding
     }
 
-    var id: String
+    package var id: String
     var conversationID: String
     var threadID: String
     var sender: String
@@ -177,7 +178,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     /// `Message.isReply`. The transcript is `isReply = 0` (threads spec §4.1).
     var isReply: Bool
 
-    init(_ message: Message) throws {
+    package init(_ message: Message) throws {
         id = message.id.rawValue
         conversationID = message.conversationID.rawValue
         threadID = message.threadID.rawValue
@@ -230,7 +231,7 @@ struct TypingRow: Codable, FetchableRecord, PersistableRecord {
 struct SyncStateRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "syncState"
 
-    var id: Int
+    package var id: Int
     var connectionState: String
     var lastError: String?
     var localMemberID: String?

@@ -1,6 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Mentions in replies (threads spec §4.1, §4.3): the Mentions reads keep

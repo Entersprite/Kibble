@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -60,7 +61,7 @@ public extension ChatStore {
     }
 }
 
-extension ChatStore {
+package extension ChatStore {
     /// **Filtered in Swift, through `Message.mentionsMe`**, the one
     /// definition notifications also use. `mentions` is a JSON column, so
     /// SQL narrows only to the candidates: messages with any mention that

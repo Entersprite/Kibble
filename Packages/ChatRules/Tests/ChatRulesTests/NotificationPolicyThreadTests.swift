@@ -1,7 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
-@testable import SyncEngine
+@testable import ChatRules
 
 /// `NotificationPolicy` for replies (threads spec §4.3): a reply is announced
 /// only when its thread is followed or it mentions you, and it is on screen

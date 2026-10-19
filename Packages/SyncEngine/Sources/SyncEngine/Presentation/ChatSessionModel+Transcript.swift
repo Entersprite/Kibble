@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 @MainActor
@@ -15,7 +16,7 @@ final class TranscriptWork {
 
 public extension ChatSessionModel {
     func releasePresentationCaches() {
-        store.decodedTranscriptCache.removeAll()
+        store.releaseDecodedTranscripts()
     }
 
     /// Adds an older page while retaining at most 500 rendered messages.
