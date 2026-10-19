@@ -14,6 +14,7 @@ public actor ChatService: ServiceEventEndpoint {
     let linkCustody: (any AccountLinkCustody)?
     var links: [AccountLinkID: AccountLinkRecord] = [:]
     var linkTasks: [AccountLinkID: Task<AccountLinkSummary, any Error>] = [:]
+    let policies: any AccountPolicyStore
     private let ownership: (any ServiceOwnership)?
     private var lease: (any ServiceOwnershipLease)?
     private var drained: [CheckedContinuation<Void, Never>] = []
@@ -25,13 +26,15 @@ public actor ChatService: ServiceEventEndpoint {
         storage: any ServiceStorageFactory,
         providers: any AccountProviderFactory,
         linkCustody: (any AccountLinkCustody)? = nil,
-        ownership: (any ServiceOwnership)? = nil
+        ownership: (any ServiceOwnership)? = nil,
+        policies: (any AccountPolicyStore)? = nil
     ) {
         self.registry = registry
         self.storage = storage
         self.providers = providers
         self.linkCustody = linkCustody
         self.ownership = ownership
+        self.policies = policies ?? (registry as? any AccountPolicyStore) ?? UnavailableAccountPolicyStore()
     }
 
     public func restore() async throws {
@@ -156,7 +159,10 @@ public actor ChatService: ServiceEventEndpoint {
             _ = try request.decodePayload(RemoveAccount.self)
             try await remove(record)
             return try ServiceCodec.value(ServiceUnit())
-        case GetOperation.operation, GetAccountPolicy.operation, SetAccountPolicy.operation:
+        case GetAccountPolicy.operation, SetAccountPolicy.operation:
+            guard !changing.contains(id) else { throw ServiceFailure.overloaded }
+            return try accountPolicy(request, record: record)
+        case GetOperation.operation:
             guard !changing.contains(id) else { throw ServiceFailure.overloaded }
             if let runtime = runtimes[id] {
                 return try await runtime.handle(request)
@@ -185,28 +191,27 @@ public actor ChatService: ServiceEventEndpoint {
         return try ServiceCodec.value(accounts)
     }
 
+    private func accountPolicy(_ request: ServiceRequest, record: AccountRecord) throws -> JSONValue {
+        if request.operation == GetAccountPolicy.operation {
+            _ = try request.decodePayload(GetAccountPolicy.self)
+            return try ServiceCodec.value(policies.policy(for: record))
+        }
+        let payload = try request.decodePayload(SetAccountPolicy.self)
+        return try ServiceCodec.value(policies.setPolicy(
+            payload.settings,
+            for: record,
+            expectedRevision: payload.expectedRevision
+        ))
+    }
+
     private func readDisabledAccount(
         _ request: ServiceRequest,
         account: ConnectedAccountID
     ) throws -> JSONValue {
-        let store = try storage.open(account)
-        switch request.operation {
-        case GetOperation.operation:
-            let payload = try request.decodePayload(GetOperation.self)
-            guard let result = try store.operation(payload.operationID)
-            else { throw ServiceFailure.operationUnknown }
-            return try ServiceCodec.value(result)
-        case GetAccountPolicy.operation:
-            _ = try request.decodePayload(GetAccountPolicy.self)
-            return try ServiceCodec.value(store.policy())
-        case SetAccountPolicy.operation:
-            let payload = try request.decodePayload(SetAccountPolicy.self)
-            return try ServiceCodec.value(store.setPolicy(
-                payload.settings,
-                expectedRevision: payload.expectedRevision
-            ))
-        default: throw ServiceFailure.unsupportedOperation
-        }
+        let payload = try request.decodePayload(GetOperation.self)
+        guard let result = try storage.open(account).operation(payload.operationID)
+        else { throw ServiceFailure.operationUnknown }
+        return try ServiceCodec.value(result)
     }
 
     private func setEnabled(_ enabled: Bool, record: AccountRecord) async throws -> AccountSummary {
@@ -304,6 +309,10 @@ public actor ChatService: ServiceEventEndpoint {
     }
 
     func makeRuntime(_ record: AccountRecord) throws -> AccountRuntime {
-        try AccountRuntime(record: record, storage: storage.open(record.id), factory: providers)
+        try AccountRuntime(
+            record: record,
+            storage: storage.open(record.id),
+            factory: providers
+        )
     }
 }

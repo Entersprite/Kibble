@@ -156,45 +156,6 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
         }
     }
 
-    public func policy() throws -> AccountPolicy {
-        try database.read { db in try Self.policy(db) }
-    }
-
-    public func setPolicy(
-        _ settings: NotificationSettings,
-        expectedRevision: String
-    ) throws -> AccountPolicy {
-        try database.write { db in
-            let current = try Self.policy(db)
-            guard current.revision == expectedRevision else { throw ServiceFailure.revisionConflict }
-            let revision = try Int64.fetchOne(
-                db,
-                sql: "SELECT policyRevision FROM serviceMetadata WHERE id = 1"
-            ) ?? 0
-            guard revision < Int64.max else { throw ServiceFailure.overloaded }
-            try db.execute(
-                sql: "UPDATE serviceMetadata SET policyRevision = ?, policy = ? WHERE id = 1",
-                arguments: [revision + 1, ServiceCodec.encode(settings)]
-            )
-            return AccountPolicy(revision: String(revision + 1), settings: settings)
-        }
-    }
-
-    private static func policy(_ db: Database) throws -> AccountPolicy {
-        guard let row = try Row.fetchOne(
-            db,
-            sql: "SELECT policyRevision, policy FROM serviceMetadata WHERE id = 1"
-        ) else {
-            throw ServiceFailure.internalFailure
-        }
-        let data: Data? = row["policy"]
-        return try AccountPolicy(
-            revision: String(row["policyRevision"] as Int64),
-            settings: data
-                .map { try ServiceCodec.decode(NotificationSettings.self, from: $0) } ?? .init()
-        )
-    }
-
     private static func operation(_ id: ServiceOperationID, _ db: Database) throws -> ServiceOperation? {
         try Data.fetchOne(
             db,

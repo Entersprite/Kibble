@@ -4,8 +4,8 @@ import ChatService
 import Foundation
 import GRDB
 
-public final class SQLiteAccountRegistry: AccountLinkRegistry, Sendable {
-    private let database: DatabaseQueue
+public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStore, Sendable {
+    let database: DatabaseQueue
 
     public init(path: String) throws {
         var configuration = Configuration()
@@ -34,6 +34,15 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, Sendable {
                 table.column("operation", .text).notNull()
                 table.column("record", .blob).notNull()
                 table.uniqueKey(["principal", "device", "operation"])
+            }
+        }
+        migrations.registerMigration("accountRegistry4") { db in
+            try db.create(table: "personalPolicy") { table in
+                table.column("principal", .text).notNull()
+                table.column("identity", .text).notNull()
+                table.column("revision", .integer).notNull()
+                table.column("settings", .blob).notNull()
+                table.primaryKey(["principal", "identity"])
             }
         }
         try migrations.migrate(database)

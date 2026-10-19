@@ -17,7 +17,11 @@ actor AccountRuntime {
     private(set) var connection: ConnectionState = .idle
     private(set) var capabilities = Capabilities()
 
-    init(record: AccountRecord, storage: any ServiceAccountStorage, factory: any AccountProviderFactory) {
+    init(
+        record: AccountRecord,
+        storage: any ServiceAccountStorage,
+        factory: any AccountProviderFactory
+    ) {
         self.record = record
         self.storage = storage
         self.factory = factory
@@ -140,15 +144,6 @@ actor AccountRuntime {
             guard let result = try storage.operation(payload.operationID)
             else { throw ServiceFailure.operationUnknown }
             return try ServiceCodec.value(result)
-        case GetAccountPolicy.operation:
-            _ = try request.decodePayload(GetAccountPolicy.self)
-            return try ServiceCodec.value(storage.policy())
-        case SetAccountPolicy.operation:
-            let payload = try request.decodePayload(SetAccountPolicy.self)
-            return try ServiceCodec.value(storage.setPolicy(
-                payload.settings,
-                expectedRevision: payload.expectedRevision
-            ))
         default: break
         }
         guard let backend else { throw ServiceFailure.overloaded }

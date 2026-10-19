@@ -50,8 +50,6 @@ public protocol ServiceAccountStorage: Sendable {
     /// Atomically reserves a new operation, or returns the existing identical one.
     func reserve(_ id: ServiceOperationID, request: ServiceRequest) throws -> ServiceOperation
     func finish(_ operation: ServiceOperation) throws
-    func policy() throws -> AccountPolicy
-    func setPolicy(_ settings: NotificationSettings, expectedRevision: String) throws -> AccountPolicy
 }
 
 public protocol ServiceStorageFactory: Sendable {

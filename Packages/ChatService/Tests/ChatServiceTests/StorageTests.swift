@@ -62,12 +62,17 @@ struct StorageTests {
     }
 
     @Test func policyWritesRequireCurrentRevision() throws {
-        let store = try SQLiteAccountStorage(account: account, path: ":memory:")
-        let first = try store.policy()
-        let second = try store.setPolicy(NotificationSettings(), expectedRevision: first.revision)
+        let store = try SQLiteAccountRegistry(path: ":memory:")
+        let record = LinkHarness.existing()
+        let first = try store.policy(for: record)
+        let second = try store.setPolicy(
+            NotificationSettings(),
+            for: record,
+            expectedRevision: first.revision
+        )
         #expect(second.revision != first.revision)
         #expect(throws: ServiceFailure.revisionConflict) {
-            try store.setPolicy(NotificationSettings(), expectedRevision: first.revision)
+            try store.setPolicy(NotificationSettings(), for: record, expectedRevision: first.revision)
         }
     }
 
