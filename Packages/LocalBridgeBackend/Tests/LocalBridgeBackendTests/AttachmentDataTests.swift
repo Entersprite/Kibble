@@ -65,6 +65,43 @@ struct AttachmentDataTests {
         )
     }
 
+    @Test(arguments: [3, 4])
+    func boundedProviderWitnessPreservesTheCallersCeiling(_ limit: Int) async throws {
+        let transport = Self.transport()
+        let backend: any BoundedMediaBackend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
+        try await backend.connect()
+        if limit == 4 {
+            #expect(try await backend
+                .attachmentData(Self.attachment, size: .preview, maximumBytes: limit) == Self.png.body)
+        } else {
+            await #expect(throws: ChatError.self) {
+                try await backend.attachmentData(Self.attachment, size: .preview, maximumBytes: limit)
+            }
+        }
+        let requests = await transport.sent.filter { $0.url.path.contains("get_attachment_url") ||
+            $0.url.host() == "lh3.googleusercontent.com"
+        }
+        #expect(requests.map(\.maxBodyBytes) == [limit, limit])
+        await backend.disconnect()
+    }
+
+    @Test func boundedProviderStreamsIntoTheOwnedFileWithScopedCookies() async throws {
+        let scoped = try #require(SessionCookies(cookies: [
+            SessionCookies.Cookie(name: "SID", value: "a", domain: ".google.com", path: "/")
+        ]))
+        let transport = Self.transport()
+        let backend: any BoundedMediaBackend = LocalBridgeBackend(cookies: scoped, transport: transport)
+        try await backend.connect()
+        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await backend.downloadAttachment(Self.attachment, to: destination, maximumBytes: 4) { _ in }
+        #expect(try Data(contentsOf: destination) == Self.png.body)
+        let requests = await transport.sent.filter { $0.url.path.contains("get_attachment_url") ||
+            $0.url.host() == "lh3.googleusercontent.com"
+        }
+        #expect(requests.map(\.maxBodyBytes) == [4, 4])
+        await backend.disconnect()
+    }
+
     @Test func theCapabilityIsAdvertised() {
         let backend = LocalBridgeBackend(cookies: Self.cookies, transport: Self.transport())
         #expect(backend.capabilities.canFetchAttachments)

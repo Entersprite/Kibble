@@ -75,6 +75,8 @@ public extension LocalBridgeBackend {
             .unknown("the attachment fetch redirected more than \(AttachmentFetch.maxHops) times")
         case .redirectWithoutLocation:
             .unknown("the attachment fetch was redirected nowhere")
+        case .tooLarge:
+            .unknown("the attachment exceeds the permitted byte limit")
         case .htmlInsteadOfAttachment:
             .unknown("the attachment fetch returned a page instead of the attachment")
         case let .transport(classified):

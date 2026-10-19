@@ -34,13 +34,15 @@ public struct RemoteImageFetch: Sendable {
         self.transport = transport
     }
 
-    public func image(at url: URL) async throws(Failure) -> Data {
+    public func image(at url: URL, maximumBytes: Int = Self.maxBytes) async throws(Failure) -> Data {
+        guard maximumBytes >= 0 else { throw .tooLarge }
+        let limit = min(maximumBytes, Self.maxBytes)
         var next = url
         for _ in 0 ..< Self.maxHops {
             guard next.scheme?.lowercased() == "https" else { throw .notHTTPS }
             let response: HTTPResponse
             do {
-                response = try await transport.send(Self.request(for: next))
+                response = try await transport.send(Self.request(for: next, maximumBytes: limit))
             } catch is HTTPBodyTooLarge {
                 throw .tooLarge
             } catch {
@@ -53,7 +55,7 @@ public struct RemoteImageFetch: Sendable {
                 else { throw .redirectWithoutLocation }
                 next = resolved
             case 200 ..< 300:
-                return try Self.image(from: response)
+                return try Self.image(from: response, maximumBytes: limit)
             default:
                 throw .httpStatus(response.status)
             }
@@ -61,7 +63,7 @@ public struct RemoteImageFetch: Sendable {
         throw .tooManyRedirects
     }
 
-    static func request(for url: URL) -> HTTPRequest {
+    static func request(for url: URL, maximumBytes: Int = Self.maxBytes) -> HTTPRequest {
         HTTPRequest(
             method: .get,
             url: url,
@@ -70,18 +72,18 @@ public struct RemoteImageFetch: Sendable {
             traceLabel: "remote_image",
             followsRedirects: false,
             // The transport stops reading past it (review finding 3).
-            maxBodyBytes: maxBytes
+            maxBodyBytes: maximumBytes
         )
     }
 
-    private static func image(from response: HTTPResponse) throws(Failure) -> Data {
+    private static func image(from response: HTTPResponse, maximumBytes: Int) throws(Failure) -> Data {
         guard response.headers["Content-Type"]?.lowercased().hasPrefix("image/") == true else {
             throw .notAnImage
         }
-        if let declared = response.headers["Content-Length"].flatMap({ Int($0) }), declared > maxBytes {
+        if let declared = response.headers["Content-Length"].flatMap({ Int($0) }), declared > maximumBytes {
             throw .tooLarge
         }
-        guard response.body.count <= maxBytes else { throw .tooLarge }
+        guard response.body.count <= maximumBytes else { throw .tooLarge }
         return response.body
     }
 }

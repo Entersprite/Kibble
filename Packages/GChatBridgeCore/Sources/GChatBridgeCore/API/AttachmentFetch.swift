@@ -98,7 +98,8 @@ public struct AttachmentFetch: Sendable {
         token: String,
         contentType: String,
         variant: AttachmentVariant,
-        style: RequestStyle = .app
+        style: RequestStyle = .app,
+        maximumBytes: Int? = nil
     ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
         let walked = try await walk(
             from: firstURL(
@@ -108,7 +109,7 @@ public struct AttachmentFetch: Sendable {
             ),
             pageIsAnAnswer: variant == .file && Self.isPage(contentType),
             style: style
-        ) { try await (transport.send($0), nil) }
+        ) { request in try await (boundedResponse(request, maximumBytes: maximumBytes), nil) }
         return Self.fetched(walked.response, hops: walked.hops)
     }
 
@@ -134,9 +135,12 @@ public struct AttachmentFetch: Sendable {
     /// An address Google handed out - a custom emoji's `ephemeral_url` - walked
     /// under the same rules as every fetch here: credentials by host, a
     /// sign-in redirect as a failure, at most `maxHops`.
-    public func fetch(url: URL) async throws(AttachmentFetchFailure) -> FetchedAttachment {
+    public func fetch(
+        url: URL,
+        maximumBytes: Int? = nil
+    ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
         let walked = try await walk(from: url, pageIsAnAnswer: false, style: .app) {
-            try await (transport.send($0), nil)
+            try await (boundedResponse($0, maximumBytes: maximumBytes), nil)
         }
         return Self.fetched(walked.response, hops: walked.hops)
     }
@@ -256,6 +260,8 @@ public struct AttachmentFetch: Sendable {
         let file: URL?
         do {
             (response, file) = try await exchange(built)
+        } catch is HTTPBodyTooLarge {
+            throw AttachmentFetchFailure(reason: .tooLarge, hops: hops)
         } catch let classified as ClassifiedTransportFailure {
             throw AttachmentFetchFailure(reason: .transport(classified.reason), hops: hops)
         } catch {

@@ -10,8 +10,10 @@ import Foundation
 /// without cookies), whether a `read_token` expires, and that this client's
 /// fetch succeeds at all - no run of it has happened yet.
 public extension AttachmentFetch {
-    func customEmojiImage(readToken: String) async throws(AttachmentFetchFailure) -> FetchedAttachment {
-        try await fetch(url: customEmojiImageURL(readToken: readToken))
+    func customEmojiImage(
+        readToken: String, maximumBytes: Int? = nil
+    ) async throws(AttachmentFetchFailure) -> FetchedAttachment {
+        try await fetch(url: customEmojiImageURL(readToken: readToken), maximumBytes: maximumBytes)
     }
 
     /// Under the account segment: Chat on the web's request without it was
