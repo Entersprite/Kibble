@@ -188,21 +188,21 @@ struct ChatSessionModelTeardownTests {
             markReadDebounce: .zero
         )
         try await model.start()
-        for _ in 0 ..< 50 {
-            await Task.yield()
+        await settleAutoMarkRead(until: "the initial conversations reach the model") {
+            !model.conversations.isEmpty
         }
 
         let conversation = FixtureWorld.minimal.messages[0].conversationID
         model.select(conversation)
-        for _ in 0 ..< 50 {
-            await Task.yield()
+        await settleAutoMarkRead(until: "the selected conversation publishes its read watermark") {
+            !model.published.isEmpty
         }
         #expect(!model.published.isEmpty)
 
         await backend.failSubmissions(true)
         model.send(ComposedMessage(text: "never made it"))
-        for _ in 0 ..< 50 {
-            await Task.yield()
+        await settleAutoMarkRead(until: "the refused send returns its failed draft") {
+            model.failedDraft != nil
         }
         #expect(model.failedDraft != nil)
 

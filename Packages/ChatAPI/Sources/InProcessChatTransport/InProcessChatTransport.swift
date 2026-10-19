@@ -3,7 +3,8 @@ import Foundation
 
 /// Serialized request/response transport for an embedded service. The host binds
 /// a trusted context; request payloads cannot replace that context.
-public actor InProcessChatTransport: ServiceEventTransport, ServiceAccountStateTransport {
+public actor InProcessChatTransport: ServiceEventTransport, ServiceAccountStateTransport,
+    ServiceBinaryTransport {
     private let endpoint: any ServiceEndpoint
     private let context: ServiceSessionContext
     private let supportedVersion: ServiceAPIVersion
@@ -76,6 +77,64 @@ public actor InProcessChatTransport: ServiceEventTransport, ServiceAccountStateT
               response.version == version
         else { throw ServiceFailure.invalidResponse }
         return response
+    }
+
+    public func exchangeBinary(_ request: ServiceRequest, body: Data) async throws -> ServiceBinaryReply {
+        try Task.checkCancellation()
+        guard let version else { throw ServiceFailure.handshakeRequired }
+        guard request.header.version == version else { throw ServiceFailure.incompatibleVersion }
+        guard let account = request.header.accountID, context.allowsAccount(account) else {
+            throw ServiceFailure.notAuthorized
+        }
+        try request.validateBinaryBody(body)
+        guard let endpoint = endpoint as? any ServiceBinaryEndpoint else {
+            throw ServiceFailure.unsupportedOperation
+        }
+        let header = try ServiceCodec.encode(request)
+        guard header.count <= ServiceBinaryLimits.maximumHeaderBytes else {
+            throw ServiceFailure.frameTooLarge
+        }
+        try checkSize(header)
+        let deadline = try remainingTime(for: request)
+        let id = request.header.requestID
+        guard !pending.contains(id) else { throw ServiceFailure.duplicateRequest }
+        guard pending.count < maximumInFlight else { throw ServiceFailure.overloaded }
+        pending.insert(id)
+        let frame = try await RequestCompletion<ServiceBinaryFrame>().run(
+            deadline: deadline,
+            operation: { [context] in try await endpoint.binary(header, body: body, context: context) },
+            finished: { [weak self] in await self?.finished(id) }
+        )
+        try Task.checkCancellation()
+        _ = try remainingTime(for: request)
+        return try decodeBinary(frame, for: request, version: version)
+    }
+
+    private func decodeBinary(
+        _ frame: ServiceBinaryFrame, for request: ServiceRequest, version: ServiceAPIVersion
+    ) throws -> ServiceBinaryReply {
+        guard frame.header.count <= ServiceBinaryLimits.maximumHeaderBytes,
+              frame.body.count <= ServiceBinaryLimits.maximumChunkBytes else {
+            throw ServiceFailure.frameTooLarge
+        }
+        try checkSize(frame.header)
+        let response: ServiceResponse
+        do {
+            response = try ServiceCodec.decode(ServiceResponse.self, from: frame.header)
+        } catch {
+            throw ServiceFailure.invalidResponse
+        }
+        guard response.requestID == request.header.requestID, response.accountID == request.header.accountID,
+              response.accountRevision == request.header.accountRevision, response.version == version else {
+            throw ServiceFailure.invalidResponse
+        }
+        let reply = ServiceBinaryReply(response: response, body: frame.body)
+        do {
+            try reply.validateChunk(for: request)
+        } catch {
+            throw ServiceFailure.invalidResponse
+        }
+        return reply
     }
 
     public func events(_ request: ServiceRequest) async throws
