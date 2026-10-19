@@ -25,7 +25,7 @@ struct DeliveryOperationTests {
             me: harness.account.selfID
         )
         try await model.start()
-        try await wait { !model.conversations.isEmpty }
+        try await wait { !model.conversations.isEmpty && model.me == harness.account.selfID }
         model.select(DeliveryLedgerBackend.conversation)
         model.send(ComposedMessage(text: "Original message with a lost reply"))
         try await wait { model.messageDeliveryStatuses.values.contains(.unconfirmed) }
@@ -51,7 +51,7 @@ struct DeliveryOperationTests {
             me: harness.account.selfID
         )
         try await first.start()
-        try await wait { !first.conversations.isEmpty }
+        try await wait { !first.conversations.isEmpty && first.me == harness.account.selfID }
         first.select(DeliveryLedgerBackend.conversation)
         first.send(ComposedMessage(text: "One uncertain provider dispatch"))
         try await wait { first.messageDeliveryStatuses.values.contains(.unconfirmed) }

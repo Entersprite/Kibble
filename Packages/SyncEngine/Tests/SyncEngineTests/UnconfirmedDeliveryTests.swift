@@ -8,6 +8,18 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct UnconfirmedDeliveryTests {
+    @Test func trackedSubmissionRequiresItsDurablePendingRecordBeforeProviderDispatch() async throws {
+        let backend = DeliveryStatusBackend()
+        let started = try await makeModel(backend)
+        #expect(await started.engine.submit(.sendMessage(
+            conversationID: pendingConversation, threadID: nil, text: "Untracked",
+            localID: "missing-pending"
+        )) == false)
+        #expect(await backend.sends.isEmpty)
+        #expect(try started.store.messageDeliveries().isEmpty)
+        await started.model.stop()
+    }
+
     @Test func uncertainReplyStaysInItsThreadAndNeverReturnsAsATopLevelDraft() async throws {
         let backend = DeliveryStatusBackend()
         let started = try await makeModel(backend)

@@ -3,6 +3,32 @@ import ChatPersistence
 import Foundation
 
 extension SyncEngine {
+    func canDispatchTrackedMessage(_ command: ChatCommand, undoing writes: [StoreWrite]) -> Bool {
+        guard tracksMessageDelivery,
+              case let .sendMessage(_, _, _, localID, _, _) = command else { return true }
+        do {
+            let pending = try store.messageDeliveries()
+                .first { $0.localID == localID && $0.status == .sending }
+            if let pending, writes.contains(.removeMessage(id: pending.messageID)) {
+                return true
+            }
+        } catch { record(error) }
+        record(ChatError.unknown("The message could not be saved locally and was not sent."))
+        return false
+    }
+
+    func recordAcceptedDelivery(_ command: ChatCommand, undoing writes: [StoreWrite]) {
+        guard tracksMessageDelivery, case .sendMessage = command else { return }
+        do {
+            try store.apply(deliveryUpdates(in: writes, status: .sent))
+        } catch {
+            // An acknowledged provider send must never restore a resendable draft.
+            record(ChatError.unknown(
+                "The message was accepted, but its local delivery status could not be saved."
+            ))
+        }
+    }
+
     func deliveryUpdates(in undo: [StoreWrite], status: MessageDeliveryStatus) -> [StoreWrite] {
         undo.compactMap { write in
             guard case let .removeMessage(id) = write else { return nil }

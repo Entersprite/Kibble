@@ -18,6 +18,7 @@ public extension SyncEngine {
     @discardableResult
     func submit(_ command: ChatCommand, undoing writes: [StoreWrite] = []) async -> Bool {
         let generation = managementGeneration
+        guard canDispatchTrackedMessage(command, undoing: writes) else { return false }
         if suppressed(command) {
             // A refused mark still means the messages it covers are read
             // here - receipts off, no account yet, or ghost mode - so their
@@ -45,19 +46,7 @@ public extension SyncEngine {
             try await backend.send(command)
             try Task.checkCancellation()
             guard generation == managementGeneration else { return false }
-            if tracksMessageDelivery, case .sendMessage = command {
-                do {
-                    try store.apply(deliveryUpdates(in: writes, status: .sent))
-                } catch {
-                    // The provider already acknowledged this send. A local
-                    // bookkeeping failure cannot turn it into a refused send
-                    // or put its text back into a resendable composer.
-                    record(ChatError
-                        .unknown(
-                            "The message was accepted, but its local delivery status could not be saved."
-                        ))
-                }
-            }
+            recordAcceptedDelivery(command, undoing: writes)
             return true
         } catch {
             // Same reasoning as `requestMoreMessages` and `perform` just below:
