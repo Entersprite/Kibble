@@ -40,6 +40,7 @@ public actor KeychainCredentialStore: CredentialStore {
     private let legacyStorage: (any SecretStorage)?
     private let account: String
     private let expectedGeneration: String?
+    private var retired = false
 
     public init(
         storage: any SecretStorage, legacyStorage: (any SecretStorage)? = nil,
@@ -60,7 +61,8 @@ public actor KeychainCredentialStore: CredentialStore {
     }
 
     /// One actor turn reads the session and its capture identity together.
-    func snapshot() throws -> CredentialSnapshot? {
+    func snapshot(allowRetired: Bool = false) throws -> CredentialSnapshot? {
+        guard !retired || allowRetired else { throw SessionCustodyError.sessionChanged }
         let data: Data?
         if let current = try storage.read(account: account) {
             data = current
@@ -93,14 +95,15 @@ public actor KeychainCredentialStore: CredentialStore {
     }
 
     public func store(_ session: StoredSession) async throws {
-        guard expectedGeneration == nil else { throw SessionCustodyError.sessionChanged }
+        guard !retired, expectedGeneration == nil else { throw SessionCustodyError.sessionChanged }
         try write(CredentialSnapshot(session: session, generation: UUID().uuidString))
     }
 
     /// Installs a verified login in a fresh immutable generation slot. Repeating
     /// installation after a crash is safe; a different generation cannot replace it.
     public func install(_ candidate: VerifiedProviderSession, generation: String) async throws {
-        guard !generation.isEmpty, expectedGeneration == nil || expectedGeneration == generation else {
+        guard !retired, !generation.isEmpty,
+              expectedGeneration == nil || expectedGeneration == generation else {
             throw SessionCustodyError.sessionChanged
         }
         let session = try await candidate.currentSession()
@@ -144,8 +147,19 @@ public actor KeychainCredentialStore: CredentialStore {
     /// The old service first: a session left there would come back through
     /// `currentSession()`'s migration on the next launch.
     public func invalidate() async throws {
+        try erase()
+    }
+
+    /// Permanently fences a staging or generation handle before cleanup. A
+    /// retained capture view cannot recreate the item after removal.
+    public func retire() throws {
+        retired = true
+        try erase()
+    }
+
+    private func erase() throws {
         if expectedGeneration != nil {
-            _ = try snapshot()
+            _ = try snapshot(allowRetired: true)
         }
         try legacyStorage?.delete(account: account)
         try storage.delete(account: account)

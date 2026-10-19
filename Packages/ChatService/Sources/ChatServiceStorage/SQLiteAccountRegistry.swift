@@ -4,7 +4,7 @@ import ChatService
 import Foundation
 import GRDB
 
-public final class SQLiteAccountRegistry: AccountRegistry, Sendable {
+public final class SQLiteAccountRegistry: AccountLinkRegistry, Sendable {
     private let database: DatabaseQueue
 
     public init(path: String) throws {
@@ -26,6 +26,16 @@ public final class SQLiteAccountRegistry: AccountRegistry, Sendable {
                 table.column("id", .text).primaryKey()
             }
         }
+        migrations.registerMigration("accountRegistry3") { db in
+            try db.create(table: "accountLink") { table in
+                table.column("id", .text).primaryKey()
+                table.column("principal", .text).notNull()
+                table.column("device", .text).notNull()
+                table.column("operation", .text).notNull()
+                table.column("record", .blob).notNull()
+                table.uniqueKey(["principal", "device", "operation"])
+            }
+        }
         try migrations.migrate(database)
     }
 
@@ -37,27 +47,29 @@ public final class SQLiteAccountRegistry: AccountRegistry, Sendable {
     }
 
     public func save(_ account: AccountRecord) throws {
+        try database.write { db in try Self.save(account, in: db) }
+    }
+
+    private static func save(_ account: AccountRecord, in db: Database) throws {
         let bytes = try ServiceCodec.encode(account)
-        try database.write { db in
-            let retired = try Bool.fetchOne(
-                db, sql: "SELECT EXISTS(SELECT 1 FROM retiredAccount WHERE id = ?)",
-                arguments: [account.id.rawValue]
-            ) ?? false
-            guard !retired else {
-                throw ServiceFailure.operationConflict
-            }
-            try db.execute(sql: """
-            INSERT INTO connectedAccount (id, principal, identity, record) VALUES (?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET record = excluded.record
-            WHERE principal = excluded.principal AND identity = excluded.identity
-            """, arguments: [
-                account.id.rawValue,
-                account.principalID.rawValue,
-                account.selfID.rawValue,
-                bytes
-            ])
-            guard db.changesCount == 1 else { throw ServiceFailure.operationConflict }
+        let retired = try Bool.fetchOne(
+            db, sql: "SELECT EXISTS(SELECT 1 FROM retiredAccount WHERE id = ?)",
+            arguments: [account.id.rawValue]
+        ) ?? false
+        guard !retired else {
+            throw ServiceFailure.operationConflict
         }
+        try db.execute(sql: """
+        INSERT INTO connectedAccount (id, principal, identity, record) VALUES (?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET record = excluded.record
+        WHERE principal = excluded.principal AND identity = excluded.identity
+        """, arguments: [
+            account.id.rawValue,
+            account.principalID.rawValue,
+            account.selfID.rawValue,
+            bytes
+        ])
+        guard db.changesCount == 1 else { throw ServiceFailure.operationConflict }
     }
 
     public func remove(_ account: ConnectedAccountID) throws {
@@ -67,6 +79,72 @@ public final class SQLiteAccountRegistry: AccountRegistry, Sendable {
                 arguments: [account.rawValue]
             )
             try db.execute(sql: "DELETE FROM connectedAccount WHERE id = ?", arguments: [account.rawValue])
+        }
+    }
+
+    public func links() throws -> [AccountLinkRecord] {
+        try database.read { db in
+            try Data.fetchAll(db, sql: "SELECT record FROM accountLink ORDER BY id")
+                .map { try ServiceCodec.decode(AccountLinkRecord.self, from: $0) }
+        }
+    }
+
+    public func saveLink(_ link: AccountLinkRecord) throws {
+        try database.write { db in try Self.saveLink(link, in: db) }
+    }
+
+    private static func saveLink(_ link: AccountLinkRecord, in db: Database) throws {
+        if let previous = try Self.link(link.id, in: db) {
+            guard sameIntent(previous, link) else { throw ServiceFailure.operationConflict }
+        }
+        try db.execute(sql: """
+        INSERT INTO accountLink (id, principal, device, operation, record) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET record = excluded.record
+        """, arguments: [
+            link.id.rawValue,
+            link.principalID.rawValue,
+            link.deviceID.rawValue,
+            link.operationID.rawValue,
+            ServiceCodec.encode(link)
+        ])
+    }
+
+    private static func link(_ id: AccountLinkID, in db: Database) throws -> AccountLinkRecord? {
+        try Data.fetchOne(db, sql: "SELECT record FROM accountLink WHERE id = ?", arguments: [id.rawValue])
+            .map { try ServiceCodec.decode(AccountLinkRecord.self, from: $0) }
+    }
+
+    private static func sameIntent(_ lhs: AccountLinkRecord, _ rhs: AccountLinkRecord) -> Bool {
+        lhs.id == rhs.id && lhs.principalID == rhs.principalID && lhs.deviceID == rhs.deviceID &&
+            lhs.operationID == rhs.operationID && lhs.accountID == rhs.accountID &&
+            lhs.targetAccountID == rhs.targetAccountID && lhs.generation == rhs.generation &&
+            lhs.previousGeneration == rhs.previousGeneration && lhs.expiresAt == rhs.expiresAt
+    }
+
+    public func commitLink(_ link: AccountLinkRecord, account: AccountRecord) throws {
+        try database.write { db in
+            guard let saved = try Self.link(link.id, in: db), saved.phase == "installing",
+                  Self.sameIntent(saved, link), saved.selfID == account.selfID,
+                  link.accountID == account.id, link.principalID == account.principalID,
+                  link.generation == account.credentialGeneration
+            else { throw ServiceFailure.operationConflict }
+            let current = try Data.fetchOne(
+                db,
+                sql: "SELECT record FROM connectedAccount WHERE id = ?",
+                arguments: [account.id.rawValue]
+            )
+            .map { try ServiceCodec.decode(AccountRecord.self, from: $0) }
+            if link.targetAccountID != nil {
+                guard let current, !current.isRemoving,
+                      current.credentialGeneration == link.previousGeneration,
+                      current.selfID == account.selfID else { throw ServiceFailure.revisionConflict }
+            } else {
+                guard current == nil else { throw ServiceFailure.operationConflict }
+            }
+            try Self.save(account, in: db)
+            var committed = link
+            committed.phase = "committed"
+            try Self.saveLink(committed, in: db)
         }
     }
 }

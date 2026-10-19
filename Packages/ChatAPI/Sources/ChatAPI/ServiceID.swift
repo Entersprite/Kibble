@@ -32,6 +32,7 @@ public enum ServiceRequestScope: Sendable {}
 public enum ServiceOperationScope: Sendable {}
 public enum ServiceSubscriptionScope: Sendable {}
 public enum ServiceStreamScope: Sendable {}
+public enum AccountLinkScope: Sendable {}
 
 public typealias ConnectedAccountID = ServiceID<ConnectedAccountScope>
 public typealias ServiceInstanceID = ServiceID<ServiceInstanceScope>
@@ -42,3 +43,5 @@ public typealias ServiceRequestID = ServiceID<ServiceRequestScope>
 public typealias ServiceOperationID = ServiceID<ServiceOperationScope>
 public typealias ServiceSubscriptionID = ServiceID<ServiceSubscriptionScope>
 public typealias ServiceStreamID = ServiceID<ServiceStreamScope>
+
+public typealias AccountLinkID = ServiceID<AccountLinkScope>

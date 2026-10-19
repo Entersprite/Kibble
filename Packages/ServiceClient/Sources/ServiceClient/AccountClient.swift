@@ -21,6 +21,25 @@ public struct AccountClient: Sendable {
         _ = try await call(RemoveAccount(), account: account)
     }
 
+    public func beginLink(
+        operationID: ServiceOperationID,
+        replacing account: ConnectedAccountID? = nil
+    ) async throws -> AccountLinkSummary {
+        try await call(BeginAccountLink(operationID: operationID, targetAccountID: account))
+    }
+
+    public func link(_ id: AccountLinkID) async throws -> AccountLinkSummary {
+        try await call(GetAccountLink(linkID: id))
+    }
+
+    public func completeLink(_ id: AccountLinkID) async throws -> AccountLinkSummary {
+        try await call(CompleteAccountLink(linkID: id))
+    }
+
+    public func cancelLink(_ id: AccountLinkID) async throws -> AccountLinkSummary {
+        try await call(CancelAccountLink(linkID: id))
+    }
+
     public func call<Payload: ServiceRequestPayload>(
         _ payload: Payload, account: ConnectedAccountID? = nil
     ) async throws -> Payload.Response {

@@ -7,15 +7,24 @@ public struct ServiceSessionContext: Hashable, Sendable {
     public let deviceID: ServiceDeviceID
     public let sessionID: ClientSessionID
     public let accounts: Set<ConnectedAccountID>
+    public let hasAllAccountAccess: Bool
+    public let canLinkAccounts: Bool
+
+    public func allowsAccount(_ id: ConnectedAccountID) -> Bool {
+        hasAllAccountAccess || accounts.contains(id)
+    }
 
     public init(
         principalID: ServicePrincipalID, deviceID: ServiceDeviceID,
-        sessionID: ClientSessionID, accounts: Set<ConnectedAccountID>
+        sessionID: ClientSessionID, accounts: Set<ConnectedAccountID>,
+        hasAllAccountAccess: Bool = false, canLinkAccounts: Bool = false
     ) {
         self.principalID = principalID
         self.deviceID = deviceID
         self.sessionID = sessionID
         self.accounts = accounts
+        self.hasAllAccountAccess = hasAllAccountAccess
+        self.canLinkAccounts = canLinkAccounts
     }
 }
 

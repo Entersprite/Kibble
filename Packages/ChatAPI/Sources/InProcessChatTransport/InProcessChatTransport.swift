@@ -43,7 +43,7 @@ public actor InProcessChatTransport: ServiceEventTransport {
         try Task.checkCancellation()
         guard let version else { throw ServiceFailure.handshakeRequired }
         guard request.header.version == version else { throw ServiceFailure.incompatibleVersion }
-        if let account = request.header.accountID, !context.accounts.contains(account) {
+        if let account = request.header.accountID, !context.allowsAccount(account) {
             throw ServiceFailure.notAuthorized
         }
         let data = try ServiceCodec.encode(request)
@@ -80,7 +80,7 @@ public actor InProcessChatTransport: ServiceEventTransport {
         -> AsyncThrowingStream<ServiceEventPage, any Error> {
         try Task.checkCancellation()
         guard let version, request.header.version == version else { throw ServiceFailure.handshakeRequired }
-        guard let account = request.header.accountID, context.accounts.contains(account) else {
+        guard let account = request.header.accountID, context.allowsAccount(account) else {
             throw ServiceFailure.notAuthorized
         }
         _ = try request.decodePayload(ReadEvents.self)

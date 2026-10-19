@@ -4,24 +4,29 @@ import Foundation
 
 /// Account runtimes belong to this host, independently of client subscriptions.
 public actor ChatService: ServiceEventEndpoint {
-    private let registry: any AccountRegistry
-    private let storage: any ServiceStorageFactory
+    let registry: any AccountRegistry
+    let storage: any ServiceStorageFactory
     private let providers: any AccountProviderFactory
-    private var records: [ConnectedAccountID: AccountRecord] = [:]
-    private var runtimes: [ConnectedAccountID: AccountRuntime] = [:]
-    private var changing: Set<ConnectedAccountID> = []
+    var records: [ConnectedAccountID: AccountRecord] = [:]
+    var runtimes: [ConnectedAccountID: AccountRuntime] = [:]
+    var changing: Set<ConnectedAccountID> = []
     private var maintenance: [ConnectedAccountID: Task<Void, Never>] = [:]
+    let linkCustody: (any AccountLinkCustody)?
+    var links: [AccountLinkID: AccountLinkRecord] = [:]
+    var linkTasks: [AccountLinkID: Task<AccountLinkSummary, any Error>] = [:]
     private var restored = false
-    private var shuttingDown = false
+    var shuttingDown = false
 
     public init(
         registry: any AccountRegistry,
         storage: any ServiceStorageFactory,
-        providers: any AccountProviderFactory
+        providers: any AccountProviderFactory,
+        linkCustody: (any AccountLinkCustody)? = nil
     ) {
         self.registry = registry
         self.storage = storage
         self.providers = providers
+        self.linkCustody = linkCustody
     }
 
     public func restore() async throws {
@@ -40,6 +45,7 @@ public actor ChatService: ServiceEventEndpoint {
         for record in accounts where record.isRemoving {
             maintenance[record.id] = Task { await resumeRemoval(record) }
         }
+        try restoreLinks()
     }
 
     private func resumeRemoval(_ record: AccountRecord) async {
@@ -91,7 +97,7 @@ public actor ChatService: ServiceEventEndpoint {
         _ = try ServiceAPIVersion.current.negotiated(with: request.header.version)
         let payload = try request.decodePayload(ReadEvents.self)
         guard restored, !shuttingDown,
-              let id = request.header.accountID, context.accounts.contains(id),
+              let id = request.header.accountID, context.allowsAccount(id),
               let record = records[id], record.principalID == context.principalID,
               !record.isRemoving else { throw ServiceFailure.notAuthorized }
         guard record.isEnabled, !changing.contains(id), let runtime = runtimes[id] else {
@@ -105,8 +111,11 @@ public actor ChatService: ServiceEventEndpoint {
             _ = try request.decodePayload(ListAccounts.self)
             return try await listAccounts(context)
         }
+        if Self.linkOperations.contains(request.operation) {
+            return try await routeLink(request, context: context)
+        }
         guard let id = request.header.accountID else { throw ServiceFailure.accountRequired }
-        guard context.accounts.contains(id), let record = records[id],
+        guard context.allowsAccount(id), let record = records[id],
               record.principalID == context.principalID else { throw ServiceFailure.notAuthorized }
         if record.isRemoving, request.operation != RemoveAccount.operation {
             throw ServiceFailure.accountDisabled
@@ -140,8 +149,8 @@ public actor ChatService: ServiceEventEndpoint {
     private func listAccounts(_ context: ServiceSessionContext) async throws -> JSONValue {
         var accounts: [AccountSummary] = []
         for record in records.values.sorted(by: { $0.id.rawValue < $1.id.rawValue })
-            where record.principalID == context.principalID && context.accounts
-            .contains(record.id) {
+            where record.principalID == context.principalID && context
+            .allowsAccount(record.id) {
             let runtime = runtimes[record.id]
             await accounts.append(AccountSummary(
                 id: record.id, selfID: record.selfID, label: record.label,
@@ -226,6 +235,13 @@ public actor ChatService: ServiceEventEndpoint {
     public func shutdown() async {
         guard !shuttingDown else { return }
         shuttingDown = true
+        let linking = Array(linkTasks.values)
+        for task in linking {
+            task.cancel()
+        }
+        for task in linking {
+            _ = await task.result
+        }
         let cleanup = Array(maintenance.values)
         for task in cleanup {
             task.cancel()
@@ -246,7 +262,7 @@ public actor ChatService: ServiceEventEndpoint {
         runtimes.count
     }
 
-    private func makeRuntime(_ record: AccountRecord) throws -> AccountRuntime {
+    func makeRuntime(_ record: AccountRecord) throws -> AccountRuntime {
         try AccountRuntime(record: record, storage: storage.open(record.id), factory: providers)
     }
 }
