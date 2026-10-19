@@ -48,6 +48,7 @@ actor AccountRuntime {
     var stopped = false
     var backend: (any ChatBackend)?
     var now: @Sendable () -> Date = { Date() }
+    var mediaFactsVersion = UUID()
     var worldVersion = UUID()
     var historyWorldVersion = UUID()
     var historyVersions: [Conversation.ID: UUID] = [:]
@@ -183,6 +184,7 @@ actor AccountRuntime {
     @discardableResult
     func appendAndPublish(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
         let cursor = try storage.append(event, live: live)
+        invalidateMediaQueries(for: event)
         try publish(ServiceEventPage(
             checkpoint: cursor,
             snapshot: nil,

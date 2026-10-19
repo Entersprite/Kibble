@@ -43,6 +43,7 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
             );
             CREATE INDEX IF NOT EXISTS serviceUploadReferenceExpiry ON serviceUploadReference(expiresAt);
             """)
+            try Self.initializeMediaCatalog(db)
             // A crash after dispatch is ambiguous. Never automatically dispatch it again.
             let rows = try Row.fetchAll(db, sql: "SELECT id, value FROM serviceOperation")
             for row in rows {
@@ -79,6 +80,7 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
         let bytes = try ServiceCodec.encode(event)
         guard bytes.count <= 2 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }
         return try projection.apply(SyncReducer.reduce(event).writes) { db in
+            try Self.updateMediaCatalog(event, db: db)
             let current = try Self.sequence(db)
             guard current < Int64.max else { throw ServiceFailure.overloaded }
             let next = current + 1

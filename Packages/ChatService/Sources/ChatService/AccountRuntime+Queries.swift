@@ -29,12 +29,20 @@ extension AccountRuntime {
             return try ServiceCodec.value(value)
         case SearchPeople.operation:
             let payload = try request.decodePayload(SearchPeople.self)
-            let value = try await backend.searchPeople(payload.query)
+            let value = try await mediaQuery(epoch: epoch) {
+                try await backend.searchPeople(payload.query)
+            } remember: { catalog, value, date in
+                try catalog.rememberQueryMembers(value, at: date)
+            }
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         case SearchMessages.operation:
             let payload = try request.decodePayload(SearchMessages.self)
-            let value = try await backend.searchMessages(payload.query, after: payload.cursor)
+            let value = try await mediaQuery(epoch: epoch) {
+                try await backend.searchMessages(payload.query, after: payload.cursor)
+            } remember: { catalog, value, date in
+                try catalog.rememberQueryMedia(value.hits, at: date)
+            }
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         case LoadFollowedThreads.operation:

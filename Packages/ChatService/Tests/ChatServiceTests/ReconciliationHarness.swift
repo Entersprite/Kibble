@@ -23,6 +23,10 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
     private(set) var sentCommands: [ChatCommand] = []
     private(set) var receivePresence: Set<Member.ID> = []
     private(set) var receiveConversations: Set<Conversation.ID> = []
+    var searchMembers: [Member] = []
+    var holdSearch = false
+    private(set) var searchHeld = false
+    private var searchWaiter: CheckedContinuation<Void, Never>?
     var holdTyping = false
     private(set) var typingHeld = false
     private(set) var disconnects = 0
@@ -61,6 +65,25 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
 
     func setReceiveInterests(presenceMembers: Set<Member.ID>, conversations: Set<Conversation.ID>) {
         receivePresence = presenceMembers; receiveConversations = conversations
+    }
+
+    func setSearchMembers(_ members: [Member], hold: Bool = false) {
+        searchMembers = members
+        holdSearch = hold
+    }
+
+    func searchPeople(_ query: String) async -> [Member] {
+        let captured = searchMembers
+        if holdSearch {
+            holdSearch = false
+            searchHeld = true
+            await withCheckedContinuation { searchWaiter = $0 }
+        }
+        return captured
+    }
+
+    func releaseSearch() {
+        searchWaiter?.resume(); searchWaiter = nil
     }
 
     func holdNextTyping() {
