@@ -6,11 +6,12 @@ import Foundation
 public actor ChatService: ServiceEventEndpoint {
     let registry: any AccountRegistry
     let storage: any ServiceStorageFactory
-    private let providers: any AccountProviderFactory
+    let providers: any AccountProviderFactory
     var records: [ConnectedAccountID: AccountRecord] = [:]
     var runtimes: [ConnectedAccountID: AccountRuntime] = [:]
     var changing: Set<ConnectedAccountID> = []
-    private var maintenance: [ConnectedAccountID: Task<Void, Never>] = [:]
+    var deferredFaults: [ConnectedAccountID: RuntimeIncident] = [:]
+    var maintenance: [ConnectedAccountID: Task<Void, Never>] = [:]
     let linkCustody: (any AccountLinkCustody)?
     var links: [AccountLinkID: AccountLinkRecord] = [:]
     var linkTasks: [AccountLinkID: Task<AccountLinkSummary, any Error>] = [:]
@@ -54,7 +55,8 @@ public actor ChatService: ServiceEventEndpoint {
         lease = acquired
         records = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
         restored = true
-        for record in accounts where record.isEnabled && !record.isRemoving {
+        for record in accounts
+            where record.isEnabled && !record.isRemoving && record.authenticationState == nil {
             guard !shuttingDown else { return }
             // A damaged account cache must not prevent healthy accounts from
             // starting. Its next explicit enable request can retry the open.
@@ -67,6 +69,7 @@ public actor ChatService: ServiceEventEndpoint {
         for record in accounts where record.isRemoving {
             maintenance[record.id] = Task { await resumeRemoval(record) }
         }
+        restoreAuthenticationRecovery()
         restoreLinks()
     }
 
@@ -77,7 +80,8 @@ public actor ChatService: ServiceEventEndpoint {
 
     /// Host-only admission after credential validation; no client DTO grants this authority.
     public func registerVerified(_ record: AccountRecord) async throws {
-        guard restored, !shuttingDown, !record.isRemoving else { throw ServiceFailure.invalidRequest }
+        guard restored, !shuttingDown, !record.isRemoving,
+              record.authenticationState == nil else { throw ServiceFailure.invalidRequest }
         guard records[record.id] == nil,
               !records.values
               .contains(where: { $0.principalID == record.principalID && $0.selfID == record.selfID }) else {
@@ -124,9 +128,10 @@ public actor ChatService: ServiceEventEndpoint {
               !record.isRemoving else { throw ServiceFailure.notAuthorized }
         guard request.header.accountRevision == record.currentRevision
         else { throw ServiceFailure.staleAccount }
-        guard record.isEnabled, !changing.contains(id), let runtime = runtimes[id] else {
+        guard record.isEnabled, !changing.contains(id) else {
             throw ServiceFailure.accountDisabled
         }
+        guard let runtime = runtimes[id] else { throw ServiceFailure.overloaded }
         return try await runtime.subscribe(after: payload.cursor)
     }
 
@@ -152,6 +157,9 @@ public actor ChatService: ServiceEventEndpoint {
     private func routeAccount(_ request: ServiceRequest, record: AccountRecord) async throws -> JSONValue {
         let id = record.id
         switch request.operation {
+        case RetryAccountRecovery.operation:
+            _ = try request.decodePayload(RetryAccountRecovery.self)
+            return try await ServiceCodec.value(retryAuthenticationRecovery(record))
         case SetAccountEnabled.operation:
             let payload = try request.decodePayload(SetAccountEnabled.self)
             return try await ServiceCodec.value(setEnabled(payload.enabled, record: record))
@@ -163,58 +171,18 @@ public actor ChatService: ServiceEventEndpoint {
             guard !changing.contains(id) else { throw ServiceFailure.overloaded }
             return try accountPolicy(request, record: record)
         case GetOperation.operation:
-            guard !changing.contains(id) else { throw ServiceFailure.overloaded }
-            if let runtime = runtimes[id] {
-                return try await runtime.handle(request)
-            }
-            return try readDisabledAccount(request, account: id)
+            try checkAuthentication(record)
+            return try await accountOperationStatus(request, record: record)
         default:
+            try checkAuthentication(record)
             guard record.isEnabled, !changing.contains(id) else { throw ServiceFailure.accountDisabled }
             guard let runtime = runtimes[id] else { throw ServiceFailure.overloaded }
             return try await runtime.handle(request)
         }
     }
 
-    private func listAccounts(_ context: ServiceSessionContext) async throws -> JSONValue {
-        var accounts: [AccountSummary] = []
-        for record in records.values.sorted(by: { $0.id.rawValue < $1.id.rawValue })
-            where record.principalID == context.principalID && context
-            .allowsAccount(record.id) {
-            let runtime = runtimes[record.id]
-            await accounts.append(AccountSummary(
-                id: record.id, selfID: record.selfID, label: record.label,
-                connection: runtime?.connection ?? .disconnected(reason: nil, issue: nil),
-                isEnabled: record.isEnabled, isRemoving: record.isRemoving,
-                capabilities: runtime?.capabilities ?? .init(), revision: record.currentRevision
-            ))
-        }
-        return try ServiceCodec.value(accounts)
-    }
-
-    private func accountPolicy(_ request: ServiceRequest, record: AccountRecord) throws -> JSONValue {
-        if request.operation == GetAccountPolicy.operation {
-            _ = try request.decodePayload(GetAccountPolicy.self)
-            return try ServiceCodec.value(policies.policy(for: record))
-        }
-        let payload = try request.decodePayload(SetAccountPolicy.self)
-        return try ServiceCodec.value(policies.setPolicy(
-            payload.settings,
-            for: record,
-            expectedRevision: payload.expectedRevision
-        ))
-    }
-
-    private func readDisabledAccount(
-        _ request: ServiceRequest,
-        account: ConnectedAccountID
-    ) throws -> JSONValue {
-        let payload = try request.decodePayload(GetOperation.self)
-        guard let result = try storage.open(account).operation(payload.operationID)
-        else { throw ServiceFailure.operationUnknown }
-        return try ServiceCodec.value(result)
-    }
-
     private func setEnabled(_ enabled: Bool, record: AccountRecord) async throws -> AccountSummary {
+        guard record.authenticationState != "erasing" else { throw ServiceFailure.accountCleanupPending }
         guard !changing.contains(record.id) else { throw ServiceFailure.overloaded }
         changing.insert(record.id)
         defer { finishChange(record.id) }
@@ -227,7 +195,7 @@ public actor ChatService: ServiceEventEndpoint {
                 await runtime.stop()
                 runtimes[record.id] = nil
             }
-        } else if runtimes[record.id] == nil {
+        } else if runtimes[record.id] == nil, record.authenticationState == nil {
             let runtime = try makeRuntime(record)
             runtimes[record.id] = runtime
             await runtime.start()
@@ -237,7 +205,8 @@ public actor ChatService: ServiceEventEndpoint {
             selfID: record.selfID,
             label: record.label,
             connection: .idle,
-            isEnabled: enabled, revision: record.currentRevision
+            isEnabled: enabled, revision: record.currentRevision,
+            authenticationState: record.authenticationState
         )
     }
 
@@ -291,6 +260,14 @@ public actor ChatService: ServiceEventEndpoint {
 
     func finishChange(_ id: ConnectedAccountID) {
         changing.remove(id)
+        if let incident = deferredFaults.removeValue(forKey: id) {
+            runtimeFailed(
+                id,
+                generation: incident.generation,
+                instanceID: incident.instanceID,
+                fault: incident.fault
+            )
+        }
         guard changing.isEmpty else { return }
         let waiting = drained
         drained.removeAll()
@@ -309,10 +286,17 @@ public actor ChatService: ServiceEventEndpoint {
     }
 
     func makeRuntime(_ record: AccountRecord) throws -> AccountRuntime {
-        try AccountRuntime(
-            record: record,
-            storage: storage.open(record.id),
-            factory: providers
+        let instanceID = UUID()
+        return try AccountRuntime(
+            record: record, storage: storage.open(record.id), factory: providers, instanceID: instanceID,
+            onFault: { [weak self] fault in
+                await self?.runtimeFailed(
+                    record.id,
+                    generation: record.credentialGeneration,
+                    instanceID: instanceID,
+                    fault: fault
+                )
+            }
         )
     }
 }

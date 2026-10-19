@@ -3,7 +3,24 @@ import ChatKit
 import ChatRules
 import Foundation
 
+enum RuntimeFault: Sendable { case authentication, storage }
+
+struct RuntimeIncident: Sendable {
+    let generation: String
+    let instanceID: UUID
+    let fault: RuntimeFault
+}
+
 actor AccountRuntime {
+    nonisolated let instanceID: UUID
+    private let onFault: @Sendable (RuntimeFault) async -> Void
+    private var quarantined = false
+    var quarantinedForSubscription: Bool {
+        quarantined
+    }
+
+    private var stopDrained = false
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
     let record: AccountRecord
     let storage: any ServiceAccountStorage
     private let factory: any AccountProviderFactory
@@ -20,8 +37,11 @@ actor AccountRuntime {
     init(
         record: AccountRecord,
         storage: any ServiceAccountStorage,
-        factory: any AccountProviderFactory
+        factory: any AccountProviderFactory,
+        instanceID: UUID, onFault: @escaping @Sendable (RuntimeFault) async -> Void
     ) {
+        self.instanceID = instanceID
+        self.onFault = onFault
         self.record = record
         self.storage = storage
         self.factory = factory
@@ -38,6 +58,9 @@ actor AccountRuntime {
                     return
                 }
                 try await provider.backend.connect()
+                if await !isCurrent(epoch) {
+                    await provider.backend.disconnect()
+                }
             } catch {
                 await self?.failed(error, epoch: epoch)
             }
@@ -58,41 +81,84 @@ actor AccountRuntime {
         return true
     }
 
-    private func ingest(_ event: ChatEvent, epoch: UUID) {
-        guard self.epoch == epoch, !stopped else { return }
+    private func isCurrent(_ epoch: UUID) -> Bool {
+        self.epoch == epoch && !stopped && !quarantined && !Task.isCancelled
+    }
+
+    private func ingest(_ event: ChatEvent, epoch: UUID) async {
+        guard self.epoch == epoch, !stopped, !quarantined else { return }
+        switch event {
+        case .backendError(.notAuthenticated), .backendError(.sessionExpired):
+            await quarantine(.authentication)
+            return
+        case let .selfIdentified(member) where member.id != record.selfID:
+            await quarantine(.authentication)
+            return
+        default: break
+        }
         do {
-            let cursor = try storage.append(event, live: true)
-            try publish(ServiceEventPage(
-                checkpoint: cursor,
-                snapshot: nil,
-                events: [ServiceEvent(
-                    cursor: cursor,
-                    event: event,
-                    isLiveArrival: true
-                )],
-                hasMore: false
-            ))
-            if case let .connectionStateChanged(state) = event {
-                connection = state
-            }
+            try appendAndPublish(event, live: true)
         } catch {
-            // A lost commit must never be published with an acknowledged cursor.
-            connection = .disconnected(reason: nil, issue: nil)
+            await quarantine(.storage)
         }
     }
 
-    private func failed(_ error: any Error, epoch: UUID) {
-        guard self.epoch == epoch, !stopped else { return }
+    private func appendAndPublish(_ event: ChatEvent, live: Bool) throws {
+        let cursor = try storage.append(event, live: live)
+        try publish(ServiceEventPage(
+            checkpoint: cursor,
+            snapshot: nil,
+            events: [ServiceEvent(cursor: cursor, event: event, isLiveArrival: live)],
+            hasMore: false
+        ))
+        if case let .connectionStateChanged(state) = event {
+            connection = state
+        }
+    }
+
+    private func failed(_ error: any Error, epoch: UUID) async {
+        guard self.epoch == epoch, !stopped, !quarantined else { return }
+        if error as? ChatError == .notAuthenticated || error as? ChatError == .sessionExpired {
+            await quarantine(.authentication)
+            return
+        }
         let failure = serviceFailure(error)
         let safe = failure.details.flatMap { try? ServiceCodec.decode(ChatError.self, from: $0) }
             ?? .unknown("The account could not connect.")
-        _ = try? storage.append(.backendError(safe), live: false)
-        _ = try? storage.append(.connectionStateChanged(.disconnected(reason: nil, issue: nil)), live: false)
+        do {
+            try appendAndPublish(.backendError(safe), live: false)
+            try appendAndPublish(.connectionStateChanged(.disconnected(reason: nil, issue: nil)), live: false)
+        } catch {
+            await quarantine(.storage)
+        }
+    }
+
+    private func quarantine(_ fault: RuntimeFault) async {
+        guard !quarantined, !stopped else { return }
+        quarantined = true
+        epoch = UUID()
         connection = .disconnected(reason: nil, issue: nil)
+        consumer?.cancel()
+        for request in requests.values {
+            request.cancel()
+        }
+        for subscriber in subscribers
+            .values {
+            subscriber.finish(throwing: ServiceFailure.accountCleanupPending)
+        }
+        subscribers.removeAll()
+        // The callback records/schedules recovery and returns without awaiting
+        // teardown, which must be able to drain this consumer/startup task.
+        await onFault(fault)
     }
 
     func stop() async {
-        guard !stopped else { return }
+        if stopped {
+            if !stopDrained {
+                await withCheckedContinuation { stopWaiters.append($0) }
+            }
+            return
+        }
         stopped = true
         for subscriber in subscribers.values {
             subscriber.finish(throwing: ServiceFailure.accountDisabled)
@@ -116,10 +182,17 @@ actor AccountRuntime {
         consumer = nil
         connection = .disconnected(reason: nil, issue: nil)
         _ = try? storage.append(.connectionStateChanged(.disconnected(reason: nil, issue: nil)), live: false)
+        stopDrained = true
+        let waiting = stopWaiters
+        stopWaiters.removeAll()
+        for waiter in waiting {
+            waiter.resume()
+        }
     }
 
     func handle(_ request: ServiceRequest) async throws -> JSONValue {
         guard !stopped else { throw ServiceFailure.accountDisabled }
+        guard !quarantined else { throw ServiceFailure.accountCleanupPending }
         guard requests.count < 32 else { throw ServiceFailure.overloaded }
         let id = UUID()
         let epoch = epoch
@@ -127,7 +200,15 @@ actor AccountRuntime {
         requests[id] = work
         defer { requests[id] = nil }
         return try await withTaskCancellationHandler {
-            try await work.value
+            do {
+                return try await work.value
+            } catch {
+                if error as? ChatError == .sessionExpired {
+                    await quarantine(.authentication)
+                    throw ServiceFailure.accountCleanupPending
+                }
+                throw error
+            }
         } onCancel: {
             work.cancel()
         }
@@ -176,6 +257,9 @@ actor AccountRuntime {
             try storage.finish(ServiceOperation(id: id, state: "succeeded", result: result))
             return result
         } catch {
+            if error as? ChatError == .sessionExpired {
+                await quarantine(.authentication)
+            }
             // Once dispatch starts, an error alone does not establish non-execution.
             try storage.finish(ServiceOperation(id: id, state: "unknown", failure: serviceFailure(error)))
             throw ServiceFailure.operationUnknown

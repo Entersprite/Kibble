@@ -17,6 +17,10 @@ public struct AccountClient: Sendable {
         try await call(SetAccountEnabled(enabled: enabled), account: account)
     }
 
+    public func retryRecovery(_ account: ConnectedAccountID) async throws -> AccountSummary {
+        try await call(RetryAccountRecovery(), account: account)
+    }
+
     public func remove(_ account: ConnectedAccountID) async throws {
         _ = try await call(RemoveAccount(), account: account)
     }

@@ -10,6 +10,9 @@ actor TestLinkCustody: AccountLinkCustody {
     var failAfterInstall = false
     var holdVerification = false
     private var discardFailures = 0
+    private var holdDiscard = false
+    private var discardReleased = false
+    private var discardWaiter: CheckedContinuation<Void, Never>?
     private(set) var verifying = false
     private(set) var installed: Set<String> = []
     private(set) var discarded: Set<AccountLinkID> = []
@@ -19,7 +22,7 @@ actor TestLinkCustody: AccountLinkCustody {
     func configure(
         identity: Member.ID? = nil,
         failAfterInstall: Bool = false,
-        holdVerification: Bool = false, discardFailures: Int = 0
+        holdVerification: Bool = false, discardFailures: Int = 0, holdDiscard: Bool = false
     ) {
         if let identity {
             self.identity = identity
@@ -27,6 +30,7 @@ actor TestLinkCustody: AccountLinkCustody {
         self.failAfterInstall = failAfterInstall
         self.holdVerification = holdVerification
         self.discardFailures = discardFailures
+        self.holdDiscard = holdDiscard
     }
 
     func verify(_ link: AccountLinkRecord) async throws -> VerifiedLinkIdentity {
@@ -48,7 +52,16 @@ actor TestLinkCustody: AccountLinkCustody {
         }
     }
 
-    func discardStaging(_ link: AccountLinkRecord) throws {
+    func releaseDiscard() {
+        discardReleased = true
+        discardWaiter?.resume()
+        discardWaiter = nil
+    }
+
+    func discardStaging(_ link: AccountLinkRecord) async throws {
+        if holdDiscard, !discardReleased {
+            await withCheckedContinuation { discardWaiter = $0 }
+        }
         if discardFailures > 0 {
             discardFailures -= 1
             throw ServiceFailure.internalFailure

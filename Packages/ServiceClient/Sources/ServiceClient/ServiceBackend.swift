@@ -97,6 +97,10 @@ public actor ServiceBackend: CheckpointedChatBackend {
                 throw ServiceFailure.invalidResponse
             } catch {
                 guard !Task.isCancelled else { return }
+                if error as? ServiceFailure == .authenticationRequired {
+                    emitTransient(.backendError(.unknown("This account needs to sign in again.")))
+                    return
+                }
                 if error as? ServiceFailure == .staleAccount {
                     emitTransient(
                         .backendError(.unknown("The account sign-in has changed. Reconnect this client."))

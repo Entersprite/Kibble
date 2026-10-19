@@ -4,6 +4,7 @@ import Foundation
 extension AccountRuntime {
     func subscribe(after cursor: ServiceCursor?) throws -> AsyncThrowingStream<Data, any Error> {
         guard !stopped else { throw ServiceFailure.accountDisabled }
+        guard !quarantinedForSubscription else { throw ServiceFailure.accountCleanupPending }
         guard subscribers.count < 64 else { throw ServiceFailure.overloaded }
         let id = UUID()
         let (stream, continuation) = AsyncThrowingStream<Data, any Error>

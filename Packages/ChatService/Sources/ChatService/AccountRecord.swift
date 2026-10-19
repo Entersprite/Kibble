@@ -11,6 +11,7 @@ public struct AccountRecord: Codable, Hashable, Sendable {
     public var isEnabled: Bool
     public var credentialGeneration: String
     /// Client request fencing, separate from the host's secret slot reference.
+    public var authenticationState: String?
     public var revision: ServiceAccountRevision?
     public var currentRevision: ServiceAccountRevision {
         revision ?? ServiceAccountRevision("initial:\(id.rawValue)")
@@ -23,7 +24,8 @@ public struct AccountRecord: Codable, Hashable, Sendable {
         id: ConnectedAccountID, principalID: ServicePrincipalID, selfID: Member.ID,
         label: String, isEnabled: Bool = true, credentialGeneration: String,
         isRemoving: Bool = false,
-        revision: ServiceAccountRevision? = ServiceAccountRevision(UUID().uuidString)
+        revision: ServiceAccountRevision? = ServiceAccountRevision(UUID().uuidString),
+        authenticationState: String? = nil
     ) {
         self.id = id
         self.principalID = principalID
@@ -31,6 +33,7 @@ public struct AccountRecord: Codable, Hashable, Sendable {
         self.label = label
         self.isEnabled = isEnabled
         self.credentialGeneration = credentialGeneration
+        self.authenticationState = authenticationState
         self.revision = revision
         self.isRemoving = isRemoving
     }

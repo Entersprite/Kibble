@@ -61,6 +61,10 @@ extension ChatService {
     ) throws -> AccountLinkRecord {
         guard context.canLinkAccounts, !shuttingDown else { throw ServiceFailure.notAuthorized }
         let link = try ownedLink(id, context: context)
+        if let target = link.targetAccountID,
+           let record = records[target] {
+            try checkLinkAuthentication(record)
+        }
         guard link.phase == "pendingCapture",
               link.expiresAt > Date() else { throw ServiceFailure.invalidRequest }
         return link
@@ -105,6 +109,7 @@ extension ChatService {
             guard context.allowsAccount(id), let record = records[id],
                   record.principalID == context.principalID,
                   !record.isRemoving else { throw ServiceFailure.notAuthorized }
+            try checkLinkAuthentication(record)
             target = record
         }
         let link = AccountLinkRecord(
@@ -163,6 +168,9 @@ extension ChatService {
             let identity = try await custody.verify(link)
             try checkLinkActive()
             if let target = link.targetAccountID {
+                if let record = records[target] {
+                    try checkLinkAuthentication(record)
+                }
                 guard records[target]?.selfID == identity.selfID
                 else { throw ServiceFailure.operationConflict }
             }
@@ -246,6 +254,8 @@ extension ChatService {
             guard var current = records[target], !current.isRemoving,
                   current.credentialGeneration == link.previousGeneration,
                   current.selfID == identity else { throw ServiceFailure.revisionConflict }
+            try checkLinkAuthentication(current)
+            current.authenticationState = nil
             current.credentialGeneration = link.generation
             current.revision = ServiceAccountRevision(UUID().uuidString)
             return current
@@ -264,7 +274,8 @@ extension ChatService {
     }
 
     private func startLinkedAccount(_ account: AccountRecord) async throws {
-        guard account.isEnabled, runtimes[account.id] == nil, !shuttingDown else { return }
+        guard account.isEnabled, account.authenticationState == nil, runtimes[account.id] == nil,
+              !shuttingDown else { return }
         let runtime = try makeRuntime(account)
         runtimes[account.id] = runtime
         await runtime.start()
@@ -296,6 +307,14 @@ extension ChatService {
         canceling.phase = "canceled"
         try saveLink(canceling)
         return canceling.summary
+    }
+
+    private func checkLinkAuthentication(_ record: AccountRecord) throws {
+        switch record.authenticationState {
+        case nil, "required": return
+        case "erasing": throw ServiceFailure.accountCleanupPending
+        default: throw ServiceFailure.unsupportedOperation
+        }
     }
 
     private func checkLinkActive() throws {

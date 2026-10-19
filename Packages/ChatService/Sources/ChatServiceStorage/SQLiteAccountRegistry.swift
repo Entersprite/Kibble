@@ -145,6 +145,7 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
             .map { try ServiceCodec.decode(AccountRecord.self, from: $0) }
             if link.targetAccountID != nil {
                 guard let current, !current.isRemoving,
+                      current.authenticationState == nil || current.authenticationState == "required",
                       current.credentialGeneration == link.previousGeneration,
                       current.selfID == account.selfID else { throw ServiceFailure.revisionConflict }
             } else {

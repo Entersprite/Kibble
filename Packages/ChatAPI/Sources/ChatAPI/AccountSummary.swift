@@ -6,6 +6,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
     public let revision: ServiceAccountRevision?
     public let selfID: Member.ID
     public let label: String
+    public let authenticationState: String?
     public let isRemoving: Bool
     public let isEnabled: Bool
     public let capabilities: Capabilities
@@ -19,20 +20,22 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         isEnabled: Bool = true,
         isRemoving: Bool = false,
         capabilities: Capabilities = .init(),
-        revision: ServiceAccountRevision? = nil
+        revision: ServiceAccountRevision? = nil,
+        authenticationState: String? = nil
     ) {
         self.id = id
         self.revision = revision
         self.selfID = selfID
         self.label = label
         self.connection = connection
+        self.authenticationState = authenticationState
         self.isRemoving = isRemoving
         self.isEnabled = isEnabled
         self.capabilities = capabilities
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, revision, selfID, label, connection, isEnabled, isRemoving, capabilities
+        case id, revision, selfID, label, connection, isEnabled, isRemoving, capabilities, authenticationState
     }
 
     public init(from decoder: any Decoder) throws {
@@ -45,7 +48,8 @@ public struct AccountSummary: Codable, Hashable, Sendable {
             isEnabled: values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true,
             isRemoving: values.decodeIfPresent(Bool.self, forKey: .isRemoving) ?? false,
             capabilities: values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init(),
-            revision: values.decodeIfPresent(ServiceAccountRevision.self, forKey: .revision)
+            revision: values.decodeIfPresent(ServiceAccountRevision.self, forKey: .revision),
+            authenticationState: values.decodeIfPresent(String.self, forKey: .authenticationState)
         )
     }
 }
