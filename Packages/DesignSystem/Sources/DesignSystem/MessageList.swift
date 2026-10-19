@@ -64,6 +64,7 @@ enum TranscriptScroll {
 
 /// The transcript.
 public struct MessageList: View {
+    let checkMessageDelivery: ((Message.ID) -> Void)?
     let state: ChatSceneState
     /// `ChatSceneActions.loadAttachment` and `.openAttachment`, handed down to
     /// each bubble. `nil` draws images as their names.
@@ -123,7 +124,8 @@ public struct MessageList: View {
         reactions: ReactionActions? = nil,
         threads: ThreadActions? = nil,
         loadOlderMessages: (() -> Void)? = nil,
-        loadNewerMessages: (() -> Void)? = nil
+        loadNewerMessages: (() -> Void)? = nil,
+        checkMessageDelivery: ((Message.ID) -> Void)? = nil
     ) {
         self.state = state
         self.loadAttachment = loadAttachment
@@ -135,6 +137,7 @@ public struct MessageList: View {
         self.threads = threads
         self.loadOlderMessages = loadOlderMessages
         self.loadNewerMessages = loadNewerMessages
+        self.checkMessageDelivery = checkMessageDelivery
     }
 
     func ownMessages(_ handlers: OwnMessageHandlers?) -> MessageList {
@@ -184,7 +187,7 @@ public struct MessageList: View {
                             loadRemoteImage: loadRemoteImage,
                             attachmentFiles: attachmentFiles,
                             reactions: reactions, own: own, openThread: threads?.open,
-                            marked: marked?.id, markOn: markOn
+                            marked: marked?.id, markOn: markOn, checkDelivery: checkMessageDelivery
                         )
                         .id(message.id)
                         .modifier(TranscriptAnchorTracking(id: message.id, anchor: readingAnchor))

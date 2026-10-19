@@ -97,7 +97,8 @@ public struct ChatWindow: View {
                                 reactions: actions.reactions,
                                 threads: offeredThreadActions,
                                 loadOlderMessages: actions.loadOlderMessages,
-                                loadNewerMessages: actions.loadNewerMessages
+                                loadNewerMessages: actions.loadNewerMessages,
+                                checkMessageDelivery: actions.checkMessageDelivery
                             )
                             .ownMessages(transcriptHandlers)
                             .meetingVisibility(actions.visibleMeetingMessages)

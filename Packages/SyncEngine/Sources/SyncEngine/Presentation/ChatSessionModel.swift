@@ -26,7 +26,7 @@ public final class ChatSessionModel {
     public internal(set) var messages: [Message] = [] // set from +Mentions.swift
     public internal(set) var activity = ConversationActivity()
     public internal(set) var typing: [Member.ID] = [] // set from +Mentions.swift
-    public private(set) var connectionState: ConnectionState = .idle
+    public internal(set) var connectionState: ConnectionState = .idle
     /// The last thing that went wrong, from the store.
     ///
     /// Fed by `store.observeLastError()` in `start()`, like every other
@@ -55,14 +55,14 @@ public final class ChatSessionModel {
 
     /// The Mentions list, newest first, fed by `store.observeMentionsOfMe()`
     /// (the mentions-list spec §3).
-    public private(set) var mentions: [MentionOfMe] = []
+    public internal(set) var mentions: [MentionOfMe] = []
     /// The Mentions row's badge: every unread mention, not only those listed.
-    public private(set) var unreadMentionCount = 0
+    public internal(set) var unreadMentionCount = 0
     /// Whether a backfill is running, and how many conversations it could not check.
-    public private(set) var mentionBackfill = MentionBackfillStatus()
+    public internal(set) var mentionBackfill = MentionBackfillStatus()
     public internal(set) var isLoadingMeetingMetadata = false
     /// The 24 newest recent reactions, fed by `store.observeRecentReactions`.
-    public private(set) var recentReactionChoices: [ReactionChoice] = []
+    public internal(set) var recentReactionChoices: [ReactionChoice] = []
     /// The `@` list's people for the selected conversation, observed
     /// (`ChatStore.observeMentionCandidates`), never read during a render
     /// (CLAUDE.md, session 46).
@@ -291,6 +291,8 @@ public final class ChatSessionModel {
     /// `internal`, not `private`: `ChatSessionModel+CatchUp.swift` reads and
     /// writes it.
     var actedOnConnection: ConnectionState?
+    var messageDeliveryWork = MessageDeliveryWork()
+
     public init(
         store: ChatStore, engine: SyncEngine, me: Member.ID? = nil,
         markReadTrace: (any MarkReadTraceSink)? = nil,
@@ -313,27 +315,7 @@ public final class ChatSessionModel {
     /// Starts syncing and watching. Safe to call once; later calls do nothing.
     public func start() async throws {
         guard watchers.isEmpty else { return }
-        // First, so a name is there by the time anything that shows one lands.
-        watchDirectory()
-        watch(store.observeConversations()) { [weak self] in self?.conversationsObserved($0) }
-        watch(store.observeConnectionState()) { [weak self] in
-            self?.connectionState = $0
-            self?.catchUpIfReconnected($0)
-        }
-        watchSelf()
-        watch(store.observeMeetingMetadataLoading()) { [weak self] in self?.isLoadingMeetingMetadata = $0 }
-        watchThreads()
-        watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
-        watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
-        watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
-        watch(store.observeRecentReactions(limit: 24)) { [weak self] in self?.recentReactionChoices = $0 }
-        // Everything `SyncEngine.record` writes arrives here. Without it the
-        // property below was set only by an observation throwing, so a refused
-        // send or a failed history page was recorded and never rendered.
-        watch(store.observeLastError()) { [weak self] in
-            self?.lastError = $0 ?? self?.conversationActionError
-        }
-        watchClientTransport()
+        startModelObservers()
         try await engine.start()
     }
 

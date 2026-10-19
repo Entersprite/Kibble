@@ -5,6 +5,13 @@ import Foundation
 /// view properties while updating each child, even when its body reads only
 /// a small part of that snapshot.
 struct MessageRowState: Equatable {
+    let deliveryStatus: MessageDeliveryStatus?
+    let checkingDelivery: Bool
+    let isPendingMessage: Bool
+    var canUseProviderActions: Bool {
+        deliveryStatus == nil && !isPendingMessage
+    }
+
     let me: Member.ID?
     let directory: [Member.ID: Member]
     let thread: MessageThread?
@@ -14,6 +21,9 @@ struct MessageRowState: Equatable {
         message: Message, scene: ChatSceneState, showsThread: Bool = true,
         downloads: [String: AttachmentDownloadState]? = nil
     ) {
+        deliveryStatus = scene.messageDeliveryStatuses[message.id]
+        checkingDelivery = scene.checkingMessageDeliveries.contains(message.id)
+        isPendingMessage = scene.pendingMessages.contains(message.id)
         me = scene.me
         thread = showsThread ? scene.threads.summaries[message.threadID] : nil
         let repliers = Array((thread?.recentRepliers ?? []).prefix(3))

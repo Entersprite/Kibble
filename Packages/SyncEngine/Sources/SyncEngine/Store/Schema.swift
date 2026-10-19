@@ -61,6 +61,13 @@ enum Schema {
                 $0.add(column: "meetingMetadataLoading", .boolean).notNull().defaults(to: false)
             }
         }
+        migrator.registerMigration("v20") { db in
+            try db.create(table: "messageDelivery") { table in
+                table.primaryKey("messageID", .text).references("message", column: "id", onDelete: .cascade)
+                table.column("localID", .text).notNull()
+                table.column("state", .text).notNull()
+            }
+        }
         return migrator
     }
 

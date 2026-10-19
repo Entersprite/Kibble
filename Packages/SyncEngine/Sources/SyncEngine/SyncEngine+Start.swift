@@ -13,6 +13,10 @@ public extension SyncEngine {
         defer { starting = false }
         let generation = managementGeneration
         try store.apply([.clearEphemeralState])
+        if tracksMessageDelivery {
+            try store.apply([.interruptMessageDeliveries])
+        }
+        let pending = try tracksMessageDelivery ? (store.messageDeliveries()) : []
         activityRunning = true
         if let checkpointed = backend as? any CheckpointedChatBackend {
             let deliveries = try await checkpointed
@@ -37,5 +41,6 @@ public extension SyncEngine {
             }
         }
         try await backend.connect()
+        startDeliveryReconciliation(pending)
     }
 }

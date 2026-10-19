@@ -10,6 +10,31 @@ import GRDB
 /// `directory` and `lastError` are `internal` there for this file's sake,
 /// the same trade `+AutoMarkRead.swift` already made for `conversations`.
 extension ChatSessionModel {
+    func startModelObservers() {
+        // First, so a name is there by the time anything that shows one lands.
+        watchDirectory()
+        watch(store.observeConversations()) { [weak self] in self?.conversationsObserved($0) }
+        watch(store.observeConnectionState()) { [weak self] in
+            self?.connectionState = $0
+            self?.catchUpIfReconnected($0)
+        }
+        watchSelf()
+        watch(store.observeMeetingMetadataLoading()) { [weak self] in self?.isLoadingMeetingMetadata = $0 }
+        watchThreads()
+        watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
+        watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
+        watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
+        watch(store.observeRecentReactions(limit: 24)) { [weak self] in self?.recentReactionChoices = $0 }
+        // Everything `SyncEngine.record` writes arrives here. Without it the
+        // property below was set only by an observation throwing, so a refused
+        // send or a failed history page was recorded and never rendered.
+        watch(store.observeLastError()) { [weak self] in
+            self?.lastError = $0 ?? self?.conversationActionError
+        }
+        watchClientTransport()
+        watchMessageDeliveries()
+    }
+
     func watchClientTransport() {
         watchers.append(Task { @MainActor [weak self, engine] in
             let states = await engine.clientTransportAvailability()

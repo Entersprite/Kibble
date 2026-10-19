@@ -73,7 +73,7 @@ public extension ChatSessionModel {
         let optimisticID = Message.ID("local/\(localID)")
         var undo: [StoreWrite] = []
         if let me {
-            try? store.apply([.upsertMessage(Message(
+            guard beginOptimistic(Message(
                 id: optimisticID,
                 conversationID: selected,
                 threadID: MessageThread.ID(""),
@@ -82,7 +82,10 @@ public extension ChatSessionModel {
                 createdAt: Date(),
                 localID: localID,
                 mentions: message.mentions
-            ))])
+            )) else {
+                failed = (conversationID: selected, draft: message)
+                return
+            }
             // Only what was actually written. With no `me` there is no
             // optimistic row and nothing to take back.
             undo = [.removeMessage(id: optimisticID)]

@@ -80,6 +80,12 @@ public struct AccountClient: Sendable {
             requestID: ServiceRequestID(UUID().uuidString), accountID: account, accountRevision: revision,
             deadline: Date().addingTimeInterval(timeout), version: version
         ), payload: payload)
-        return try await transport.exchange(request).value(for: Payload.self)
+        let response = try await transport.exchange(request)
+        // An unfamiliar result cannot establish that a mutation was refused.
+        // Keep it distinct from an explicit unsupported-operation failure.
+        if case .unknown = response.result {
+            throw ServiceFailure.invalidResponse
+        }
+        return try response.value(for: Payload.self)
     }
 }

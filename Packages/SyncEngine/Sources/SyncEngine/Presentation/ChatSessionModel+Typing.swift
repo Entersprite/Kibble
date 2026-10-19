@@ -37,7 +37,7 @@ public extension ChatSessionModel {
 
     /// These IDs are created by this client's optimistic send path, not parsed provider IDs.
     var pendingMessageIDs: Set<Message.ID> {
-        Set(messages.compactMap { message in
+        Set((messages + threads.messages).compactMap { message in
             guard let local = message.localID, message.id == Message.ID("local/\(local)") else { return nil }
             return message.id
         })

@@ -96,7 +96,8 @@ public extension ChatStore {
         case .applyThreadChange, .setUnreadThreads:
             try performThreadWrite(write, in: db)
         case .upsertMessage, .upsertMessageKeepingReactions, .insertMessageIfAbsent, .markMessageDeleted,
-             .removeMessage, .reconcileThread, .setReactions:
+             .removeMessage, .reconcileThread, .setReactions,
+             .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries:
             try performMessageWrite(write, in: db)
         case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
              .setAvailability, .clearEphemeralState:
@@ -183,6 +184,8 @@ public extension ChatStore {
 
     private static func performMessageWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries:
+            try performDeliveryWrite(write, in: db)
         case let .upsertMessageKeepingReactions(message):
             var kept = message
             // A tombstone takes its own (empty) reactions rather than what is
@@ -233,15 +236,7 @@ public extension ChatStore {
         case let .reconcileThread(thread, conversation, keeping):
             try reconcileThread(thread, in: conversation, keeping: keeping, db: db)
         case let .setReactions(messageID, reactions):
-            let existing = try String.fetchOne(
-                db, sql: "SELECT reactions FROM message WHERE id = ?", arguments: [messageID.rawValue]
-            )
-            if let existing, try Wire.value([Reaction].self, from: existing) != reactions {
-                try db.execute(
-                    sql: "UPDATE message SET reactions = ? WHERE id = ?",
-                    arguments: [Wire.json(reactions), messageID.rawValue]
-                )
-            }
+            try updateReactions(reactions, message: messageID, in: db)
         default:
             break
         }

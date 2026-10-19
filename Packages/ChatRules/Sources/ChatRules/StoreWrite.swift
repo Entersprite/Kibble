@@ -8,6 +8,9 @@ import Foundation
 /// the same one. A `StoreWrite` says *what the store must become*, never how a
 /// particular schema gets there.
 public enum StoreWrite: Sendable, Equatable {
+    case beginMessageDelivery(Message.ID)
+    case setMessageDelivery(Message.ID, MessageDeliveryStatus)
+    case interruptMessageDeliveries
     /// The connection state, for a UI that has to draw a banner and may only
     /// read the store.
     case setConnectionState(ConnectionState)

@@ -19,6 +19,8 @@ public enum SidebarSelection: Hashable, Sendable {
 /// way renders from a literal in a preview or a test, and cannot accidentally
 /// reach past the seam for something it was not given.
 public struct ChatSceneState: Sendable, Equatable {
+    public var messageDeliveryStatuses: [Message.ID: MessageDeliveryStatus] = [:]
+    public var checkingMessageDeliveries: Set<Message.ID> = []
     public var composerDrafts: [ComposerDraftAddress: ComposerDraft] = [:]
     public var browser: ConversationBrowserScene = .init()
     public var isLoadingMeetingMetadata = false

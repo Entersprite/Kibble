@@ -48,7 +48,7 @@ public extension ChatSessionModel {
         for task in sendTasks.values {
             task.cancel()
         }
-        sendTasks = [:]
+        resetSubmissionWork()
         for task in conversationActionTasks.values {
             task.cancel()
         }

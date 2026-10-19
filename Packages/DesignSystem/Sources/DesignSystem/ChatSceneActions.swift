@@ -5,6 +5,7 @@ import Foundation
 /// wire them to anything, including nothing.
 @MainActor
 public struct ChatSceneActions {
+    public var checkMessageDelivery: ((Message.ID) -> Void)?
     public var preserveDraft: ((ComposerDraftAddress, ComposerDraft) -> Void)?
     public var showSidebarSettings: (() -> Void)?
     public var browser: ConversationBrowserActions?

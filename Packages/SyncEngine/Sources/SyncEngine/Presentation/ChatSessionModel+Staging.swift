@@ -226,7 +226,7 @@ public extension ChatSessionModel {
         if let me {
             // A reply's row is marked as one, so it lands in the panel and
             // never in the transcript (`sendReply`'s rule).
-            try? store.apply([.upsertMessage(Message(
+            guard beginOptimistic(Message(
                 id: optimisticID,
                 conversationID: key.conversation,
                 threadID: key.thread ?? MessageThread.ID(""),
@@ -237,7 +237,7 @@ public extension ChatSessionModel {
                 localID: localID,
                 mentions: caption.mentions,
                 isReply: key.thread != nil
-            ))])
+            )) else { return false }
             undo = [.removeMessage(id: optimisticID)]
         }
         return await engine.submit(

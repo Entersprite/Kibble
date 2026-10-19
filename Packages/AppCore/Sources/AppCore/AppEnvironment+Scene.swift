@@ -90,6 +90,8 @@ public extension AppEnvironment {
         )
         state.browser = browserScene(model)
         state.composerDrafts = composerDrafts
+        state.messageDeliveryStatuses = model.messageDeliveryStatuses
+        state.checkingMessageDeliveries = model.checkingMessageDeliveries
         state.selectedMeetingSeries = model.selectedMeetingSeries
         state.isLoadingMeetingMetadata = model.isLoadingMeetingMetadata
         return state
@@ -277,6 +279,7 @@ public extension AppEnvironment {
             guard let self, case .running = phase else { return }
             composerDrafts[address] = draft.text.isEmpty ? nil : draft.compositionOnly
         }
+        actions.checkMessageDelivery = { [weak self] in self?.runningModel?.checkMessageDelivery($0) }
         return actions
     }
 

@@ -87,11 +87,11 @@ public extension ChatSessionModel {
         let optimisticID = Message.ID("local/\(localID)")
         var undo: [StoreWrite] = []
         if let me {
-            try? store.apply([.upsertMessage(Message(
+            guard beginOptimistic(Message(
                 id: optimisticID, conversationID: selected, threadID: thread, sender: me,
                 text: message.text, createdAt: Date(), localID: localID, mentions: message.mentions,
                 isReply: true
-            ))])
+            )) else { return }
             // By id, never by `localID`, for `send(_:)`'s reason.
             undo = [.removeMessage(id: optimisticID)]
         }

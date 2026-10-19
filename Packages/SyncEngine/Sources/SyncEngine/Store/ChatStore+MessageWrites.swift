@@ -3,6 +3,18 @@ import ChatRules
 import GRDB
 
 package extension ChatStore {
+    static func updateReactions(_ reactions: [Reaction], message: Message.ID, in db: Database) throws {
+        let existing = try String.fetchOne(
+            db, sql: "SELECT reactions FROM message WHERE id = ?", arguments: [message.rawValue]
+        )
+        if let existing, try Wire.value([Reaction].self, from: existing) != reactions {
+            try db.execute(
+                sql: "UPDATE message SET reactions = ? WHERE id = ?",
+                arguments: [Wire.json(reactions), message.rawValue]
+            )
+        }
+    }
+
     static func advanceConversationActivity(_ message: Message, in db: Database) throws {
         guard !message.isDeleted, try !isClearedHistory(message, in: db) else { return }
         let value = StoredDate.value(message.createdAt)

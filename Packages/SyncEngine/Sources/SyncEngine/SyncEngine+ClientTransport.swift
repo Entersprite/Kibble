@@ -21,6 +21,13 @@ extension SyncEngine {
         for observer in clientTransportObservers.values {
             observer.yield(available)
         }
+        if available, tracksMessageDelivery {
+            do {
+                try startDeliveryReconciliation(store.messageDeliveries())
+            } catch {
+                record(error)
+            }
+        }
     }
 
     private func removeClientTransportObserver(_ id: UUID) {

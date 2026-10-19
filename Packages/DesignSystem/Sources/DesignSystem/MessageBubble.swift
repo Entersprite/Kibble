@@ -23,6 +23,7 @@ struct MessageBubble: View {
     /// it is the marked one and the mark is on.
     var marked: Message.ID?
     var markOn = false
+    var checkDelivery: ((Message.ID) -> Void)?
 
     /// Whether the full emoji picker is open for this message: from either
     /// menu's "More Emoji…" or the row's "+" (reactions spec §4.1-§4.3).
@@ -36,7 +37,11 @@ struct MessageBubble: View {
     }
 
     private var ownItems: OwnMessageMenuItems? {
-        own?.items(for: message)
+        state.canUseProviderActions ? own?.items(for: message) : nil
+    }
+
+    private var availableReactions: ReactionActions? {
+        state.canUseProviderActions ? reactions : nil
     }
 
     private var isMine: Bool {
@@ -96,7 +101,7 @@ struct MessageBubble: View {
                     ForEach(parts.previews, id: \.url) { link in
                         LinkPreviewCard(link: link, load: loadRemoteImage)
                             .modifier(ReactionMenu(
-                                message: message, actions: reactions, own: ownItems,
+                                message: message, actions: availableReactions, own: ownItems,
                                 onMore: { picking = true }, link: link.url
                             ))
                     }
@@ -107,11 +112,18 @@ struct MessageBubble: View {
                 if !message.reactions.isEmpty {
                     ReactionRow(
                         reactions: message.reactions,
-                        toggle: reactions.map { actions in
+                        toggle: availableReactions.map { actions in
                             { choice, add in actions.toggle(message.id, choice, add) }
                         },
-                        loadImage: reactions?.customImage,
-                        onAdd: reactions == nil || message.isDeleted ? nil : { picking = true }
+                        loadImage: availableReactions?.customImage,
+                        onAdd: availableReactions == nil || message.isDeleted ? nil : { picking = true }
+                    )
+                }
+                if let delivery = state.deliveryStatus {
+                    MessageDeliveryLabel(
+                        status: delivery,
+                        checking: state.checkingDelivery,
+                        check: checkDelivery.map { action in { action(message.id) } }
                     )
                 }
                 if receiptSlot, isMine, !message.isDeleted, !message.isReply {
@@ -136,9 +148,11 @@ struct MessageBubble: View {
                     mark
                 }
             }
-            .modifier(ReactionMenu(message: message, actions: reactions, own: ownItems) { picking = true })
+            .modifier(ReactionMenu(message: message, actions: availableReactions, own: ownItems) {
+                picking = true
+            })
             .popover(isPresented: $picking, arrowEdge: .bottom) {
-                if let reactions {
+                if let reactions = availableReactions {
                     EmojiPicker(reactions: message.reactions, actions: reactions) { choice, add in
                         reactions.toggle(message.id, choice, add)
                         picking = false
@@ -213,7 +227,7 @@ struct MessageBubble: View {
                         right: 12
                     ),
                     message: message,
-                    actions: reactions,
+                    actions: availableReactions,
                     me: state.me,
                     onMore: { picking = true },
                     own: ownItems,

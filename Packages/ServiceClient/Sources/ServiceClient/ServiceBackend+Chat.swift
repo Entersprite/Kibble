@@ -19,6 +19,12 @@ public extension ServiceBackend {
         } catch let failure as ServiceFailure
             where failure == .operationUnknown || failure == .deadlineExceeded {
             throw UncertainOperation(operationID: id.rawValue)
+        } catch let failure as ServiceFailure where Self.definitiveSubmissionFailures.contains(failure.code) {
+            throw failure
+        } catch {
+            // Lost, malformed and cancelled replies do not prove that the
+            // service failed to dispatch. Keep the original operation handle.
+            throw UncertainOperation(operationID: id.rawValue)
         }
     }
 
@@ -87,4 +93,31 @@ public extension ServiceBackend {
     func loadFollowedThreads() async throws -> [Message] {
         try await projected { try await call(LoadFollowedThreads()) }
     }
+}
+
+extension ServiceBackend: MessageDeliveryTrackingBackend {
+    public func deliveryStatus(for localID: String) async throws -> MessageDeliveryStatus {
+        do {
+            let operation = try await call(
+                GetOperation(operationID: ServiceOperationID("send:\(localID)")),
+                timeout: 10
+            )
+            switch operation.state {
+            case "succeeded": return .sent
+            case "failed": return .failed
+            case "accepted", "dispatching": return .unconfirmed
+            default: return .unconfirmed
+            }
+        } catch let failure as ServiceFailure where failure == .operationUnknown {
+            return .unconfirmed
+        }
+    }
+
+    private static let definitiveSubmissionFailures: Set<String> = [
+        "accountCleanupPending", "authenticationRequired", "staleAccount", "ownerBusy", "accountDisabled",
+        "accountNotFound", "operationConflict", "privacyDenied", "policyUnavailable", "invalidRequest",
+        "incompatibleVersion", "handshakeRequired", "notAuthorized", "accountRequired",
+        "unsupportedOperation",
+        "frameTooLarge", "overloaded", "duplicateRequest"
+    ]
 }

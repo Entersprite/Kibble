@@ -253,7 +253,7 @@ struct ThreadPanelList: View {
             loadAttachment: actions.loadAttachment, openAttachment: actions.openAttachment,
             loadRemoteImage: actions.loadRemoteImage,
             attachmentFiles: actions.attachmentFiles,
-            reactions: actions.reactions, own: own(message)
+            reactions: actions.reactions, own: own(message), checkDelivery: actions.checkMessageDelivery
         )
         .id(message.id)
     }
