@@ -247,6 +247,7 @@ extension ChatService {
                   current.credentialGeneration == link.previousGeneration,
                   current.selfID == identity else { throw ServiceFailure.revisionConflict }
             current.credentialGeneration = link.generation
+            current.revision = ServiceAccountRevision(UUID().uuidString)
             return current
         }
         guard !records.values

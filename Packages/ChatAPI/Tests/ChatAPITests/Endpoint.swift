@@ -4,7 +4,8 @@ import Foundation
 
 actor Endpoint: ServiceEndpoint {
     enum Mode: Sendable, CaseIterable {
-        case normal, wrongRequest, wrongAccount, wrongVersion, malformed, hostFailure, held, large
+        case normal, wrongRequest, wrongAccount, wrongRevision, wrongVersion, malformed, hostFailure, held,
+             large
     }
 
     let mode: Mode
@@ -54,6 +55,8 @@ actor Endpoint: ServiceEndpoint {
             requestID: mode == .wrongRequest ? ServiceRequestID("foreign") : request.header.requestID,
             accountID: mode == .wrongAccount ? ConnectedAccountID("foreign") : request.header.accountID,
             result: result,
+            accountRevision: mode == .wrongRevision ? ServiceAccountRevision("foreign") : request.header
+                .accountRevision,
             version: mode == .wrongVersion ? .init(major: 2, minor: 0) : request.header.version
         ))
     }

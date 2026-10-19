@@ -148,8 +148,23 @@ struct RecoveryTests {
         _ payload: some ServiceRequestPayload, service: ChatService, context: ServiceSessionContext,
         account: ConnectedAccountID? = nil
     ) async throws -> ServiceResponse {
+        var revision: ServiceAccountRevision?
+        if let account {
+            let query = try ServiceRequest(
+                header: ServiceRequestHeader(requestID: ServiceRequestID(UUID().uuidString)),
+                payload: ListAccounts()
+            )
+            let response = try await ServiceCodec.decode(
+                ServiceResponse.self,
+                from: service.handle(ServiceCodec.encode(query), context: context)
+            )
+            revision = try response.value(for: ListAccounts.self).first { $0.id == account }?.revision
+        }
         let request = try ServiceRequest(
-            header: ServiceRequestHeader(requestID: ServiceRequestID(UUID().uuidString), accountID: account),
+            header: ServiceRequestHeader(
+                requestID: ServiceRequestID(UUID().uuidString), accountID: account,
+                accountRevision: revision
+            ),
             payload: payload
         )
         return try await ServiceCodec.decode(

@@ -54,7 +54,7 @@ struct ClientHarness {
     let second: AccountSummary
     let context: ServiceSessionContext
 
-    static func make() async throws -> ClientHarness {
+    static func make(linkCustody: (any AccountLinkCustody)? = nil) async throws -> ClientHarness {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let registry = try SQLiteAccountRegistry(path: folder.appendingPathComponent("registry.sqlite").path)
@@ -78,14 +78,14 @@ struct ClientHarness {
         let service = ChatService(
             registry: registry,
             storage: SQLiteServiceStorageFactory(directory: folder),
-            providers: providers
+            providers: providers, linkCustody: linkCustody
         )
         try await service.restore()
         let context = ServiceSessionContext(
             principalID: first.principalID,
             deviceID: ServiceDeviceID("device"),
             sessionID: ClientSessionID("client"),
-            accounts: [first.id, second.id]
+            accounts: [first.id, second.id], canLinkAccounts: linkCustody != nil
         )
         let transport = InProcessChatTransport(endpoint: service, context: context)
         let client = AccountClient(transport: transport)

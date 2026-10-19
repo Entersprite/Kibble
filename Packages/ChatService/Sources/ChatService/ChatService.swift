@@ -119,6 +119,8 @@ public actor ChatService: ServiceEventEndpoint {
               let id = request.header.accountID, context.allowsAccount(id),
               let record = records[id], record.principalID == context.principalID,
               !record.isRemoving else { throw ServiceFailure.notAuthorized }
+        guard request.header.accountRevision == record.currentRevision
+        else { throw ServiceFailure.staleAccount }
         guard record.isEnabled, !changing.contains(id), let runtime = runtimes[id] else {
             throw ServiceFailure.accountDisabled
         }
@@ -136,6 +138,8 @@ public actor ChatService: ServiceEventEndpoint {
         guard let id = request.header.accountID else { throw ServiceFailure.accountRequired }
         guard context.allowsAccount(id), let record = records[id],
               record.principalID == context.principalID else { throw ServiceFailure.notAuthorized }
+        guard request.header.accountRevision == record.currentRevision
+        else { throw ServiceFailure.staleAccount }
         if record.isRemoving, request.operation != RemoveAccount.operation {
             throw ServiceFailure.accountDisabled
         }
@@ -175,7 +179,7 @@ public actor ChatService: ServiceEventEndpoint {
                 id: record.id, selfID: record.selfID, label: record.label,
                 connection: runtime?.connection ?? .disconnected(reason: nil, issue: nil),
                 isEnabled: record.isEnabled, isRemoving: record.isRemoving,
-                capabilities: runtime?.capabilities ?? .init()
+                capabilities: runtime?.capabilities ?? .init(), revision: record.currentRevision
             ))
         }
         return try ServiceCodec.value(accounts)
@@ -228,7 +232,7 @@ public actor ChatService: ServiceEventEndpoint {
             selfID: record.selfID,
             label: record.label,
             connection: .idle,
-            isEnabled: enabled
+            isEnabled: enabled, revision: record.currentRevision
         )
     }
 

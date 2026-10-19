@@ -147,7 +147,10 @@ struct OwnershipTests {
             accounts: [harness.first.id]
         )
         let remove = try ServiceRequest(
-            header: ServiceRequestHeader(requestID: ServiceRequestID("remove"), accountID: harness.first.id),
+            header: ServiceRequestHeader(
+                requestID: ServiceRequestID("remove"), accountID: harness.first.id,
+                accountRevision: harness.first.currentRevision
+            ),
             payload: RemoveAccount()
         )
         let removal = Task { try await service.handle(ServiceCodec.encode(remove), context: context) }

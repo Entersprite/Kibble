@@ -41,11 +41,18 @@ public struct AccountClient: Sendable {
     }
 
     public func call<Payload: ServiceRequestPayload>(
-        _ payload: Payload, account: ConnectedAccountID? = nil
+        _ payload: Payload, account: ConnectedAccountID? = nil,
+        revision: ServiceAccountRevision? = nil
     ) async throws -> Payload.Response {
         let version = try await transport.negotiate(.current)
+        var revision = revision
+        if let account, revision == nil {
+            guard let summary = try await accounts().first(where: { $0.id == account })
+            else { throw ServiceFailure.accountNotFound }
+            revision = summary.revision
+        }
         let request = try ServiceRequest(header: ServiceRequestHeader(
-            requestID: ServiceRequestID(UUID().uuidString), accountID: account,
+            requestID: ServiceRequestID(UUID().uuidString), accountID: account, accountRevision: revision,
             deadline: Date().addingTimeInterval(60), version: version
         ), payload: payload)
         return try await transport.exchange(request).value(for: Payload.self)

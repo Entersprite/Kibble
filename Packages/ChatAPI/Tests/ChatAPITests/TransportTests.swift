@@ -37,6 +37,22 @@ struct TransportTests {
         #expect(!firstRows.isEmpty)
     }
 
+    @Test(arguments: [Endpoint.Mode.normal, .wrongRevision])
+    func bindingRevisionIsEchoedAndMismatchedRepliesAreRefused(_ mode: Endpoint.Mode) async throws {
+        let transport = InProcessChatTransport(endpoint: Endpoint(mode), context: context())
+        _ = try await transport.negotiate(.current)
+        let request = try ServiceRequest(header: ServiceRequestHeader(
+            requestID: ServiceRequestID("binding"), accountID: accountA,
+            accountRevision: ServiceAccountRevision("current")
+        ), payload: LoadConversations())
+        if mode == .wrongRevision {
+            await #expect(throws: ServiceFailure.invalidResponse) { try await transport.exchange(request) }
+        } else {
+            let response = try await transport.exchange(request)
+            #expect(response.accountRevision == request.header.accountRevision)
+        }
+    }
+
     @Test
     func ungrantedAccountsNeverReachTheEndpoint() async throws {
         let endpoint = Endpoint()

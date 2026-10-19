@@ -12,6 +12,7 @@ public struct ServiceFailure: Error, Codable, Hashable, Sendable {
         self.details = details
     }
 
+    public static let staleAccount = ServiceFailure(code: "staleAccount")
     public static let ownerBusy = ServiceFailure(code: "ownerBusy")
     public static let accountDisabled = ServiceFailure(code: "accountDisabled")
     public static let accountNotFound = ServiceFailure(code: "accountNotFound")

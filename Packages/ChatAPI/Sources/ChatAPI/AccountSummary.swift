@@ -3,6 +3,7 @@ import Foundation
 
 public struct AccountSummary: Codable, Hashable, Sendable {
     public let id: ConnectedAccountID
+    public let revision: ServiceAccountRevision?
     public let selfID: Member.ID
     public let label: String
     public let isRemoving: Bool
@@ -17,9 +18,11 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         connection: ConnectionState,
         isEnabled: Bool = true,
         isRemoving: Bool = false,
-        capabilities: Capabilities = .init()
+        capabilities: Capabilities = .init(),
+        revision: ServiceAccountRevision? = nil
     ) {
         self.id = id
+        self.revision = revision
         self.selfID = selfID
         self.label = label
         self.connection = connection
@@ -29,7 +32,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, selfID, label, connection, isEnabled, isRemoving, capabilities
+        case id, revision, selfID, label, connection, isEnabled, isRemoving, capabilities
     }
 
     public init(from decoder: any Decoder) throws {
@@ -41,7 +44,8 @@ public struct AccountSummary: Codable, Hashable, Sendable {
             connection: values.decode(ConnectionState.self, forKey: .connection),
             isEnabled: values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true,
             isRemoving: values.decodeIfPresent(Bool.self, forKey: .isRemoving) ?? false,
-            capabilities: values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init()
+            capabilities: values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init(),
+            revision: values.decodeIfPresent(ServiceAccountRevision.self, forKey: .revision)
         )
     }
 }

@@ -101,8 +101,13 @@ struct ServiceHarness {
         _ payload: Payload,
         account: ConnectedAccountID? = nil
     ) async throws -> Payload.Response {
+        let revision = account.flatMap { id in [first, second].first { $0.id == id }?.currentRevision }
         let request = try ServiceRequest(
-            header: ServiceRequestHeader(requestID: ServiceRequestID(UUID().uuidString), accountID: account),
+            header: ServiceRequestHeader(
+                requestID: ServiceRequestID(UUID().uuidString),
+                accountID: account,
+                accountRevision: revision
+            ),
             payload: payload
         )
         return try await transport.exchange(request).value(for: Payload.self)

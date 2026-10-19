@@ -50,22 +50,25 @@ public struct ServiceResponse: Codable, Hashable, Sendable {
     public let version: ServiceAPIVersion
     public let requestID: ServiceRequestID
     public let accountID: ConnectedAccountID?
+    public let accountRevision: ServiceAccountRevision?
     public let result: ServiceResult
 
     public init(
         requestID: ServiceRequestID, accountID: ConnectedAccountID?, result: ServiceResult,
+        accountRevision: ServiceAccountRevision? = nil,
         version: ServiceAPIVersion = .current
     ) {
         self.version = version
         self.requestID = requestID
         self.accountID = accountID
+        self.accountRevision = accountRevision
         self.result = result
     }
 
     public init(replyingTo request: ServiceRequest, result: ServiceResult) {
         self.init(
             requestID: request.header.requestID, accountID: request.header.accountID,
-            result: result, version: request.header.version
+            result: result, accountRevision: request.header.accountRevision, version: request.header.version
         )
     }
 

@@ -11,17 +11,20 @@ public struct ServiceRequestHeader: Codable, Hashable, Sendable {
     public let version: ServiceAPIVersion
     public let requestID: ServiceRequestID
     public let accountID: ConnectedAccountID?
+    public let accountRevision: ServiceAccountRevision?
     public let deadline: Date?
 
     public init(
         requestID: ServiceRequestID,
         accountID: ConnectedAccountID? = nil,
+        accountRevision: ServiceAccountRevision? = nil,
         deadline: Date? = nil,
         version: ServiceAPIVersion = .current
     ) {
         self.version = version
         self.requestID = requestID
         self.accountID = accountID
+        self.accountRevision = accountRevision
         self.deadline = deadline
     }
 }
@@ -61,7 +64,7 @@ public struct ServiceRequest: Codable, Hashable, Sendable {
         if type.requiresAccount, header.accountID == nil {
             throw ServiceFailure.accountRequired
         }
-        if !type.requiresAccount, header.accountID != nil {
+        if !type.requiresAccount, header.accountID != nil || header.accountRevision != nil {
             throw ServiceFailure.notAuthorized
         }
     }

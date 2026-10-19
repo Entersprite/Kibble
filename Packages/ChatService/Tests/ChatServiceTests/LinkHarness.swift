@@ -112,8 +112,14 @@ struct LinkHarness {
 
     func call<P: ServiceRequestPayload>(_ payload: P, account: ConnectedAccountID? = nil) async throws -> P
         .Response {
+        let revision = try account
+            .flatMap { id in try registry.accounts().first { $0.id == id }?.currentRevision }
         let request = try ServiceRequest(
-            header: ServiceRequestHeader(requestID: ServiceRequestID(UUID().uuidString), accountID: account),
+            header: ServiceRequestHeader(
+                requestID: ServiceRequestID(UUID().uuidString),
+                accountID: account,
+                accountRevision: revision
+            ),
             payload: payload
         )
         return try await transport.exchange(request).value(for: P.self)

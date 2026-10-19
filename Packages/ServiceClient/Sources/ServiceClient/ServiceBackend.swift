@@ -8,6 +8,7 @@ public actor ServiceBackend: CheckpointedChatBackend {
     public nonisolated let events: AsyncStream<ChatEvent>
     let transport: any ServiceEventTransport
     let accountID: ConnectedAccountID
+    let accountRevision: ServiceAccountRevision?
     private let eventSink: AsyncStream<ChatEvent>.Continuation
     private var deliverySink: AsyncStream<ChatDelivery>.Continuation?
     private var checkpointed = false
@@ -17,6 +18,7 @@ public actor ServiceBackend: CheckpointedChatBackend {
 
     public init(account: AccountSummary, transport: any ServiceEventTransport) {
         accountID = account.id
+        accountRevision = account.revision
         self.transport = transport
         var capabilities = account.capabilities
         // Binary operations become available only with the separate transfer port.
@@ -45,6 +47,7 @@ public actor ServiceBackend: CheckpointedChatBackend {
     }
 
     public func connect() async throws {
+        guard accountRevision != nil else { throw ServiceFailure.invalidResponse }
         guard consumer == nil else { return }
         _ = try await transport.negotiate(.current)
         guard consumer == nil else { return }
@@ -61,8 +64,13 @@ public actor ServiceBackend: CheckpointedChatBackend {
     }
 
     public func call<Payload: ServiceRequestPayload>(_ payload: Payload) async throws -> Payload.Response {
+        guard let accountRevision else { throw ServiceFailure.invalidResponse }
         do {
-            return try await AccountClient(transport: transport).call(payload, account: accountID)
+            return try await AccountClient(transport: transport).call(
+                payload,
+                account: accountID,
+                revision: accountRevision
+            )
         } catch let failure as ServiceFailure {
             if failure.code == "providerFailure", let details = failure.details {
                 throw try ServiceCodec.decode(ChatError.self, from: details)
@@ -76,7 +84,8 @@ public actor ServiceBackend: CheckpointedChatBackend {
         while !Task.isCancelled {
             do {
                 let request = try ServiceRequest(header: ServiceRequestHeader(
-                    requestID: ServiceRequestID(UUID().uuidString), accountID: accountID
+                    requestID: ServiceRequestID(UUID().uuidString), accountID: accountID,
+                    accountRevision: accountRevision
                 ), payload: ReadEvents(cursor: cursor, limit: 256))
                 let stream = try await transport.events(request)
                 for try await page in stream {
@@ -88,6 +97,12 @@ public actor ServiceBackend: CheckpointedChatBackend {
                 throw ServiceFailure.invalidResponse
             } catch {
                 guard !Task.isCancelled else { return }
+                if error as? ServiceFailure == .staleAccount {
+                    emitTransient(
+                        .backendError(.unknown("The account sign-in has changed. Reconnect this client."))
+                    )
+                    return
+                }
                 failures = min(6, failures + 1)
                 emitTransient(.backendError(.transport("The account connection was interrupted. Retrying…")))
                 do {

@@ -71,6 +71,7 @@ public actor InProcessChatTransport: ServiceEventTransport {
         }
         guard response.requestID == request.header.requestID,
               response.accountID == request.header.accountID,
+              response.accountRevision == request.header.accountRevision,
               response.version == version
         else { throw ServiceFailure.invalidResponse }
         return response
