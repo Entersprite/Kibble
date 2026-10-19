@@ -126,11 +126,15 @@ struct KibbleMacApp: App {
         }
 
         MenuBarExtra {
-            MenuBarContent(environment: environment)
+            MenuBarContent(
+                environment: environment,
+                devicePause: appDelegate.accountFixture?.deviceNotificationPause
+            )
         } label: {
             MenuBarLabel(
                 environment: environment,
-                aggregateBadgeCount: appDelegate.accountFixture?.workspace?.badgeCount
+                aggregateBadgeCount: appDelegate.accountFixture?.workspace?.badgeCount,
+                accountWindowRequests: appDelegate.accountFixture?.workspace?.windowRequests ?? 0
             )
         }
         .menuBarExtraStyle(.menu)

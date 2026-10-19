@@ -25,6 +25,11 @@ struct AccountFixtureHostTests {
         try await wait { firstEnvironment.isPolicyReady }
         #expect(secondEnvironment.settings.settings.resolvedGlobal.readReceipts)
         #expect(secondEnvironment.settings.settings.resolvedGlobal.delivery == .bannerAndSound)
+        try await wait {
+            guard let revision = workspace.accounts.first(where: { $0.id == first.id })?.policyRevision
+            else { return false }
+            return revision != "0"
+        }
         let revision = try #require(workspace.accounts.first { $0.id == first.id }?.policyRevision)
         #expect(revision != "0")
         await host.setEnabled(false, account: first.id.rawValue)

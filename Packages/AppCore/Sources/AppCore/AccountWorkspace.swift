@@ -11,6 +11,7 @@ public final class AccountWorkspace {
     public internal(set) var accounts: [AccountSummary] = []
     public internal(set) var pendingLinks: [AccountLinkSummary] = []
     public private(set) var selectedID: ConnectedAccountID?
+    public private(set) var windowRequests = 0
     public internal(set) var isLoading = true
     public internal(set) var error: String?
     public internal(set) var accountErrors: [ConnectedAccountID: String] = [:]
@@ -98,6 +99,12 @@ public final class AccountWorkspace {
         selectedID = id
         selectionChanged(id)
         applyViewing()
+    }
+
+    public func showAccount(_ id: ConnectedAccountID) {
+        guard !stopped, accounts.contains(where: { $0.id == id }) else { return }
+        select(id)
+        windowRequests += 1
     }
 
     public func setViewing(active: Bool, windowOpen: Bool, minimized: Bool) {
@@ -210,6 +217,7 @@ public final class AccountWorkspace {
     func receive(_ state: AccountStateSnapshot) {
         let previous = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
         accounts = state.accounts
+        host.updateAccountState(state.accounts)
         pendingLinks = state.pendingLinks
         isLoading = false
         error = nil

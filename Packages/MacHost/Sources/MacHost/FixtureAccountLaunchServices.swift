@@ -16,6 +16,7 @@ final class FixtureAccountLaunchServices: LaunchServices {
     private let directory: URL
     private let downloads: any DownloadPlatform
     private let transport: any ServiceEventTransport
+    private weak var backend: ServiceBackend?
 
     init(
         account: AccountSummary,
@@ -58,9 +59,18 @@ final class FixtureAccountLaunchServices: LaunchServices {
 
     func makeSession() throws -> SessionSelection {
         let now = FixtureWorld.acme.startedAt
+        let backend = ServiceBackend(account: account, transport: transport)
+        self.backend = backend
         return SessionSelection(
-            backend: ServiceBackend(account: account, transport: transport), me: account.selfID, now: { now }
+            backend: backend, me: account.selfID, now: { now }
         )
+    }
+
+    func synchronizeReplica() async throws {
+        guard let backend else { throw ServiceFailure.accountDisabled }
+        // Use the normal projected query/ACK barrier, including after a warm
+        // launch. A simulated live arrival must follow initial replay recovery.
+        _ = try await backend.loadConversations()
     }
 
     func runLaunchReport() -> String {

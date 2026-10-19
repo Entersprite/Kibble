@@ -96,6 +96,7 @@ public final class AppEnvironment {
     /// Notification rules for whichever account is identified - see
     /// `NotificationSettingsModel` and `AppEnvironment+Settings.swift`.
     public let settings: NotificationSettingsModel
+    public let deviceNotificationPause: DeviceNotificationPause?
     /// Follows the running model's identity into `settings`.
     var identityTask: Task<Void, Never>?
     /// The running engine's receipts gate, held for tests to read.
@@ -124,12 +125,13 @@ public final class AppEnvironment {
         settingsStore: any NotificationSettingsStore = InMemoryNotificationSettingsStore(),
         preferences: UserDefaults = .standard,
         policyReplica: PolicyReplicaController? = nil,
-        preferenceNamespace: String = ""
+        preferenceNamespace: String = "", deviceNotificationPause: DeviceNotificationPause? = nil
     ) {
         self.services = services
         self.preferences = preferences
         self.policyReplica = policyReplica
         self.preferenceNamespace = preferenceNamespace
+        self.deviceNotificationPause = deviceNotificationPause
         // Only a real account may take the legacy ghost-mode key; the fixture
         // identifies a demo account of its own.
         settings = NotificationSettingsModel(
@@ -139,7 +141,8 @@ public final class AppEnvironment {
         notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
         notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }
         notifications?.isPaused = { [weak self, settings] in
-            settings.isPaused || self?.isPolicyReady != true
+            settings.isPaused || self?.deviceNotificationPause?.isActive == true || self?
+                .isPolicyReady != true
         }
         notifications?.onMute = { [settings] in settings.mute($0) }
         notifications?.start()

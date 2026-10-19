@@ -29,15 +29,21 @@ public enum MainWindow {
 public struct MenuBarLabel: View {
     private let environment: AppEnvironment
     private let aggregateBadgeCount: Int?
+    private let accountWindowRequests: Int
     private var badgeTotal: Int {
         aggregateBadgeCount ?? environment.badgeCount
     }
 
     @Environment(\.openWindow) private var openWindow
 
-    public init(environment: AppEnvironment, aggregateBadgeCount: Int? = nil) {
+    public init(
+        environment: AppEnvironment,
+        aggregateBadgeCount: Int? = nil,
+        accountWindowRequests: Int = 0
+    ) {
         self.environment = environment
         self.aggregateBadgeCount = aggregateBadgeCount
+        self.accountWindowRequests = accountWindowRequests
     }
 
     public var body: some View {
@@ -55,6 +61,11 @@ public struct MenuBarLabel: View {
         .onChange(of: environment.windowRequests) {
             MainWindow.show(using: openWindow)
         }
+        .onChange(of: accountWindowRequests, initial: true) { _, count in
+            if count > 0 {
+                MainWindow.show(using: openWindow)
+            }
+        }
         .onChange(of: badgeTotal, initial: true) { _, count in
             DockBadge.show(count)
         }
@@ -65,21 +76,35 @@ public struct MenuBarLabel: View {
 /// quit now that closing the window no longer does.
 public struct MenuBarContent: View {
     private let environment: AppEnvironment
+    private let devicePause: DeviceNotificationPause?
     @Environment(\.openWindow) private var openWindow
 
-    public init(environment: AppEnvironment) {
+    public init(environment: AppEnvironment, devicePause: DeviceNotificationPause? = nil) {
         self.environment = environment
+        self.devicePause = devicePause
     }
 
     public var body: some View {
-        if environment.canEditNotificationRules {
-            if let status = environment.pauseStatus {
+        if environment.canEditNotificationRules || devicePause != nil {
+            if let status = devicePause?.status ?? environment.pauseStatus {
                 Text(status)
-                Button("Resume Notifications") { environment.resumeNotifications() }
+                Button("Resume Notifications") {
+                    if let devicePause {
+                        devicePause.resume()
+                    } else {
+                        environment.resumeNotifications()
+                    }
+                }
             } else {
                 Menu("Pause Notifications") {
                     ForEach(PauseDuration.allCases, id: \.self) { duration in
-                        Button(Display.title(of: duration)) { environment.pauseNotifications(duration) }
+                        Button(Display.title(of: duration)) {
+                            if let devicePause {
+                                devicePause.pause(for: duration)
+                            } else {
+                                environment.pauseNotifications(duration)
+                            }
+                        }
                     }
                 }
             }

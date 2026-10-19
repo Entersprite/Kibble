@@ -26,9 +26,14 @@ public final class SystemAccountFixtureHost {
     private var starting = false
     private var generation = UUID()
     private let requestedDirectory: URL?
+    private let notificationCenter: (any AccountNotificationDelivering)?
+    private var notificationRouter: AccountNotificationRouter?
+    private var clients: FixtureAccountSessionHost?
+    public private(set) var deviceNotificationPause: DeviceNotificationPause?
 
-    public init(directory: URL? = nil) {
+    public init(directory: URL? = nil, notifications: (any AccountNotificationDelivering)? = nil) {
         requestedDirectory = directory
+        notificationCenter = notifications
     }
 
     var activeRuntimeCount: Int {
@@ -72,7 +77,7 @@ public final class SystemAccountFixtureHost {
                 await service.shutdown()
                 return
             }
-            let workspace = makeWorkspace(service: service, directory: directory)
+            let workspace = try await makeWorkspace(service: service, directory: directory)
             workspace.setViewing(active: active, windowOpen: open, minimized: minimized)
             workspace.setDeviceActive(deviceActive)
             self.workspace = workspace
@@ -88,12 +93,21 @@ public final class SystemAccountFixtureHost {
         }
     }
 
-    private func makeWorkspace(service: ChatService, directory: URL) -> AccountWorkspace {
+    private func makeWorkspace(service: ChatService, directory: URL) async throws -> AccountWorkspace {
         let context = ServiceSessionContext(
             principalID: ServicePrincipalID("fixture-owner"), deviceID: ServiceDeviceID("fixture-device"),
             sessionID: ClientSessionID(UUID().uuidString), accounts: [], hasAllAccountAccess: true
         )
         let client = AccountClient(transport: InProcessChatTransport(endpoint: service, context: context))
+        let info = try await client.serviceInfo()
+        let router = notificationCenter
+            .map { AccountNotificationRouter(service: info.instanceID, center: $0) }
+        notificationRouter = router
+        router?.start()
+        let devicePause = DeviceNotificationPause(store: FileDeviceNotificationPauseStore(
+            file: directory.appendingPathComponent("device-pause.json")
+        ))
+        deviceNotificationPause = devicePause
         let host = FixtureAccountSessionHost(
             directory: directory.appendingPathComponent("clients"), client: client,
             transport: { account in
@@ -101,15 +115,18 @@ public final class SystemAccountFixtureHost {
                     principalID: context.principalID, deviceID: context.deviceID,
                     sessionID: ClientSessionID(UUID().uuidString), accounts: [account.id]
                 ))
-            }
+            }, notifications: router, devicePause: devicePause
         )
+        clients = host
         let selection = directory.appendingPathComponent("selection.json")
         let selected = (try? Data(contentsOf: selection)).flatMap {
             try? ServiceCodec.decode(ConnectedAccountID.self, from: $0)
         }
-        return AccountWorkspace(client: client, host: host, selected: selected) { id in
+        let workspace = AccountWorkspace(client: client, host: host, selected: selected) { id in
             try? ServiceCodec.encode(id).write(to: selection, options: .atomic)
         }
+        router?.onOpenAccount = { [weak workspace] in workspace?.showAccount($0) }
+        return workspace
     }
 
     public func addAccount() async {
@@ -145,7 +162,10 @@ public final class SystemAccountFixtureHost {
     }
 
     public func simulateMessage(_ id: String, text: String = "A message for this account.") async {
-        await providers.incoming(ConnectedAccountID(id), text: text)
+        do {
+            try await clients?.synchronizeReplica(ConnectedAccountID(id))
+            await providers.incoming(ConnectedAccountID(id), text: text)
+        } catch { self.error = "The demo account is still catching up. Try again." }
     }
 
     public func setViewing(active: Bool? = nil, open: Bool? = nil, minimized: Bool? = nil) {
@@ -170,6 +190,9 @@ public final class SystemAccountFixtureHost {
         generation = UUID()
         await workspace?.stop()
         workspace = nil
+        clients = nil
+        await notificationRouter?.stop()
+        notificationRouter = nil
         await service?.shutdown()
         service = nil
         registry = nil

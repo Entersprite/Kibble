@@ -32,8 +32,10 @@ extension AppEnvironment {
     }
 
     func applyPolicySnapshot() {
-        guard let policyReplica, let policyStatus else { return }
-        settings.applyReplica(policyStatus.settings, for: policyReplica.cache.binding.identity)
+        guard let policyReplica else { return }
+        let snapshot = policyReplica.cache.snapshot
+        policyStatus = snapshot
+        settings.applyReplica(snapshot.settings, for: policyReplica.cache.binding.identity)
     }
 }
 
@@ -41,8 +43,9 @@ public extension AppEnvironment {
     var isPolicyReady: Bool {
         // Read the observed status for presentation invalidation, then check
         // the synchronous fence for an edit made before its delivery arrives.
-        _ = policyStatus?.isReady
-        return policyReplica?.cache.isReady ?? true
+        guard let policyReplica else { return true }
+        return policyStatus?.isReady == true && settings.account == policyReplica.cache.binding.identity &&
+            policyReplica.cache.isReady
     }
 
     func policyRevisionChanged(_ revision: String?) {

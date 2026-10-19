@@ -67,7 +67,7 @@ public extension AppEnvironment {
             sections: sections,
             sectionInherited: inherited,
             sectionResolved: resolved,
-            lastError: settings.lastError ?? policyStatus?.error,
+            lastError: settings.lastError ?? policyStatus?.error ?? deviceNotificationPause?.lastError,
             pauseStatus: pauseStatus,
             conversations: current.customizedConversations.map(conversationRuleState(for:))
         )

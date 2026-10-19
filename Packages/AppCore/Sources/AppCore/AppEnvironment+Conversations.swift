@@ -8,7 +8,7 @@ public extension AppEnvironment {
     /// identified account. Rules belong to an account (spec §3.1).
     var canEditNotificationRules: Bool {
         guard case .running = phase else { return false }
-        return settings.account != nil
+        return settings.account != nil && (policyStatus?.canEdit ?? (policyReplica == nil))
     }
 
     /// One conversation's editor state - the sheet's and the pane's.
@@ -37,15 +37,25 @@ public extension AppEnvironment {
     /// no account too, with no guard of its own: the model then holds default
     /// settings, and they are not paused.
     var pauseStatus: String? {
-        Display.pauseStatus(settings.currentPause, now: settings.currentDate)
+        deviceNotificationPause?.status ?? Display.pauseStatus(
+            settings.currentPause,
+            now: settings.currentDate
+        )
     }
 
     func pauseNotifications(_ duration: PauseDuration) {
-        settings.pause(for: duration)
+        if let deviceNotificationPause {
+            deviceNotificationPause.pause(for: duration)
+        } else {
+            settings.pause(for: duration)
+        }
     }
 
     func resumeNotifications() {
-        settings.resume()
+        deviceNotificationPause?.resume()
+        if deviceNotificationPause == nil || settings.isPaused {
+            settings.resume()
+        }
     }
 
     internal var runningModel: ChatSessionModel? {
