@@ -33,6 +33,7 @@ extension ChatSessionModel {
         }
         watchClientTransport()
         watchMessageDeliveries()
+        watchReplicaHistory()
     }
 
     func watchClientTransport() {

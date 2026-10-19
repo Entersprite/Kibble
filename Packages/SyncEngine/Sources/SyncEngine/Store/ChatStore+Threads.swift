@@ -140,7 +140,7 @@ package extension ChatStore {
     static func fetchThreadMessages(
         _ thread: MessageThread.ID, _ conversation: Conversation.ID, _ db: Database
     ) throws -> [Message] {
-        try MessageRow
+        try MessageRow.currentHistory
             .filter(Column("conversationID") == conversation.rawValue)
             .filter(Column("threadID") == thread.rawValue)
             .order(Column("createdAt").asc, Column("id").asc)
@@ -160,7 +160,7 @@ package extension ChatStore {
         let roots = try MessageRow.fetchAll(
             db,
             sql: """
-            SELECT message.* FROM message
+            SELECT message.* FROM currentMessage AS message
             JOIN thread ON thread.conversationID = message.conversationID AND thread.id = message.threadID
             WHERE thread.isFollowed = 1 AND message.isReply = 0
             ORDER BY message.createdAt ASC, message.id ASC

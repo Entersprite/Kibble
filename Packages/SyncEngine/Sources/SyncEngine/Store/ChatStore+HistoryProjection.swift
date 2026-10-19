@@ -7,7 +7,7 @@ public extension ChatStore {
     /// as roots, without granting completeness to this time window.
     func recentHistory(in conversation: Conversation.ID, limit: Int) throws -> [Message] {
         try database.read { db in
-            try MessageRow.filter(Column("conversationID") == conversation.rawValue)
+            try MessageRow.currentHistory.filter(Column("conversationID") == conversation.rawValue)
                 .order(Column("createdAt").desc, Column("id").desc)
                 .limit(min(200, max(1, limit))).fetchAll(db).reversed().map { try $0.message }
         }

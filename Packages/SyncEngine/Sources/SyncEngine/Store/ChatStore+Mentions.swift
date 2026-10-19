@@ -88,7 +88,7 @@ package extension ChatStore {
             uniqueKeysWithValues: fetchStoredConversations(db).map { ($0.id, $0) }
         )
         let threadPositions = try fetchThreadReadPositions(db)
-        let candidates = try MessageRow
+        let candidates = try MessageRow.currentHistory
             .filter(Column("mentions") != "[]" && Column("isDeleted") == false)
             .order(Column("createdAt").desc, Column("id").desc)
             .fetchCursor(db)
@@ -140,7 +140,7 @@ package extension ChatStore {
         let candidates = try MessageRow.fetchCursor(
             db,
             sql: """
-            SELECT message.* FROM message
+            SELECT message.* FROM currentMessage AS message
             JOIN conversation ON conversation.id = message.conversationID
             LEFT JOIN thread ON message.isReply = 1
                 AND thread.conversationID = message.conversationID AND thread.id = message.threadID

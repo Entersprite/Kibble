@@ -64,7 +64,7 @@ package extension ChatStore {
         excluding excluded: Set<Message.ID>, limit: Int = 6
     ) throws -> [Message] {
         try database.read { db in
-            let cursor = try MessageRow
+            let cursor = try MessageRow.currentHistory
                 .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
                 .filter(Column("createdAt") >= StoredDate.value(oldest) && Column("createdAt") <= StoredDate
                     .value(newest))
@@ -76,7 +76,8 @@ package extension ChatStore {
                     ids.append(id)
                 }
             }
-            return try MessageRow.filter(keys: ids).order(Column("createdAt").asc, Column("id").asc)
+            return try MessageRow.currentHistory.filter(ids.contains(Column("id")))
+                .order(Column("createdAt").asc, Column("id").asc)
                 .fetchAll(db).map { try decodedTranscriptCache.decode($0) }
         }
     }
@@ -85,7 +86,7 @@ package extension ChatStore {
         in conversation: Conversation.ID, request: TranscriptWindowRequest,
         cache: DecodedTranscriptCache, db: Database
     ) throws -> TranscriptWindow {
-        let base = MessageRow
+        let base = MessageRow.currentHistory
             .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
         let rows = try fetchTranscriptRows(base: base, request: request, db: db)
         let messages = try rows.map { try cache.decode($0) }

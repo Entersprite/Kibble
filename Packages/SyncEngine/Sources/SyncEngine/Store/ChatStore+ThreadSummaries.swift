@@ -164,7 +164,7 @@ private extension ChatStore {
                 MAX(CASE WHEN isDeleted = 0 THEN createdAt END) AS newest,
                 \(ruleInputs),
                 MAX(isReply) AS hasReply
-            FROM message
+            FROM currentMessage AS message
             WHERE \(condition.sql)
             GROUP BY conversationID, threadID
             """,
@@ -207,7 +207,7 @@ private extension ChatStore {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT conversationID, threadID, sender, MAX(createdAt) AS latest FROM message
+            SELECT conversationID, threadID, sender, MAX(createdAt) AS latest FROM currentMessage AS message
             WHERE \(condition.sql) AND isReply = 1 AND isDeleted = 0
             GROUP BY conversationID, threadID, sender
             ORDER BY conversationID, threadID, latest DESC, sender

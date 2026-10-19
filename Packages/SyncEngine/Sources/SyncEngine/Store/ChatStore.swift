@@ -97,7 +97,8 @@ public extension ChatStore {
             try performThreadWrite(write, in: db)
         case .upsertMessage, .upsertMessageKeepingReactions, .insertMessageIfAbsent, .markMessageDeleted,
              .removeMessage, .reconcileThread, .setReactions,
-             .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries:
+             .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries,
+             .invalidateReplicaHistory:
             try performMessageWrite(write, in: db)
         case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
              .setAvailability, .clearEphemeralState:
@@ -184,6 +185,8 @@ public extension ChatStore {
 
     private static func performMessageWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case .invalidateReplicaHistory:
+            try invalidateReplicaHistory(in: db)
         case .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries:
             try performDeliveryWrite(write, in: db)
         case let .upsertMessageKeepingReactions(message):
@@ -202,37 +205,8 @@ public extension ChatStore {
             try upsertUnclearedMessage(message, in: db)
         case let .insertMessageIfAbsent(message):
             try insertUnclearedMessageIfAbsent(message, in: db)
-        case let .markMessageDeleted(id, _):
-            // A tombstone, not a removal: the message keeps its place in the
-            // ordering because the protocol keeps sending it and a hole would
-            // break paging. A message the store never held is simply not here -
-            // it holds pages, not all of history - so this is a no-op then.
-            // Its mentions go with its text: a tombstone mentions nobody. And
-            // its reactions: a tombstone offers no toggles. Its links and cards
-            // go too: a tombstone points nowhere (links spec §5).
-            try db.execute(
-                sql: """
-                UPDATE message SET isDeleted = 1, text = '', mentions = '[]', reactions = '[]',
-                                   links = '[]', cards = '[]'
-                WHERE id = ? AND (isDeleted <> 1 OR text <> '' OR mentions <> '[]'
-                    OR reactions <> '[]' OR links <> '[]' OR cards <> '[]')
-                """,
-                arguments: [id.rawValue]
-            )
-        case let .removeMessage(id):
-            // Gone, not tombstoned: nothing was ever posted, so there is no
-            // place in the ordering to keep.
-            //
-            // By id, never by `localID`. The server echoes the client's
-            // `localID` back onto the delivered message, so a `localID` delete
-            // would take the real row whenever the echo beat the failure -
-            // which is exactly what a lost response to a POST that landed
-            // looks like. A row that is already gone is a no-op, which is what
-            // makes this safe in that case rather than merely lucky.
-            try db.execute(
-                sql: "DELETE FROM message WHERE id = ?",
-                arguments: [id.rawValue]
-            )
+        case .markMessageDeleted, .removeMessage:
+            try performMessageRemoval(write, in: db)
         case let .reconcileThread(thread, conversation, keeping):
             try reconcileThread(thread, in: conversation, keeping: keeping, db: db)
         case let .setReactions(messageID, reactions):

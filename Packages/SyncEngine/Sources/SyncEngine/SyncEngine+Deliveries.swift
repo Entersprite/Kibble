@@ -9,6 +9,9 @@ extension SyncEngine {
         }
         do {
             var writes: [StoreWrite] = []
+            if delivery.isSnapshot {
+                writes.append(.invalidateReplicaHistory)
+            }
             var effects: [SyncEffect] = []
             for event in delivery.events {
                 if case let .conversationRemoved(id, _) = event {

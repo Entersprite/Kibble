@@ -53,7 +53,7 @@ public extension ChatStore {
         try database.read { db in
             let senders = try String.fetchAll(
                 db,
-                sql: "SELECT DISTINCT sender FROM message WHERE conversationID = ?",
+                sql: "SELECT DISTINCT sender FROM currentMessage AS message WHERE conversationID = ?",
                 arguments: [conversation.rawValue]
             )
             let me = try Self.fetchMe(db)
@@ -109,7 +109,7 @@ public extension ChatStore {
             try Bool.fetchOne(
                 db,
                 sql: """
-                SELECT EXISTS (SELECT 1 FROM message
+                SELECT EXISTS (SELECT 1 FROM currentMessage AS message
                                WHERE conversationID = ? AND isReply = 0 AND createdAt < ?)
                 """,
                 arguments: [conversation.rawValue, StoredDate.value(date)]
@@ -219,7 +219,7 @@ package extension ChatStore {
     /// `isReply = 0` and stays here until a history page rewrites it (§7).
     /// The Mentions reads do not come through here and keep every reply.
     static func fetchMessages(_ conversation: Conversation.ID, _ db: Database) throws -> [Message] {
-        try MessageRow
+        try MessageRow.currentHistory
             .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
             .order(Column("createdAt").asc, Column("id").asc)
             .fetchAll(db)
@@ -227,7 +227,7 @@ package extension ChatStore {
     }
 
     static func fetchMessage(_ id: Message.ID, _ db: Database) throws -> Message? {
-        try MessageRow
+        try MessageRow.currentHistory
             .filter(Column("id") == id.rawValue)
             .fetchOne(db)
             .map { try $0.message }

@@ -23,7 +23,7 @@ package extension ChatStore {
         let recent = try String.fetchAll(
             db,
             sql: """
-            SELECT sender FROM message WHERE conversationID = ?
+            SELECT sender FROM currentMessage AS message WHERE conversationID = ?
             GROUP BY sender ORDER BY MAX(createdAt) DESC
             """,
             arguments: [conversation.rawValue]

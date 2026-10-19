@@ -68,6 +68,7 @@ enum Schema {
                 table.column("state", .text).notNull()
             }
         }
+        migrator.registerMigration("v21", migrate: addReplicaHistory)
         return migrator
     }
 

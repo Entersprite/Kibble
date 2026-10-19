@@ -54,7 +54,8 @@ private struct MeetingTranscriptQuery {
         let placeholders = occurrences.map { _ in "(?, ?)" }.joined(separator: ",")
         return """
         WITH occurrences(id, position) AS (VALUES \(placeholders))
-        SELECT message.* FROM message JOIN occurrences ON occurrences.id = message.conversationID
+        SELECT message.* FROM currentMessage AS message
+        JOIN occurrences ON occurrences.id = message.conversationID
         WHERE message.isReply = 0
         """
     }
@@ -117,7 +118,7 @@ private struct MeetingTranscriptQuery {
                 condition: ("\(low.0) AND \(high.0)", low.1 + high.1), ascending: false, limit: limit, db: db
             ).reversed()
         case let .around(id, limit):
-            guard let row = try MessageRow.fetchOne(db, key: id.rawValue),
+            guard let row = try MessageRow.currentHistory.filter(Column("id") == id.rawValue).fetchOne(db),
                   occurrences.contains(Conversation.ID(row.conversationID)), !row.isReply else {
                 return try rows(request: .latest(limit), db: db)
             }

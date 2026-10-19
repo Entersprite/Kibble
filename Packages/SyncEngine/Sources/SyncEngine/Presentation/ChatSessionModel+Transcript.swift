@@ -186,7 +186,7 @@ extension ChatSessionModel {
         }
     }
 
-    private func refreshLatestTranscript(in conversation: Conversation.ID) {
+    func refreshLatestTranscript(in conversation: Conversation.ID) {
         historyTask?.cancel()
         let generation = transcriptWork.generation
         transcriptWork.pageTask = Task { @MainActor [weak self, engine] in

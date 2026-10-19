@@ -8,6 +8,8 @@ import Foundation
 /// the same one. A `StoreWrite` says *what the store must become*, never how a
 /// particular schema gets there.
 public enum StoreWrite: Sendable, Equatable {
+    /// Retains cached rows but requires fresh history before exposing them.
+    case invalidateReplicaHistory
     case beginMessageDelivery(Message.ID)
     case setMessageDelivery(Message.ID, MessageDeliveryStatus)
     case interruptMessageDeliveries
