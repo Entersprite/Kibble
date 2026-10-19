@@ -27,6 +27,7 @@ extension AccountRuntime {
             )
         case CancelTransfer.operation:
             let payload = try request.decodePayload(CancelTransfer.self)
+            try await cancelDownload(payload.transferID, owner: TransferOwner(context))
             try await cancelUpload(payload.transferID, owner: TransferOwner(context))
             return try ServiceCodec.value(ServiceUnit())
         default: throw ServiceFailure.unsupportedOperation
@@ -50,8 +51,8 @@ extension AccountRuntime {
             guard !existing.retired else { throw ServiceFailure.transferExpired }
             return existing.descriptor
         }
-        let bytes = uploads.values.reduce(0) { $0 + $1.request.metadata.byteSize }
-        guard uploads.count < transferLimits.maximumAccountTransfers,
+        let bytes = reservedTransferBytes
+        guard uploads.count + downloads.count < transferLimits.maximumAccountTransfers,
               payload.metadata.byteSize <= transferLimits.maximumAccountBytes - bytes else {
             throw ServiceFailure.overloaded
         }
@@ -165,19 +166,20 @@ extension AccountRuntime {
         uploads[id]?.retired = true
         try transferStorage?.remove(id)
         uploads[id] = nil
-        if uploads.isEmpty {
+        if uploads.isEmpty, downloads.isEmpty {
             uploadExpiry?.cancel(); uploadExpiry = nil
         }
     }
 
     func expireUploads() async throws {
+        try await expireDownloads()
         let expired = uploads.filter { $0.value.retired || $0.value.descriptor.expiresAt <= transferNow() }
         for (id, slot) in expired {
             try await cancelUpload(id, owner: slot.owner)
         }
     }
 
-    private func startUploadExpiry() {
+    func startUploadExpiry() {
         guard uploadExpiry == nil else { return }
         uploadExpiry = Task { [weak self, transferLimits] in
             while !Task.isCancelled {
@@ -192,7 +194,7 @@ extension AccountRuntime {
                 } catch {
                     await reportUploadCleanupFailure()
                 }
-                if await uploads.isEmpty {
+                if await transfersAreEmpty {
                     return
                 }
             }

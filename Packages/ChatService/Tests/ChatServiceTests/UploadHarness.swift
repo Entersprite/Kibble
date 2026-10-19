@@ -7,12 +7,21 @@ import Foundation
 import InProcessChatTransport
 
 actor UploadTestBackend: ChatBackend {
-    nonisolated let capabilities = Capabilities.fixture
+    nonisolated let capabilities: Capabilities
     nonisolated let events: AsyncStream<ChatEvent>
     let inner: FakeBackend
     private(set) var uploaded: [Data] = []
     private(set) var files: [URL] = []
     private(set) var sends: [ChatCommand] = []
+    var mediaFiles: [URL] = []
+    var mediaAttachments: [Attachment] = []
+    var mediaEmoji: [CustomEmojiRef] = []
+    var holdMedia = false
+    var mediaHeld = false
+    var mediaAcknowledged = false
+    var ignoreMediaLimit = false
+    var mediaByteCount: Int?
+    var mediaWaiter: CheckedContinuation<Void, Never>?
     var isMember = true
     var hold = false
     private var waiter: CheckedContinuation<Void, Never>?
@@ -20,6 +29,9 @@ actor UploadTestBackend: ChatBackend {
     private(set) var acknowledged = false
 
     init(selfID: Member.ID) {
+        var capabilities = Capabilities.fixture
+        capabilities.canFetchCustomEmoji = true
+        self.capabilities = capabilities
         let world = FixtureWorld(
             me: selfID, members: [Member(id: selfID, kind: .human, displayName: "Demo")],
             conversations: ["conversation", "other"].map {

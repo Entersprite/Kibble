@@ -25,6 +25,7 @@ public actor ServiceBackend: ProjectedChatBackend {
     var cursor: ServiceCursor?
     var consumer: Task<Void, Never>?
     var uploadTasks: [UUID: Task<Attachment, any Error>] = [:]
+    var mediaTasks: [UUID: Task<Data, any Error>] = [:]
     private var acknowledgement: PendingAcknowledgement?
 
     public init(account: AccountSummary, transport: any ServiceEventTransport) {
@@ -33,11 +34,11 @@ public actor ServiceBackend: ProjectedChatBackend {
         self.transport = transport
         var capabilities = account.capabilities
         // Binary operations become available only with the separate transfer port.
-        capabilities.canFetchAttachments = false
-        capabilities.canDownloadFiles = false
-        capabilities.canFetchCustomEmoji = false
-        capabilities.canFetchRemoteImages = false
         if !(transport is any ServiceBinaryTransport) {
+            capabilities.canFetchAttachments = false
+            capabilities.canDownloadFiles = false
+            capabilities.canFetchCustomEmoji = false
+            capabilities.canFetchRemoteImages = false
             capabilities.canSendAttachments = false
         }
         self.capabilities = capabilities
@@ -86,6 +87,10 @@ public actor ServiceBackend: ProjectedChatBackend {
         let task = consumer
         consumer = nil
         task?.cancel()
+        let media = Array(mediaTasks.values)
+        for job in media {
+            job.cancel()
+        }
         let uploads = Array(uploadTasks.values)
         for upload in uploads {
             upload.cancel()
@@ -104,6 +109,9 @@ public actor ServiceBackend: ProjectedChatBackend {
         await task?.value
         for upload in uploads {
             _ = await upload.result
+        }
+        for job in media {
+            _ = await job.result
         }
         await renewal?.value
         await restoration?.value

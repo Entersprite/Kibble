@@ -44,6 +44,18 @@ struct AccountFixtureHostTests {
                 && studio.sceneState.stagedAttachments.isEmpty
         }
         #expect(!personal.sceneState.messages.contains { $0.text == "Studio file caption" })
+        let personalAttachment = try #require(personal.sceneState.messages.first {
+            $0.text == "Personal file caption"
+        }?.attachments.first)
+        let studioAttachment = try #require(studio.sceneState.messages.first {
+            $0.text == "Studio file caption"
+        }?.attachments.first)
+        let personalLoader = try #require(personal.actions.loadAttachment)
+        let studioLoader = try #require(studio.actions.loadAttachment)
+        #expect(try await personalLoader(personalAttachment, .preview).starts(with: Data([137, 80, 78, 71])))
+        #expect(try await studioLoader(studioAttachment, .preview).starts(with: Data([137, 80, 78, 71])))
+        #expect(personal.actions.attachmentFiles != nil)
+        #expect(studio.actions.attachmentFiles != nil)
         await host.stop()
     }
 

@@ -25,19 +25,29 @@ extension AccountRuntime {
             throw ServiceFailure.deadlineExceeded
         }
         try request.validateBinaryBody(body)
-        guard request.operation == WriteTransferChunk.operation
-        else { throw ServiceFailure.unsupportedOperation }
-        let receipt = try writeUpload(
-            request.decodePayload(WriteTransferChunk.self),
-            body: body,
-            context: context
-        )
+        let receipt: TransferChunkReceipt
+        let bytes: Data
+        switch request.operation {
+        case WriteTransferChunk.operation:
+            receipt = try writeUpload(
+                request.decodePayload(WriteTransferChunk.self),
+                body: body,
+                context: context
+            )
+            bytes = Data()
+        case ReadTransferChunk.operation:
+            (receipt, bytes) = try readDownload(
+                request.decodePayload(ReadTransferChunk.self),
+                context: context
+            )
+        default: throw ServiceFailure.unsupportedOperation
+        }
         return try ServiceBinaryFrame(
             header: ServiceCodec.encode(ServiceResponse(
                 replyingTo: request,
                 result: .success(ServiceCodec.value(receipt))
             )),
-            body: Data()
+            body: bytes
         )
     }
 }

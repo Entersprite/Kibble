@@ -56,7 +56,7 @@ public struct DirectoryTransferStorageFactory: ServiceTransferStorageFactory {
     }
 }
 
-private final class DirectoryTransferStorage: ServiceTransferStorage, Sendable {
+private final class DirectoryTransferStorage: ServiceDownloadStorage, Sendable {
     struct File: Sendable {
         let url: URL
         let maximum: Int
@@ -104,6 +104,34 @@ private final class DirectoryTransferStorage: ServiceTransferStorage, Sendable {
                 throw error
             }
             state.files[id] = File(url: url, maximum: maximumBytes, reservation: reservation)
+        }
+    }
+
+    func reserveDownload(_ id: ServiceTransferID, maximumBytes: Int) throws -> URL {
+        try state.withLock { state in
+            guard !state.closed else { throw ServiceFailure.accountDisabled }
+            guard state.files[id] == nil else { throw ServiceFailure.operationConflict }
+            let url = folder.appendingPathComponent("spool-\(UUID().uuidString)")
+            let reservation = try budget.reserve(
+                account: account,
+                owner: owner,
+                file: url,
+                bytes: maximumBytes
+            )
+            state.files[id] = File(url: url, maximum: maximumBytes, reservation: reservation)
+            return url
+        }
+    }
+
+    func completeDownload(_ id: ServiceTransferID) throws -> Int {
+        try state.withLock { state in
+            let file = try file(id, state: state)
+            let handle = try FileHandle(forReadingFrom: file.url)
+            defer { try? handle.close() }
+            let count = try handle.seekToEnd()
+            guard count <= UInt64(file.maximum) else { throw ServiceFailure.frameTooLarge }
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.url.path)
+            return Int(count)
         }
     }
 

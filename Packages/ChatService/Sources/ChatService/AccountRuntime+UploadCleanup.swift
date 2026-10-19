@@ -3,6 +3,9 @@ import Foundation
 extension AccountRuntime {
     func cancelUploadJobs() -> Task<Void, Never>? {
         uploadExpiry?.cancel()
+        for slot in downloads.values {
+            slot.job?.cancel()
+        }
         for slot in uploads.values {
             slot.job?.cancel()
         }
@@ -10,6 +13,10 @@ extension AccountRuntime {
     }
 
     func closeUploadStorage() async {
+        let jobs = downloads.values.compactMap(\.job)
+        for job in jobs {
+            await job.value
+        }
         do {
             try transferStorage?.close()
         } catch {
@@ -19,6 +26,7 @@ extension AccountRuntime {
         // The next owned open/removal retries it before admitting new files.
         transferStorage = nil
         uploads.removeAll()
+        downloads.removeAll()
         uploadExpiry = nil
     }
 }

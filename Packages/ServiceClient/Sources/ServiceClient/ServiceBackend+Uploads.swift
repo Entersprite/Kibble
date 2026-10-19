@@ -8,7 +8,7 @@ public extension ServiceBackend {
         progress: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws -> Attachment {
         guard capabilities.canSendAttachments else { throw ServiceFailure.unsupportedOperation }
-        guard uploadTasks.count < 8 else { throw ServiceFailure.overloaded }
+        guard uploadTasks.count + mediaTasks.count < 8 else { throw ServiceFailure.overloaded }
         let generation = connectionGeneration
         let id = UUID()
         let work = Task { try await uploadFile(

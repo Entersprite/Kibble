@@ -68,6 +68,7 @@ actor AccountRuntime {
     let transferLimits: ServiceTransferLimits
     let transferNow: @Sendable () -> Date
     var uploads: [ServiceTransferID: UploadSlot] = [:]
+    var downloads: [ServiceTransferID: DownloadSlot] = [:]
     var uploadExpiry: Task<Void, Never>?
     private(set) var connection: ConnectionState = .idle
     private(set) var capabilities = Capabilities()
@@ -127,10 +128,13 @@ actor AccountRuntime {
             clientInterestsChanged()
         }
         capabilities = backend.capabilities
-        capabilities.canFetchAttachments = false
-        capabilities.canDownloadFiles = false
-        capabilities.canFetchCustomEmoji = false
-        capabilities.canFetchRemoteImages = false
+        if !(backend is any BoundedMediaBackend) || !(transferStorage is any ServiceDownloadStorage) ||
+            !(storage is any ServiceMediaCatalog) {
+            capabilities.canFetchAttachments = false
+            capabilities.canDownloadFiles = false
+            capabilities.canFetchCustomEmoji = false
+            capabilities.canFetchRemoteImages = false
+        }
         if transferStorage == nil || !(storage is any ServiceUploadReferences) {
             capabilities.canSendAttachments = false
         } else {

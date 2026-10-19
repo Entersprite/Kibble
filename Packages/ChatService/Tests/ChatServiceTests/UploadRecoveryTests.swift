@@ -139,9 +139,23 @@ struct CleanupFailureFactory: ServiceTransferStorageFactory {
     }
 }
 
-struct CleanupFailureStorage: ServiceTransferStorage {
+struct CleanupFailureStorage: ServiceDownloadStorage {
     let base: any ServiceTransferStorage
     let failures: CleanupFailureSwitch
+    func reserveDownload(_ id: ServiceTransferID, maximumBytes: Int) throws -> URL {
+        guard let files = base as? any ServiceDownloadStorage
+        else { throw ServiceFailure.unsupportedOperation }
+        let url = try files.reserveDownload(id, maximumBytes: maximumBytes)
+        try failures.checkCreation()
+        return url
+    }
+
+    func completeDownload(_ id: ServiceTransferID) throws -> Int {
+        guard let files = base as? any ServiceDownloadStorage
+        else { throw ServiceFailure.unsupportedOperation }
+        return try files.completeDownload(id)
+    }
+
     func create(_ id: ServiceTransferID, maximumBytes: Int) throws {
         try base.create(id, maximumBytes: maximumBytes)
         try failures.checkCreation()

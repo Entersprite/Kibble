@@ -36,3 +36,9 @@ public struct ServiceTransferLimits: Sendable {
         self.lifetime = lifetime.isFinite ? max(1, min(3600, lifetime)) : 900
     }
 }
+
+/// The provider opens a reserved nonexisting destination exclusively.
+public protocol ServiceDownloadStorage: ServiceTransferStorage {
+    func reserveDownload(_ id: ServiceTransferID, maximumBytes: Int) throws -> URL
+    func completeDownload(_ id: ServiceTransferID) throws -> Int
+}
