@@ -33,6 +33,7 @@ public actor MeetDMCallTrial {
     let store: KeychainCredentialStore
     let transport: any HTTPTransport
     let endpoints: ChatEndpoints
+    var credentialCapture: CredentialSnapshot?
     let expectedSession: StoredSessionSummary?
     var sharedCredentials: SessionCredentials?
     var targets: [UUID: Target] = [:]

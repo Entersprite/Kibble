@@ -8,6 +8,7 @@ import URLSessionTransport
 /// what lets the app render a "signed in, expires in 9 days" line without ever
 /// naming a type from `GChatBridgeCore`.
 public struct StoredSessionSummary: Sendable, Hashable, CustomStringConvertible {
+    let custodyGeneration: String?
     public let cookieCount: Int
     public let capturedAt: Date
     public let expiresAt: Date?
@@ -37,8 +38,10 @@ public extension KeychainCredentialStore {
     /// and so a caller rendering several fields cannot have them disagree by a
     /// tick.
     func summary(at instant: Date) async throws -> StoredSessionSummary? {
-        guard let session = try await currentSession() else { return nil }
+        guard let capture = try snapshot() else { return nil }
+        let session = capture.session
         return StoredSessionSummary(
+            custodyGeneration: capture.generation,
             cookieCount: session.credential.count,
             capturedAt: session.capturedAt,
             expiresAt: session.expiresAt,
@@ -129,7 +132,8 @@ extension LocalBridgeBackend {
         diagnostics: ProviderDiagnostics = .init(),
         meetingMetadataCacheURL: URL? = nil
     ) async throws -> LocalBridgeBackend? {
-        guard let session = try await store.currentSession() else { return nil }
+        guard let capture = try await store.snapshot() else { return nil }
+        let session = capture.session
         let backend = LocalBridgeBackend(
             cookies: session.credential,
             transport: transport,
@@ -144,7 +148,7 @@ extension LocalBridgeBackend {
                 // login would keep resetting the age of a credential that is no
                 // younger - which would make the nine-day `COMPASS` fuse look
                 // like it never burned down.
-                try? await store.replaceCredential(with: rotated, belongingTo: session)
+                try? await store.replaceCredential(with: rotated, belongingTo: capture)
             },
             reachability: reachability, proof: proof, diagnostics: diagnostics
         )

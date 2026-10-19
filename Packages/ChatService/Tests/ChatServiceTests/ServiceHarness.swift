@@ -10,6 +10,11 @@ import Testing
 actor TestProviders: AccountProviderFactory {
     private(set) var made: [ConnectedAccountID: Int] = [:]
     private(set) var forgotten: Set<ConnectedAccountID> = []
+    private var forgetFailures: Int
+
+    init(forgetFailures: Int = 0) {
+        self.forgetFailures = forgetFailures
+    }
 
     func makeProvider(for account: AccountRecord) -> AccountProvider {
         made[account.id, default: 0] += 1
@@ -26,7 +31,11 @@ actor TestProviders: AccountProviderFactory {
         return AccountProvider(backend: FakeBackend(world: world))
     }
 
-    func forgetCredentials(for account: AccountRecord) {
+    func forgetCredentials(for account: AccountRecord) throws {
+        if forgetFailures > 0 {
+            forgetFailures -= 1
+            throw ServiceFailure.internalFailure
+        }
         forgotten.insert(account.id)
     }
 }

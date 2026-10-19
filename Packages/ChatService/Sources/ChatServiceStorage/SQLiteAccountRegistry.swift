@@ -8,7 +8,9 @@ public final class SQLiteAccountRegistry: AccountRegistry, Sendable {
     private let database: DatabaseQueue
 
     public init(path: String) throws {
-        database = try DatabaseQueue(path: path)
+        var configuration = Configuration()
+        configuration.busyMode = .timeout(5)
+        database = try DatabaseQueue(path: path, configuration: configuration)
         var migrations = DatabaseMigrator()
         migrations.registerMigration("accountRegistry1") { db in
             try db.create(table: "connectedAccount") { table in
@@ -17,6 +19,11 @@ public final class SQLiteAccountRegistry: AccountRegistry, Sendable {
                 table.column("identity", .text).notNull()
                 table.column("record", .blob).notNull()
                 table.uniqueKey(["principal", "identity"])
+            }
+        }
+        migrations.registerMigration("accountRegistry2") { db in
+            try db.create(table: "retiredAccount") { table in
+                table.column("id", .text).primaryKey()
             }
         }
         try migrations.migrate(database)
@@ -32,6 +39,13 @@ public final class SQLiteAccountRegistry: AccountRegistry, Sendable {
     public func save(_ account: AccountRecord) throws {
         let bytes = try ServiceCodec.encode(account)
         try database.write { db in
+            let retired = try Bool.fetchOne(
+                db, sql: "SELECT EXISTS(SELECT 1 FROM retiredAccount WHERE id = ?)",
+                arguments: [account.id.rawValue]
+            ) ?? false
+            guard !retired else {
+                throw ServiceFailure.operationConflict
+            }
             try db.execute(sql: """
             INSERT INTO connectedAccount (id, principal, identity, record) VALUES (?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET record = excluded.record
@@ -48,6 +62,10 @@ public final class SQLiteAccountRegistry: AccountRegistry, Sendable {
 
     public func remove(_ account: ConnectedAccountID) throws {
         try database.write { db in
+            try db.execute(
+                sql: "INSERT OR IGNORE INTO retiredAccount (id) VALUES (?)",
+                arguments: [account.rawValue]
+            )
             try db.execute(sql: "DELETE FROM connectedAccount WHERE id = ?", arguments: [account.rawValue])
         }
     }

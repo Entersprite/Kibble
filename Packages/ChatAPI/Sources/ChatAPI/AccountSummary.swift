@@ -5,6 +5,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
     public let id: ConnectedAccountID
     public let selfID: Member.ID
     public let label: String
+    public let isRemoving: Bool
     public let isEnabled: Bool
     public let capabilities: Capabilities
     public let connection: ConnectionState
@@ -15,18 +16,20 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         label: String,
         connection: ConnectionState,
         isEnabled: Bool = true,
+        isRemoving: Bool = false,
         capabilities: Capabilities = .init()
     ) {
         self.id = id
         self.selfID = selfID
         self.label = label
         self.connection = connection
+        self.isRemoving = isRemoving
         self.isEnabled = isEnabled
         self.capabilities = capabilities
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, selfID, label, connection, isEnabled, capabilities
+        case id, selfID, label, connection, isEnabled, isRemoving, capabilities
     }
 
     public init(from decoder: any Decoder) throws {
@@ -37,6 +40,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
             label: values.decode(String.self, forKey: .label),
             connection: values.decode(ConnectionState.self, forKey: .connection),
             isEnabled: values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true,
+            isRemoving: values.decodeIfPresent(Bool.self, forKey: .isRemoving) ?? false,
             capabilities: values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init()
         )
     }

@@ -268,13 +268,14 @@ extension MeetDMCallTrialTests {
         let person = try #require(try await trial.loadPeople().first)
         let prepared = try await trial.prepare(person: person.id)
         let joined = try await trial.prepareRingAfterBrowserJoin(preparedID: prepared.id)
+        let capture = try #require(try await store.snapshot())
         let replacement = session(at: Date(timeIntervalSince1970: 1_700_000_001))
         try await store.store(replacement)
         await #expect(throws: MeetDMCallTrialError.accountChanged) {
             try await trial.ring(preparedID: joined.id)
         }
         let stale = try #require(SessionCookies(header: "SID=stale"))
-        try await store.replaceCredential(with: stale, belongingTo: session())
+        try await store.replaceCredential(with: stale, belongingTo: capture)
         #expect(try await store.currentSession() == replacement)
         #expect(await transport.sent.count == 7)
     }

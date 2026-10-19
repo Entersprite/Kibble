@@ -8,7 +8,7 @@ public extension KeychainCredentialStore {
     ) {
         self.init(
             storage: KeychainSecretStorage(service: service),
-            legacyStorage: service == Self.defaultService
+            legacyStorage: service == Self.defaultService && account == Self.defaultAccount
                 ? KeychainSecretStorage(service: "com.entersprite.gchat.session") : nil,
             account: account
         )

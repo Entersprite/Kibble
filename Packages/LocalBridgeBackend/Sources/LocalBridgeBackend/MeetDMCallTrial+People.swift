@@ -8,15 +8,22 @@ extension MeetDMCallTrial {
     }
 
     func liveCredentials(for stored: StoredSession) -> SessionCredentials {
-        sharedCredentials ?? SessionCredentials(stored.credential, onRotation: { [store] rotated in
-            try? await store.replaceCredential(with: rotated, belongingTo: stored)
-        })
+        sharedCredentials ?? SessionCredentials(
+            stored.credential,
+            onRotation: { [store, credentialCapture] rotated in
+                guard let credentialCapture else { return }
+                try? await store.replaceCredential(with: rotated, belongingTo: credentialCapture)
+            }
+        )
     }
 
     func loadStoredSession() async throws -> StoredSession {
-        guard let stored = try await store.currentSession() else { throw MeetDMCallTrialError.noSession }
+        guard let capture = try await store.snapshot() else { throw MeetDMCallTrialError.noSession }
+        let stored = capture.session
+        credentialCapture = capture
         if let expectedSession {
-            guard stored.capturedAt == expectedSession.capturedAt,
+            guard capture.generation == expectedSession.custodyGeneration,
+                  stored.capturedAt == expectedSession.capturedAt,
                   stored.expiresAt == expectedSession.expiresAt
             else { throw MeetDMCallTrialError.accountChanged }
         }
