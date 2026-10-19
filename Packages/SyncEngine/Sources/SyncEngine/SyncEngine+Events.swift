@@ -40,12 +40,14 @@ extension SyncEngine {
         do {
             switch effect {
             case .reloadConversations:
+                guard !(backend is any ProjectedChatBackend) else { return }
                 let version = conversationMutationVersion
                 let conversations = try await backend.loadConversations()
                 guard version == conversationMutationVersion else { return }
                 try applyConversationSnapshot(conversations)
                 worldLoaded(forceMentionBackfill: true)
             case let .reloadMessages(conversation):
+                guard !(backend is any ProjectedChatBackend) else { return }
                 try await loadMoreMessages(in: conversation)
             case let .announceArrival(message):
                 announcer.yield(.arrived(message))

@@ -229,6 +229,14 @@ extension Fixture {
         Sample("event-conversationsChanged", .conversationsChanged([conversation, dm])),
         Sample("event-conversationUpdated", .conversationUpdated(conversation)),
         Sample("event-messageReceived", .messageReceived(message)),
+        Sample(
+            "event-historyLoaded",
+            historyEvent
+        ),
+        Sample(
+            "event-mentionBackfillChanged",
+            .mentionBackfillChanged(MentionBackfillStatus(running: true, failedConversations: 2))
+        ),
         Sample("event-messageUpdated", .messageUpdated(message)),
         Sample("event-messageDeleted", .messageDeleted(id: messageID, in: spaceID)),
         Sample("event-reactionChanged", .reactionChanged(messageID: messageID, reactions: [reaction])),

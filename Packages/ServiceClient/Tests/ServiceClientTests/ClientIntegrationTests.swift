@@ -6,6 +6,65 @@ import SyncEngine
 import Testing
 
 struct ClientIntegrationTests {
+    @Test func fetchedHistoryReachesBothReplicasBeforeQueryCompletionWithoutArrivalAnnouncements(
+    ) async throws {
+        let harness = try await ClientHarness.make()
+        let canonical = try await harness.canonical(harness.first.id)
+        try await harness.providers.incoming(harness.first.id, count: 1)
+        try await eventually { try canonical.recentHistory(in: Conversation.ID("same"), limit: 10).count == 1
+        }
+        let firstStore = try ChatStore.inMemory()
+        let mirrorStore = try ChatStore.inMemory()
+        let first = SyncEngine(backend: harness.backend(harness.first), store: firstStore)
+        let mirror = SyncEngine(backend: harness.backend(harness.first), store: mirrorStore)
+        let log = AnnouncementLog()
+        let announcements = first.announcements
+        let observer = Task { for await event in announcements {
+            await log.append(event)
+        } }
+        try await first.start()
+        try await mirror.start()
+        let safety = Task {
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            await first.stop()
+        }
+        let result = try await first.loadMoreMessages(in: Conversation.ID("same"))
+        safety.cancel()
+        #expect(result.count == 1)
+        #expect(try firstStore.messages(in: Conversation.ID("same")).count == 1)
+        try await eventually { try mirrorStore.messages(in: Conversation.ID("same")).count == 1 }
+        #expect(await log.arrivals.isEmpty)
+        await first.stop(); await mirror.stop()
+        observer.cancel(); await observer.value
+        await harness.service.shutdown()
+    }
+
+    @Test func replayLargerThanOnePageRetainsEveryHistoryRowWithoutFreshArrivals() async throws {
+        let harness = try await ClientHarness.make()
+        let store = try ChatStore.inMemory()
+        let initial = SyncEngine(backend: harness.backend(harness.first), store: store)
+        try await initial.start()
+        try await eventually { try store.me() == harness.first.selfID }
+        await initial.stop()
+        let canonical = try await harness.canonical(harness.first.id)
+        try await harness.providers.incoming(harness.first.id, count: 300)
+        try await eventually {
+            try canonical.recentHistory(in: Conversation.ID("same"), limit: 200).last?.text == "Message 299"
+        }
+        let resumed = SyncEngine(backend: harness.backend(harness.first), store: store)
+        let log = AnnouncementLog()
+        let announcements = resumed.announcements
+        let observer = Task { for await event in announcements {
+            await log.append(event)
+        } }
+        try await resumed.start()
+        try await eventually { try store.messages(in: Conversation.ID("same")).count == 300 }
+        #expect(await log.arrivals.isEmpty)
+        await resumed.stop()
+        observer.cancel(); await observer.value
+        await harness.service.shutdown()
+    }
+
     @Test func twoClientsAndCollidingAccountIDsHaveSeparateReplicas() async throws {
         let harness = try await ClientHarness.make()
         let firstStore = try ChatStore.inMemory()
@@ -65,6 +124,11 @@ struct ClientIntegrationTests {
         try await eventually { try store.me() == harness.first.selfID }
         await first.stop()
         try await harness.providers.incoming(harness.first.id, count: 1)
+        let canonical = try await harness.canonical(harness.first.id)
+        try await eventually {
+            try canonical.recentHistory(in: Conversation.ID("same"), limit: 10)
+                .count == 1
+        }
         let resumed = SyncEngine(backend: harness.backend(harness.first), store: store)
         let log = AnnouncementLog()
         let announcements = resumed.announcements

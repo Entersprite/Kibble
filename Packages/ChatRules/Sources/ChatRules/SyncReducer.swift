@@ -22,10 +22,10 @@ public enum SyncReducer {
     /// someone decides what it means for the store.
     public static func reduce(_ event: ChatEvent) -> Reduction {
         switch event {
-        case let .scopedTypingChanged(update):
-            Reduction(writes: [.setScopedTyping(update)])
-        case let .readReceiptsChanged(update):
-            Reduction(writes: [.setReadReceipts(update)])
+        case .historyLoaded, .mentionBackfillChanged:
+            reduceHistoryEvent(event)
+        case .scopedTypingChanged, .readReceiptsChanged:
+            reduceActivityEvent(event)
         case let .meetingMetadataLoadingChanged(isLoading):
             Reduction(writes: [.setMeetingMetadataLoading(isLoading)])
         case let .meetingMetadataChanged(id, meeting):
@@ -43,6 +43,36 @@ public enum SyncReducer {
             supersedingStaleError(reduceSessionEvent(event))
         case .connectionStateChanged, .backendError, .gap, .unknown:
             reduceSessionEvent(event)
+        }
+    }
+
+    private static func reduceActivityEvent(_ event: ChatEvent) -> Reduction {
+        switch event {
+        case let .scopedTypingChanged(update):
+            Reduction(writes: [.setScopedTyping(update)])
+        case let .readReceiptsChanged(update):
+            Reduction(writes: [.setReadReceipts(update)])
+        default: Reduction()
+        }
+    }
+
+    private static func reduceHistoryEvent(_ event: ChatEvent) -> Reduction {
+        switch event {
+        case let .historyLoaded(update):
+            var writes = update.messages.map {
+                update.keepsReactions ? StoreWrite.upsertMessageKeepingReactions($0) : .upsertMessage($0)
+            }
+            if update.isComplete, let thread = update.threadID, let conversation = update.conversationID {
+                writes.append(.reconcileThread(
+                    thread: thread,
+                    conversation: conversation,
+                    keeping: update.messages.map(\.id)
+                ))
+            }
+            return Reduction(writes: writes)
+        case let .mentionBackfillChanged(status):
+            return Reduction(writes: [.setMentionBackfill(status)])
+        default: return Reduction()
         }
     }
 

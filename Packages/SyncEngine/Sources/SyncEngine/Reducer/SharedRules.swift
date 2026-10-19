@@ -1,6 +1,8 @@
 import ChatPersistence
 import ChatRules
 
+typealias MentionBackfillHead = ChatRules.MentionBackfillHead
+
 public typealias SyncReducer = ChatRules.SyncReducer
 public typealias StoreWrite = ChatRules.StoreWrite
 public typealias SyncEffect = ChatRules.SyncEffect

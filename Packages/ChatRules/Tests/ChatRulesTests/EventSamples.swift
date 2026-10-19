@@ -30,6 +30,17 @@ enum EventSamples {
         createdAt: at
     )
 
+    private static var historyEvent: ChatEvent {
+        do {
+            return try .historyLoaded(MessageHistoryUpdate(
+                messages: [message],
+                conversationID: message.conversationID
+            ))
+        } catch {
+            return .unknown(type: "invalidHistoryFixture", payload: .null)
+        }
+    }
+
     static let all: [Sample] = [
         Sample(name: "connectionStateChanged", event: .connectionStateChanged(.connected)),
         Sample(
@@ -45,6 +56,14 @@ enum EventSamples {
             event: .conversationUpdated(Conversation(id: conversation, kind: .space))
         ),
         Sample(name: "messageReceived", event: .messageReceived(message)),
+        Sample(
+            name: "historyLoaded",
+            event: historyEvent
+        ),
+        Sample(
+            name: "mentionBackfillChanged",
+            event: .mentionBackfillChanged(MentionBackfillStatus(running: true))
+        ),
         Sample(name: "messageUpdated", event: .messageUpdated(message)),
         Sample(name: "messageDeleted", event: .messageDeleted(id: messageID, in: conversation)),
         Sample(

@@ -174,6 +174,9 @@ public actor SyncEngine {
         // erased the store would repopulate it with the account that just
         // left.
         try Task.checkCancellation()
+        if backend is any ProjectedChatBackend {
+            return page
+        }
         guard version == conversationVersions[conversation, default: 0] else { return [] }
         try store.apply(page.map { .upsertMessage($0) })
         if verifyCachedRoots, before == nil {

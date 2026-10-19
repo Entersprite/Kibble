@@ -1,6 +1,5 @@
 import ChatAPI
 import ChatKit
-import ChatService
 import ChatServiceStorage
 import FixtureBackend
 import Foundation
@@ -8,6 +7,7 @@ import InProcessChatTransport
 import ServiceClient
 import SyncEngine
 import Testing
+@testable import ChatService
 
 actor Providers: AccountProviderFactory {
     private var backends: [ConnectedAccountID: FakeBackend] = [:]
@@ -45,6 +45,11 @@ actor Providers: AccountProviderFactory {
             ))
         }
     }
+
+    func gap(_ account: ConnectedAccountID) async throws {
+        guard let backend = backends[account] else { throw ServiceFailure.accountNotFound }
+        try await backend.apply(.gap(scope: .conversation(Conversation.ID("same")), reason: "fixture gap"))
+    }
 }
 
 struct ClientHarness {
@@ -75,10 +80,12 @@ struct ClientHarness {
         try registry.save(first)
         try registry.save(second)
         let providers = Providers()
+        let storage = SQLiteServiceStorageFactory(directory: folder)
         let service = ChatService(
             registry: registry,
-            storage: SQLiteServiceStorageFactory(directory: folder),
-            providers: providers, linkCustody: linkCustody
+            storage: storage,
+            providers: providers,
+            linkCustody: linkCustody
         )
         try await service.restore()
         let context = ServiceSessionContext(
@@ -89,22 +96,30 @@ struct ClientHarness {
         )
         let transport = InProcessChatTransport(endpoint: service, context: context)
         let client = AccountClient(transport: transport)
-        for _ in 0 ..< 1000 {
+        let accounts = try await readyAccounts(client)
+        return try ClientHarness(
+            service: service, providers: providers,
+            first: #require(accounts.first { $0.id == first.id }),
+            second: #require(accounts.first { $0.id == second.id }), context: context
+        )
+    }
+
+    private static func readyAccounts(_ client: AccountClient) async throws -> [AccountSummary] {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            try Task.checkCancellation()
             let accounts = try await client.accounts()
             if accounts.count == 2, accounts.allSatisfy({ $0.connection == .connected }) {
-                let firstSummary = try #require(accounts.first { $0.id == first.id })
-                let secondSummary = try #require(accounts.first { $0.id == second.id })
-                return ClientHarness(
-                    service: service,
-                    providers: providers,
-                    first: firstSummary,
-                    second: secondSummary,
-                    context: context
-                )
+                return accounts
             }
             await Task.yield()
         }
         throw ServiceFailure.deadlineExceeded
+    }
+
+    func canonical(_ account: ConnectedAccountID) async throws -> any ServiceAccountStorage {
+        guard let runtime = await service.runtimes[account] else { throw ServiceFailure.accountNotFound }
+        return await runtime.storage
     }
 
     func backend(_ account: AccountSummary) -> ServiceBackend {

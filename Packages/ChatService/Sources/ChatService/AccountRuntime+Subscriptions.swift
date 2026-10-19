@@ -9,15 +9,14 @@ extension AccountRuntime {
         let id = UUID()
         let (stream, continuation) = AsyncThrowingStream<Data, any Error>
             .makeStream(bufferingPolicy: .bufferingOldest(8))
-        var page = try storage.readEvents(after: cursor, limit: 256)
-        // A large backlog is replaced with a coherent snapshot before live attach.
-        if page.hasMore {
-            page = try storage.readEvents(after: nil, limit: 256)
-        }
+        let page = try storage.readEvents(after: cursor, limit: 256)
         let bytes = try ServiceCodec.encode(page)
         guard bytes.count <= 4 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }
         continuation.yield(bytes)
         subscribers[id] = continuation
+        if page.snapshot != nil {
+            requestBackfill(replay: true)
+        }
         continuation.onTermination = { [weak self] _ in
             Task { await self?.unsubscribe(id) }
         }

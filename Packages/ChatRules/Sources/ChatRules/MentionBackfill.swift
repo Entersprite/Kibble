@@ -1,18 +1,7 @@
 import ChatKit
 import Foundation
 
-/// What the Mentions pane is told about the backfill (the mentions-list spec
-/// §2): whether a run is going, and how many conversations the last finished
-/// run could not fetch.
-public struct MentionBackfillStatus: Sendable, Equatable {
-    public var running: Bool
-    public var failedConversations: Int
-
-    public init(running: Bool = false, failedConversations: Int = 0) {
-        self.running = running
-        self.failedConversations = failedConversations
-    }
-}
+public typealias MentionBackfillStatus = ChatKit.MentionBackfillStatus
 
 /// Which conversations a backfill fetches. Pure, so that the window's edges
 /// are tests. The runner is `SyncEngine+MentionBackfill.swift`.
@@ -51,5 +40,18 @@ public enum MentionBackfill {
                 return left.id.rawValue < right.id.rawValue
             }
             .map(\.id)
+    }
+}
+
+/// The provider's newest activity hints, not a fingerprint of message content.
+/// Used only to avoid repeating background Mentions discovery. Explicit
+/// foreground history and reaction refreshes still reconcile message content.
+public struct MentionBackfillHead: Equatable, Sendable {
+    public let activity: Date?
+    public let latestMessage: Date?
+
+    public init(_ conversation: Conversation) {
+        activity = conversation.lastActivity
+        latestMessage = conversation.latestMainMessageAt
     }
 }

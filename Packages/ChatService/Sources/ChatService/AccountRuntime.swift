@@ -26,9 +26,25 @@ actor AccountRuntime {
     let storage: any ServiceAccountStorage
     private let factory: any AccountProviderFactory
     private var epoch = UUID()
+    var currentEpoch: UUID {
+        epoch
+    }
+
     var subscribers: [UUID: AsyncThrowingStream<Data, any Error>.Continuation] = [:]
     var stopped = false
-    private var backend: (any ChatBackend)?
+    var backend: (any ChatBackend)?
+    var now: @Sendable () -> Date = { Date() }
+    var worldVersion = UUID()
+    var historyWorldVersion = UUID()
+    var historyVersions: [Conversation.ID: UUID] = [:]
+    var worldRefresh: Task<Void, Never>?
+    var worldRefreshRequested = false
+    var historyRefresh: Task<Void, Never>?
+    var pendingHistory: Set<Conversation.ID> = []
+    var backfill: Task<Void, Never>?
+    var backfillRequested = false
+    var backfillReplayRequested = false
+    var backfillHeads: [Conversation.ID: MentionBackfillHead] = [:]
     private var startup: Task<Void, Never>?
     private var consumer: Task<Void, Never>?
     private var requests: [UUID: Task<JSONValue, any Error>] = [:]
@@ -56,13 +72,15 @@ actor AccountRuntime {
         startup = Task { [weak self, factory, record] in
             do {
                 let provider = try await factory.makeProvider(for: record)
-                guard let self, await install(provider.backend, epoch: epoch) else {
+                guard let self, await install(provider, epoch: epoch) else {
                     await provider.backend.disconnect()
                     return
                 }
                 try await provider.backend.connect()
                 if await !isCurrent(epoch) {
                     await provider.backend.disconnect()
+                } else {
+                    await requestWorldRefresh()
                 }
             } catch {
                 await self?.failed(error, epoch: epoch)
@@ -70,8 +88,10 @@ actor AccountRuntime {
         }
     }
 
-    private func install(_ backend: any ChatBackend, epoch: UUID) async -> Bool {
+    private func install(_ provider: AccountProvider, epoch: UUID) async -> Bool {
         guard self.epoch == epoch, !stopped, !Task.isCancelled else { return false }
+        let backend = provider.backend
+        now = provider.now
         self.backend = backend
         capabilities = backend.capabilities
         let events = backend.events
@@ -105,7 +125,9 @@ actor AccountRuntime {
         default: break
         }
         do {
+            invalidateQueries(for: event)
             try appendAndPublish(event, live: true)
+            await scheduleEffects(for: event)
             if case .connectionStateChanged = event {
                 await publishStatus()
             }
@@ -114,7 +136,8 @@ actor AccountRuntime {
         }
     }
 
-    private func appendAndPublish(_ event: ChatEvent, live: Bool) throws {
+    @discardableResult
+    func appendAndPublish(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
         let cursor = try storage.append(event, live: live)
         try publish(ServiceEventPage(
             checkpoint: cursor,
@@ -125,6 +148,7 @@ actor AccountRuntime {
         if case let .connectionStateChanged(state) = event {
             connection = state
         }
+        return cursor
     }
 
     private func failed(_ error: any Error, epoch: UUID) async {
@@ -145,7 +169,7 @@ actor AccountRuntime {
         }
     }
 
-    private func quarantine(_ fault: RuntimeFault) async {
+    func quarantine(_ fault: RuntimeFault) async {
         guard !quarantined, !stopped else { return }
         quarantined = true
         epoch = UUID()
@@ -179,6 +203,10 @@ actor AccountRuntime {
         epoch = UUID()
         startup?.cancel()
         consumer?.cancel()
+        let effects = [worldRefresh, historyRefresh, backfill].compactMap(\.self)
+        for task in effects {
+            task.cancel()
+        }
         let pending = Array(requests.values)
         for request in pending {
             request.cancel()
@@ -189,6 +217,11 @@ actor AccountRuntime {
         }
         await startup?.value
         await consumer?.value
+        for task in effects {
+            await task.value
+        }
+        worldRefresh = nil; historyRefresh = nil; backfill = nil
+        pendingHistory.removeAll(); backfillHeads.removeAll(); historyVersions.removeAll()
         backend = nil
         startup = nil
         consumer = nil
@@ -232,6 +265,9 @@ actor AccountRuntime {
         case ReadEvents.operation:
             let payload = try request.decodePayload(ReadEvents.self)
             return try ServiceCodec.value(storage.readEvents(after: payload.cursor, limit: payload.limit))
+        case GetProjectionCheckpoint.operation:
+            _ = try request.decodePayload(GetProjectionCheckpoint.self)
+            return try ServiceCodec.value(storage.checkpoint())
         case GetOperation.operation:
             let payload = try request.decodePayload(GetOperation.self)
             guard let result = try storage.operation(payload.operationID)

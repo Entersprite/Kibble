@@ -19,11 +19,14 @@ public extension ServiceBackend {
     }
 
     func loadConversations() async throws -> [Conversation] {
-        try await call(LoadConversations())
+        try await projected { try await call(LoadConversations()) }
     }
 
     func loadMessages(in conversation: Conversation.ID, before: Message.ID?) async throws -> [Message] {
-        try await call(LoadMessages(conversationID: conversation, cursor: before?.rawValue)).messages
+        try await projected { try await call(LoadMessages(
+            conversationID: conversation,
+            cursor: before?.rawValue
+        )).messages }
     }
 
     func setNotificationSetting(_ level: NotificationLevel, for conversation: Conversation.ID) async throws {
@@ -49,14 +52,19 @@ public extension ServiceBackend {
     }
 
     func loadThread(_ thread: MessageThread.ID, in conversation: Conversation.ID) async throws -> [Message] {
-        try await call(LoadThread(threadID: thread, conversationID: conversation)).messages
+        try await projected {
+            try await call(LoadThread(threadID: thread, conversationID: conversation)).messages
+        }
     }
 
     func loadThreadSnapshot(
         _ thread: MessageThread.ID,
         in conversation: Conversation.ID
     ) async throws -> ThreadMessagesSnapshot {
-        let page = try await call(LoadThread(threadID: thread, conversationID: conversation))
+        let page = try await projected { try await call(LoadThread(
+            threadID: thread,
+            conversationID: conversation
+        )) }
         return ThreadMessagesSnapshot(messages: page.messages, isComplete: page.isComplete)
     }
 
@@ -73,6 +81,6 @@ public extension ServiceBackend {
     }
 
     func loadFollowedThreads() async throws -> [Message] {
-        try await call(LoadFollowedThreads())
+        try await projected { try await call(LoadFollowedThreads()) }
     }
 }

@@ -75,11 +75,18 @@ public struct MessagePage: Codable, Hashable, Sendable {
     public let messages: [Message]
     public let nextCursor: String?
     public let isComplete: Bool
+    public let checkpoint: ServiceCursor?
 
-    public init(messages: [Message], nextCursor: String?, isComplete: Bool) {
+    public init(
+        messages: [Message],
+        nextCursor: String?,
+        isComplete: Bool,
+        checkpoint: ServiceCursor? = nil
+    ) {
         self.messages = messages
         self.nextCursor = nextCursor
         self.isComplete = isComplete
+        self.checkpoint = checkpoint
     }
 }
 

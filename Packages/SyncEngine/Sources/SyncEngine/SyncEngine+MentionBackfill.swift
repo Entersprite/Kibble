@@ -2,19 +2,6 @@ import ChatKit
 import ChatPersistence
 import Foundation
 
-/// The provider's newest activity hints, not a fingerprint of message content.
-/// Used only to avoid repeating background Mentions discovery. Explicit
-/// foreground history and reaction refreshes still reconcile message content.
-struct MentionBackfillHead: Equatable, Sendable {
-    let activity: Date?
-    let latestMessage: Date?
-
-    init(_ conversation: Conversation) {
-        activity = conversation.lastActivity
-        latestMessage = conversation.latestMainMessageAt
-    }
-}
-
 extension SyncEngine {
     /// Discovers mentions only for new or changed heads and failed pages.
     /// A real gap forces a complete sweep because missed events cannot be

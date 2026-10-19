@@ -16,18 +16,14 @@ extension AccountRuntime {
             return try ServiceCodec.value(value)
         case LoadConversations.operation:
             _ = try request.decodePayload(LoadConversations.self)
-            let value = try await backend.loadConversations()
+            let value = try await fetchWorld(backend: backend, epoch: epoch)
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         case LoadMessages.operation:
             let payload = try request.decodePayload(LoadMessages.self)
-            let value = try await MessagePage(
-                messages: backend.loadMessages(
-                    in: payload.conversationID,
-                    before: payload.cursor.map { Message.ID($0) }
-                ),
-                nextCursor: nil,
-                isComplete: false
+            let value = try await fetchMessages(
+                in: payload.conversationID, before: payload.cursor.map { Message.ID($0) },
+                backend: backend, epoch: epoch
             )
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
@@ -43,7 +39,7 @@ extension AccountRuntime {
             return try ServiceCodec.value(value)
         case LoadFollowedThreads.operation:
             _ = try request.decodePayload(LoadFollowedThreads.self)
-            let value = try await backend.loadFollowedThreads()
+            let value = try await fetchFollowedThreads(backend: backend, epoch: epoch)
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         default: throw ServiceFailure.unsupportedOperation

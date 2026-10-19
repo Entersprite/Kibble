@@ -34,11 +34,9 @@ extension AccountRuntime {
             return try ServiceCodec.value(value)
         case LoadThread.operation:
             let payload = try request.decodePayload(LoadThread.self)
-            let snapshot = try await backend.loadThreadSnapshot(payload.threadID, in: payload.conversationID)
-            let value = MessagePage(
-                messages: snapshot.messages,
-                nextCursor: nil,
-                isComplete: snapshot.isComplete
+            let value = try await fetchMessages(
+                in: payload.conversationID, before: nil, thread: payload.threadID, backend: backend,
+                epoch: epoch
             )
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)

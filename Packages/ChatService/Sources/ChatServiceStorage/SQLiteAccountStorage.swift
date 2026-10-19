@@ -54,6 +54,14 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
         try projection.apply([.clearEphemeralState])
     }
 
+    public func checkpoint() throws -> ServiceCursor {
+        try database.read { db in try checkpoint(db) }
+    }
+
+    public func recentHistory(in conversation: Conversation.ID, limit: Int) throws -> [Message] {
+        try projection.recentHistory(in: conversation, limit: limit)
+    }
+
     public func conversations() throws -> [Conversation] {
         try projection.conversations()
     }
@@ -88,22 +96,29 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
                   cursor.sequence <= end.sequence, cursor.sequence >= UInt64(max(0, first - 1)) else {
                 return ServiceEventPage(checkpoint: end, snapshot: snapshot, events: [], hasMore: false)
             }
-            let rows = try Row.fetchAll(
+            let rows = try Row.fetchCursor(
                 db,
                 sql: "SELECT * FROM serviceJournal WHERE sequence > ? ORDER BY sequence LIMIT ?",
                 arguments: [Int64(cursor.sequence), limit]
             )
-            let events = try rows.map { row in
-                try ServiceEvent(
+            var events: [ServiceEvent] = []
+            var bytes = 0
+            while let row = try rows.next() {
+                let eventBytes = row["event"] as Data
+                if !events.isEmpty, bytes + eventBytes.count > 2 * 1024 * 1024 {
+                    break
+                }
+                bytes += eventBytes.count
+                try events.append(ServiceEvent(
                     cursor: ServiceCursor(
                         accountID: account,
                         streamID: end.streamID,
                         sequence: UInt64(row["sequence"] as Int64)
                     ),
-                    event: ServiceCodec.decode(ChatEvent.self, from: row["event"] as Data),
+                    event: ServiceCodec.decode(ChatEvent.self, from: eventBytes),
                     // Replaying to a client cannot create a new host notification.
                     isLiveArrival: false
-                )
+                ))
             }
             let delivered = events.last?.cursor ?? cursor
             return ServiceEventPage(

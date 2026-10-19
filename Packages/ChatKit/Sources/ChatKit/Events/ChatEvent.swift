@@ -82,6 +82,10 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// change them.
     case messageUpdated(Message)
 
+    /// Authoritative fetched history; never a fresh-arrival announcement.
+    case historyLoaded(MessageHistoryUpdate)
+    case mentionBackfillChanged(MentionBackfillStatus)
+
     /// A tombstone arrived. The `Message` itself may also be re-sent with
     /// `isDeleted` set; this event exists for the case where the client has the
     /// message and only needs to be told.

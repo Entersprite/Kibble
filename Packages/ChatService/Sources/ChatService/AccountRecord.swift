@@ -49,6 +49,8 @@ public protocol ServiceAccountStorage: Sendable {
     func append(_ event: ChatEvent, live: Bool) throws -> ServiceCursor
     func readEvents(after cursor: ServiceCursor?, limit: Int) throws -> ServiceEventPage
     func conversations() throws -> [Conversation]
+    func checkpoint() throws -> ServiceCursor
+    func recentHistory(in conversation: Conversation.ID, limit: Int) throws -> [Message]
     func operation(_ id: ServiceOperationID) throws -> ServiceOperation?
     /// Atomically reserves a new operation, or returns the existing identical one.
     func reserve(_ id: ServiceOperationID, request: ServiceRequest) throws -> ServiceOperation
@@ -64,9 +66,11 @@ public protocol ServiceStorageFactory: Sendable {
 /// Future remote clients cannot submit a provider object or a credential reference.
 public struct AccountProvider: Sendable {
     public let backend: any ChatBackend
+    public let now: @Sendable () -> Date
 
-    public init(backend: any ChatBackend) {
+    public init(backend: any ChatBackend, now: @escaping @Sendable () -> Date = { Date() }) {
         self.backend = backend
+        self.now = now
     }
 }
 

@@ -137,6 +137,8 @@ struct FrameCodingTests {
             "conversationsChanged",
             "conversationUpdated",
             "messageReceived",
+            "historyLoaded",
+            "mentionBackfillChanged",
             "messageUpdated",
             "messageDeleted",
             "reactionChanged",

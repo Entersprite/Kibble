@@ -3,7 +3,7 @@ import ChatKit
 import Foundation
 
 /// One client/account adapter. Its lifecycle changes subscriptions, never providers.
-public actor ServiceBackend: CheckpointedChatBackend {
+public actor ServiceBackend: ProjectedChatBackend {
     public nonisolated let capabilities: Capabilities
     public nonisolated let events: AsyncStream<ChatEvent>
     let transport: any ServiceEventTransport
@@ -11,10 +11,14 @@ public actor ServiceBackend: CheckpointedChatBackend {
     let accountRevision: ServiceAccountRevision?
     private let eventSink: AsyncStream<ChatEvent>.Continuation
     private var deliverySink: AsyncStream<ChatDelivery>.Continuation?
-    private var checkpointed = false
-    private var cursor: ServiceCursor?
-    private var consumer: Task<Void, Never>?
-    private var acknowledgement: (ReplicaCheckpoint, CheckedContinuation<Bool, Never>)?
+    var checkpointed = false
+    var resynchronization = UUID()
+    var projectionWaiters: [UUID: ProjectionWaiter] = [:]
+    var connectionGeneration = UUID()
+    var connecting = false
+    var cursor: ServiceCursor?
+    var consumer: Task<Void, Never>?
+    private var acknowledgement: PendingAcknowledgement?
 
     public init(account: AccountSummary, transport: any ServiceEventTransport) {
         accountID = account.id
@@ -41,25 +45,39 @@ public actor ServiceBackend: CheckpointedChatBackend {
     }
 
     public func acknowledge(_ checkpoint: ReplicaCheckpoint, applied: Bool) {
-        guard let pending = acknowledgement, pending.0 == checkpoint else { return }
+        guard let pending = acknowledgement, pending.checkpoint == checkpoint else { return }
         acknowledgement = nil
-        pending.1.resume(returning: applied)
+        pending.continuation.resume(returning: applied)
     }
 
     public func connect() async throws {
         guard accountRevision != nil else { throw ServiceFailure.invalidResponse }
-        guard consumer == nil else { return }
+        guard consumer == nil, !connecting else { return }
+        let generation = UUID()
+        connectionGeneration = generation
+        connecting = true
+        defer {
+            if generation == connectionGeneration {
+                connecting = false
+            }
+        }
         _ = try await transport.negotiate(.current)
-        guard consumer == nil else { return }
-        consumer = Task { [weak self] in await self?.consume() }
+        try Task.checkCancellation()
+        guard generation == connectionGeneration else { throw CancellationError() }
+        consumer = Task { [weak self] in await self?.consume(generation: generation) }
     }
 
     public func disconnect() async {
+        let generation = UUID()
+        connectionGeneration = generation
+        connecting = false
         let task = consumer
         consumer = nil
         task?.cancel()
         cancelAcknowledgement()
+        failProjectionWaiters(CancellationError())
         await task?.value
+        guard generation == connectionGeneration else { return }
         emitTransient(.connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
 
@@ -79,9 +97,9 @@ public actor ServiceBackend: CheckpointedChatBackend {
         }
     }
 
-    private func consume() async {
+    private func consume(generation: UUID) async {
         var failures = 0
-        while !Task.isCancelled {
+        while !Task.isCancelled, generation == connectionGeneration {
             do {
                 let request = try ServiceRequest(header: ServiceRequestHeader(
                     requestID: ServiceRequestID(UUID().uuidString), accountID: accountID,
@@ -90,18 +108,23 @@ public actor ServiceBackend: CheckpointedChatBackend {
                 let stream = try await transport.events(request)
                 for try await page in stream {
                     try Task.checkCancellation()
-                    try await receive(page)
+                    try await receive(page, generation: generation)
+                    if page.hasMore {
+                        try await catchUp(generation: generation)
+                    }
                     failures = 0
                 }
                 try Task.checkCancellation()
                 throw ServiceFailure.invalidResponse
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, generation == connectionGeneration else { return }
                 if error as? ServiceFailure == .authenticationRequired {
+                    failProjectionWaiters(ServiceFailure.authenticationRequired)
                     emitTransient(.backendError(.unknown("This account needs to sign in again.")))
                     return
                 }
                 if error as? ServiceFailure == .staleAccount {
+                    failProjectionWaiters(ServiceFailure.staleAccount)
                     emitTransient(
                         .backendError(.unknown("The account sign-in has changed. Reconnect this client."))
                     )
@@ -118,18 +141,34 @@ public actor ServiceBackend: CheckpointedChatBackend {
         }
     }
 
-    private func receive(_ page: ServiceEventPage) async throws {
+    private func catchUp(generation: UUID) async throws {
+        while !Task.isCancelled {
+            let page = try await call(ReadEvents(cursor: cursor, limit: 256))
+            try await receive(page, generation: generation)
+            if !page.hasMore {
+                return
+            }
+        }
+        throw CancellationError()
+    }
+
+    private func receive(_ page: ServiceEventPage, generation: UUID) async throws {
         guard page.checkpoint.accountID == accountID else { throw ServiceFailure.invalidResponse }
         if let snapshot = page.snapshot {
+            resynchronization = UUID()
             try await deliver(ChatDelivery(
                 checkpoint: page.checkpoint.replicaCheckpoint,
                 events: snapshot,
                 isSnapshot: true,
                 isLive: false
-            ))
+            ), generation: generation)
         } else {
             for event in page.events {
                 if let cursor {
+                    if event.cursor.streamID == cursor.streamID,
+                       event.cursor.sequence <= cursor.sequence {
+                        continue
+                    }
                     guard cursor.sequence < UInt64.max, event.cursor.streamID == cursor.streamID,
                           event.cursor.sequence == cursor.sequence + 1 else {
                         throw ServiceFailure.invalidResponse
@@ -140,19 +179,24 @@ public actor ServiceBackend: CheckpointedChatBackend {
                     events: [event.event],
                     isSnapshot: false,
                     isLive: event.isLiveArrival
-                ))
+                ), generation: generation)
             }
         }
     }
 
-    private func deliver(_ delivery: ChatDelivery) async throws {
+    private func deliver(_ delivery: ChatDelivery, generation: UUID) async throws {
+        guard generation == connectionGeneration else { throw CancellationError() }
         guard let checkpoint = delivery.checkpoint else { throw ServiceFailure.invalidResponse }
         if checkpointed {
             let applied = await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
                     guard !Task.isCancelled,
                           let deliverySink else { continuation.resume(returning: false); return }
-                    acknowledgement = (checkpoint, continuation)
+                    acknowledgement = PendingAcknowledgement(
+                        checkpoint: checkpoint,
+                        generation: generation,
+                        continuation: continuation
+                    )
                     if case .enqueued = deliverySink.yield(delivery) {
                         return
                     }
@@ -160,7 +204,7 @@ public actor ServiceBackend: CheckpointedChatBackend {
                     continuation.resume(returning: false)
                 }
             } onCancel: {
-                Task { await self.cancelAcknowledgement() }
+                Task { await self.cancelAcknowledgement(generation: generation) }
             }
             guard applied else { throw ServiceFailure.invalidResponse }
         } else {
@@ -177,12 +221,14 @@ public actor ServiceBackend: CheckpointedChatBackend {
             }
         }
         cursor = ServiceCursor(checkpoint)
+        advanceProjectionWaiters()
     }
 
-    private func cancelAcknowledgement() {
-        let pending = acknowledgement
+    private func cancelAcknowledgement(generation: UUID? = nil) {
+        guard let pending = acknowledgement,
+              generation == nil || generation == pending.generation else { return }
         acknowledgement = nil
-        pending?.1.resume(returning: false)
+        pending.continuation.resume(returning: false)
     }
 
     private func emitTransient(_ event: ChatEvent) {

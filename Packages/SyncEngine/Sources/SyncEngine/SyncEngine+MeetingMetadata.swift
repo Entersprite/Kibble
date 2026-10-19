@@ -35,6 +35,7 @@ extension SyncEngine {
     }
 
     func applyConversationSnapshot(_ conversations: [Conversation]) throws {
+        guard !(backend is any ProjectedChatBackend) else { return }
         try store.apply([.replaceConversations(conversations)] +
             meetingMetadataWrites(for: conversations, replacing: true))
     }
