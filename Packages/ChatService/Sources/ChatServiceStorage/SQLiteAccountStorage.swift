@@ -66,6 +66,10 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
         try projection.conversations()
     }
 
+    public func conversation(_ id: Conversation.ID) throws -> Conversation? {
+        try projection.conversation(id)
+    }
+
     public func append(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
         let bytes = try ServiceCodec.encode(event)
         guard bytes.count <= 2 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }

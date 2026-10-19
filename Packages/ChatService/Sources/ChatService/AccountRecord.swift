@@ -49,6 +49,7 @@ public protocol ServiceAccountStorage: Sendable {
     func append(_ event: ChatEvent, live: Bool) throws -> ServiceCursor
     func readEvents(after cursor: ServiceCursor?, limit: Int) throws -> ServiceEventPage
     func conversations() throws -> [Conversation]
+    func conversation(_ id: Conversation.ID) throws -> Conversation?
     func checkpoint() throws -> ServiceCursor
     func recentHistory(in conversation: Conversation.ID, limit: Int) throws -> [Message]
     func operation(_ id: ServiceOperationID) throws -> ServiceOperation?

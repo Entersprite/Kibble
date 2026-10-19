@@ -108,7 +108,8 @@ extension ChatService {
     func makeRuntime(_ record: AccountRecord) throws -> AccountRuntime {
         let instanceID = UUID()
         return try AccountRuntime(
-            record: record, storage: storage.open(record.id), factory: providers, instanceID: instanceID,
+            record: record, storage: storage.open(record.id), factory: providers,
+            policies: policies, instanceID: instanceID,
             onStatus: { [weak self] status in
                 await self?.runtimeStatusChanged(
                     record.id, revision: record.currentRevision, instanceID: instanceID, status: status

@@ -15,6 +15,16 @@ public extension ChatStore {
         try database.read(Self.fetchStoredConversations)
     }
 
+    /// One canonical conversation, without decoding the account's entire world.
+    func conversation(_ id: Conversation.ID) throws -> Conversation? {
+        try database.read { db in
+            guard let row = try ConversationRow.fetchOne(db, key: id.rawValue) else { return nil }
+            let members = try MembershipRow.filter(Column("conversationID") == id.rawValue)
+                .order(Column("position").asc).fetchAll(db).map { Member.ID($0.memberID) }
+            return try row.conversation(members: members)
+        }
+    }
+
     /// The transcript: one conversation's top-level messages, oldest first.
     /// Replies are left out (`fetchMessages`).
     func messages(in conversation: Conversation.ID) throws -> [Message] {

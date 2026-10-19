@@ -19,6 +19,7 @@ actor ReconciliationBackend: ChatBackend {
     private(set) var historyHeld = false
     private(set) var worldReads = 0
     private(set) var historyReads = 0
+    private(set) var sentCommands: [ChatCommand] = []
 
     static let date = Date(timeIntervalSince1970: 1_700_000_000)
     static let conversation = Conversation.ID("shared")
@@ -40,7 +41,10 @@ actor ReconciliationBackend: ChatBackend {
     }
 
     func disconnect() {}
-    func send(_ command: ChatCommand) {}
+    func send(_ command: ChatCommand) {
+        sentCommands.append(command)
+    }
+
     func holdNextWorld() {
         holdWorld = true
     }
@@ -111,18 +115,24 @@ struct ReconciliationHarness {
     let service: ChatService
     let transport: InProcessChatTransport
 
-    static func make(backfill: Bool = false, holdHistory: Bool = false) async throws -> Self {
+    static func make(
+        backfill: Bool = false, holdHistory: Bool = false, policies: (any AccountPolicyStore)? = nil,
+        reservations: OperationReservationCounter? = nil
+    ) async throws -> Self {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let registry = try SQLiteAccountRegistry(path: folder.appendingPathComponent("registry.sqlite").path)
         let record = LinkHarness.existing()
         try registry.save(record)
         let backend = ReconciliationBackend(backfill: backfill, holdHistory: holdHistory)
-        let storage = SQLiteServiceStorageFactory(directory: folder)
+        var storage: any ServiceStorageFactory = SQLiteServiceStorageFactory(directory: folder)
+        if let reservations {
+            storage = CountedStorageFactory(backing: storage, reservations: reservations)
+        }
         let service = ChatService(
             registry: registry,
             storage: storage,
-            providers: ReconciliationProviders(backend: backend)
+            providers: ReconciliationProviders(backend: backend), policies: policies
         )
         try await service.restore()
         let context = ServiceSessionContext(

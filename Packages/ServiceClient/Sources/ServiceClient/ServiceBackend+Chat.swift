@@ -4,6 +4,10 @@ import Foundation
 
 public extension ServiceBackend {
     func send(_ command: ChatCommand) async throws {
+        if SendHint.accepts(command) {
+            _ = try await call(SendHint(command: command))
+            return
+        }
         let id = if case let .sendMessage(_, _, _, localID?, _, _) = command {
             ServiceOperationID("send:\(localID)")
         } else {

@@ -24,6 +24,7 @@ actor AccountRuntime {
     private var stopWaiters: [CheckedContinuation<Void, Never>] = []
     let record: AccountRecord
     let storage: any ServiceAccountStorage
+    let policies: any AccountPolicyStore
     private let factory: any AccountProviderFactory
     private var epoch = UUID()
     var currentEpoch: UUID {
@@ -55,6 +56,7 @@ actor AccountRuntime {
         record: AccountRecord,
         storage: any ServiceAccountStorage,
         factory: any AccountProviderFactory,
+        policies: any AccountPolicyStore,
         instanceID: UUID, onStatus: @escaping @Sendable (RuntimeStatus) async -> Void,
         onFault: @escaping @Sendable (RuntimeFault) async -> Void
     ) {
@@ -64,6 +66,7 @@ actor AccountRuntime {
         self.record = record
         self.storage = storage
         self.factory = factory
+        self.policies = policies
     }
 
     func start() {
@@ -287,6 +290,7 @@ actor AccountRuntime {
 
     func performOperation(
         _ id: ServiceOperationID, request: ServiceRequest, epoch: UUID,
+        authorize: () throws -> Void = {},
         perform: @Sendable () async throws -> some Codable & Sendable
     ) async throws -> JSONValue {
         let operation = try storage.reserve(id, request: request)
@@ -299,6 +303,14 @@ actor AccountRuntime {
         default: throw ServiceFailure.operationUnknown
         }
         try checkEpoch(epoch)
+        do {
+            try authorize()
+        } catch {
+            if error as? ServiceFailure == .privacyDenied {
+                try storage.finish(ServiceOperation(id: id, state: "failed", failure: .privacyDenied))
+            }
+            throw error
+        }
         try storage.finish(ServiceOperation(id: id, state: "dispatching"))
         do {
             let result = try await ServiceCodec.value(perform())
