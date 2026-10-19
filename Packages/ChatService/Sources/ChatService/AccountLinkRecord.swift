@@ -12,6 +12,7 @@ public struct AccountLinkRecord: Codable, Hashable, Sendable {
     public let accountID: ConnectedAccountID
     public let generation: String
     public let previousGeneration: String?
+    public let removalRevision: String?
     public let expiresAt: Date
     public var resolvedAccountID: ConnectedAccountID?
     public var phase: String
@@ -22,7 +23,9 @@ public struct AccountLinkRecord: Codable, Hashable, Sendable {
         id: AccountLinkID, operationID: ServiceOperationID, principalID: ServicePrincipalID,
         deviceID: ServiceDeviceID, targetAccountID: ConnectedAccountID?,
         accountID: ConnectedAccountID, generation: String, previousGeneration: String?,
-        expiresAt: Date, phase: String = "pendingCapture", selfID: Member.ID? = nil, label: String = "Account"
+        expiresAt: Date, phase: String = "pendingCapture", selfID: Member.ID? = nil,
+        label: String = "Account",
+        removalRevision: String? = nil
     ) {
         self.id = id
         self.operationID = operationID
@@ -32,6 +35,7 @@ public struct AccountLinkRecord: Codable, Hashable, Sendable {
         self.accountID = accountID
         self.generation = generation
         self.previousGeneration = previousGeneration
+        self.removalRevision = removalRevision
         self.expiresAt = expiresAt
         self.phase = phase
         self.selfID = selfID
@@ -46,6 +50,8 @@ public struct AccountLinkRecord: Codable, Hashable, Sendable {
 public protocol AccountLinkRegistry: AccountRegistry {
     func links() throws -> [AccountLinkRecord]
     func saveLink(_ link: AccountLinkRecord) throws
+    func removalRevision() throws -> String
+    func validateLinkAdmission(_ link: AccountLinkRecord) throws
     /// Publishes the account binding and committed intent in one transaction.
     func commitLink(_ link: AccountLinkRecord, account: AccountRecord) throws
 }

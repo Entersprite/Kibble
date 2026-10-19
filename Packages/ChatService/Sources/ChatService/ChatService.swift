@@ -223,6 +223,7 @@ public actor ChatService: ServiceEventEndpoint {
             await runtime.stop()
             runtimes[record.id] = nil
         }
+        try await finishLinksForRemoval(removing)
         try await providers.forgetCredentials(for: removing)
         try storage.erase(record.id)
         try registry.remove(record.id)

@@ -138,6 +138,23 @@ struct LinkHarness {
         return try await transport.exchange(request).value(for: P.self)
     }
 
+    func restarted() async throws -> LinkHarness {
+        await service.shutdown()
+        let service = ChatService(
+            registry: registry,
+            storage: SQLiteServiceStorageFactory(directory: directory),
+            providers: providers,
+            linkCustody: custody
+        )
+        try await service.restore()
+        let transport = InProcessChatTransport(endpoint: service, context: context)
+        _ = try await transport.negotiate(.current)
+        return LinkHarness(
+            directory: directory, registry: registry, custody: custody, providers: providers,
+            service: service, context: context, transport: transport
+        )
+    }
+
     static func existing() -> AccountRecord {
         AccountRecord(
             id: ConnectedAccountID("existing"),

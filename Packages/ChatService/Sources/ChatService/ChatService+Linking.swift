@@ -112,18 +112,19 @@ extension ChatService {
             try checkLinkAuthentication(record)
             target = record
         }
-        let link = AccountLinkRecord(
+        let link = try AccountLinkRecord(
             id: AccountLinkID(UUID().uuidString), operationID: payload.operationID,
             principalID: context.principalID, deviceID: context.deviceID, targetAccountID: target?.id,
             accountID: target?.id ?? ConnectedAccountID(UUID().uuidString), generation: UUID().uuidString,
             previousGeneration: target?.credentialGeneration, expiresAt: Date().addingTimeInterval(1200),
-            label: target?.label ?? "Account"
+            label: target?.label ?? "Account",
+            removalRevision: (registry as? any AccountLinkRegistry)?.removalRevision()
         )
         try saveLink(link)
         return link.summary
     }
 
-    private func runLink(_ id: AccountLinkID, cancel: Bool) async throws -> AccountLinkSummary {
+    func runLink(_ id: AccountLinkID, cancel: Bool) async throws -> AccountLinkSummary {
         guard linkTasks[id] == nil else { throw ServiceFailure.overloaded }
         let work = Task {
             defer { linkTasks[id] = nil }
@@ -140,7 +141,7 @@ extension ChatService {
         links[link.id] = link
     }
 
-    private func advanceLink(_ id: AccountLinkID, cancel: Bool) async throws -> AccountLinkSummary {
+    func advanceLink(_ id: AccountLinkID, cancel: Bool) async throws -> AccountLinkSummary {
         guard var link = links[id], let custody = linkCustody else { throw ServiceFailure.invalidRequest }
         switch link.phase {
         case "completed", "canceled", "alreadyConnected": return link.summary
@@ -153,6 +154,7 @@ extension ChatService {
             return try await cancelLink(link, custody: custody)
         }
         link = try await verifyLink(link, custody: custody)
+        try await validateLinkRetirement(link, custody: custody)
         if let existing = duplicateAccount(link) {
             return try await resolveDuplicate(link, existing: existing, custody: custody)
         }
@@ -202,6 +204,7 @@ extension ChatService {
             try saveLink(installing)
             try await custody.install(installing)
             try checkLinkActive()
+            try await validateLinkRetirement(installing, custody: custody)
             if let existing = duplicateAccount(installing) {
                 return try await resolveDuplicate(installing, existing: existing, custody: custody)
             }
@@ -307,6 +310,36 @@ extension ChatService {
         canceling.phase = "canceled"
         try saveLink(canceling)
         return canceling.summary
+    }
+
+    private func validateLinkRetirement(
+        _ link: AccountLinkRecord,
+        custody: any AccountLinkCustody
+    ) async throws {
+        guard let registry = registry as? any AccountLinkRegistry
+        else { throw ServiceFailure.unsupportedOperation }
+        do {
+            try registry.validateLinkAdmission(link)
+        } catch let failure as ServiceFailure where failure == .staleAccount {
+            _ = try await cancelLink(link, custody: custody)
+            throw failure
+        }
+    }
+
+    func finishLinksForRemoval(_ record: AccountRecord) async throws {
+        let related = links.values.filter {
+            $0.principalID == record.principalID &&
+                ($0.accountID == record.id || $0.targetAccountID == record.id || $0
+                    .resolvedAccountID == record.id || $0.selfID == record.selfID)
+        }
+        for link in related {
+            if let work = linkTasks[link.id] {
+                work.cancel(); _ = await work.result
+            }
+            guard let current = links[link.id],
+                  !["completed", "alreadyConnected", "canceled"].contains(current.phase) else { continue }
+            _ = try await runLink(current.id, cancel: true)
+        }
     }
 
     private func checkLinkAuthentication(_ record: AccountRecord) throws {

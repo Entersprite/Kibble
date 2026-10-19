@@ -27,6 +27,11 @@ struct OwnershipTests {
         }
 
         func saveLink(_ link: AccountLinkRecord) {}
+        func removalRevision() -> String {
+            "0"
+        }
+
+        func validateLinkAdmission(_ link: AccountLinkRecord) {}
         func commitLink(_ link: AccountLinkRecord, account: AccountRecord) {}
     }
 

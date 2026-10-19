@@ -76,6 +76,14 @@ struct AuthFaultTests {
             try backing.saveLink(link)
         }
 
+        func removalRevision() throws -> String {
+            try backing.removalRevision()
+        }
+
+        func validateLinkAdmission(_ link: AccountLinkRecord) throws {
+            try backing.validateLinkAdmission(link)
+        }
+
         func commitLink(_ link: AccountLinkRecord, account: AccountRecord) throws {
             try backing.commitLink(
                 link,

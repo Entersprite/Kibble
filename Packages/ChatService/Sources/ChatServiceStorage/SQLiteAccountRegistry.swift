@@ -45,6 +45,7 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
                 table.primaryKey(["principal", "identity"])
             }
         }
+        Self.addLifecycleMigration(to: &migrations)
         try migrations.migrate(database)
     }
 
@@ -79,10 +80,20 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
             bytes
         ])
         guard db.changesCount == 1 else { throw ServiceFailure.operationConflict }
+        if account.isRemoving {
+            try Self.markRetiring(account, in: db)
+        }
     }
 
     public func remove(_ account: ConnectedAccountID) throws {
         try database.write { db in
+            if let data = try Data.fetchOne(
+                db,
+                sql: "SELECT record FROM connectedAccount WHERE id = ?",
+                arguments: [account.rawValue]
+            ) {
+                try Self.markRetiring(ServiceCodec.decode(AccountRecord.self, from: data), in: db)
+            }
             try db.execute(
                 sql: "INSERT OR IGNORE INTO retiredAccount (id) VALUES (?)",
                 arguments: [account.rawValue]
@@ -127,7 +138,8 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
         lhs.id == rhs.id && lhs.principalID == rhs.principalID && lhs.deviceID == rhs.deviceID &&
             lhs.operationID == rhs.operationID && lhs.accountID == rhs.accountID &&
             lhs.targetAccountID == rhs.targetAccountID && lhs.generation == rhs.generation &&
-            lhs.previousGeneration == rhs.previousGeneration && lhs.expiresAt == rhs.expiresAt
+            lhs.previousGeneration == rhs.previousGeneration && lhs.expiresAt == rhs.expiresAt &&
+            lhs.removalRevision == rhs.removalRevision
     }
 
     public func commitLink(_ link: AccountLinkRecord, account: AccountRecord) throws {
@@ -151,6 +163,7 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
             } else {
                 guard current == nil else { throw ServiceFailure.operationConflict }
             }
+            try Self.validateLinkAdmission(link, in: db)
             try Self.save(account, in: db)
             var committed = link
             committed.phase = "committed"

@@ -144,9 +144,8 @@ struct LinkingTests {
             targetAccountID: record.id
         ))
         _ = try await harness.call(RemoveAccount(), account: record.id)
-        await #expect(throws: ServiceFailure.operationConflict) {
-            try await harness.call(CompleteAccountLink(linkID: begun.id))
-        }
+        let completed = try await harness.call(CompleteAccountLink(linkID: begun.id))
+        #expect(completed.phase == "canceled")
         #expect(try harness.registry.accounts().isEmpty)
         #expect(await harness.custody.installs == 0)
         _ = try await harness.call(CancelAccountLink(linkID: begun.id))
