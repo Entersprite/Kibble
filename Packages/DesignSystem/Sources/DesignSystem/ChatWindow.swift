@@ -9,6 +9,9 @@ import SwiftUI
 public struct ChatWindow: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
+    /// Set while the selected account is not running: its content column
+    /// says why, in place of the empty state.
+    let unavailable: AccountUnavailable?
 
     /// The edit a menu asked for, the message being edited, and the message
     /// whose deletion awaits confirmation (edit spec §5). Not `private`:
@@ -24,9 +27,10 @@ public struct ChatWindow: View {
     /// panel raises its title (`ChatWindow+ThreadColumn.swift`).
     @State var threadBand: CGFloat = 0
 
-    public init(state: ChatSceneState, actions: ChatSceneActions) {
+    public init(state: ChatSceneState, actions: ChatSceneActions, unavailable: AccountUnavailable? = nil) {
         self.state = state
         self.actions = actions
+        self.unavailable = unavailable
     }
 
     /// Three columns: the sidebar, the conversation, and the open thread
@@ -41,6 +45,7 @@ public struct ChatWindow: View {
     public var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             ConversationList(state: state, actions: actions)
+                .accountUnavailable(unavailable != nil)
                 .navigationSplitViewColumnWidth(
                     min: SidebarColumnLayout.minimumWidth,
                     ideal: SidebarColumnLayout.idealWidth
@@ -53,7 +58,9 @@ public struct ChatWindow: View {
                 }
         } content: {
             VStack(spacing: 0) {
-                StatusStrip(state: state, actions: actions)
+                if unavailable == nil {
+                    StatusStrip(state: state, actions: actions)
+                }
                 if let bar = state.search.bar, let search = actions.search,
                    state.selectedConversation != nil {
                     SearchResultsBar(bar: bar, state: state, actions: search)
@@ -111,6 +118,8 @@ public struct ChatWindow: View {
                                 .background(alignment: .bottom) { ComposerScrim() }
                             }
                             .modifier(FileDropTarget(stage: dropStage))
+                        } else if let unavailable {
+                            AccountUnavailableView(unavailable: unavailable)
                         } else {
                             ContentUnavailableView(
                                 "Pick a conversation",

@@ -23,7 +23,18 @@ public struct ConversationList: View {
         self.actions = actions
     }
 
+    func accountUnavailable(_ unavailable: Bool) -> Self {
+        var list = self
+        list.isAccountUnavailable = unavailable
+        return list
+    }
+
     @State private var pendingAction: PendingConversationAction?
+    /// Present under `AccountShell`, which draws the account pill itself.
+    @Environment(\.accountFooter) private var accountFooter
+    /// The selected account is not running: no sections and no "nothing has
+    /// synced" note, only the empty list that keeps the footer in its place.
+    var isAccountUnavailable = false
 
     /// Two lists: the pinned rows, which never scroll (`PinnedList`), and the
     /// conversations below them. A second list rather than a bar over the
@@ -84,7 +95,7 @@ public struct ConversationList: View {
     private var conversations: some View {
         let preferences = state.sidebarPreferences
         return List(selection: selectionBinding) {
-            ForEach(SidebarProjection.build(
+            ForEach(isAccountUnavailable ? [] : SidebarProjection.build(
                 state.conversations, preferences: state.sidebarPreferences,
                 directory: state.directory, me: state.me
             )) { section in
@@ -147,7 +158,7 @@ public struct ConversationList: View {
         .listStyle(.sidebar)
         .sidebarFade()
         .overlay {
-            if state.conversations.isEmpty {
+            if state.conversations.isEmpty, !isAccountUnavailable {
                 ContentUnavailableView(
                     "No conversations",
                     systemImage: "bubble.left.and.bubble.right",
@@ -167,7 +178,13 @@ public struct ConversationList: View {
         // band with the rows cut off at its edge. `SidebarFade` masks only the
         // rows' clip view for that reason.
         .safeAreaBar(edge: .bottom) {
-            SidebarFooter(state: state, actions: actions)
+            // Under `AccountShell` the row is reserved and measured here, and
+            // the pill drawn above the window so its panel can grow past the sidebar.
+            if let accountFooter {
+                AccountFooterAnchor(geometry: accountFooter)
+            } else {
+                SidebarFooter(state: state, actions: actions)
+            }
         }
         // Rows soften as they pass under the bar rather than sliding behind it
         // at full contrast.

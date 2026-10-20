@@ -267,7 +267,7 @@ public extension MacAppDelegate {
         Task { @MainActor [environment] in
             await self.accountCalls?.stop()
             await self.callSignIn.invalidate()
-            await self.accountFixture?.stop()
+            await self.accountHost?.stop()
             await environment.calls.stop()
             sender.reply(toApplicationShouldTerminate: true)
         }

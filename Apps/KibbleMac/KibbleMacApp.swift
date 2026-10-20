@@ -23,6 +23,9 @@ struct KibbleMacApp: App {
     @State private var settingsSignOutTarget: AppEnvironment?
     @State private var editingConversation: ConversationSelection?
     @State private var conversationTarget: AppEnvironment?
+    @State private var isAccountPanelOpen = false
+    /// The account a Remove Account… awaits confirmation for, captured when asked.
+    @State private var removingAccount: String?
     // HIG: reopen on the last pane.
     @AppStorage("settingsPane") private var settingsPane = "notifications"
 
@@ -38,14 +41,14 @@ struct KibbleMacApp: App {
             // A stable container, so a phase change swapping the content
             // below is not reported as the window closing and reopening.
             ZStack { content }
-                .frame(minWidth: appDelegate.accountFixture == nil ? 760 : 832, minHeight: 460)
+                .frame(minWidth: 760, minHeight: 460)
                 // Half of the viewing gate (`AppEnvironment.isViewing`); the
                 // frontmost half and minimising come from `MacAppDelegate`.
                 .onAppear { appDelegate.setMainWindowOpen(true) }
                 .onDisappear { appDelegate.setMainWindowOpen(false) }
                 // So minimising another window is not read as this one.
                 .reportsMainWindow(to: appDelegate)
-                .onChange(of: appDelegate.accountFixture?.workspace?.selectedID?.rawValue) {
+                .onChange(of: appDelegate.accountHost?.workspace?.selectedID?.rawValue) {
                     editingConversation = nil
                     conversationTarget = nil
                     isConfirmingSignOut = false
@@ -64,6 +67,30 @@ struct KibbleMacApp: App {
                 }
                 .sheet(item: $editingConversation) { item in
                     ConversationSheetHost(environment: conversationTarget ?? environment, id: item.id)
+                }
+                .confirmationDialog(
+                    removalTitle,
+                    isPresented: Binding(
+                        get: { removingAccount != nil },
+                        set: {
+                            if !$0 {
+                                removingAccount = nil
+                            }
+                        }
+                    )
+                ) {
+                    Button("Remove Account", role: .destructive) {
+                        let id = removingAccount
+                        removingAccount = nil
+                        if let id, let host = appDelegate.accountHost {
+                            Task { await host.removeAccount(id) }
+                        }
+                    }
+                } message: {
+                    Text(
+                        "Kibble erases this account's conversations and files from this Mac. "
+                            + "A call on this account ends."
+                    )
                 }
         }
         .defaultSize(width: 1100, height: 720)
@@ -128,13 +155,13 @@ struct KibbleMacApp: App {
         MenuBarExtra {
             MenuBarContent(
                 environment: environment,
-                devicePause: appDelegate.accountFixture?.deviceNotificationPause
+                devicePause: appDelegate.accountHost?.deviceNotificationPause
             )
         } label: {
             MenuBarLabel(
                 environment: environment,
-                aggregateBadgeCount: appDelegate.accountFixture?.workspace?.badgeCount,
-                accountWindowRequests: appDelegate.accountFixture?.workspace?.windowRequests ?? 0
+                aggregateBadgeCount: appDelegate.accountHost?.workspace?.badgeCount,
+                accountWindowRequests: appDelegate.accountHost?.workspace?.windowRequests ?? 0
             )
         }
         .menuBarExtraStyle(.menu)
@@ -226,11 +253,27 @@ struct KibbleMacApp: App {
 
     @ViewBuilder
     private var normalContent: some View {
-        if let fixture = appDelegate.accountFixture {
-            AccountFixtureContent(host: fixture) { sessionContent }
+        if let host = appDelegate.accountHost {
+            AccountWindowContent(
+                host: host,
+                chatActions: { sceneActions(for: $0, showSettings: $1) },
+                isPanelOpen: $isAccountPanelOpen,
+                removeAccount: { removingAccount = $0 },
+                manageAccounts: { showSettings in
+                    settingsPane = "account"
+                    showSettings()
+                }
+            )
         } else {
             sessionContent
         }
+    }
+
+    private var removalTitle: String {
+        guard let id = removingAccount, let workspace = appDelegate.accountHost?.workspace,
+              let label = workspace.accountLabels.first(where: { $0.key.rawValue == id })?.value
+        else { return "Remove this account from Kibble?" }
+        return "Remove \(label) from Kibble?"
     }
 
     @ViewBuilder
@@ -243,18 +286,18 @@ struct KibbleMacApp: App {
             // there is nothing yet in the Keychain to overwrite, and that
             // fact belongs here rather than in `CookieCaptureView`'s default
             // parameter value.
-            if appDelegate.accountFixture == nil {
-                CookieCaptureView(reason: reason, autoSaveAllowed: true) { await environment.signedIn() }
-            } else {
-                Text("This account is no longer connected.")
-            }
+            // Only without the account host, which signs accounts in itself.
+            CookieCaptureView(reason: reason, autoSaveAllowed: true) { await environment.signedIn() }
         case .running, .failed, .report:
             // `.failed` and `.report` draw the same window with an empty
             // sidebar and their message in the status strip. They differ in
             // one thing, and it is `environment.actions`' job: a failed launch
             // offers a way back to sign-in, and a probe report does not.
             SettingsOpening { showSettings in
-                ChatWindow(state: environment.sceneState, actions: sceneActions(showSettings: showSettings))
+                ChatWindow(
+                    state: environment.sceneState,
+                    actions: sceneActions(for: environment, showSettings: showSettings)
+                )
             }
         }
     }
@@ -267,11 +310,13 @@ struct KibbleMacApp: App {
     /// so the shell opens it (`SettingsOpening`). Assembly, not logic: this
     /// still names no concrete backend and makes no decision `AppEnvironment`
     /// has not already made through `canSignOut`.
-    private func sceneActions(showSettings: @escaping () -> Void) -> ChatSceneActions {
-        var actions = environment.actions
-        let target = environment
+    private func sceneActions(
+        for target: AppEnvironment,
+        showSettings: @escaping () -> Void
+    ) -> ChatSceneActions {
+        var actions = target.actions
         actions.signOut = target.canSignOut ? { signOutTarget = target; isConfirmingSignOut = true } : nil
-        actions.showNotificationSettings = environment.canEditNotificationRules
+        actions.showNotificationSettings = target.canEditNotificationRules
             ? { conversationTarget = target; editingConversation = ConversationSelection(id: $0) }
             : nil
         actions.showSettings = showSettings

@@ -15,9 +15,9 @@ import Foundation
 @MainActor
 public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private let legacyEnvironment: AppEnvironment
-    public let accountFixture: SystemAccountHost?
+    public let accountHost: SystemAccountHost?
     public var environment: AppEnvironment {
-        accountFixture?.workspace?.selectedEnvironment ?? legacyEnvironment
+        accountHost?.workspace?.selectedEnvironment ?? legacyEnvironment
     }
 
     /// Settings › Updates and the updater behind it, for the life of the
@@ -52,7 +52,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
     var accountCalls: NativeAccountCallCoordinator?
     private var selectedCallBinding: NativeAccountCallBinding? {
-        guard let host = accountFixture, let workspace = host.workspace,
+        guard let host = accountHost, let workspace = host.workspace,
               let account = workspace.accounts.first(where: { $0.id == workspace.selectedID })
         else { return nil }
         return host.callBindings.binding(for: account)
@@ -80,8 +80,8 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         let settingsStore: any NotificationSettingsStore =
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
-        let fixture = Self.fixtureHost(notifications: notifications)
-        accountFixture = fixture
+        let fixture = Self.makeAccountHost(notifications: notifications)
+        accountHost = fixture
         let services =
             SystemLaunchServices(arguments: fixture == nil ? .fromCommandLine() :
                 LaunchArguments(backend: .fixture))
@@ -124,7 +124,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         callSettings.previewRingtone = { [weak callRinger] in callRinger?.preview($0) }
     }
 
-    private static func fixtureHost(notifications: UserNotificationDelivery) -> SystemAccountHost? {
+    private static func makeAccountHost(notifications: UserNotificationDelivery) -> SystemAccountHost? {
         #if DEBUG
             if CommandLine.arguments.contains("--multi-account-fixture") {
                 return SystemAccountHost()
@@ -138,23 +138,23 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationWillFinishLaunching(_: Notification) {
         // Before launch completes, or the click that launched the app is lost.
-        if accountFixture == nil || accountFixture?.usesGoogleAccounts == true {
+        if accountHost == nil || accountHost?.usesGoogleAccounts == true {
             notifications.install()
         }
     }
 
     public func applicationDidFinishLaunching(_: Notification) {
-        if accountFixture == nil {
+        if accountHost == nil {
             startCallWindowObservation()
         }
-        if accountFixture?.usesGoogleAccounts != false {
+        if accountHost?.usesGoogleAccounts != false {
             diagnostics.start()
             diagnostics.sampleMemory()
         }
         startAccountCalls()
         startMemoryMonitoring()
         let environment = legacyEnvironment
-        let fixture = accountFixture
+        let fixture = accountHost
         Task {
             if let fixture {
                 await fixture.start()
@@ -200,13 +200,13 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         // Every window posts these; `MainWindowMinimising` keeps the main one's.
         startWindowMonitoring()
 
-        if accountFixture?.usesGoogleAccounts != false {
+        if accountHost?.usesGoogleAccounts != false {
             updates.start()
         }
     }
 
     private func startAccountCalls() {
-        if let host = accountFixture, host.usesGoogleAccounts {
+        if let host = accountHost, host.usesGoogleAccounts {
             accountCalls = NativeAccountCallCoordinator(
                 host: host, settings: callSettings, notifications: notifications
             )
@@ -226,7 +226,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startMemoryMonitoring() {
-        if accountFixture?.usesGoogleAccounts != false {
+        if accountHost?.usesGoogleAccounts != false {
             memoryTask = Task { [diagnostics] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(30))
@@ -236,7 +236,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         let environment = legacyEnvironment
-        let fixture = accountFixture
+        let fixture = accountHost
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         pressure.setEventHandler { [weak environment] in
             MainActor.assumeIsolated {
@@ -252,8 +252,8 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func setMainWindowOpen(_ open: Bool) {
-        if let accountFixture {
-            accountFixture.setViewing(open: open)
+        if let accountHost {
+            accountHost.setViewing(open: open)
         } else {
             legacyEnvironment.setWindowOpen(open)
         }
