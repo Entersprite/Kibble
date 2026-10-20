@@ -238,13 +238,14 @@ public final class AccountWorkspace {
 
     func receive(_ state: AccountStateSnapshot) {
         let previous = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+        let order = accounts.map(\.id)
         accounts = state.accounts
         host.updateAccountState(state.accounts)
         pendingLinks = state.pendingLinks
         isLoading = false
         error = nil
         if selectedID == nil || !accounts.contains(where: { $0.id == selectedID }) {
-            selectedID = accounts.first?.id
+            selectedID = Self.neighbor(of: selectedID, in: order, remaining: accounts)
             selectionChanged(selectedID)
         }
         for account in accounts {
@@ -275,5 +276,17 @@ public final class AccountWorkspace {
             session.environment.setWindowMinimized(minimized || !selected)
             session.environment.setActive(active && selected)
         }
+    }
+
+    /// After the selected account goes away, the one that followed it, else
+    /// the one before it, so a removal never jumps back to the top of the list.
+    static func neighbor(
+        of gone: ConnectedAccountID?, in order: [ConnectedAccountID], remaining: [AccountSummary]
+    ) -> ConnectedAccountID? {
+        let ids = Set(remaining.map(\.id))
+        guard let gone, let index = order.firstIndex(of: gone) else { return remaining.first?.id }
+        return order[(index + 1)...].first(where: ids.contains)
+            ?? order[..<index].last(where: ids.contains)
+            ?? remaining.first?.id
     }
 }
