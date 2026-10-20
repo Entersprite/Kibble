@@ -88,8 +88,8 @@ struct KibbleMacApp: App {
                     }
                 } message: {
                     Text(
-                        "Kibble erases this account's conversations and files from this Mac. "
-                            + "A call on this account ends."
+                        "Kibble erases this account's conversations and files from this Mac, and a call on "
+                            + "this account ends. Its settings are kept: add it again to get them back."
                     )
                 }
         }

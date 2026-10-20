@@ -5,10 +5,11 @@ import Foundation
 
 extension AccountRuntime {
     func scheduleEffects(for event: ChatEvent) async {
+        if let member = ownMember(in: event) {
+            requestProfileRefresh(member)
+        }
         switch event {
         case .conversationsChanged: requestBackfill()
-        case let .selfIdentified(member) where member.id == record.selfID:
-            requestProfileRefresh(member)
         case .connectionStateChanged(.connected):
             requestWorldRefresh()
             if aggregateClientInterests().hasAny || publishedInterests.hasAny {
@@ -51,6 +52,18 @@ extension AccountRuntime {
                     await reconciliationFailed(error)
                 }
             }
+        }
+    }
+
+    /// The account's own member, when `event` names it. A provider may identify
+    /// itself by id alone and name its own member later, as any other (the
+    /// Google adapter does).
+    private func ownMember(in event: ChatEvent) -> Member? {
+        switch event {
+        case let .selfIdentified(member): member.id == record.selfID ? member : nil
+        case let .membersResolved(members), let .membersChanged(_, members):
+            members.first { $0.id == record.selfID }
+        default: nil
         }
     }
 

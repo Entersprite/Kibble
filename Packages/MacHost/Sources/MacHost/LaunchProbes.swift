@@ -31,6 +31,20 @@ enum LaunchProbes {
         return write(result, to: name)
     }
 
+    /// What each launch probe runs. The native call trial has its own window.
+    private static let reports: [MacLaunchProbe: @MainActor () async -> String] = [
+        .keychain: { await keychainCheck() }, .api: { await apiProbe() },
+        .punctual: { await punctualProbe() }, .upload: { await uploadProbe() },
+        .people: { await peopleProbe() }, .organization: { await organizationProbe() },
+        .edit: { await editProbe() }, .search: { await searchProbe(spaces: false) },
+        .spaces: { await searchProbe(spaces: true) }, .meetResolve: { await meetResolveProbe() }
+    ]
+
+    static func report(for probe: MacLaunchProbe) async -> String {
+        guard let report = reports[probe] else { return "Use the native DM call trial window." }
+        return await report()
+    }
+
     static func keychainCheck() async -> String {
         let store = KeychainCredentialStore.forSelfCheck()
         let legacy = await store.selfCheck()
@@ -107,6 +121,21 @@ enum LaunchProbes {
         let text = await PeopleProbeReport.run(
             store: KeychainCredentialStore(),
             query: argument("--probe-query=") ?? PeopleProbeReport.defaultQuery,
+            flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
+        )
+        return write(text, to: name)
+    }
+
+    /// `--probe=organization`: whether Chat says who manages the signed-in
+    /// account. Reads only; reports presence and kinds, never a value.
+    static func organizationProbe() async -> String {
+        let name = "organization-probe.txt"
+        guard let directory = try? SystemLaunchServices.supportDirectory() else {
+            return "Could not resolve where to write \(name)."
+        }
+        let url = directory.appendingPathComponent(name)
+        let text = await OrganizationProbeReport.run(
+            store: KeychainCredentialStore(),
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
         )
         return write(text, to: name)

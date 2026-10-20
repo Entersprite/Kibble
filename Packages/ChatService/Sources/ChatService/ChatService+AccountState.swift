@@ -103,13 +103,22 @@ extension ChatService {
 
     /// Keeps the provider's latest own identity. Only the current runtime of the
     /// current binding may change it, and an unchanged profile writes nothing.
+    /// What a report leaves out keeps its known value: identification by id
+    /// alone must not erase a name already learned.
     func runtimeProfileChanged(
         _ id: ConnectedAccountID, revision: ServiceAccountRevision, instanceID: UUID, profile: AccountProfile
     ) {
         guard !shuttingDown, var record = records[id], record.currentRevision == revision,
-              !record.isRemoving, runtimes[id]?.instanceID == instanceID, record.profile != profile
-        else { return }
-        record.profile = profile
+              !record.isRemoving, runtimes[id]?.instanceID == instanceID else { return }
+        let known = record.profile
+        let merged = AccountProfile(
+            displayName: profile.displayName ?? known?.displayName,
+            email: profile.email ?? known?.email,
+            organization: profile.organization == .unstated ? known?.organization ?? .unstated
+                : profile.organization
+        )
+        guard merged != known else { return }
+        record.profile = merged
         do {
             try registry.save(record)
         } catch {

@@ -216,17 +216,7 @@ public final class SystemLaunchServices: LaunchServices {
 
     public func runLaunchReport() async -> String {
         guard let launchProbe else { return "No launch report was requested." }
-        return switch launchProbe {
-        case .keychain: await LaunchProbes.keychainCheck()
-        case .api: await LaunchProbes.apiProbe()
-        case .punctual: await LaunchProbes.punctualProbe()
-        case .upload: await LaunchProbes.uploadProbe()
-        case .people: await LaunchProbes.peopleProbe()
-        case .edit: await LaunchProbes.editProbe()
-        case .search, .spaces: await LaunchProbes.searchProbe(spaces: launchProbe == .spaces)
-        case .meetResolve: await LaunchProbes.meetResolveProbe()
-        case .meetCall: "Use the native DM call trial window."
-        }
+        return await LaunchProbes.report(for: launchProbe)
     }
 
     public func startDiagnostics() throws {

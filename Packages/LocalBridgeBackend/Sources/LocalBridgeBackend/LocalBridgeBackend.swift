@@ -86,6 +86,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// once. Not `private`: `LocalBridgeBackend+Directory.swift` owns the
     /// lookups. Cleared by `disconnect()`.
     var requestedMemberIDs: Set<ChatKit.Member.ID> = []
+    /// Who manages this account, from its own `User` the first time
+    /// `get_members` returns it (`LocalBridgeBackend+Organization.swift`).
+    var selfOrganization: AccountOrganization = .unstated
 
     /// Bumped by `disconnect()`, so an on-demand lookup that answers
     /// afterwards can tell its session has gone. A counter, not a held task:

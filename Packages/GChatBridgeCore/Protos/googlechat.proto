@@ -36,7 +36,9 @@ message User {
 	optional string gender = 10;
 	//optional DYNProtoUserAccountState user_account_state = 11;
 	//optional DYNProtoUserProfileVisibility user_profile_visibility = 15;
-	//optional DYNProtoOrganizationInfo organization_info = 12;
+	// Who manages the account: a consumer, or a customer (an organization).
+	// Shape from reference/purple-googlechat-master/googlechat.proto:42-51.
+	optional OrganizationInfo organization_info = 12;
 	optional UserBlockRelationship block_relationship = 13;
 	//repeated DYNProtoPhoneNumber phone_number = 14;
 }
@@ -59,6 +61,17 @@ message DndSettings {
 
 message CustomerId {
 	optional string customer_id = 1;
+}
+
+message OrganizationInfo {
+	message ConsumerInfo {
+	}
+	optional ConsumerInfo consumer_info = 1;
+
+	message CustomerInfo {
+		optional CustomerId customer_id = 1;
+	}
+	optional CustomerInfo customer_info = 2;
 }
 
 enum EmojiState {

@@ -128,6 +128,9 @@ extension LocalBridgeBackend {
         // After the await: `disconnect()` may have run while the call was out,
         // and a stale session's names must not land in the next one.
         guard generation == directoryGeneration else { return }
+        // Before the names are emitted: the service asks for the organization
+        // once it sees the account's own member.
+        noteOwnOrganization(in: response)
         let mapped = MemberMapping.map(response)
         remember(emailsOf: mapped.members)
         if mapped.skipped > 0 {
