@@ -40,7 +40,7 @@ extension AccountRuntime {
         for (id, subscriber) in subscribers {
             switch subscriber.yield(bytes) {
             case .dropped:
-                subscriber.finish(throwing: ServiceFailure.overloaded)
+                subscriber.finish(throwing: ServiceFailure.resynchronizationRequired)
                 subscribers[id] = nil
                 subscriberAttachments[id] = nil
             case .terminated:

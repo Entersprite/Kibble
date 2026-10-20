@@ -15,6 +15,18 @@ struct ProjectionWaiter {
 }
 
 extension ServiceBackend {
+    /// Queue pressure is a journal replay request. Keep the current committed
+    /// cursor and only report unavailable if replay itself fails.
+    func subscriptionFailure(_ error: any Error, generation: UUID) async -> (any Error)? {
+        guard checkpointed, error as? ServiceFailure == .resynchronizationRequired else { return error }
+        do {
+            try await catchUp(generation: generation)
+            return nil
+        } catch {
+            return error
+        }
+    }
+
     func projected<Value: Sendable>(_ query: () async throws -> Value) async throws -> Value {
         for _ in 0 ..< 3 {
             let generation = connectionGeneration

@@ -254,7 +254,7 @@ public actor InProcessChatTransport: ServiceEventTransport, ServiceAccountStateT
                 try checkSize(frame)
                 let value = try decode(frame)
                 if case .dropped = continuation.yield(value), !replacingSnapshots {
-                    throw ServiceFailure.overloaded
+                    throw ServiceFailure.resynchronizationRequired
                 }
             }
             continuation.finish()

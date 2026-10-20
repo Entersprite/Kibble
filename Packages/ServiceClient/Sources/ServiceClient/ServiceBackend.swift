@@ -169,19 +169,16 @@ public actor ServiceBackend: ProjectedChatBackend {
                 throw ServiceFailure.invalidResponse
             } catch {
                 guard !Task.isCancelled, generation == connectionGeneration else { return }
-                if error as? ServiceFailure == .authenticationRequired {
-                    failProjectionWaiters(ServiceFailure.authenticationRequired)
-                    emitTransient(.backendError(.unknown("This account needs to sign in again.")))
+                let recoveryFailure = await subscriptionFailure(error, generation: generation)
+                guard !Task.isCancelled, generation == connectionGeneration else { return }
+                guard let failure = recoveryFailure else {
+                    failures = 0
+                    continue
+                }
+                if endsSubscription(failure) {
                     return
                 }
-                if error as? ServiceFailure == .staleAccount {
-                    failProjectionWaiters(ServiceFailure.staleAccount)
-                    emitTransient(
-                        .backendError(.unknown("The account sign-in has changed. Reconnect this client."))
-                    )
-                    return
-                }
-                if error as? ServiceFailure == .clientAttachmentExpired,
+                if failure as? ServiceFailure == .clientAttachmentExpired,
                    attachment?.id == subscribedAttachment {
                     attachment = nil
                 }
@@ -196,7 +193,7 @@ public actor ServiceBackend: ProjectedChatBackend {
         }
     }
 
-    private func catchUp(generation: UUID) async throws {
+    func catchUp(generation: UUID) async throws {
         while !Task.isCancelled {
             let page = try await call(ReadEvents(cursor: cursor, limit: 256))
             try await receive(page, generation: generation)
@@ -312,5 +309,21 @@ public actor ServiceBackend: ProjectedChatBackend {
                 clientTransportAvailable: false
             ))
         }
+    }
+}
+
+private extension ServiceBackend {
+    func endsSubscription(_ error: any Error) -> Bool {
+        if error as? ServiceFailure == .authenticationRequired {
+            failProjectionWaiters(ServiceFailure.authenticationRequired)
+            emitTransient(.backendError(.unknown("This account needs to sign in again.")))
+            return true
+        }
+        if error as? ServiceFailure == .staleAccount {
+            failProjectionWaiters(ServiceFailure.staleAccount)
+            emitTransient(.backendError(.unknown("The account sign-in has changed. Reconnect this client.")))
+            return true
+        }
+        return false
     }
 }

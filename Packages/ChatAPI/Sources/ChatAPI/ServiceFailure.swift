@@ -37,6 +37,8 @@ public struct ServiceFailure: Error, Codable, Hashable, Sendable {
     public static let invalidResponse = ServiceFailure(code: "invalidResponse")
     public static let deadlineExceeded = ServiceFailure(code: "deadlineExceeded")
     public static let frameTooLarge = ServiceFailure(code: "frameTooLarge")
+    /// A durable event subscriber must resume from its last committed cursor.
+    public static let resynchronizationRequired = ServiceFailure(code: "resynchronizationRequired")
     public static let overloaded = ServiceFailure(code: "overloaded")
     public static let duplicateRequest = ServiceFailure(code: "duplicateRequest")
     public static let internalFailure = ServiceFailure(code: "internalFailure")
