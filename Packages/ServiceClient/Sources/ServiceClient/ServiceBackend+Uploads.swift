@@ -10,15 +10,17 @@ public extension ServiceBackend {
         progress: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws -> Attachment {
         guard capabilities.canSendAttachments else { throw ServiceFailure.unsupportedOperation }
-        guard uploadTasks.count + mediaTasks.count < 8 else { throw ServiceFailure.overloaded }
+        guard uploadTasks.count < 8 else { throw ServiceFailure.overloaded }
         let generation = connectionGeneration
         let id = UUID()
-        let work = Task { try await uploadFile(
-            attachment,
-            to: conversation,
-            generation: generation,
-            progress: progress
-        ) }
+        let work = Task { try await withTransferPermit(.upload) {
+            try await self.uploadFile(
+                attachment,
+                to: conversation,
+                generation: generation,
+                progress: progress
+            )
+        } }
         uploadTasks[id] = work
         defer { uploadTasks[id] = nil }
         return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }

@@ -73,19 +73,18 @@ extension ServiceBackend {
         progress: @escaping @Sendable (AttachmentProgress) -> Void = { _ in }
     ) async throws -> Data {
         guard maximumBytes >= 0 else { throw ServiceFailure.invalidRequest }
-        guard mediaTasks.count + uploadTasks.count < 8 else { throw ServiceFailure.overloaded }
+        guard mediaTasks.count < 64 else { throw ServiceFailure.overloaded }
         let generation = connectionGeneration
         let id = UUID()
         let payload = BeginDownloadTransfer(
             operationID: .init(UUID().uuidString), selector: selector, rendition: rendition,
             maximumBytes: maximumBytes
         )
-        let job = Task { try await downloadMedia(
-            payload,
-            destination: destination,
-            generation: generation,
-            progress: progress
-        ) }
+        let job = Task { try await withTransferPermit(.media) {
+            try await self.downloadMedia(
+                payload, destination: destination, generation: generation, progress: progress
+            )
+        } }
         mediaTasks[id] = job
         defer { mediaTasks[id] = nil }
         return try await withTaskCancellationHandler { try await job.value } onCancel: { job.cancel() }
