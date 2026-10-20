@@ -1,4 +1,5 @@
 import ChatAPI
+import ChatKit
 import Foundation
 import Observation
 import ServiceClient
@@ -157,7 +158,7 @@ public final class AccountWorkspace {
         try Task.checkCancellation()
         guard !stopped, cleanupRecords.isEmpty else { throw ServiceFailure.accountCleanupPending }
         capture = try await client.beginLink(
-            operationID: ServiceOperationID(UUID().uuidString),
+            operationID: ServiceOperationID(ClientOperationID.make()),
             replacing: account
         )
     }

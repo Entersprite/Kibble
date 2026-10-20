@@ -119,7 +119,7 @@ extension ChatService {
             record: record, storage: accountStorage, factory: providers,
             policies: policies, instanceID: instanceID,
             notificationHost: notificationHost, notificationService: self.instanceID,
-            callReservations: callReservations,
+            callReservations: callReservations, providerStarts: providerStarts, providerStops: providerStops,
             transferStorage: transferFiles?.open(record.id), transferLimits: transferLimits,
             transferNow: transferNow,
             onStatus: { [weak self] status in

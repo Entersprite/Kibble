@@ -220,7 +220,7 @@ public extension ChatSessionModel {
         caption: ComposedMessage,
         in key: StagingKey
     ) async -> Bool {
-        let localID = UUID().uuidString
+        let localID = ClientOperationID.make()
         let optimisticID = Message.ID("local/\(localID)")
         var undo: [StoreWrite] = []
         if let me {

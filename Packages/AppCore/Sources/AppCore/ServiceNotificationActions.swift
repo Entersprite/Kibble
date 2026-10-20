@@ -62,9 +62,13 @@ public final class ServiceNotificationActions {
             try Task.checkCancellation()
             guard let position = page.messages.filter({ !$0.isReply && !$0.isDeleted }).map(\.createdAt).max()
             else { return }
-            _ = try await client.call(SendCommand(operationID: .init(UUID().uuidString), command: .markRead(
-                conversationID: conversation, upTo: position
-            )), account: scope.account, revision: scope.revision)
+            _ = try await client.call(
+                SendCommand(operationID: .init(ClientOperationID.make()), command: .markRead(
+                    conversationID: conversation, upTo: position
+                )),
+                account: scope.account,
+                revision: scope.revision
+            )
         case let .mute(conversation): try await mute(conversation, scope: scope)
         case .open, .openMessage: break
         }

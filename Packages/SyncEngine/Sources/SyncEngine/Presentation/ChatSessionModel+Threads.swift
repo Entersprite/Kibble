@@ -83,7 +83,7 @@ public extension ChatSessionModel {
         }
         // Only a staged file makes an empty reply mean something.
         guard !message.text.isEmpty else { return }
-        let localID = UUID().uuidString
+        let localID = ClientOperationID.make()
         let optimisticID = Message.ID("local/\(localID)")
         var undo: [StoreWrite] = []
         if let me {

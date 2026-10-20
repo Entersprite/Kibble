@@ -11,7 +11,7 @@ public extension ServiceBackend {
         let id = if case let .sendMessage(_, _, _, localID?, _, _) = command {
             ServiceOperationID("send:\(localID)")
         } else {
-            ServiceOperationID(UUID().uuidString)
+            ServiceOperationID(ClientOperationID.make())
         }
         do {
             let result = try await call(SendCommand(operationID: id, command: command))

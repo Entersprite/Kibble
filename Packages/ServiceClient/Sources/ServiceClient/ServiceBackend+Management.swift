@@ -6,12 +6,15 @@ public extension ServiceBackend {
     func openDirectConversation(with member: Member.ID) async throws -> Conversation {
         try await call(OpenDirectConversation(
             memberID: member,
-            operationID: ServiceOperationID(UUID().uuidString)
+            operationID: ServiceOperationID(ClientOperationID.make())
         ))
     }
 
     func createConversation(_ draft: ConversationDraft) async throws -> ConversationCreationResult {
-        try await call(CreateConversation(draft: draft, operationID: ServiceOperationID(UUID().uuidString)))
+        try await call(CreateConversation(
+            draft: draft,
+            operationID: ServiceOperationID(ClientOperationID.make())
+        ))
     }
 
     func mutateConversation(

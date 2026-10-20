@@ -323,7 +323,7 @@ extension ConversationBrowser {
         writeTask = Task { [weak self, engine] in
             do {
                 let result = try await engine.mutateConversation(
-                    mutation, in: details.conversation.id, operationID: UUID().uuidString,
+                    mutation, in: details.conversation.id, operationID: ClientOperationID.make(),
                     expectedRevision: details.revision
                 )
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }

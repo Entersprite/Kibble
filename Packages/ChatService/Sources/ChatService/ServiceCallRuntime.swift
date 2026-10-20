@@ -5,6 +5,7 @@ import Foundation
 actor ServiceCallRuntime {
     let source: any AudioCallService
     let reservations: CallDeviceReservations
+    let cleanupAdmission: AccountWorkAdmission
     let device: CallDeviceReservations.Device
     let identity = UUID()
     private var sequence: UInt64 = 0
@@ -26,8 +27,10 @@ actor ServiceCallRuntime {
 
     init(
         source: any AudioCallService, reservations: CallDeviceReservations,
-        principal: ServicePrincipalID, device: ServiceDeviceID
+        principal: ServicePrincipalID, device: ServiceDeviceID,
+        cleanupAdmission: AccountWorkAdmission = AccountWorkAdmission(limit: 8)
     ) {
+        self.cleanupAdmission = cleanupAdmission
         self.source = source; self.reservations = reservations
         self.device = .init(principal: principal, device: device)
         state = .init(version: identity.uuidString + ":0")
@@ -104,7 +107,7 @@ actor ServiceCallRuntime {
             waiter.continuation.resume(throwing: ServiceFailure.accountDisabled)
         }
         let task = Task {
-            await source.stop()
+            await cleanupAdmission.cleanup { [source] in await source.stop() }
             await reader?.value; await listener?.value
             await releaseReservation()
         }

@@ -5,8 +5,14 @@ import Foundation
 public struct SQLiteServiceStorageFactory: ServiceStorageFactory {
     private let directory: URL
     private let retention: Int
+    private let limits: AccountRetentionLimits
+    private let retentionClock: @Sendable () -> Date
 
-    public init(directory: URL, retention: Int = 4096) {
+    public init(
+        directory: URL, retention: Int = 4096, limits: AccountRetentionLimits = AccountRetentionLimits(),
+        retentionClock: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.limits = limits; self.retentionClock = retentionClock
         self.directory = directory
         self.retention = retention
     }
@@ -17,7 +23,7 @@ public struct SQLiteServiceStorageFactory: ServiceStorageFactory {
         return try SQLiteAccountStorage(
             account: account,
             path: folder.appendingPathComponent("service.sqlite").path,
-            retention: retention
+            retention: retention, limits: limits, retentionClock: retentionClock
         )
     }
 

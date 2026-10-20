@@ -45,7 +45,7 @@ extension ServiceBackend {
             width: attachment.width, height: attachment.height
         )
         let transfer = try await call(BeginUploadTransfer(
-            operationID: ServiceOperationID(UUID().uuidString), conversationID: conversation,
+            operationID: ServiceOperationID(ClientOperationID.make()), conversationID: conversation,
             metadata: metadata
         ))
         do {
@@ -106,7 +106,7 @@ extension ServiceBackend {
     }
 
     func submitUploadFinalization(_ id: ServiceTransferID, generation: UUID) async throws -> Attachment {
-        let operation = ServiceOperationID(UUID().uuidString)
+        let operation = ServiceOperationID(ClientOperationID.make())
         do {
             return try await call(FinalizeUploadTransfer(transferID: id, operationID: operation))
         } catch {

@@ -7,12 +7,19 @@ import Foundation
 import GRDB
 
 public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
-    private let account: ConnectedAccountID
+    let account: ConnectedAccountID
     let database: DatabaseQueue
     let projection: ChatStore
     private let retention: Int
+    let limits: AccountRetentionLimits
+    let retentionClock: @Sendable () -> Date
 
-    public init(account: ConnectedAccountID, path: String, retention: Int = 4096) throws {
+    public init(
+        account: ConnectedAccountID, path: String, retention: Int = 4096,
+        limits: AccountRetentionLimits = AccountRetentionLimits(),
+        retentionClock: @escaping @Sendable () -> Date = { Date() }
+    ) throws {
+        self.limits = limits; self.retentionClock = retentionClock
         self.account = account
         self.retention = max(1, retention)
         database = try DatabaseQueue(path: path)
@@ -43,6 +50,7 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
             );
             CREATE INDEX IF NOT EXISTS serviceUploadReferenceExpiry ON serviceUploadReference(expiresAt);
             """)
+            try Self.initializeRetention(db)
             try Self.initializeMediaCatalog(db)
             try Self.initializeNotificationTables(db)
             // A crash after dispatch is ambiguous. Never automatically dispatch it again.
@@ -58,6 +66,7 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
                 }
             }
         }
+        try database.write { db in try pruneRetention(db) }
         try projection.apply([.clearEphemeralState])
     }
 
@@ -92,14 +101,15 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
             guard current < Int64.max else { throw ServiceFailure.overloaded }
             let next = current + 1
             try db.execute(
-                sql: "INSERT INTO serviceJournal (sequence, event, live) VALUES (?, ?, ?)",
-                arguments: [next, bytes, live]
+                sql: "INSERT INTO serviceJournal (sequence, event, live, recordedAt) VALUES (?, ?, ?, ?)",
+                arguments: [next, bytes, live, retentionInstant(db)]
             )
             try db.execute(sql: "UPDATE serviceMetadata SET sequence = ? WHERE id = 1", arguments: [next])
             try db.execute(
                 sql: "DELETE FROM serviceJournal WHERE sequence <= ?",
                 arguments: [next - Int64(retention)]
             )
+            try pruneRetention(db)
             return try checkpoint(db)
         }
     }
@@ -146,56 +156,6 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
                 hasMore: delivered.sequence < end.sequence
             )
         }
-    }
-
-    public func operation(_ id: ServiceOperationID) throws -> ServiceOperation? {
-        try database.read { db in try Self.operation(id, db) }
-    }
-
-    public func reserve(_ id: ServiceOperationID, request: ServiceRequest) throws -> ServiceOperation {
-        // Request IDs and deadlines change on retries; account, operation and payload do not.
-        let canonical = ServiceRequest(
-            header: ServiceRequestHeader(requestID: ServiceRequestID(""), accountID: account),
-            operation: request.operation,
-            payload: request.payload
-        )
-        let bytes = try ServiceCodec.encode(canonical)
-        return try database.write { db in
-            if let existing = try Data.fetchOne(
-                db,
-                sql: "SELECT request FROM serviceOperation WHERE id = ?",
-                arguments: [id.rawValue]
-            ) {
-                guard existing == bytes,
-                      let value = try Self.operation(id, db) else { throw ServiceFailure.operationConflict }
-                return value
-            }
-            let value = ServiceOperation(id: id, state: "accepted")
-            try db.execute(
-                sql: "INSERT INTO serviceOperation (id, request, value) VALUES (?, ?, ?)",
-                arguments: [id.rawValue, bytes, ServiceCodec.encode(value)]
-            )
-            return value
-        }
-    }
-
-    public func finish(_ operation: ServiceOperation) throws {
-        try database.write { db in
-            try db.execute(
-                sql: "UPDATE serviceOperation SET value = ? WHERE id = ?",
-                arguments: [ServiceCodec.encode(operation), operation.id.rawValue]
-            )
-            guard db.changesCount == 1 else { throw ServiceFailure.operationUnknown }
-        }
-    }
-
-    private static func operation(_ id: ServiceOperationID, _ db: Database) throws -> ServiceOperation? {
-        try Data.fetchOne(
-            db,
-            sql: "SELECT value FROM serviceOperation WHERE id = ?",
-            arguments: [id.rawValue]
-        )
-        .map { try ServiceCodec.decode(ServiceOperation.self, from: $0) }
     }
 
     private static func sequence(_ db: Database) throws -> Int64 {

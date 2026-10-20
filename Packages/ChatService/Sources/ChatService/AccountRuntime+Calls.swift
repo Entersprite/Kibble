@@ -53,7 +53,8 @@ extension AccountRuntime {
         }
         for (device, source) in sources {
             let runtime = ServiceCallRuntime(
-                source: source, reservations: callReservations, principal: record.principalID, device: device
+                source: source, reservations: callReservations, principal: record.principalID, device: device,
+                cleanupAdmission: providerStops
             )
             calls[device] = runtime
             await runtime.start()

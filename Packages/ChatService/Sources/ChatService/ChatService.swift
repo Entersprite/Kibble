@@ -12,6 +12,8 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     let transferNow: @Sendable () -> Date
     let notificationHost: (any ServiceNotificationHost)?
     let callReservations = CallDeviceReservations()
+    let providerStarts: AccountWorkAdmission
+    let providerStops: AccountWorkAdmission
     var records: [ConnectedAccountID: AccountRecord] = [:]
     var runtimes: [ConnectedAccountID: AccountRuntime] = [:]
     var changing: Set<ConnectedAccountID> = []
@@ -35,6 +37,8 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     }
 
     var shuttingDown = false
+    private var shutdownFinished = false
+    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(
         registry: any AccountRegistry,
@@ -48,8 +52,11 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         policies: (any AccountPolicyStore)? = nil,
         notificationHost: (any ServiceNotificationHost)? = nil,
         maximumAccountSubscriptions: Int = 128,
+        maximumConcurrentProviderStarts: Int = 4, maximumConcurrentProviderStops: Int = 8,
         instanceID: ServiceInstanceID = ServiceInstanceID(UUID().uuidString)
     ) {
+        providerStarts = AccountWorkAdmission(limit: maximumConcurrentProviderStarts)
+        providerStops = AccountWorkAdmission(limit: maximumConcurrentProviderStops)
         self.maximumAccountSubscriptions = max(0, maximumAccountSubscriptions)
         self.instanceID = instanceID
         self.registry = registry
@@ -254,7 +261,12 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     }
 
     public func shutdown() async {
-        guard !shuttingDown else { return }
+        if shuttingDown {
+            if !shutdownFinished {
+                await withCheckedContinuation { shutdownWaiters.append($0) }
+            }
+            return
+        }
         shuttingDown = true
         for subscriber in accountSubscribers.values {
             subscriber.continuation.finish()
@@ -285,8 +297,14 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         await awaitChanges()
         lease?.release()
         lease = nil
+        shutdownFinished = true
+        let waiters = shutdownWaiters
+        shutdownWaiters = []
+        waiters.forEach { $0.resume() }
     }
+}
 
+extension ChatService {
     func finishChange(_ id: ConnectedAccountID) {
         changing.remove(id)
         if runtimes[id] == nil {

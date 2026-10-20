@@ -26,6 +26,8 @@ actor AccountRuntime {
     let storage: any ServiceAccountStorage
     let policies: any AccountPolicyStore
     private let factory: any AccountProviderFactory
+    private let providerStarts: AccountWorkAdmission
+    let providerStops: AccountWorkAdmission
     private var epoch = UUID()
     var currentEpoch: UUID {
         epoch
@@ -90,6 +92,8 @@ actor AccountRuntime {
         notificationHost: (any ServiceNotificationHost)? = nil,
         notificationService: ServiceInstanceID = ServiceInstanceID("embedded"),
         callReservations: CallDeviceReservations = CallDeviceReservations(),
+        providerStarts: AccountWorkAdmission = AccountWorkAdmission(limit: 4),
+        providerStops: AccountWorkAdmission = AccountWorkAdmission(limit: 8),
         transferStorage: (any ServiceTransferStorage)? = nil,
         transferLimits: ServiceTransferLimits = ServiceTransferLimits(),
         transferNow: @escaping @Sendable () -> Date = { Date() },
@@ -100,6 +104,7 @@ actor AccountRuntime {
         self.notificationHost = notificationHost
         self.notificationService = notificationService
         self.callReservations = callReservations
+        self.providerStarts = providerStarts; self.providerStops = providerStops
         self.transferStorage = transferStorage
         self.transferLimits = transferLimits
         self.transferNow = transferNow
@@ -114,11 +119,14 @@ actor AccountRuntime {
     func start() {
         guard startup == nil, !stopped else { return }
         let epoch = epoch
-        startup = Task { [weak self, factory, record] in
+        startup = Task { [weak self, factory, record, providerStarts, instanceID] in
+            do { try await providerStarts.acquire(instanceID) } catch { return }
             do {
+                try Task.checkCancellation()
                 let provider = try await factory.makeProvider(for: record)
                 guard let self, await install(provider, epoch: epoch) else {
                     await provider.discard()
+                    await providerStarts.release(instanceID)
                     return
                 }
                 try await provider.backend.connect()
@@ -130,6 +138,7 @@ actor AccountRuntime {
             } catch {
                 await self?.failed(error, epoch: epoch)
             }
+            await providerStarts.release(instanceID)
         }
     }
 
@@ -153,14 +162,6 @@ actor AccountRuntime {
         await publishStatus()
         notificationsChanged()
         return isCurrent(epoch)
-    }
-
-    private func publishStatus() async {
-        await onStatus(RuntimeStatus(connection: connection, capabilities: capabilities))
-    }
-
-    private func isCurrent(_ epoch: UUID) -> Bool {
-        self.epoch == epoch && !stopped && !quarantined && !Task.isCancelled
     }
 
     private func ingest(_ event: ChatEvent, epoch: UUID) async {
@@ -305,7 +306,9 @@ actor AccountRuntime {
         _ pending: [Task<JSONValue, any Error>], binaries: [Task<ServiceBinaryFrame, any Error>],
         expiry: Task<Void, Never>?, effects: [Task<Void, Never>]
     ) async {
-        await backend?.disconnect()
+        if let backend {
+            await providerStops.cleanup { await backend.disconnect() }
+        }
         for request in pending {
             _ = await request.result
         }
@@ -319,5 +322,15 @@ actor AccountRuntime {
         for task in effects {
             await task.value
         }
+    }
+}
+
+extension AccountRuntime {
+    private func publishStatus() async {
+        await onStatus(RuntimeStatus(connection: connection, capabilities: capabilities))
+    }
+
+    private func isCurrent(_ epoch: UUID) -> Bool {
+        self.epoch == epoch && !stopped && !quarantined && !Task.isCancelled
     }
 }

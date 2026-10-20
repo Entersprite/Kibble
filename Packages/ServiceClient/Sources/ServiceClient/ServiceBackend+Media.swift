@@ -77,7 +77,7 @@ extension ServiceBackend {
         let generation = connectionGeneration
         let id = UUID()
         let payload = BeginDownloadTransfer(
-            operationID: .init(UUID().uuidString), selector: selector, rendition: rendition,
+            operationID: .init(ClientOperationID.make()), selector: selector, rendition: rendition,
             maximumBytes: maximumBytes
         )
         let job = Task { try await withTransferPermit(.media) {

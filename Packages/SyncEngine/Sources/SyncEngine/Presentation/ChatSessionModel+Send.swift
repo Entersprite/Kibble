@@ -66,7 +66,7 @@ public extension ChatSessionModel {
         // one frame behind its staged files must not post an empty message.
         guard !text.isEmpty else { return }
         followLatestMeetingForSend()
-        let localID = UUID().uuidString
+        let localID = ClientOperationID.make()
         // Invented here, and therefore retracted from here. The `local/`
         // prefix is this file's convention and stays this file's business:
         // `ChatStore` deletes a row by id and has never heard of it.
