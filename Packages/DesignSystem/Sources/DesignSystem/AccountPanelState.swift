@@ -11,6 +11,16 @@ public struct AccountPanelAccount: Identifiable {
         case failed
     }
 
+    /// Where the account is, for Settings › Accounts.
+    public enum Status: Equatable, Sendable {
+        case connected
+        case connecting
+        case disabled
+        case signedOut
+        case failed
+        case removing
+    }
+
     public let id: String
     /// What sets the account apart: its managing domain, "Personal" or an email.
     public let label: String
@@ -21,6 +31,7 @@ public struct AccountPanelAccount: Identifiable {
     public let managedBy: String?
     public let unread: Int
     public let problem: Problem?
+    public let status: Status
     public let isEnabled: Bool
     /// The account's own member and what is known about them, for its avatar.
     public let me: Member.ID
@@ -32,7 +43,8 @@ public struct AccountPanelAccount: Identifiable {
     public init(
         id: String, label: String, name: String?, email: String?, managedBy: String?,
         unread: Int, problem: Problem?, isEnabled: Bool,
-        me: Member.ID, directory: [Member.ID: Member], imageLoader: SceneImageLoader?
+        me: Member.ID, directory: [Member.ID: Member], imageLoader: SceneImageLoader?,
+        status: Status = .connected
     ) {
         self.id = id
         self.label = label
@@ -41,6 +53,7 @@ public struct AccountPanelAccount: Identifiable {
         self.managedBy = managedBy
         self.unread = unread
         self.problem = problem
+        self.status = status
         self.isEnabled = isEnabled
         self.me = me
         self.directory = directory
@@ -107,6 +120,8 @@ public struct AccountPanelActions {
     public var signOut: ((String) -> Void)?
     /// Removes the account with its settings.
     public var remove: ((String) -> Void)?
+    /// Lists the accounts in this order, by id.
+    public var reorder: (([String]) -> Void)?
     public var showSettings: (() -> Void)?
     /// The selected account's own status actions, bound to that account.
     public var setAvailability: ((Availability) -> Void)?
@@ -122,6 +137,7 @@ public struct AccountPanelActions {
         setEnabled: ((String, Bool) -> Void)? = nil,
         signOut: ((String) -> Void)? = nil,
         remove: ((String) -> Void)? = nil,
+        reorder: (([String]) -> Void)? = nil,
         showSettings: (() -> Void)? = nil,
         setAvailability: ((Availability) -> Void)? = nil,
         setStatus: ((MemberStatus?) -> Void)? = nil,
@@ -135,6 +151,7 @@ public struct AccountPanelActions {
         self.setEnabled = setEnabled
         self.signOut = signOut
         self.remove = remove
+        self.reorder = reorder
         self.showSettings = showSettings
         self.setAvailability = setAvailability
         self.setStatus = setStatus

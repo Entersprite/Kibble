@@ -29,4 +29,11 @@ public extension SystemAccountHost {
             try await workspace?.signOut(ConnectedAccountID(id))
         } catch { self.error = "The account could not sign out. Try again." }
     }
+
+    /// Lists the accounts in `order`, by account id.
+    func reorderAccounts(_ order: [String]) async {
+        do {
+            try await workspace?.reorder(order.map { ConnectedAccountID($0) })
+        } catch { self.error = "The accounts could not be reordered. Try again." }
+    }
 }

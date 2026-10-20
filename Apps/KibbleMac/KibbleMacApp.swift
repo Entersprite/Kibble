@@ -25,10 +25,9 @@ struct KibbleMacApp: App {
     @State private var conversationTarget: AppEnvironment?
     @State private var isAccountPanelOpen = false
     /// The account a Sign Out… or Remove Account… awaits confirmation for,
-    /// captured when asked; Settings keeps its own.
+    /// captured when asked; Settings keeps its own (`KibbleSettings`).
     @State private var signingOutAccount: String?
     @State private var removingAccount: String?
-    @State private var settingsSigningOutAccount: String?
     // HIG: reopen on the last pane.
     @AppStorage("settingsPane") private var settingsPane = "notifications"
 
@@ -103,7 +102,7 @@ struct KibbleMacApp: App {
             }
             NewConversationCommands(environment: environment)
             AccountCommands(host: appDelegate.accountHost, isPanelOpen: $isAccountPanelOpen) {
-                settingsPane = "account"
+                settingsPane = "accounts"
             }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
@@ -159,70 +158,16 @@ struct KibbleMacApp: App {
         // opened from Kibble › Settings… (⌘,) - all provided by `Settings` and
         // `TabView`. Changes apply as they are made.
         Settings {
-            TabView(selection: $settingsPane) {
-                Tab("Notifications", systemImage: "bell.badge", value: "notifications") {
-                    NotificationSettingsPane(
-                        state: environment.notificationSettingsState,
-                        actions: environment.notificationSettingsActions(
-                            openSystemSettings: { SystemNotificationSettings.open() }
-                        )
-                    )
-                    .frame(width: 560, height: 540)
-                }
-                Tab("Calls", systemImage: "phone", value: "calls") {
-                    CallSettingsPane(
-                        state: appDelegate.callSettings.state,
-                        actions: appDelegate.callSettings.actions,
-                        setUpCalls: appDelegate.canSetUpCalls ? { appDelegate.setUpCalls() } : nil
-                    )
-                    .frame(width: 560, height: 500)
-                    .onAppear { appDelegate.callSettings.refreshFocusAccess() }
-                }
-                Tab("Conversations", systemImage: "bubble.left.and.bubble.right", value: "conversations") {
-                    ConversationSettingsPane(
-                        state: environment.notificationSettingsState,
-                        actions: environment.notificationSettingsActions(
-                            openSystemSettings: { SystemNotificationSettings.open() }
-                        )
-                    )
-                    .frame(width: 560, height: 420)
-                }
-                Tab("Sidebar", systemImage: "sidebar.left", value: "sidebar") {
-                    SidebarSettingsPane(
-                        preferences: environment.sidebarPreferences,
-                        update: { environment.updateSidebar($0) }
-                    )
-                    .frame(width: 560, height: 540)
-                }
-                Tab("Downloads", systemImage: "arrow.down.circle", value: "downloads") {
-                    DownloadSettingsPane(
-                        state: environment.downloadSettingsState,
-                        actions: environment.downloadSettingsActions
-                    )
-                    .frame(width: 560, height: 220)
-                }
-                Tab("Updates", systemImage: "arrow.triangle.2.circlepath", value: "updates") {
-                    UpdateSettingsPane(state: appDelegate.updates.state, actions: appDelegate.updates.actions)
-                        .frame(width: 560, height: 420)
-                }
-                Tab("Account", systemImage: "person.crop.circle", value: "account") {
-                    AccountSettingsPane(
-                        state: environment.accountSettingsState,
-                        signOut: settingsSignOut,
-                        exportDiagnostics: { appDelegate.diagnostics.export() }
-                    )
-                    .frame(width: 560, height: 360)
-                }
-            }
+            KibbleSettings(
+                appDelegate: appDelegate,
+                pane: $settingsPane,
+                legacySignOut: legacySettingsSignOut
+            )
             .signOutConfirmation(isPresented: $isConfirmingSignOutFromSettings) {
                 let target = settingsSignOutTarget
                 settingsSignOutTarget = nil
                 Task { await target?.signOut() }
             }
-            .accountConfirmations(
-                signingOut: $settingsSigningOutAccount, removing: .constant(nil),
-                host: appDelegate.accountHost
-            )
         }
     }
 
@@ -235,11 +180,9 @@ struct KibbleMacApp: App {
         return id.rawValue
     }
 
-    private var settingsSignOut: (() -> Void)? {
-        if appDelegate.accountHost != nil {
-            return signedInAccount.map { id in { settingsSigningOutAccount = id } }
-        }
-        return environment.canSignOut ? {
+    /// Settings › Account's Sign Out… without the account host.
+    private var legacySettingsSignOut: (() -> Void)? {
+        environment.canSignOut ? {
             settingsSignOutTarget = environment
             isConfirmingSignOutFromSettings = true
         } : nil
@@ -270,7 +213,7 @@ struct KibbleMacApp: App {
                 signOutAccount: { signingOutAccount = $0 },
                 removeAccount: { removingAccount = $0 },
                 manageAccounts: { showSettings in
-                    settingsPane = "account"
+                    settingsPane = "accounts"
                     showSettings()
                 }
             )

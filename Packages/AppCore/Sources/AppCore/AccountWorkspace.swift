@@ -133,6 +133,11 @@ public final class AccountWorkspace {
         try await client.remove(account, forgettingSettings: forgettingSettings)
     }
 
+    /// Lists the accounts in this order: the panel's tiles and ⌃⌘1…9 follow it.
+    public func reorder(_ order: [ConnectedAccountID]) async throws {
+        try await client.reorder(order)
+    }
+
     /// Keeps the account and its settings; it waits for a sign-in as the same
     /// identity. The client's local copy goes with the service's.
     public func signOut(_ account: ConnectedAccountID) async throws {

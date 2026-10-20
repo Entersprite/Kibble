@@ -49,6 +49,11 @@ public struct AccountClient: Sendable {
         try await call(SignOutAccount(), account: account)
     }
 
+    @discardableResult
+    public func reorder(_ accounts: [ConnectedAccountID]) async throws -> [AccountSummary] {
+        try await call(ReorderAccounts(accounts: accounts))
+    }
+
     public func beginLink(
         operationID: ServiceOperationID,
         replacing account: ConnectedAccountID? = nil

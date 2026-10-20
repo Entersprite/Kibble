@@ -76,8 +76,24 @@ public extension AccountWorkspace {
             email: member.email ?? account.profile?.email,
             managedBy: managedBy, unread: environment?.badgeCount ?? 0, problem: problem,
             isEnabled: account.isEnabled, me: me, directory: [me: member],
-            imageLoader: environment?.imageLoader
+            imageLoader: environment?.imageLoader, status: status(of: account, running: environment != nil)
         )
+    }
+
+    private func status(of account: AccountSummary, running: Bool) -> AccountPanelAccount.Status {
+        if account.isRemoving || account.authenticationState == "erasing" {
+            return .removing
+        }
+        if account.authenticationState != nil {
+            return .signedOut
+        }
+        if accountErrors[account.id] != nil {
+            return .failed
+        }
+        if !account.isEnabled {
+            return .disabled
+        }
+        return running ? .connected : .connecting
     }
 }
 

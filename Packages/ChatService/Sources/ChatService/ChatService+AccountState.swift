@@ -83,6 +83,28 @@ extension ChatService {
         )
     }
 
+    /// The listed accounts first, in the given order, then the rest in their
+    /// current order. A refused save leaves earlier positions written; listing
+    /// stays well defined because ties fall back to the account ID.
+    func reorderAccounts(
+        _ order: [ConnectedAccountID], context: ServiceSessionContext
+    ) throws -> [AccountSummary] {
+        guard context.canLinkAccounts else { throw ServiceFailure.notAuthorized }
+        guard order.count <= ReorderAccounts.maximumCount, Set(order).count == order.count
+        else { throw ServiceFailure.invalidRequest }
+        let current = accountSummaries(context).map(\.id)
+        guard Set(order).isSubset(of: current) else { throw ServiceFailure.accountNotFound }
+        let arranged = order + current.filter { !order.contains($0) }
+        for (position, id) in arranged.enumerated() {
+            guard var record = records[id], record.position != position else { continue }
+            record.position = position
+            try registry.save(record)
+            records[id] = record
+        }
+        accountStateChanged()
+        return accountSummaries(context)
+    }
+
     /// The next list position: after every current account.
     func nextAccountPosition() -> Int {
         (records.values.compactMap(\.position).max() ?? -1) + 1

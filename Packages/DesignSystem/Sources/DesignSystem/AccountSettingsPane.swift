@@ -28,8 +28,8 @@ public struct AccountSettingsPane: View {
             Section {
                 LabeledContent("Signed in as", value: state.signedInAs ?? "Not signed in")
             } footer: {
-                Text("Signing out forgets this session and the local message history. "
-                    + "Notification settings are kept for when you sign in again.")
+                Text("Signing out erases this account's conversations from this Mac. "
+                    + "Its settings are kept for when you sign in again.")
             }
             if let signOut {
                 Section {

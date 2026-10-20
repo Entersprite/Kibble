@@ -120,3 +120,19 @@ public struct LoadMessages: ServiceRequestPayload {
         self.cursor = cursor
     }
 }
+
+/// Puts the principal's accounts in the given order; accounts left out keep
+/// their relative order after the listed ones. Needs the management grant
+/// account linking needs. Returns the accounts as `ListAccounts` would.
+public struct ReorderAccounts: ServiceRequestPayload {
+    public typealias Response = [AccountSummary]
+    public static let operation = "reorderAccounts"
+    public static let requiresAccount = false
+    /// At most `maximumCount`, without repeats.
+    public let accounts: [ConnectedAccountID]
+    public static let maximumCount = 256
+
+    public init(accounts: [ConnectedAccountID]) {
+        self.accounts = accounts
+    }
+}

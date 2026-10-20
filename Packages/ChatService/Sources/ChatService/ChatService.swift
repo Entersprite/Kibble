@@ -174,6 +174,10 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
             _ = try request.decodePayload(ListAccounts.self)
             return try await listAccounts(context)
         }
+        if request.operation == ReorderAccounts.operation {
+            let payload = try request.decodePayload(ReorderAccounts.self)
+            return try ServiceCodec.value(reorderAccounts(payload.accounts, context: context))
+        }
         if request.operation == ListAccountLinks.operation {
             _ = try request.decodePayload(ListAccountLinks.self)
             guard context.canLinkAccounts else { throw ServiceFailure.notAuthorized }
