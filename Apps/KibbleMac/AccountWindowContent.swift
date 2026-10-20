@@ -100,6 +100,7 @@ struct AccountWindowContent: View {
         return AccountPanelActions(
             select: { host.selectAccount($0) },
             add: { Task { await host.addAccount() } },
+            resumeSignIn: { id in Task { await host.resumeSignIn(id) } },
             manage: { manageAccounts(showSettings) },
             reconnect: { id in Task { await host.retryAccount(id) } },
             setEnabled: { id, enabled in Task { await host.setEnabled(enabled, account: id) } },

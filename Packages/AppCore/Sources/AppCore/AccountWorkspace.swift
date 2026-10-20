@@ -26,6 +26,9 @@ public final class AccountWorkspace {
     var intents: [ConnectedAccountID: AccountClientIntent] = [:]
     @ObservationIgnored var jobs: [ConnectedAccountID: Task<Void, Never>] = [:]
     @ObservationIgnored var generations: [ConnectedAccountID: UUID] = [:]
+    /// Each account's own photo as last shown, so a disabled or signed-out
+    /// account keeps its face in the account panel. Memory only.
+    @ObservationIgnored var ownPhotos: [ConnectedAccountID: OwnPhoto] = [:]
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private let selectionChanged: (ConnectedAccountID?) -> Void
     var active = false
@@ -131,6 +134,7 @@ public final class AccountWorkspace {
             try await cancelCapture()
         }
         try await client.remove(account, forgettingSettings: forgettingSettings)
+        ownPhotos[account] = nil
     }
 
     /// Lists the accounts in this order: the panel's tiles and ⌃⌘1…9 follow it.

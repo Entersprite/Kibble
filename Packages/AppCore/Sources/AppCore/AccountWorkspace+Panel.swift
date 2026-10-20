@@ -1,6 +1,7 @@
 import ChatAPI
 import ChatKit
 import DesignSystem
+import Foundation
 
 public extension AccountWorkspace {
     /// The account panel's values. `scene` is the selected account's, built
@@ -55,11 +56,13 @@ public extension AccountWorkspace {
         let environment = environment(for: account.id)
         let own = environment?.ownIdentity
         let me = own?.me ?? account.selfID
-        // A disabled or signed-out account still has a face: initials from the
-        // name the service last learned.
+        // A disabled or signed-out account still has a face: its last photo, or
+        // initials from the name the service last learned.
         let member = own?.member ?? Member(
-            id: me, kind: .human, displayName: account.profile?.displayName, email: account.profile?.email
+            id: me, kind: .human, displayName: account.profile?.displayName, email: account.profile?.email,
+            avatarURL: ownPhotos[account.id]?.url
         )
+        let loader = photoLoader(for: account.id, url: member.avatarURL, running: environment?.imageLoader)
         var managedBy: String?
         if case let .managed(domain) = account.profile?.organization {
             managedBy = domain
@@ -76,8 +79,35 @@ public extension AccountWorkspace {
             email: member.email ?? account.profile?.email,
             managedBy: managedBy, unread: environment?.badgeCount ?? 0, problem: problem,
             isEnabled: account.isEnabled, me: me, directory: [me: member],
-            imageLoader: environment?.imageLoader, status: status(of: account, running: environment != nil)
+            imageLoader: loader, status: status(of: account, running: environment != nil)
         )
+    }
+
+    /// While the account runs, its own loader, keeping a copy of its own photo;
+    /// otherwise a loader that serves only that copy.
+    private func photoLoader(
+        for id: ConnectedAccountID, url: URL?, running: SceneImageLoader?
+    ) -> SceneImageLoader? {
+        guard let url else { return running }
+        if ownPhotos[id]?.url != url {
+            ownPhotos[id] = OwnPhoto(url: url)
+        }
+        guard let photo = ownPhotos[id] else { return running }
+        if let running {
+            return SceneImageLoader(id: running.id) { [weak self] requested in
+                let data = try await running.load(requested)
+                if requested == url {
+                    self?.ownPhotos[id]?.data = data
+                }
+                return data
+            }
+        }
+        return SceneImageLoader(id: photo.loaderID) { [weak self] requested in
+            guard requested == url, let data = self?.ownPhotos[id]?.data else {
+                throw URLError(.resourceUnavailable)
+            }
+            return data
+        }
     }
 
     private func status(of account: AccountSummary, running: Bool) -> AccountPanelAccount.Status {
@@ -103,4 +133,11 @@ public extension AppEnvironment {
         guard case let .running(model) = phase, let me = model.me else { return nil }
         return (me, model.directory[me])
     }
+}
+
+/// An account's own photo as last loaded.
+struct OwnPhoto {
+    let url: URL
+    var data: Data?
+    let loaderID = UUID()
 }

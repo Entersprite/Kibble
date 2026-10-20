@@ -36,4 +36,19 @@ public extension SystemAccountHost {
             try await workspace?.reorder(order.map { ConnectedAccountID($0) })
         } catch { self.error = "The accounts could not be reordered. Try again." }
     }
+
+    /// Picks up a sign-in that was started and not finished: its window opens
+    /// again while it still waits for the browser, and it completes otherwise.
+    func resumeSignIn(_ id: String) async {
+        guard let workspace else { return }
+        do {
+            try await workspace.resumeLink(AccountLinkID(id))
+        } catch {
+            self.error = "That sign-in could not continue. Try adding the account again."
+            return
+        }
+        if workspace.capture != nil {
+            await beginSignIn()
+        }
+    }
 }
