@@ -15,7 +15,7 @@ import Foundation
 @MainActor
 public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     private let legacyEnvironment: AppEnvironment
-    public let accountFixture: SystemAccountFixtureHost?
+    public let accountFixture: SystemAccountHost?
     public var environment: AppEnvironment {
         accountFixture?.workspace?.selectedEnvironment ?? legacyEnvironment
     }
@@ -29,11 +29,35 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     let callPanel = IncomingCallPanelHost()
     let callRinger: CallRinger
     public let diagnostics: DiagnosticReportStore
-    let callDiagnostics: AudioCallDiagnosticExporter
-    public let callSignIn: CallSignInRecovery
-    let callVideo: CallVideoController
+    private let legacyCallDiagnostics: AudioCallDiagnosticExporter
+    var callDiagnostics: AudioCallDiagnosticExporter {
+        selectedCallBinding?.diagnostics ?? legacyCallDiagnostics
+    }
+
+    private let legacyCallSignIn: CallSignInRecovery
+    public var callSignIn: CallSignInRecovery {
+        selectedCallBinding?.signIn ?? legacyCallSignIn
+    }
+
+    private let legacyCallVideo: CallVideoController
+    var callVideo: CallVideoController {
+        selectedCallBinding?.video ?? legacyCallVideo
+    }
+
     let callCamera = CallCameraRequest()
-    let callAudioDevices: CallAudioDeviceController
+    private let legacyCallAudioDevices: CallAudioDeviceController
+    var callAudioDevices: CallAudioDeviceController {
+        selectedCallBinding?.audioDevices ?? legacyCallAudioDevices
+    }
+
+    var accountCalls: NativeAccountCallCoordinator?
+    private var selectedCallBinding: NativeAccountCallBinding? {
+        guard let host = accountFixture, let workspace = host.workspace,
+              let account = workspace.accounts.first(where: { $0.id == workspace.selectedID })
+        else { return nil }
+        return host.callBindings.binding(for: account)
+    }
+
     let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
     private var deviceTask: Task<Void, Never>?
@@ -56,15 +80,15 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         let settingsStore: any NotificationSettingsStore =
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
-        let fixture = Self.fixtureHost()
+        let fixture = Self.fixtureHost(notifications: notifications)
         accountFixture = fixture
         let services =
             SystemLaunchServices(arguments: fixture == nil ? .fromCommandLine() :
                 LaunchArguments(backend: .fixture))
-        callAudioDevices = services.callAudioDevices
-        callVideo = services.callVideo
-        callSignIn = services.callSignIn
-        callDiagnostics = services.callDiagnostics
+        legacyCallAudioDevices = services.callAudioDevices
+        legacyCallVideo = services.callVideo
+        legacyCallSignIn = services.callSignIn
+        legacyCallDiagnostics = services.callDiagnostics
         let diagnostics = DiagnosticReportStore(directory: try? SystemLaunchServices.supportDirectory())
         services.diagnostics = diagnostics
         let environment = AppEnvironment(
@@ -99,17 +123,21 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         callSettings.previewRingtone = { [weak callRinger] in callRinger?.preview($0) }
     }
 
-    private static func fixtureHost() -> SystemAccountFixtureHost? {
+    private static func fixtureHost(notifications: UserNotificationDelivery) -> SystemAccountHost? {
         #if DEBUG
-            CommandLine.arguments.contains("--multi-account-fixture") ? SystemAccountFixtureHost() : nil
-        #else
-            nil
+            if CommandLine.arguments.contains("--multi-account-fixture") {
+                return SystemAccountHost()
+            }
         #endif
+        let arguments = LaunchArguments.fromCommandLine()
+        guard arguments.backend == .local,
+              !CommandLine.arguments.contains(where: { $0.hasPrefix("--probe=") }) else { return nil }
+        return SystemAccountHost(notifications: notifications, usesGoogleAccounts: true)
     }
 
     public func applicationWillFinishLaunching(_: Notification) {
         // Before launch completes, or the click that launched the app is lost.
-        if accountFixture == nil {
+        if accountFixture == nil || accountFixture?.usesGoogleAccounts == true {
             notifications.install()
         }
     }
@@ -120,6 +148,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             diagnostics.start()
             diagnostics.sampleMemory()
         }
+        startAccountCalls()
         startMemoryMonitoring()
         let environment = legacyEnvironment
         let fixture = accountFixture
@@ -168,8 +197,16 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         // Every window posts these; `MainWindowMinimising` keeps the main one's.
         startWindowMonitoring()
 
-        if accountFixture == nil {
+        if accountFixture?.usesGoogleAccounts != false {
             updates.start()
+        }
+    }
+
+    private func startAccountCalls() {
+        if let host = accountFixture, host.usesGoogleAccounts {
+            accountCalls = NativeAccountCallCoordinator(
+                host: host, settings: callSettings, notifications: notifications
+            )
         }
     }
 

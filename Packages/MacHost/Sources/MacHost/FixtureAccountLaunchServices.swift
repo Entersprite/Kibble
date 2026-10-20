@@ -7,8 +7,9 @@ import ServiceClient
 import SyncEngine
 
 @MainActor
-final class FixtureAccountLaunchServices: LaunchServices {
-    let arguments = LaunchArguments(backend: .fixture)
+final class ServiceAccountLaunchServices: LaunchServices {
+    let arguments: LaunchArguments
+    private let fixture: Bool
     let launchReportRequested = false
     let diagnosticsRequested = false
     private let account: AccountSummary
@@ -23,8 +24,10 @@ final class FixtureAccountLaunchServices: LaunchServices {
         client: AccountClient,
         directory: URL,
         downloads: any DownloadPlatform,
-        transport: any ServiceEventTransport
+        transport: any ServiceEventTransport, fixture: Bool = true
     ) {
+        self.fixture = fixture
+        arguments = LaunchArguments(backend: fixture ? .fixture : .local)
         self.account = account; self.client = client; self.directory = directory; self
             .downloads = downloads; self.transport = transport
     }
@@ -58,12 +61,22 @@ final class FixtureAccountLaunchServices: LaunchServices {
     }
 
     func makeSession() throws -> SessionSelection {
-        let now = FixtureWorld.acme.startedAt
+        let now = fixture ? FixtureWorld.acme.startedAt : Date()
+        let clock: @Sendable () -> Date = if fixture {
+            { now }
+        } else {
+            { Date() }
+        }
         let backend = ServiceBackend(account: account, transport: transport)
         self.backend = backend
         return try SessionSelection(
             backend: backend, me: account.selfID,
-            audioCalls: ServiceAudioCallService(account: account, client: client), now: { now }
+            connectionService: fixture ? nil : ConnectionService(name: "Google Chat", operatorName: "Google"),
+            audioCalls: ServiceAudioCallService(
+                account: account,
+                client: AccountClient(transport: transport)
+            ),
+            now: clock
         )
     }
 

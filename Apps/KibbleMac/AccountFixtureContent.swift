@@ -3,10 +3,9 @@ import DesignSystem
 import MacHost
 import SwiftUI
 
-/// A fixture-only entry to the account workspace while production parity and
-/// existing-login migration are completed in the host.
+/// The minimal account rail around independently owned client sessions.
 struct AccountFixtureContent<Content: View>: View {
-    let host: SystemAccountFixtureHost
+    let host: SystemAccountHost
     @ViewBuilder let content: () -> Content
     @State private var removingAccount: String?
 
@@ -28,7 +27,8 @@ struct AccountFixtureContent<Content: View>: View {
                     toggle: { item in Task { await host.setEnabled(!item.isEnabled, account: item.id) } },
                     remove: { removingAccount = $0 },
                     add: { Task { await host.addAccount() } },
-                    simulateMessage: { id in Task { await host.simulateMessage(id) } }
+                    simulateMessage: host
+                        .usesGoogleAccounts ? nil : { id in Task { await host.simulateMessage(id) } }
                 )
                 Divider()
                 if workspace.selectedEnvironment != nil {
@@ -37,7 +37,10 @@ struct AccountFixtureContent<Content: View>: View {
                     placeholder(workspace)
                 }
             } else if let error = host.error {
-                Text(error).frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 16) {
+                    Text(error)
+                    Button("Retry") { Task { await host.start() } }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ProgressView("Starting accounts…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -82,13 +85,16 @@ struct AccountFixtureContent<Content: View>: View {
                     }
                 } else if account.authenticationState != nil {
                     Text("This account needs to sign in again.")
+                    Button("Sign In") { Task { await host.retryAccount(account.id.rawValue) } }
                 } else {
                     ProgressView("Connecting…")
                     Button("Retry Account") { Task { await host.retryAccount(account.id.rawValue) } }
                 }
             } else {
                 Text("Connect your accounts").font(.title2)
-                Button("Add Demo Account") { Task { await host.addAccount() } }
+                Button(host.usesGoogleAccounts ? "Add Google Account" : "Add Demo Account") {
+                    Task { await host.addAccount() }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

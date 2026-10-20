@@ -6,33 +6,45 @@ import ChatServiceStorage
 import FixtureBackend
 import Foundation
 import InProcessChatTransport
+import LocalBridgeBackend
 import Observation
 import ServiceClient
 
-/// Isolated in-app composition for exercising the serialized account path.
-/// It has no credential store or provider network. Native delivery is injected explicitly.
+/// Process-owned embedded account service and its serialized client workspace.
+/// Fixture installations use a separate namespace and never open provider credentials.
 @MainActor
 @Observable
-public final class SystemAccountFixtureHost {
+public final class SystemAccountHost {
     public private(set) var workspace: AccountWorkspace?
-    public private(set) var error: String?
-    private var service: ChatService?
+    public internal(set) var error: String?
+    var service: ChatService?
     private var registry: SQLiteAccountRegistry?
     private let providers = FixtureAccountProviders()
+    public let usesGoogleAccounts: Bool
+    let callBindings = NativeAccountCallBindings()
+    var custody: LocalAccountCustody?
+    var context: ServiceSessionContext?
+    private var deviceID = ServiceDeviceID("fixture-device")
     private var active = false
     private var open = false
     private var minimized = false
     private var deviceActive = true
     private var starting = false
-    private var generation = UUID()
+    private var startupTask: Task<Void, Never>?
+    var captureWindow: AccountSignInWindow?
+    var generation = UUID()
     private let requestedDirectory: URL?
     private let notificationCenter: (any AccountNotificationDelivering)?
     private var notificationRouter: AccountNotificationRouter?
     private var notificationActions: ServiceNotificationActions?
-    private var clients: FixtureAccountSessionHost?
+    private var clients: ServiceAccountSessionHost?
     public private(set) var deviceNotificationPause: DeviceNotificationPause?
 
-    public init(directory: URL? = nil, notifications: (any AccountNotificationDelivering)? = nil) {
+    public init(
+        directory: URL? = nil, notifications: (any AccountNotificationDelivering)? = nil,
+        usesGoogleAccounts: Bool = false
+    ) {
+        self.usesGoogleAccounts = usesGoogleAccounts
         requestedDirectory = directory
         notificationCenter = notifications
     }
@@ -50,6 +62,19 @@ public final class SystemAccountFixtureHost {
     }
 
     public func start() async {
+        if let startupTask {
+            await startupTask.value; return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await runStart()
+        }
+        startupTask = task
+        await task.value
+        startupTask = nil
+    }
+
+    private func runStart() async {
         guard workspace == nil, !starting else { return }
         starting = true
         let generation = UUID()
@@ -58,23 +83,25 @@ public final class SystemAccountFixtureHost {
         var acquired: (any ServiceOwnershipLease)?
         do {
             let directory = try requestedDirectory ?? SystemLaunchServices.supportDirectory()
-                .appendingPathComponent("MultiAccountFixture", isDirectory: true)
+                .appendingPathComponent(
+                    usesGoogleAccounts ? "Accounts" : "MultiAccountFixture",
+                    isDirectory: true
+                )
             let ownership = try FileServiceOwnership(file: directory.appendingPathComponent("service.lock"))
             let lease = try ownership.acquire()
             acquired = lease
             let instanceID = try LocalServiceIdentity.loadOrCreate(in: directory)
             let registry = try SQLiteAccountRegistry(path: directory.appendingPathComponent("registry.sqlite")
                 .path)
-            try seed(registry, directory: directory)
-            let notificationHost = makeNotificationHost(service: instanceID, directory: directory)
-            let service = ChatService(
-                registry: registry,
-                storage: SQLiteServiceStorageFactory(directory: directory.appendingPathComponent("service")),
-                providers: providers,
-                transferFiles: DirectoryTransferStorageFactory(directory: directory
-                    .appendingPathComponent("transfers")),
-                ownership: GrantedFixtureOwnership(lease: lease), notificationHost: notificationHost,
+            let accountProviders = try await makeProviders(
+                registry,
+                directory: directory,
                 instanceID: instanceID
+            )
+            try Task.checkCancellation()
+            let service = makeService(
+                registry: registry, providers: accountProviders, directory: directory,
+                lease: lease, instanceID: instanceID
             )
             self.service = service
             self.registry = registry
@@ -95,15 +122,69 @@ public final class SystemAccountFixtureHost {
             service = nil
             registry = nil
             acquired?.release()
-            self.error = "The account demo could not start. Close it and try again."
+            reportStartFailure()
         }
+    }
+
+    private func reportStartFailure() {
+        error = usesGoogleAccounts
+            ? "Accounts could not start. Your login and data are preserved. "
+            + "Check the network and Keychain, then retry."
+            : "The account demo could not start. Close it and try again."
+    }
+
+    private func makeService(
+        registry: SQLiteAccountRegistry, providers: any AccountProviderFactory, directory: URL,
+        lease: any ServiceOwnershipLease, instanceID: ServiceInstanceID
+    ) -> ChatService {
+        let notificationHost = makeNotificationHost(service: instanceID, directory: directory)
+        return ChatService(
+            registry: registry,
+            storage: SQLiteServiceStorageFactory(directory: directory.appendingPathComponent("service")),
+            providers: providers,
+            transferFiles: DirectoryTransferStorageFactory(directory: directory
+                .appendingPathComponent("transfers")),
+            linkCustody: custody, ownership: GrantedFixtureOwnership(lease: lease),
+            notificationHost: notificationHost,
+            instanceID: instanceID
+        )
+    }
+
+    private func makeProviders(
+        _ registry: SQLiteAccountRegistry, directory: URL, instanceID: ServiceInstanceID
+    ) async throws -> any AccountProviderFactory {
+        let accountProviders: any AccountProviderFactory
+        if usesGoogleAccounts {
+            deviceID = try ServiceDeviceID(FileNotificationSettingsStore(directory: directory).deviceID())
+            let custody = try LocalAccountCustody(
+                storage: KeychainSecretStorage(service: KeychainCredentialStore.defaultService),
+                instanceID: instanceID
+            )
+            self.custody = custody
+            try await migrateLegacy(
+                into: directory,
+                instance: instanceID,
+                registry: registry,
+                custody: custody
+            )
+            accountProviders = NativeAccountProviders(
+                custody: custody, directory: directory.appendingPathComponent("providers"),
+                device: deviceID, bindings: callBindings
+            )
+        } else {
+            try seed(registry, directory: directory)
+            accountProviders = providers
+        }
+        return accountProviders
     }
 
     private func makeWorkspace(service: ChatService, directory: URL) async throws -> AccountWorkspace {
         let context = ServiceSessionContext(
-            principalID: ServicePrincipalID("fixture-owner"), deviceID: ServiceDeviceID("fixture-device"),
-            sessionID: ClientSessionID(UUID().uuidString), accounts: [], hasAllAccountAccess: true
+            principalID: principalID, deviceID: deviceID,
+            sessionID: ClientSessionID(UUID().uuidString), accounts: [], hasAllAccountAccess: true,
+            canLinkAccounts: usesGoogleAccounts
         )
+        self.context = context
         let client = AccountClient(transport: InProcessChatTransport(endpoint: service, context: context))
         let info = try await client.serviceInfo()
         let router = notificationCenter
@@ -112,21 +193,22 @@ public final class SystemAccountFixtureHost {
         let actions = ServiceNotificationActions(
             service: info.instanceID,
             client: client,
-            device: "fixture-device"
+            device: deviceID.rawValue
         )
         notificationActions = actions
         actions.onFailure = { [weak self] in self?.error = "The notification action could not complete." }
         router?.onBackgroundResponse = { [weak actions] in actions?.handle($0) ?? false }
         router?.start()
         let devicePause = deviceNotificationPause
-        let host = FixtureAccountSessionHost(
+        let host = ServiceAccountSessionHost(
             directory: directory.appendingPathComponent("clients"), client: client,
             transport: { account in
                 InProcessChatTransport(endpoint: service, context: ServiceSessionContext(
                     principalID: context.principalID, deviceID: context.deviceID,
                     sessionID: ClientSessionID(UUID().uuidString), accounts: [account.id]
                 ))
-            }, notifications: router, devicePause: devicePause
+            }, notifications: router, devicePause: devicePause, fixture: !usesGoogleAccounts,
+            deviceID: deviceID.rawValue
         )
         clients = host
         let selection = directory.appendingPathComponent("selection.json")
@@ -139,8 +221,14 @@ public final class SystemAccountFixtureHost {
         router?.onOpenAccount = { [weak workspace] in workspace?.showAccount($0) }
         return workspace
     }
+}
 
-    public func addAccount() async {
+public extension SystemAccountHost {
+    func addAccount() async {
+        if usesGoogleAccounts {
+            await beginSignIn()
+            return
+        }
         guard let service, let registry else { return }
         do {
             let number = try registry.accounts().count + 1
@@ -152,27 +240,32 @@ public final class SystemAccountFixtureHost {
         } catch { self.error = "The demo account could not be added." }
     }
 
-    public func setEnabled(_ enabled: Bool, account id: String) async {
+    func setEnabled(_ enabled: Bool, account id: String) async {
         do {
             try await workspace?.setEnabled(enabled, account: ConnectedAccountID(id))
         } catch { self.error = "The account could not change state. Try again." }
     }
 
-    public func removeAccount(_ id: String) async {
+    func removeAccount(_ id: String) async {
         do {
             try await workspace?.remove(ConnectedAccountID(id))
         } catch { self.error = "The account could not be removed. Try again." }
     }
 
-    public func retryAccount(_ id: String) async {
+    func retryAccount(_ id: String) async {
+        if usesGoogleAccounts,
+           workspace?.accounts.first(where: { $0.id.rawValue == id })?.authenticationState == "required" {
+            await beginSignIn(replacing: ConnectedAccountID(id))
+            return
+        }
         await workspace?.retry(ConnectedAccountID(id))
     }
 
-    public func selectAccount(_ id: String) {
+    func selectAccount(_ id: String) {
         workspace?.select(ConnectedAccountID(id))
     }
 
-    public func simulateMessage(_ id: String, text: String = "A message for this account.") async {
+    func simulateMessage(_ id: String, text: String = "A message for this account.") async {
         do {
             try await clients?.synchronizeReplica(ConnectedAccountID(id))
             await providers.incoming(ConnectedAccountID(id), text: text)
@@ -187,7 +280,7 @@ public final class SystemAccountFixtureHost {
         ))
         return notificationCenter.map { center in
             LocalServiceNotificationHost(
-                service: service, device: ServiceDeviceID("fixture-device"), center: center,
+                service: service, device: deviceID, center: center,
                 directory: directory.appendingPathComponent("notification-deliveries")
             ) { [weak self] account in self?.notificationState(account) ?? .init(paused: true) }
         }
@@ -205,7 +298,7 @@ public final class SystemAccountFixtureHost {
         )
     }
 
-    public func setViewing(active: Bool? = nil, open: Bool? = nil, minimized: Bool? = nil) {
+    func setViewing(active: Bool? = nil, open: Bool? = nil, minimized: Bool? = nil) {
         if let active {
             self.active = active
         }
@@ -218,12 +311,19 @@ public final class SystemAccountFixtureHost {
         workspace?.setViewing(active: self.active, windowOpen: self.open, minimized: self.minimized)
     }
 
-    public func setDeviceActive(_ active: Bool) {
+    func setDeviceActive(_ active: Bool) {
         deviceActive = active
         workspace?.setDeviceActive(active)
     }
 
-    public func stop() async {
+    func stop() async {
+        generation = UUID()
+        startupTask?.cancel()
+        await startupTask?.value
+        startupTask = nil
+        captureWindow?.close()
+        captureWindow = nil
+        try? await workspace?.cancelCapture()
         generation = UUID()
         await notificationRouter?.stop()
         notificationRouter = nil
@@ -235,6 +335,12 @@ public final class SystemAccountFixtureHost {
         await service?.shutdown()
         service = nil
         registry = nil
+        custody = nil
+        context = nil
+    }
+
+    private var principalID: ServicePrincipalID {
+        ServicePrincipalID(usesGoogleAccounts ? "local-owner" : "fixture-owner")
     }
 
     private func seed(_ registry: SQLiteAccountRegistry, directory: URL) throws {
@@ -261,43 +367,5 @@ private struct GrantedFixtureOwnership: ServiceOwnership {
     }
 }
 
-private actor FixtureAccountProviders: AccountProviderFactory {
-    private var backends: [ConnectedAccountID: WeakFixtureBackend] = [:]
-    var retainedCount: Int {
-        backends.values.filter { $0.backend != nil }.count
-    }
-
-    func makeProvider(for account: AccountRecord) async -> AccountProvider {
-        var world = FixtureWorld.acme
-        world.me = account.selfID
-        if !world.members.contains(where: { $0.id == account.selfID }) {
-            world.members.append(Member(id: account.selfID, kind: .human, displayName: account.label))
-        }
-        let backend = FakeBackend(
-            world: world,
-            directory: FixtureWorld.acmeDirectory,
-            identifierNamespace: UUID().uuidString
-        )
-        backends[account.id] = WeakFixtureBackend(backend)
-        let now = world.startedAt
-        let calls = await FixtureAudioCallService(world: world)
-        return AccountProvider(backend: backend, calls: [.init("fixture-device"): calls], now: { now })
-    }
-
-    func forgetCredentials(for account: AccountRecord) {
-        backends[account.id] = nil
-    }
-
-    func incoming(_ account: ConnectedAccountID, text: String) async {
-        try? await backends[account]?.backend?.apply(.incomingMessage(
-            conversation: Acme.priceEngine, from: Acme.dan, text: text, thread: nil
-        ))
-    }
-}
-
-private final class WeakFixtureBackend {
-    weak var backend: FakeBackend?
-    init(_ backend: FakeBackend) {
-        self.backend = backend
-    }
-}
+/// Compatibility name for the isolated fixture initializer.
+public typealias SystemAccountFixtureHost = SystemAccountHost

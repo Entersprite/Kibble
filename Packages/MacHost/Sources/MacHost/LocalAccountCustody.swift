@@ -1,4 +1,5 @@
 import ChatAPI
+import ChatKit
 import ChatService
 import Foundation
 import LocalBridgeBackend
@@ -59,6 +60,20 @@ public actor LocalAccountCustody: AccountLinkCustody {
         guard try await store.installedIdentity() == account.selfID
         else { throw ServiceFailure.notAuthorized }
         return store
+    }
+
+    /// Installs a sealed provider-verified legacy login without changing its source.
+    public func adoptLegacy(
+        _ candidate: VerifiedProviderSession, account: ConnectedAccountID, generation: String
+    ) async throws {
+        try await generationStore(account: account, generation: generation)
+            .install(candidate, generation: generation)
+    }
+
+    public func installedLegacyIdentity(
+        account: ConnectedAccountID, generation: String
+    ) async throws -> ChatKit.Member.ID? {
+        try await generationStore(account: account, generation: generation).installedIdentity()
     }
 
     private func staging(_ link: AccountLinkRecord) throws -> KeychainCredentialStore {

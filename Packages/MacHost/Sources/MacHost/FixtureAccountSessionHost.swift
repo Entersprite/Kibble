@@ -4,21 +4,25 @@ import Foundation
 import ServiceClient
 
 @MainActor
-final class FixtureAccountSessionHost: AccountSessionHost {
+final class ServiceAccountSessionHost: AccountSessionHost {
     private let directory: URL
     private let client: AccountClient
     private let downloads: any DownloadPlatform
     private let transport: (AccountSummary) -> any ServiceEventTransport
     private let notifications: AccountNotificationRouter?
     private let devicePause: DeviceNotificationPause?
-    private var clients: [ConnectedAccountID: WeakFixtureLaunchServices] = [:]
+    private let fixture: Bool
+    private let deviceID: String
+    private var clients: [ConnectedAccountID: WeakAccountLaunchServices] = [:]
 
     init(
         directory: URL,
         client: AccountClient,
         transport: @escaping (AccountSummary) -> any ServiceEventTransport,
-        notifications: AccountNotificationRouter? = nil, devicePause: DeviceNotificationPause? = nil
+        notifications: AccountNotificationRouter? = nil, devicePause: DeviceNotificationPause? = nil,
+        fixture: Bool = true, deviceID: String = "fixture-device"
     ) {
+        self.fixture = fixture; self.deviceID = deviceID
         self.directory = directory; self.client = client; self.transport = transport
         self.notifications = notifications
         self.devicePause = devicePause
@@ -61,15 +65,17 @@ final class FixtureAccountSessionHost: AccountSessionHost {
                   previous.revision == account.revision else { throw ServiceFailure.staleAccount }
         }
         try ServiceCodec.encode(account).write(to: manifest, options: .atomic)
-        let services = FixtureAccountLaunchServices(
+        let services = ServiceAccountLaunchServices(
             account: account,
             client: client,
             directory: folder,
-            downloads: downloads, transport: transport(account)
+            downloads: downloads, transport: transport(account), fixture: fixture
         )
         clients = clients.filter { $0.value.value != nil }
-        clients[account.id] = WeakFixtureLaunchServices(services)
-        let preferences = UserDefaults(suiteName: "com.entersprite.kibble.multi-account-fixture") ?? .standard
+        clients[account.id] = WeakAccountLaunchServices(services)
+        let preferences = fixture
+            ? UserDefaults(suiteName: "com.entersprite.kibble.multi-account-fixture") ?? .standard
+            : .standard
         let cache = try PolicyReplicaCache(
             binding: PolicyReplicaBinding(
                 service: info.instanceID,
@@ -77,7 +83,7 @@ final class FixtureAccountSessionHost: AccountSessionHost {
                 revision: revision,
                 identity: account.selfID
             ),
-            deviceID: "fixture-device",
+            deviceID: deviceID,
             storage: FilePolicyReplicaStorage(file: folder.appendingPathComponent("policy.json"))
         )
         let namespace = try ServiceCodec.encode(info.instanceID).base64EncodedString() + "."
@@ -110,9 +116,9 @@ final class FixtureAccountSessionHost: AccountSessionHost {
     }
 }
 
-private final class WeakFixtureLaunchServices {
-    weak var value: FixtureAccountLaunchServices?
-    init(_ value: FixtureAccountLaunchServices) {
+private final class WeakAccountLaunchServices {
+    weak var value: ServiceAccountLaunchServices?
+    init(_ value: ServiceAccountLaunchServices) {
         self.value = value
     }
 }

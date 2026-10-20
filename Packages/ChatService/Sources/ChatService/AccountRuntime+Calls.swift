@@ -4,11 +4,37 @@ import Foundation
 
 extension AccountRuntime {
     func invalidateCallFacts(for event: ChatEvent) {
+        let changed: Bool
         switch event {
-        case .conversationsChanged, .conversationUpdated, .conversationRemoved, .membersChanged, .gap:
-            callFactsVersion = UUID()
-        default: break
+        case let .conversationsChanged(conversations):
+            let previous = (try? storage.conversations()) ?? []
+            changed = membershipFacts(previous) != membershipFacts(conversations)
+        case let .conversationUpdated(conversation):
+            let previous = try? storage.conversation(conversation.id)
+            changed = previous?.kind != conversation
+                .kind || Set(previous?.members ?? []) != Set(conversation.members)
+        case let .membersChanged(id, members):
+            let previous = try? storage.conversation(id)
+            changed = Set(previous?.members ?? []) != Set(members.map(\.id))
+        case .conversationRemoved, .gap: changed = true
+        default: changed = false
         }
+        if changed {
+            callFactsVersion = UUID()
+        }
+    }
+
+    private func membershipFacts(_ conversations: [Conversation]) -> [Conversation.ID: Conversation] {
+        Dictionary(uniqueKeysWithValues: conversations.map {
+            (
+                $0.id,
+                Conversation(
+                    id: $0.id,
+                    kind: $0.kind,
+                    members: $0.members.sorted { $0.rawValue < $1.rawValue }
+                )
+            )
+        })
     }
 
     func installCalls(_ sources: [ServiceDeviceID: any AudioCallService]) async {

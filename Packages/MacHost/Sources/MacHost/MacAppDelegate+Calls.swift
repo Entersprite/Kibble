@@ -12,8 +12,10 @@ public extension MacAppDelegate {
 
     func setUpCalls() {
         guard canSetUpCalls else { return }
+        let environment = environment
+        let signIn = callSignIn
         Task {
-            await environment.calls.recover { await callSignIn.present() }
+            await environment.calls.recover { await signIn.present() }
         }
     }
 
@@ -72,7 +74,7 @@ public extension MacAppDelegate {
         observeCallWindow()
     }
 
-    private static func callActions(
+    internal static func callActions(
         for id: UUID, calls: AudioCallController, audioDevices: CallAudioDeviceController,
         video: CallVideoController, diagnostics: AudioCallDiagnosticExporter
     ) -> AudioCallActions {
@@ -210,7 +212,7 @@ public extension MacAppDelegate {
     /// Calls the same person again from a finished call's window, offered only
     /// while that conversation can still be called. Read only for a finished
     /// call, so a live call's window does not follow the conversation list.
-    private static func callBack(after id: UUID, environment: AppEnvironment) -> (() -> Void)? {
+    internal static func callBack(after id: UUID, environment: AppEnvironment) -> (() -> Void)? {
         let calls = environment.calls
         guard let call = calls.call, call.id == id, call.phase.isTerminal,
               case let .running(model) = environment.phase,
@@ -259,6 +261,7 @@ public extension MacAppDelegate {
         memoryPressureSource?.cancel()
         environment.releasePresentationCaches()
         Task { @MainActor [environment] in
+            await self.accountCalls?.stop()
             await self.callSignIn.invalidate()
             await self.accountFixture?.stop()
             await environment.calls.stop()

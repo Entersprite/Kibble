@@ -188,8 +188,8 @@ actor AccountRuntime {
 
     @discardableResult
     func appendAndPublish(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
-        let cursor = try storage.append(event, live: live)
         invalidateCallFacts(for: event)
+        let cursor = try storage.append(event, live: live)
         if !SyncReducer.reduce(event).effects.isEmpty {
             notificationsChanged()
         }
