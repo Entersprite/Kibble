@@ -1,3 +1,4 @@
+import AppCore
 import AppKit
 import ChatAPI
 import ChatKit
@@ -46,21 +47,12 @@ extension SystemAccountHost {
                 autoSaveAllowed: true, custody: KeychainCaptureCustody(store: store),
                 reportDirectory: nil, preparesCalls: true
             ) { [weak self, weak workspace] in
-                guard let self, generation == scope else { return }
-                do {
-                    try await workspace?.completeCapture()
-                    captureWindow?.close()
-                    captureWindow = nil
-                } catch let failure as ServiceFailure where failure == .wrongIdentity {
-                    // The service installed nothing. This attempt's capture is
-                    // discarded, and the next sign-in starts fresh.
-                    captureWindow?.close()
-                    captureWindow = nil
-                    try? await workspace?.cancelCapture()
-                    refusedSignIn = account?.rawValue
-                } catch { self.error = "This account could not be verified. Try signing in again." }
+                guard let self, let workspace, generation == scope else { return }
+                await finishSignIn(workspace, replacing: account)
             }
-            let window = AccountSignInWindow(model: model) { [weak self, weak workspace] in
+            let title = account.flatMap { workspace.accountLabels[$0] }.map { "Reconnect \($0)" }
+                ?? "Add Google Account"
+            let window = AccountSignInWindow(model: model, title: title) { [weak self, weak workspace] in
                 guard let self, generation == scope else { return }
                 captureWindow = nil
                 do { try await workspace?.cancelCapture() } catch {
@@ -70,6 +62,27 @@ extension SystemAccountHost {
             captureWindow = window
             window.show()
         } catch { self.error = "Account sign-in could not open. Try again." }
+    }
+
+    /// After the browser hands over a sign-in: an account already in Kibble is
+    /// shown, and another identity than the reconnecting account's is refused.
+    private func finishSignIn(_ workspace: AccountWorkspace, replacing account: ConnectedAccountID?) async {
+        do {
+            let summary = try await workspace.completeCapture()
+            captureWindow?.close()
+            captureWindow = nil
+            if summary?.phase == "alreadyConnected", let existing = summary?.accountID {
+                workspace.select(existing)
+                error = "That Google account is already in Kibble."
+            }
+        } catch let failure as ServiceFailure where failure == .wrongIdentity {
+            // The service installed nothing. This attempt's capture is
+            // discarded, and the next sign-in starts fresh.
+            captureWindow?.close()
+            captureWindow = nil
+            try? await workspace.cancelCapture()
+            refusedSignIn = account?.rawValue
+        } catch { self.error = "This account could not be verified. Try signing in again." }
     }
 }
 

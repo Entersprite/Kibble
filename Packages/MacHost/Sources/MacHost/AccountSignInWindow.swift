@@ -5,12 +5,18 @@ import WebKit
 @MainActor
 final class AccountSignInWindow: NSObject, NSWindowDelegate {
     private let model: CookieCaptureModel
+    /// "Add Google Account", or "Reconnect ‹account›" for an account signing in again.
+    private let title: String
     private let canceled: () async -> Void
     private var window: NSWindow?
     private var closing = false
 
-    init(model: CookieCaptureModel, canceled: @escaping () async -> Void) {
-        self.model = model; self.canceled = canceled
+    init(
+        model: CookieCaptureModel,
+        title: String = "Add Google Account",
+        canceled: @escaping () async -> Void
+    ) {
+        self.model = model; self.title = title; self.canceled = canceled
     }
 
     func show() {
@@ -21,7 +27,7 @@ final class AccountSignInWindow: NSObject, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
         )
-        window.title = "Connect Google Account"
+        window.title = title
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.contentView = NSHostingView(rootView: AccountSignInContent(model: model))

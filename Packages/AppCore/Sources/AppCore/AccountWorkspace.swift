@@ -194,13 +194,16 @@ public final class AccountWorkspace {
         }
     }
 
-    public func completeCapture() async throws {
-        guard let capture else { return }
+    /// The completed link: an `alreadyConnected` one names the existing account.
+    @discardableResult
+    public func completeCapture() async throws -> AccountLinkSummary? {
+        guard let capture else { return nil }
         guard !captureChanging else { throw ServiceFailure.operationConflict }
         captureChanging = true
         defer { captureChanging = false }
-        _ = try await client.completeLink(capture.id)
+        let summary = try await client.completeLink(capture.id)
         self.capture = nil
+        return summary
     }
 
     public func cancelCapture() async throws {
