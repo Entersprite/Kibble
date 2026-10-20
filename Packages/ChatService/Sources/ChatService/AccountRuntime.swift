@@ -15,6 +15,7 @@ actor AccountRuntime {
     nonisolated let instanceID: UUID
     private let onStatus: @Sendable (RuntimeStatus) async -> Void
     private let onFault: @Sendable (RuntimeFault) async -> Void
+    let onProfile: @Sendable (AccountProfile) async -> Void
     private var quarantined = false
 
     private var stopDrained = false
@@ -58,6 +59,8 @@ actor AccountRuntime {
     var backfillRequested = false
     var backfillReplayRequested = false
     var backfillHeads: [Conversation.ID: MentionBackfillHead] = [:]
+    var profileRefresh: Task<Void, Never>?
+    var pendingSelf: Member?
     private var startup: Task<Void, Never>?
     private var consumer: Task<Void, Never>?
     var requests: [UUID: Task<JSONValue, any Error>] = [:]
@@ -97,6 +100,7 @@ actor AccountRuntime {
         transferLimits: ServiceTransferLimits = ServiceTransferLimits(),
         transferNow: @escaping @Sendable () -> Date = { Date() },
         onStatus: @escaping @Sendable (RuntimeStatus) async -> Void,
+        onProfile: @escaping @Sendable (AccountProfile) async -> Void = { _ in },
         onFault: @escaping @Sendable (RuntimeFault) async -> Void
     ) {
         self.instanceID = instanceID
@@ -110,6 +114,7 @@ actor AccountRuntime {
         self.transferLimits = transferLimits
         self.transferNow = transferNow
         self.onStatus = onStatus
+        self.onProfile = onProfile
         self.onFault = onFault
         self.record = record
         self.storage = storage
@@ -267,8 +272,8 @@ actor AccountRuntime {
         epoch = UUID()
         startup?.cancel()
         consumer?.cancel()
-        let effects = [worldRefresh, historyRefresh, backfill, notificationJob].compactMap(\.self)
-            + cancelClientInterestJobs()
+        let effects = [worldRefresh, historyRefresh, backfill, notificationJob, profileRefresh]
+            .compactMap(\.self) + cancelClientInterestJobs()
         for task in effects {
             task.cancel()
         }
@@ -286,7 +291,7 @@ actor AccountRuntime {
         await withdrawHostNotifications()
         notificationJob = nil
         calls = [:]; callStops = []
-        worldRefresh = nil; historyRefresh = nil; backfill = nil
+        worldRefresh = nil; historyRefresh = nil; backfill = nil; profileRefresh = nil; pendingSelf = nil
         pendingHistory.removeAll(); backfillHeads.removeAll(); historyVersions.removeAll()
         clientInterests.removeAll(); subscriberAttachments.removeAll()
         interestSweep = nil; interestPublisher = nil; interestFault = nil; typingRefreshRequested.removeAll()
@@ -302,7 +307,9 @@ actor AccountRuntime {
             waiter.resume()
         }
     }
+}
 
+extension AccountRuntime {
     private func drainRequests(
         _ pending: [Task<JSONValue, any Error>], binaries: [Task<ServiceBinaryFrame, any Error>],
         expiry: Task<Void, Never>?, effects: [Task<Void, Never>]
@@ -324,9 +331,7 @@ actor AccountRuntime {
             await task.value
         }
     }
-}
 
-extension AccountRuntime {
     var quarantinedForSubscription: Bool {
         quarantined
     }

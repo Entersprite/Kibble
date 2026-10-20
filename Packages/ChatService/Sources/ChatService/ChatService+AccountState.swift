@@ -56,8 +56,11 @@ extension ChatService {
         }.sorted { $0.id.rawValue < $1.id.rawValue }.map(\.summary)
     }
 
+    /// In list order: by position, then records without one by ID.
     func accountSummaries(_ context: ServiceSessionContext) -> [AccountSummary] {
-        records.values.sorted { $0.id.rawValue < $1.id.rawValue }.compactMap { record in
+        records.values.sorted {
+            ($0.position ?? .max, $0.id.rawValue) < ($1.position ?? .max, $1.id.rawValue)
+        }.compactMap { record in
             guard record.principalID == context.principalID, context.allowsAccount(record.id)
             else { return nil }
             return accountSummary(record)
@@ -75,8 +78,47 @@ extension ChatService {
             isEnabled: record.isEnabled, isReady: active, isRemoving: record.isRemoving,
             capabilities: active ? status?.status.capabilities ?? .init() : .init(),
             revision: record.currentRevision, authenticationState: record.authenticationState,
-            policyRevision: policyRevisions[record.id], runtimeID: runtimes[record.id]?.instanceID
+            policyRevision: policyRevisions[record.id], runtimeID: runtimes[record.id]?.instanceID,
+            profile: record.profile
         )
+    }
+
+    /// The next list position: after every current account.
+    func nextAccountPosition() -> Int {
+        (records.values.compactMap(\.position).max() ?? -1) + 1
+    }
+
+    /// Records saved before ordering existed keep their old relative order
+    /// (by ID) and go after any positioned ones. A record that cannot be saved
+    /// keeps no position and still lists last, so this never blocks startup.
+    func assignMissingPositions() {
+        let unplaced = records.values.filter { $0.position == nil && !$0.isRemoving }
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+        for var record in unplaced {
+            record.position = nextAccountPosition()
+            guard (try? registry.save(record)) != nil else { continue }
+            records[record.id] = record
+        }
+    }
+
+    /// Keeps the provider's latest own identity. Only the current runtime of the
+    /// current binding may change it, and an unchanged profile writes nothing.
+    func runtimeProfileChanged(
+        _ id: ConnectedAccountID, revision: ServiceAccountRevision, instanceID: UUID, profile: AccountProfile
+    ) {
+        guard !shuttingDown, var record = records[id], record.currentRevision == revision,
+              !record.isRemoving, runtimes[id]?.instanceID == instanceID, record.profile != profile
+        else { return }
+        record.profile = profile
+        do {
+            try registry.save(record)
+        } catch {
+            // Display metadata only: the previous profile stays, and the next
+            // identification tries again.
+            return
+        }
+        records[id] = record
+        accountStateChanged()
     }
 
     func accountStateChanged() {
@@ -126,6 +168,11 @@ extension ChatService {
             onStatus: { [weak self] status in
                 await self?.runtimeStatusChanged(
                     record.id, revision: record.currentRevision, instanceID: instanceID, status: status
+                )
+            },
+            onProfile: { [weak self] profile in
+                await self?.runtimeProfileChanged(
+                    record.id, revision: record.currentRevision, instanceID: instanceID, profile: profile
                 )
             },
             onFault: { [weak self] fault in

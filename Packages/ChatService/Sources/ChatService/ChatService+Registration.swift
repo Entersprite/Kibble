@@ -4,6 +4,10 @@ import Foundation
 public extension ChatService {
     /// Host-only admission after credential validation; no client DTO grants this authority.
     func registerVerified(_ record: AccountRecord) async throws {
+        var record = record
+        if record.position == nil {
+            record.position = nextAccountPosition()
+        }
         guard restoredForSubscriptions, !shuttingDown, !record.isRemoving,
               record.authenticationState == nil else { throw ServiceFailure.invalidRequest }
         guard records[record.id] == nil,

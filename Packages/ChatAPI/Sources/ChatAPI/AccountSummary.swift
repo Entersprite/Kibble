@@ -15,6 +15,9 @@ public struct AccountSummary: Codable, Hashable, Sendable {
     public let isReady: Bool
     public let capabilities: Capabilities
     public let connection: ConnectionState
+    /// The account's last-known own identity; absent until the provider first
+    /// identifies itself, and in summaries from older services.
+    public let profile: AccountProfile?
 
     public init(
         id: ConnectedAccountID,
@@ -26,7 +29,8 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         isRemoving: Bool = false,
         capabilities: Capabilities = .init(),
         revision: ServiceAccountRevision? = nil,
-        authenticationState: String? = nil, policyRevision: String? = nil, runtimeID: UUID? = nil
+        authenticationState: String? = nil, policyRevision: String? = nil, runtimeID: UUID? = nil,
+        profile: AccountProfile? = nil
     ) {
         self.id = id
         self.revision = revision
@@ -40,11 +44,12 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         self.isEnabled = isEnabled
         self.isReady = isReady
         self.capabilities = capabilities
+        self.profile = profile
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, revision, selfID, label, connection, isReady, isEnabled, isRemoving, capabilities,
-             authenticationState, policyRevision, runtimeID
+             authenticationState, policyRevision, runtimeID, profile
     }
 
     public init(from decoder: any Decoder) throws {
@@ -61,7 +66,8 @@ public struct AccountSummary: Codable, Hashable, Sendable {
             revision: values.decodeIfPresent(ServiceAccountRevision.self, forKey: .revision),
             authenticationState: values.decodeIfPresent(String.self, forKey: .authenticationState),
             policyRevision: values.decodeIfPresent(String.self, forKey: .policyRevision),
-            runtimeID: values.decodeIfPresent(UUID.self, forKey: .runtimeID)
+            runtimeID: values.decodeIfPresent(UUID.self, forKey: .runtimeID),
+            profile: values.decodeIfPresent(AccountProfile.self, forKey: .profile)
         )
     }
 }

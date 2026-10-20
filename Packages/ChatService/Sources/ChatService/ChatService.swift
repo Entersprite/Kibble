@@ -96,6 +96,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         }
         lease = acquired
         records = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+        assignMissingPositions()
         restored = true
         for record in accounts
             where record.isEnabled && !record.isRemoving && record.authenticationState == nil {

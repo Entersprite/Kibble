@@ -66,6 +66,9 @@ public actor FakeBackend {
     /// invite (mention non-members spec §3.6). Empty unless a host passes
     /// some, so the world's own output is unchanged.
     let directory: [Member]
+    /// Who manages the signed-in account, for `AccountOrganizationBackend`.
+    /// `.unstated` unless a host passes one, as a provider that never says.
+    let organization: AccountOrganization
     var now: Date
 
     /// Counts everything yielded, so a test can wait for exactly as many events
@@ -91,11 +94,13 @@ public actor FakeBackend {
         tick: Duration = .seconds(1),
         pageSize: Int = 30,
         directory: [Member] = [],
-        identifierNamespace: String = ""
+        identifierNamespace: String = "",
+        organization: AccountOrganization = .unstated
     ) {
         self.identifierNamespace = identifierNamespace
         self.world = world
         self.directory = directory
+        self.organization = organization
         self.capabilities = capabilities
         self.tick = tick
         self.pageSize = pageSize

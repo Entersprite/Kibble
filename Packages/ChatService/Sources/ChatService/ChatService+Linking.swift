@@ -289,7 +289,8 @@ extension ChatService {
             principalID: link.principalID,
             selfID: identity,
             label: link.label,
-            credentialGeneration: link.generation
+            credentialGeneration: link.generation,
+            position: nextAccountPosition()
         )
     }
 

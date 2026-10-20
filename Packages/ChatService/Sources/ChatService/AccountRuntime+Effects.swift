@@ -7,6 +7,8 @@ extension AccountRuntime {
     func scheduleEffects(for event: ChatEvent) async {
         switch event {
         case .conversationsChanged: requestBackfill()
+        case let .selfIdentified(member) where member.id == record.selfID:
+            requestProfileRefresh(member)
         case .connectionStateChanged(.connected):
             requestWorldRefresh()
             if aggregateClientInterests().hasAny || publishedInterests.hasAny {
@@ -48,6 +50,30 @@ extension AccountRuntime {
                 } catch {
                     await reconciliationFailed(error)
                 }
+            }
+        }
+    }
+
+    /// Reports the account's own identity with the provider's organization, if
+    /// it states one. Latest member wins; the task drains with the runtime.
+    private func requestProfileRefresh(_ member: Member) {
+        guard !stopped, !quarantinedForSubscription else { return }
+        pendingSelf = member
+        guard profileRefresh == nil else { return }
+        profileRefresh = Task {
+            defer { profileRefresh = nil }
+            while let member = pendingSelf, !stopped, !Task.isCancelled {
+                pendingSelf = nil
+                guard let backend else { return }
+                let epoch = currentEpoch
+                var organization = AccountOrganization.unstated
+                if let source = backend as? any AccountOrganizationBackend {
+                    organization = await (try? source.accountOrganization()) ?? .unstated
+                }
+                guard epoch == currentEpoch, !stopped, !Task.isCancelled else { return }
+                await onProfile(AccountProfile(
+                    displayName: member.displayName, email: member.email, organization: organization
+                ))
             }
         }
     }

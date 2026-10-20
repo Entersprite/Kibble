@@ -19,13 +19,19 @@ public struct AccountRecord: Codable, Hashable, Sendable {
 
     /// A removal intent survives interruption of vault/storage cleanup.
     public var isRemoving: Bool
+    /// The last own identity the provider reported. Display metadata, kept
+    /// across disable and sign-in loss so the account can still be shown.
+    public var profile: AccountProfile?
+    /// Where the account is listed; accounts are added at the end. Records
+    /// saved before ordering existed have none and list after the rest.
+    public var position: Int?
 
     public init(
         id: ConnectedAccountID, principalID: ServicePrincipalID, selfID: Member.ID,
         label: String, isEnabled: Bool = true, credentialGeneration: String,
         isRemoving: Bool = false,
         revision: ServiceAccountRevision? = ServiceAccountRevision(UUID().uuidString),
-        authenticationState: String? = nil
+        authenticationState: String? = nil, profile: AccountProfile? = nil, position: Int? = nil
     ) {
         self.id = id
         self.principalID = principalID
@@ -36,6 +42,8 @@ public struct AccountRecord: Codable, Hashable, Sendable {
         self.authenticationState = authenticationState
         self.revision = revision
         self.isRemoving = isRemoving
+        self.profile = profile
+        self.position = position
     }
 }
 
