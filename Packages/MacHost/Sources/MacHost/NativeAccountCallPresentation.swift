@@ -12,6 +12,8 @@ final class NativeAccountCallPresentation {
     let binding: NativeAccountCallBinding
     private let settings: CallSettingsModel
     let notificationScope = UUID()
+    /// Which account this is while several are connected, asked when shown.
+    private let accountLabel: @MainActor () -> String?
     private let panel = IncomingCallPanelHost()
     private let ringer: CallRinger
     private var window: AudioCallWindowHost?
@@ -20,9 +22,11 @@ final class NativeAccountCallPresentation {
 
     init(
         environment: AppEnvironment, binding: NativeAccountCallBinding,
-        settings: CallSettingsModel, notifications: UserNotificationDelivery
+        settings: CallSettingsModel, notifications: UserNotificationDelivery,
+        accountLabel: @escaping @MainActor () -> String? = { nil }
     ) {
         self.environment = environment; self.binding = binding; self.settings = settings
+        self.accountLabel = accountLabel
         ringer = CallRinger { settings.ringtoneURL }
         let calls = environment.calls
         window = AudioCallWindowHost(actions: { id in
@@ -32,6 +36,7 @@ final class NativeAccountCallPresentation {
             )
             actions.callBack = MacAppDelegate.callBack(after: id, environment: environment)
             actions.imageLoader = environment.imageLoader
+            actions.accountLabel = accountLabel()
             return actions
         }, windowClosed: { id in
             if calls.call?.id == id {
@@ -73,6 +78,8 @@ final class NativeAccountCallPresentation {
 
     private func showPanel(_ content: IncomingCallPanelContent) {
         let id = content.callID
+        var content = content
+        content.accountLabel = accountLabel()
         panel.show(content, actions: .init(
             accept: { [weak self] in self?.respond(.answer(id)) },
             decline: { [weak self] in self?.respond(.decline(id)) },
@@ -158,10 +165,15 @@ final class NativeAccountCallCoordinator {
                       let binding = host.callBindings.binding(for: account) else { return nil }
                 if presentations[account.id]?.environment !== environment {
                     presentations.removeValue(forKey: account.id)?.stop()
+                    let id = account.id
                     presentations[account.id] = NativeAccountCallPresentation(
                         environment: environment, binding: binding, settings: settings,
                         notifications: notifications
-                    )
+                    ) { [weak host] in
+                        guard let workspace = host?.workspace,
+                              workspace.accounts.count > 1 else { return nil }
+                        return workspace.accountLabels[id]
+                    }
                 }
                 return account.id
             } ?? [])

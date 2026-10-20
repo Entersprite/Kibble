@@ -188,11 +188,11 @@ public struct ChatWindow: View {
     @ViewBuilder private func composer(for conversation: Conversation) -> some View {
         if state.capabilities.canSendMessages {
             Composer(
-                placeholder: state.meetingSeries?.title ?? Display.title(
+                placeholder: (state.meetingSeries?.title ?? Display.title(
                     of: conversation,
                     directory: state.directory,
                     me: state.me
-                ),
+                )) + (state.sendingAs.map { " as \($0)" } ?? ""),
                 activity: { actions.typingActivity?(conversation.id, nil, $0) },
                 restoring: state.failedDraft,
                 onRestored: actions.draftRestored,

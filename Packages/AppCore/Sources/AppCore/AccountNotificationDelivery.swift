@@ -36,7 +36,8 @@ public protocol AccountNotificationDelivering: Sendable {
 }
 
 final class ScopedNotificationDelivery: NotificationDelivering, Sendable {
-    private struct State { var active = true; var label: String }
+    /// The account's label while several are connected; `nil` with one.
+    private struct State { var active = true; var label: String? }
     let scope: AccountNotificationScope
     let responses: AsyncStream<NotificationResponse>
     private let continuation: AsyncStream<NotificationResponse>.Continuation
@@ -47,7 +48,7 @@ final class ScopedNotificationDelivery: NotificationDelivering, Sendable {
 
     init(
         scope: AccountNotificationScope,
-        label: String,
+        label: String?,
         center: any AccountNotificationDelivering,
         postsArrivals: Bool = true,
         authorize: @escaping @Sendable () async -> Void
@@ -73,7 +74,7 @@ final class ScopedNotificationDelivery: NotificationDelivering, Sendable {
         }
     }
 
-    func update(label: String) {
+    func update(label: String?) {
         state.withLock { $0.label = label }
     }
 
@@ -83,9 +84,11 @@ final class ScopedNotificationDelivery: NotificationDelivering, Sendable {
 
     func post(_ notification: MessageNotification) async {
         guard postsArrivals else { return }
-        guard let label = state.withLock({ $0.active ? $0.label : nil }) else { return }
+        guard let label = state.withLock({ $0.active ? Optional($0.label) : nil }) else { return }
         var notification = notification
-        notification.subtitle = notification.subtitle.map { $0 + " · " + label } ?? label
+        if let label {
+            notification.subtitle = notification.subtitle.map { $0 + " · " + label } ?? label
+        }
         await center.post(notification, scope: scope)
     }
 

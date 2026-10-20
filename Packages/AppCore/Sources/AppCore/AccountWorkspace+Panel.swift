@@ -22,6 +22,17 @@ public extension AccountWorkspace {
         )
     }
 
+    /// The selected account's scene while it runs, saying which account its
+    /// composers send as whenever more than one account is connected.
+    func selectedScene() -> ChatSceneState? {
+        guard let id = selectedID, let environment = selectedEnvironment else { return nil }
+        var scene = environment.sceneState
+        if accounts.count > 1 {
+            scene.sendingAs = accountLabels[id]
+        }
+        return scene
+    }
+
     /// What the selected account's window says while it is not running, or
     /// `nil` while it runs.
     func unavailableReason(for id: ConnectedAccountID) -> AccountUnavailable.Reason? {

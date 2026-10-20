@@ -12,13 +12,16 @@ final class LocalServiceNotificationHost: ServiceNotificationHost {
     private let center: any AccountNotificationDelivering
     private let identities: FileNotificationDeliveryIdentities
     private let visibility: @MainActor (ConnectedAccountID) -> NotificationDeviceState
+    private let label: @MainActor (ConnectedAccountID) -> String?
     private var authorization: Task<Void, Never>?
 
     init(
         service: ServiceInstanceID, device: ServiceDeviceID, center: any AccountNotificationDelivering,
-        directory: URL, visibility: @escaping @MainActor (ConnectedAccountID) -> NotificationDeviceState
+        directory: URL, label: @escaping @MainActor (ConnectedAccountID) -> String?,
+        visibility: @escaping @MainActor (ConnectedAccountID) -> NotificationDeviceState
     ) {
         self.service = service; deviceID = device; self.center = center; self.visibility = visibility
+        self.label = label
         identities = FileNotificationDeliveryIdentities(directory: directory)
     }
 
@@ -51,7 +54,10 @@ final class LocalServiceNotificationHost: ServiceNotificationHost {
             // Persist before handing off to the OS. A crash in that interval
             // may miss an alert; replay cannot ring twice after an uncertain add.
             guard try identities.claim(frame.deliveryID, scope: scope) else { return }
-            await center.post(HostNotificationRenderer.render(post), scope: scope)
+            await center.post(
+                HostNotificationRenderer.render(post, accountLabel: label(frame.account)),
+                scope: scope
+            )
         case "withdraw":
             let value = try ServiceCodec.decode(HostNotificationWithdrawal.self, from: frame.payload)
             await center.withdraw(in: value.conversation, coveredBy: value.upTo, scope: scope)

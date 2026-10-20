@@ -69,6 +69,7 @@ struct CallPersonHeader: View {
     let directory: [Member.ID: Member]
     let timing: CallTiming
     var avatarSize: CGFloat = 104
+    var accountLabel: String?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -90,6 +91,13 @@ struct CallPersonHeader: View {
                 CallStatusText(call: call, timing: timing)
                     .font(.title3)
                     .foregroundStyle(.secondary)
+                if let accountLabel {
+                    Text(accountLabel)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .accessibilityLabel("On \(accountLabel)")
+                }
                 if let message = AudioCallPresentation.failureMessage(for: call) {
                     Text(message)
                         .font(.callout)

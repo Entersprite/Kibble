@@ -55,8 +55,8 @@ public final class AccountNotificationRouter {
             } else if !isCurrent(scope, delivering: true) {
                 weak.value?.retire()
                 deliveries[scope] = nil
-            } else if let account = self.accounts[scope.account] {
-                weak.value?.update(label: account.label)
+            } else if self.accounts[scope.account] != nil {
+                weak.value?.update(label: label(for: scope.account))
             }
         }
         let held = pending
@@ -74,7 +74,7 @@ public final class AccountNotificationRouter {
         guard deliveries[scope]?.value?.isActive != true else { throw ServiceFailure.operationConflict }
         let delivery = ScopedNotificationDelivery(
             scope: scope,
-            label: account.label,
+            label: label(for: account.id),
             center: center, postsArrivals: clientArrivals
         ) { [weak self] in
             await self?.requestAuthorization()
@@ -89,6 +89,13 @@ public final class AccountNotificationRouter {
             delivery.receive(response.response)
         }
         return delivery
+    }
+
+    /// What tells this account's alerts apart from another's: nothing with one
+    /// account, its label (`AccountLabels`) with several.
+    private func label(for account: ConnectedAccountID) -> String? {
+        guard accounts.count > 1 else { return nil }
+        return AccountLabels.labels(for: Array(accounts.values))[account]
     }
 
     public func stop() async {

@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 public struct AudioCallActions {
     public var imageLoader: SceneImageLoader?
+    /// Which account the call is on, while several are connected; `nil` with one.
+    public var accountLabel: String?
     public var toggleScreenSharing: (() -> Void)?
     public var toggleCamera: (() -> Void)?
     public var selectCamera: ((String) -> Void)?
@@ -140,7 +142,7 @@ public struct AudioCallView: View {
                 } else if liveVideo?.remote == nil {
                     CallPersonHeader(
                         call: call, directory: directory, timing: timing,
-                        avatarSize: video == nil ? 104 : 128
+                        avatarSize: video == nil ? 104 : 128, accountLabel: actions.accountLabel
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }

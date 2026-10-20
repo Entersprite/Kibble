@@ -8,12 +8,17 @@ public struct IncomingCallPanelContent: Equatable, Sendable {
     public let memberID: Member.ID
     public var name: String?
     public var person: Member?
+    /// Which account is being called, while several are connected.
+    public var accountLabel: String?
 
-    public init(callID: UUID, memberID: Member.ID, name: String?, person: Member?) {
+    public init(
+        callID: UUID, memberID: Member.ID, name: String?, person: Member?, accountLabel: String? = nil
+    ) {
         self.callID = callID
         self.memberID = memberID
         self.name = name
         self.person = person
+        self.accountLabel = accountLabel
     }
 }
 
@@ -104,7 +109,8 @@ public struct IncomingCallPanelView: View {
                 Text(content.name ?? "Incoming call")
                     .font(.headline)
                     .lineLimit(1)
-                Text(content.name == nil ? "Kibble" : "Kibble call")
+                Text((content.name == nil ? "Kibble" : "Kibble call") +
+                    (content.accountLabel.map { " · \($0)" } ?? ""))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

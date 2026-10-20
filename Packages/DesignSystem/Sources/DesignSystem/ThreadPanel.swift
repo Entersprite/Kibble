@@ -103,11 +103,11 @@ struct ThreadPanel: View {
     }
 
     /// `Composer` writes "Message " before its placeholder, so this reads
-    /// "Message the thread".
+    /// "Message the thread", and "… as ‹account›" while several are connected.
     @ViewBuilder private var composer: some View {
         if state.capabilities.canSendMessages, let conversation = state.selectedConversation {
             Composer(
-                placeholder: "the thread",
+                placeholder: "the thread" + (state.sendingAs.map { " as \($0)" } ?? ""),
                 activity: { actions.typingActivity?(panel.thread.conversationID, panel.thread.id, $0) },
                 attachments: panel.stagedAttachments,
                 attachmentActions: threads.attachments,

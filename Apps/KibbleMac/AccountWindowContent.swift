@@ -77,7 +77,7 @@ struct AccountWindowContent: View {
 
     private func shell(_ workspace: AccountWorkspace, showSettings: @escaping () -> Void) -> some View {
         let environment = workspace.selectedEnvironment
-        let scene = environment?.sceneState ?? ChatSceneState()
+        let scene = workspace.selectedScene() ?? ChatSceneState()
         return AccountShell(
             state: workspace.accountPanelState(scene: environment == nil ? nil : scene),
             actions: panelActions(environment, showSettings: showSettings),

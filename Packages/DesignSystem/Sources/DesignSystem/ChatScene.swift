@@ -123,6 +123,9 @@ public struct ChatSceneState: Sendable, Equatable {
     /// The host keeps them across launches (`ChatSceneActions.setSectionCollapsed`).
     public var sidebarPreferences: SidebarPreferences = .init()
     public var collapsedSections: Set<String>
+    /// Which account a message would be sent as, while several are connected:
+    /// the composers say so in their placeholder. `nil` with one account.
+    public var sendingAs: String?
 
     public init(
         conversations: [Conversation] = [],

@@ -285,9 +285,17 @@ public extension SystemAccountHost {
         return notificationCenter.map { center in
             LocalServiceNotificationHost(
                 service: service, device: deviceID, center: center,
-                directory: directory.appendingPathComponent("notification-deliveries")
-            ) { [weak self] account in self?.notificationState(account) ?? .init(paused: true) }
+                directory: directory.appendingPathComponent("notification-deliveries"),
+                label: { [weak self] account in self?.notificationLabel(account) },
+                visibility: { [weak self] account in self?.notificationState(account) ?? .init(paused: true) }
+            )
         }
+    }
+
+    /// The account's label on its alerts while several are connected.
+    private func notificationLabel(_ account: ConnectedAccountID) -> String? {
+        guard let workspace, workspace.accounts.count > 1 else { return nil }
+        return workspace.accountLabels[account]
     }
 
     private func notificationState(_ account: ConnectedAccountID) -> NotificationDeviceState {
