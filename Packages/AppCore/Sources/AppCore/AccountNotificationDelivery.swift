@@ -42,15 +42,18 @@ final class ScopedNotificationDelivery: NotificationDelivering, Sendable {
     private let continuation: AsyncStream<NotificationResponse>.Continuation
     private let state: Mutex<State>
     private let center: any AccountNotificationDelivering
+    private let postsArrivals: Bool
     private let authorize: @Sendable () async -> Void
 
     init(
         scope: AccountNotificationScope,
         label: String,
         center: any AccountNotificationDelivering,
+        postsArrivals: Bool = true,
         authorize: @escaping @Sendable () async -> Void
     ) {
         self.scope = scope; self.center = center; self.authorize = authorize
+        self.postsArrivals = postsArrivals
         state = Mutex(State(label: label))
         (responses, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
     }
@@ -79,6 +82,7 @@ final class ScopedNotificationDelivery: NotificationDelivering, Sendable {
     }
 
     func post(_ notification: MessageNotification) async {
+        guard postsArrivals else { return }
         guard let label = state.withLock({ $0.active ? $0.label : nil }) else { return }
         var notification = notification
         notification.subtitle = notification.subtitle.map { $0 + " · " + label } ?? label
@@ -91,6 +95,8 @@ final class ScopedNotificationDelivery: NotificationDelivering, Sendable {
 
     func withdrawAll() async {
         retire()
-        await center.withdrawAll(in: scope)
+        if postsArrivals {
+            await center.withdrawAll(in: scope)
+        }
     }
 }

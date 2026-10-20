@@ -83,14 +83,17 @@ public actor FakeBackend {
     /// Feeds every generated identifier, so `fixture-msg-3` means the third
     /// thing this backend made rather than the third message.
     private var sequence = 0
+    private let identifierNamespace: String
 
     public init(
         world: FixtureWorld = .minimal,
         capabilities: Capabilities = .fixture,
         tick: Duration = .seconds(1),
         pageSize: Int = 30,
-        directory: [Member] = []
+        directory: [Member] = [],
+        identifierNamespace: String = ""
     ) {
+        self.identifierNamespace = identifierNamespace
         self.world = world
         self.directory = directory
         self.capabilities = capabilities
@@ -185,7 +188,8 @@ extension FakeBackend {
     /// across kinds so that no two identifiers can ever collide.
     func nextIdentifier(_ prefix: String) -> String {
         sequence += 1
-        return "\(prefix)-\(sequence)"
+        return identifierNamespace.isEmpty ? "\(prefix)-\(sequence)" :
+            "\(prefix)-\(identifierNamespace)-\(sequence)"
     }
 
     /// Throws unless connected. `ChatBackend.send(_:)` promises to throw only

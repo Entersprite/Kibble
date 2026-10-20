@@ -24,10 +24,12 @@ struct ScopedAccountNotificationTests {
         do {
             await host.simulateMessage(first.id.rawValue, text: "Held first notification")
             try await wait { await center.heldCount == 1 }
-            await host.setEnabled(false, account: first.id.rawValue)
+            let disabling = Task { await host.setEnabled(false, account: first.id.rawValue) }
+            try await wait { workspace.accounts.first { $0.id == first.id }?.isEnabled == false }
             await host.simulateMessage(second.id.rawValue, text: "Independent second notification")
             try await wait { await center.posted.contains { $0.scope.account == second.id } }
             await center.release()
+            await disabling.value
             try await wait {
                 let posted = await center.posted
                 let completed = await center.history.contains { $0.scope.account == first.id }

@@ -8,6 +8,7 @@ import Foundation
 public final class AccountNotificationRouter {
     private let service: ServiceInstanceID
     private let center: any AccountNotificationDelivering
+    private let clientArrivals: Bool
     private var accounts: [ConnectedAccountID: AccountSummary] = [:]
     private var deliveries: [AccountNotificationScope: WeakNotificationDelivery] = [:]
     private var pending: [AccountNotificationResponse] = []
@@ -16,9 +17,15 @@ public final class AccountNotificationRouter {
     private var task: Task<Void, Never>?
     private var authorization: Task<Void, Never>?
     public var onOpenAccount: ((ConnectedAccountID) -> Void)?
+    public var onBackgroundResponse: ((AccountNotificationResponse) -> Bool)?
 
-    public init(service: ServiceInstanceID, center: any AccountNotificationDelivering) {
+    public init(
+        service: ServiceInstanceID,
+        center: any AccountNotificationDelivering,
+        clientArrivals: Bool = true
+    ) {
         self.service = service; self.center = center
+        self.clientArrivals = clientArrivals
     }
 
     public func start() {
@@ -68,7 +75,7 @@ public final class AccountNotificationRouter {
         let delivery = ScopedNotificationDelivery(
             scope: scope,
             label: account.label,
-            center: center
+            center: center, postsArrivals: clientArrivals
         ) { [weak self] in
             await self?.requestAuthorization()
         }
@@ -104,7 +111,7 @@ public final class AccountNotificationRouter {
     }
 
     private func requestAuthorization() async {
-        guard !stopped else { return }
+        guard !stopped, clientArrivals else { return }
         if authorization == nil {
             authorization = Task { [center] in await center.requestAuthorization() }
         }
@@ -119,6 +126,9 @@ public final class AccountNotificationRouter {
             if response.response.bringsWindowForward {
                 onOpenAccount?(response.scope.account)
             }
+            return
+        }
+        if onBackgroundResponse?(response) == true {
             return
         }
         if let delivery = deliveries[response.scope]?.value, delivery.isActive {

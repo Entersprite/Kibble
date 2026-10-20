@@ -3,6 +3,11 @@ import ChatKit
 import Foundation
 
 extension AccountRuntime {
+    func checkEpoch(_ epoch: UUID) throws {
+        guard !stopped, currentEpoch == epoch else { throw ServiceFailure.accountDisabled }
+        try Task.checkCancellation()
+    }
+
     func handle(_ request: ServiceRequest, context: ServiceSessionContext? = nil) async throws -> JSONValue {
         guard !stopped else { throw ServiceFailure.accountDisabled }
         guard !quarantinedForSubscription else { throw ServiceFailure.accountCleanupPending }

@@ -46,6 +46,14 @@ public extension ChatStore {
         try database.read(Self.fetchMembers)
     }
 
+    /// A bounded indexed directory lookup, without decoding the account directory.
+    func members(identifiedBy ids: Set<Member.ID>) throws -> [Member] {
+        guard ids.count <= 32 else { throw ChatError.unknown("Too many member lookups") }
+        return try database.read { db in
+            try MemberRow.filter(keys: ids.map(\.rawValue)).fetchAll(db).map { try $0.member }
+        }
+    }
+
     /// Who `ChatCommand.watchPresence` names when `conversation` is opened:
     /// people who posted in it, have a member row - so `.setPresence` cannot
     /// drop the answer - and are not the local user.

@@ -9,6 +9,22 @@ import Testing
 struct AccountNotificationRouterTests {
     private let service = ServiceInstanceID("service")
 
+    @Test func backgroundButtonsReachTheServiceWithoutRegisteringAClientDelivery() async throws {
+        let center = RoutedNotificationCenter()
+        let router = AccountNotificationRouter(service: service, center: center, clientArrivals: false)
+        let account = account("one")
+        await router.prepare(accounts: [account])
+        var handled: [AccountNotificationResponse] = []
+        router.onBackgroundResponse = { handled.append($0); return true }
+        router.start()
+        let response = AccountNotificationResponse(scope: scope(account), response: .mute(.init("same")))
+        center.responses.send(response)
+        try await wait { handled.count == 1 }
+        #expect(handled.first?.scope == response.scope)
+        #expect(handled.first?.response == response.response)
+        await router.stop()
+    }
+
     @Test func staleAccountSummaryCannotCreateANativeDelivery() async throws {
         let center = RoutedNotificationCenter()
         let router = AccountNotificationRouter(service: service, center: center)

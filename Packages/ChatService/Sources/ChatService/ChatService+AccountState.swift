@@ -108,9 +108,17 @@ extension ChatService {
 
     func makeRuntime(_ record: AccountRecord) throws -> AccountRuntime {
         let instanceID = UUID()
+        let accountStorage = try storage.open(record.id)
+        if let notificationHost {
+            guard let outbox = accountStorage as? any ServiceNotificationStorage else {
+                throw ServiceFailure.unsupportedOperation
+            }
+            try outbox.initializeNotifications(for: notificationHost.deviceID)
+        }
         return try AccountRuntime(
-            record: record, storage: storage.open(record.id), factory: providers,
+            record: record, storage: accountStorage, factory: providers,
             policies: policies, instanceID: instanceID,
+            notificationHost: notificationHost, notificationService: self.instanceID,
             transferStorage: transferFiles?.open(record.id), transferLimits: transferLimits,
             transferNow: transferNow,
             onStatus: { [weak self] status in

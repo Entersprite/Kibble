@@ -9,7 +9,7 @@ import GRDB
 public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
     private let account: ConnectedAccountID
     let database: DatabaseQueue
-    private let projection: ChatStore
+    let projection: ChatStore
     private let retention: Int
 
     public init(account: ConnectedAccountID, path: String, retention: Int = 4096) throws {
@@ -44,6 +44,7 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
             CREATE INDEX IF NOT EXISTS serviceUploadReferenceExpiry ON serviceUploadReference(expiresAt);
             """)
             try Self.initializeMediaCatalog(db)
+            try Self.initializeNotificationTables(db)
             // A crash after dispatch is ambiguous. Never automatically dispatch it again.
             let rows = try Row.fetchAll(db, sql: "SELECT id, value FROM serviceOperation")
             for row in rows {
@@ -79,8 +80,14 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
     public func append(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
         let bytes = try ServiceCodec.encode(event)
         guard bytes.count <= 2 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }
+        let known: Bool = if case let .messageReceived(message) = event {
+            try projection.message(message.id) != nil
+        } else {
+            false
+        }
         return try projection.apply(SyncReducer.reduce(event).writes) { db in
             try Self.updateMediaCatalog(event, db: db)
+            try Self.appendNotifications(event, live: live, known: known, db: db)
             let current = try Self.sequence(db)
             guard current < Int64.max else { throw ServiceFailure.overloaded }
             let next = current + 1

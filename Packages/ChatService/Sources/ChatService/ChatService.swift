@@ -10,6 +10,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     let transferFiles: (any ServiceTransferStorageFactory)?
     let transferLimits: ServiceTransferLimits
     let transferNow: @Sendable () -> Date
+    let notificationHost: (any ServiceNotificationHost)?
     var records: [ConnectedAccountID: AccountRecord] = [:]
     var runtimes: [ConnectedAccountID: AccountRuntime] = [:]
     var changing: Set<ConnectedAccountID> = []
@@ -44,6 +45,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         linkCustody: (any AccountLinkCustody)? = nil,
         ownership: (any ServiceOwnership)? = nil,
         policies: (any AccountPolicyStore)? = nil,
+        notificationHost: (any ServiceNotificationHost)? = nil,
         maximumAccountSubscriptions: Int = 128,
         instanceID: ServiceInstanceID = ServiceInstanceID(UUID().uuidString)
     ) {
@@ -55,6 +57,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         self.transferFiles = transferFiles
         self.transferLimits = transferLimits
         self.transferNow = transferNow
+        self.notificationHost = notificationHost
         self.linkCustody = linkCustody
         self.ownership = ownership
         self.policies = policies ?? (registry as? any AccountPolicyStore) ?? UnavailableAccountPolicyStore()

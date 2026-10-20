@@ -10,7 +10,7 @@ import Observation
 import ServiceClient
 
 /// Isolated in-app composition for exercising the serialized account path.
-/// It has no credential store, provider network or native notification delivery.
+/// It has no credential store or provider network. Native delivery is injected explicitly.
 @MainActor
 @Observable
 public final class SystemAccountFixtureHost {
@@ -28,6 +28,7 @@ public final class SystemAccountFixtureHost {
     private let requestedDirectory: URL?
     private let notificationCenter: (any AccountNotificationDelivering)?
     private var notificationRouter: AccountNotificationRouter?
+    private var notificationActions: ServiceNotificationActions?
     private var clients: FixtureAccountSessionHost?
     public private(set) var deviceNotificationPause: DeviceNotificationPause?
 
@@ -65,13 +66,15 @@ public final class SystemAccountFixtureHost {
             let registry = try SQLiteAccountRegistry(path: directory.appendingPathComponent("registry.sqlite")
                 .path)
             try seed(registry, directory: directory)
+            let notificationHost = makeNotificationHost(service: instanceID, directory: directory)
             let service = ChatService(
                 registry: registry,
                 storage: SQLiteServiceStorageFactory(directory: directory.appendingPathComponent("service")),
                 providers: providers,
                 transferFiles: DirectoryTransferStorageFactory(directory: directory
                     .appendingPathComponent("transfers")),
-                ownership: GrantedFixtureOwnership(lease: lease), instanceID: instanceID
+                ownership: GrantedFixtureOwnership(lease: lease), notificationHost: notificationHost,
+                instanceID: instanceID
             )
             self.service = service
             self.registry = registry
@@ -104,13 +107,18 @@ public final class SystemAccountFixtureHost {
         let client = AccountClient(transport: InProcessChatTransport(endpoint: service, context: context))
         let info = try await client.serviceInfo()
         let router = notificationCenter
-            .map { AccountNotificationRouter(service: info.instanceID, center: $0) }
+            .map { AccountNotificationRouter(service: info.instanceID, center: $0, clientArrivals: false) }
         notificationRouter = router
+        let actions = ServiceNotificationActions(
+            service: info.instanceID,
+            client: client,
+            device: "fixture-device"
+        )
+        notificationActions = actions
+        actions.onFailure = { [weak self] in self?.error = "The notification action could not complete." }
+        router?.onBackgroundResponse = { [weak actions] in actions?.handle($0) ?? false }
         router?.start()
-        let devicePause = DeviceNotificationPause(store: FileDeviceNotificationPauseStore(
-            file: directory.appendingPathComponent("device-pause.json")
-        ))
-        deviceNotificationPause = devicePause
+        let devicePause = deviceNotificationPause
         let host = FixtureAccountSessionHost(
             directory: directory.appendingPathComponent("clients"), client: client,
             transport: { account in
@@ -171,6 +179,32 @@ public final class SystemAccountFixtureHost {
         } catch { self.error = "The demo account is still catching up. Try again." }
     }
 
+    private func makeNotificationHost(
+        service: ServiceInstanceID, directory: URL
+    ) -> LocalServiceNotificationHost? {
+        deviceNotificationPause = DeviceNotificationPause(store: FileDeviceNotificationPauseStore(
+            file: directory.appendingPathComponent("device-pause.json")
+        ))
+        return notificationCenter.map { center in
+            LocalServiceNotificationHost(
+                service: service, device: ServiceDeviceID("fixture-device"), center: center,
+                directory: directory.appendingPathComponent("notification-deliveries")
+            ) { [weak self] account in self?.notificationState(account) ?? .init(paused: true) }
+        }
+    }
+
+    private func notificationState(_ account: ConnectedAccountID) -> NotificationDeviceState {
+        let paused = deviceNotificationPause?.isActive ?? true
+        guard workspace?.selectedID == account,
+              case let .running(model)? = workspace?.selectedEnvironment?.phase, model.isActive else {
+            return NotificationDeviceState(paused: paused)
+        }
+        return NotificationDeviceState(
+            conversation: model.selected,
+            thread: model.isThreadPanelShown ? model.threads.openThread : nil, paused: paused
+        )
+    }
+
     public func setViewing(active: Bool? = nil, open: Bool? = nil, minimized: Bool? = nil) {
         if let active {
             self.active = active
@@ -191,11 +225,13 @@ public final class SystemAccountFixtureHost {
 
     public func stop() async {
         generation = UUID()
+        await notificationRouter?.stop()
+        notificationRouter = nil
+        await notificationActions?.stop()
+        notificationActions = nil
         await workspace?.stop()
         workspace = nil
         clients = nil
-        await notificationRouter?.stop()
-        notificationRouter = nil
         await service?.shutdown()
         service = nil
         registry = nil
@@ -237,7 +273,11 @@ private actor FixtureAccountProviders: AccountProviderFactory {
         if !world.members.contains(where: { $0.id == account.selfID }) {
             world.members.append(Member(id: account.selfID, kind: .human, displayName: account.label))
         }
-        let backend = FakeBackend(world: world, directory: FixtureWorld.acmeDirectory)
+        let backend = FakeBackend(
+            world: world,
+            directory: FixtureWorld.acmeDirectory,
+            identifierNamespace: UUID().uuidString
+        )
         backends[account.id] = WeakFixtureBackend(backend)
         let now = world.startedAt
         return AccountProvider(backend: backend, now: { now })

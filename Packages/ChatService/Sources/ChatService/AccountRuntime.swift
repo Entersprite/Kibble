@@ -67,6 +67,10 @@ actor AccountRuntime {
     var transferStorage: (any ServiceTransferStorage)?
     let transferLimits: ServiceTransferLimits
     let transferNow: @Sendable () -> Date
+    let notificationHost: (any ServiceNotificationHost)?
+    let notificationService: ServiceInstanceID
+    var notificationJob: Task<Void, Never>?
+    var notificationDirty = false
     var uploads: [ServiceTransferID: UploadSlot] = [:]
     var downloads: [ServiceTransferID: DownloadSlot] = [:]
     var uploadExpiry: Task<Void, Never>?
@@ -79,6 +83,8 @@ actor AccountRuntime {
         factory: any AccountProviderFactory,
         policies: any AccountPolicyStore,
         instanceID: UUID,
+        notificationHost: (any ServiceNotificationHost)? = nil,
+        notificationService: ServiceInstanceID = ServiceInstanceID("embedded"),
         transferStorage: (any ServiceTransferStorage)? = nil,
         transferLimits: ServiceTransferLimits = ServiceTransferLimits(),
         transferNow: @escaping @Sendable () -> Date = { Date() },
@@ -86,6 +92,8 @@ actor AccountRuntime {
         onFault: @escaping @Sendable (RuntimeFault) async -> Void
     ) {
         self.instanceID = instanceID
+        self.notificationHost = notificationHost
+        self.notificationService = notificationService
         self.transferStorage = transferStorage
         self.transferLimits = transferLimits
         self.transferNow = transferNow
@@ -151,6 +159,7 @@ actor AccountRuntime {
             }
         }
         await publishStatus()
+        notificationsChanged()
         return isCurrent(epoch)
     }
 
@@ -188,6 +197,9 @@ actor AccountRuntime {
     @discardableResult
     func appendAndPublish(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
         let cursor = try storage.append(event, live: live)
+        if !SyncReducer.reduce(event).effects.isEmpty {
+            notificationsChanged()
+        }
         invalidateMediaQueries(for: event)
         try publish(ServiceEventPage(
             checkpoint: cursor,
@@ -225,6 +237,7 @@ actor AccountRuntime {
         epoch = UUID()
         connection = .disconnected(reason: nil, issue: nil)
         consumer?.cancel()
+        notificationJob?.cancel()
         for request in requests.values {
             request.cancel()
         }
@@ -258,7 +271,8 @@ actor AccountRuntime {
         epoch = UUID()
         startup?.cancel()
         consumer?.cancel()
-        let effects = [worldRefresh, historyRefresh, backfill].compactMap(\.self) + cancelClientInterestJobs()
+        let effects = [worldRefresh, historyRefresh, backfill, notificationJob].compactMap(\.self)
+            + cancelClientInterestJobs()
         for task in effects {
             task.cancel()
         }
@@ -272,6 +286,8 @@ actor AccountRuntime {
             request.cancel()
         }
         await drainRequests(pending, binaries: binaries, expiry: expiry, effects: effects)
+        await withdrawHostNotifications()
+        notificationJob = nil
         worldRefresh = nil; historyRefresh = nil; backfill = nil
         pendingHistory.removeAll(); backfillHeads.removeAll(); historyVersions.removeAll()
         clientInterests.removeAll(); subscriberAttachments.removeAll()
@@ -307,10 +323,5 @@ actor AccountRuntime {
         for task in effects {
             await task.value
         }
-    }
-
-    func checkEpoch(_ epoch: UUID) throws {
-        guard !stopped, self.epoch == epoch else { throw ServiceFailure.accountDisabled }
-        try Task.checkCancellation()
     }
 }
