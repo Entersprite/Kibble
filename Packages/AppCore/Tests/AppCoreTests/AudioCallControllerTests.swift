@@ -283,6 +283,7 @@ final class RecordingAudioService: AudioCallService {
     var suspendStop = false
     var failMute = false
     var failOutgoingWithSafeSnapshot = false
+    var outgoingFailure: (any Error)?
     var failListen = false
     var suspendMute = false
     var muteNotice: String?
@@ -311,6 +312,9 @@ final class RecordingAudioService: AudioCallService {
 
     func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {
         operations.append("outgoing")
+        if let outgoingFailure {
+            throw outgoingFailure
+        }
         if failOutgoingWithSafeSnapshot {
             emit(AudioCallSnapshot(
                 id: callID, recipient: recipient, direction: .outgoing, phase: .failed,

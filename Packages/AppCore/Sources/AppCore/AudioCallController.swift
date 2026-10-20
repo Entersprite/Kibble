@@ -29,6 +29,7 @@ public final class AudioCallController {
     @ObservationIgnored private var muteRevision = 0
     @ObservationIgnored private var directoryTask: Task<Void, Never>?
     @ObservationIgnored private var directorySource: (@MainActor () -> [AudioCallRecipient])?
+    @ObservationIgnored var operationFailure: CallOperationFailure?
 
     public init() {}
 
@@ -85,6 +86,7 @@ public final class AudioCallController {
         isEnding = false
         isUpdatingMute = false
         listenerFailure = nil
+        operationFailure = nil
         call = nil
         let cleanup = Task {
             if let oldService {
@@ -271,6 +273,7 @@ public final class AudioCallController {
             } catch {
                 guard let self, generation == scope, call?.id == id,
                       call?.phase.isTerminal == false, !Task.isCancelled else { return }
+                operationFailure = CallOperationFailure(id: id, error: error)
                 if error as? ServiceFailure == .deviceBusy, let incoming, call?.phase == .connecting {
                     call = incoming
                     call?.failureMessage = "Another call is already using this device."

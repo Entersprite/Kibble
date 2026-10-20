@@ -80,7 +80,9 @@ public extension MacAppDelegate {
         video: CallVideoController, diagnostics: AudioCallDiagnosticExporter
     ) -> AudioCallActions {
         let copy: (() async -> Bool)? = diagnostics.isAvailable ? {
-            await diagnostics.copy(callID: id) { calls.call?.id == id }
+            await diagnostics.copy(callID: id, context: calls.diagnosticReport(callID: id)) {
+                calls.call?.id == id
+            }
         } : nil
         var actions = AudioCallActions(
             accept: {

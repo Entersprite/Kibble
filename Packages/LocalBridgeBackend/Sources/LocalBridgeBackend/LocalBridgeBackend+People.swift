@@ -55,14 +55,18 @@ public extension LocalBridgeBackend {
     }
 
     /// `get_membership` for one person in one space (§58.3): joined is a
-    /// member, any other state is not, and no row is "could not tell". A DM
-    /// is never asked: its members come with the world.
+    /// member, any other state is not, and no row is "could not tell".
+    /// DM membership comes from a fresh world read, not the space-only RPC.
     func membership(
         of member: ChatKit.Member.ID,
         in conversation: Conversation.ID
     ) async throws -> ConversationMembership {
-        guard let apiClient, let group = ChannelEventMapping.groupID(for: conversation),
-              case .spaceID = group.id else { return .unknown }
+        guard let apiClient, let group = ChannelEventMapping.groupID(for: conversation)
+        else { return .unknown }
+        if case .dmID = group.id {
+            return try await directMembership(of: member, in: conversation, using: apiClient)
+        }
+        guard case .spaceID = group.id else { return .unknown }
         let response: GetMembershipResponse
         do {
             response = try await apiClient.call(

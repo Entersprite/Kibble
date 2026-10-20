@@ -190,10 +190,10 @@ struct PeopleSearchTests {
             == .unknown)
     }
 
-    @Test func aDirectMessageIsUnknownAndAsksNothing() async throws {
+    @Test func anInvalidConversationIsUnknownAndAsksNothing() async throws {
         let (backend, transport) = try await Self.connected()
         #expect(try await backend
-            .membership(of: ChatKit.Member.ID("u-1"), in: Conversation.ID("dm/d-1")) == .unknown)
+            .membership(of: ChatKit.Member.ID("u-1"), in: Conversation.ID("invalid")) == .unknown)
         #expect(await transport.sent.allSatisfy { !$0.url.path.contains("get_membership") })
     }
 
