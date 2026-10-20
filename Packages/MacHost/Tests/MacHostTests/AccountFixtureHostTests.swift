@@ -9,6 +9,39 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountFixtureHostTests {
+    @Test func switchingTheNativeAccountAndClosingItsWindowLeaveTheServiceCallAlive() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let host = SystemAccountFixtureHost(directory: directory)
+        await host.start()
+        let workspace = try #require(host.workspace)
+        try await ready(workspace, count: 2)
+        let account = try #require(workspace.accounts.first { $0.selfID == Acme.alex })
+        let other = try #require(workspace.accounts.first { $0.id != account.id })
+        let environment = try #require(workspace.environment(for: account.id))
+        let world = FixtureWorld.acme
+        let conversation = try #require(world.conversations.first {
+            $0.kind == .directMessage && $0.members.contains(account.selfID) &&
+                $0.members.allSatisfy { world.member($0)?.kind == .human }
+        })
+        let members = world.members.filter { conversation.members.contains($0.id) }
+        try await wait {
+            environment.calls.canCall(conversation: conversation, members: members, me: account.selfID)
+        }
+        let id = try #require(environment.calls.startCall(
+            in: conversation,
+            members: members,
+            me: account.selfID
+        ))
+        try await wait { environment.calls.call?.phase == .connected }
+        workspace.select(other.id)
+        host.setViewing(active: false, open: false)
+        #expect(environment.calls.call?.id == id)
+        #expect(environment.calls.call?.phase == .connected)
+        environment.calls.hangUp()
+        try await wait { environment.calls.call?.phase == .ended }
+        await host.stop()
+    }
+
     @Test func bothNativeAccountComposersUploadThroughTheServiceWithoutMixingMessages() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".txt")

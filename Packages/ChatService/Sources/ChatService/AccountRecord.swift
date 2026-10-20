@@ -68,10 +68,25 @@ public protocol ServiceStorageFactory: Sendable {
 public struct AccountProvider: Sendable {
     public let backend: any ChatBackend
     public let now: @Sendable () -> Date
+    /// Trusted host media bindings. Clients cannot submit a native service.
+    public let calls: [ServiceDeviceID: any AudioCallService]
 
-    public init(backend: any ChatBackend, now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(
+        backend: any ChatBackend, calls: [ServiceDeviceID: any AudioCallService] = [:],
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.backend = backend
+        self.calls = calls
         self.now = now
+    }
+
+    func discard() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await backend.disconnect() }
+            for source in calls.values {
+                group.addTask { await source.stop() }
+            }
+        }
     }
 }
 

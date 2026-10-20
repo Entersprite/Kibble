@@ -11,6 +11,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     let transferLimits: ServiceTransferLimits
     let transferNow: @Sendable () -> Date
     let notificationHost: (any ServiceNotificationHost)?
+    let callReservations = CallDeviceReservations()
     var records: [ConnectedAccountID: AccountRecord] = [:]
     var runtimes: [ConnectedAccountID: AccountRuntime] = [:]
     var changing: Set<ConnectedAccountID> = []

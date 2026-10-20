@@ -71,6 +71,10 @@ actor AccountRuntime {
     let notificationService: ServiceInstanceID
     var notificationJob: Task<Void, Never>?
     var notificationDirty = false
+    let callReservations: CallDeviceReservations
+    var calls: [ServiceDeviceID: ServiceCallRuntime] = [:]
+    var callStops: [Task<Void, Never>] = []
+    var callFactsVersion = UUID()
     var uploads: [ServiceTransferID: UploadSlot] = [:]
     var downloads: [ServiceTransferID: DownloadSlot] = [:]
     var uploadExpiry: Task<Void, Never>?
@@ -85,6 +89,7 @@ actor AccountRuntime {
         instanceID: UUID,
         notificationHost: (any ServiceNotificationHost)? = nil,
         notificationService: ServiceInstanceID = ServiceInstanceID("embedded"),
+        callReservations: CallDeviceReservations = CallDeviceReservations(),
         transferStorage: (any ServiceTransferStorage)? = nil,
         transferLimits: ServiceTransferLimits = ServiceTransferLimits(),
         transferNow: @escaping @Sendable () -> Date = { Date() },
@@ -94,6 +99,7 @@ actor AccountRuntime {
         self.instanceID = instanceID
         self.notificationHost = notificationHost
         self.notificationService = notificationService
+        self.callReservations = callReservations
         self.transferStorage = transferStorage
         self.transferLimits = transferLimits
         self.transferNow = transferNow
@@ -112,12 +118,12 @@ actor AccountRuntime {
             do {
                 let provider = try await factory.makeProvider(for: record)
                 guard let self, await install(provider, epoch: epoch) else {
-                    await provider.backend.disconnect()
+                    await provider.discard()
                     return
                 }
                 try await provider.backend.connect()
                 if await !isCurrent(epoch) {
-                    await provider.backend.disconnect()
+                    await provider.discard()
                 } else {
                     await requestWorldRefresh()
                 }
@@ -135,22 +141,7 @@ actor AccountRuntime {
         if interestDirty {
             clientInterestsChanged()
         }
-        capabilities = backend.capabilities
-        if !(backend is any BoundedMediaBackend) || !(transferStorage is any ServiceDownloadStorage) ||
-            !(storage is any ServiceMediaCatalog) {
-            capabilities.canFetchAttachments = false
-            capabilities.canDownloadFiles = false
-            capabilities.canFetchCustomEmoji = false
-            capabilities.canFetchRemoteImages = false
-        }
-        if transferStorage == nil || !(storage is any ServiceUploadReferences) {
-            capabilities.canSendAttachments = false
-        } else {
-            capabilities.maximumAttachmentBytes = min(
-                capabilities.maximumAttachmentBytes ?? transferLimits.maximumFileBytes,
-                transferLimits.maximumFileBytes
-            )
-        }
+        capabilities = installedCapabilities(from: backend)
         let events = backend.events
         consumer = Task { [weak self] in
             for await event in events {
@@ -158,6 +149,7 @@ actor AccountRuntime {
                 await self?.ingest(event, epoch: epoch)
             }
         }
+        await installCalls(provider.calls)
         await publishStatus()
         notificationsChanged()
         return isCurrent(epoch)
@@ -197,6 +189,7 @@ actor AccountRuntime {
     @discardableResult
     func appendAndPublish(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
         let cursor = try storage.append(event, live: live)
+        invalidateCallFacts(for: event)
         if !SyncReducer.reduce(event).effects.isEmpty {
             notificationsChanged()
         }
@@ -238,6 +231,7 @@ actor AccountRuntime {
         connection = .disconnected(reason: nil, issue: nil)
         consumer?.cancel()
         notificationJob?.cancel()
+        _ = stopCalls()
         for request in requests.values {
             request.cancel()
         }
@@ -276,6 +270,7 @@ actor AccountRuntime {
         for task in effects {
             task.cancel()
         }
+        let callCleanup = stopCalls()
         let pending = Array(requests.values)
         let binaries = Array(binaryRequests.values)
         let expiry = cancelUploadJobs()
@@ -285,9 +280,10 @@ actor AccountRuntime {
         for request in pending {
             request.cancel()
         }
-        await drainRequests(pending, binaries: binaries, expiry: expiry, effects: effects)
+        await drainRequests(pending, binaries: binaries, expiry: expiry, effects: effects + callCleanup)
         await withdrawHostNotifications()
         notificationJob = nil
+        calls = [:]; callStops = []
         worldRefresh = nil; historyRefresh = nil; backfill = nil
         pendingHistory.removeAll(); backfillHeads.removeAll(); historyVersions.removeAll()
         clientInterests.removeAll(); subscriberAttachments.removeAll()

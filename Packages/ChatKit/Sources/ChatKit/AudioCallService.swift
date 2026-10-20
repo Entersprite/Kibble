@@ -18,7 +18,10 @@ public protocol AudioCallService: AnyObject, Sendable {
     /// Must interrupt pending connection/invitation work as well as connected media.
     func hangUp(callID: UUID) async throws
     func setMuted(_ muted: Bool, callID: UUID) async throws
-    /// Stops listening and settles all session-owned media and pending operations.
+    /// Settles the resources owned by this facade. Direct implementations own
+    /// media; service-backed facades detach their observer. Service-owned media
+    /// ends through explicit call control or account teardown, independently of
+    /// a chat client's lifetime.
     func stop() async
 }
 

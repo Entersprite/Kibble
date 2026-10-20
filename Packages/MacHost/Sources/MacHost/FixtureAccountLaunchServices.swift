@@ -61,8 +61,9 @@ final class FixtureAccountLaunchServices: LaunchServices {
         let now = FixtureWorld.acme.startedAt
         let backend = ServiceBackend(account: account, transport: transport)
         self.backend = backend
-        return SessionSelection(
-            backend: backend, me: account.selfID, now: { now }
+        return try SessionSelection(
+            backend: backend, me: account.selfID,
+            audioCalls: ServiceAudioCallService(account: account, client: client), now: { now }
         )
     }
 

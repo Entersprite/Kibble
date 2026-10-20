@@ -267,7 +267,7 @@ private actor FixtureAccountProviders: AccountProviderFactory {
         backends.values.filter { $0.backend != nil }.count
     }
 
-    func makeProvider(for account: AccountRecord) -> AccountProvider {
+    func makeProvider(for account: AccountRecord) async -> AccountProvider {
         var world = FixtureWorld.acme
         world.me = account.selfID
         if !world.members.contains(where: { $0.id == account.selfID }) {
@@ -280,7 +280,8 @@ private actor FixtureAccountProviders: AccountProviderFactory {
         )
         backends[account.id] = WeakFixtureBackend(backend)
         let now = world.startedAt
-        return AccountProvider(backend: backend, now: { now })
+        let calls = await FixtureAudioCallService(world: world)
+        return AccountProvider(backend: backend, calls: [.init("fixture-device"): calls], now: { now })
     }
 
     func forgetCredentials(for account: AccountRecord) {

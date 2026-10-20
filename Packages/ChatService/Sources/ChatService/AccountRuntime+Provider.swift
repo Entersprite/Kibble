@@ -10,6 +10,9 @@ extension AccountRuntime {
         epoch: UUID
     ) async throws -> JSONValue {
         switch request.operation {
+        case ReadCallState.operation, ControlCall.operation:
+            guard let context else { throw ServiceFailure.notAuthorized }
+            return try await dispatchCalls(request, context: context, backend: backend, epoch: epoch)
         case BeginDownloadTransfer.operation, GetDownloadTransfer.operation:
             return try await dispatchDownload(request, backend: backend, context: context, epoch: epoch)
         case BeginUploadTransfer.operation, GetUploadTransfer.operation,
@@ -27,5 +30,25 @@ extension AccountRuntime {
             return try await dispatchMutations(request, backend: backend, context: context, epoch: epoch)
         default: throw ServiceFailure.unsupportedOperation
         }
+    }
+
+    func installedCapabilities(from backend: any ChatBackend) -> Capabilities {
+        var capabilities = backend.capabilities
+        if !(backend is any BoundedMediaBackend) || !(transferStorage is any ServiceDownloadStorage) ||
+            !(storage is any ServiceMediaCatalog) {
+            capabilities.canFetchAttachments = false
+            capabilities.canDownloadFiles = false
+            capabilities.canFetchCustomEmoji = false
+            capabilities.canFetchRemoteImages = false
+        }
+        if transferStorage == nil || !(storage is any ServiceUploadReferences) {
+            capabilities.canSendAttachments = false
+        } else {
+            capabilities.maximumAttachmentBytes = min(
+                capabilities.maximumAttachmentBytes ?? transferLimits.maximumFileBytes,
+                transferLimits.maximumFileBytes
+            )
+        }
+        return capabilities
     }
 }

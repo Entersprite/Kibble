@@ -1,0 +1,103 @@
+import ChatAPI
+import ChatKit
+import Foundation
+
+extension ServiceCallRuntime {
+    func control(_ request: ControlCall, session: ClientSessionID) async throws -> ServiceCallState {
+        try checkActive()
+        guard request.recipient == nil || request.action == "start",
+              request.muted == nil || request.action == "mute" else { throw ServiceFailure.invalidRequest }
+        switch request.action {
+        case "start", "accept", "decline", "restart":
+            guard !controlling else { throw ServiceFailure.deviceBusy }
+            controlling = true
+            defer { controlling = false }
+            try await begin(request, session: session)
+        case "hangUp", "mute":
+            guard let id = request.callID, id == reserved, owner == session else {
+                throw ServiceFailure.notAuthorized
+            }
+            if request.action == "hangUp" {
+                try await source.hangUp(callID: id)
+            } else {
+                guard let muted = request.muted else { throw ServiceFailure.invalidRequest }
+                try await source.setMuted(muted, callID: id)
+            }
+        default: throw ServiceFailure.unsupportedOperation
+        }
+        try checkActive()
+        return state
+    }
+
+    private func begin(_ request: ControlCall, session: ClientSessionID) async throws {
+        if request.action == "restart" {
+            try await restart(request)
+            return
+        }
+        guard let id = request.callID else { throw ServiceFailure.invalidRequest }
+        switch request.action {
+        case "start":
+            try await startOutgoing(request, id: id, session: session)
+        case "accept":
+            guard state.call?.id == id, state.call?.phase == .incoming else {
+                throw ServiceFailure.invalidRequest
+            }
+            guard used.count < 1024, !used.contains(id) else { throw ServiceFailure.overloaded }
+            try await reserve(id, session: session)
+            guard state.call?.id == id, state.call?.phase == .incoming else {
+                await releaseReservation()
+                throw ServiceFailure.invalidRequest
+            }
+            used.insert(id)
+            try await source.accept(callID: id)
+        case "decline":
+            guard reserved == nil, state.call?.id == id, state.call?.phase == .incoming else {
+                throw ServiceFailure.invalidRequest
+            }
+            try await source.decline(callID: id)
+        default: throw ServiceFailure.unsupportedOperation
+        }
+    }
+
+    private func restart(_ request: ControlCall) async throws {
+        guard request.callID == nil, reserved == nil, state.call?.phase.isTerminal != false else {
+            throw ServiceFailure.deviceBusy
+        }
+        listener?.cancel()
+        await source.stop()
+        await listener?.value
+        listener = nil
+        try checkActive()
+        startListener()
+    }
+
+    private func startOutgoing(_ request: ControlCall, id: UUID, session: ClientSessionID) async throws {
+        guard state.call?.phase.isTerminal != false, reserved == nil,
+              let hint = request.recipient,
+              let recipient = state.recipients.first(where: {
+                  $0.conversationID == hint.conversationID && $0.memberID == hint.memberID
+              }) else { throw ServiceFailure.invalidRequest }
+        guard !used.contains(id) else { throw ServiceFailure.operationConflict }
+        guard used.count < 1024 else { throw ServiceFailure.overloaded }
+        try await reserve(id, session: session)
+        guard state.call?.phase.isTerminal != false else {
+            await releaseReservation()
+            throw ServiceFailure.deviceBusy
+        }
+        used.insert(id)
+        state.call = .init(id: id, recipient: recipient, direction: .outgoing, phase: .connecting)
+        publish()
+        try await source.startOutgoing(to: recipient, callID: id)
+    }
+
+    private func reserve(_ id: UUID, session: ClientSessionID) async throws {
+        try await reservations.acquire(device, owner: .init(runtime: identity, call: id))
+        do {
+            try checkActive()
+        } catch {
+            await reservations.release(device, owner: .init(runtime: identity, call: id))
+            throw error
+        }
+        reserved = id; owner = session
+    }
+}
