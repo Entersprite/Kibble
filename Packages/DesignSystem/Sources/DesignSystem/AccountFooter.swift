@@ -160,7 +160,7 @@ struct AccountFooter: View {
                 .padding(.bottom, Layout.topInset)
             AccountPickerSection(
                 state: state, actions: actions, width: accountsWidth, scrolls: tilesWidth > accountsWidth,
-                close: { isOpen = false }
+                close: { isOpen = false }, isOpen: isOpen
             )
             .frame(width: accountsWidth, height: height - Layout.topInset - Layout.grow, alignment: .top)
             .padding(.leading, Layout.grow + rowWidth + 2 * Layout.gap + 1)

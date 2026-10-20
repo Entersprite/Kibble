@@ -33,6 +33,12 @@ public struct AccountShell<Content: View>: View {
             .overlay {
                 AccountFooterOverlay(state: state, actions: actions, geometry: geometry, isOpen: $isPanelOpen)
             }
+            .background {
+                #if os(macOS)
+                    AccountPanelFocusBridge(isOpen: isPanelOpen, accountID: state.selectedID)
+                        .frame(width: 0, height: 0)
+                #endif
+            }
             .onChange(of: state.selectedID) { isPanelOpen = false }
     }
 }

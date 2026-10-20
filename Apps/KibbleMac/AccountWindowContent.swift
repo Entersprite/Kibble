@@ -132,50 +132,39 @@ extension View {
     func accountConfirmations(
         signingOut: Binding<String?>, removing: Binding<String?>, host: SystemAccountHost?
     ) -> some View {
-        confirmationDialog(
-            AccountConfirmation.title("Sign out of", signingOut.wrappedValue, host: host),
-            isPresented: AccountConfirmation.isPresented(signingOut)
-        ) {
-            Button("Sign Out") {
-                let id = signingOut.wrappedValue
-                signingOut.wrappedValue = nil
-                if let id, let host {
-                    Task { await host.signOutAccount(id) }
-                }
+        sheet(isPresented: AccountConfirmation.isPresented(signingOut)) {
+            if let id = signingOut.wrappedValue {
+                AccountConfirmationSheet(
+                    label: AccountConfirmation.label(id, host: host), removing: false,
+                    confirm: {
+                        signingOut.wrappedValue = nil
+                        if let host {
+                            Task { await host.signOutAccount(id) }
+                        }
+                    }, cancel: { signingOut.wrappedValue = nil }
+                )
             }
-        } message: {
-            Text(
-                "Kibble keeps this account and its settings, and erases its conversations from this Mac. "
-                    + "Sign in again with the same Google account to get them back."
-            )
         }
-        .confirmationDialog(
-            AccountConfirmation.title("Remove", removing.wrappedValue, host: host),
-            isPresented: AccountConfirmation.isPresented(removing)
-        ) {
-            Button("Remove Account", role: .destructive) {
-                let id = removing.wrappedValue
-                removing.wrappedValue = nil
-                if let id, let host {
-                    Task { await host.removeAccount(id) }
-                }
+        .sheet(isPresented: AccountConfirmation.isPresented(removing)) {
+            if let id = removing.wrappedValue {
+                AccountConfirmationSheet(
+                    label: AccountConfirmation.label(id, host: host), removing: true,
+                    confirm: {
+                        removing.wrappedValue = nil
+                        if let host {
+                            Task { await host.removeAccount(id) }
+                        }
+                    }, cancel: { removing.wrappedValue = nil }
+                )
             }
-        } message: {
-            Text(
-                "Kibble erases this account's conversations, files and settings from this Mac, "
-                    + "and a call on this account ends."
-            )
         }
     }
 }
 
 private enum AccountConfirmation {
     @MainActor
-    static func title(_ verb: String, _ id: String?, host: SystemAccountHost?) -> String {
-        let label = id.flatMap { id in
-            host?.workspace?.accountLabels.first { $0.key.rawValue == id }?.value
-        } ?? "this account"
-        return verb == "Remove" ? "Remove \(label) from Kibble?" : "\(verb) \(label)?"
+    static func label(_ id: String, host: SystemAccountHost?) -> String {
+        host?.workspace?.accountLabels.first { $0.key.rawValue == id }?.value ?? "this account"
     }
 
     static func isPresented(_ id: Binding<String?>) -> Binding<Bool> {

@@ -10,15 +10,25 @@ struct AccountPickerSection: View {
     /// Grown to the window's edge and still too narrow for every tile.
     let scrolls: Bool
     let close: () -> Void
+    var isOpen = false
+    @FocusState private var focused: AccountPickerTarget?
+    @State private var keyboardNavigation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             AccountPanelHeader(title: "Accounts")
             Spacer(minLength: 0)
             if scrolls {
-                ScrollView(.horizontal) { tiles }
-                    .scrollIndicators(.automatic)
-                    .frame(width: width)
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal) { tiles }
+                        .scrollIndicators(.automatic)
+                        .frame(width: width)
+                        .onChange(of: focused) { _, target in
+                            if let target, target != .manage {
+                                proxy.scrollTo(target, anchor: .center)
+                            }
+                        }
+                }
             } else {
                 tiles
             }
@@ -29,12 +39,46 @@ struct AccountPickerSection: View {
                     manage()
                 }
                 .buttonStyle(.plain)
+                .focusable()
+                .focused($focused, equals: .manage)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
                 .frame(height: AccountPanelLayout.controlSize)
             }
         }
+        .focusSection()
+        .focusEffectDisabled(!keyboardNavigation)
+        .onKeyPress(.tab) { keyboardNavigation = true; return .ignored }
+        .onKeyPress(.return) { activateFocused() }
+        .onMoveCommand { direction in
+            keyboardNavigation = true
+            focused = AccountPickerNavigation(state: state, actions: actions).move(
+                from: focused,
+                direction: direction
+            )
+        }
+        .onChange(of: isOpen, initial: true) { _, opened in
+            keyboardNavigation = false
+            focused = opened ? AccountPickerNavigation(state: state, actions: actions).initial : nil
+        }
+    }
+
+    private func activateFocused() -> KeyPress.Result {
+        guard let focused else { return .ignored }
+        switch focused {
+        case let .account(id): close(); actions.select(id)
+        case let .pending(id):
+            guard let resume = actions.resumeSignIn else { return .ignored }
+            close(); resume(id)
+        case .add:
+            guard let add = actions.add else { return .ignored }
+            close(); add()
+        case .manage:
+            guard let manage = actions.manage else { return .ignored }
+            close(); manage()
+        }
+        return .handled
     }
 
     private var tiles: some View {
@@ -44,6 +88,9 @@ struct AccountPickerSection: View {
                     account: account, isSelected: account.id == state.selectedID, actions: actions,
                     close: close
                 )
+                .focusable()
+                .focused($focused, equals: .account(account.id))
+                .id(AccountPickerTarget.account(account.id))
             }
             if let resume = actions.resumeSignIn {
                 ForEach(state.pendingSignIns) { pending in
@@ -54,6 +101,9 @@ struct AccountPickerSection: View {
                         close()
                         resume(pending.id)
                     }
+                    .focusable()
+                    .focused($focused, equals: .pending(pending.id))
+                    .id(AccountPickerTarget.pending(pending.id))
                 }
             }
             if let add = actions.add {
@@ -61,6 +111,9 @@ struct AccountPickerSection: View {
                     close()
                     add()
                 }
+                .focusable()
+                .focused($focused, equals: .add)
+                .id(AccountPickerTarget.add)
             }
         }
     }
