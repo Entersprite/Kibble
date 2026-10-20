@@ -13,6 +13,12 @@ public protocol AccountPolicyStore: Sendable {
     ) throws -> AccountPolicy
 }
 
+/// Optional: forgets the policy kept for an identity, for a removal that also
+/// forgets its settings. Forgetting what was never stored succeeds.
+public protocol AccountPolicyForgetting: Sendable {
+    func forgetPolicy(for account: AccountRecord) throws
+}
+
 struct UnavailableAccountPolicyStore: AccountPolicyStore {
     func policy(for account: AccountRecord) throws -> AccountPolicy {
         throw ServiceFailure

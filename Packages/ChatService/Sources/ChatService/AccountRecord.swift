@@ -19,6 +19,9 @@ public struct AccountRecord: Codable, Hashable, Sendable {
 
     /// A removal intent survives interruption of vault/storage cleanup.
     public var isRemoving: Bool
+    /// Part of the removal intent: the removal also forgets the settings kept
+    /// for this identity, even when it resumes after an interruption.
+    public var forgetsSettings: Bool?
     /// The last own identity the provider reported. Display metadata, kept
     /// across disable and sign-in loss so the account can still be shown.
     public var profile: AccountProfile?

@@ -189,8 +189,9 @@ extension ChatService {
                 if let record = records[target] {
                     try checkLinkAuthentication(record)
                 }
+                // An account signs back in only as itself.
                 guard records[target]?.selfID == identity.selfID
-                else { throw ServiceFailure.operationConflict }
+                else { throw ServiceFailure.wrongIdentity }
             }
             link.selfID = identity.selfID
             link.label = identity.label

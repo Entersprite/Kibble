@@ -43,6 +43,14 @@ extension AppEnvironment {
         } ?? .init()
     }
 
+    /// Forgets the local choices kept for `identity` under `namespace`, for an
+    /// account removed with its settings.
+    public static func forgetPersonalPreferences(
+        namespace: String, identity: Member.ID, in preferences: UserDefaults
+    ) {
+        preferences.removeObject(forKey: accountPreferencesPrefix + namespace + identity.rawValue)
+    }
+
     func savePersonalPreferences() {
         guard let account = settings.account else { return }
         let key = Self.accountPreferencesPrefix + preferenceNamespace + account.rawValue

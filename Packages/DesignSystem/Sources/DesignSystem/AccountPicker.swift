@@ -153,8 +153,14 @@ struct AccountTile: View {
         if let setEnabled = actions.setEnabled {
             Button(account.isEnabled ? "Disable" : "Enable") { setEnabled(account.id, !account.isEnabled) }
         }
-        if let remove = actions.remove {
+        if actions.signOut != nil || actions.remove != nil {
             Divider()
+        }
+        // Not once signed out: Reconnect is what it needs then.
+        if let signOut = actions.signOut, account.problem != .signInRequired {
+            Button("Sign Out…") { signOut(account.id) }
+        }
+        if let remove = actions.remove {
             Button("Remove Account…", role: .destructive) { remove(account.id) }
         }
     }

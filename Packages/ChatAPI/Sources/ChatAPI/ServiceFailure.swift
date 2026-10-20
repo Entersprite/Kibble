@@ -22,6 +22,9 @@ public struct ServiceFailure: Error, Codable, Hashable, Sendable {
     public static let operationExpired = ServiceFailure(code: "operationExpired")
     public static let operationUnknown = ServiceFailure(code: "operationUnknown")
     public static let operationConflict = ServiceFailure(code: "operationConflict")
+    /// A reconnect signed in as a different identity than the account's own.
+    /// Nothing was installed; the account still waits for its own identity.
+    public static let wrongIdentity = ServiceFailure(code: "wrongIdentity")
     public static let revisionConflict = ServiceFailure(code: "revisionConflict")
     public static let privacyDenied = ServiceFailure(code: "privacyDenied")
     public static let policyUnavailable = ServiceFailure(code: "policyUnavailable")

@@ -103,6 +103,9 @@ public struct AccountPanelActions {
     /// Signs in again after `.signInRequired`, retries after `.failed`.
     public var reconnect: ((String) -> Void)?
     public var setEnabled: ((String, Bool) -> Void)?
+    /// Keeps the account and its settings until it signs in again as itself.
+    public var signOut: ((String) -> Void)?
+    /// Removes the account with its settings.
     public var remove: ((String) -> Void)?
     public var showSettings: (() -> Void)?
     /// The selected account's own status actions, bound to that account.
@@ -117,6 +120,7 @@ public struct AccountPanelActions {
         manage: (() -> Void)? = nil,
         reconnect: ((String) -> Void)? = nil,
         setEnabled: ((String, Bool) -> Void)? = nil,
+        signOut: ((String) -> Void)? = nil,
         remove: ((String) -> Void)? = nil,
         showSettings: (() -> Void)? = nil,
         setAvailability: ((Availability) -> Void)? = nil,
@@ -129,6 +133,7 @@ public struct AccountPanelActions {
         self.manage = manage
         self.reconnect = reconnect
         self.setEnabled = setEnabled
+        self.signOut = signOut
         self.remove = remove
         self.showSettings = showSettings
         self.setAvailability = setAvailability

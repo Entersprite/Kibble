@@ -17,6 +17,9 @@ import ServiceClient
 public final class SystemAccountHost {
     public private(set) var workspace: AccountWorkspace?
     public internal(set) var error: String?
+    /// The account a reconnect was refused for because a different Google
+    /// account signed in. Nothing was installed; the account still waits.
+    public internal(set) var refusedSignIn: String?
     var service: ChatService?
     private var registry: SQLiteAccountRegistry?
     private let providers = FixtureAccountProviders()
@@ -38,7 +41,7 @@ public final class SystemAccountHost {
     private let notificationCenter: (any AccountNotificationDelivering)?
     private var notificationRouter: AccountNotificationRouter?
     private var notificationActions: ServiceNotificationActions?
-    private var clients: ServiceAccountSessionHost?
+    var clients: ServiceAccountSessionHost?
     public private(set) var deviceNotificationPause: DeviceNotificationPause?
 
     public init(
@@ -60,6 +63,10 @@ public final class SystemAccountHost {
 
     public func dismissError() {
         error = nil
+    }
+
+    public func dismissRefusedSignIn() {
+        refusedSignIn = nil
     }
 
     public func start() async {
@@ -247,12 +254,6 @@ public extension SystemAccountHost {
         do {
             try await workspace?.setEnabled(enabled, account: ConnectedAccountID(id))
         } catch { self.error = "The account could not change state. Try again." }
-    }
-
-    func removeAccount(_ id: String) async {
-        do {
-            try await workspace?.remove(ConnectedAccountID(id))
-        } catch { self.error = "The account could not be removed. Try again." }
     }
 
     func retryAccount(_ id: String) async {

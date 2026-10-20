@@ -75,6 +75,31 @@ extension ChatService {
         accountStateChanged()
     }
 
+    /// Signing out takes the path an expired session takes: credentials and
+    /// service files are erased, the record, its settings, position and profile
+    /// stay, and only the same identity can sign back in (`verifyLink`).
+    func signOut(_ record: AccountRecord) async throws -> AccountSummary {
+        guard !record.isRemoving else { throw ServiceFailure.accountCleanupPending }
+        switch record.authenticationState {
+        case nil:
+            guard !changing.contains(record.id), maintenance[record.id] == nil
+            else { throw ServiceFailure.overloaded }
+            var signingOut = record
+            signingOut.authenticationState = "erasing"
+            try registry.save(signingOut)
+            records[record.id] = signingOut
+            accountStateChanged()
+            scheduleAuthenticationRecovery(signingOut)
+        case "erasing":
+            scheduleAuthenticationRecovery(record)
+        case "required": break
+        default: throw ServiceFailure.unsupportedOperation
+        }
+        await maintenance[record.id]?.value
+        guard let current = records[record.id] else { throw ServiceFailure.accountNotFound }
+        return accountSummary(current)
+    }
+
     func retryAuthenticationRecovery(_ record: AccountRecord) async throws -> AccountSummary {
         switch record.authenticationState {
         case nil:

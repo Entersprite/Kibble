@@ -126,11 +126,20 @@ public final class AccountWorkspace {
         _ = try await client.setEnabled(enabled, account: account)
     }
 
-    public func remove(_ account: ConnectedAccountID) async throws {
+    public func remove(_ account: ConnectedAccountID, forgettingSettings: Bool = false) async throws {
         if capture?.accountID == account {
             try await cancelCapture()
         }
-        try await client.remove(account)
+        try await client.remove(account, forgettingSettings: forgettingSettings)
+    }
+
+    /// Keeps the account and its settings; it waits for a sign-in as the same
+    /// identity. The client's local copy goes with the service's.
+    public func signOut(_ account: ConnectedAccountID) async throws {
+        if capture?.accountID == account {
+            try await cancelCapture()
+        }
+        _ = try await client.signOut(account)
     }
 
     public func retry(_ id: ConnectedAccountID) async {

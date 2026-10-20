@@ -205,9 +205,12 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
             let payload = try request.decodePayload(SetAccountEnabled.self)
             return try await ServiceCodec.value(setEnabled(payload.enabled, record: record))
         case RemoveAccount.operation:
-            _ = try request.decodePayload(RemoveAccount.self)
-            try await remove(record)
+            let payload = try request.decodePayload(RemoveAccount.self)
+            try await remove(record, forgettingSettings: payload.forgetsSettings)
             return try ServiceCodec.value(ServiceUnit())
+        case SignOutAccount.operation:
+            _ = try request.decodePayload(SignOutAccount.self)
+            return try await ServiceCodec.value(signOut(record))
         case GetAccountPolicy.operation, SetAccountPolicy.operation:
             guard !changing.contains(id) else { throw ServiceFailure.overloaded }
             return try await accountPolicy(request, record: record)
@@ -243,31 +246,6 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
             await runtime.start()
         }
         return accountSummary(record)
-    }
-
-    private func remove(_ record: AccountRecord) async throws {
-        guard !changing.contains(record.id) else { throw ServiceFailure.overloaded }
-        changing.insert(record.id)
-        defer { finishChange(record.id) }
-        var removing = record
-        removing.isEnabled = false
-        removing.isRemoving = true
-        try registry.save(removing)
-        records[record.id] = removing
-        accountStateChanged()
-        if let runtime = runtimes[record.id] {
-            await runtime.stop()
-            runtimes[record.id] = nil
-        }
-        try await finishLinksForRemoval(removing)
-        try await providers.forgetCredentials(for: removing)
-        try transferFiles?.erase(record.id)
-        try storage.erase(record.id)
-        try registry.remove(record.id)
-        records[record.id] = nil
-        policyRevisions[record.id] = nil
-        runtimeStatuses[record.id] = nil
-        accountStateChanged()
     }
 
     public func shutdown() async {
@@ -315,6 +293,42 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
 }
 
 extension ChatService {
+    /// A removal resumed after an interruption keeps the original choice to
+    /// forget settings: it is part of the persisted intent.
+    private func remove(_ record: AccountRecord, forgettingSettings: Bool = false) async throws {
+        guard !changing.contains(record.id) else { throw ServiceFailure.overloaded }
+        changing.insert(record.id)
+        defer { finishChange(record.id) }
+        var removing = record
+        removing.isEnabled = false
+        removing.isRemoving = true
+        if forgettingSettings {
+            removing.forgetsSettings = true
+        }
+        try registry.save(removing)
+        records[record.id] = removing
+        accountStateChanged()
+        if let runtime = runtimes[record.id] {
+            await runtime.stop()
+            runtimes[record.id] = nil
+        }
+        try await finishLinksForRemoval(removing)
+        try await providers.forgetCredentials(for: removing)
+        try transferFiles?.erase(record.id)
+        try storage.erase(record.id)
+        // Before the record goes, so a failed forget leaves the removal to retry.
+        if removing.forgetsSettings == true {
+            guard let forgetting = policies as? any AccountPolicyForgetting
+            else { throw ServiceFailure.unsupportedOperation }
+            try forgetting.forgetPolicy(for: removing)
+        }
+        try registry.remove(record.id)
+        records[record.id] = nil
+        policyRevisions[record.id] = nil
+        runtimeStatuses[record.id] = nil
+        accountStateChanged()
+    }
+
     func finishChange(_ id: ConnectedAccountID) {
         changing.remove(id)
         if runtimes[id] == nil {

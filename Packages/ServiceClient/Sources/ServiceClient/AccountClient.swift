@@ -41,8 +41,12 @@ public struct AccountClient: Sendable {
         try await call(RetryAccountRecovery(), account: account)
     }
 
-    public func remove(_ account: ConnectedAccountID) async throws {
-        _ = try await call(RemoveAccount(), account: account)
+    public func remove(_ account: ConnectedAccountID, forgettingSettings: Bool = false) async throws {
+        _ = try await call(RemoveAccount(forgetsSettings: forgettingSettings), account: account)
+    }
+
+    public func signOut(_ account: ConnectedAccountID) async throws -> AccountSummary {
+        try await call(SignOutAccount(), account: account)
     }
 
     public func beginLink(

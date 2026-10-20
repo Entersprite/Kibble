@@ -41,6 +41,15 @@ public extension SQLiteAccountRegistry {
         }
     }
 
+    func forgetPolicy(for account: AccountRecord) throws {
+        try database.write { db in
+            try db.execute(
+                sql: "DELETE FROM personalPolicy WHERE principal = ? AND identity = ?",
+                arguments: [account.principalID.rawValue, account.selfID.rawValue]
+            )
+        }
+    }
+
     private static func policy(for account: AccountRecord, in db: Database) throws -> AccountPolicy {
         guard let row = try Row
             .fetchOne(

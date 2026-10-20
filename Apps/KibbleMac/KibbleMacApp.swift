@@ -24,8 +24,11 @@ struct KibbleMacApp: App {
     @State private var editingConversation: ConversationSelection?
     @State private var conversationTarget: AppEnvironment?
     @State private var isAccountPanelOpen = false
-    /// The account a Remove Account… awaits confirmation for, captured when asked.
+    /// The account a Sign Out… or Remove Account… awaits confirmation for,
+    /// captured when asked; Settings keeps its own.
+    @State private var signingOutAccount: String?
     @State private var removingAccount: String?
+    @State private var settingsSigningOutAccount: String?
     // HIG: reopen on the last pane.
     @AppStorage("settingsPane") private var settingsPane = "notifications"
 
@@ -68,30 +71,9 @@ struct KibbleMacApp: App {
                 .sheet(item: $editingConversation) { item in
                     ConversationSheetHost(environment: conversationTarget ?? environment, id: item.id)
                 }
-                .confirmationDialog(
-                    removalTitle,
-                    isPresented: Binding(
-                        get: { removingAccount != nil },
-                        set: {
-                            if !$0 {
-                                removingAccount = nil
-                            }
-                        }
-                    )
-                ) {
-                    Button("Remove Account", role: .destructive) {
-                        let id = removingAccount
-                        removingAccount = nil
-                        if let id, let host = appDelegate.accountHost {
-                            Task { await host.removeAccount(id) }
-                        }
-                    }
-                } message: {
-                    Text(
-                        "Kibble erases this account's conversations and files from this Mac, and a call on "
-                            + "this account ends. Its settings are kept: add it again to get them back."
-                    )
-                }
+                .accountConfirmations(
+                    signingOut: $signingOutAccount, removing: $removingAccount, host: appDelegate.accountHost
+                )
         }
         .defaultSize(width: 1100, height: 720)
         .commands {
@@ -127,10 +109,14 @@ struct KibbleMacApp: App {
                 .disabled(!appDelegate.updates.canCheck)
                 Divider()
                 Button("Sign Out…") {
-                    signOutTarget = environment
-                    isConfirmingSignOut = true
+                    if appDelegate.accountHost != nil {
+                        signingOutAccount = signedInAccount
+                    } else {
+                        signOutTarget = environment
+                        isConfirmingSignOut = true
+                    }
                 }
-                .disabled(!environment.canSignOut)
+                .disabled(appDelegate.accountHost == nil ? !environment.canSignOut : signedInAccount == nil)
             }
             // Search (search spec §1.1): ⌘F, as in Messages, and ⌘G to step.
             CommandGroup(after: .textEditing) {
@@ -219,10 +205,7 @@ struct KibbleMacApp: App {
                 Tab("Account", systemImage: "person.crop.circle", value: "account") {
                     AccountSettingsPane(
                         state: environment.accountSettingsState,
-                        signOut: environment.canSignOut ? {
-                            settingsSignOutTarget = environment
-                            isConfirmingSignOutFromSettings = true
-                        } : nil,
+                        signOut: settingsSignOut,
                         exportDiagnostics: { appDelegate.diagnostics.export() }
                     )
                     .frame(width: 560, height: 360)
@@ -233,7 +216,30 @@ struct KibbleMacApp: App {
                 settingsSignOutTarget = nil
                 Task { await target?.signOut() }
             }
+            .accountConfirmations(
+                signingOut: $settingsSigningOutAccount, removing: .constant(nil),
+                host: appDelegate.accountHost
+            )
         }
+    }
+
+    /// The selected account while it is signed in, for Sign Out…; under the
+    /// account host, signing out keeps the account rather than removing it.
+    private var signedInAccount: String? {
+        guard let workspace = appDelegate.accountHost?.workspace, let id = workspace.selectedID,
+              workspace.accounts.first(where: { $0.id == id })?.authenticationState == nil
+        else { return nil }
+        return id.rawValue
+    }
+
+    private var settingsSignOut: (() -> Void)? {
+        if appDelegate.accountHost != nil {
+            return signedInAccount.map { id in { settingsSigningOutAccount = id } }
+        }
+        return environment.canSignOut ? {
+            settingsSignOutTarget = environment
+            isConfirmingSignOutFromSettings = true
+        } : nil
     }
 
     @ViewBuilder
@@ -258,6 +264,7 @@ struct KibbleMacApp: App {
                 host: host,
                 chatActions: { sceneActions(for: $0, showSettings: $1) },
                 isPanelOpen: $isAccountPanelOpen,
+                signOutAccount: { signingOutAccount = $0 },
                 removeAccount: { removingAccount = $0 },
                 manageAccounts: { showSettings in
                     settingsPane = "account"
@@ -267,13 +274,6 @@ struct KibbleMacApp: App {
         } else {
             sessionContent
         }
-    }
-
-    private var removalTitle: String {
-        guard let id = removingAccount, let workspace = appDelegate.accountHost?.workspace,
-              let label = workspace.accountLabels.first(where: { $0.key.rawValue == id })?.value
-        else { return "Remove this account from Kibble?" }
-        return "Remove \(label) from Kibble?"
     }
 
     @ViewBuilder

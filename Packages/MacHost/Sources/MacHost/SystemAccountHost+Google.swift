@@ -51,6 +51,13 @@ extension SystemAccountHost {
                     try await workspace?.completeCapture()
                     captureWindow?.close()
                     captureWindow = nil
+                } catch let failure as ServiceFailure where failure == .wrongIdentity {
+                    // The service installed nothing. This attempt's capture is
+                    // discarded, and the next sign-in starts fresh.
+                    captureWindow?.close()
+                    captureWindow = nil
+                    try? await workspace?.cancelCapture()
+                    refusedSignIn = account?.rawValue
                 } catch { self.error = "This account could not be verified. Try signing in again." }
             }
             let window = AccountSignInWindow(model: model) { [weak self, weak workspace] in

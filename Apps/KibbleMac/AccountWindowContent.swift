@@ -11,7 +11,8 @@ struct AccountWindowContent: View {
     /// The shell's own actions for a running account's window.
     let chatActions: (AppEnvironment, @escaping () -> Void) -> ChatSceneActions
     @Binding var isPanelOpen: Bool
-    /// Asks to remove an account; the shell confirms first.
+    /// Ask to sign out or remove an account; the shell confirms first.
+    let signOutAccount: (String) -> Void
     let removeAccount: (String) -> Void
     let manageAccounts: (@escaping () -> Void) -> Void
 
@@ -41,6 +42,37 @@ struct AccountWindowContent: View {
                 .padding(.top, 60)
             }
         }
+        .alert(
+            "That Is a Different Google Account",
+            isPresented: Binding(
+                get: { host.refusedSignIn != nil },
+                set: {
+                    if !$0 {
+                        host.dismissRefusedSignIn()
+                    }
+                }
+            ),
+            presenting: host.refusedSignIn
+        ) { id in
+            Button("Try Again") {
+                host.dismissRefusedSignIn()
+                Task { await host.retryAccount(id) }
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) { host.dismissRefusedSignIn() }
+        } message: { id in
+            Text(refusalMessage(id))
+        }
+    }
+
+    /// Which account to sign in with: the account only reconnects as itself.
+    private func refusalMessage(_ id: String) -> String {
+        let account = host.workspace?.accounts.first { $0.id.rawValue == id }
+        let label = host.workspace?.accountLabels.first { $0.key.rawValue == id }?.value ?? "this account"
+        guard let email = account?.profile?.email, email != label else {
+            return "\(label) can only sign in again as the same Google account."
+        }
+        return "To reconnect \(label), sign in as \(email)."
     }
 
     private func shell(_ workspace: AccountWorkspace, showSettings: @escaping () -> Void) -> some View {
@@ -71,6 +103,7 @@ struct AccountWindowContent: View {
             manage: { manageAccounts(showSettings) },
             reconnect: { id in Task { await host.retryAccount(id) } },
             setEnabled: { id, enabled in Task { await host.setEnabled(enabled, account: id) } },
+            signOut: signOutAccount,
             remove: removeAccount,
             showSettings: showSettings,
             setAvailability: actions?.setAvailability,
@@ -89,5 +122,66 @@ struct AccountWindowContent: View {
             enable: { Task { await host.setEnabled(true, account: id.rawValue) } },
             reconnect: { Task { await host.retryAccount(id.rawValue) } }
         )
+    }
+}
+
+extension View {
+    /// Confirms signing out of, or removing, the account in `id`, captured when
+    /// asked. Sign Out keeps the account and its settings; Remove forgets both.
+    func accountConfirmations(
+        signingOut: Binding<String?>, removing: Binding<String?>, host: SystemAccountHost?
+    ) -> some View {
+        confirmationDialog(
+            AccountConfirmation.title("Sign out of", signingOut.wrappedValue, host: host),
+            isPresented: AccountConfirmation.isPresented(signingOut)
+        ) {
+            Button("Sign Out") {
+                let id = signingOut.wrappedValue
+                signingOut.wrappedValue = nil
+                if let id, let host {
+                    Task { await host.signOutAccount(id) }
+                }
+            }
+        } message: {
+            Text(
+                "Kibble keeps this account and its settings, and erases its conversations from this Mac. "
+                    + "Sign in again with the same Google account to get them back."
+            )
+        }
+        .confirmationDialog(
+            AccountConfirmation.title("Remove", removing.wrappedValue, host: host),
+            isPresented: AccountConfirmation.isPresented(removing)
+        ) {
+            Button("Remove Account", role: .destructive) {
+                let id = removing.wrappedValue
+                removing.wrappedValue = nil
+                if let id, let host {
+                    Task { await host.removeAccount(id) }
+                }
+            }
+        } message: {
+            Text(
+                "Kibble erases this account's conversations, files and settings from this Mac, "
+                    + "and a call on this account ends."
+            )
+        }
+    }
+}
+
+private enum AccountConfirmation {
+    @MainActor
+    static func title(_ verb: String, _ id: String?, host: SystemAccountHost?) -> String {
+        let label = id.flatMap { id in
+            host?.workspace?.accountLabels.first { $0.key.rawValue == id }?.value
+        } ?? "this account"
+        return verb == "Remove" ? "Remove \(label) from Kibble?" : "\(verb) \(label)?"
+    }
+
+    static func isPresented(_ id: Binding<String?>) -> Binding<Bool> {
+        Binding(get: { id.wrappedValue != nil }, set: {
+            if !$0 {
+                id.wrappedValue = nil
+            }
+        })
     }
 }

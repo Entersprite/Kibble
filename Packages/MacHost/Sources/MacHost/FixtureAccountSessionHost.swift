@@ -97,6 +97,21 @@ final class ServiceAccountSessionHost: AccountSessionHost {
         )
     }
 
+    /// Forgets the local choices kept for a removed account's identity: the
+    /// sidebar, favorites, collapsed sections and skin tone.
+    func forgetPreferences(of account: AccountSummary) async throws {
+        let info = try await client.serviceInfo()
+        let namespace = try ServiceCodec.encode(info.instanceID).base64EncodedString() + "."
+        let preferences = fixture
+            ? UserDefaults(suiteName: "com.entersprite.kibble.multi-account-fixture") ?? .standard
+            : .standard
+        AppEnvironment.forgetPersonalPreferences(
+            namespace: namespace,
+            identity: account.selfID,
+            in: preferences
+        )
+    }
+
     func synchronizeReplica(_ id: ConnectedAccountID) async throws {
         guard let client = clients[id]?.value else { throw ServiceFailure.accountDisabled }
         try await client.synchronizeReplica()

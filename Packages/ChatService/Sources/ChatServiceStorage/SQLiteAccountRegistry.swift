@@ -5,7 +5,7 @@ import Foundation
 import GRDB
 
 public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStore, AccountLinkHistoryStore,
-    Sendable {
+    AccountPolicyForgetting, Sendable {
     let database: DatabaseQueue
     let linkRetention: AccountRetentionLimits
     let retentionClock: @Sendable () -> Date
