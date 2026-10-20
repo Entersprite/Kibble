@@ -67,6 +67,11 @@ extension FakeBackend {
         switch command {
         case let .markThreadRead(conversation, thread, upTo):
             try requireThread(thread, in: conversation)
+            if !capabilities.needsThreadUnreadClearBeforeRead,
+               world.threadState(thread).markedUnreadAt != nil {
+                world.threadStates[thread, default: FixtureThreadState()].markedUnreadAt = nil
+                emitThreadChange(.markedUnread(at: nil), thread: thread, in: conversation)
+            }
             world.threadStates[thread, default: FixtureThreadState()].readPosition = upTo
             emitThreadChange(.read(upTo: upTo), thread: thread, in: conversation)
             refreshUnreadThreads(in: conversation)

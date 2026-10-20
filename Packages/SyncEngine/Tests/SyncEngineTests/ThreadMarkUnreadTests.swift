@@ -17,8 +17,10 @@ struct ThreadMarkUnreadTests {
         ThreadFixture.newest(replies: 2)
     }
 
-    private func openedAndRead() async throws -> AutoMarkReadHarness {
-        let harness = try await makeThreadHarness()
+    private func openedAndRead(
+        capabilities: Capabilities = ThreadFixture.capabilities
+    ) async throws -> AutoMarkReadHarness {
+        let harness = try await makeThreadHarness(capabilities: capabilities)
         try openStoredThread(messages, in: harness)
         await settleAutoMarkRead(until: "the thread is read") {
             await threadCommands(from: harness.backend) == [ThreadFixture.read(upTo: newest)]
@@ -62,7 +64,7 @@ struct ThreadMarkUnreadTests {
 
     /// The hold ends with the panel: reopened, the thread is cleared and read again.
     @Test func reopeningAThreadMarkedUnreadClearsTheMarkAndMarksItRead() async throws {
-        let harness = try await openedAndRead()
+        let harness = try await openedAndRead(capabilities: ThreadFixture.clearingCapabilities)
         let model = harness.model
         model.markThreadUnread(from: messages[1])
         // What the backend's answer files; these suites never forward a command.
@@ -133,7 +135,7 @@ struct ThreadMarkUnreadTests {
     /// A clear on the wire is the read's first request: the unread mark waits
     /// for the clear and for the read sent after it, in that order.
     @Test func anUnreadMarkWaitsForAClearAlreadyOnTheWire() async throws {
-        let harness = try await makeThreadHarness()
+        let harness = try await makeThreadHarness(capabilities: ThreadFixture.clearingCapabilities)
         let hold = harness.backend.abortableSubmissions
         await harness.backend.holdSubmissionsAbortably(true)
         let marked = StoreWrite.applyThreadChange(

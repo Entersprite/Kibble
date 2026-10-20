@@ -42,6 +42,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// A world load must fetch `loadFollowedThreads()` to discover followed
     /// threads that its events and history pages have not supplied.
     public var needsFollowedThreadsBackfill: Bool
+    /// Reading a manually unread thread requires an acknowledged unread-mark
+    /// clear before publishing its read position. Other providers read directly.
+    public var needsThreadUnreadClearBeforeRead: Bool
     public var supportsHistoryCatchUp: Bool
     /// `ChatBackend.attachmentData(_:size:)` returns bytes rather than
     /// refusing.
@@ -109,6 +112,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
 
         supportsThreads: Bool = false,
         needsFollowedThreadsBackfill: Bool = false,
+        needsThreadUnreadClearBeforeRead: Bool = false,
         supportsHistoryCatchUp: Bool = false,
         canFetchAttachments: Bool = false,
         canDownloadFiles: Bool = false,
@@ -145,6 +149,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
 
         self.supportsThreads = supportsThreads
         self.needsFollowedThreadsBackfill = needsFollowedThreadsBackfill
+        self.needsThreadUnreadClearBeforeRead = needsThreadUnreadClearBeforeRead
         self.supportsHistoryCatchUp = supportsHistoryCatchUp
         self.canFetchAttachments = canFetchAttachments
         self.canDownloadFiles = canDownloadFiles
@@ -187,6 +192,7 @@ public extension Capabilities {
 
         case supportsThreads
         case needsFollowedThreadsBackfill
+        case needsThreadUnreadClearBeforeRead
         case supportsHistoryCatchUp
         case canFetchAttachments
         case canDownloadFiles
@@ -233,6 +239,7 @@ public extension Capabilities {
 
             supportsThreads: flag(.supportsThreads),
             needsFollowedThreadsBackfill: flag(.needsFollowedThreadsBackfill),
+            needsThreadUnreadClearBeforeRead: flag(.needsThreadUnreadClearBeforeRead),
             supportsHistoryCatchUp: flag(.supportsHistoryCatchUp),
             canFetchAttachments: flag(.canFetchAttachments),
             canDownloadFiles: flag(.canDownloadFiles),
@@ -278,7 +285,7 @@ public extension Capabilities {
         if canLeaveConversations {
             try container.encode(true, forKey: .canLeaveConversations)
         }
-        try encodeManagementFlags(to: &container)
+        try encodeOptionalFlags(to: &container)
         if canOpenDirectConversations {
             try container.encode(true, forKey: .canOpenDirectConversations)
         }
@@ -287,9 +294,6 @@ public extension Capabilities {
         }
 
         try container.encode(supportsThreads, forKey: .supportsThreads)
-        if needsFollowedThreadsBackfill {
-            try container.encode(true, forKey: .needsFollowedThreadsBackfill)
-        }
         try container.encode(supportsHistoryCatchUp, forKey: .supportsHistoryCatchUp)
         try container.encode(canFetchAttachments, forKey: .canFetchAttachments)
         try container.encode(canDownloadFiles, forKey: .canDownloadFiles)
@@ -307,11 +311,13 @@ public extension Capabilities {
         try container.encode(extendedFlags.sorted(), forKey: .extendedFlags)
     }
 
-    private func encodeManagementFlags(to container: inout KeyedEncodingContainer<CodingKeys>) throws {
+    private func encodeOptionalFlags(to container: inout KeyedEncodingContainer<CodingKeys>) throws {
         for (enabled, key) in [
             (canCreateConversations, CodingKeys.canCreateConversations),
             (canReadConversationDetails, .canReadConversationDetails),
-            (canBrowseSpaces, .canBrowseSpaces)
+            (canBrowseSpaces, .canBrowseSpaces),
+            (needsFollowedThreadsBackfill, .needsFollowedThreadsBackfill),
+            (needsThreadUnreadClearBeforeRead, .needsThreadUnreadClearBeforeRead)
         ] where enabled {
             try container.encode(true, forKey: key)
         }

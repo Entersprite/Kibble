@@ -91,6 +91,16 @@ struct CapabilitiesTests {
         #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
     }
 
+    @Test func threadUnreadClearingDefaultsOffAndRoundTripsOnlyWhenRequired() throws {
+        let oldJSON = try Wire.json(Capabilities(supportsThreads: true))
+        #expect(!oldJSON.contains("needsThreadUnreadClearBeforeRead"))
+        #expect(try Wire.decode(Capabilities.self, from: oldJSON).needsThreadUnreadClearBeforeRead == false)
+        let value = Capabilities(supportsThreads: true, needsThreadUnreadClearBeforeRead: true)
+        let json = try Wire.json(value)
+        #expect(json.contains(#""needsThreadUnreadClearBeforeRead":true"#))
+        #expect(try Wire.decode(Capabilities.self, from: json) == value)
+    }
+
     /// The escape hatch: a newer backend advertising something this build has no
     /// property for must not lose it, and must not need a schema bump to say it.
     @Test("extended flags survive and are encoded in sorted order")

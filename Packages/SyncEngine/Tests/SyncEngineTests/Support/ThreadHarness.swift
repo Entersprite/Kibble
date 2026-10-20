@@ -115,6 +115,12 @@ func threadCommands(from backend: RecordingBackend) async -> [ChatCommand] {
 }
 
 extension ThreadFixture {
+    static var clearingCapabilities: Capabilities {
+        var value = capabilities
+        value.needsThreadUnreadClearBeforeRead = true
+        return value
+    }
+
     /// The fixture thread's key in the model's bookkeeping (`ThreadWork`).
     static var key: ThreadKey {
         ThreadKey(conversation: conversation, thread: thread)

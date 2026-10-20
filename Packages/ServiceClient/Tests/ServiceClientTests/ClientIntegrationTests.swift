@@ -6,6 +6,16 @@ import SyncEngine
 import Testing
 
 struct ClientIntegrationTests {
+    @Test func providerReadRequirementsSurviveSerializedAccountDiscoveryWithoutCrossingAccounts(
+    ) async throws {
+        let harness = try await ClientHarness.make(threadUnreadClearing: true)
+        #expect(harness.first.capabilities.needsThreadUnreadClearBeforeRead)
+        #expect(!harness.second.capabilities.needsThreadUnreadClearBeforeRead)
+        #expect(harness.backend(harness.first).capabilities.needsThreadUnreadClearBeforeRead)
+        #expect(!harness.backend(harness.second).capabilities.needsThreadUnreadClearBeforeRead)
+        await harness.service.shutdown()
+    }
+
     @Test func fetchedHistoryReachesBothReplicasBeforeQueryCompletionWithoutArrivalAnnouncements(
     ) async throws {
         let harness = try await ClientHarness.make()
@@ -24,6 +34,11 @@ struct ClientIntegrationTests {
         } }
         try await first.start()
         try await mirror.start()
+        // start() initiates attachment; both replicas must have committed
+        // their initial snapshots before the query can fan out to both.
+        try await eventually {
+            try firstStore.replicaCheckpoint() != nil && mirrorStore.replicaCheckpoint() != nil
+        }
         let safety = Task {
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
             await first.stop()

@@ -11,9 +11,11 @@ import Testing
 
 actor Providers: AccountProviderFactory {
     let uploadMembership: Bool
+    let threadUnreadClearing: Bool
 
-    init(uploadMembership: Bool = false) {
+    init(uploadMembership: Bool = false, threadUnreadClearing: Bool = false) {
         self.uploadMembership = uploadMembership
+        self.threadUnreadClearing = threadUnreadClearing
     }
 
     private var backends: [ConnectedAccountID: FakeBackend] = [:]
@@ -34,7 +36,9 @@ actor Providers: AccountProviderFactory {
             messages: [],
             startedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
-        let backend = FakeBackend(world: world)
+        var capabilities = Capabilities.fixture
+        capabilities.needsThreadUnreadClearBeforeRead = threadUnreadClearing && account.id.rawValue == "first"
+        let backend = FakeBackend(world: world, capabilities: capabilities)
         backends[account.id] = backend
         return AccountProvider(backend: backend)
     }
@@ -68,7 +72,7 @@ struct ClientHarness {
 
     static func make(
         linkCustody: (any AccountLinkCustody)? = nil, uploads: Bool = false,
-        transferLimits: ServiceTransferLimits = .init()
+        transferLimits: ServiceTransferLimits = .init(), threadUnreadClearing: Bool = false
     ) async throws -> ClientHarness {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -89,7 +93,7 @@ struct ClientHarness {
         )
         try registry.save(first)
         try registry.save(second)
-        let providers = Providers(uploadMembership: uploads)
+        let providers = Providers(uploadMembership: uploads, threadUnreadClearing: threadUnreadClearing)
         let storage = SQLiteServiceStorageFactory(directory: folder)
         let service = ChatService(
             registry: registry,
@@ -147,7 +151,9 @@ struct ClientHarness {
     }
 }
 
-func eventually(_ predicate: () async throws -> Bool) async throws {
+func eventually(
+    sourceLocation: SourceLocation = #_sourceLocation, _ predicate: () async throws -> Bool
+) async throws {
     let deadline = ContinuousClock.now.advanced(by: .seconds(5))
     while ContinuousClock.now < deadline {
         try Task.checkCancellation()
@@ -156,7 +162,10 @@ func eventually(_ predicate: () async throws -> Bool) async throws {
         }
         await Task.yield()
     }
-    Issue.record("The expected service/replica state did not arrive before the deadline")
+    Issue.record(
+        "The expected service/replica state did not arrive before the deadline",
+        sourceLocation: sourceLocation
+    )
     throw ServiceFailure.deadlineExceeded
 }
 

@@ -127,6 +127,26 @@ struct FixtureThreadCallTests {
         #expect(await backend.currentWorld.threadState(variance).readPosition == Acme.at(44))
     }
 
+    @Test(arguments: [false, true])
+    func readingAManuallyUnreadThreadHonorsItsAdvertisedPrerequisite(requiresClear: Bool) async throws {
+        var capabilities = Capabilities.fixture
+        capabilities.needsThreadUnreadClearBeforeRead = requiresClear
+        let (backend, collector) = try await connected(capabilities: capabilities)
+        try await backend.send(.setThreadUnreadMark(
+            conversationID: pe, threadID: variance, at: Acme.at(40)
+        ))
+        _ = await collector.nextOne()
+        try await backend.send(.markThreadRead(conversationID: pe, threadID: variance, upTo: Acme.at(44)))
+        let state = await backend.currentWorld.threadState(variance)
+        #expect((state.markedUnreadAt != nil) == requiresClear)
+        #expect(state.readPosition == Acme.at(44))
+        let events = requiresClear ? [changed(variance, .read(upTo: Acme.at(44)))] : [
+            changed(variance, .markedUnread(at: nil)), changed(variance, .read(upTo: Acme.at(44))),
+            .unreadThreadsChanged(conversationID: pe, hasUnread: false)
+        ]
+        #expect(await collector.next(events.count) == events)
+    }
+
     @Test func markingAThreadUnreadSetsTheMarkAndClearingItRemovesIt() async throws {
         let (backend, collector) = try await connected()
         try await backend.send(.markThreadRead(conversationID: pe, threadID: variance, upTo: Acme.at(44)))

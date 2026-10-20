@@ -40,8 +40,19 @@ struct ThreadAutoMarkReadTests {
         await harness.model.stop()
     }
 
-    @Test func aThreadMarkedUnreadIsClearedFirst() async throws {
+    @Test func aProviderWithoutTheRequirementReadsWithoutAnExtraMutation() async throws {
         let harness = try await makeThreadHarness()
+        try openStoredThread(messages, with: [markedUnread], in: harness)
+        await sent(harness.backend, count: 1)
+        await settleAutoMarkRead(until: "the read has finished") {
+            harness.model.threads.work.markTasks[ThreadFixture.key] == nil
+        }
+        #expect(await threadCommands(from: harness.backend) == [ThreadFixture.read(upTo: newest)])
+        await harness.model.stop()
+    }
+
+    @Test func aThreadMarkedUnreadIsClearedFirst() async throws {
+        let harness = try await makeThreadHarness(capabilities: ThreadFixture.clearingCapabilities)
         try openStoredThread(messages, with: [markedUnread], in: harness)
         await sent(harness.backend, count: 2)
         #expect(await threadCommands(from: harness.backend) == [
@@ -51,7 +62,7 @@ struct ThreadAutoMarkReadTests {
     }
 
     @Test func aRefusedClearSendsNoRead() async throws {
-        let harness = try await makeThreadHarness()
+        let harness = try await makeThreadHarness(capabilities: ThreadFixture.clearingCapabilities)
         await harness.backend.failSubmissions(true)
         try openStoredThread(messages, with: [markedUnread], in: harness)
         await sent(harness.backend, count: 1)
@@ -101,7 +112,7 @@ struct ThreadAutoMarkReadTests {
 
     /// A Mark as Unread is cleared whatever the position says.
     @Test func aThreadMarkedUnreadIsMarkedThoughItsPositionCoversIt() async throws {
-        let harness = try await makeThreadHarness()
+        let harness = try await makeThreadHarness(capabilities: ThreadFixture.clearingCapabilities)
         try openStoredThread(messages, with: [read(upTo: newest), markedUnread], in: harness)
         await sent(harness.backend, count: 2)
         #expect(await threadCommands(from: harness.backend) == [

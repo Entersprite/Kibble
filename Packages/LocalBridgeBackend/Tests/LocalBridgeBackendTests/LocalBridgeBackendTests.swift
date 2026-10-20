@@ -146,7 +146,7 @@ struct LocalBridgeBackendTests {
             canLeaveConversations: true, canDeleteConversations: true,
             canCreateConversations: true, canReadConversationDetails: true, canBrowseSpaces: true,
             canOpenDirectConversations: true,
-            supportsThreads: true,
+            supportsThreads: true, needsThreadUnreadClearBeforeRead: true,
             canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
             canSendAttachments: true, maximumAttachmentBytes: 200 * 1024 * 1024,
             canMention: true, canMentionNonMembers: true, needsMentionBackfill: true,

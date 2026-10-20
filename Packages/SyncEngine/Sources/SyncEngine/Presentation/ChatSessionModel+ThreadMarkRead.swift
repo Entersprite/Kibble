@@ -63,8 +63,8 @@ extension ChatSessionModel {
         }
     }
 
-    /// The half after the wait. `publishReadPosition`'s shape, with the clear
-    /// that a thread marked unread needs first.
+    /// The half after the wait. Providers may require an acknowledged clear
+    /// before publishing a read for a manually unread thread.
     private func publishThreadReadPosition(
         for key: ThreadKey, scheduledAt: Date, generation: Int
     ) async {
@@ -89,11 +89,9 @@ extension ChatSessionModel {
         // From here the mark is on the wire: a Mark as Unread now waits for
         // its answer instead of canceling it (`markThreadUnread(from:)`).
         threads.work.submittedGeneration[key] = generation
-        if stored?.markedUnreadAt != nil {
-            // Whether a read also clears a mark as unread on the server is
-            // `[Verify]` (spec §3), so the clear goes first, and only when a
-            // mark is set. A refused clear sends no read; the next trigger
-            // tries both again.
+        if capabilities.needsThreadUnreadClearBeforeRead, stored?.markedUnreadAt != nil {
+            // Only an advertised provider requirement adds this extra mutation.
+            // A refused clear sends no read; the next trigger tries both again.
             let cleared = await engine.submit(.setThreadUnreadMark(
                 conversationID: key.conversation, threadID: key.thread, at: nil
             ))
