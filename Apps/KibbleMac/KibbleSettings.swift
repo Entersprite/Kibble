@@ -32,7 +32,7 @@ struct KibbleSettings: View {
             Tab("Notifications", systemImage: "bell.badge", value: "notifications") {
                 scoped {
                     NotificationSettingsPane(
-                        state: environment.notificationSettingsState,
+                        state: notificationState,
                         actions: environment.notificationSettingsActions(
                             openSystemSettings: { SystemNotificationSettings.open() }
                         )
@@ -41,12 +41,14 @@ struct KibbleSettings: View {
                 }
             }
             Tab("Calls", systemImage: "phone", value: "calls") {
-                CallSettingsPane(
-                    state: appDelegate.callSettings.state,
-                    actions: appDelegate.callSettings.actions,
-                    setUpCalls: appDelegate.canSetUpCalls ? { appDelegate.setUpCalls() } : nil
-                )
-                .frame(width: 560, height: 500)
+                SettingsAppWide(isShared: isShared) {
+                    CallSettingsPane(
+                        state: appDelegate.callSettings.state,
+                        actions: appDelegate.callSettings.actions,
+                        setUpCalls: appDelegate.canSetUpCalls ? { appDelegate.setUpCalls() } : nil
+                    )
+                    .frame(width: 560, height: 500)
+                }
                 .onAppear { appDelegate.callSettings.refreshFocusAccess() }
             }
             Tab("Conversations", systemImage: "bubble.left.and.bubble.right", value: "conversations") {
@@ -70,15 +72,19 @@ struct KibbleSettings: View {
                 }
             }
             Tab("Downloads", systemImage: "arrow.down.circle", value: "downloads") {
-                DownloadSettingsPane(
-                    state: appDelegate.environment.downloadSettingsState,
-                    actions: appDelegate.environment.downloadSettingsActions
-                )
-                .frame(width: 560, height: 220)
+                SettingsAppWide(isShared: isShared) {
+                    DownloadSettingsPane(
+                        state: appDelegate.environment.downloadSettingsState,
+                        actions: appDelegate.environment.downloadSettingsActions
+                    )
+                    .frame(width: 560, height: 220)
+                }
             }
             Tab("Updates", systemImage: "arrow.triangle.2.circlepath", value: "updates") {
-                UpdateSettingsPane(state: appDelegate.updates.state, actions: appDelegate.updates.actions)
-                    .frame(width: 560, height: 420)
+                SettingsAppWide(isShared: isShared) {
+                    UpdateSettingsPane(state: appDelegate.updates.state, actions: appDelegate.updates.actions)
+                        .frame(width: 560, height: 420)
+                }
             }
             Tab("Account", systemImage: "person.crop.circle", value: "account") {
                 scoped {
@@ -94,6 +100,19 @@ struct KibbleSettings: View {
         // Pinned once, when Settings opens: the account the main window showed then.
         .onAppear { account = host?.workspace?.selectedID?.rawValue }
         .accountConfirmations(signingOut: $signingOutAccount, removing: $removingAccount, host: host)
+    }
+
+    /// Several accounts are connected, so the app-wide panes say they apply to all.
+    private var isShared: Bool {
+        (host?.workspace?.accounts.count ?? 0) > 1
+    }
+
+    /// The pinned account's rules, and whether the Mac-wide pause beside them
+    /// covers other accounts too.
+    private var notificationState: NotificationSettingsState {
+        var state = environment.notificationSettingsState
+        state.pauseIsShared = isShared
+        return state
     }
 
     /// The pinned account's environment; without the account host, the session's own.

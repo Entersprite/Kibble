@@ -15,6 +15,9 @@ public struct NotificationSettingsState: Equatable, Sendable {
     public var lastError: String?
     /// The status line under "Pause notifications". `nil` when not paused.
     public var pauseStatus: String?
+    /// The pause is this Mac's, not the account's, and several accounts are
+    /// connected: the pane, which edits one account, says so.
+    public var pauseIsShared = false
     public var conversations: [ConversationRuleState]
 
     public init(
@@ -160,6 +163,10 @@ public struct NotificationSettingsPane: View {
                         Text(Display.title(of: $0)).tag(PauseDuration?.some($0))
                     }
                 }
+            }
+        } footer: {
+            if state.pauseIsShared {
+                Text("Pausing applies to every account on this Mac.")
             }
         }
     }

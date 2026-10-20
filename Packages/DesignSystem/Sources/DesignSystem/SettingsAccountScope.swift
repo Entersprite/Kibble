@@ -61,3 +61,28 @@ public struct SettingsAccountScope<Content: View>: View {
         choices.first { $0.id == selection }?.label ?? "This account"
     }
 }
+
+/// An app-wide pane while several accounts are connected: it says that what
+/// it changes applies to every account, beside the panes that edit one.
+public struct SettingsAppWide<Content: View>: View {
+    private let isShared: Bool
+    private let content: Content
+
+    public init(isShared: Bool, @ViewBuilder content: () -> Content) {
+        self.isShared = isShared
+        self.content = content()
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            if isShared {
+                Label("These settings apply to every account.", systemImage: "person.2")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 16)
+                    .padding(.bottom, 4)
+            }
+            content
+        }
+    }
+}
