@@ -62,6 +62,7 @@ extension AccountRuntime {
         }
         _ = try currentUpload(id, owner: owner)
         let metadata = slot.request.metadata
+        let providerProgress = slot.providerProgress
         let file = try files.file(id, expectedBytes: metadata.byteSize)
         let staged = OutgoingAttachment(
             id: id.rawValue, file: file, name: metadata.name, contentType: metadata.contentType,
@@ -71,7 +72,10 @@ extension AccountRuntime {
             payload.operationID, request: request, epoch: epoch,
             authorize: { _ = try currentUpload(id, owner: owner) }, perform: {
                 let attachment = try await backend.uploadAttachment(
-                    staged, to: slot.request.conversationID, progress: { _ in }
+                    staged, to: slot.request.conversationID,
+                    progress: { [providerProgress, maximum = metadata.byteSize] update in
+                        providerProgress.record(update.bytesReceived, maximum: maximum)
+                    }
                 )
                 try await commitUploadReference(attachment, id: id, owner: owner, epoch: epoch)
                 return attachment

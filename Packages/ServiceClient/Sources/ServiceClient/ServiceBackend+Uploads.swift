@@ -3,6 +3,8 @@ import ChatKit
 import Foundation
 
 public extension ServiceBackend {
+    /// Progress counts staging plus provider bytes as two equal transfer legs.
+    /// Only acknowledged finalization reports the full total.
     func uploadAttachment(
         _ attachment: OutgoingAttachment, to conversation: Conversation.ID,
         progress: @escaping @Sendable (AttachmentProgress) -> Void
@@ -29,7 +31,8 @@ extension ServiceBackend {
         progress: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws -> Attachment {
         try checkUploadGeneration(generation)
-        guard attachment.file.isFileURL, attachment.byteSize >= 0 else { throw ServiceFailure.invalidRequest }
+        guard attachment.file.isFileURL, attachment.byteSize >= 0, attachment.byteSize <= Int.max / 2
+        else { throw ServiceFailure.invalidRequest }
         let source = try FileHandle(forReadingFrom: attachment.file)
         defer { try? source.close() }
         guard try source.seekToEnd() == UInt64(attachment.byteSize)
@@ -58,7 +61,7 @@ extension ServiceBackend {
             )
             // A growing/shrinking source is refused rather than silently truncated.
             guard try source.read(upToCount: 1)?.isEmpty != false else { throw ServiceFailure.invalidRequest }
-            let result = try await finalizeFile(transfer.id, generation: generation)
+            let result = try await finalizeFile(transfer, generation: generation, progress: progress)
             try checkUploadGeneration(generation)
             return result
         } catch {
@@ -79,7 +82,7 @@ extension ServiceBackend {
             throw ServiceFailure.unsupportedOperation
         }
         var sent = 0
-        progress(AttachmentProgress(bytesReceived: 0, totalBytes: transfer.byteSize))
+        progress(AttachmentProgress(bytesReceived: 0, totalBytes: transfer.byteSize * 2))
         while sent < transfer.byteSize {
             try checkUploadGeneration(generation)
             let count = min(transfer.chunkSize, transfer.byteSize - sent)
@@ -96,11 +99,11 @@ extension ServiceBackend {
             guard receipt.nextOffset == Int64(sent), receipt.isComplete == (sent == transfer.byteSize) else {
                 throw ServiceFailure.invalidResponse
             }
-            progress(AttachmentProgress(bytesReceived: sent, totalBytes: transfer.byteSize))
+            progress(AttachmentProgress(bytesReceived: sent, totalBytes: transfer.byteSize * 2))
         }
     }
 
-    private func finalizeFile(_ id: ServiceTransferID, generation: UUID) async throws -> Attachment {
+    func submitUploadFinalization(_ id: ServiceTransferID, generation: UUID) async throws -> Attachment {
         let operation = ServiceOperationID(UUID().uuidString)
         do {
             return try await call(FinalizeUploadTransfer(transferID: id, operationID: operation))
@@ -115,7 +118,7 @@ extension ServiceBackend {
         }
     }
 
-    private func checkUploadGeneration(_ generation: UUID) throws {
+    func checkUploadGeneration(_ generation: UUID) throws {
         try Task.checkCancellation()
         guard generation == connectionGeneration else { throw CancellationError() }
     }

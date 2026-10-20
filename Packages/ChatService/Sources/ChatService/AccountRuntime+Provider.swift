@@ -12,7 +12,8 @@ extension AccountRuntime {
         switch request.operation {
         case BeginDownloadTransfer.operation, GetDownloadTransfer.operation:
             return try await dispatchDownload(request, backend: backend, context: context, epoch: epoch)
-        case BeginUploadTransfer.operation, FinalizeUploadTransfer.operation, CancelTransfer.operation:
+        case BeginUploadTransfer.operation, GetUploadTransfer.operation,
+             FinalizeUploadTransfer.operation, CancelTransfer.operation:
             return try await dispatchUpload(request, backend: backend, context: context, epoch: epoch)
         case GetCapabilities.operation, LoadConversations.operation, LoadMessages.operation,
              SearchPeople.operation, SearchMessages.operation, LoadFollowedThreads.operation:

@@ -12,13 +12,19 @@ import Testing
 actor Providers: AccountProviderFactory {
     let uploadMembership: Bool
     let threadUnreadClearing: Bool
+    let providerUploadProgress: Bool
 
-    init(uploadMembership: Bool = false, threadUnreadClearing: Bool = false) {
+    init(
+        uploadMembership: Bool = false, threadUnreadClearing: Bool = false,
+        providerUploadProgress: Bool = false
+    ) {
         self.uploadMembership = uploadMembership
         self.threadUnreadClearing = threadUnreadClearing
+        self.providerUploadProgress = providerUploadProgress
     }
 
     private var backends: [ConnectedAccountID: FakeBackend] = [:]
+    private var progressBackends: [ConnectedAccountID: UploadProgressBackend] = [:]
 
     func makeProvider(for account: AccountRecord) -> AccountProvider {
         let world = FixtureWorld(
@@ -40,10 +46,19 @@ actor Providers: AccountProviderFactory {
         capabilities.needsThreadUnreadClearBeforeRead = threadUnreadClearing && account.id.rawValue == "first"
         let backend = FakeBackend(world: world, capabilities: capabilities)
         backends[account.id] = backend
+        if providerUploadProgress {
+            let wrapper = UploadProgressBackend(inner: backend)
+            progressBackends[account.id] = wrapper
+            return AccountProvider(backend: wrapper)
+        }
         return AccountProvider(backend: backend)
     }
 
     func forgetCredentials(for _: AccountRecord) {}
+
+    func progressBackend(_ id: ConnectedAccountID) -> UploadProgressBackend? {
+        progressBackends[id]
+    }
 
     func incoming(_ account: ConnectedAccountID, count: Int) async throws {
         guard let backend = backends[account] else { throw ServiceFailure.accountNotFound }
@@ -72,7 +87,8 @@ struct ClientHarness {
 
     static func make(
         linkCustody: (any AccountLinkCustody)? = nil, uploads: Bool = false,
-        transferLimits: ServiceTransferLimits = .init(), threadUnreadClearing: Bool = false
+        transferLimits: ServiceTransferLimits = .init(), threadUnreadClearing: Bool = false,
+        providerUploadProgress: Bool = false
     ) async throws -> ClientHarness {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -93,7 +109,10 @@ struct ClientHarness {
         )
         try registry.save(first)
         try registry.save(second)
-        let providers = Providers(uploadMembership: uploads, threadUnreadClearing: threadUnreadClearing)
+        let providers = Providers(
+            uploadMembership: uploads, threadUnreadClearing: threadUnreadClearing,
+            providerUploadProgress: providerUploadProgress
+        )
         let storage = SQLiteServiceStorageFactory(directory: folder)
         let service = ChatService(
             registry: registry,

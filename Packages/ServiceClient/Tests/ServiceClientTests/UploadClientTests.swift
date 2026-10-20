@@ -32,7 +32,9 @@ struct UploadClientTests {
         #expect(await tap.chunks.map(\.count) == [65536, 65536, 8928])
         #expect(await tap.chunks.reduce(Data(), +) == bytes)
         #expect(await tap.finalizations == 1)
-        #expect(progress.withLock { $0 } == [0, 65536, 131_072, 140_000])
+        #expect(progress.withLock { Array($0.prefix(4)) } == [0, 65536, 131_072, 140_000])
+        #expect(progress.withLock { $0.last } == 280_000)
+        #expect(progress.withLock { $0 } == progress.withLock { $0.sorted() })
         let controls = await tap.controls
         for request in controls {
             let json = try String(decoding: ServiceCodec.encode(request), as: UTF8.self)

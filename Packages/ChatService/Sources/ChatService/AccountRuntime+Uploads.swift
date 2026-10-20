@@ -8,6 +8,13 @@ extension AccountRuntime {
     ) async throws -> JSONValue {
         guard let context else { throw ServiceFailure.notAuthorized }
         switch request.operation {
+        case GetUploadTransfer.operation:
+            let payload = try request.decodePayload(GetUploadTransfer.self)
+            let slot = try currentUpload(payload.transferID, owner: TransferOwner(context))
+            return try ServiceCodec.value(UploadTransferStatus(
+                transfer: slot.descriptor, phase: slot.job == nil ? "receiving" : "uploading",
+                stagedBytes: slot.received, providerBytesSent: slot.providerProgress.bytesSent
+            ))
         case BeginUploadTransfer.operation:
             let payload = try request.decodePayload(BeginUploadTransfer.self)
             return try await ServiceCodec.value(beginUpload(

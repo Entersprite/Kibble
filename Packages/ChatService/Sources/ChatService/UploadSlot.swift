@@ -18,6 +18,7 @@ struct UploadSlot: Sendable {
     let owner: TransferOwner
     let request: BeginUploadTransfer
     let descriptor: UploadTransfer
+    let providerProgress = UploadProviderProgress()
     var received = 0
     var retired = false
     var operation: ServiceOperationID?

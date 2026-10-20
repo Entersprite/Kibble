@@ -27,6 +27,7 @@ actor UploadTestBackend: ChatBackend {
     private var waiter: CheckedContinuation<Void, Never>?
     private(set) var held = false
     private(set) var acknowledged = false
+    private var uploadProgress: (@Sendable (AttachmentProgress) -> Void)?
 
     init(selfID: Member.ID) {
         var capabilities = Capabilities.fixture
@@ -85,10 +86,15 @@ actor UploadTestBackend: ChatBackend {
         waiter?.resume(); waiter = nil; hold = false
     }
 
+    func reportUploadProgress(_ bytes: Int) {
+        uploadProgress?(AttachmentProgress(bytesReceived: bytes, totalBytes: nil))
+    }
+
     func uploadAttachment(
         _ attachment: OutgoingAttachment, to conversation: Conversation.ID,
         progress: @escaping @Sendable (AttachmentProgress) -> Void
     ) async throws -> Attachment {
+        uploadProgress = progress
         try uploaded.append(Data(contentsOf: attachment.file))
         files.append(attachment.file)
         if hold {
