@@ -95,31 +95,6 @@ public final class AudioCallController {
         stopTask = nil
     }
 
-    public var canRecover: Bool {
-        isAvailable && !isEnding && !isRecovering && call?.phase.isTerminal != false
-    }
-
-    /// Pauses only calls while the host repairs authentication. Account teardown
-    /// invalidates the restart even if the host operation finishes late.
-    public func recover(using repair: @MainActor () async -> Bool) async {
-        guard canRecover, let previous = service else { return }
-        let scope = generation
-        isRecovering = true
-        recipients = [:]
-        call = nil
-        listenerTask?.cancel()
-        directoryTask?.cancel()
-        await previous.stop()
-        guard generation == scope, !Task.isCancelled else { return }
-        let mayRestart = await repair()
-        guard generation == scope, !Task.isCancelled else { return }
-        isRecovering = false
-        if mayRestart {
-            followDirectory(service: previous, scope: scope)
-            listen(service: previous, scope: scope)
-        }
-    }
-
     private func followDirectory(service: any AudioCallService, scope: Int) {
         guard let directorySource else { return }
         directoryTask = Task { [weak self] in
@@ -242,7 +217,7 @@ public final class AudioCallController {
         case let .listenerChanged(isListening):
             listenerFailure = isListening ? nil : "Incoming calls are unavailable."
         case let .snapshot(snapshot): receiveSnapshot(snapshot)
-        case .unknown: break
+        case .unknown, .listenerBarrier: break
         }
     }
 
@@ -335,6 +310,51 @@ public final class AudioCallController {
                 }
                 isEnding = false
             }
+        }
+    }
+}
+
+public extension AudioCallController {
+    var canRecover: Bool {
+        isAvailable && !isEnding && !isRecovering && call?.phase.isTerminal != false
+    }
+
+    /// Pauses only calls while the host repairs authentication. Account teardown
+    /// invalidates the restart even if the host operation finishes late.
+    func recover(using repair: @MainActor () async -> Bool) async {
+        guard canRecover, let previous = service else { return }
+        let scope = generation
+        isRecovering = true
+        recipients = [:]
+        call = nil
+        listenerTask?.cancel()
+        directoryTask?.cancel()
+        do {
+            try await previous.prepareRecovery()
+        } catch {
+            guard generation == scope, !Task.isCancelled else { return }
+            isRecovering = false
+            listenerFailure = "Call recovery could not start."
+            return
+        }
+        guard generation == scope, !Task.isCancelled else { return }
+        let mayRestart = await repair()
+        guard generation == scope, !Task.isCancelled else { return }
+        if mayRestart {
+            do {
+                try await previous.finishRecovery()
+            } catch {
+                guard generation == scope, !Task.isCancelled else { return }
+                isRecovering = false
+                listenerFailure = "Incoming calls could not restart."
+                return
+            }
+        }
+        guard generation == scope, !Task.isCancelled else { return }
+        isRecovering = false
+        if mayRestart {
+            followDirectory(service: previous, scope: scope)
+            listen(service: previous, scope: scope)
         }
     }
 }

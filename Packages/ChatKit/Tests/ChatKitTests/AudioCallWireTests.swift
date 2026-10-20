@@ -48,6 +48,14 @@ struct AudioCallWireTests {
         #expect(try Wire.decode(AudioCallEvent.self, from: Wire.json(event)) == event)
     }
 
+    @Test func listenerRecoveryBarrierRetainsItsExactToken() throws {
+        let json = #"{"type":"listenerBarrier","token":"00000000-0000-0000-0000-000000000001"}"#
+        let id = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let value = try Wire.decode(AudioCallEvent.self, from: json)
+        #expect(value == .listenerBarrier(id))
+        #expect(try Wire.decode(AudioCallEvent.self, from: Wire.json(value)) == value)
+    }
+
     @Test func omittedMuteAndFailureAssumeLess() throws {
         let json = #"""
         {"id":"00000000-0000-0000-0000-000000000001",

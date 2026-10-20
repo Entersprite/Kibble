@@ -70,6 +70,7 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
     /// Actual subscription readiness, including failures after startup returned.
     case listenerChanged(isListening: Bool)
     case snapshot(AudioCallSnapshot)
+    case listenerBarrier(UUID)
     /// The complete event from a newer peer, including its discriminator.
     case unknown(type: String, payload: JSONValue)
 
@@ -78,7 +79,7 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case type, recipients, call, isListening
+        case type, recipients, call, isListening, token
     }
 
     public init(from decoder: any Decoder) throws {
@@ -91,6 +92,7 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
             self = try .snapshot(container.decode(AudioCallSnapshot.self, forKey: .call))
         case "listenerChanged":
             self = try .listenerChanged(isListening: container.decode(Bool.self, forKey: .isListening))
+        case "listenerBarrier": self = try .listenerBarrier(container.decode(UUID.self, forKey: .token))
         default: self = try .unknown(type: raw, payload: JSONValue(from: decoder))
         }
     }
@@ -107,6 +109,9 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
         case let .listenerChanged(isListening):
             try container.encode("listenerChanged", forKey: .type)
             try container.encode(isListening, forKey: .isListening)
+        case let .listenerBarrier(token):
+            try container.encode("listenerBarrier", forKey: .type)
+            try container.encode(token, forKey: .token)
         case let .unknown(_, payload):
             try payload.encode(to: encoder)
         }

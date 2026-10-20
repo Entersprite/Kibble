@@ -23,10 +23,25 @@ public protocol AudioCallService: AnyObject, Sendable {
     /// ends through explicit call control or account teardown, independently of
     /// a chat client's lifetime.
     func stop() async
+    /// Explicitly quiesces the listener before the host repairs call sign-in.
+    func prepareRecovery() async throws
+    func finishRecovery() async throws
 }
 
 public extension AudioCallService {
     func updateRecipients(_: [AudioCallRecipient]) async {}
+    func prepareRecovery() async throws {
+        await stop()
+    }
+
+    func finishRecovery() async throws {}
+}
+
+/// Trusted provider port. The barrier is the final event after all old listener,
+/// invitation and media callbacks settle; no old callback may follow it.
+@MainActor
+public protocol AudioCallQuiescing: AudioCallService {
+    func pauseForRecovery(barrier: UUID) async throws
 }
 
 public struct AudioCallRecipient: Codable, Hashable, Sendable {

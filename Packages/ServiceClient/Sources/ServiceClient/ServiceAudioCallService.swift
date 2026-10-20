@@ -21,12 +21,18 @@ public final class ServiceAudioCallService: AudioCallService {
     }
 
     public func startListening() async throws {
-        guard observer == nil else { return }
         let epoch = generation
         let initial = try await read(after: nil, wait: 0)
         try check(epoch)
+        _ = try projection.accept(initial)
+        if let current = projection.currentState {
+            sink.yield(.recipientsChanged(current.recipients))
+            sink.yield(.listenerChanged(isListening: current.isListening))
+            if let call = current.call {
+                sink.yield(.snapshot(call))
+            }
+        }
         guard observer == nil else { return }
-        try receive(initial)
         observer = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, generation == epoch else { return }
@@ -69,6 +75,15 @@ public final class ServiceAudioCallService: AudioCallService {
     /// Explicit native authentication recovery, permitted only while idle.
     public func restartListener() async throws {
         try await control(.init(action: "restart"))
+    }
+
+    public func prepareRecovery() async throws {
+        await stop()
+        try await control(.init(action: "pause"))
+    }
+
+    public func finishRecovery() async throws {
+        try await restartListener()
     }
 
     public func stop() async {

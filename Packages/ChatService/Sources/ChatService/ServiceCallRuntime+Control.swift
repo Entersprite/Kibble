@@ -8,7 +8,7 @@ extension ServiceCallRuntime {
         guard request.recipient == nil || request.action == "start",
               request.muted == nil || request.action == "mute" else { throw ServiceFailure.invalidRequest }
         switch request.action {
-        case "start", "accept", "decline", "restart":
+        case "start", "accept", "decline", "restart", "pause":
             guard !controlling else { throw ServiceFailure.deviceBusy }
             controlling = true
             defer { controlling = false }
@@ -30,6 +30,10 @@ extension ServiceCallRuntime {
     }
 
     private func begin(_ request: ControlCall, session: ClientSessionID) async throws {
+        if request.action == "pause" {
+            try await pauseListener(request)
+            return
+        }
         if request.action == "restart" {
             try await restart(request)
             return
@@ -38,18 +42,7 @@ extension ServiceCallRuntime {
         switch request.action {
         case "start":
             try await startOutgoing(request, id: id, session: session)
-        case "accept":
-            guard state.call?.id == id, state.call?.phase == .incoming else {
-                throw ServiceFailure.invalidRequest
-            }
-            guard used.count < 1024, !used.contains(id) else { throw ServiceFailure.overloaded }
-            try await reserve(id, session: session)
-            guard state.call?.id == id, state.call?.phase == .incoming else {
-                await releaseReservation()
-                throw ServiceFailure.invalidRequest
-            }
-            used.insert(id)
-            try await source.accept(callID: id)
+        case "accept": try await acceptIncoming(id: id, session: session)
         case "decline":
             guard reserved == nil, state.call?.id == id, state.call?.phase == .incoming else {
                 throw ServiceFailure.invalidRequest
@@ -59,20 +52,37 @@ extension ServiceCallRuntime {
         }
     }
 
+    private func acceptIncoming(id: UUID, session: ClientSessionID) async throws {
+        guard state.call?.id == id, state.call?.phase == .incoming else {
+            throw ServiceFailure.invalidRequest
+        }
+        guard used.count < 1024, !used.contains(id) else { throw ServiceFailure.overloaded }
+        try await reserve(id, session: session)
+        guard state.call?.id == id, state.call?.phase == .incoming else {
+            await releaseReservation()
+            throw ServiceFailure.invalidRequest
+        }
+        used.insert(id)
+        try await source.accept(callID: id)
+    }
+
     private func restart(_ request: ControlCall) async throws {
         guard request.callID == nil, reserved == nil, state.call?.phase.isTerminal != false else {
             throw ServiceFailure.deviceBusy
         }
-        listener?.cancel()
-        await source.stop()
-        await listener?.value
-        listener = nil
+        if !recoveryPaused {
+            try await pauseListener(request)
+        }
         try checkActive()
+        guard recoveryBarrier?.arrived != false else { throw ServiceFailure.accountCleanupPending }
+        recoveryBarrier = nil
+        recoveryPaused = false
         startListener()
     }
 
     private func startOutgoing(_ request: ControlCall, id: UUID, session: ClientSessionID) async throws {
         guard state.call?.phase.isTerminal != false, reserved == nil,
+              !recoveryPaused,
               let hint = request.recipient,
               let recipient = state.recipients.first(where: {
                   $0.conversationID == hint.conversationID && $0.memberID == hint.memberID

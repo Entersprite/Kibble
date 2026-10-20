@@ -3,7 +3,7 @@ import Foundation
 
 /// Deterministic audio state without microphone, network, provider code or timers.
 @MainActor
-public final class FixtureAudioCallService: AudioCallService {
+public final class FixtureAudioCallService: AudioCallQuiescing {
     public let events: AsyncStream<AudioCallEvent>
     public private(set) var currentCall: AudioCallSnapshot?
     public private(set) var recipients: [AudioCallRecipient]
@@ -71,6 +71,11 @@ public final class FixtureAudioCallService: AudioCallService {
         listening = false
         currentCall = nil
         continuation.yield(.recipientsChanged([]))
+    }
+
+    public func pauseForRecovery(barrier: UUID) async throws {
+        await stop()
+        continuation.yield(.listenerBarrier(barrier))
     }
 
     /// A script/test can produce an incoming call explicitly. UUIDs use a counter.

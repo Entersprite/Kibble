@@ -4,7 +4,7 @@ import Foundation
 /// App-session call adapter. Provider handles and protocol state stay behind
 /// the domain seam; the host supplies the platform's audio engine.
 @MainActor
-public final class LocalBridgeAudioCallService: AudioCallService {
+public final class LocalBridgeAudioCallService: AudioCallQuiescing {
     public let events: AsyncStream<AudioCallEvent>
     let continuation: AsyncStream<AudioCallEvent>.Continuation
     let trial: MeetDMCallTrial
@@ -116,6 +116,11 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         await task.value
         stopping = nil
         isStopping = false
+    }
+
+    public func pauseForRecovery(barrier: UUID) async throws {
+        await stop()
+        continuation.yield(.listenerBarrier(barrier))
     }
 
     func performStop() async {

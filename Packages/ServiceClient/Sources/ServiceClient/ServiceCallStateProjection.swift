@@ -10,6 +10,10 @@ struct ServiceCallStateProjection {
         previous?.version
     }
 
+    var currentState: ServiceCallState? {
+        previous
+    }
+
     mutating func accept(_ state: ServiceCallState) throws -> [AudioCallEvent] {
         let admission = try admit(state)
         guard admission.accepted else { return [] }

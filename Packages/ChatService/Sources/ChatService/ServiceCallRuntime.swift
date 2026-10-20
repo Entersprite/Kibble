@@ -14,6 +14,8 @@ actor ServiceCallRuntime {
     var used: Set<UUID> = []
     var controlling = false
     var stopped = false
+    var recoveryPaused = false
+    var recoveryBarrier: CallRecoveryBarrier?
     private var reader: Task<Void, Never>?
     var listener: Task<Void, Never>?
     private var stopping: Task<Void, Never>?
@@ -93,6 +95,7 @@ actor ServiceCallRuntime {
             await stopping.value; return
         }
         stopped = true
+        cancelRecoveryWait(throwing: ServiceFailure.accountDisabled)
         reader?.cancel(); listener?.cancel()
         let pending = waiters.values
         waiters = [:]
@@ -112,6 +115,11 @@ actor ServiceCallRuntime {
 
     private func receive(_ event: AudioCallEvent) async {
         guard !stopped else { return }
+        if case let .listenerBarrier(token) = event {
+            acknowledgeRecoveryBarrier(token)
+            return
+        }
+        guard !recoveryPaused else { return }
         switch event {
         case let .recipientsChanged(recipients):
             guard recipients.count <= 4096 else { listenerFailed(); return }
@@ -119,7 +127,7 @@ actor ServiceCallRuntime {
         case let .listenerChanged(listening): state.isListening = listening
         case let .snapshot(snapshot):
             guard await receiveSnapshot(snapshot) else { return }
-        case .unknown: break
+        case .unknown, .listenerBarrier: break
         }
         guard !stopped else { return }
         state.lastEvent = event
