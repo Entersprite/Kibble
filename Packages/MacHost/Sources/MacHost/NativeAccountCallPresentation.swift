@@ -14,6 +14,8 @@ final class NativeAccountCallPresentation {
     let notificationScope = UUID()
     /// Which account this is while several are connected, asked when shown.
     private let accountLabel: @MainActor () -> String?
+    /// Another account's controller whose call holds the device (D7).
+    private let otherCall: @MainActor () -> AudioCallController?
     private let panel = IncomingCallPanelHost()
     private let ringer: CallRinger
     private var window: AudioCallWindowHost?
@@ -23,13 +25,15 @@ final class NativeAccountCallPresentation {
     init(
         environment: AppEnvironment, binding: NativeAccountCallBinding,
         settings: CallSettingsModel, notifications: UserNotificationDelivery,
-        accountLabel: @escaping @MainActor () -> String? = { nil }
+        accountLabel: @escaping @MainActor () -> String? = { nil },
+        otherCall: @escaping @MainActor () -> AudioCallController? = { nil }
     ) {
         self.environment = environment; self.binding = binding; self.settings = settings
         self.accountLabel = accountLabel
+        self.otherCall = otherCall
         ringer = CallRinger { settings.ringtoneURL }
         let calls = environment.calls
-        window = AudioCallWindowHost(actions: { id in
+        window = AudioCallWindowHost(actions: { [weak self] id in
             var actions = MacAppDelegate.callActions(
                 for: id, calls: calls, audioDevices: binding.audioDevices,
                 video: binding.video, diagnostics: binding.diagnostics
@@ -37,6 +41,12 @@ final class NativeAccountCallPresentation {
             actions.callBack = MacAppDelegate.callBack(after: id, environment: environment)
             actions.imageLoader = environment.imageLoader
             actions.accountLabel = accountLabel()
+            actions.endsOtherCall = calls.call?.phase == .incoming && otherCall() != nil
+            actions.accept = {
+                if calls.call?.id == id {
+                    self?.answer()
+                }
+            }
             return actions
         }, windowClosed: { id in
             if calls.call?.id == id {
@@ -56,6 +66,12 @@ final class NativeAccountCallPresentation {
 
     func respondToNotification(_ response: IncomingCallResponse) {
         guard response.scope == notificationScope else { return }
+        // A notification's Answer cannot say it ends another account's call,
+        // so while one holds the device it shows this ring's choice instead.
+        if case let .answer(id, scope) = response, otherCall() != nil {
+            respond(.show(id, scope: scope))
+            return
+        }
         respond(response)
     }
 
@@ -65,8 +81,19 @@ final class NativeAccountCallPresentation {
               IncomingCallAlerts.isCurrent(response, call: calls.call) else { return }
         switch response {
         case .show: window?.show(); NSApp.activate()
-        case .answer: window?.show(); NSApp.activate(); calls.accept()
+        case .answer: window?.show(); NSApp.activate(); answer()
         case .decline: calls.decline()
+        }
+    }
+
+    /// Answers, first ending another account's call when one holds the
+    /// device. Only the panel and the window offer that, and both name it.
+    private func answer() {
+        let calls = environment.calls
+        if let other = otherCall() {
+            Task { await calls.accept(ending: other) }
+        } else {
+            calls.accept()
         }
     }
 
@@ -107,7 +134,8 @@ final class NativeAccountCallPresentation {
             if call?.direction == .incoming, call?.phase == .incoming {
                 surface = IncomingCallSurface(
                     showsPanel: settings.showsPanel, rings: settings.rings,
-                    focused: settings.isFocused, mirrored: DisplayMirroring.isActive(), person: person
+                    focused: settings.isFocused, mirrored: DisplayMirroring.isActive(), person: person,
+                    endsOtherCall: otherCall() != nil
                 )
             }
             let raises = alerts?.update(
@@ -156,6 +184,13 @@ final class NativeAccountCallCoordinator {
         presentations = [:]
     }
 
+    /// Another account's call controller holding the device, read under
+    /// observation so a ring's choice follows that call as it starts and ends.
+    private func callHoldingDevice(except account: ConnectedAccountID) -> AudioCallController? {
+        presentations.first { $0.key != account && $0.value.environment.calls.holdsDevice }?
+            .value.environment.calls
+    }
+
     private func observe() {
         guard !stopped else { return }
         withObservationTracking {
@@ -168,12 +203,14 @@ final class NativeAccountCallCoordinator {
                     let id = account.id
                     presentations[account.id] = NativeAccountCallPresentation(
                         environment: environment, binding: binding, settings: settings,
-                        notifications: notifications
-                    ) { [weak host] in
-                        guard let workspace = host?.workspace,
-                              workspace.accounts.count > 1 else { return nil }
-                        return workspace.accountLabels[id]
-                    }
+                        notifications: notifications,
+                        accountLabel: { [weak host] in
+                            guard let workspace = host?.workspace,
+                                  workspace.accounts.count > 1 else { return nil }
+                            return workspace.accountLabels[id]
+                        },
+                        otherCall: { [weak self] in self?.callHoldingDevice(except: id) }
+                    )
                 }
                 return account.id
             } ?? [])

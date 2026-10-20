@@ -10,15 +10,20 @@ public struct IncomingCallPanelContent: Equatable, Sendable {
     public var person: Member?
     /// Which account is being called, while several are connected.
     public var accountLabel: String?
+    /// Another account's call holds this Mac's microphone and speaker:
+    /// answering ends it, and the panel says so.
+    public var endsOtherCall: Bool
 
     public init(
-        callID: UUID, memberID: Member.ID, name: String?, person: Member?, accountLabel: String? = nil
+        callID: UUID, memberID: Member.ID, name: String?, person: Member?, accountLabel: String? = nil,
+        endsOtherCall: Bool = false
     ) {
         self.callID = callID
         self.memberID = memberID
         self.name = name
         self.person = person
         self.accountLabel = accountLabel
+        self.endsOtherCall = endsOtherCall
     }
 }
 
@@ -70,7 +75,8 @@ public struct IncomingCallPanelView: View {
                     title: "Decline", symbol: "phone.down.fill", tone: .end, size: 38, action: decline
                 )
                 CallRoundButton(
-                    title: "Accept", symbol: "phone.fill", tone: .accept, size: 38, action: accept
+                    title: content.endsOtherCall ? "End Call and Answer" : "Accept",
+                    symbol: "phone.fill", tone: .accept, size: 38, action: accept
                 )
             }
         }
@@ -114,6 +120,12 @@ public struct IncomingCallPanelView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                if content.endsOtherCall {
+                    Text("Answering ends your current call")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         .contentShape(Rectangle())

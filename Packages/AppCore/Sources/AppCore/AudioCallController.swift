@@ -23,7 +23,7 @@ public final class AudioCallController {
     @ObservationIgnored private var listenerTask: Task<Void, Never>?
     @ObservationIgnored private var operationTask: Task<Void, Never>?
     @ObservationIgnored private var endingSnapshot: AudioCallSnapshot?
-    @ObservationIgnored private var endingTask: Task<Void, Never>?
+    @ObservationIgnored var endingTask: Task<Void, Never>?
     @ObservationIgnored private var muteTask: Task<Void, Never>?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
     @ObservationIgnored private var muteRevision = 0

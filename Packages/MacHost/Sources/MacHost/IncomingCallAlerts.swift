@@ -48,6 +48,8 @@ struct IncomingCallSurface: Equatable {
     var mirrored = false
     /// The caller's directory entry, for the panel's photo.
     var person: Member?
+    /// Another account's call holds the device, so answering ends it.
+    var endsOtherCall = false
 
     static let notificationsOnly = Self()
 }
@@ -80,7 +82,7 @@ struct IncomingCallRoute: Equatable {
         let content = IncomingCallPanelContent(
             callID: call.id, memberID: call.recipient.memberID,
             name: rule.showsPreview ? call.recipient.displayName : nil,
-            person: rule.showsPreview ? surface.person : nil
+            person: rule.showsPreview ? surface.person : nil, endsOtherCall: surface.endsOtherCall
         )
         return Self(panel: content, rings: surface.rings && alert.delivery == .bannerAndSound)
     }

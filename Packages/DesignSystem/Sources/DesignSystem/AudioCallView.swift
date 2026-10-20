@@ -7,6 +7,9 @@ public struct AudioCallActions {
     public var imageLoader: SceneImageLoader?
     /// Which account the call is on, while several are connected; `nil` with one.
     public var accountLabel: String?
+    /// A ring that another account's call stands in the way of: Accept
+    /// becomes End Call and Answer.
+    public var endsOtherCall = false
     public var toggleScreenSharing: (() -> Void)?
     public var toggleCamera: (() -> Void)?
     public var selectCamera: ((String) -> Void)?
@@ -204,7 +207,9 @@ public struct AudioCallView: View {
 
     @ViewBuilder private var controls: some View {
         if call.phase == .incoming {
-            CallAnswerControls(decline: actions.decline, accept: actions.accept)
+            CallAnswerControls(
+                decline: actions.decline, accept: actions.accept, endsOtherCall: actions.endsOtherCall
+            )
         } else if call.phase.isTerminal {
             CallFinishedControls(
                 callBack: actions.callBack, close: actions.close,

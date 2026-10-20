@@ -201,16 +201,21 @@ struct CallDiagnosticsItem {
 }
 
 /// Answer and decline, large and labelled, the way an incoming call is
-/// answered on every Apple device.
+/// answered on every Apple device. While another account's call holds the
+/// device, answering names what it does to that call.
 struct CallAnswerControls: View {
     let decline: () -> Void
     let accept: () -> Void
+    var endsOtherCall = false
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 64) {
                 answer("Decline", symbol: "phone.down.fill", tone: .end, action: decline)
-                answer("Accept", symbol: "phone.fill", tone: .accept, action: accept)
+                answer(
+                    endsOtherCall ? "End Call and Answer" : "Accept",
+                    symbol: "phone.fill", tone: .accept, action: accept
+                )
             }
         }
         .padding(.bottom, 4)
