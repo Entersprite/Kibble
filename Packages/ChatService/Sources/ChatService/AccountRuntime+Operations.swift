@@ -8,6 +8,30 @@ extension AccountRuntime {
         authorize: () throws -> Void = {},
         perform: @Sendable () async throws -> some Codable & Sendable
     ) async throws -> JSONValue {
+        let permit = UUID()
+        try await providerWork.acquire(permit, owner: instanceID)
+        do {
+            try checkEpoch(epoch)
+            let value = try await performAdmittedOperation(
+                id,
+                request: request,
+                epoch: epoch,
+                authorize: authorize,
+                perform: perform
+            )
+            await providerWork.release(permit)
+            return value
+        } catch {
+            await providerWork.release(permit)
+            throw error
+        }
+    }
+
+    private func performAdmittedOperation(
+        _ id: ServiceOperationID, request: ServiceRequest, epoch: UUID,
+        authorize: () throws -> Void,
+        perform: @Sendable () async throws -> some Codable & Sendable
+    ) async throws -> JSONValue {
         let operation = try storage.reserve(id, request: request)
         switch operation.state {
         case "succeeded":

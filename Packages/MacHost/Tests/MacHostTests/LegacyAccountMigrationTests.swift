@@ -21,6 +21,7 @@ struct LegacyAccountMigrationTests {
             .replaceConversations([.init(id: .init("chat"), kind: .directMessage, title: "Retained")])
         ])
         var settings = NotificationSettings()
+        settings.setPause(.untilResumed, at: .distantPast, by: "device")
         settings.setRule(
             .init(delivery: .off, readReceipts: false),
             for: .global,
@@ -37,6 +38,9 @@ struct LegacyAccountMigrationTests {
         #expect(record.selfID.rawValue == "verified-self")
         #expect(harness.secrets.read(account: "primary") == original)
         #expect(try harness.registry.policy(for: record).settings == settings)
+        #expect(try FileDeviceNotificationPauseStore(
+            file: harness.destination.appendingPathComponent("device-pause.json")
+        ).load() == .untilResumed)
         let component = LegacyAccountMigration.component(record.id.rawValue)
         for path in ["service/\(component)/service.sqlite", "clients/\(component)/replica.sqlite"] {
             let copy = try ChatStore.onDisk(at: harness.destination.appendingPathComponent(path).path)
@@ -69,6 +73,23 @@ struct LegacyAccountMigrationTests {
         try await harness.migration.run()
         #expect(try harness.registry.accounts().count == 1)
         #expect(harness.secrets.read(account: "primary") == original)
+    }
+
+    @Test func aValidLoginWithAnEmptyCacheMigratesWithoutAssigningUnknownHistory() async throws {
+        let harness = try await MigrationHarness.make()
+        let source = try ChatStore.onDisk(at: harness.source.appendingPathComponent("chat-local.sqlite").path)
+        #expect(try source.me() == nil)
+        harness.preferences.set(4, forKey: "reactionSkinTone")
+        harness.preferences.set(true, forKey: "ghostMode")
+        try await harness.migration.run()
+        let record = try #require(try harness.registry.accounts().first)
+        let key = try "personalPreferences.v1." + (ServiceCodec.encode(ServiceInstanceID("installation")))
+            .base64EncodedString() + "." + record.selfID.rawValue
+        #expect(harness.preferences.dictionary(forKey: key)?["skinTone"] as? Int == 4)
+        #expect(harness.preferences.integer(forKey: "reactionSkinTone") == 4)
+        #expect(harness.preferences.bool(forKey: "ghostMode"))
+        #expect(try harness.registry.policy(for: record).settings.resolvedGlobal.readReceipts == false)
+        #expect(try source.me() == nil)
     }
 
     @Test func offlineVerificationLeavesTheLegacyLoginAndRegistryUntouched() async throws {

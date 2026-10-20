@@ -67,6 +67,10 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
         publish(call)
     }
 
+    public func beginStopping() {
+        listening = false
+    }
+
     public func stop() async {
         listening = false
         currentCall = nil

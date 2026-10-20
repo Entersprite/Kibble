@@ -51,4 +51,20 @@ struct RemoteImageStateTests {
         #expect(Self.isFailed(state.phase(for: Self.first)))
         #expect(Self.isLoading(state.phase(for: Self.second)))
     }
+
+    @Test func theSameURLCannotReuseAnotherSessionsImageOrFailure() throws {
+        let first = UUID()
+        let second = UUID()
+        var state = RemoteImageState()
+        state.loaded = try (Self.first, Self.pixel())
+        state.loadedScope = first
+        #expect(Self.isLoaded(state.phase(for: Self.first, scope: first)))
+        #expect(Self.isLoading(state.phase(for: Self.first, scope: second)))
+        #expect(Self.isLoading(state.phase(for: Self.first)))
+        state.loaded = nil
+        state.failed = Self.first
+        state.failedScope = first
+        #expect(Self.isFailed(state.phase(for: Self.first, scope: first)))
+        #expect(Self.isLoading(state.phase(for: Self.first, scope: second)))
+    }
 }

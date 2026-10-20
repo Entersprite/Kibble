@@ -4,6 +4,7 @@ import SwiftUI
 /// Call controls are callbacks so the same window can serve any call service.
 @MainActor
 public struct AudioCallActions {
+    public var imageLoader: SceneImageLoader?
     public var toggleScreenSharing: (() -> Void)?
     public var toggleCamera: (() -> Void)?
     public var selectCamera: ((String) -> Void)?
@@ -177,6 +178,7 @@ public struct AudioCallView: View {
         .ignoresSafeArea()
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
+        .environment(\.sceneImageLoader, actions.imageLoader)
         .animation(.smooth(duration: 0.35), value: animationKey)
         .task(id: CopyRequest(call: call.id, sequence: copyRequest)) {
             guard requestedCall == call.id, copyState == .collecting,

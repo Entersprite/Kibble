@@ -1,5 +1,6 @@
 import ChatAPI
 import ChatKit
+import Foundation
 
 /// Native storage/session composition. Implementations receive verified API
 /// summaries; shared orchestration never opens provider credentials.
@@ -24,6 +25,7 @@ struct AccountClientSession {
 
 struct AccountClientIntent: Equatable {
     let revision: ServiceAccountRevision?
+    let runtimeID: UUID?
     let isEnabled: Bool
     let isReady: Bool
     let isRemoving: Bool
@@ -32,6 +34,7 @@ struct AccountClientIntent: Equatable {
 
     init(_ account: AccountSummary) {
         revision = account.revision
+        runtimeID = account.runtimeID
         isEnabled = account.isEnabled
         isReady = account.isReady
         isRemoving = account.isRemoving

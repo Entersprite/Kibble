@@ -101,6 +101,7 @@ public struct ChatSceneActions {
     /// A link preview's or app card's picture. **Optional, and `nil` draws
     /// cards without pictures** (`CLAUDE.md`: never draw a control the seam
     /// cannot honour).
+    public var imageLoader: SceneImageLoader?
     public var loadRemoteImage: ((URL) async throws -> Data)?
 
     /// Download, cancel, open, reveal and Save As for a non-image file chip.

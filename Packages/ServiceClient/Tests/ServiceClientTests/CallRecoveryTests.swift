@@ -39,7 +39,10 @@ struct CallRecoveryTests {
         )
         await runtime.start()
         try await callEventually { try await runtime.read(.init(waitMilliseconds: 0)).isListening }
-        let pause = Task { try await runtime.control(.init(action: "pause"), session: .init("client")) }
+        let pause = Task { try await runtime.control(
+            .init(action: "pause", sourceID: runtime.identity),
+            session: .init("client")
+        ) }
         try await callEventually { source.barrier != nil }
         #expect(await runtime.controlling)
         source.emit(.listenerChanged(isListening: true))
@@ -52,10 +55,70 @@ struct CallRecoveryTests {
         #expect(!state.isListening)
         #expect(state.recipients.isEmpty)
         #expect(state.call == nil)
-        _ = try await runtime.control(.init(action: "restart"), session: .init("client"))
+        _ = try await runtime.control(
+            .init(action: "restart", sourceID: runtime.identity),
+            session: .init("client")
+        )
         try await callEventually { try await runtime.read(.init(waitMilliseconds: 0)).isListening }
         #expect(try await runtime.read(.init(waitMilliseconds: 0)).recipients == [source.peer])
         await runtime.stop()
+    }
+
+    @Test func aDeclinedInvitationCannotReappearFromALateSourceCallback() async throws {
+        let source = HeldRecoverySource()
+        let runtime = ServiceCallRuntime(
+            source: source, reservations: CallDeviceReservations(),
+            principal: .init("owner"), device: .init("device")
+        )
+        await runtime.start()
+        let id = UUID()
+        var snapshot = AudioCallSnapshot(
+            id: id,
+            recipient: source.peer,
+            direction: .incoming,
+            phase: .incoming
+        )
+        source.emit(.snapshot(snapshot))
+        try await callEventually {
+            try await runtime.read(.init(waitMilliseconds: 0)).call?.phase == .incoming
+        }
+        _ = try await runtime.control(
+            .init(action: "decline", callID: id, sourceID: runtime.identity),
+            session: .init("client")
+        )
+        snapshot.phase = .declined
+        source.emit(.snapshot(snapshot))
+        try await callEventually {
+            try await runtime.read(.init(waitMilliseconds: 0)).call?.phase == .declined
+        }
+        snapshot.phase = .incoming
+        source.emit(.snapshot(snapshot))
+        source.emit(.listenerChanged(isListening: false))
+        try await callEventually { try await !runtime.read(.init(waitMilliseconds: 0)).isListening }
+        #expect(try await runtime.read(.init(waitMilliseconds: 0)).call?.phase == .declined)
+        await runtime.stop()
+    }
+
+    @Test func captureIsSuppressedBeforeWaitingForTheSharedCleanupSlot() async throws {
+        let source = HeldRecoverySource()
+        let budget = AccountWorkAdmission(limit: 1)
+        let occupied = UUID()
+        try await budget.acquire(occupied)
+        let runtime = ServiceCallRuntime(
+            source: source, reservations: CallDeviceReservations(), principal: .init("owner"),
+            device: .init("device"), cleanupAdmission: budget
+        )
+        await runtime.start()
+        let stopping = Task { await runtime.stop() }
+        try await callEventually {
+            let queued = await budget.waitingCount
+            return source.beganStopping && queued == 1
+        }
+        #expect(!source.stopped)
+        await budget.release(occupied)
+        await stopping.value
+        #expect(source.stopped)
+        #expect(await budget.activeCount == 0)
     }
 
     @Test func shutdownReleasesAPendingRecoveryAcknowledgement() async throws {
@@ -65,7 +128,10 @@ struct CallRecoveryTests {
             principal: .init("owner"), device: .init("device")
         )
         await runtime.start()
-        let pause = Task { try await runtime.control(.init(action: "pause"), session: .init("client")) }
+        let pause = Task { try await runtime.control(
+            .init(action: "pause", sourceID: runtime.identity),
+            session: .init("client")
+        ) }
         try await callEventually { source.barrier != nil }
         await runtime.stop()
         await #expect(throws: (any Error).self) { try await pause.value }
@@ -77,6 +143,9 @@ private final class HeldRecoverySource: AudioCallQuiescing {
     let events: AsyncStream<AudioCallEvent>
     private let continuation: AsyncStream<AudioCallEvent>.Continuation
     var barrier: UUID?
+    private var snapshot: AudioCallSnapshot?
+    var beganStopping = false
+    var stopped = false
     let peer = AudioCallRecipient(conversationID: .init("chat"), memberID: .init("peer"), displayName: "Peer")
 
     init() {
@@ -84,6 +153,9 @@ private final class HeldRecoverySource: AudioCallQuiescing {
     }
 
     func emit(_ event: AudioCallEvent) {
+        if case let .snapshot(value) = event {
+            snapshot = value
+        }
         continuation.yield(event)
     }
 
@@ -101,13 +173,23 @@ private final class HeldRecoverySource: AudioCallQuiescing {
         }
     }
 
+    func beginStopping() {
+        beganStopping = true
+    }
+
     func stop() async {
+        stopped = true
         finishPause()
     }
 
     func startOutgoing(to _: AudioCallRecipient, callID _: UUID) async throws {}
     func accept(callID _: UUID) async throws {}
-    func decline(callID _: UUID) async throws {}
+    func decline(callID: UUID) async throws {
+        if var snapshot, snapshot.id == callID {
+            snapshot.phase = .declined; emit(.snapshot(snapshot))
+        }
+    }
+
     func hangUp(callID _: UUID) async throws {}
     func setMuted(_: Bool, callID _: UUID) async throws {}
 }

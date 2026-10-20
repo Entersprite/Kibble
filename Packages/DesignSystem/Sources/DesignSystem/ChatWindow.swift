@@ -172,6 +172,7 @@ public struct ChatWindow: View {
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
         .overlay { searchOverlay }
         .modifier(ConversationPanelPresentation(state: state, actions: actions))
+        .environment(\.sceneImageLoader, actions.imageLoader)
     }
 
     /// The bar's content: the field, or why there isn't one.

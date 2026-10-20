@@ -4,11 +4,59 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatService
 @testable import MacHost
 
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountFixtureHostTests {
+    @Test func answeringWhileAnotherAccountIsBusyKeepsTheIncomingCallActionable() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let host = SystemAccountFixtureHost(directory: directory)
+        await host.start()
+        let workspace = try #require(host.workspace)
+        try await ready(workspace, count: 2)
+        let first = try #require(workspace.accounts.first { $0.selfID == Acme.alex })
+        let second = try #require(workspace.accounts.first { $0.id != first.id })
+        let outgoing = try #require(workspace.environment(for: first.id))
+        let incoming = try #require(workspace.environment(for: second.id))
+        let source = try await callSource(host, account: second.id)
+        let world = FixtureWorld.acme
+        let conversation = try #require(world.conversations.first {
+            $0.kind == .directMessage && $0.members.contains(first.selfID) &&
+                $0.members.allSatisfy { world.member($0)?.kind == .human }
+        })
+        let members = world.members.filter { conversation.members.contains($0.id) }
+        try await wait {
+            outgoing.sceneState.conversations.contains { $0.id == conversation.id } &&
+                outgoing.calls.canCall(conversation: conversation, members: members, me: first.selfID)
+        }
+        outgoing.calls.startCall(in: conversation, members: members, me: first.selfID)
+        try await wait(stage: "outgoing connected") { outgoing.calls.call?.phase == .connected }
+        let recipient = try #require(source.recipients.first)
+        let id = try #require(source.receiveIncoming(from: recipient))
+        try await wait(stage: "incoming visible") { incoming.calls.call?.phase == .incoming }
+        incoming.calls.accept()
+        try await wait(stage: "busy answer refused") {
+            incoming.calls.call?.phase == .incoming && incoming.calls.call?.failureMessage != nil
+        }
+        #expect(source.currentCall?.id == id)
+        #expect(source.currentCall?.phase == .incoming)
+        #expect(outgoing.calls.call?.phase == .connected)
+        outgoing.calls.hangUp()
+        try await wait(stage: "outgoing ended") {
+            outgoing.calls.call?.phase == .ended && !outgoing.calls.isEnding
+        }
+        incoming.calls.accept()
+        try await wait(stage: "incoming answered after busy clears") {
+            incoming.calls.call?.phase == .connected
+        }
+        #expect(incoming.calls.call?.failureMessage == nil)
+        incoming.calls.hangUp()
+        try await wait(stage: "incoming ended") { incoming.calls.call?.phase == .ended }
+        await host.stop()
+    }
+
     @Test func switchingTheNativeAccountAndClosingItsWindowLeaveTheServiceCallAlive() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let host = SystemAccountFixtureHost(directory: directory)
@@ -54,6 +102,7 @@ struct AccountFixtureHostTests {
         let second = try #require(workspace.accounts.last)
         let personal = try #require(workspace.environment(for: first.id))
         let studio = try #require(workspace.environment(for: second.id))
+        #expect(try #require(personal.actions.imageLoader).id != #require(studio.actions.imageLoader).id)
         personal.actions.select(Acme.priceEngine)
         studio.actions.select(Acme.priceEngine)
         try await wait { !personal.sceneState.messages.isEmpty && !studio.sceneState.messages.isEmpty }
@@ -247,6 +296,18 @@ struct AccountFixtureHostTests {
         #expect(second.workspace != nil)
         await second.stop()
     }
+}
+
+private extension AccountFixtureHostTests {
+    private func callSource(
+        _ host: SystemAccountHost,
+        account: ConnectedAccountID
+    ) async throws -> FixtureAudioCallService {
+        let service = try #require(host.service)
+        let runtime = try #require(await service.runtimes[account])
+        let calls = try #require(await runtime.calls[.init("fixture-device")])
+        return try #require(await calls.source as? FixtureAudioCallService)
+    }
 
     private func ready(_ workspace: AccountWorkspace, count: Int) async throws {
         try await wait {
@@ -256,7 +317,10 @@ struct AccountFixtureHostTests {
         }
     }
 
-    private func wait(_ condition: @MainActor () async -> Bool) async throws {
+    private func wait(
+        stage: String = "account condition",
+        _ condition: @MainActor () async -> Bool
+    ) async throws {
         let deadline = ContinuousClock.now + .seconds(10)
         while ContinuousClock.now < deadline {
             if await condition() {
@@ -264,6 +328,7 @@ struct AccountFixtureHostTests {
             }
             try await Task.sleep(for: .milliseconds(2))
         }
+        Issue.record("Timed out waiting for \(stage)")
         throw ServiceFailure.deadlineExceeded
     }
 }

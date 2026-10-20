@@ -57,6 +57,7 @@ public extension MacAppDelegate {
                 diagnostics: callDiagnostics
             )
             actions.callBack = Self.callBack(after: id, environment: environment)
+            actions.imageLoader = environment.imageLoader
             return actions
         }, windowClosed: { id in
             if calls.call?.id == id {
@@ -150,7 +151,8 @@ public extension MacAppDelegate {
             accept: { [weak self] in self?.respondFromPanel(.answer(id)) },
             decline: { [weak self] in self?.respondFromPanel(.decline(id)) },
             open: { [weak self] in self?.respondFromPanel(.show(id)) },
-            dismiss: { [weak self] in self?.callAlerts?.dismiss() }
+            dismiss: { [weak self] in self?.callAlerts?.dismiss() },
+            imageLoader: environment.imageLoader
         ))
     }
 
@@ -173,7 +175,7 @@ public extension MacAppDelegate {
     private func startCallResponseObservation() {
         callResponseTask = Task { [weak self, notifications] in
             for await response in notifications.callResponses {
-                guard !Task.isCancelled, let self, !environment.calls.isEnding,
+                guard !Task.isCancelled, let self, response.scope == nil, !environment.calls.isEnding,
                       IncomingCallAlerts.isCurrent(response, call: self.environment.calls.call)
                 else { continue }
                 switch response {

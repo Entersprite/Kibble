@@ -4,10 +4,17 @@ import ChatService
 import Foundation
 import GRDB
 
-public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStore, Sendable {
+public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStore, AccountLinkHistoryStore,
+    Sendable {
     let database: DatabaseQueue
+    let linkRetention: AccountRetentionLimits
+    let retentionClock: @Sendable () -> Date
 
-    public init(path: String) throws {
+    public init(
+        path: String, linkRetention: AccountRetentionLimits = AccountRetentionLimits(),
+        retentionClock: @escaping @Sendable () -> Date = { Date() }
+    ) throws {
+        self.linkRetention = linkRetention; self.retentionClock = retentionClock
         var configuration = Configuration()
         configuration.busyMode = .timeout(5)
         database = try DatabaseQueue(path: path, configuration: configuration)
@@ -46,6 +53,7 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
             }
         }
         Self.addLifecycleMigration(to: &migrations)
+        Self.addLinkHistoryMigration(to: &migrations)
         try migrations.migrate(database)
     }
 
@@ -114,18 +122,22 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
     }
 
     private static func saveLink(_ link: AccountLinkRecord, in db: Database) throws {
+        let bytes = try ServiceCodec.encode(link)
+        guard bytes.count <= 16 * 1024 else { throw ServiceFailure.frameTooLarge }
         if let previous = try Self.link(link.id, in: db) {
             guard sameIntent(previous, link) else { throw ServiceFailure.operationConflict }
         }
         try db.execute(sql: """
-        INSERT INTO accountLink (id, principal, device, operation, record) VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET record = excluded.record
+        INSERT INTO accountLink (id, principal, device, operation, record, phase, bornAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            record = excluded.record, phase = excluded.phase, bornAt = excluded.bornAt
         """, arguments: [
             link.id.rawValue,
             link.principalID.rawValue,
             link.deviceID.rawValue,
             link.operationID.rawValue,
-            ServiceCodec.encode(link)
+            bytes, link.phase, ClientOperationID.createdAt(link.operationID.rawValue)?.timeIntervalSince1970
         ])
     }
 

@@ -34,6 +34,7 @@ public enum IncomingCallPanelLayout {
 /// The host reports hover, because SwiftUI's own hover tracking follows the
 /// key window, and this panel never becomes key in an app that is not active.
 public struct IncomingCallPanelView: View {
+    private let imageLoader: SceneImageLoader?
     private let content: IncomingCallPanelContent
     private let isHovering: Bool
     private let accept: () -> Void
@@ -44,8 +45,9 @@ public struct IncomingCallPanelView: View {
     public init(
         content: IncomingCallPanelContent, isHovering: Bool,
         accept: @escaping () -> Void, decline: @escaping () -> Void,
-        open: @escaping () -> Void, dismiss: @escaping () -> Void
+        open: @escaping () -> Void, dismiss: @escaping () -> Void, imageLoader: SceneImageLoader? = nil
     ) {
+        self.imageLoader = imageLoader
         self.content = content
         self.isHovering = isHovering
         self.accept = accept
@@ -86,6 +88,7 @@ public struct IncomingCallPanelView: View {
                 .transition(.opacity)
             }
         }
+        .environment(\.sceneImageLoader, imageLoader)
         .animation(.easeOut(duration: 0.15), value: isHovering)
         .padding(IncomingCallPanelLayout.margin)
         .accessibilityElement(children: .contain)

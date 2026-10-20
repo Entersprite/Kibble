@@ -1,14 +1,45 @@
 import ChatAPI
 import ChatKit
-import ChatService
 import Foundation
 import Synchronization
 import Testing
+@testable import ChatService
 
 @Suite(.timeLimit(.minutes(1)))
 struct PrivacyAdmissionTests {
     private let conversation = ReconciliationBackend.conversation
     private let date = ReconciliationBackend.date
+
+    @Test func queuedReadsRecheckPrivacyAfterSharedProviderAdmission() async throws {
+        let harness = try await ReconciliationHarness.make()
+        _ = try await harness.call(LoadConversations())
+        let budget = await harness.service.providerWork
+        let permits = (0 ..< 16).map { _ in UUID() }
+        for permit in permits {
+            try await budget.acquire(permit)
+        }
+        let command = SendCommand(operationID: .init(ClientOperationID.make()), command: .markRead(
+            conversationID: conversation, upTo: date
+        ))
+        let submission = Task { try await harness.call(command) }
+        do {
+            try await capacityEventually { await budget.waitingCount == 1 }
+            try await update(harness, rule: NotificationRule(readReceipts: false), scope: .global)
+            for permit in permits {
+                await budget.release(permit)
+            }
+            await #expect(throws: ServiceFailure.privacyDenied) { try await submission.value }
+            #expect(await harness.backend.sentCommands.isEmpty)
+            await harness.service.shutdown()
+        } catch {
+            for permit in permits {
+                await budget.release(permit)
+            }
+            _ = await submission.result
+            await harness.service.shutdown()
+            throw error
+        }
+    }
 
     @Test func readPrivacyIsEnforcedBeforeDispatchAndRefusalIsDurable() async throws {
         let harness = try await ReconciliationHarness.make()

@@ -22,6 +22,7 @@ public final class SystemAccountHost {
     private let providers = FixtureAccountProviders()
     public let usesGoogleAccounts: Bool
     let callBindings = NativeAccountCallBindings()
+    var diagnostics: DiagnosticReportStore?
     var custody: LocalAccountCustody?
     var context: ServiceSessionContext?
     private var deviceID = ServiceDeviceID("fixture-device")
@@ -155,7 +156,9 @@ public final class SystemAccountHost {
     ) async throws -> any AccountProviderFactory {
         let accountProviders: any AccountProviderFactory
         if usesGoogleAccounts {
-            deviceID = try ServiceDeviceID(FileNotificationSettingsStore(directory: directory).deviceID())
+            deviceID = try ServiceDeviceID(FileNotificationSettingsStore(
+                directory: SystemLaunchServices.supportDirectory()
+            ).deviceID())
             let custody = try LocalAccountCustody(
                 storage: KeychainSecretStorage(service: KeychainCredentialStore.defaultService),
                 instanceID: instanceID
@@ -169,7 +172,7 @@ public final class SystemAccountHost {
             )
             accountProviders = NativeAccountProviders(
                 custody: custody, directory: directory.appendingPathComponent("providers"),
-                device: deviceID, bindings: callBindings
+                device: deviceID, bindings: callBindings, diagnostics: diagnostics
             )
         } else {
             try seed(registry, directory: directory)

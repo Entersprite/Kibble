@@ -70,12 +70,12 @@ actor ServiceCallRuntime {
         publish()
     }
 
-    func read(_ request: ReadCallState) async throws -> ServiceCallState {
+    func read(_ request: ReadCallState, control: Bool = false) async throws -> ServiceCallState {
         try checkActive()
         guard (0 ... 20000).contains(request.waitMilliseconds),
               request.after?.utf8.count ?? 0 <= 128 else { throw ServiceFailure.invalidRequest }
         guard request.after == state.version, request.waitMilliseconds > 0 else { return state }
-        guard waiters.count < 8 else { throw ServiceFailure.overloaded }
+        guard waiters.count < (control ? 9 : 8) else { throw ServiceFailure.overloaded }
         let id = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -107,7 +107,12 @@ actor ServiceCallRuntime {
             waiter.continuation.resume(throwing: ServiceFailure.accountDisabled)
         }
         let task = Task {
-            await cleanupAdmission.cleanup { [source] in await source.stop() }
+            if let quiescing = source as? any AudioCallQuiescing {
+                await quiescing.beginStopping()
+                await cleanupAdmission.cleanup { [source] in await source.stop() }
+            } else {
+                await source.stop()
+            }
             await reader?.value; await listener?.value
             await releaseReservation()
         }
@@ -138,6 +143,9 @@ actor ServiceCallRuntime {
     }
 
     private func receiveSnapshot(_ snapshot: AudioCallSnapshot) async -> Bool {
+        if snapshot.phase == .incoming, used.count >= 1024, !used.contains(snapshot.id) {
+            return false
+        }
         if reserved == nil, used.contains(snapshot.id), !snapshot.phase.isTerminal {
             return false
         }
@@ -149,17 +157,24 @@ actor ServiceCallRuntime {
             guard current.phase.isTerminal, snapshot.phase == .incoming,
                   !used.contains(snapshot.id) else { return false }
         }
-        state.call = snapshot
         if snapshot.phase == .ended || snapshot.phase == .failed || snapshot.phase == .declined {
+            if !used.contains(snapshot.id) {
+                guard used.count < 1024 else { return false }
+                used.insert(snapshot.id)
+            }
             await releaseReservation()
         }
+        guard !stopped else { return false }
+        state.call = snapshot
         return true
     }
 
     func releaseReservation() async {
         guard let id = reserved else { return }
-        reserved = nil; owner = nil
         await reservations.release(device, owner: .init(runtime: identity, call: id))
+        if reserved == id {
+            reserved = nil; owner = nil
+        }
     }
 
     func checkActive() throws {

@@ -107,7 +107,13 @@ final class NativeAccountAudioCalls: AudioCallQuiescing {
         try await source.pauseForRecovery(barrier: barrier)
     }
 
+    func beginStopping() {
+        binding.clearMedia()
+        source.beginStopping()
+    }
+
     func stop() async {
+        beginStopping()
         await binding.retire()
         await source.stop()
     }

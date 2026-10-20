@@ -13,7 +13,14 @@ public extension ChatStore {
         configuration.readonly = true
         let reader = try DatabaseQueue(path: source.path, configuration: configuration)
         try reader.read { db in
-            guard try Self.fetchMe(db) == identity else { throw CocoaError(.fileReadCorruptFile) }
+            let owner = try Self.fetchMe(db)
+            if owner == identity {
+                return
+            }
+            let empty = try ["conversation", "message", "member"].allSatisfy { table in
+                try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \(table) LIMIT 1)") == false
+            }
+            guard owner == nil, empty else { throw CocoaError(.fileReadCorruptFile) }
         }
         let temporary = destination.deletingLastPathComponent()
             .appendingPathComponent("migration-\(UUID().uuidString).sqlite")

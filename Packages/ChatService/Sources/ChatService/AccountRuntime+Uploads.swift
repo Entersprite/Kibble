@@ -105,7 +105,9 @@ extension AccountRuntime {
             guard try storage.conversation(conversation) != nil else { throw ServiceFailure.notAuthorized }
             let version = historyVersions[conversation]
             let world = historyWorldVersion
-            let membership = try await backend.membership(of: record.selfID, in: conversation)
+            let membership = try await withProviderWork(epoch: currentEpoch) { [record] in
+                try await backend.membership(of: record.selfID, in: conversation)
+            }
             try checkEpoch(epoch)
             guard version == historyVersions[conversation], world == historyWorldVersion else { continue }
             guard membership == .member, try storage.conversation(conversation) != nil else {

@@ -7,6 +7,25 @@ extension AccountRuntime {
         _ id: ServiceTransferID, provider: any BoundedMediaBackend, destination: URL?, epoch: UUID
     ) async {
         do {
+            try await withProviderWork(epoch: epoch) {
+                await self.fetchAdmittedDownload(
+                    id,
+                    provider: provider,
+                    destination: destination,
+                    epoch: epoch
+                )
+            }
+        } catch {
+            downloads[id]?.failure = serviceFailure(error)
+            do { try transferStorage?.remove(id) } catch { await reportUploadCleanupFailure() }
+            downloads[id]?.job = nil
+        }
+    }
+
+    private func fetchAdmittedDownload(
+        _ id: ServiceTransferID, provider: any BoundedMediaBackend, destination: URL?, epoch: UUID
+    ) async {
+        do {
             guard let initial = downloads[id] else { return }
             let slot = try currentDownload(id, owner: initial.owner)
             let maximum = slot.descriptor.maximumBytes

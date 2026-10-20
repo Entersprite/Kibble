@@ -75,7 +75,7 @@ struct ConversationPicture: View {
     private var spaceTile: some View {
         Group {
             if let url = conversation.avatarURL {
-                AsyncImage(url: url) { image in
+                SceneImage(url: url) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
                     monogram

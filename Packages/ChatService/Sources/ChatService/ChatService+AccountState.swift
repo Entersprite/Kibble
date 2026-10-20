@@ -75,7 +75,7 @@ extension ChatService {
             isEnabled: record.isEnabled, isReady: active, isRemoving: record.isRemoving,
             capabilities: active ? status?.status.capabilities ?? .init() : .init(),
             revision: record.currentRevision, authenticationState: record.authenticationState,
-            policyRevision: policyRevisions[record.id]
+            policyRevision: policyRevisions[record.id], runtimeID: runtimes[record.id]?.instanceID
         )
     }
 
@@ -120,6 +120,7 @@ extension ChatService {
             policies: policies, instanceID: instanceID,
             notificationHost: notificationHost, notificationService: self.instanceID,
             callReservations: callReservations, providerStarts: providerStarts, providerStops: providerStops,
+            providerWork: providerWork, callCleanupAdmission: callCleanupAdmission,
             transferStorage: transferFiles?.open(record.id), transferLimits: transferLimits,
             transferNow: transferNow,
             onStatus: { [weak self] status in

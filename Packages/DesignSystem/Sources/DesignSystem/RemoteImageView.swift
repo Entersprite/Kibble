@@ -15,12 +15,14 @@ enum RemoteImagePhase {
 struct RemoteImageState {
     var loaded: (url: URL, image: CGImage)?
     var failed: URL?
+    var loadedScope: UUID?
+    var failedScope: UUID?
 
-    func phase(for url: URL) -> RemoteImagePhase {
-        if let loaded, loaded.url == url {
+    func phase(for url: URL, scope: UUID? = nil) -> RemoteImagePhase {
+        if let loaded, loaded.url == url, loadedScope == scope {
             return .loaded(loaded.image)
         }
-        return failed == url ? .failed : .loading
+        return failed == url && failedScope == scope ? .failed : .loading
     }
 }
 
@@ -33,15 +35,17 @@ struct RemoteImageView<Content: View>: View {
     let load: (URL) async throws -> Data
     @ViewBuilder let content: (RemoteImagePhase) -> Content
 
+    @Environment(\.sceneImageLoader) private var loader
     @State private var state = RemoteImageState()
 
     var body: some View {
-        content(state.phase(for: url))
-            .task(id: url) {
-                if case .loaded = state.phase(for: url) {
+        content(state.phase(for: url, scope: loader?.id))
+            .task(id: ImageRequest(url: url, scope: loader?.id)) {
+                if case .loaded = state.phase(for: url, scope: loader?.id) {
                     return
                 }
                 let requested = url
+                let scope = loader?.id
                 do {
                     let data = try await load(requested)
                     let image = await Task
@@ -50,13 +54,21 @@ struct RemoteImageView<Content: View>: View {
                     guard !Task.isCancelled else { return }
                     if let image {
                         state.loaded = (requested, image)
+                        state.loadedScope = scope
                     } else {
                         state.failed = requested
+                        state.failedScope = scope
                     }
                 } catch {
                     guard !Task.isCancelled else { return }
                     state.failed = requested
+                    state.failedScope = scope
                 }
             }
     }
+}
+
+private struct ImageRequest: Hashable {
+    let url: URL
+    let scope: UUID?
 }

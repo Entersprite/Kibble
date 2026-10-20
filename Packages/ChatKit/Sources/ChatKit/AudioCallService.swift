@@ -41,6 +41,8 @@ public extension AudioCallService {
 /// invitation and media callbacks settle; no old callback may follow it.
 @MainActor
 public protocol AudioCallQuiescing: AudioCallService {
+    /// Immediately fences callbacks and suppresses capture before queued cleanup.
+    func beginStopping()
     func pauseForRecovery(barrier: UUID) async throws
 }
 

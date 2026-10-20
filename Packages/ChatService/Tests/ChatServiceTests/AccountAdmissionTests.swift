@@ -5,6 +5,26 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct AccountAdmissionTests {
+    @Test func oneAccountsQueuedWorkCannotBlockOtherAccountsFromUnusedSlots() async throws {
+        let admission = AccountWorkAdmission(limit: 4, perOwnerLimit: 2)
+        let owner = UUID(); let other = UUID()
+        let first = UUID(); let second = UUID(); let queued = UUID(); let outsider = UUID()
+        try await admission.acquire(first, owner: owner)
+        try await admission.acquire(second, owner: owner)
+        let pending = Task { try await admission.acquire(queued, owner: owner) }
+        try await capacityEventually { await admission.waitingCount == 1 }
+        try await admission.acquire(outsider, owner: other)
+        #expect(await admission.activeCount == 3)
+        #expect(await admission.waitingCount == 1)
+        await admission.release(outsider)
+        #expect(await admission.waitingCount == 1)
+        await admission.release(first)
+        try await pending.value
+        #expect(await admission.activeCount == 2)
+        await admission.release(second); await admission.release(queued)
+        #expect(await admission.activeCount == 0)
+    }
+
     @Test func queuedAccountsAdvanceInOrderAndCanceledStartupNeverTakesASlot() async throws {
         let admission = AccountWorkAdmission(limit: 1)
         let first = UUID(); let canceled = UUID(); let next = UUID()

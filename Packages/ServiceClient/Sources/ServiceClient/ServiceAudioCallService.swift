@@ -11,6 +11,7 @@ public final class ServiceAudioCallService: AudioCallService {
     private let account: ConnectedAccountID
     private let revision: ServiceAccountRevision
     private var generation = UUID()
+    private var sourceID: UUID?
     private var observer: Task<Void, Never>?
     private var projection = ServiceCallStateProjection()
 
@@ -25,6 +26,7 @@ public final class ServiceAudioCallService: AudioCallService {
         let initial = try await read(after: nil, wait: 0)
         try check(epoch)
         _ = try projection.accept(initial)
+        sourceID = projection.currentState?.sourceID
         if let current = projection.currentState {
             sink.yield(.recipientsChanged(current.recipients))
             sink.yield(.listenerChanged(isListening: current.isListening))
@@ -93,6 +95,7 @@ public final class ServiceAudioCallService: AudioCallService {
         pending?.cancel()
         await pending?.value
         projection = ServiceCallStateProjection()
+        sourceID = nil
     }
 
     private func read(after version: String?, wait: Int) async throws -> ServiceCallState {
@@ -104,13 +107,26 @@ public final class ServiceAudioCallService: AudioCallService {
 
     private func control(_ request: ControlCall) async throws {
         let epoch = generation
-        let result = try await client.call(request, account: account, revision: revision)
+        if sourceID == nil {
+            try await receive(read(after: nil, wait: 0))
+        }
+        try check(epoch)
+        let scoped = ControlCall(
+            action: request.action,
+            callID: request.callID,
+            recipient: request.recipient,
+            muted: request.muted,
+            sourceID: sourceID
+        )
+        let result = try await client.call(scoped, account: account, revision: revision)
         try check(epoch)
         try receive(result)
     }
 
     private func receive(_ state: ServiceCallState) throws {
-        for event in try projection.accept(state) {
+        let events = try projection.accept(state)
+        sourceID = projection.currentState?.sourceID
+        for event in events {
             sink.yield(event)
         }
     }

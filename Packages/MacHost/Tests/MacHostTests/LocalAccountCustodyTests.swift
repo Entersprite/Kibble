@@ -1,4 +1,5 @@
 import ChatAPI
+import ChatKit
 import ChatService
 import Foundation
 import LocalBridgeBackend
@@ -81,6 +82,18 @@ struct LocalAccountCustodyTests {
         #expect(try await other.summary(at: .distantPast) != nil)
         try await first.discardStaging(link("a"))
         #expect(secrets.count == 2)
+    }
+
+    @Test func aMissingCommittedCredentialRequestsAccountAuthentication() async throws {
+        let custody = try LocalAccountCustody(storage: Secrets(), instanceID: .init("installation"))
+        let account = AccountRecord(
+            id: .init("account"),
+            principalID: .init("owner"),
+            selfID: .init("self"),
+            label: "Account",
+            credentialGeneration: "generation"
+        )
+        await #expect(throws: ChatError.notAuthenticated) { try await custody.credentialStore(for: account) }
     }
 
     @Test func emptyOrOversizedNamespaceIsRefusedBeforeASecretRead() throws {

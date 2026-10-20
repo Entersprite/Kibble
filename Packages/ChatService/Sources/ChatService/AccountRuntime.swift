@@ -16,9 +16,6 @@ actor AccountRuntime {
     private let onStatus: @Sendable (RuntimeStatus) async -> Void
     private let onFault: @Sendable (RuntimeFault) async -> Void
     private var quarantined = false
-    var quarantinedForSubscription: Bool {
-        quarantined
-    }
 
     private var stopDrained = false
     private var stopWaiters: [CheckedContinuation<Void, Never>] = []
@@ -28,10 +25,9 @@ actor AccountRuntime {
     private let factory: any AccountProviderFactory
     private let providerStarts: AccountWorkAdmission
     let providerStops: AccountWorkAdmission
+    let providerWork: AccountWorkAdmission
+    let callCleanupAdmission: AccountWorkAdmission
     private var epoch = UUID()
-    var currentEpoch: UUID {
-        epoch
-    }
 
     var subscribers: [UUID: AsyncThrowingStream<Data, any Error>.Continuation] = [:]
     var subscriberAttachments: [UUID: ClientAttachmentID] = [:]
@@ -76,7 +72,8 @@ actor AccountRuntime {
     let callReservations: CallDeviceReservations
     var calls: [ServiceDeviceID: ServiceCallRuntime] = [:]
     var callStops: [Task<Void, Never>] = []
-    var callFactsVersion = UUID()
+    var callWorldVersion = UUID()
+    var callFactsVersions: [Conversation.ID: UUID] = [:]
     var uploads: [ServiceTransferID: UploadSlot] = [:]
     var downloads: [ServiceTransferID: DownloadSlot] = [:]
     var uploadExpiry: Task<Void, Never>?
@@ -94,6 +91,8 @@ actor AccountRuntime {
         callReservations: CallDeviceReservations = CallDeviceReservations(),
         providerStarts: AccountWorkAdmission = AccountWorkAdmission(limit: 4),
         providerStops: AccountWorkAdmission = AccountWorkAdmission(limit: 8),
+        providerWork: AccountWorkAdmission = AccountWorkAdmission(limit: 16, perOwnerLimit: 4),
+        callCleanupAdmission: AccountWorkAdmission = AccountWorkAdmission(limit: 8),
         transferStorage: (any ServiceTransferStorage)? = nil,
         transferLimits: ServiceTransferLimits = ServiceTransferLimits(),
         transferNow: @escaping @Sendable () -> Date = { Date() },
@@ -104,6 +103,8 @@ actor AccountRuntime {
         self.notificationHost = notificationHost
         self.notificationService = notificationService
         self.callReservations = callReservations
+        self.callCleanupAdmission = callCleanupAdmission
+        self.providerWork = providerWork
         self.providerStarts = providerStarts; self.providerStops = providerStops
         self.transferStorage = transferStorage
         self.transferLimits = transferLimits
@@ -326,6 +327,14 @@ actor AccountRuntime {
 }
 
 extension AccountRuntime {
+    var quarantinedForSubscription: Bool {
+        quarantined
+    }
+
+    var currentEpoch: UUID {
+        epoch
+    }
+
     private func publishStatus() async {
         await onStatus(RuntimeStatus(connection: connection, capabilities: capabilities))
     }

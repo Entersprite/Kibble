@@ -44,7 +44,7 @@ public struct Avatar: View {
 
     /// Where `badged`, the mask and the overlay are always there, empty
     /// without a badge, so a presence change never alters the view's
-    /// structure - which would rebuild the `AsyncImage` and refetch the photo.
+    /// structure - which would rebuild the photo loader and refetch the photo.
     /// Elsewhere there is no mask at all: it costs an offscreen pass per
     /// avatar, and a transcript has many.
     public var body: some View {
@@ -63,7 +63,7 @@ public struct Avatar: View {
 
     @ViewBuilder private var face: some View {
         if let url = directory[member]?.avatarURL {
-            AsyncImage(url: url) { image in
+            SceneImage(url: url) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
                 // The same thing the no-photo path draws, so a slow load - or a

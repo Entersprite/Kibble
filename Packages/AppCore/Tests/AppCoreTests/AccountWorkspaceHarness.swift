@@ -115,13 +115,13 @@ final class WorkspaceHost: AccountSessionHost {
 
 func workspaceAccount(
     _ id: String, revision: String = "binding", enabled: Bool = true, authentication: String? = nil,
-    ready: Bool = true
+    ready: Bool = true, runtimeID: UUID? = nil
 ) -> AccountSummary {
     AccountSummary(
         id: ConnectedAccountID(id), selfID: Member.ID("self-\(id)"), label: id,
         connection: .connected, isEnabled: enabled, isReady: ready,
         capabilities: Capabilities(canSendMessages: true), revision: ServiceAccountRevision(revision),
-        authenticationState: authentication
+        authenticationState: authentication, runtimeID: runtimeID
     )
 }
 

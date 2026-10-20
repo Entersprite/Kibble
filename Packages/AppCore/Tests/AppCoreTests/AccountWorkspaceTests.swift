@@ -56,6 +56,29 @@ struct AccountWorkspaceTests {
         await workspace.stop()
     }
 
+    @Test func aCoalescedRuntimeReplacementDetachesTheOldClientWithoutErasingHistory() async throws {
+        let first = workspaceAccount("first", runtimeID: UUID())
+        let transport = WorkspaceTransport([first])
+        let host = WorkspaceHost()
+        let workspace = AccountWorkspace(client: AccountClient(transport: transport), host: host)
+        workspace.start()
+        try await workspaceEventually { workspace.environment(for: first.id) != nil }
+        let previous = try #require(host.services[first.id])
+        let environment = try #require(workspace.environment(for: first.id))
+        let replacement = workspaceAccount("first", runtimeID: UUID())
+        // Complete snapshots can omit the intermediate disabled/not-ready states.
+        await transport.publish([replacement])
+        try await workspaceEventually {
+            host.creations[first.id] == 2 && workspace.environment(for: first.id) != nil
+        }
+        #expect(workspace.environment(for: first.id) !== environment)
+        #expect(previous.backend.disconnectCount == 1)
+        #expect(try previous.store.conversations().first?.title == "first")
+        #expect(!host.erased.contains(first.id))
+        #expect(workspace.sessions[first.id]?.account.runtimeID == replacement.runtimeID)
+        await workspace.stop()
+    }
+
     @Test func draftsWithTheSameAddressStayWithTheirAccountAndEraseOnDetach() async throws {
         let first = workspaceAccount("first"), second = workspaceAccount("second")
         let transport = WorkspaceTransport([first, second])

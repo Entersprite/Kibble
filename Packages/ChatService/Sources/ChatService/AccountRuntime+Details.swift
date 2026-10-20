@@ -54,23 +54,30 @@ extension AccountRuntime {
         switch request.operation {
         case GetMembership.operation:
             let payload = try request.decodePayload(GetMembership.self)
-            let value = try await MembershipResult(backend.membership(
-                of: payload.memberID, in: payload.conversationID
-            ))
+            let value = try await withProviderWork(epoch: epoch) {
+                try await MembershipResult(backend.membership(
+                    of: payload.memberID,
+                    in: payload.conversationID
+                ))
+            }
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         case SetNotificationSetting.operation:
             let payload = try request.decodePayload(SetNotificationSetting.self)
-            try await backend.setNotificationSetting(payload.level, for: payload.conversationID)
+            try await withProviderWork(epoch: epoch) {
+                try await backend.setNotificationSetting(payload.level, for: payload.conversationID)
+            }
             try checkEpoch(epoch)
             return try ServiceCodec.value(ServiceUnit())
         case SetThreadFollowed.operation:
             let payload = try request.decodePayload(SetThreadFollowed.self)
-            try await backend.setThreadFollowed(
-                payload.followed,
-                thread: payload.threadID,
-                in: payload.conversationID
-            )
+            try await withProviderWork(epoch: epoch) {
+                try await backend.setThreadFollowed(
+                    payload.followed,
+                    thread: payload.threadID,
+                    in: payload.conversationID
+                )
+            }
             try checkEpoch(epoch)
             return try ServiceCodec.value(ServiceUnit())
         default: throw ServiceFailure.unsupportedOperation

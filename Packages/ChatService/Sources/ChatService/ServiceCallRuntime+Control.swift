@@ -5,6 +5,7 @@ import Foundation
 extension ServiceCallRuntime {
     func control(_ request: ControlCall, session: ClientSessionID) async throws -> ServiceCallState {
         try checkActive()
+        try validateSource(request)
         guard request.recipient == nil || request.action == "start",
               request.muted == nil || request.action == "mute" else { throw ServiceFailure.invalidRequest }
         switch request.action {
@@ -19,6 +20,7 @@ extension ServiceCallRuntime {
             }
             if request.action == "hangUp" {
                 try await source.hangUp(callID: id)
+                try await waitForTerminal(id)
             } else {
                 guard let muted = request.muted else { throw ServiceFailure.invalidRequest }
                 try await source.setMuted(muted, callID: id)
@@ -27,6 +29,14 @@ extension ServiceCallRuntime {
         }
         try checkActive()
         return state
+    }
+
+    func validateSource(_ request: ControlCall) throws {
+        guard ["start", "accept", "decline", "restart", "pause", "hangUp", "mute"].contains(request.action)
+        else {
+            throw ServiceFailure.unsupportedOperation
+        }
+        guard request.sourceID == identity else { throw ServiceFailure.staleCallSource }
     }
 
     private func begin(_ request: ControlCall, session: ClientSessionID) async throws {
@@ -47,7 +57,10 @@ extension ServiceCallRuntime {
             guard reserved == nil, state.call?.id == id, state.call?.phase == .incoming else {
                 throw ServiceFailure.invalidRequest
             }
+            guard !used.contains(id), used.count < 1024 else { throw ServiceFailure.overloaded }
+            used.insert(id)
             try await source.decline(callID: id)
+            try await waitForTerminal(id)
         default: throw ServiceFailure.unsupportedOperation
         }
     }

@@ -11,6 +11,7 @@ final class NativeAccountCallPresentation {
     let environment: AppEnvironment
     let binding: NativeAccountCallBinding
     private let settings: CallSettingsModel
+    let notificationScope = UUID()
     private let panel = IncomingCallPanelHost()
     private let ringer: CallRinger
     private var window: AudioCallWindowHost?
@@ -30,6 +31,7 @@ final class NativeAccountCallPresentation {
                 video: binding.video, diagnostics: binding.diagnostics
             )
             actions.callBack = MacAppDelegate.callBack(after: id, environment: environment)
+            actions.imageLoader = environment.imageLoader
             return actions
         }, windowClosed: { id in
             if calls.call?.id == id {
@@ -37,14 +39,22 @@ final class NativeAccountCallPresentation {
             }
         }, closesFinishedCalls: { settings.closesFinishedCalls })
         alerts = IncomingCallAlerts(
-            post: { await notifications.postCall($0) }, withdraw: { notifications.withdrawCall($0) },
+            post: { [notificationScope] alert in
+                var scoped = alert; scoped.scope = notificationScope
+                await notifications.postCall(scoped)
+            }, withdraw: { [notificationScope] in notifications.withdrawCall($0, scope: notificationScope) },
             showPanel: { [weak self] in self?.showPanel($0) }, hidePanel: { [panel] in panel.hide() },
             ring: { [ringer] in $0 ? ringer.start() : ringer.stop() }
         )
         observe()
     }
 
-    func respond(_ response: IncomingCallResponse) {
+    func respondToNotification(_ response: IncomingCallResponse) {
+        guard response.scope == notificationScope else { return }
+        respond(response)
+    }
+
+    private func respond(_ response: IncomingCallResponse) {
         let calls = environment.calls
         guard !stopped, !calls.isEnding,
               IncomingCallAlerts.isCurrent(response, call: calls.call) else { return }
@@ -67,7 +77,8 @@ final class NativeAccountCallPresentation {
             accept: { [weak self] in self?.respond(.answer(id)) },
             decline: { [weak self] in self?.respond(.decline(id)) },
             open: { [weak self] in self?.respond(.show(id)) },
-            dismiss: { [weak self] in self?.alerts?.dismiss() }
+            dismiss: { [weak self] in self?.alerts?.dismiss() },
+            imageLoader: environment.imageLoader
         ))
     }
 
@@ -124,7 +135,7 @@ final class NativeAccountCallCoordinator {
             for await response in notifications.callResponses {
                 guard !Task.isCancelled, let self else { return }
                 for presentation in presentations.values {
-                    presentation.respond(response)
+                    presentation.respondToNotification(response)
                 }
             }
         }

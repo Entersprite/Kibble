@@ -57,8 +57,8 @@ public actor LocalAccountCustody: AccountLinkCustody {
     /// refuses vault metadata for a different provider identity.
     public func credentialStore(for account: AccountRecord) async throws -> KeychainCredentialStore {
         let store = try generationStore(account: account.id, generation: account.credentialGeneration)
-        guard try await store.installedIdentity() == account.selfID
-        else { throw ServiceFailure.notAuthorized }
+        guard let identity = try await store.installedIdentity() else { throw ChatError.notAuthenticated }
+        guard identity == account.selfID else { throw ServiceFailure.notAuthorized }
         return store
     }
 

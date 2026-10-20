@@ -11,7 +11,7 @@ struct CallBackdrop: View {
         LinearGradient(colors: CallBackdrop.colors, startPoint: .top, endPoint: .bottom)
             .overlay {
                 if let photo {
-                    AsyncImage(url: photo) { image in
+                    SceneImage(url: photo) { image in
                         image.resizable().scaledToFill().blur(radius: 70, opaque: true).opacity(0.5)
                     } placeholder: {
                         Color.clear

@@ -4,6 +4,13 @@ import Foundation
 /// Complete ephemeral state for the authenticated device, independent of chat replay.
 public struct ServiceCallState: Codable, Hashable, Sendable {
     public var version: String
+    public var sourceID: UUID? {
+        let parts = version.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, let sequence = UInt64(parts[1]),
+              String(sequence) == parts[1] else { return nil }
+        return UUID(uuidString: String(parts[0]))
+    }
+
     public var isListening: Bool
     public var recipients: [AudioCallRecipient]
     public var call: AudioCallSnapshot?
@@ -41,10 +48,13 @@ public struct ControlCall: ServiceRequestPayload {
     public let callID: UUID?
     public let recipient: AudioCallRecipient?
     public let muted: Bool?
+    public let sourceID: UUID?
 
     public init(
-        action: String, callID: UUID? = nil, recipient: AudioCallRecipient? = nil, muted: Bool? = nil
+        action: String, callID: UUID? = nil, recipient: AudioCallRecipient? = nil, muted: Bool? = nil,
+        sourceID: UUID? = nil
     ) {
+        self.sourceID = sourceID
         self.action = action; self.callID = callID; self.recipient = recipient; self.muted = muted
     }
 }

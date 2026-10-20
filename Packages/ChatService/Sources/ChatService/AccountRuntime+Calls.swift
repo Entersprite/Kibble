@@ -4,36 +4,51 @@ import Foundation
 
 extension AccountRuntime {
     func invalidateCallFacts(for event: ChatEvent) {
-        let changed: Bool
         switch event {
-        case let .conversationsChanged(conversations):
-            let previous = (try? storage.conversations()) ?? []
-            changed = membershipFacts(previous) != membershipFacts(conversations)
+        case let .conversationsChanged(conversations): invalidateCallWorld(conversations)
         case let .conversationUpdated(conversation):
             let previous = try? storage.conversation(conversation.id)
-            changed = previous?.kind != conversation
-                .kind || Set(previous?.members ?? []) != Set(conversation.members)
+            if previous?.kind != conversation.kind ||
+                (!conversation.members.isEmpty && Set(previous?.members ?? []) != Set(conversation.members)) {
+                invalidateCallMembership(conversation.id)
+            }
         case let .membersChanged(id, members):
-            let previous = try? storage.conversation(id)
-            changed = Set(previous?.members ?? []) != Set(members.map(\.id))
-        case .conversationRemoved, .gap: changed = true
-        default: changed = false
-        }
-        if changed {
-            callFactsVersion = UUID()
+            if Set((try? storage.conversation(id))?.members ?? []) != Set(members.map(\.id)) {
+                invalidateCallMembership(id)
+            }
+        case let .conversationRemoved(id, _): invalidateCallMembership(id)
+        case let .gap(scope: .conversation(id), reason: _): invalidateCallMembership(id)
+        case .gap(scope: .everything, reason: _):
+            callWorldVersion = UUID(); callFactsVersions = [:]
+        default: break
         }
     }
 
-    private func membershipFacts(_ conversations: [Conversation]) -> [Conversation.ID: Conversation] {
-        Dictionary(uniqueKeysWithValues: conversations.map {
-            (
-                $0.id,
-                Conversation(
-                    id: $0.id,
-                    kind: $0.kind,
-                    members: $0.members.sorted { $0.rawValue < $1.rawValue }
-                )
-            )
+    private func invalidateCallWorld(_ conversations: [Conversation]) {
+        let previous = membershipFacts((try? storage.conversations()) ?? [])
+        let current = membershipFacts(conversations, preserving: previous)
+        for id in Set(previous.keys).union(current.keys) where previous[id] != current[id] {
+            invalidateCallMembership(id)
+        }
+    }
+
+    private func invalidateCallMembership(_ id: Conversation.ID) {
+        if callFactsVersions[id] == nil, callFactsVersions.count >= 4096 {
+            callWorldVersion = UUID(); callFactsVersions = [:]
+        }
+        callFactsVersions[id] = UUID()
+    }
+
+    private func membershipFacts(
+        _ conversations: [Conversation], preserving previous: [Conversation.ID: Conversation] = [:]
+    ) -> [Conversation.ID: Conversation] {
+        Dictionary(uniqueKeysWithValues: conversations.map { row in
+            let members = row.members.isEmpty ? previous[row.id]?.members ?? [] : row.members
+            return (row.id, Conversation(
+                id: row.id,
+                kind: row.kind,
+                members: members.sorted { $0.rawValue < $1.rawValue }
+            ))
         })
     }
 
@@ -54,7 +69,7 @@ extension AccountRuntime {
         for (device, source) in sources {
             let runtime = ServiceCallRuntime(
                 source: source, reservations: callReservations, principal: record.principalID, device: device,
-                cleanupAdmission: providerStops
+                cleanupAdmission: callCleanupAdmission
             )
             calls[device] = runtime
             await runtime.start()
@@ -85,6 +100,7 @@ extension AccountRuntime {
             result = try await calls.read(request.decodePayload(ReadCallState.self))
         case ControlCall.operation:
             let control = try request.decodePayload(ControlCall.self)
+            try await calls.validateSource(control)
             if control.action == "start" {
                 try await validateCallRecipient(control.recipient, backend: backend, epoch: epoch)
             }
@@ -102,10 +118,14 @@ extension AccountRuntime {
               conversation.kind == .directMessage, recipient.memberID != record.selfID else {
             throw ServiceFailure.invalidRequest
         }
-        let version = callFactsVersion
-        let membership = try await backend.membership(of: recipient.memberID, in: conversation.id)
+        let version = callFactsVersions[conversation.id]
+        let world = callWorldVersion
+        let membership = try await withProviderWork(epoch: epoch) {
+            try await backend.membership(of: recipient.memberID, in: conversation.id)
+        }
         try checkEpoch(epoch)
-        guard version == callFactsVersion else { throw ServiceFailure.overloaded }
+        guard version == callFactsVersions[conversation.id],
+              world == callWorldVersion else { throw ServiceFailure.overloaded }
         guard membership == .member else { throw ServiceFailure.notAuthorized }
     }
 }

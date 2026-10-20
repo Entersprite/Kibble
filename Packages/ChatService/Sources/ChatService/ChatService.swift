@@ -14,6 +14,8 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     let callReservations = CallDeviceReservations()
     let providerStarts: AccountWorkAdmission
     let providerStops: AccountWorkAdmission
+    let providerWork: AccountWorkAdmission
+    let callCleanupAdmission: AccountWorkAdmission
     var records: [ConnectedAccountID: AccountRecord] = [:]
     var runtimes: [ConnectedAccountID: AccountRuntime] = [:]
     var changing: Set<ConnectedAccountID> = []
@@ -53,8 +55,14 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         notificationHost: (any ServiceNotificationHost)? = nil,
         maximumAccountSubscriptions: Int = 128,
         maximumConcurrentProviderStarts: Int = 4, maximumConcurrentProviderStops: Int = 8,
+        maximumConcurrentCallStops: Int = 8,
+        maximumConcurrentProviderWork: Int = 16, maximumProviderWorkPerAccount: Int = 4,
         instanceID: ServiceInstanceID = ServiceInstanceID(UUID().uuidString)
     ) {
+        callCleanupAdmission = AccountWorkAdmission(limit: maximumConcurrentCallStops)
+        providerWork = AccountWorkAdmission(
+            limit: maximumConcurrentProviderWork, perOwnerLimit: maximumProviderWorkPerAccount
+        )
         providerStarts = AccountWorkAdmission(limit: maximumConcurrentProviderStarts)
         providerStops = AccountWorkAdmission(limit: maximumConcurrentProviderStops)
         self.maximumAccountSubscriptions = max(0, maximumAccountSubscriptions)
@@ -79,6 +87,7 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
         do {
             accounts = try registry.accounts()
             if let linkRegistry = registry as? any AccountLinkRegistry {
+                _ = try (registry as? any AccountLinkHistoryStore)?.pruneLinkHistory()
                 links = try Dictionary(uniqueKeysWithValues: linkRegistry.links().map { ($0.id, $0) })
             }
         } catch {

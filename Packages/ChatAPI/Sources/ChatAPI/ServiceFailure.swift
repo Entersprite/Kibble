@@ -18,6 +18,7 @@ public struct ServiceFailure: Error, Codable, Hashable, Sendable {
     public static let ownerBusy = ServiceFailure(code: "ownerBusy")
     public static let accountDisabled = ServiceFailure(code: "accountDisabled")
     public static let accountNotFound = ServiceFailure(code: "accountNotFound")
+    public static let staleCallSource = ServiceFailure(code: "staleCallSource")
     public static let operationExpired = ServiceFailure(code: "operationExpired")
     public static let operationUnknown = ServiceFailure(code: "operationUnknown")
     public static let operationConflict = ServiceFailure(code: "operationConflict")

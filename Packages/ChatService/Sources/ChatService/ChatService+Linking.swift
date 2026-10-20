@@ -10,6 +10,13 @@ extension ChatService {
         CancelAccountLink.operation
     ]
 
+    private func pruneLinkHistory() throws {
+        guard let history = registry as? any AccountLinkHistoryStore else { return }
+        for id in try history.pruneLinkHistory() {
+            links[id] = nil
+        }
+    }
+
     func restoreLinks() {
         guard linkCustody != nil else { return }
         for link in links.values {
@@ -31,6 +38,7 @@ extension ChatService {
         switch request.operation {
         case BeginAccountLink.operation:
             await expirePendingLinks()
+            try pruneLinkHistory()
             return try ServiceCodec.value(beginLink(
                 request.decodePayload(BeginAccountLink.self),
                 context: context
@@ -97,8 +105,12 @@ extension ChatService {
         }) {
             guard prior.targetAccountID == payload.targetAccountID
             else { throw ServiceFailure.operationConflict }
+            _ = try ownedLink(prior.id, context: context)
             return prior.summary
         }
+        try (registry as? any AccountLinkHistoryStore)?.admitNewLinkOperation(
+            payload.operationID, principal: context.principalID
+        )
         let active = links.values.filter {
             $0.principalID == context.principalID && !["completed", "canceled", "alreadyConnected"]
                 .contains($0.phase)
@@ -170,6 +182,9 @@ extension ChatService {
         if link.phase == "pendingCapture" {
             let identity = try await custody.verify(link)
             try checkLinkActive()
+            guard identity.selfID.rawValue.utf8.count <= 512, identity.label.utf8.count <= 512 else {
+                throw ServiceFailure.frameTooLarge
+            }
             if let target = link.targetAccountID {
                 if let record = records[target] {
                     try checkLinkAuthentication(record)

@@ -20,7 +20,7 @@ extension AccountRuntime {
         for _ in 0 ..< 3 {
             try checkEpoch(epoch)
             let version = mediaFactsVersion
-            let value = try await fetch()
+            let value = try await withProviderWork(epoch: epoch, fetch)
             try checkEpoch(epoch)
             guard version == mediaFactsVersion else { continue }
             if let catalog = storage as? any ServiceMediaCatalog {

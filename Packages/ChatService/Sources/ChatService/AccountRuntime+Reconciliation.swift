@@ -39,7 +39,7 @@ extension AccountRuntime {
         for _ in 0 ..< 3 {
             try checkEpoch(epoch)
             let version = worldVersion
-            let rows = try await backend.loadConversations()
+            let rows = try await withProviderWork(epoch: epoch) { try await backend.loadConversations() }
             try checkEpoch(epoch)
             guard version == worldVersion else { continue }
             let event = ChatEvent.conversationsChanged(rows)
@@ -59,10 +59,11 @@ extension AccountRuntime {
             try checkEpoch(epoch)
             let version = historyVersions[conversation]
             let world = historyWorldVersion
-            let snapshot: ThreadMessagesSnapshot = if let thread {
-                try await backend.loadThreadSnapshot(thread, in: conversation)
-            } else {
-                try await ThreadMessagesSnapshot(
+            let snapshot: ThreadMessagesSnapshot = try await withProviderWork(epoch: epoch) {
+                if let thread {
+                    return try await backend.loadThreadSnapshot(thread, in: conversation)
+                }
+                return try await ThreadMessagesSnapshot(
                     messages: backend.loadMessages(in: conversation, before: before), isComplete: false
                 )
             }
@@ -87,7 +88,7 @@ extension AccountRuntime {
             try checkEpoch(epoch)
             let world = historyWorldVersion
             let versions = historyVersions
-            let rows = try await backend.loadFollowedThreads()
+            let rows = try await withProviderWork(epoch: epoch) { try await backend.loadFollowedThreads() }
             try checkEpoch(epoch)
             guard world == historyWorldVersion, rows.allSatisfy({
                 versions[$0.conversationID] == historyVersions[$0.conversationID]

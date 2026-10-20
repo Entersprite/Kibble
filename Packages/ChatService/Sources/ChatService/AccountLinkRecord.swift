@@ -56,6 +56,13 @@ public protocol AccountLinkRegistry: AccountRegistry {
     func commitLink(_ link: AccountLinkRecord, account: AccountRecord) throws
 }
 
+/// Optional durable history admission. Terminal receipts may be compacted only
+/// after their immutable operation birth is below a persisted retry floor.
+public protocol AccountLinkHistoryStore: Sendable {
+    func pruneLinkHistory() throws -> [AccountLinkID]
+    func admitNewLinkOperation(_ id: ServiceOperationID, principal: ServicePrincipalID) throws
+}
+
 public struct VerifiedLinkIdentity: Sendable {
     public let selfID: Member.ID
     public let label: String

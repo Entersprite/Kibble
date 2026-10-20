@@ -39,8 +39,12 @@ struct LifecycleTests {
 
     @Test func disableReenableAndRemoveChangeOnlyOwnedRuntime() async throws {
         let harness = try await ServiceHarness.make()
+        let original = try #require(try await harness.call(ListAccounts())
+            .first { $0.id == harness.first.id })
+        #expect(original.runtimeID != nil)
         let disabled = try await harness.call(SetAccountEnabled(enabled: false), account: harness.first.id)
         #expect(!disabled.isEnabled)
+        #expect(disabled.runtimeID == nil)
         #expect(await harness.service.activeRuntimeCount == 1)
         await #expect(throws: ServiceFailure.accountDisabled) {
             try await harness.call(LoadConversations(), account: harness.first.id)
@@ -49,6 +53,9 @@ struct LifecycleTests {
             .title == "Second")
         _ = try await harness.call(SetAccountEnabled(enabled: true), account: harness.first.id)
         try await harness.waitForAccounts()
+        let resumed = try #require(try await harness.call(ListAccounts()).first { $0.id == harness.first.id })
+        #expect(resumed.revision == original.revision)
+        #expect(resumed.runtimeID != nil && resumed.runtimeID != original.runtimeID)
         #expect(await harness.providers.made[harness.first.id] == 2)
         #expect(await harness.service.activeRuntimeCount == 2)
         _ = try await harness.call(RemoveAccount(), account: harness.first.id)

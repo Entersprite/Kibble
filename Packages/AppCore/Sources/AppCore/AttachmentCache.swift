@@ -27,6 +27,7 @@ import Foundation
 /// beside the sign-out erase it depends on, and because `SyncEngine` must stay
 /// linkable by a future bridge server where CryptoKit does not exist.
 public actor AttachmentCache {
+    nonisolated let presentationID = UUID()
     public typealias Fetch = @Sendable (Attachment, AttachmentSize) async throws -> Data
 
     /// A custom emoji's picture, by its reference (reactions spec §3).

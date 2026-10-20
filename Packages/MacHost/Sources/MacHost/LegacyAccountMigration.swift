@@ -109,15 +109,28 @@ struct LegacyAccountMigration {
     private func copyPolicy(for record: AccountRecord) throws {
         let file = source.appendingPathComponent("notification-settings")
             .appendingPathComponent(FileNotificationSettingsStore.fileName(for: record.selfID))
-        if FileManager.default.fileExists(atPath: file.path),
-           try registry.policy(for: record).revision == "0" {
-            let settings = try JSONDecoder().decode(NotificationSettings.self, from: Data(contentsOf: file))
+        var settings = FileManager.default.fileExists(atPath: file.path)
+            ? try JSONDecoder().decode(NotificationSettings.self, from: Data(contentsOf: file))
+            : NotificationSettings()
+        if preferences.bool(forKey: "ghostMode"), settings.rule(for: .global) == nil {
+            settings.setRule(.init(readReceipts: false), for: .global, at: Date(), by: "migration")
+        }
+        if try registry.policy(for: record).revision == "0" {
             _ = try registry.setPolicy(settings, for: record, expectedRevision: "0")
+        }
+        let pause = FileDeviceNotificationPauseStore(file: destination
+            .appendingPathComponent("device-pause.json"))
+        if try pause.load() == nil {
+            try pause.save(settings.pause)
         }
         let oldKey = "personalPreferences.v1." + record.selfID.rawValue
         let newKey = try "personalPreferences.v1." + (ServiceCodec.encode(instance).base64EncodedString())
             + "." + record.selfID.rawValue
-        if preferences.object(forKey: newKey) == nil, let value = preferences.object(forKey: oldKey) {
+        if preferences.object(forKey: newKey) == nil {
+            let value = preferences.dictionary(forKey: oldKey) ?? [
+                "skinTone": preferences.integer(forKey: "reactionSkinTone"),
+                "collapsedSections": preferences.stringArray(forKey: "sidebarCollapsedSections") ?? []
+            ]
             preferences.set(value, forKey: newKey)
         }
     }

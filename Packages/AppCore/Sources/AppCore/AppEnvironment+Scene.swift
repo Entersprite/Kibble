@@ -209,10 +209,6 @@ public extension AppEnvironment {
                 guard let self else { throw NoSession() }
                 return try await openAttachment(attachment)
             } : nil,
-            loadRemoteImage: canFetchRemoteImages ? { [weak self] url in
-                guard let self else { throw NoSession() }
-                return try await loadRemoteImage(url)
-            } : nil,
             attachmentFiles: attachmentFileActions,
             reactions: runningModel?.capabilities.canReact == true
                 ? ReactionActions(
@@ -280,6 +276,8 @@ public extension AppEnvironment {
             composerDrafts[address] = draft.text.isEmpty ? nil : draft.compositionOnly
         }
         actions.checkMessageDelivery = { [weak self] in self?.runningModel?.checkMessageDelivery($0) }
+        actions.imageLoader = imageLoader
+        actions.loadRemoteImage = imageLoader.map { loader in { url in try await loader.load(url) } }
         return actions
     }
 

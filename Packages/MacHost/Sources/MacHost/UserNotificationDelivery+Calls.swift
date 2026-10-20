@@ -6,6 +6,7 @@ extension UserNotificationDelivery {
     static let answerCallActionID = "answerAudioCall"
     static let declineCallActionID = "declineAudioCall"
     static let callKey = "localCallID"
+    static let callScopeKey = "localCallScope"
 
     static var callCategory: UNNotificationCategory {
         UNNotificationCategory(
@@ -19,16 +20,21 @@ extension UserNotificationDelivery {
 
     static func callResponse(action: String, userInfo: [AnyHashable: Any]) -> IncomingCallResponse? {
         guard let raw = userInfo[callKey] as? String, let id = UUID(uuidString: raw) else { return nil }
+        let scope = (userInfo[callScopeKey] as? String).flatMap(UUID.init(uuidString:))
+        guard userInfo[callScopeKey] == nil || scope != nil else { return nil }
         switch action {
-        case UNNotificationDefaultActionIdentifier: return .show(id)
-        case answerCallActionID: return .answer(id)
-        case declineCallActionID: return .decline(id)
+        case UNNotificationDefaultActionIdentifier: return .show(id, scope: scope)
+        case answerCallActionID: return .answer(id, scope: scope)
+        case declineCallActionID: return .decline(id, scope: scope)
         default: return nil
         }
     }
 
-    static func callIdentifier(_ id: UUID) -> String {
-        "call.\(id.uuidString)"
+    static func callIdentifier(_ id: UUID, scope: UUID? = nil) -> String {
+        if let scope {
+            return "call.\(scope.uuidString).\(id.uuidString)"
+        }
+        return "call.\(id.uuidString)"
     }
 
     static func callContent(_ alert: IncomingCallAlert) -> UNMutableNotificationContent {
@@ -37,6 +43,9 @@ extension UserNotificationDelivery {
         content.body = "Incoming audio call"
         content.categoryIdentifier = callCategoryID
         content.userInfo = [callKey: alert.id.uuidString]
+        if let scope = alert.scope {
+            content.userInfo[callScopeKey] = scope.uuidString
+        }
         content.interruptionLevel = alert.delivery == .notificationCenter ? .passive : .active
         content.sound = alert.delivery == .bannerAndSound ? .default : nil
         return content
@@ -44,14 +53,15 @@ extension UserNotificationDelivery {
 
     func postCall(_ alert: IncomingCallAlert) async {
         let request = UNNotificationRequest(
-            identifier: Self.callIdentifier(alert.id), content: Self.callContent(alert), trigger: nil
+            identifier: Self.callIdentifier(alert.id, scope: alert.scope), content: Self.callContent(alert),
+            trigger: nil
         )
         try? await UNUserNotificationCenter.current().add(request)
     }
 
-    func withdrawCall(_ id: UUID) {
+    func withdrawCall(_ id: UUID, scope: UUID? = nil) {
         let center = UNUserNotificationCenter.current()
-        let identifiers = [Self.callIdentifier(id)]
+        let identifiers = [Self.callIdentifier(id, scope: scope)]
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
     }

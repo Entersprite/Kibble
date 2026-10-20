@@ -4,13 +4,14 @@ import Foundation
 
 extension AccountRuntime {
     func checkEpoch(_ epoch: UUID) throws {
+        guard !quarantinedForSubscription else { throw ServiceFailure.accountCleanupPending }
         guard !stopped, currentEpoch == epoch else { throw ServiceFailure.accountDisabled }
         try Task.checkCancellation()
     }
 
     func handle(_ request: ServiceRequest, context: ServiceSessionContext? = nil) async throws -> JSONValue {
-        guard !stopped else { throw ServiceFailure.accountDisabled }
         guard !quarantinedForSubscription else { throw ServiceFailure.accountCleanupPending }
+        guard !stopped else { throw ServiceFailure.accountDisabled }
         guard requests.count + binaryRequests.count < 32 else { throw ServiceFailure.overloaded }
         let id = UUID()
         let epoch = currentEpoch
@@ -21,6 +22,10 @@ extension AccountRuntime {
             do {
                 return try await work.value
             } catch {
+                if quarantinedForSubscription,
+                   error is CancellationError || error as? ServiceFailure == .accountDisabled {
+                    throw ServiceFailure.accountCleanupPending
+                }
                 if error as? ChatError == .sessionExpired {
                     await quarantine(.authentication)
                     throw ServiceFailure.accountCleanupPending
@@ -58,7 +63,7 @@ extension AccountRuntime {
         default: break
         }
         guard let backend else { throw ServiceFailure.overloaded }
-        guard !stopped, currentEpoch == epoch else { throw ServiceFailure.accountDisabled }
+        try checkEpoch(epoch)
         return try await dispatchProvider(request, backend: backend, context: context, epoch: epoch)
     }
 }

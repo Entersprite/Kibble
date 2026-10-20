@@ -3,13 +3,19 @@ import DesignSystem
 import Foundation
 
 enum IncomingCallResponse: Equatable, Sendable {
-    case show(UUID)
-    case answer(UUID)
-    case decline(UUID)
+    case show(UUID, scope: UUID? = nil)
+    case answer(UUID, scope: UUID? = nil)
+    case decline(UUID, scope: UUID? = nil)
+
+    var scope: UUID? {
+        switch self {
+        case let .show(_, scope), let .answer(_, scope), let .decline(_, scope): scope
+        }
+    }
 
     var callID: UUID {
         switch self {
-        case let .show(id), let .answer(id), let .decline(id): id
+        case let .show(id, _), let .answer(id, _), let .decline(id, _): id
         }
     }
 }
@@ -18,6 +24,7 @@ struct IncomingCallAlert: Equatable, Sendable {
     let id: UUID
     let title: String
     let delivery: Delivery
+    var scope: UUID?
 
     static func make(call: AudioCallSnapshot?, rule: ResolvedRule?, paused: Bool) -> Self? {
         guard let call, call.direction == .incoming, call.phase == .incoming,

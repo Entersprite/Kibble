@@ -100,10 +100,9 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
         }
     }
 
-    public func stop() async {
-        if let stopping {
-            await stopping.value; return
-        }
+    public func beginStopping() {
+        guard !isStopping else { return }
+        sessionScope = UUID(); callScope = UUID()
         isStopping = true
         // Cancel before yielding to teardown: a late bootstrap response must
         // not begin another request once stop has been requested.
@@ -111,6 +110,13 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
         operation?.cancel()
         listening?.cancel()
         media?.setMuted(true)
+    }
+
+    public func stop() async {
+        if let stopping {
+            await stopping.value; return
+        }
+        beginStopping()
         let task = Task { await self.performStop() }
         stopping = task
         await task.value

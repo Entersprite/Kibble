@@ -1,8 +1,9 @@
+import ChatAPI
 import ChatKit
 import Foundation
 import Observation
 
-/// Owns one call for the whole app session, independently of chat window selection.
+/// Owns one call for the client session, independently of chat window selection.
 @MainActor
 @Observable
 public final class AudioCallController {
@@ -165,7 +166,8 @@ public final class AudioCallController {
     public func accept() {
         guard let call, call.phase == .incoming, !isEnding, let service else { return }
         self.call?.phase = .connecting
-        runOperation(id: call.id) { try await service.accept(callID: call.id) }
+        self.call?.failureMessage = nil
+        runOperation(id: call.id, restoring: call) { try await service.accept(callID: call.id) }
     }
 
     public func decline() {
@@ -255,7 +257,11 @@ public final class AudioCallController {
         return true
     }
 
-    private func runOperation(id: UUID, _ operation: @escaping @MainActor () async throws -> Void) {
+    private func runOperation(
+        id: UUID,
+        restoring incoming: AudioCallSnapshot? = nil,
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) {
         let scope = generation
         operationTask?.cancel()
         operationTask = Task { [weak self] in
@@ -265,6 +271,11 @@ public final class AudioCallController {
             } catch {
                 guard let self, generation == scope, call?.id == id,
                       call?.phase.isTerminal == false, !Task.isCancelled else { return }
+                if error as? ServiceFailure == .deviceBusy, let incoming, call?.phase == .connecting {
+                    call = incoming
+                    call?.failureMessage = "Another call is already using this device."
+                    return
+                }
                 call?.phase = .failed
                 call?.failureMessage = "The call could not connect."
                 retiredIDs.insert(id)

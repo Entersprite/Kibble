@@ -169,6 +169,10 @@ scan "$APPCORE" \
   '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(ChatService|ChatServiceStorage|LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security|UserNotifications|AppKit|Cocoa|SwiftUI)\b' \
   "AppCore imports no backend, no credential store, no web view, no notification center, no AppKit and no SwiftUI"
 
+scan "Packages/DesignSystem/Sources/DesignSystem" \
+  '\b(AsyncImage|URLSession|URLRequest)\b' \
+  "DesignSystem fetches images only through injected client loaders"
+
 # The app target is a shell. This was the one structure rule in CLAUDE.md with
 # no scan behind it, and it is the one that drifted: AppEnvironment.swift grew
 # to 363 lines of launch machine while its own header said there was no logic

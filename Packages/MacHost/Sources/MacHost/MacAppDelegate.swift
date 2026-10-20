@@ -91,6 +91,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         legacyCallDiagnostics = services.callDiagnostics
         let diagnostics = DiagnosticReportStore(directory: try? SystemLaunchServices.supportDirectory())
         services.diagnostics = diagnostics
+        fixture?.diagnostics = diagnostics
         let environment = AppEnvironment(
             services: services,
             notifications: fixture == nil ? notifications : nil,
@@ -145,6 +146,8 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_: Notification) {
         if accountFixture == nil {
             startCallWindowObservation()
+        }
+        if accountFixture?.usesGoogleAccounts != false {
             diagnostics.start()
             diagnostics.sampleMemory()
         }
@@ -223,7 +226,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startMemoryMonitoring() {
-        if accountFixture == nil {
+        if accountFixture?.usesGoogleAccounts != false {
             memoryTask = Task { [diagnostics] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(30))

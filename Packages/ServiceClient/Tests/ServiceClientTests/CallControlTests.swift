@@ -16,7 +16,12 @@ struct CallControlTests {
         let runtime = try #require(await harness.service.runtimes[account.id])
         let command = Task {
             try await harness.client().call(
-                ControlCall(action: "start", callID: UUID(), recipient: recipient),
+                ControlCall(
+                    action: "start",
+                    callID: UUID(),
+                    recipient: recipient,
+                    sourceID: harness.read(account, device: "one").sourceID
+                ),
                 account: account.id,
                 revision: account.currentRevision
             )
@@ -52,7 +57,12 @@ struct CallControlTests {
         let recipient = try #require(try await harness.read(first).recipients.first)
         let id = UUID()
         _ = try await harness.client().call(
-            ControlCall(action: "start", callID: id, recipient: recipient),
+            ControlCall(
+                action: "start",
+                callID: id,
+                recipient: recipient,
+                sourceID: harness.read(first, device: "one").sourceID
+            ),
             account: first.id,
             revision: first.currentRevision
         )
@@ -61,7 +71,11 @@ struct CallControlTests {
         try await callEventually { try await harness.read(second).call?.phase == .incoming }
         await #expect(throws: ServiceFailure.deviceBusy) {
             try await harness.client().call(
-                ControlCall(action: "accept", callID: incoming),
+                ControlCall(
+                    action: "accept",
+                    callID: incoming,
+                    sourceID: harness.read(second, device: "one").sourceID
+                ),
                 account: second.id,
                 revision: second.currentRevision
             )
@@ -69,7 +83,11 @@ struct CallControlTests {
         #expect(source.currentCall?.phase == .incoming)
         #expect(try await harness.read(first).call?.id == id)
         _ = try await harness.client().call(
-            ControlCall(action: "decline", callID: incoming),
+            ControlCall(
+                action: "decline",
+                callID: incoming,
+                sourceID: harness.read(second, device: "one").sourceID
+            ),
             account: second.id,
             revision: second.currentRevision
         )
@@ -118,21 +136,36 @@ struct CallControlTests {
         let id = UUID()
         let client = harness.client()
         _ = try await client.call(
-            ControlCall(action: "start", callID: id, recipient: recipient),
+            ControlCall(
+                action: "start",
+                callID: id,
+                recipient: recipient,
+                sourceID: harness.read(first, device: "one").sourceID
+            ),
             account: first.id,
             revision: first.currentRevision
         )
         try await callEventually { try await harness.read(first).call?.phase == .connected }
         await #expect(throws: ServiceFailure.deviceBusy) {
             try await client.call(
-                ControlCall(action: "start", callID: UUID(), recipient: recipient),
+                ControlCall(
+                    action: "start",
+                    callID: UUID(),
+                    recipient: recipient,
+                    sourceID: harness.read(second, device: "one").sourceID
+                ),
                 account: second.id,
                 revision: second.currentRevision
             )
         }
         let otherID = UUID()
         _ = try await harness.client(device: "two").call(
-            ControlCall(action: "start", callID: otherID, recipient: recipient),
+            ControlCall(
+                action: "start",
+                callID: otherID,
+                recipient: recipient,
+                sourceID: harness.read(second, device: "two").sourceID
+            ),
             account: second.id, revision: second.currentRevision
         )
         try await callEventually { try await harness.read(second, device: "two").call?.phase == .connected }
@@ -151,29 +184,35 @@ struct CallControlTests {
         let recipient = try #require(try await harness.read(account).recipients.first)
         let id = UUID()
         _ = try await harness.client().call(
-            ControlCall(action: "start", callID: id, recipient: recipient),
+            ControlCall(
+                action: "start",
+                callID: id,
+                recipient: recipient,
+                sourceID: harness.read(account, device: "one").sourceID
+            ),
             account: account.id,
             revision: account.currentRevision
         )
-        for client in [harness.client(session: "other"), harness.client(device: "two")] {
-            await #expect(throws: ServiceFailure.notAuthorized) {
-                try await client.call(
-                    ControlCall(action: "mute", callID: id, muted: true),
-                    account: account.id,
-                    revision: account.currentRevision
-                )
-            }
-        }
+        try await assertOtherOwnersRefused(harness, account: account, id: id)
         #expect(try await harness.read(account).call?.isMuted == false)
         _ = try await harness.client().call(
-            ControlCall(action: "hangUp", callID: id),
+            ControlCall(
+                action: "hangUp",
+                callID: id,
+                sourceID: harness.read(account, device: "one").sourceID
+            ),
             account: account.id,
             revision: account.currentRevision
         )
         try await callEventually { try await harness.read(account).call?.phase == .ended }
         await #expect(throws: ServiceFailure.operationConflict) {
             try await harness.client().call(
-                ControlCall(action: "start", callID: id, recipient: recipient),
+                ControlCall(
+                    action: "start",
+                    callID: id,
+                    recipient: recipient,
+                    sourceID: harness.read(account, device: "one").sourceID
+                ),
                 account: account.id,
                 revision: account.currentRevision
             )
@@ -221,14 +260,22 @@ struct CallControlTests {
         try await callEventually { try await harness.read(account).recipients == [forged] }
         await #expect(throws: ServiceFailure.notAuthorized) {
             try await client.call(
-                ControlCall(action: "start", callID: UUID(), recipient: forged),
+                ControlCall(
+                    action: "start",
+                    callID: UUID(),
+                    recipient: forged,
+                    sourceID: harness.read(account, device: "one").sourceID
+                ),
                 account: account.id,
                 revision: account.currentRevision
             )
         }
         await #expect(throws: ServiceFailure.unsupportedOperation) {
             try await client.call(
-                ControlCall(action: "future"),
+                ControlCall(
+                    action: "future",
+                    sourceID: harness.read(account, device: "one").sourceID
+                ),
                 account: account.id,
                 revision: account.currentRevision
             )
@@ -239,5 +286,27 @@ struct CallControlTests {
         #expect(try await harness.read(account).call == nil)
         #expect(source.currentCall == nil)
         await harness.service.shutdown()
+    }
+}
+
+private extension CallControlTests {
+    func assertOtherOwnersRefused(_ harness: CallHarness, account: AccountRecord, id: UUID) async throws {
+        for (device, client) in [
+            ("one", harness.client(session: "other")),
+            ("two", harness.client(device: "two"))
+        ] {
+            await #expect(throws: ServiceFailure.notAuthorized) {
+                try await client.call(
+                    ControlCall(
+                        action: "mute",
+                        callID: id,
+                        muted: true,
+                        sourceID: harness.read(account, device: device).sourceID
+                    ),
+                    account: account.id,
+                    revision: account.currentRevision
+                )
+            }
+        }
     }
 }

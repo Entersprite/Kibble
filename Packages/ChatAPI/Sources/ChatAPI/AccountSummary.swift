@@ -4,6 +4,8 @@ import Foundation
 public struct AccountSummary: Codable, Hashable, Sendable {
     public let id: ConnectedAccountID
     public let revision: ServiceAccountRevision?
+    /// Changes whenever the provider runtime is replaced, including disable/re-enable.
+    public let runtimeID: UUID?
     public let policyRevision: String?
     public let selfID: Member.ID
     public let label: String
@@ -24,10 +26,11 @@ public struct AccountSummary: Codable, Hashable, Sendable {
         isRemoving: Bool = false,
         capabilities: Capabilities = .init(),
         revision: ServiceAccountRevision? = nil,
-        authenticationState: String? = nil, policyRevision: String? = nil
+        authenticationState: String? = nil, policyRevision: String? = nil, runtimeID: UUID? = nil
     ) {
         self.id = id
         self.revision = revision
+        self.runtimeID = runtimeID
         self.selfID = selfID
         self.label = label
         self.connection = connection
@@ -41,7 +44,7 @@ public struct AccountSummary: Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, revision, selfID, label, connection, isReady, isEnabled, isRemoving, capabilities,
-             authenticationState, policyRevision
+             authenticationState, policyRevision, runtimeID
     }
 
     public init(from decoder: any Decoder) throws {
@@ -57,7 +60,8 @@ public struct AccountSummary: Codable, Hashable, Sendable {
             capabilities: values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init(),
             revision: values.decodeIfPresent(ServiceAccountRevision.self, forKey: .revision),
             authenticationState: values.decodeIfPresent(String.self, forKey: .authenticationState),
-            policyRevision: values.decodeIfPresent(String.self, forKey: .policyRevision)
+            policyRevision: values.decodeIfPresent(String.self, forKey: .policyRevision),
+            runtimeID: values.decodeIfPresent(UUID.self, forKey: .runtimeID)
         )
     }
 }

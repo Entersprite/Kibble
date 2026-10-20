@@ -211,17 +211,7 @@ public final class SystemLaunchServices: LaunchServices {
         if let eventFile = Self.eventTallyFile() {
             await backend?.tallyEvents(to: eventFile)
         }
-        if let diagnostics {
-            await backend?.observeConversationActions { [diagnostics] observation in
-                diagnostics.recordConversationAction(observation)
-            }
-            await backend?.observeReadStateFailures { [diagnostics] failure in
-                diagnostics.recordReadStateFailure(failure)
-            }
-            await backend?.observeHistoryResponses { [diagnostics] response in
-                diagnostics.recordHistoryResponse(response)
-            }
-        }
+        await Self.installDiagnostics(backend, diagnostics: diagnostics)
     }
 
     public func runLaunchReport() async -> String {
