@@ -66,12 +66,18 @@ final class WorkspaceHost: AccountSessionHost {
     private(set) var erased: Set<ConnectedAccountID> = []
     private(set) var entered: Set<ConnectedAccountID> = []
     var eraseFailure = false
+    var cachedPhotos: [ConnectedAccountID: AccountProfilePhoto] = [:]
     var hold: ConnectedAccountID?
     private var stores: [ConnectedAccountID: ChatStore] = [:]
     private var waiters: [ConnectedAccountID: CheckedContinuation<Void, Never>] = [:]
 
     func prepareForAccounts(_ accounts: [AccountSummary]) {
         prepared = true
+    }
+
+    func profilePhotos(for _: [AccountSummary]) async
+        -> [ConnectedAccountID: AccountProfilePhoto] {
+        cachedPhotos
     }
 
     func makeEnvironment(for account: AccountSummary) async throws -> AppEnvironment {

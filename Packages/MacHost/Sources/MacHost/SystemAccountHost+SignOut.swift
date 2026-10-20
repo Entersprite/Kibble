@@ -8,17 +8,10 @@ public extension SystemAccountHost {
     /// Mac's copy of its conversations, and its settings.
     func removeAccount(_ id: String) async {
         guard let workspace else { return }
-        let account = workspace.accounts.first { $0.id.rawValue == id }
         do {
             try await workspace.remove(ConnectedAccountID(id), forgettingSettings: true)
         } catch {
             self.error = "The account could not be removed. Try again."
-            return
-        }
-        if let account {
-            do { try await clients?.forgetPreferences(of: account) } catch {
-                self.error = "The account was removed, but its sidebar settings could not be forgotten."
-            }
         }
     }
 

@@ -107,7 +107,7 @@ public final class SystemAccountHost {
                 instanceID: instanceID
             )
             try Task.checkCancellation()
-            let service = makeService(
+            let service = try makeService(
                 registry: registry, providers: accountProviders, directory: directory,
                 lease: lease, instanceID: instanceID
             )
@@ -144,8 +144,9 @@ public final class SystemAccountHost {
     private func makeService(
         registry: SQLiteAccountRegistry, providers: any AccountProviderFactory, directory: URL,
         lease: any ServiceOwnershipLease, instanceID: ServiceInstanceID
-    ) -> ChatService {
+    ) throws -> ChatService {
         let notificationHost = makeNotificationHost(service: instanceID, directory: directory)
+        let preferenceNamespace = try ServiceCodec.encode(instanceID).base64EncodedString() + "."
         return ChatService(
             registry: registry,
             storage: SQLiteServiceStorageFactory(directory: directory.appendingPathComponent("service")),
@@ -153,6 +154,11 @@ public final class SystemAccountHost {
             transferFiles: DirectoryTransferStorageFactory(directory: directory
                 .appendingPathComponent("transfers")),
             linkCustody: custody, ownership: GrantedFixtureOwnership(lease: lease),
+            policies: NativeAccountPolicies(
+                base: registry,
+                namespace: preferenceNamespace,
+                preferenceSuite: usesGoogleAccounts ? nil : "com.entersprite.kibble.multi-account-fixture"
+            ),
             notificationHost: notificationHost,
             instanceID: instanceID
         )

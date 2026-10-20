@@ -13,6 +13,7 @@ final class ServiceAccountSessionHost: AccountSessionHost {
     private let devicePause: DeviceNotificationPause?
     private let fixture: Bool
     private let deviceID: String
+    private let photos: AccountProfilePhotoCache
     private var clients: [ConnectedAccountID: WeakAccountLaunchServices] = [:]
 
     init(
@@ -23,6 +24,8 @@ final class ServiceAccountSessionHost: AccountSessionHost {
         fixture: Bool = true, deviceID: String = "fixture-device"
     ) {
         self.fixture = fixture; self.deviceID = deviceID
+        photos = AccountProfilePhotoCache(directory: directory.deletingLastPathComponent()
+            .appendingPathComponent("profile-photos"))
         self.directory = directory; self.client = client; self.transport = transport
         self.notifications = notifications
         self.devicePause = devicePause
@@ -32,6 +35,7 @@ final class ServiceAccountSessionHost: AccountSessionHost {
 
     func prepareForAccounts(_ accounts: [AccountSummary]) async throws {
         await notifications?.prepare(accounts: accounts)
+        try photos.prepare(accounts)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let current = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
         for folder in try FileManager.default.contentsOfDirectory(
@@ -51,6 +55,7 @@ final class ServiceAccountSessionHost: AccountSessionHost {
 
     func updateAccountState(_ accounts: [AccountSummary]) {
         notifications?.update(accounts: accounts)
+        photos.update(accounts)
     }
 
     func makeEnvironment(for account: AccountSummary) async throws -> AppEnvironment {
@@ -112,6 +117,14 @@ final class ServiceAccountSessionHost: AccountSessionHost {
         )
     }
 
+    func profilePhotos(for accounts: [AccountSummary]) async -> [ConnectedAccountID: AccountProfilePhoto] {
+        photos.load(accounts)
+    }
+
+    func retainProfilePhoto(_ photo: AccountProfilePhoto, for account: AccountSummary) async {
+        photos.save(photo, for: account)
+    }
+
     func synchronizeReplica(_ id: ConnectedAccountID) async throws {
         guard let client = clients[id]?.value else { throw ServiceFailure.accountDisabled }
         try await client.synchronizeReplica()
@@ -119,6 +132,7 @@ final class ServiceAccountSessionHost: AccountSessionHost {
 
     func eraseReplica(for account: AccountSummary) async throws {
         await notifications?.withdraw(for: account)
+        try photos.eraseIfRemoved(account)
         do {
             try FileManager.default.removeItem(at: accountDirectory(account.id))
         } catch CocoaError.fileNoSuchFile { return }

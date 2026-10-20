@@ -3,7 +3,7 @@ import DesignSystem
 import Foundation
 
 extension AppEnvironment {
-    private static let accountPreferencesPrefix = "personalPreferences.v1."
+    private nonisolated static let accountPreferencesPrefix = "personalPreferences.v1."
     private static let toneField = "skinTone"
     private static let sectionsField = "collapsedSections"
 
@@ -45,7 +45,7 @@ extension AppEnvironment {
 
     /// Forgets the local choices kept for `identity` under `namespace`, for an
     /// account removed with its settings.
-    public static func forgetPersonalPreferences(
+    public nonisolated static func forgetPersonalPreferences(
         namespace: String, identity: Member.ID, in preferences: UserDefaults
     ) {
         preferences.removeObject(forKey: accountPreferencesPrefix + namespace + identity.rawValue)

@@ -12,10 +12,17 @@ public protocol AccountSessionHost: AnyObject {
     func updateAccountState(_ accounts: [AccountSummary])
     func makeEnvironment(for account: AccountSummary) async throws -> AppEnvironment
     func eraseReplica(for account: AccountSummary) async throws
+    func profilePhotos(for accounts: [AccountSummary]) async -> [ConnectedAccountID: AccountProfilePhoto]
+    func retainProfilePhoto(_ photo: AccountProfilePhoto, for account: AccountSummary) async
 }
 
 public extension AccountSessionHost {
     func updateAccountState(_ accounts: [AccountSummary]) {}
+    func profilePhotos(for _: [AccountSummary]) async -> [ConnectedAccountID: AccountProfilePhoto] {
+        [:]
+    }
+
+    func retainProfilePhoto(_: AccountProfilePhoto, for _: AccountSummary) async {}
 }
 
 struct AccountClientSession {

@@ -27,7 +27,7 @@ public final class AccountWorkspace {
     @ObservationIgnored var jobs: [ConnectedAccountID: Task<Void, Never>] = [:]
     @ObservationIgnored var generations: [ConnectedAccountID: UUID] = [:]
     /// Each account's own photo as last shown, so a disabled or signed-out
-    /// account keeps its face in the account panel. Memory only.
+    /// account keeps its face in the account panel, backed by the host's display cache.
     @ObservationIgnored var ownPhotos: [ConnectedAccountID: OwnPhoto] = [:]
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private let selectionChanged: (ConnectedAccountID?) -> Void
@@ -81,7 +81,14 @@ public final class AccountWorkspace {
                         guard !Task.isCancelled, let self, !self.stopped else { return }
                         if !prepared {
                             try await host.prepareForAccounts(state.accounts)
+                            let photos = await host.profilePhotos(for: state.accounts)
                             try Task.checkCancellation()
+                            for (id, photo) in photos {
+                                ownPhotos[id] = OwnPhoto(
+                                    url: photo.url,
+                                    data: photo.data
+                                )
+                            }
                             prepared = true
                         }
                         receive(state)
@@ -258,6 +265,7 @@ public final class AccountWorkspace {
             schedule(account, previous: previous[account.id])
         }
         let remaining = Set(accounts.map(\.id))
+        ownPhotos = ownPhotos.filter { remaining.contains($0.key) }
         for account in previous.values where !remaining.contains(account.id) {
             scheduleRemoval(account)
         }

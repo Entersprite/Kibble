@@ -63,7 +63,7 @@ public extension AccountWorkspace {
             id: me, kind: .human, displayName: account.profile?.displayName, email: account.profile?.email,
             avatarURL: ownPhotos[account.id]?.url
         )
-        let loader = photoLoader(for: account.id, url: member.avatarURL, running: environment?.imageLoader)
+        let loader = photoLoader(for: account, url: member.avatarURL, running: environment?.imageLoader)
         var managedBy: String?
         if case let .managed(domain) = account.profile?.organization {
             managedBy = domain
@@ -87,8 +87,9 @@ public extension AccountWorkspace {
     /// While the account runs, its own loader, keeping a copy of its own photo;
     /// otherwise a loader that serves only that copy.
     private func photoLoader(
-        for id: ConnectedAccountID, url: URL?, running: SceneImageLoader?
+        for account: AccountSummary, url: URL?, running: SceneImageLoader?
     ) -> SceneImageLoader? {
+        let id = account.id
         guard let url else { return running }
         if ownPhotos[id]?.url != url {
             ownPhotos[id] = OwnPhoto(url: url)
@@ -97,8 +98,12 @@ public extension AccountWorkspace {
         if let running {
             return SceneImageLoader(id: running.id) { [weak self] requested in
                 let data = try await running.load(requested)
-                if requested == url {
-                    self?.ownPhotos[id]?.data = data
+                if requested == url, let self, !stopped,
+                   accounts
+                   .contains(where: { $0.id == id && $0.revision == account.revision && !$0.isRemoving }),
+                   ownPhotos[id]?.url == url, let photo = AccountProfilePhoto(url: url, data: data) {
+                    ownPhotos[id]?.data = data
+                    await host.retainProfilePhoto(photo, for: account)
                 }
                 return data
             }

@@ -70,8 +70,8 @@ struct ServiceNotificationDeliveryTests {
             service: .init("service"),
             device: .init("device"),
             center: center,
-            directory: directory
-        ) { _ in .init() }
+            directory: directory, label: { _ in nil }, visibility: { _ in .init() }
+        )
     }
 
     private func frame(account: String) throws -> Data {

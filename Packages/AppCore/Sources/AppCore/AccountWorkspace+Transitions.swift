@@ -52,9 +52,8 @@ extension AccountWorkspace {
                 if let session {
                     cleanupSessions[id] = session
                     try await session.environment.detachClient(erasingPrivateData: true)
-                } else {
-                    try await host.eraseReplica(for: record)
                 }
+                try await host.eraseReplica(for: record)
                 cleanedBindings[id] = record.revision
                 cleanupSessions[id] = nil
                 cleanupRecords[id] = nil
