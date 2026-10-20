@@ -126,6 +126,10 @@ public struct ChatSceneState: Sendable, Equatable {
     /// Which account a message would be sent as, while several are connected:
     /// the composers say so in their placeholder. `nil` with one account.
     public var sendingAs: String?
+    /// Whose scene this is under the account host. Nothing the window holds
+    /// for one account (a draft, an edit, a confirmation, its scroll) is
+    /// shown for another.
+    public var accountID: String?
 
     public init(
         conversations: [Conversation] = [],

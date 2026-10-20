@@ -135,7 +135,10 @@ struct ThreadPanel: View {
             // a fresh composer, so nothing typed here is sent there. Keyed by
             // conversation and thread, since a thread id is unique only in
             // its conversation.
-            .id(ThreadListItem.Key(conversation: panel.thread.conversationID, thread: panel.thread.id))
+            .id(AccountScoped(
+                account: state.accountID,
+                value: ThreadListItem.Key(conversation: panel.thread.conversationID, thread: panel.thread.id)
+            ))
         }
     }
 }

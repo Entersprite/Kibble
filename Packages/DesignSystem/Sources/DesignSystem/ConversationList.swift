@@ -67,6 +67,8 @@ public struct ConversationList: View {
         } message: { pending in
             Text(pending.title + "\n\n" + pending.action.confirmationMessage)
         }
+        // A confirmation asked in one account does not wait in another.
+        .onChange(of: state.accountID) { pendingAction = nil }
     }
 
     private func rowActions(for conversation: Conversation) -> ChatSceneActions {

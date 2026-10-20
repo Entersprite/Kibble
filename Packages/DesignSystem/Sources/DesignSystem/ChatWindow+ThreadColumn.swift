@@ -25,6 +25,7 @@ extension ChatWindow {
                         own: { panelHandlers(for: $0) }, editing: panelEditing(), dropStage: panelDropStage,
                         band: threadBand
                     )
+                    .id(state.accountID)
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { threadBand = $0 }
                 .toolbar {

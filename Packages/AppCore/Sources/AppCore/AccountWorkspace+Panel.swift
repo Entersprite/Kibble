@@ -28,6 +28,7 @@ public extension AccountWorkspace {
     func selectedScene() -> ChatSceneState? {
         guard let id = selectedID, let environment = selectedEnvironment else { return nil }
         var scene = environment.sceneState
+        scene.accountID = id.rawValue
         if accounts.count > 1 {
             scene.sendingAs = accountLabels[id]
         }

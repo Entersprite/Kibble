@@ -1,67 +1,6 @@
 import ChatKit
 import SwiftUI
 
-/// Where the transcript scrolls (ruling 14). A scroll target, once loaded,
-/// is scrolled to once, and after that the newest message is again what
-/// arrivals scroll to. Pure, so each case is a test.
-enum TranscriptScroll {
-    /// A target as it was asked for: the message, and the open that asked
-    /// (`ChatSceneState.searchOpenGeneration`). The same message asked for
-    /// again by a newer open is a new request, so it is honoured again.
-    struct Request: Equatable {
-        let id: Message.ID
-        var generation = 0
-    }
-
-    /// What `onChange` watches: the newest message, the target, its
-    /// generation, and whether the target has loaded. So a target that
-    /// arrives after the newest still fires, and so does the same target
-    /// opened again.
-    struct Trigger: Equatable {
-        let newest: Message.ID?
-        let target: Message.ID?
-        let generation: Int
-        let targetLoaded: Bool
-        let loadingNewer: Bool
-        let latestJump: Bool
-
-        init(_ state: ChatSceneState) {
-            newest = state.messages.last?.id
-            target = state.scrollTarget
-            generation = state.searchOpenGeneration
-            targetLoaded = state.scrollTarget.map { id in state.messages.contains { $0.id == id } } ?? false
-            loadingNewer = state.isLoadingNewerMessages
-            latestJump = state.newerMessagesAreLatestJump
-        }
-
-        /// The same, for the thread panel's messages.
-        init(_ panel: ThreadPanelState) {
-            newest = panel.messages.last?.id
-            target = panel.scrollTarget
-            generation = panel.scrollGeneration
-            targetLoaded = panel.scrollTarget.map { id in panel.messages.contains { $0.id == id } } ?? false
-            loadingNewer = false
-            latestJump = false
-        }
-    }
-
-    enum Destination: Equatable {
-        case message(Message.ID)
-        case newest(Message.ID)
-    }
-
-    static func destination(
-        messages: [Message], target: Message.ID?, generation: Int = 0, honoured: Request?,
-        followNewest: Bool = true
-    ) -> Destination? {
-        if let target, Request(id: target, generation: generation) != honoured,
-           messages.contains(where: { $0.id == target }) {
-            return .message(target)
-        }
-        return followNewest ? messages.last.map { .newest($0.id) } : nil
-    }
-}
-
 /// The transcript.
 public struct MessageList: View {
     let checkMessageDelivery: ((Message.ID) -> Void)?
@@ -93,6 +32,8 @@ public struct MessageList: View {
     /// (edit spec §5, threads spec §5). Set by `ChatWindow` through
     /// `ownMessages(_:)`: the handlers are the window's, and internal.
     private var own: OwnMessageHandlers?
+    /// Where this account's transcript was when it last left the screen.
+    private var resume: TranscriptResume?
 
     /// The last target this list scrolled to, so that it is honoured once.
     /// `@State` is enough: opening a mention always passes through the
@@ -106,6 +47,8 @@ public struct MessageList: View {
     @State private var lastOlderBoundary: Message.ID?
     @State private var lastNewerBoundary: Message.ID?
     @State private var latestJumpRequested = false
+    /// The messages on screen, kept unobserved: read only when leaving.
+    @State private var seen = TranscriptSeen()
 
     /// The message a search opened, while its two-second tint is showing
     /// (search spec §1.5). `marked` is set once per open, so a later render
@@ -143,6 +86,12 @@ public struct MessageList: View {
     func ownMessages(_ handlers: OwnMessageHandlers?) -> MessageList {
         var list = self
         list.own = handlers
+        return list
+    }
+
+    func resuming(_ resume: TranscriptResume?) -> MessageList {
+        var list = self
+        list.resume = resume
         return list
     }
 
@@ -247,6 +196,7 @@ public struct MessageList: View {
                 paging.hasUserIntent = false
             }
             .onScrollTargetVisibilityChange(idType: Message.ID.self, threshold: 0.01) { ids in
+                seen.ids = ids
                 visibleMeetingMessages?(Set(ids))
                 pageIfNeeded(paging.update(visibleIDs: ids, messages: state.messages))
             }
@@ -279,6 +229,9 @@ public struct MessageList: View {
                 }
             }
             .onChange(of: TranscriptScroll.Trigger(state), initial: true) {
+                if resumeIfReturning(proxy) {
+                    return
+                }
                 let jumpFinished = latestJumpRequested && !state.isLoadingNewerMessages
                     && !state.newerMessagesAreLatestJump && !state.hasNewerMessages
                 if jumpFinished {
@@ -316,6 +269,8 @@ public struct MessageList: View {
                 }
             }
             .onDisappear {
+                let top = nearBottom && !state.hasNewerMessages ? nil : seen.top(in: state.messages)
+                resume?.leave(.init(message: top, honoured: honoured))
                 paging.hasUserIntent = false
                 readingAnchor.cancel()
                 latestJumpRequested = false
@@ -346,6 +301,25 @@ public struct MessageList: View {
                 )
             }
         }
+    }
+
+    /// A list made for an account coming back puts the transcript where it
+    /// was, and does not honour again what it honoured then. A message asked
+    /// for since (a search or a mention) wins.
+    private func resumeIfReturning(_ proxy: ScrollViewProxy) -> Bool {
+        guard !hasPlacedMessages, let saved = resume?.saved else { return false }
+        if honoured == nil {
+            honoured = saved.honoured
+        }
+        guard let id = saved.message, state.messages.contains(where: { $0.id == id }) else { return false }
+        if let target = state.scrollTarget,
+           TranscriptScroll.Request(id: target, generation: state.searchOpenGeneration) != honoured {
+            return false
+        }
+        hasPlacedMessages = true
+        nearBottom = false
+        proxy.scrollTo(id, anchor: .top)
+        return true
     }
 
     private func pageIfNeeded(_ page: TranscriptPaging.Page?) {

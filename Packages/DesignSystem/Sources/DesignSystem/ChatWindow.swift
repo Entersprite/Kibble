@@ -26,6 +26,8 @@ public struct ChatWindow: View {
     /// The height of the toolbar's band over the thread column, where the
     /// panel raises its title (`ChatWindow+ThreadColumn.swift`).
     @State var threadBand: CGFloat = 0
+    /// Where each account's transcript was, so switching back returns there.
+    @State private var transcriptPositions = TranscriptPositions()
 
     public init(state: ChatSceneState, actions: ChatSceneActions, unavailable: AccountUnavailable? = nil) {
         self.state = state
@@ -109,7 +111,10 @@ public struct ChatWindow: View {
                             )
                             .ownMessages(transcriptHandlers)
                             .meetingVisibility(actions.visibleMeetingMessages)
-                            .id(state.sidebarSelection)
+                            .resuming(transcriptPositions.resume(
+                                account: state.accountID, conversation: state.selectedConversation?.id
+                            ))
+                            .id(AccountScoped(account: state.accountID, value: state.sidebarSelection))
                             .safeAreaInset(edge: .bottom, spacing: 0) {
                                 VStack(spacing: 0) {
                                     TypingStrip(state: state)
@@ -178,6 +183,13 @@ public struct ChatWindow: View {
             editingMessage = nil
         }
         .onChange(of: state.threads.panel?.thread.id) { forgetPanelEdit() }
+        // What was pending names the other account's messages.
+        .onChange(of: state.accountID) {
+            editRequest = nil
+            editingMessage = nil
+            pendingDelete = nil
+            forgetPanelEdit()
+        }
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
         .overlay { searchOverlay }
         .modifier(ConversationPanelPresentation(state: state, actions: actions))
@@ -226,8 +238,9 @@ public struct ChatWindow: View {
             // this the branch keeps its identity across a selection change,
             // `@State draft` survives, and a half-typed line addressed to one
             // person posts to whoever was opened next. Cheap to miss,
-            // expensive to send.
-            .id(state.sidebarSelection)
+            // expensive to send. Keyed by account too: two accounts can
+            // share a space.
+            .id(AccountScoped(account: state.accountID, value: state.sidebarSelection))
         } else {
             // Not a disabled field: a greyed-out composer invites the user to
             // keep clicking it. Saying why is kinder.
