@@ -97,6 +97,7 @@ extension ChatService {
         }
         await maintenance[record.id]?.value
         guard let current = records[record.id] else { throw ServiceFailure.accountNotFound }
+        guard current.authenticationState != "erasing" else { throw ServiceFailure.accountCleanupPending }
         return accountSummary(current)
     }
 

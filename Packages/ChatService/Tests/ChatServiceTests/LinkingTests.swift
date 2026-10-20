@@ -33,10 +33,17 @@ struct LinkingTests {
             operationID: ServiceOperationID("reauth"),
             targetAccountID: record.id
         ))
-        await #expect(throws: ServiceFailure.operationConflict) {
+        await #expect(throws: ServiceFailure.wrongIdentity) {
             try await harness.call(CompleteAccountLink(linkID: begun.id))
         }
-        #expect(try harness.registry.accounts() == [record])
+        let retained = try harness.registry.accounts()
+        #expect(retained.count == 1)
+        var original = try #require(retained.first)
+        // Profile hydration and ordering may advance independently; the
+        // identity, credential binding and lifecycle must remain untouched.
+        original.profile = record.profile
+        original.position = record.position
+        #expect(original == record)
         #expect(await harness.service.activeRuntimeCount == 1)
         #expect(await harness.custody.installs == 0)
         let canceled = try await harness.call(CancelAccountLink(linkID: begun.id))

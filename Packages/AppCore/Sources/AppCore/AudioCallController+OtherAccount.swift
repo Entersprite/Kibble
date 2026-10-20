@@ -18,6 +18,11 @@ public extension AudioCallController {
         other.hangUp()
         await other.endingTask?.value
         guard call?.id == id, call?.phase == .incoming else { return }
+        guard other.call?.phase == .ended || other.call?.phase == .declined,
+              other.call?.failureMessage == nil, !other.isEnding else {
+            recordHandoffFailure(id: id)
+            return
+        }
         accept()
     }
 }

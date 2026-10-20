@@ -16,6 +16,10 @@ actor TestProviders: AccountProviderFactory {
         self.forgetFailures = forgetFailures
     }
 
+    func failNextForget() {
+        forgetFailures += 1
+    }
+
     func makeProvider(for account: AccountRecord) -> AccountProvider {
         made[account.id, default: 0] += 1
         let world = FixtureWorld(

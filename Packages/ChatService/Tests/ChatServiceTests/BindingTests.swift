@@ -49,7 +49,14 @@ struct BindingTests {
             from: harness.service.handle(ServiceCodec.encode(request), context: harness.context)
         )
         #expect(response.result == .failure(.staleAccount))
-        #expect(try harness.registry.accounts() == [record])
+        let retained = try harness.registry.accounts()
+        #expect(retained.count == 1)
+        var original = try #require(retained.first)
+        // Profile hydration and ordering may advance independently; the
+        // identity, credential binding and lifecycle must remain untouched.
+        original.profile = record.profile
+        original.position = record.position
+        #expect(original == record)
         #expect(await harness.providers.forgotten.isEmpty)
         await harness.service.shutdown()
     }

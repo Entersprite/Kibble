@@ -372,3 +372,10 @@ public extension AudioCallController {
         }
     }
 }
+
+extension AudioCallController {
+    func recordHandoffFailure(id: UUID) {
+        guard call?.id == id, call?.phase == .incoming else { return }
+        call?.failureMessage = "The other call could not end. Try again."
+    }
+}
