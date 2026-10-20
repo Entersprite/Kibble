@@ -185,3 +185,50 @@ private enum AccountConfirmation {
         })
     }
 }
+
+/// The Accounts menu under the account host: each account, ⌃⌘1…9 in list
+/// order, the account panel on ⌃⌘0, and adding or managing accounts.
+struct AccountCommands: Commands {
+    let host: SystemAccountHost?
+    @Binding var isPanelOpen: Bool
+    /// Chooses the Settings pane that manages accounts.
+    let selectAccountsPane: () -> Void
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some Commands {
+        if let host {
+            CommandMenu("Accounts") {
+                let workspace = host.workspace
+                let labels = workspace?.accountLabels ?? [:]
+                let accounts = Array((workspace?.accounts ?? []).prefix(9).enumerated())
+                ForEach(accounts, id: \.element.id) { index, account in
+                    Toggle(labels[account.id] ?? account.label, isOn: Binding(
+                        get: { workspace?.selectedID == account.id },
+                        set: { _ in
+                            openWindow(id: MainWindow.id)
+                            host.selectAccount(account.id.rawValue)
+                        }
+                    ))
+                    .keyboardShortcut(
+                        KeyEquivalent(Character(String(index + 1))),
+                        modifiers: [.control, .command]
+                    )
+                }
+                Divider()
+                Button(isPanelOpen ? "Hide Account Panel" : "Show Account Panel") {
+                    openWindow(id: MainWindow.id)
+                    isPanelOpen.toggle()
+                }
+                .keyboardShortcut("0", modifiers: [.control, .command])
+                .disabled(workspace?.accounts.isEmpty ?? true)
+                Divider()
+                Button("Add Account…") { Task { await host.addAccount() } }
+                Button("Manage Accounts…") {
+                    selectAccountsPane()
+                    openSettings()
+                }
+            }
+        }
+    }
+}

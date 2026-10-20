@@ -102,6 +102,9 @@ struct KibbleMacApp: App {
                 }
             }
             NewConversationCommands(environment: environment)
+            AccountCommands(host: appDelegate.accountHost, isPanelOpen: $isAccountPanelOpen) {
+                settingsPane = "account"
+            }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
                     appDelegate.updates.checkNow()
