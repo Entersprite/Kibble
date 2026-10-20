@@ -6,16 +6,16 @@ import GChatBridgeCore
 /// could not know.
 ///
 /// Split out of `LocalBridgeBackend.swift` for `file_length`, and it is a
-/// coherent seam rather than an arbitrary cut: everything here runs *after*
-/// `loadConversations()` has already returned, filling in names and fixing one
-/// kind that `WorldMapping` documents itself as guessing.
+/// coherent seam rather than an arbitrary cut: name lookups run independently
+/// of the caller committing `loadConversations()`, filling in profiles and fixing
+/// one kind that `WorldMapping` documents itself as guessing.
 extension LocalBridgeBackend {
     /// Names, via one `get_members` call over the union of every returned
     /// conversation's members - `MemberMapping` builds `[ChatKit.Member]`
     /// from what it returns, the way `WorldMapping` does for the world
-    /// itself. One `.membersChanged` event per conversation that has any
-    /// members, never for one that has none (`findings.md` §20.4: one of the
-    /// four observed conversations - a space - has no `dm_members` at all).
+    /// itself. This only hydrates profiles: the world response already owns
+    /// membership. A fast lookup can finish before its caller commits that
+    /// world, so it must never publish a membership replacement.
     ///
     /// **Never throws.** `loadConversations()`'s whole point is that it
     /// "must still return promptly and must not fail because names failed" -
@@ -58,7 +58,7 @@ extension LocalBridgeBackend {
         for conversation in conversations {
             let members = conversation.members.compactMap { byID[$0] }
             guard !members.isEmpty else { continue }
-            emit(.membersChanged(conversationID: conversation.id, members: members))
+            emit(.membersResolved(members))
             if let reclassified = Self.asAppDirectMessage(conversation, members: members) {
                 emit(.conversationUpdated(reclassified))
             }

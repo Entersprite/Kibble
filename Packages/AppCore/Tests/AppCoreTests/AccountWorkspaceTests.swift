@@ -56,6 +56,24 @@ struct AccountWorkspaceTests {
         await workspace.stop()
     }
 
+    @Test func unexpectedRuntimeRetirementShowsARetryableErrorInsteadOfConnectingForever() async throws {
+        let first = workspaceAccount("first", runtimeID: UUID())
+        let transport = WorkspaceTransport([first])
+        let host = WorkspaceHost()
+        let workspace = AccountWorkspace(client: AccountClient(transport: transport), host: host)
+        workspace.start()
+        try await workspaceEventually { workspace.environment(for: first.id) != nil }
+        await transport.publish([workspaceAccount("first", ready: false)])
+        try await workspaceEventually { workspace.accountErrors[first.id] != nil }
+        #expect(workspace.environment(for: first.id) == nil)
+        #expect(workspace.accountErrors[first.id] == "This account stopped syncing. Try again.")
+        await transport.publish([workspaceAccount("first", runtimeID: UUID())])
+        try await workspaceEventually {
+            workspace.environment(for: first.id) != nil && workspace.accountErrors[first.id] == nil
+        }
+        await workspace.stop()
+    }
+
     @Test func aCoalescedRuntimeReplacementDetachesTheOldClientWithoutErasingHistory() async throws {
         let first = workspaceAccount("first", runtimeID: UUID())
         let transport = WorkspaceTransport([first])

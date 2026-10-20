@@ -199,36 +199,36 @@ struct LoadConversationsMemberResolutionTests {
 
     // MARK: - Member resolution
 
-    /// The discriminating test: a conversation with real `dm_members` gets a
-    /// `.membersChanged` carrying the names `get_members` mapped, keyed to
-    /// the right conversation. Deliberately breaking the
-    /// `emit(.membersChanged(...))` call in `resolveAndEmitMembers` and
-    /// re-running this turns it red - see the slice report for the exact
-    /// failure text that produced.
-    @Test func loadConversationsEmitsMembersChangedWithMappedNames() async throws {
+    /// Profile hydration may beat the caller's world commit. It must not
+    /// replace membership, including when get_members returns only some IDs.
+    @Test func loadConversationsHydratesProfilesWithoutReplacingWorldMembership() async throws {
         let backend = try backend(
             apiResponse: apiResponse(items: [
                 dmWorldItem(dmID: "d-1", memberIDs: ["u-1", "u-2"])
             ]),
-            membersResponse: membersResponse([
-                (id: "u-1", name: "Ada Lovelace"),
-                (id: "u-2", name: "Grace Hopper")
-            ])
+            membersResponse: membersResponse([(id: "u-1", name: "Ada Lovelace")])
         )
         try await backend.connect()
-        _ = try await backend.loadConversations()
-
+        let world = try await backend.loadConversations()
         let events = await collectEvents(backend)
-        let found: (Conversation.ID, [ChatKit.Member])? = events.compactMap {
-            if case let .membersChanged(conversationID, members) = $0 {
-                (conversationID, members)
+        let resolved: [[ChatKit.Member]] = events.compactMap {
+            if case let .membersResolved(members) = $0 {
+                members
             } else {
                 nil
             }
-        }.first
-        let (conversationID, members) = try #require(found)
-        #expect(conversationID.rawValue == "dm/d-1")
-        #expect(Set(members.map(\.displayName)) == Set(["Ada Lovelace", "Grace Hopper"]))
+        }
+        let members = try #require(resolved.first)
+        #expect(members.map(\.displayName) == ["Ada Lovelace"])
+        #expect(Set(world.first?.members ?? []) == Set([ChatKit.Member.ID("u-1"), ChatKit.Member.ID("u-2")]))
+        #expect(!events.contains {
+            if case .membersChanged = $0 {
+                true
+            } else {
+                false
+            }
+        })
+        await backend.disconnect()
     }
 
     /// `findings.md` §20.4: one of the four observed conversations - a space
@@ -236,7 +236,7 @@ struct LoadConversationsMemberResolutionTests {
     /// `dm_members` unset the same way, so its `Conversation.members` is
     /// empty and `resolveAndEmitMembers`'s own `guard !ids.isEmpty else {
     /// return }` means nothing should ever be emitted for it.
-    @Test func loadConversationsDoesNotEmitMembersChangedForAConversationWithNoMembers() async throws {
+    @Test func loadConversationsDoesNotResolveNamesForAConversationWithNoMembers() async throws {
         let backend = try backend(apiResponse: apiResponse(items: [
             worldItem(spaceID: "s-1", roomName: "Engineering")
         ]))
@@ -246,10 +246,9 @@ struct LoadConversationsMemberResolutionTests {
 
         let events = await collectEvents(backend)
         #expect(!events.contains {
-            if case .membersChanged = $0 {
-                true
-            } else {
-                false
+            switch $0 {
+            case .membersChanged, .membersResolved: true
+            default: false
             }
         })
     }

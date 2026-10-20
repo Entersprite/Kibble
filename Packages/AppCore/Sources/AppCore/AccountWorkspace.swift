@@ -227,6 +227,10 @@ public final class AccountWorkspace {
             selectionChanged(selectedID)
         }
         for account in accounts {
+            if account.isEnabled, !account.isRemoving, account.authenticationState == nil,
+               !account.isReady, account.runtimeID == nil, previous[account.id]?.isReady == true {
+                accountErrors[account.id] = "This account stopped syncing. Try again."
+            }
             sessions[account.id]?.environment.policyControlAvailable(true)
             sessions[account.id]?.environment.policyRevisionChanged(account.policyRevision)
             schedule(account, previous: previous[account.id])

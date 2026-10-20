@@ -221,7 +221,8 @@ struct PresencePollTests: PresencePollFixtures {
         let events = await log.settle()
 
         let named = try #require(events.firstIndex {
-            if case .membersChanged = $0 {
+            if case let .membersResolved(members) = $0,
+               members.contains(where: { $0.id == ChatKit.Member.ID("u-1") }) {
                 return true
             }
             return false
