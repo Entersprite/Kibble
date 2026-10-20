@@ -16,6 +16,8 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
     private var holdHistory = false
     private var worldWaiter: CheckedContinuation<Void, Never>?
     private var historyWaiter: CheckedContinuation<Void, Never>?
+    private var holdEveryHistory = false
+    private var historyWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
     private(set) var worldHeld = false
     private(set) var historyHeld = false
     private(set) var worldReads = 0
@@ -110,6 +112,27 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
         historyWaiter?.resume(); historyWaiter = nil
     }
 
+    func holdHistoryQueries() {
+        holdEveryHistory = true
+    }
+
+    func replaceHistorySilently(_ messages: [Message]) {
+        history = messages
+    }
+
+    func releaseHistoryQuery(_ read: Int) {
+        historyWaiters.removeValue(forKey: read)?.resume()
+    }
+
+    func releaseAllHistoryQueries() {
+        holdEveryHistory = false
+        let waiters = historyWaiters.values
+        historyWaiters = [:]
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
     func emit(_ event: ChatEvent) {
         sink.yield(event)
     }
@@ -141,8 +164,11 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
 
     func loadMessages(in conversation: Conversation.ID, before: Message.ID?) async -> [Message] {
         historyReads += 1
+        let read = historyReads
         let captured = history
-        if holdHistory {
+        if holdEveryHistory {
+            await withCheckedContinuation { historyWaiters[read] = $0 }
+        } else if holdHistory {
             holdHistory = false; historyHeld = true
             await withCheckedContinuation { historyWaiter = $0 }
         }

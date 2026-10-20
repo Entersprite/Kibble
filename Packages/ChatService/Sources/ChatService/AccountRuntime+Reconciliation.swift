@@ -17,6 +17,10 @@ extension AccountRuntime {
              let .meetingMetadataChanged(id, _): invalidate(id)
         case let .messageReceived(message), let .messageUpdated(message): invalidate(message.conversationID)
         case let .messageDeleted(_, id): invalidate(id)
+        case .gap(scope: .everything, reason: _):
+            worldVersion = UUID()
+            historyWorldVersion = UUID()
+        case let .gap(scope: .conversation(id), reason: _): invalidate(id)
         case let .reactionChanged(id, _):
             // Reaction events carry only a message ID; fence all in-flight
             // history rather than guessing its conversation from ID syntax.

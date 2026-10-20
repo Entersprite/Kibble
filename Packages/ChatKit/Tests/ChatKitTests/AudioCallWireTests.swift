@@ -36,6 +36,18 @@ struct AudioCallWireTests {
         #expect(try Wire.json(direction) == #""forwarded""#)
     }
 
+    @Test func anUnknownCallEventRetainsNestedPayloadInsteadOfOnlyItsName() throws {
+        let json = #"""
+        {"type":"futureCallEvent","state":{"enabled":true,"count":7,"nothing":null},
+         "items":["opaque",{"future":"retained"}],"newField":0.25}
+        """#
+        let event = try Wire.decode(AudioCallEvent.self, from: json)
+        let payload = try Wire.decode(JSONValue.self, from: json)
+        #expect(event == .unknown(type: "futureCallEvent", payload: payload))
+        #expect(try Wire.decode(JSONValue.self, from: Wire.json(event)) == payload)
+        #expect(try Wire.decode(AudioCallEvent.self, from: Wire.json(event)) == event)
+    }
+
     @Test func omittedMuteAndFailureAssumeLess() throws {
         let json = #"""
         {"id":"00000000-0000-0000-0000-000000000001",
