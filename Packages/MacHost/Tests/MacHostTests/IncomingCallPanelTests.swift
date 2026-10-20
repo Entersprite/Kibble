@@ -55,6 +55,19 @@ struct IncomingCallPanelTests {
         .rings)
     }
 
+    @Test func aFailedAnswerShowsInThePanelThatStillRings() {
+        var call = incoming()
+        var surface = panel
+        surface.endsOtherCall = true
+        var shown: [IncomingCallPanelContent] = []
+        let alerts = IncomingCallAlerts(post: { _ in }, withdraw: { _ in }, showPanel: { shown.append($0) })
+        alerts.update(call: call, rule: rule(.bannerAndSound), paused: false, surface: surface)
+        call.failureMessage = "Couldn’t end the other call."
+        alerts.update(call: call, rule: rule(.bannerAndSound), paused: false, surface: surface)
+        #expect(shown.map(\.problem) == [nil, "Couldn’t end the other call."])
+        #expect(shown.allSatisfy { $0.endsOtherCall && $0.callID == call.id })
+    }
+
     @Test func hiddenPreviewsHideTheCallerInThePanel() throws {
         var surface = panel
         surface.person = Member(id: Member.ID("person:avery"), kind: .human, displayName: "Avery")

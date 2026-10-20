@@ -82,7 +82,8 @@ struct IncomingCallRoute: Equatable {
         let content = IncomingCallPanelContent(
             callID: call.id, memberID: call.recipient.memberID,
             name: rule.showsPreview ? call.recipient.displayName : nil,
-            person: rule.showsPreview ? surface.person : nil, endsOtherCall: surface.endsOtherCall
+            person: rule.showsPreview ? surface.person : nil, endsOtherCall: surface.endsOtherCall,
+            problem: call.failureMessage
         )
         return Self(panel: content, rings: surface.rings && alert.delivery == .bannerAndSound)
     }

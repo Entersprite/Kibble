@@ -9,10 +9,8 @@ struct AccountPickerSection: View {
     let width: CGFloat
     /// Grown to the window's edge and still too narrow for every tile.
     let scrolls: Bool
-    let close: () -> Void
-    var isOpen = false
-    @FocusState private var focused: AccountPickerTarget?
-    @State private var keyboardNavigation = false
+    let commands: AccountPanelCommands
+    @Binding var highlight: AccountPanelTarget?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -23,7 +21,7 @@ struct AccountPickerSection: View {
                     ScrollView(.horizontal) { tiles }
                         .scrollIndicators(.automatic)
                         .frame(width: width)
-                        .onChange(of: focused) { _, target in
+                        .onChange(of: highlight) { _, target in
                             if let target, target != .manage {
                                 proxy.scrollTo(target, anchor: .center)
                             }
@@ -33,87 +31,50 @@ struct AccountPickerSection: View {
                 tiles
             }
             Spacer(minLength: 0)
-            if let manage = actions.manage {
-                Button("Manage Accounts…") {
-                    close()
-                    manage()
-                }
-                .buttonStyle(.plain)
-                .focusable()
-                .focused($focused, equals: .manage)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .frame(height: AccountPanelLayout.controlSize)
+            if actions.manage != nil {
+                Button("Manage Accounts…") { commands.perform(.manage) }
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .background(AccountPanelHighlight(isOn: highlight == .manage))
+                    .contentShape(.rect)
+                    .accountPanelHover(.manage, highlight: $highlight)
+                    .frame(height: AccountPanelLayout.controlSize)
             }
         }
-        .focusSection()
-        .focusEffectDisabled(!keyboardNavigation)
-        .onKeyPress(.tab) { keyboardNavigation = true; return .ignored }
-        .onKeyPress(.return) { activateFocused() }
-        .onMoveCommand { direction in
-            keyboardNavigation = true
-            focused = AccountPickerNavigation(state: state, actions: actions).move(
-                from: focused,
-                direction: direction
-            )
-        }
-        .onChange(of: isOpen, initial: true) { _, opened in
-            keyboardNavigation = false
-            focused = opened ? AccountPickerNavigation(state: state, actions: actions).initial : nil
-        }
-    }
-
-    private func activateFocused() -> KeyPress.Result {
-        guard let focused else { return .ignored }
-        switch focused {
-        case let .account(id): close(); actions.select(id)
-        case let .pending(id):
-            guard let resume = actions.resumeSignIn else { return .ignored }
-            close(); resume(id)
-        case .add:
-            guard let add = actions.add else { return .ignored }
-            close(); add()
-        case .manage:
-            guard let manage = actions.manage else { return .ignored }
-            close(); manage()
-        }
-        return .handled
     }
 
     private var tiles: some View {
         HStack(spacing: 0) {
             ForEach(state.accounts) { account in
+                let target = AccountPanelTarget.account(account.id)
                 AccountTile(
-                    account: account, isSelected: account.id == state.selectedID, actions: actions,
-                    close: close
-                )
-                .focusable()
-                .focused($focused, equals: .account(account.id))
-                .id(AccountPickerTarget.account(account.id))
+                    account: account, isSelected: account.id == state.selectedID,
+                    isHighlighted: highlight == target, actions: actions
+                ) { commands.perform(target) }
+                    .accountPanelHover(target, highlight: $highlight)
+                    .id(target)
             }
-            if let resume = actions.resumeSignIn {
+            if actions.resumeSignIn != nil {
                 ForEach(state.pendingSignIns) { pending in
+                    let target = AccountPanelTarget.pending(pending.id)
                     AccountActionTile(
-                        title: "Finish Signing In",
-                        systemImage: "person.crop.circle.badge.clock"
-                    ) {
-                        close()
-                        resume(pending.id)
-                    }
-                    .focusable()
-                    .focused($focused, equals: .pending(pending.id))
-                    .id(AccountPickerTarget.pending(pending.id))
+                        title: "Finish Signing In", systemImage: "person.crop.circle.badge.clock",
+                        isHighlighted: highlight == target
+                    ) { commands.perform(target) }
+                        .accountPanelHover(target, highlight: $highlight)
+                        .id(target)
                 }
             }
-            if let add = actions.add {
-                AccountActionTile(title: "Add Account", systemImage: "plus") {
-                    close()
-                    add()
-                }
-                .focusable()
-                .focused($focused, equals: .add)
-                .id(AccountPickerTarget.add)
+            if actions.add != nil {
+                let target = AccountPanelTarget.add
+                AccountActionTile(
+                    title: "Add Account", systemImage: "plus", isHighlighted: highlight == target
+                ) { commands.perform(target) }
+                    .accountPanelHover(target, highlight: $highlight)
+                    .id(target)
             }
         }
     }
@@ -122,15 +83,13 @@ struct AccountPickerSection: View {
 struct AccountTile: View {
     let account: AccountPanelAccount
     let isSelected: Bool
+    /// Under the pointer, or where the arrow keys put the highlight.
+    let isHighlighted: Bool
     let actions: AccountPanelActions
-    let close: () -> Void
-    @State private var hovered = false
+    let choose: () -> Void
 
     var body: some View {
-        Button {
-            close()
-            actions.select(account.id)
-        } label: {
+        Button(action: choose) {
             VStack(spacing: 7) {
                 Avatar(member: account.me, directory: account.directory, size: AccountPanelLayout.tileAvatar)
                     .environment(\.sceneImageLoader, account.imageLoader)
@@ -142,7 +101,7 @@ struct AccountTile: View {
                         }
                     }
                     .overlay(alignment: .topTrailing) { badge.offset(x: 7, y: -5) }
-                    .scaleEffect(hovered && !isSelected ? 1.06 : 1)
+                    .scaleEffect(isHighlighted && !isSelected ? 1.06 : 1)
                     .padding(6)
                 Text(account.label)
                     .font(.caption)
@@ -152,13 +111,14 @@ struct AccountTile: View {
                     .truncationMode(.middle)
                     .frame(width: AccountPanelLayout.tileWidth - 10)
             }
+            .padding(.vertical, 4)
             .frame(width: AccountPanelLayout.tileWidth)
-            .contentShape(.rect)
             .opacity(account.isEnabled ? 1 : 0.45)
+            .background(AccountPanelHighlight(isOn: isHighlighted, cornerRadius: 14).padding(.horizontal, 2))
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .animation(.snappy(duration: 0.15), value: hovered)
+        .animation(.snappy(duration: 0.15), value: isHighlighted)
         .help(help)
         .contextMenu { menu }
         .accessibilityElement(children: .ignore)
@@ -224,8 +184,8 @@ struct AccountTile: View {
 struct AccountActionTile: View {
     let title: String
     let systemImage: String
+    let isHighlighted: Bool
     let action: () -> Void
-    @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
@@ -234,18 +194,19 @@ struct AccountActionTile: View {
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: AccountPanelLayout.tileAvatar, height: AccountPanelLayout.tileAvatar)
-                    .background(Circle().fill(Color.primary.opacity(hovered ? 0.12 : 0.07)))
+                    .background(Circle().fill(Color.primary.opacity(isHighlighted ? 0.12 : 0.07)))
                     .padding(6)
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .padding(.vertical, 4)
             .frame(width: AccountPanelLayout.tileWidth)
+            .background(AccountPanelHighlight(isOn: isHighlighted, cornerRadius: 14).padding(.horizontal, 2))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .onHover { hovered = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityAddTraits(.isButton)

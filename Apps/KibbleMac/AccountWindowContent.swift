@@ -132,47 +132,19 @@ extension View {
     func accountConfirmations(
         signingOut: Binding<String?>, removing: Binding<String?>, host: SystemAccountHost?
     ) -> some View {
-        sheet(isPresented: AccountConfirmation.isPresented(signingOut)) {
-            if let id = signingOut.wrappedValue {
-                AccountConfirmationSheet(
-                    label: AccountConfirmation.label(id, host: host), removing: false,
-                    confirm: {
-                        signingOut.wrappedValue = nil
-                        if let host {
-                            Task { await host.signOutAccount(id) }
-                        }
-                    }, cancel: { signingOut.wrappedValue = nil }
-                )
+        let label = { (id: String) in
+            host?.workspace?.accountLabels.first { $0.key.rawValue == id }?.value ?? "this account"
+        }
+        return accountConfirmation(.signOut, account: signingOut, label: label) { id in
+            if let host {
+                Task { await host.signOutAccount(id) }
             }
         }
-        .sheet(isPresented: AccountConfirmation.isPresented(removing)) {
-            if let id = removing.wrappedValue {
-                AccountConfirmationSheet(
-                    label: AccountConfirmation.label(id, host: host), removing: true,
-                    confirm: {
-                        removing.wrappedValue = nil
-                        if let host {
-                            Task { await host.removeAccount(id) }
-                        }
-                    }, cancel: { removing.wrappedValue = nil }
-                )
+        .accountConfirmation(.remove, account: removing, label: label) { id in
+            if let host {
+                Task { await host.removeAccount(id) }
             }
         }
-    }
-}
-
-private enum AccountConfirmation {
-    @MainActor
-    static func label(_ id: String, host: SystemAccountHost?) -> String {
-        host?.workspace?.accountLabels.first { $0.key.rawValue == id }?.value ?? "this account"
-    }
-
-    static func isPresented(_ id: Binding<String?>) -> Binding<Bool> {
-        Binding(get: { id.wrappedValue != nil }, set: {
-            if !$0 {
-                id.wrappedValue = nil
-            }
-        })
     }
 }
 

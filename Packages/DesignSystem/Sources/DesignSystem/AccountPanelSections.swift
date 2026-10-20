@@ -88,9 +88,16 @@ struct AccountStatusSection: View {
     /// Which account the status belongs to; `nil` with only one.
     let label: String?
     let actions: AccountPanelActions
-    let close: () -> Void
-    let editStatus: () -> Void
-    @State private var hoveringDoNotDisturb = false
+    let commands: AccountPanelCommands
+    @Binding var highlight: AccountPanelTarget?
+    #if os(macOS)
+        let doNotDisturbMenu: AccountPanelMenuAnchor
+    #endif
+
+    /// The rows the section shows, top to bottom, for the arrow keys.
+    static func rows(hasStatusLine: Bool) -> [AccountStatusRow] {
+        [.automatic, .doNotDisturb, .away, .setStatus] + (hasStatusLine ? [.clearStatus] : [])
+    }
 
     var body: some View {
         let model = StatusMenuModel(
@@ -98,27 +105,9 @@ struct AccountStatusSection: View {
         )
         VStack(alignment: .leading, spacing: 1) {
             AccountPanelHeader(title: "Status", detail: label)
-            AccountPanelRow(title: "Automatic", checked: model.isAutomatic) { set(.automatic) }
-            Menu {
-                ForEach(model.doNotDisturbChoices, id: \.self) { choice in
-                    Button(choice.title) {
-                        // Counted from the click, not from when the panel was drawn.
-                        if let until = choice.until(now: .now, calendar: .current) {
-                            set(.doNotDisturb(until: until))
-                        }
-                    }
-                }
-            } label: {
-                AccountPanelRowLabel(
-                    title: model.doNotDisturbTitle, checked: model.isDoNotDisturb, chevron: true,
-                    hovered: hoveringDoNotDisturb
-                )
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .onHover { hoveringDoNotDisturb = $0 }
-            AccountPanelRow(title: "Set as away", checked: model.isAway) { set(.away) }
+            row(.automatic, title: "Automatic", checked: model.isAutomatic)
+            doNotDisturb(model)
+            row(.away, title: "Set as away", checked: model.isAway)
             Divider()
                 .padding(.vertical, 4)
                 .padding(.horizontal, 8)
@@ -130,22 +119,47 @@ struct AccountStatusSection: View {
                     .padding(.horizontal, 8)
                     .frame(height: 24)
             }
-            AccountPanelRow(title: "Set a Status…") {
-                close()
-                editStatus()
-            }
+            row(.setStatus, title: "Set a Status…")
             if model.statusLine != nil {
-                AccountPanelRow(title: "Clear Status") {
-                    close()
-                    actions.setStatus?(nil)
-                }
+                row(.clearStatus, title: "Clear Status")
             }
         }
     }
 
-    private func set(_ availability: Availability) {
-        close()
-        actions.setAvailability?(availability)
+    private func row(_ row: AccountStatusRow, title: String, checked: Bool = false) -> some View {
+        AccountPanelRow(title: title, checked: checked, isHighlighted: highlight == .status(row)) {
+            commands.perform(.status(row))
+        }
+        .accountPanelHover(.status(row), highlight: $highlight)
+    }
+
+    /// A row that offers how long, beside it, as a submenu would.
+    @ViewBuilder private func doNotDisturb(_ model: StatusMenuModel) -> some View {
+        let label = AccountPanelRowLabel(
+            title: model.doNotDisturbTitle, checked: model.isDoNotDisturb, chevron: true,
+            highlighted: highlight == .status(.doNotDisturb)
+        )
+        #if os(macOS)
+            Button { commands.perform(.status(.doNotDisturb)) } label: { label }
+                .buttonStyle(.plain)
+                .background(AccountPanelMenuAnchorView(anchor: doNotDisturbMenu))
+                .accountPanelHover(.status(.doNotDisturb), highlight: $highlight)
+                .accessibilityAddTraits(model.isDoNotDisturb ? .isSelected : [])
+        #else
+            Menu {
+                ForEach(model.doNotDisturbChoices, id: \.self) { choice in
+                    Button(choice.title) {
+                        // Counted from the click, not from when the panel was drawn.
+                        if let until = choice.until(now: .now, calendar: .current) {
+                            commands.set(.doNotDisturb(until: until))
+                        }
+                    }
+                }
+            } label: { label }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+        #endif
     }
 }
 
@@ -175,15 +189,14 @@ struct AccountPanelHeader: View {
 struct AccountPanelRow: View {
     let title: String
     var checked = false
+    let isHighlighted: Bool
     let action: () -> Void
-    @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
-            AccountPanelRowLabel(title: title, checked: checked, chevron: false, hovered: hovered)
+            AccountPanelRowLabel(title: title, checked: checked, chevron: false, highlighted: isHighlighted)
         }
         .buttonStyle(.plain)
-        .onHover { hovered = $0 }
         .accessibilityAddTraits(checked ? .isSelected : [])
     }
 }
@@ -192,7 +205,7 @@ struct AccountPanelRowLabel: View {
     let title: String
     let checked: Bool
     let chevron: Bool
-    let hovered: Bool
+    let highlighted: Bool
 
     var body: some View {
         HStack(spacing: 6) {
@@ -215,7 +228,7 @@ struct AccountPanelRowLabel: View {
         .padding(.horizontal, 8)
         .frame(height: 26)
         .contentShape(.rect)
-        .background(hovered ? Color.primary.opacity(0.08) : .clear, in: .rect(cornerRadius: 8))
+        .background(AccountPanelHighlight(isOn: highlighted))
     }
 }
 

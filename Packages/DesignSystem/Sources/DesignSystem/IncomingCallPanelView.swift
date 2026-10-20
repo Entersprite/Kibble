@@ -13,10 +13,13 @@ public struct IncomingCallPanelContent: Equatable, Sendable {
     /// Another account's call holds this Mac's microphone and speaker:
     /// answering ends it, and the panel says so.
     public var endsOtherCall: Bool
+    /// Why the last answer or decline did not go through, while the call
+    /// still rings: the panel is often all the person can see of it.
+    public var problem: String?
 
     public init(
         callID: UUID, memberID: Member.ID, name: String?, person: Member?, accountLabel: String? = nil,
-        endsOtherCall: Bool = false
+        endsOtherCall: Bool = false, problem: String? = nil
     ) {
         self.callID = callID
         self.memberID = memberID
@@ -24,6 +27,7 @@ public struct IncomingCallPanelContent: Equatable, Sendable {
         self.person = person
         self.accountLabel = accountLabel
         self.endsOtherCall = endsOtherCall
+        self.problem = problem
     }
 }
 
@@ -120,8 +124,13 @@ public struct IncomingCallPanelView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                if content.endsOtherCall {
-                    Text("Answering ends your current call")
+                if let problem = content.problem {
+                    Text(problem)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(1)
+                } else if content.endsOtherCall {
+                    Text("Answering ends your other call")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

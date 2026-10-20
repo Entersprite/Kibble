@@ -22,6 +22,10 @@ struct AccountFooter: View {
     @Binding var isOpen: Bool
     let editStatus: () -> Void
     @State private var pillWidth: CGFloat = 160
+    @State private var highlight: AccountPanelTarget?
+    #if os(macOS)
+        @State private var doNotDisturbMenu = AccountPanelMenuAnchor()
+    #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private typealias Layout = AccountPanelLayout
@@ -89,6 +93,9 @@ struct AccountFooter: View {
             }
             sections
                 .frame(width: width, height: height, alignment: .bottomLeading)
+                .modifier(AccountPanelKeyboard(
+                    isOpen: isOpen, navigation: navigation, highlight: $highlight, choose: commands.perform
+                ))
                 .opacity(isOpen ? 1 : 0)
                 .animation(isOpen ? reveal : .easeIn(duration: 0.08), value: isOpen)
                 .mask(alignment: .bottomLeading) { surfaceShape }
@@ -133,16 +140,45 @@ struct AccountFooter: View {
             .padding(.bottom, isOpen ? 0 : Layout.grow)
     }
 
+    private var navigation: AccountPanelNavigation {
+        AccountPanelNavigation(
+            state: state, actions: actions,
+            status: showsStatus ? AccountStatusSection.rows(hasStatusLine: statusLine != nil) : []
+        )
+    }
+
+    private var commands: AccountPanelCommands {
+        AccountPanelCommands(
+            actions: actions, close: { isOpen = false }, editStatus: editStatus,
+            doNotDisturb: openDoNotDisturb
+        )
+    }
+
+    /// Built when it opens, so each duration counts from then.
+    private func openDoNotDisturb() {
+        #if os(macOS)
+            guard let scene = state.scene else { return }
+            let model = StatusMenuModel(
+                availability: scene.availability, status: AccountFooterOverlay.status(scene), now: .now
+            )
+            let commands = commands
+            doNotDisturbMenu.open(model.doNotDisturbChoices.map { choice in
+                (choice.title, {
+                    if let until = choice.until(now: .now, calendar: .current) {
+                        commands.set(.doNotDisturb(until: until))
+                    }
+                })
+            })
+        #endif
+    }
+
     /// Status above the pill, the divider, and the account picker on the right.
     private var sections: some View {
         ZStack(alignment: .bottomLeading) {
             Group {
                 if showsStatus, let scene = state.scene {
-                    AccountStatusSection(
-                        scene: scene, label: state.showsLabels ? state.selected?.label : nil,
-                        actions: actions, close: { isOpen = false }, editStatus: editStatus
-                    )
-                    .frame(width: rowWidth, height: statusHeight, alignment: .topLeading)
+                    statusSection(scene)
+                        .frame(width: rowWidth, height: statusHeight, alignment: .topLeading)
                 } else {
                     Text("Your status can be set while this account is connected.")
                         .font(.callout)
@@ -160,12 +196,26 @@ struct AccountFooter: View {
                 .padding(.bottom, Layout.topInset)
             AccountPickerSection(
                 state: state, actions: actions, width: accountsWidth, scrolls: tilesWidth > accountsWidth,
-                close: { isOpen = false }, isOpen: isOpen
+                commands: commands, highlight: $highlight
             )
             .frame(width: accountsWidth, height: height - Layout.topInset - Layout.grow, alignment: .top)
             .padding(.leading, Layout.grow + rowWidth + 2 * Layout.gap + 1)
             .padding(.bottom, Layout.grow)
         }
+    }
+
+    private func statusSection(_ scene: ChatSceneState) -> AccountStatusSection {
+        #if os(macOS)
+            AccountStatusSection(
+                scene: scene, label: state.showsLabels ? state.selected?.label : nil, actions: actions,
+                commands: commands, highlight: $highlight, doNotDisturbMenu: doNotDisturbMenu
+            )
+        #else
+            AccountStatusSection(
+                scene: scene, label: state.showsLabels ? state.selected?.label : nil, actions: actions,
+                commands: commands, highlight: $highlight
+            )
+        #endif
     }
 
     /// Avatar, name and gear: in the same place open or closed. No glass of
