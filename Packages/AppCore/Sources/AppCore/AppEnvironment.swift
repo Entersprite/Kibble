@@ -227,9 +227,9 @@ public final class AppEnvironment {
             // through `enterNeedsSignIn` rather than setting `phase` directly
             // is what makes the erase happen here too, not only on the menu
             // command.
-            await enterNeedsSignIn(
-                reason: "Your Google session stopped working. Sign in again."
-            )
+            // Shared copy names the operator the service reports, never one itself.
+            let session = connectionService.map { "Your \($0.operatorName) session" } ?? "Your session"
+            await enterNeedsSignIn(reason: session + " stopped working. Sign in again.")
         } catch {
             await calls.stop()
             phase = .failed(String(describing: error))

@@ -123,7 +123,7 @@ struct LaunchDecisionTests {
             Issue.record("expected .needsSignIn, got \(phaseName(environment.phase))")
             return
         }
-        #expect(reason == "Your Google session stopped working. Sign in again.")
+        #expect(reason == "Your session stopped working. Sign in again.")
     }
 
     @Test func anyOtherFailureIsReportedAsOne() async throws {
