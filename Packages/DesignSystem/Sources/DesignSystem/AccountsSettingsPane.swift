@@ -2,8 +2,8 @@ import ChatKit
 import SwiftUI
 
 /// Settings › Accounts: every connected account in list order, with what can
-/// be done to it, and Add Account. Drag a row to change the order the account
-/// panel and ⌃⌘1…9 follow.
+/// be done to it, and Add Account. The order, which the account panel and
+/// ⌃⌘1…9 follow, changes by dragging a row or from its menu (`SettingsOrder`).
 public struct AccountsSettingsPane: View {
     private let state: AccountPanelState
     private let actions: AccountPanelActions
@@ -17,15 +17,15 @@ public struct AccountsSettingsPane: View {
         Form {
             Section {
                 ForEach(state.accounts) { account in
-                    AccountsSettingsRow(account: account, actions: actions)
+                    AccountsSettingsRow(
+                        account: account, actions: actions,
+                        place: actions.reorder == nil
+                            ? SettingsRowPlace(canMoveUp: false, canMoveDown: false)
+                            : SettingsOrder.place(of: account.id, in: state.accounts),
+                        move: { move(account.id, $0) }
+                    )
                 }
-                .onMove(perform: actions.reorder.map { reorder in
-                    { source, destination in
-                        var ids = state.accounts.map(\.id)
-                        ids.move(fromOffsets: source, toOffset: destination)
-                        reorder(ids)
-                    }
-                })
+                .onMove(perform: drag)
             } footer: {
                 Text(footer)
             }
@@ -38,8 +38,23 @@ public struct AccountsSettingsPane: View {
         .formStyle(.grouped)
     }
 
+    /// No drag where the host cannot reorder.
+    private var drag: ((IndexSet, Int) -> Void)? {
+        guard let reorder = actions.reorder else { return nil }
+        let accounts = state.accounts
+        return { source, destination in
+            reorder(SettingsOrder.moving(accounts, fromOffsets: source, toOffset: destination).map(\.id))
+        }
+    }
+
+    private func move(_ id: String, _ direction: SettingsMove) {
+        guard let reorder = actions.reorder,
+              let moved = SettingsOrder.moving(id, direction, in: state.accounts) else { return }
+        reorder(moved.map(\.id))
+    }
+
     private var footer: String {
-        let order = actions.reorder == nil ? "" : "Drag an account to change the order. "
+        let order = actions.reorder == nil ? "" : "To change the order, drag an account or use its menu. "
         return order + "Control-Command-1 through 9 switch to the first nine accounts. "
             + "Signing out keeps an account and its settings until you sign in again with it; "
             + "removing it also forgets its settings."
@@ -49,6 +64,8 @@ public struct AccountsSettingsPane: View {
 struct AccountsSettingsRow: View {
     let account: AccountPanelAccount
     let actions: AccountPanelActions
+    let place: SettingsRowPlace
+    let move: (SettingsMove) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -66,9 +83,7 @@ struct AccountsSettingsRow: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 8)
-            Text(statusText)
-                .font(.callout)
-                .foregroundStyle(account.status == .connected ? .secondary : .primary)
+            AccountsSettingsStatus(status: account.status)
             Menu {
                 menu
             } label: {
@@ -82,6 +97,7 @@ struct AccountsSettingsRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+        .settingsMoveActions(place, move: move)
         .contextMenu { menu }
     }
 
@@ -91,8 +107,65 @@ struct AccountsSettingsRow: View {
         return [account.email, managed].compactMap(\.self).joined(separator: " · ")
     }
 
-    private var statusText: String {
-        switch account.status {
+    @ViewBuilder private var menu: some View {
+        if let reconnect = actions.reconnect, account.status == .signedOut || account.status == .failed {
+            if account.status == .signedOut {
+                Button("Sign In…", systemImage: "person.crop.circle") { reconnect(account.id) }
+            } else {
+                Button("Try Again", systemImage: "arrow.clockwise") { reconnect(account.id) }
+            }
+        }
+        if let setEnabled = actions.setEnabled, account.status != .removing {
+            if account.isEnabled {
+                Button("Disable", systemImage: "pause.circle") { setEnabled(account.id, false) }
+            } else {
+                Button("Enable", systemImage: "play.circle") { setEnabled(account.id, true) }
+            }
+        }
+        if place.isReorderable {
+            Divider()
+            SettingsMoveMenuItems(place: place, move: move)
+        }
+        if account.status != .removing {
+            Divider()
+            if let signOut = actions.signOut, account.status != .signedOut {
+                Button("Sign Out…", systemImage: "rectangle.portrait.and.arrow.right") { signOut(account.id) }
+            }
+            if let remove = actions.remove {
+                Button("Remove Account…", systemImage: "trash", role: .destructive) { remove(account.id) }
+            }
+        }
+    }
+}
+
+/// An account row's state: quiet while connected or connecting, a warning
+/// only when it could not connect. Connecting is progress, not a problem.
+struct AccountsSettingsStatus: View {
+    let status: AccountPanelAccount.Status
+
+    var body: some View {
+        switch status {
+        case .connecting:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(Self.title(of: status))
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        case .failed:
+            Label(Self.title(of: status), systemImage: "exclamationmark.triangle.fill")
+                .labelStyle(AccountsSettingsWarningStyle())
+                .font(.callout)
+        default:
+            Text(Self.title(of: status))
+                .font(.callout)
+                .foregroundStyle(status == .connected ? .secondary : .primary)
+        }
+    }
+
+    nonisolated static func title(of status: AccountPanelAccount.Status) -> String {
+        switch status {
         case .connected: "Connected"
         case .connecting: "Connecting…"
         case .disabled: "Disabled"
@@ -101,22 +174,17 @@ struct AccountsSettingsRow: View {
         case .removing: "Removing…"
         }
     }
+}
 
-    @ViewBuilder private var menu: some View {
-        if let reconnect = actions.reconnect, account.status == .signedOut || account.status == .failed {
-            Button(account.status == .signedOut ? "Sign In…" : "Try Again") { reconnect(account.id) }
-        }
-        if let setEnabled = actions.setEnabled, account.status != .removing {
-            Button(account.isEnabled ? "Disable" : "Enable") { setEnabled(account.id, !account.isEnabled) }
-        }
-        if account.status != .removing {
-            Divider()
-            if let signOut = actions.signOut, account.status != .signedOut {
-                Button("Sign Out…") { signOut(account.id) }
-            }
-            if let remove = actions.remove {
-                Button("Remove Account…", role: .destructive) { remove(account.id) }
-            }
+/// A yellow caution glyph beside primary text, as System Settings marks an
+/// item that needs attention.
+private struct AccountsSettingsWarningStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 5) {
+            configuration.icon
+                .foregroundStyle(.yellow)
+                .imageScale(.medium)
+            configuration.title
         }
     }
 }

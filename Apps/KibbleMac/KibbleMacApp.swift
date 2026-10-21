@@ -83,8 +83,9 @@ struct KibbleMacApp: App {
                     AboutPanel.show()
                 }
             }
-            // Kibble has no help book, so the Help menu holds the source link and
-            // the legal texts (`HelpWindows`).
+            // Kibble has no help book, so the Help menu holds the source link,
+            // the legal texts (`HelpWindows`) and the diagnostics export, which
+            // is app-wide and needs no window: its save panel runs app-modal.
             CommandGroup(replacing: .help) {
                 Button("Kibble on GitHub") {
                     HelpWindows.openSource()
@@ -98,6 +99,10 @@ struct KibbleMacApp: App {
                 }
                 Button("Acknowledgments") {
                     HelpWindows.show(.acknowledgments)
+                }
+                Divider()
+                Button("Export Diagnostics…") {
+                    appDelegate.diagnostics.export()
                 }
             }
             NewConversationCommands(environment: environment)

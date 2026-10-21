@@ -56,6 +56,6 @@ struct UpdateSettingsPaneTests {
     }
 
     @Test func frequencyTitles() {
-        #expect(UpdateFrequency.allCases.map(\.title) == ["At launch", "Every hour", "Every day"])
+        #expect(UpdateFrequency.allCases.map(\.title) == ["At Launch", "Every Hour", "Every Day"])
     }
 }

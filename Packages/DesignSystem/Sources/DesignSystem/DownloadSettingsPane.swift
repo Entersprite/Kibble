@@ -8,11 +8,11 @@ public struct DownloadSettingsState: Equatable, Sendable {
     /// The folder's full path, shown as a tooltip rather than inline, since a
     /// path is rarely what a person wants to read at a glance.
     public var folderPath: String
-    /// Whether the folder is still the host's built-in default - one half
-    /// of `offersUseDownloads`.
+    /// Whether the folder is still the host's built-in default, which decides
+    /// what the menu's current item stands for (`currentItem`).
     public var isDefault: Bool
     /// A one-line diagnostic (e.g. a folder that could no longer be reached),
-    /// drawn under the controls. `nil` in the ordinary case.
+    /// drawn in the section's footer. `nil` in the ordinary case.
     public var notice: String?
 
     public init(folderName: String, folderPath: String, isDefault: Bool, notice: String? = nil) {
@@ -22,12 +22,28 @@ public struct DownloadSettingsState: Equatable, Sendable {
         self.notice = notice
     }
 
-    /// Once the folder has been changed, and whenever there is a notice:
-    /// a chosen folder that is gone reads as the default with a notice, and
-    /// "Use Downloads" is what forgets it and clears the notice.
-    var offersUseDownloads: Bool {
-        !isDefault || notice != nil
+    /// The menu's checked item. On the default folder it is the Downloads
+    /// choice itself, so the menu never lists Downloads twice. A chosen folder
+    /// that is gone reads as the default with a notice; choosing Downloads
+    /// there forgets that folder and clears the notice, provided the menu
+    /// reports a choice of its checked item ([Verify] in the running app).
+    var currentItem: DownloadFolderMenuItem {
+        isDefault ? .downloads : .current
     }
+
+    /// Downloads is offered beside the current folder only once that folder
+    /// is a different one.
+    var offersDownloads: Bool {
+        !isDefault
+    }
+}
+
+/// The folder menu's rows: the folder in use, Downloads, and the row that
+/// opens the folder picker.
+enum DownloadFolderMenuItem: Hashable {
+    case current
+    case downloads
+    case other
 }
 
 @MainActor
@@ -44,9 +60,10 @@ public struct DownloadSettingsActions {
     }
 }
 
-/// Settings → Downloads: where a downloaded file is saved, and a way to
-/// change it. The picker and the bookmark are the host's; this draws values
-/// and hands back two callbacks.
+/// Settings › Downloads: where a downloaded file is saved, as a folder menu
+/// like the save location menus elsewhere on the Mac. The folder picker and
+/// the bookmark are the host's; this draws values and hands back two
+/// callbacks.
 public struct DownloadSettingsPane: View {
     private let state: DownloadSettingsState
     private let actions: DownloadSettingsActions
@@ -58,19 +75,40 @@ public struct DownloadSettingsPane: View {
 
     public var body: some View {
         Form {
-            LabeledContent("Save downloads to") {
-                Text(state.folderName).help(state.folderPath)
-            }
-            HStack {
-                Button("Change…", action: actions.choose)
-                if state.offersUseDownloads {
-                    Button("Use Downloads", action: actions.useDefault)
+            Section {
+                Picker("Save downloads to", selection: folderSelection) {
+                    Label(state.folderName, systemImage: "folder").tag(state.currentItem)
+                    if state.offersDownloads {
+                        Text("Downloads").tag(DownloadFolderMenuItem.downloads)
+                    }
+                    Divider()
+                    Text("Other…").tag(DownloadFolderMenuItem.other)
                 }
-            }
-            if let notice = state.notice {
-                Text(notice).foregroundStyle(.secondary).font(.callout)
+                // The full path on hover, rather than inline: a path is rarely
+                // what a person wants to read at a glance.
+                .help(state.folderPath)
+            } footer: {
+                if let notice = state.notice {
+                    Text(notice)
+                }
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Always reads the folder in use. Other… only opens the host's picker,
+    /// so a canceled choice leaves the menu on the current folder, as the
+    /// ringtone menu does after a canceled Select Audio File….
+    private var folderSelection: Binding<DownloadFolderMenuItem> {
+        Binding(
+            get: { state.currentItem },
+            set: { item in
+                switch item {
+                case .current: break
+                case .downloads: actions.useDefault()
+                case .other: actions.choose()
+                }
+            }
+        )
     }
 }

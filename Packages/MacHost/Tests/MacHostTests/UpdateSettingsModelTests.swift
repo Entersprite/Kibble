@@ -44,7 +44,7 @@ struct UpdateSettingsModelTests {
         #expect(fake.settingsAtStart?.installs == false)
     }
 
-    /// *At launch* keeps the scheduler on, weekly, because Sparkle downloads
+    /// *At Launch* keeps the scheduler on, weekly, because Sparkle downloads
     /// nothing from a background check while its scheduler is off (spike,
     /// session 49): the weekly check is the backstop, the launch check the point.
     @Test("Frequency maps to the scheduler", arguments: [

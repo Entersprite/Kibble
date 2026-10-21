@@ -6,7 +6,7 @@ import Observation
 ///
 /// **The model is the source of truth for the three settings**, under its own
 /// keys, and pushes what they mean into the updater. Sparkle keeps settings
-/// under its own keys too, but *At launch* is not one of its settings, so its
+/// under its own keys too, but *At Launch* is not one of its settings, so its
 /// keys cannot hold the person's choice. They are derived state, overwritten
 /// at every `start()`.
 @MainActor
@@ -16,7 +16,7 @@ public final class UpdateSettingsModel {
     static let frequencyKey = "updatesFrequency"
     static let installKey = "updatesInstallAutomatically"
 
-    /// *At launch* keeps the scheduler on, weekly, and checks once at start.
+    /// *At Launch* keeps the scheduler on, weekly, and checks once at start.
     /// Measured in session 49's spike: with Sparkle's scheduler off, a
     /// background check fetches the feed and downloads nothing, so automatic
     /// install would never happen; Sparkle's header says to make the launch
@@ -59,7 +59,7 @@ public final class UpdateSettingsModel {
     }
 
     /// Once, at launch. Settings first, so the scheduler starts on the right
-    /// interval; then the updater; then *At launch*'s one check.
+    /// interval; then the updater; then *At Launch*'s one check.
     public func start() {
         guard let updater, !started else { return }
         started = true
@@ -89,7 +89,7 @@ public final class UpdateSettingsModel {
         apply()
     }
 
-    /// Choosing *At launch* checks nothing now: the next check is the next
+    /// Choosing *At Launch* checks nothing now: the next check is the next
     /// launch, or the weekly backstop.
     public func setFrequency(_ frequency: UpdateFrequency) {
         self.frequency = frequency

@@ -6,6 +6,7 @@ import SwiftUI
 /// The Settings window. Under the account host it adds Settings › Accounts,
 /// and the per-account panes edit the account pinned when Settings opened,
 /// chosen in the pane, never whichever account the main window shows now.
+/// Without the account host, Settings › Account signs the single session out.
 struct KibbleSettings: View {
     let appDelegate: MacAppDelegate
     @Binding var pane: String
@@ -20,16 +21,16 @@ struct KibbleSettings: View {
     }
 
     var body: some View {
-        TabView(selection: $pane) {
+        TabView(selection: selection) {
             if let host, let workspace = host.workspace {
-                Tab("Accounts", systemImage: "person.2", value: "accounts") {
+                Tab("Accounts", systemImage: "person.2", value: SettingsPane.accounts) {
                     AccountsSettingsPane(
                         state: workspace.accountPanelState(scene: nil), actions: accountActions(host)
                     )
                     .frame(width: 560, height: 420)
                 }
             }
-            Tab("Notifications", systemImage: "bell.badge", value: "notifications") {
+            Tab("Notifications", systemImage: "bell.badge", value: SettingsPane.notifications) {
                 scoped {
                     NotificationSettingsPane(
                         state: notificationState,
@@ -40,7 +41,7 @@ struct KibbleSettings: View {
                     .frame(width: 560, height: 540)
                 }
             }
-            Tab("Calls", systemImage: "phone", value: "calls") {
+            Tab("Calls", systemImage: "phone", value: SettingsPane.calls) {
                 SettingsAppWide(isShared: isShared) {
                     CallSettingsPane(
                         state: appDelegate.callSettings.state,
@@ -51,18 +52,7 @@ struct KibbleSettings: View {
                 }
                 .onAppear { appDelegate.callSettings.refreshFocusAccess() }
             }
-            Tab("Conversations", systemImage: "bubble.left.and.bubble.right", value: "conversations") {
-                scoped {
-                    ConversationSettingsPane(
-                        state: environment.notificationSettingsState,
-                        actions: environment.notificationSettingsActions(
-                            openSystemSettings: { SystemNotificationSettings.open() }
-                        )
-                    )
-                    .frame(width: 560, height: 420)
-                }
-            }
-            Tab("Sidebar", systemImage: "sidebar.left", value: "sidebar") {
+            Tab("Sidebar", systemImage: "sidebar.left", value: SettingsPane.sidebar) {
                 scoped {
                     SidebarSettingsPane(
                         preferences: environment.sidebarPreferences,
@@ -71,7 +61,7 @@ struct KibbleSettings: View {
                     .frame(width: 560, height: 540)
                 }
             }
-            Tab("Downloads", systemImage: "arrow.down.circle", value: "downloads") {
+            Tab("Downloads", systemImage: "arrow.down.circle", value: SettingsPane.downloads) {
                 SettingsAppWide(isShared: isShared) {
                     DownloadSettingsPane(
                         state: appDelegate.environment.downloadSettingsState,
@@ -80,18 +70,18 @@ struct KibbleSettings: View {
                     .frame(width: 560, height: 220)
                 }
             }
-            Tab("Updates", systemImage: "arrow.triangle.2.circlepath", value: "updates") {
+            Tab("Updates", systemImage: "arrow.triangle.2.circlepath", value: SettingsPane.updates) {
                 SettingsAppWide(isShared: isShared) {
                     UpdateSettingsPane(state: appDelegate.updates.state, actions: appDelegate.updates.actions)
                         .frame(width: 560, height: 420)
                 }
             }
-            Tab("Account", systemImage: "person.crop.circle", value: "account") {
-                scoped {
+            // Under the account host, Accounts lists every account with its
+            // own Sign Out…, and Export Diagnostics… is in the Help menu.
+            if host == nil {
+                Tab("Account", systemImage: "person.crop.circle", value: SettingsPane.account) {
                     AccountSettingsPane(
-                        state: environment.accountSettingsState,
-                        signOut: signOut,
-                        exportDiagnostics: { appDelegate.diagnostics.export() }
+                        state: appDelegate.environment.accountSettingsState, signOut: legacySignOut
                     )
                     .frame(width: 560, height: 360)
                 }
@@ -100,6 +90,28 @@ struct KibbleSettings: View {
         // Pinned once, when Settings opens: the account the main window showed then.
         .onAppear { account = host?.workspace?.selectedID?.rawValue }
         .accountConfirmations(signingOut: $signingOutAccount, removing: $removingAccount, host: host)
+    }
+
+    /// The kept pane, read as one that is shown (`SettingsPane.resolve`), so a
+    /// value saved before a pane was folded away still opens a pane. Reading
+    /// never writes: the kept value changes only when the person picks a tab.
+    private var selection: Binding<SettingsPane> {
+        Binding(
+            get: { SettingsPane.resolve(pane, shown: shownPanes) },
+            set: { pane = $0.rawValue }
+        )
+    }
+
+    /// The tabs `body` draws, in the same conditions.
+    private var shownPanes: [SettingsPane] {
+        var panes: [SettingsPane] = [.notifications, .calls, .sidebar, .downloads, .updates]
+        if host?.workspace != nil {
+            panes.append(.accounts)
+        }
+        if host == nil {
+            panes.append(.account)
+        }
+        return panes
     }
 
     /// Several accounts are connected, so the app-wide panes say they apply to all.
@@ -134,16 +146,6 @@ struct KibbleSettings: View {
         return SettingsAccountScope(choices: choices, selection: $account, isAvailable: available) {
             content()
         }
-    }
-
-    /// Signs out the pinned account under the account host.
-    private var signOut: (() -> Void)? {
-        guard let host else { return legacySignOut }
-        guard let workspace = host.workspace,
-              let summary = workspace.accounts.first(where: { $0.id.rawValue == account }),
-              summary.authenticationState == nil else { return nil }
-        let id = summary.id.rawValue
-        return { signingOutAccount = id }
     }
 
     private func accountActions(_ host: SystemAccountHost) -> AccountPanelActions {

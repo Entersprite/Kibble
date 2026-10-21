@@ -22,7 +22,8 @@ public struct CallSettingsState: Equatable, Sendable {
     /// The chosen file's name, offered in the menu beside Kibble's own;
     /// `nil` until one is chosen.
     public var customRingtoneName: String?
-    /// Why the last chosen file could not be used, drawn under the menu.
+    /// Why the last chosen file could not be used, drawn first in the
+    /// section's footer.
     public var ringtoneNotice: String?
 
     public init(
@@ -102,17 +103,16 @@ public struct CallSettingsPane: View {
                     Text("Select Audio File…").tag(RingtoneMenuItem.chooseFile)
                 }
                 .disabled(!state.showsPanel || !state.rings)
-                if let notice = state.ringtoneNotice {
-                    Text(notice).foregroundStyle(.secondary).font(.callout)
-                }
                 LabeledContent("Focus") { focus }
             } header: {
                 Text("Incoming Calls")
             } footer: {
-                Text("The panel appears in the top-right corner over any app, without switching to Kibble, "
-                    + "and rings when the conversation's notifications play a sound. During a Focus, while a "
-                    + "display is mirrored, or when the conversation's notifications only go to Notification "
-                    + "Center, Kibble sends its notification instead and macOS decides whether it appears.")
+                VStack(alignment: .leading, spacing: 6) {
+                    if let notice = state.ringtoneNotice {
+                        Text(notice)
+                    }
+                    Text(incomingCallsFooter)
+                }
             }
             Section {
                 Toggle(
@@ -135,6 +135,13 @@ public struct CallSettingsPane: View {
         }
         .formStyle(.grouped)
     }
+
+    /// Split from the `Text` call so the lines stay under lint's 110-column
+    /// limit inside the footer's stack.
+    private let incomingCallsFooter = "The panel appears in the top-right corner over any app, without "
+        + "switching to Kibble, and rings when the conversation's notifications play a sound. During a "
+        + "Focus, while a display is mirrored, or when the conversation's notifications only go to "
+        + "Notification Center, Kibble sends its notification instead and macOS decides whether it appears."
 
     private var ringtoneSelection: Binding<RingtoneMenuItem> {
         Binding(

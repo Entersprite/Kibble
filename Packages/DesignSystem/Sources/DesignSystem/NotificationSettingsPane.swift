@@ -47,7 +47,7 @@ public struct NotificationSettingsState: Equatable, Sendable {
 public struct NotificationSettingsActions {
     public var updateGlobal: (NotificationRule) -> Void
     public var updateSection: (SectionKey, NotificationRule) -> Void
-    /// `nil` hides the button - `CLAUDE.md`: never draw a control the host cannot honour.
+    /// `nil` hides the row - `CLAUDE.md`: never draw a control the host cannot honor.
     public var openSystemSettings: (() -> Void)?
     public var pause: (PauseDuration) -> Void
     public var resume: () -> Void
@@ -89,8 +89,9 @@ public enum RuleSummary {
     }
 }
 
-/// The Notifications pane, modelled on System Settings › Notifications: the
-/// defaults, then a section list that drills in (spec §4).
+/// The Notifications pane, modeled on System Settings › Notifications: the
+/// defaults, then the sections and the conversations with their own
+/// settings, each drilling in (spec §4).
 public struct NotificationSettingsPane: View {
     private let state: NotificationSettingsState
     private let actions: NotificationSettingsActions
@@ -121,12 +122,13 @@ public struct NotificationSettingsPane: View {
                     .disabled(!state.isAvailable)
                 sections
                     .disabled(!state.isAvailable)
-                Section {} footer: {
-                    HStack {
+                conversations
+                    .disabled(!state.isAvailable)
+                if let open = actions.openSystemSettings {
+                    Section {
+                        Button("Open Notification Settings…", action: open)
+                    } footer: {
                         Text("Banner or alert style is set in System Settings.")
-                        if let open = actions.openSystemSettings {
-                            Button("Open Notification Settings…", action: open)
-                        }
                     }
                 }
             }
@@ -139,6 +141,27 @@ public struct NotificationSettingsPane: View {
                     update: { actions.updateSection(section, $0) }
                 )
             }
+            .navigationDestination(for: NotificationSettingsPage.self) { _ in
+                ConversationRuleList(state: state, actions: actions)
+            }
+            .navigationDestination(for: Conversation.ID.self) { id in
+                ConversationRuleDestination(state: state, actions: actions, id: id)
+            }
+        }
+    }
+
+    /// One row for every conversation with its own settings, as System
+    /// Settings › Notifications lists apps; the list is a level down, so a
+    /// long one never pushes the defaults off the pane.
+    private var conversations: some View {
+        Section {
+            NavigationLink(value: NotificationSettingsPage.conversations) {
+                LabeledContent("Conversations") {
+                    Text(ConversationRuleList.summary(count: state.conversations.count))
+                }
+            }
+        } footer: {
+            Text("Conversations with their own settings. Right-click one in the sidebar to change it.")
         }
     }
 
@@ -217,7 +240,7 @@ public struct NotificationSettingsPane: View {
         } header: {
             Text("Sections")
         } footer: {
-            Text("Other also covers conversation types this version of Kibble doesn’t recognise.")
+            Text("Other also covers conversation types this version of Kibble doesn’t recognize.")
         }
     }
 
@@ -238,7 +261,7 @@ public struct NotificationSettingsPane: View {
 
 /// One level's settings, each defaulting to what it inherits. Used for a
 /// section here, and for a conversation by `ConversationNotificationSheet`
-/// and `ConversationSettingsPane`.
+/// and `ConversationRuleList`.
 public struct NotificationRuleEditor: View {
     private let title: String
     private let rule: NotificationRule

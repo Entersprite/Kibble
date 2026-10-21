@@ -9,18 +9,17 @@ public struct AccountSettingsState: Equatable, Sendable {
     }
 }
 
+/// Settings › Account for the single session that runs without the account
+/// host. Under the account host, Settings › Accounts lists every account with
+/// its own Sign Out…, so this pane is not shown there. Export Diagnostics… is
+/// app-wide and lives in the Help menu.
 public struct AccountSettingsPane: View {
     private let state: AccountSettingsState
     private let signOut: (() -> Void)?
-    private let exportDiagnostics: (() -> Void)?
 
-    public init(
-        state: AccountSettingsState, signOut: (() -> Void)?,
-        exportDiagnostics: (() -> Void)? = nil
-    ) {
+    public init(state: AccountSettingsState, signOut: (() -> Void)?) {
         self.state = state
         self.signOut = signOut
-        self.exportDiagnostics = exportDiagnostics
     }
 
     public var body: some View {
@@ -34,17 +33,6 @@ public struct AccountSettingsPane: View {
             if let signOut {
                 Section {
                     Button("Sign Out…", action: signOut)
-                }
-            }
-            if let exportDiagnostics {
-                Section {
-                    Button("Export Diagnostics…", action: exportDiagnostics)
-                } footer: {
-                    Text("Saves available crash and hang reports, recent read-state errors, "
-                        + "history response summaries, and memory samples. The export contains app version, "
-                        + "error codes, stack offsets, and request ages. "
-                        + "It excludes messages, account details, file paths, and memory addresses. "
-                        + "Reopen Kibble after a crash before exporting.")
                 }
             }
         }
