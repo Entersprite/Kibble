@@ -189,7 +189,7 @@ struct SidebarSeeAllRow: View {
             // A `Label`, as the conversations' rows are, so the words line
             // up with their names at every sidebar icon size.
             HStack(spacing: 8) {
-                Label("See All", systemImage: "ellipsis")
+                Label("See All", sidebarSymbol: "ellipsis")
                 Spacer(minLength: 4)
             }
             .foregroundStyle(.secondary)

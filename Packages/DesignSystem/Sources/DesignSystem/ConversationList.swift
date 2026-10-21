@@ -341,15 +341,14 @@ struct ConversationRow: View {
             }
             .accessibilityHidden(true)
         case .space:
-            // A symbol rather than a typed "#", so it is drawn and sized as
-            // the sidebar draws its other icons.
-            Image(systemName: SidebarRowPicture.spaceSymbol)
-                .foregroundStyle(.secondary)
+            // A symbol rather than a typed "#", so it is sized as the sidebar
+            // sizes its other icons, in a concrete color (`SidebarSymbol`).
+            SidebarSymbol(name: SidebarRowPicture.spaceSymbol)
                 .accessibilityHidden(true)
         case .meetChat:
             MeetingPicture(size: size).accessibilityHidden(true)
         case .unknown:
-            Image(systemName: "questionmark.circle").foregroundStyle(.tertiary).accessibilityHidden(true)
+            SidebarSymbol(name: "questionmark.circle").accessibilityHidden(true)
         }
     }
 }

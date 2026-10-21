@@ -4,15 +4,16 @@ import SwiftUI
 /// button rather than a selectable row, because search is an overlay over the
 /// window and nothing in the sidebar is chosen by it.
 ///
-/// A `Label`, so the sidebar sizes and tints its symbol as it does every
-/// other sidebar icon, following the person's sidebar icon size.
+/// A `Label`, so the sidebar sizes its symbol as it does every other sidebar
+/// icon, following the person's sidebar icon size; the symbol's color is
+/// `SidebarSymbol`'s.
 struct SearchSidebarRow: View {
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Label("Search", systemImage: SidebarPinned.searchSymbol)
+                Label("Search", sidebarSymbol: SidebarPinned.searchSymbol)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text("⌘F")
@@ -34,7 +35,7 @@ struct MentionsSidebarRow: View {
     let unread: Int
 
     var body: some View {
-        Label("Mentions", systemImage: SidebarPinned.mentionsSymbol)
+        Label("Mentions", sidebarSymbol: SidebarPinned.mentionsSymbol)
             .lineLimit(1)
             .badge(SidebarPinned.badge(MentionsPresentation.badge(unread: unread)))
     }
@@ -46,7 +47,7 @@ struct ThreadsSidebarRow: View {
     let unread: Int
 
     var body: some View {
-        Label(ThreadsPresentation.title, systemImage: ThreadsPresentation.rowSymbol)
+        Label(ThreadsPresentation.title, sidebarSymbol: ThreadsPresentation.rowSymbol)
             .lineLimit(1)
             .badge(SidebarPinned.badge(ThreadsPresentation.badge(unread: unread)))
     }
