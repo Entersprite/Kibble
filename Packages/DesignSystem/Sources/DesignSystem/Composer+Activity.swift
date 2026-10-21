@@ -24,6 +24,32 @@ extension Composer {
             draft.replace(location: draft.caret, length: 0, with: text)
         #endif
     }
+
+    #if os(macOS)
+        /// Pasted files and pictures, while this composer can stage them:
+        /// the host can upload, and no edit is in progress.
+        var pasteActions: ComposerPaste? {
+            guard let attachmentActions, draft.editing == nil else { return nil }
+            return ComposerPaste(files: attachmentActions.stage, image: attachmentActions.stageImage)
+        }
+    #endif
+
+    /// Writes the markup around the selection, from the format button or the
+    /// Format menu: on macOS through the field, as one step Cmd-Z takes back,
+    /// with mentions kept (`ComposerTextView.Coordinator.insert`); elsewhere
+    /// at the caret.
+    func format(_ style: ComposerFormat) {
+        #if os(macOS)
+            insertion = ComposerInsertion(text: "", surround: style.marker)
+        #else
+            let marker = style.marker
+            draft.replace(
+                location: draft.caret,
+                length: 0,
+                with: style == .bulletedList ? marker : marker + marker
+            )
+        #endif
+    }
 }
 
 struct ComposerActivityReporting: ViewModifier {

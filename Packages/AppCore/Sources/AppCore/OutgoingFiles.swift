@@ -24,7 +24,7 @@ public enum OutgoingFiles {
         let mime = type?.preferredMIMEType ?? "application/octet-stream"
         let pixels = type?.conforms(to: .image) == true ? pixelSize(of: url) : nil
         return OutgoingAttachment(
-            id: url.standardizedFileURL.path(percentEncoded: false),
+            id: id(for: url),
             file: url,
             name: url.lastPathComponent,
             contentType: mime,
@@ -32,6 +32,24 @@ public enum OutgoingFiles {
             width: pixels?.width,
             height: pixels?.height
         )
+    }
+
+    /// The id a file stages under: its standardized path.
+    public static func id(for url: URL) -> String {
+        url.standardizedFileURL.path(percentEncoded: false)
+    }
+
+    /// A pasted picture's file name, the way macOS names a screenshot:
+    /// "Pasted Image 2026-10-21 at 14.03.22.png", in the Mac's time zone.
+    /// The time keeps two pastes apart in the conversation; the dots, not
+    /// colons, keep it a valid name everywhere it is saved.
+    static func pastedImageName(at date: Date, type: UTType, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        let suffix = type.preferredFilenameExtension.map { ".\($0)" } ?? ""
+        return "Pasted Image \(formatter.string(from: date))\(suffix)"
     }
 
     /// From the header alone, turned for an EXIF orientation that swaps the

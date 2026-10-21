@@ -127,6 +127,12 @@ public extension ChatSessionModel {
         key(for: .conversation).flatMap { composerFiles.staged[$0] } ?? []
     }
 
+    /// Every file staged in any composer of this session, uploading or not,
+    /// by `OutgoingAttachment.id`: what the host must keep readable.
+    var stagedFileIDs: Set<String> {
+        Set(composerFiles.staged.values.joined().map(\.id))
+    }
+
     /// Stages files in the open conversation, or its open thread. A file already staged there is
     /// not staged twice. A file over the backend's advertised size limit is
     /// refused before upload. `unreadable` names what the host could not read

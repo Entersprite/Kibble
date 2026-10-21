@@ -41,24 +41,36 @@ struct MessageQuotePreview: View {
     }
 }
 
+/// The composer's format button. Its items show the Format menu's shortcuts,
+/// and carry them only while this composer's field has the keyboard
+/// (`showsShortcuts`), so that with the thread's composer open beside the
+/// conversation's, a Cmd-B can only reach the field that has the keyboard,
+/// whether the menu bar or a button answers it. (Measured on macOS 27, a
+/// closed `Menu`'s pop-up holds no items, so today only the menu bar does.)
 struct ComposerFormattingButton: View {
-    let choose: (String) -> Void
+    var showsShortcuts = false
+    let choose: (ComposerFormat) -> Void
 
     var body: some View {
         Menu {
-            Button("Bold") { choose("**") }
-            Button("Italic") { choose("*") }
-            Button("Underline") { choose("__") }
-            Button("Strikethrough") { choose("~~") }
-            Divider()
-            Button("Code") { choose("`") }
-            Button("Code Block") { choose("```") }
-            Button("Bulleted List") { choose("- ") }
+            ForEach(ComposerFormat.allCases) { format in
+                if format == .code {
+                    Divider()
+                }
+                Button(format.title) { choose(format) }
+                    .keyboardShortcut(showsShortcuts ? format.shortcut : nil)
+            }
         } label: {
             Label("Format", systemImage: "textformat").labelStyle(.iconOnly)
                 .frame(width: ComposerLayout.lineHeight, height: ComposerLayout.lineHeight)
         }
-        .menuStyle(.borderlessButton)
+        // `.borderlessButton` is deprecated; this pair draws the same
+        // borderless pull-down. The tint keeps its label primary, as the
+        // emoji button's is and as `.borderlessButton` drew it: a borderless
+        // button alone dims it (rendered side by side).
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
+        .tint(.primary)
         .fixedSize()
         .glassEffect(.regular.interactive(), in: .circle)
         .help("Format selected text")

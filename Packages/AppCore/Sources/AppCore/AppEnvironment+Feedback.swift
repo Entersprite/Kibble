@@ -6,5 +6,6 @@ extension AppEnvironment {
         model.didUpload = { [weak self] attachment, file in
             self?.seedUpload(attachment, from: file)
         }
+        followStagedFiles(of: model)
     }
 }

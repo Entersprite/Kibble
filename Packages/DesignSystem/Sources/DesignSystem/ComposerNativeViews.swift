@@ -2,13 +2,13 @@
     import AppKit
     import SwiftUI
 
-    /// Messages' waveform: the field takes focus, then the app starts system
-    /// dictation, as Edit › Start Dictation does. `startDictation:` is that
-    /// menu item's action and is not in Apple's documentation; `NSApplication`
-    /// answers it (checked on macOS 26, session 59). Sent up the responder
-    /// chain from the field, the way the menu sends it. Whether dictated text
-    /// lands in this field is `[Verify]`, and no test can reach it, which is
-    /// why it is this one function.
+    /// The microphone button: the field takes focus, then the app starts
+    /// system dictation, as Edit › Start Dictation does. `startDictation:` is
+    /// that menu item's action and is not in Apple's documentation;
+    /// `NSApplication` answers it (checked on macOS 26, session 59). Sent up
+    /// the responder chain from the field, the way the menu sends it. Whether
+    /// dictated text lands in this field is `[Verify]`, and no test can reach
+    /// it, which is why it is this one function.
     @MainActor
     enum ComposerDictation {
         static func start(in view: NSTextView) {
@@ -32,7 +32,9 @@
             return ComposerNSTextView(frame: .zero, textContainer: container)
         }()
 
-        static func make() -> ComposerScrollView {
+        /// `spelling` is where the person's Spelling and Grammar choices are
+        /// kept (`ComposerSpelling`); a test passes its own.
+        static func make(spelling: ComposerSpelling = ComposerSpelling()) -> ComposerScrollView {
             let scroll = ComposerScrollView()
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
@@ -41,6 +43,13 @@
             let text = scroll.textView
             text.isRichText = false
             text.allowsUndo = true
+            spelling.apply(to: text)
+            (text as? ComposerNSTextView)?.spelling = spelling
+            // Writing Tools rewrites the words and keeps the field plain: its
+            // rich results would carry styles the draft cannot send. Mentions
+            // are kept out of its reach by the delegate's ignored ranges
+            // (`ComposerTextView.Coordinator`).
+            text.allowedWritingToolsResultOptions = .plainText
             text.drawsBackground = false
             text.isVerticallyResizable = true
             text.isHorizontallyResizable = false
@@ -110,13 +119,100 @@
         }
     }
 
-    /// Accepts dragged text only. An editable text view takes file and URL
-    /// drags by default, and AppKit gives a drag to the deepest view that
-    /// registered for it, so a file dropped on the field missed the
-    /// conversation's drop target and was not staged (review finding 3).
+    /// The person's Spelling and Grammar choices, from the field's Edit and
+    /// context menus, kept for the next field. The composer is built afresh
+    /// for every conversation, and an `NSTextView` starts from AppKit's
+    /// defaults each time, so a choice made in one conversation was gone in
+    /// the next. Device-wide, like the system's own text settings.
+    ///
+    /// Spelling is checked while typing until the person turns it off.
+    /// Grammar and automatic correction keep AppKit's defaults, which follow
+    /// System Settings, until the person chooses in the field.
+    struct ComposerSpelling {
+        static let spellingKey = "ComposerChecksSpellingWhileTyping"
+        static let grammarKey = "ComposerChecksGrammarWithSpelling"
+        static let correctionKey = "ComposerCorrectsSpellingAutomatically"
+
+        var defaults: UserDefaults = .standard
+
+        @MainActor
+        func apply(to view: NSTextView) {
+            view.isContinuousSpellCheckingEnabled = defaults.object(forKey: Self.spellingKey) as? Bool ?? true
+            if let grammar = defaults.object(forKey: Self.grammarKey) as? Bool {
+                view.isGrammarCheckingEnabled = grammar
+            }
+            if let correction = defaults.object(forKey: Self.correctionKey) as? Bool {
+                view.isAutomaticSpellingCorrectionEnabled = correction
+            }
+        }
+    }
+
+    /// The composer's text view: what it accepts from a drag and a paste,
+    /// whether it has the keyboard, and the Spelling and Grammar choices it
+    /// remembers.
     final class ComposerNSTextView: NSTextView {
+        /// Set while the composer can stage files (`ComposerPaste`).
+        var paste: ComposerPaste?
+        /// Told when the field gains or loses the keyboard, for the Format
+        /// menu (`ComposerFormatting`).
+        var focusChanged: ((Bool) -> Void)?
+        var spelling = ComposerSpelling()
+
+        /// Accepts dragged text only. An editable text view takes file and
+        /// URL drags by default, and AppKit gives a drag to the deepest view
+        /// that registered for it, so a file dropped on the field missed the
+        /// conversation's drop target and was not staged.
         override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
             [.string]
+        }
+
+        override var readablePasteboardTypes: [NSPasteboard.PasteboardType] {
+            guard let paste else { return super.readablePasteboardTypes }
+            return ComposerPaste.readableTypes(
+                text: super.readablePasteboardTypes,
+                images: paste.image != nil
+            )
+        }
+
+        override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+            if let paste, let staged = paste.read(pboard, type: type) {
+                return staged
+            }
+            return super.readSelection(from: pboard, type: type)
+        }
+
+        override func becomeFirstResponder() -> Bool {
+            let became = super.becomeFirstResponder()
+            if became {
+                focusChanged?(true)
+            }
+            return became
+        }
+
+        override func resignFirstResponder() -> Bool {
+            let resigned = super.resignFirstResponder()
+            if resigned {
+                focusChanged?(false)
+            }
+            return resigned
+        }
+
+        override func toggleContinuousSpellChecking(_ sender: Any?) {
+            super.toggleContinuousSpellChecking(sender)
+            spelling.defaults.set(isContinuousSpellCheckingEnabled, forKey: ComposerSpelling.spellingKey)
+        }
+
+        override func toggleGrammarChecking(_ sender: Any?) {
+            super.toggleGrammarChecking(sender)
+            spelling.defaults.set(isGrammarCheckingEnabled, forKey: ComposerSpelling.grammarKey)
+        }
+
+        override func toggleAutomaticSpellingCorrection(_ sender: Any?) {
+            super.toggleAutomaticSpellingCorrection(sender)
+            spelling.defaults.set(
+                isAutomaticSpellingCorrectionEnabled,
+                forKey: ComposerSpelling.correctionKey
+            )
         }
     }
 #endif

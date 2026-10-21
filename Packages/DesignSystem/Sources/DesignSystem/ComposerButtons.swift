@@ -50,8 +50,8 @@ struct ComposerEmojiButton: View {
     }
 }
 
-/// Messages' waveform, inside the field while it is empty
-/// (`ComposerLayout.offersDictation`).
+/// Start Dictation, inside the field while it is empty
+/// (`ComposerLayout.offersDictation`), where Messages draws its waveform.
 struct ComposerDictationButton: View {
     let action: () -> Void
 

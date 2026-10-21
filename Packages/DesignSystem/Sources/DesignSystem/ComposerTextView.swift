@@ -3,9 +3,10 @@
     import ChatKit
     import SwiftUI
 
-    /// What the field hands to the `@` list while it is open.
+    /// What the field hands to the composer: the `@` list's keys while it is
+    /// open, and Up and Esc when they edit, cancel or drop a quote.
     enum ComposerKey: Equatable {
-        case up, down, pick, dismiss, editNewest, cancelEdit
+        case up, down, pick, dismiss, editNewest, cancelEdit, cancelQuote
     }
 
     /// The composer's text on macOS: an `NSTextView`, because a SwiftUI
@@ -25,16 +26,21 @@
         let focusRequest: Int
         let onKey: (ComposerKey) -> Void
         let onSubmit: () -> Void
-        /// Up edits the newest message, and Esc cancels an edit, only when the
-        /// composer says so (`ComposerEditKeys`); otherwise both are the text
-        /// view's own (edit spec §5).
+        /// Up edits the newest message only when the composer says so
+        /// (`ComposerEditKeys`); otherwise it is the text view's own (edit
+        /// spec §5).
         var upEdits = false
-        var escCancels = false
+        /// What Esc undoes (`ComposerEditKeys.escape`).
+        var escape = ComposerEditKeys.Escape.nothing
         /// Text to put in over the selection, once per new value.
         var insertion: ComposerInsertion?
-        /// Bumped to start system dictation in the field (the waveform).
+        /// Bumped to start system dictation in the field (the microphone).
         var dictationRequest = 0
         var onActivity: ((Bool) -> Void)?
+        /// Pasted files and pictures, while the composer can stage them.
+        var paste: ComposerPaste?
+        /// Told when the field gains or loses the keyboard.
+        var onFocusChange: ((Bool) -> Void)?
 
         static let maxLines = 6
 
@@ -46,8 +52,17 @@
             let scroll = ComposerScrollView.make()
             scroll.textView.delegate = context.coordinator
             Self.describe(scroll.textView, placeholder: placeholder)
+            connect(scroll.textView)
             context.coordinator.show(draft, in: scroll.textView)
             return scroll
+        }
+
+        /// The current paste and focus callbacks, on every update: both
+        /// close over this composer's latest state.
+        private func connect(_ view: NSTextView) {
+            guard let view = view as? ComposerNSTextView else { return }
+            view.paste = paste
+            view.focusChanged = onFocusChange
         }
 
         /// The label and placeholder VoiceOver reads, which the `TextField`
@@ -61,10 +76,11 @@
             let coordinator = context.coordinator
             coordinator.parent = self
             Self.describe(scroll.textView, placeholder: placeholder)
+            connect(scroll.textView)
             coordinator.show(draft, in: scroll.textView)
             // Both after this update, because both write the draft's binding,
             // which an update must not; and the field takes focus first, since
-            // the picker's popover or the waveform's click had it.
+            // the picker's popover or the microphone's click had it.
             if let insertion = coordinator.takeInsertion(insertion) {
                 DispatchQueue.main.async {
                     scroll.window?.makeFirstResponder(scroll.textView)
@@ -215,9 +231,29 @@
                     parent.draft.edit(view.string)
                 }
                 parent.onActivity?(!view.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                ComposerStyle.apply(parent.draft.tokens, to: view)
+                // Restyling resets the storage's attributes, which Writing
+                // Tools is animating while it rewrites; the styles go back on
+                // when it ends.
+                if !view.isWritingToolsActive {
+                    ComposerStyle.apply(parent.draft.tokens, to: view)
+                }
                 parent.draft.moveCaret(to: view.selectedRange().location)
                 reportAnchor(in: view)
+            }
+
+            /// The mentions, which Writing Tools leaves as written: a rewrite
+            /// that reworded "@Jane Doe" would turn the mention into plain text
+            /// (`ComposerDraft.replace`), and nobody would be notified.
+            func textView(
+                _: NSTextView,
+                writingToolsIgnoredRangesInEnclosingRange enclosingRange: NSRange
+            ) -> [NSValue] {
+                ComposerWritingTools.ignoredRanges(of: parent.draft.tokens, in: enclosingRange)
+                    .map { NSValue(range: $0) }
+            }
+
+            func textViewWritingToolsDidEnd(_ view: NSTextView) {
+                ComposerStyle.apply(parent.draft.tokens, to: view)
             }
 
             func textDidEndEditing(_ notification: Notification) {
@@ -243,8 +279,14 @@
                     parent.onSubmit()
                 case #selector(NSResponder.insertTab(_:)):
                     view.window?.selectNextKeyView(nil)
+                case #selector(NSResponder.insertBacktab(_:)):
+                    view.window?.selectPreviousKeyView(nil)
                 case #selector(NSResponder.deleteBackward(_:)):
                     return deleteToken(in: view)
+                case #selector(NSResponder.cancelOperation(_:)):
+                    // Nothing left to undo. The text view's own Esc is
+                    // `complete:`, a word-completion list nobody asked for.
+                    return true
                 default:
                     return false
                 }
@@ -264,11 +306,15 @@
                 }
             }
 
-            /// Up and Esc in edit mode, when the composer says so.
+            /// Up when it edits, and Esc when it cancels an edit or drops a
+            /// quote, as the composer says (`ComposerEditKeys`).
             private func editKey(_ selector: Selector) -> ComposerKey? {
                 switch selector {
                 case #selector(NSResponder.moveUp(_:)) where parent.upEdits: .editNewest
-                case #selector(NSResponder.cancelOperation(_:)) where parent.escCancels: .cancelEdit
+                case #selector(NSResponder.cancelOperation(_:))
+                    where parent.escape == .cancelEdit: .cancelEdit
+                case #selector(NSResponder.cancelOperation(_:))
+                    where parent.escape == .cancelQuote: .cancelQuote
                 default: nil
                 }
             }
@@ -300,6 +346,21 @@
                     + view.textContainerOrigin.x
                 guard offset != parent.anchorX else { return }
                 parent.anchorX = offset
+            }
+        }
+    }
+
+    /// What Writing Tools must leave alone in the field, as a decision a
+    /// test can reach.
+    enum ComposerWritingTools {
+        /// Each mention token's span within `enclosing`, in the text view's
+        /// own offsets (UTF-16, as the draft keeps them), cut to `enclosing`
+        /// where a token straddles its edge.
+        static func ignoredRanges(of tokens: [ComposerDraft.Token], in enclosing: NSRange) -> [NSRange] {
+            tokens.compactMap { token in
+                let span = NSRange(location: token.location, length: token.length)
+                guard let overlap = span.intersection(enclosing), overlap.length > 0 else { return nil }
+                return overlap
             }
         }
     }

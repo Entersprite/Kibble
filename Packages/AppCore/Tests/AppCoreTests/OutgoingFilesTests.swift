@@ -81,4 +81,23 @@ struct OutgoingFilesTests {
         #expect(OutgoingFiles.attachment(for: directory) == nil)
         #expect(OutgoingFiles.attachment(for: directory.appending(path: "missing.png")) == nil)
     }
+
+    /// Named the way macOS names a screenshot, with dots in the time.
+    @Test func aPastedPictureIsNamedLikeAScreenshot() throws {
+        let utc = try #require(TimeZone(identifier: "UTC"))
+        let date = Date(timeIntervalSince1970: 1_792_591_402) // 2026-10-21 14:03:22 UTC
+        #expect(OutgoingFiles.pastedImageName(at: date, type: .png, timeZone: utc)
+            == "Pasted Image 2026-10-21 at 14.03.22.png")
+        #expect(OutgoingFiles.pastedImageName(at: date, type: .jpeg, timeZone: utc)
+            == "Pasted Image 2026-10-21 at 14.03.22.jpeg")
+    }
+
+    /// The staging id custody is keyed by is the attachment's own.
+    @Test func theIdIsTheAttachmentsOwn() throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "notes.txt")
+        try Data("hello".utf8).write(to: url)
+        #expect(OutgoingFiles.attachment(for: url)?.id == OutgoingFiles.id(for: url))
+    }
 }

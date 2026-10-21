@@ -51,6 +51,9 @@ public final class AppEnvironment {
     @ObservationIgnored var composerDrafts: [ComposerDraftAddress: ComposerDraft] = [:]
     @ObservationIgnored var composerPersistence: ComposerPersistence?
     var draftSaveFailure: ChatError?
+    /// Keeps this session's staged files readable (`AppEnvironment+Staging.swift`).
+    @ObservationIgnored var stagedFiles: StagedFileCustody?
+    @ObservationIgnored var stagedFilesTask: Task<Void, Never>?
 
     /// This session's attachment cache (`AppEnvironment+Attachments.swift`).
     var attachments: AttachmentCache?
@@ -337,6 +340,7 @@ public final class AppEnvironment {
         await calls.stop()
         identityTask?.cancel()
         identityTask = nil
+        endStagedFiles()
         await stopPolicyReplica()
         // Nothing is deleted: the account's settings wait for it to sign in again.
         switchAccount(to: nil)

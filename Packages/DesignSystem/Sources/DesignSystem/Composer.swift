@@ -4,12 +4,16 @@ import SwiftUI
 /// The message field, the way Messages on the Mac draws it (session 59): a
 /// round + button, the field, and a round emoji button, in Liquid Glass. The
 /// field is a capsule at one line and a rounded box beyond it, with a
-/// dictation waveform while it is empty and no send button: Return sends.
+/// dictation microphone while it is empty and no send button: Return sends.
 ///
 /// The + needs `attachmentActions` and the emoji button `emoji`; without
 /// them there is no button, as with `StatusStrip`'s, because drawing a control
 /// that cannot do anything is the mistake `ChatWindow` refuses to make with its
 /// "cannot send messages yet" text. Measurements are `ComposerLayout`'s.
+///
+/// While its field has the keyboard and the conversation can be formatted,
+/// it offers the menu bar's Format menu its formatting
+/// (`ComposerFormatting`).
 public struct Composer: View {
     let activity: ((Bool) -> Void)?
     let placeholder: String
@@ -54,8 +58,16 @@ public struct Composer: View {
     @State var checking: ComposedMessage?
     /// The picked emoji, for the macOS field to put in (`ComposerTextView`).
     @State var insertion: ComposerInsertion?
-    /// Bumped by the waveform (`ComposerTextView`).
+    /// Bumped by the microphone (`ComposerTextView`).
     @State private var dictationRequest = 0
+    /// Whether the field has the keyboard, which an `NSTextView` reports
+    /// itself (`ComposerNSTextView`): it decides whether this composer
+    /// offers the Format menu its formatting.
+    @State private var fieldFocused = false
+    /// Who the Format menu's value comes from (`ComposerFormatting`).
+    @State private var formattingID = UUID()
+    /// The + shows the system's file importer.
+    @State private var choosingFiles = false
 
     public init(
         placeholder: String,
@@ -99,26 +111,16 @@ public struct Composer: View {
             // On the bottom edge, so the buttons stay by the last line as the
             // field grows.
             HStack(alignment: .bottom, spacing: ComposerLayout.spacing) {
-                if let attachmentActions, draft.editing == nil {
+                if attachmentActions != nil, draft.editing == nil {
                     RoundGlassButton(
                         title: "Attach Files…",
                         systemImage: ComposerLayout.attachSymbol,
-                        action: attachmentActions.choose
+                        action: { choosingFiles = true }
                     )
                 }
                 box
                 if allowsFormatting {
-                    ComposerFormattingButton { marker in
-                        #if os(macOS)
-                            insertion = ComposerInsertion(text: "", surround: marker)
-                        #else
-                            draft.replace(
-                                location: draft.caret,
-                                length: 0,
-                                with: marker == "- " ? marker : marker + marker
-                            )
-                        #endif
-                    }
+                    ComposerFormattingButton(showsShortcuts: fieldFocused, choose: format)
                 }
                 if let emoji {
                     ComposerEmojiButton(reactions: emoji, pick: insert)
@@ -128,6 +130,23 @@ public struct Composer: View {
         .padding(.horizontal, ComposerLayout.spacing)
         .padding(.top, 10)
         .padding(.bottom, 11)
+        // A sheet on the window, never an app-modal panel. Its URLs are
+        // security-scoped: `stage` is where the host starts reading them, and
+        // it keeps them readable for as long as they are staged.
+        .fileImporter(
+            isPresented: $choosingFiles,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case let .success(urls) = result, !urls.isEmpty else { return }
+            attachmentActions?.stage(urls)
+        }
+        .fileDialogConfirmationLabel("Attach")
+        .fileDialogMessage("Choose files to send")
+        .focusedSceneValue(
+            \.composerFormatting,
+            fieldFocused && allowsFormatting ? ComposerFormatting(id: formattingID, apply: format) : nil
+        )
         .animation(.snappy(duration: 0.15), value: canAct)
         .animation(.snappy(duration: 0.15), value: attachments.map(\.id))
         .overlayPreferenceValue(ComposerFieldAnchor.self) { anchor in
@@ -178,8 +197,8 @@ public struct Composer: View {
             }),
             presenting: pendingInvite
         ) { invite in
-            Button("Add and send") { finish(invite.message.settingMode(.invite, for: invite.people)) }
-            Button("Send without adding") { finish(invite.message.settingMode(
+            Button("Add and Send") { finish(invite.message.settingMode(.invite, for: invite.people)) }
+            Button("Send Without Adding") { finish(invite.message.settingMode(
                 .withoutAdding,
                 for: invite.people
             )) }
@@ -230,6 +249,8 @@ public struct Composer: View {
         // is 15 device pixels at 2x. Padding rather than a fixed height,
         // because the field grows to six lines.
         .padding(.vertical, 7.5)
+        // The staged files' corners follow this one (`ComposerAttachmentChip`).
+        .containerShape(ComposerLayout.fieldShape)
         // Real Liquid Glass, not a tinted shape pretending to be one.
         // `.interactive()` is what gives it the press response; without it the
         // field reads as a static translucent pill.
@@ -273,16 +294,22 @@ public struct Composer: View {
                     draft: draft, stagedCount: attachments.count, listOpen: !suggestions.isEmpty,
                     newest: editing?.newest
                 ),
-                escCancels: ComposerEditKeys.escCancels(draft: draft, listOpen: !suggestions.isEmpty),
+                escape: ComposerEditKeys.escape(draft: draft, listOpen: !suggestions.isEmpty),
                 insertion: insertion,
                 dictationRequest: dictationRequest,
-                onActivity: { activity?(draft.editing == nil && $0) }
+                onActivity: { activity?(draft.editing == nil && $0) },
+                paste: pasteActions,
+                onFocusChange: { fieldFocused = $0 }
             )
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
+                    // The text view says "Message …" to VoiceOver itself
+                    // (`ComposerTextView.describe`); this copy would be read
+                    // a second time.
                     Text("Message \(placeholder)")
                         .foregroundStyle(.tertiary)
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
         #else
@@ -319,7 +346,8 @@ public struct Composer: View {
                 let field = proxy[anchor]
                 ZStack(alignment: .bottomLeading) {
                     MentionSuggestionList(
-                        suggestions: rows, highlighted: min(highlighted, rows.count - 1), pick: pick
+                        suggestions: rows, highlighted: min(highlighted, rows.count - 1), pick: pick,
+                        hover: { highlighted = $0 }
                     )
                     .padding(.leading, min(field.minX + anchorX, max(0, proxy.size.width - 288)))
                 }
@@ -350,6 +378,7 @@ public struct Composer: View {
                     ))
                 }
             case .cancelEdit: cancelEdit()
+            case .cancelQuote: draft.setQuote(nil)
             }
         }
     #endif
