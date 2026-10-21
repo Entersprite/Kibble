@@ -78,6 +78,8 @@ struct MessageBubble: View {
                 }
                 if message.isDeleted {
                     bubble
+                } else if let status = message.callStatus {
+                    CallMessageCard(status: status)
                 } else {
                     // Pictures above the words, as Messages draws them, and
                     // files last; an image-only message has no empty bubble.

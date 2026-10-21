@@ -67,10 +67,13 @@ public struct AudioCallSnapshot: Codable, Hashable, Sendable {
     public var isMuted: Bool
     /// Fixed, safe user-facing copy; never a raw provider error or diagnostic.
     public var failureMessage: String?
+    /// Absent for older peers and outcomes whose cause is not known.
+    public var endReason: AudioCallEndReason?
 
     public init(
         id: UUID, recipient: AudioCallRecipient, direction: AudioCallDirection,
-        phase: AudioCallPhase, isMuted: Bool = false, failureMessage: String? = nil
+        phase: AudioCallPhase, isMuted: Bool = false, failureMessage: String? = nil,
+        endReason: AudioCallEndReason? = nil
     ) {
         self.id = id
         self.recipient = recipient
@@ -78,10 +81,11 @@ public struct AudioCallSnapshot: Codable, Hashable, Sendable {
         self.phase = phase
         self.isMuted = isMuted
         self.failureMessage = failureMessage
+        self.endReason = endReason
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, recipient, direction, phase, isMuted, failureMessage
+        case id, recipient, direction, phase, isMuted, failureMessage, endReason
     }
 
     public init(from decoder: any Decoder) throws {
@@ -92,7 +96,8 @@ public struct AudioCallSnapshot: Codable, Hashable, Sendable {
             direction: container.decode(AudioCallDirection.self, forKey: .direction),
             phase: container.decode(AudioCallPhase.self, forKey: .phase),
             isMuted: container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false,
-            failureMessage: container.decodeIfPresent(String.self, forKey: .failureMessage)
+            failureMessage: container.decodeIfPresent(String.self, forKey: .failureMessage),
+            endReason: container.decodeIfPresent(AudioCallEndReason.self, forKey: .endReason)
         )
     }
 }

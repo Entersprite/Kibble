@@ -85,7 +85,12 @@ struct ThreadPanelTests {
         let harness = try await opened()
         let model = harness.model
         await settleAutoMarkRead(until: "you are known") { model.me != nil }
+        var feedback = 0
+        model.didBeginSending = { feedback += 1 }
+        model.sendReply(ComposedMessage(text: ""))
+        #expect(feedback == 0)
         model.sendReply(ComposedMessage(text: "on it"))
+        #expect(feedback == 1)
         await settleAutoMarkRead(until: "the reply reaches the panel") {
             model.threads.messages.contains { $0.text == "on it" }
         }

@@ -84,9 +84,12 @@ public protocol LaunchServices: AnyObject {
     /// picker answers none and the composer's + does nothing worse
     /// than nothing.
     func chooseFilesToSend() -> [URL]
+    /// Device-local feedback after a composer send passes local admission.
+    func messageSending()
 }
 
 public extension LaunchServices {
+    func messageSending() {}
     func chooseFilesToSend() -> [URL] {
         []
     }

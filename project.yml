@@ -59,6 +59,9 @@ targets:
         buildPhase: resources
       - path: THIRD_PARTY_NOTICES.txt
         buildPhase: resources
+      # Notification Center searches the main bundle for named sounds.
+      - path: Packages/MacHost/Sources/MacHost/Resources/new-message.aif
+        buildPhase: resources
     dependencies:
       - package: AppCore
         product: AppCore

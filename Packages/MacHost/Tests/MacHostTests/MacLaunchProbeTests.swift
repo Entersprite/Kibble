@@ -13,8 +13,10 @@ struct MacLaunchProbeTests {
         }
         #if DEBUG
             #expect(MacLaunchProbe.parsing(["Kibble", "--probe=meet-call"]) == .meetCall)
+            #expect(MacLaunchProbe.parsing(["Kibble", "--probe=notification-sound"]) == .notificationSound)
         #else
             #expect(MacLaunchProbe.parsing(["Kibble", "--probe=meet-call"]) == nil)
+            #expect(MacLaunchProbe.parsing(["Kibble", "--probe=notification-sound"]) == nil)
         #endif
     }
 

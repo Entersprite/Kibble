@@ -25,7 +25,7 @@ extension UserNotificationDelivery {
         content.title = notification.title
         content.subtitle = notification.subtitle ?? ""
         content.body = notification.body
-        content.sound = notification.playsSound ? .default : nil
+        content.sound = messageSound(playsSound: notification.playsSound)
         content.interruptionLevel = notification.isPassive ? .passive : .active
         content.threadIdentifier = scopedIdentifier(notification.conversationID.rawValue, scope: scope)
         content.categoryIdentifier = category(for: notification)

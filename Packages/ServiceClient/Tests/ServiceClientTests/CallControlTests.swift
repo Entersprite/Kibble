@@ -241,6 +241,9 @@ struct CallControlTests {
         try await facade.startListening()
         try await facade.setMuted(true, callID: id)
         try await callEventually { try await harness.read(account).call?.isMuted == true }
+        let source = try #require(await harness.providers.source(account.id, device: .init("one")))
+        source.remoteEnded(callID: id)
+        try await callEventually { try await harness.read(account).call?.endReason == .remoteEnded }
         await facade.stop()
         await harness.service.shutdown()
     }

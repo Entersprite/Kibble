@@ -41,6 +41,11 @@ enum LaunchProbes {
     ]
 
     static func report(for probe: MacLaunchProbe) async -> String {
+        #if DEBUG
+            if probe == .notificationSound {
+                return await NotificationSoundProbe.run()
+            }
+        #endif
         guard let report = reports[probe] else { return "Use the native DM call trial window." }
         return await report()
     }

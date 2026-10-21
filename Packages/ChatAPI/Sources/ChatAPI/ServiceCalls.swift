@@ -12,16 +12,36 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
     }
 
     public var isListening: Bool
+    /// No listener outcome has arrived yet. Absence preserves older peers' status semantics.
+    public var isListenerStarting: Bool
     public var recipients: [AudioCallRecipient]
     public var call: AudioCallSnapshot?
     public var lastEvent: AudioCallEvent?
 
     public init(
-        version: String, isListening: Bool = false, recipients: [AudioCallRecipient] = [],
+        version: String, isListening: Bool = false, isListenerStarting: Bool = false,
+        recipients: [AudioCallRecipient] = [],
         call: AudioCallSnapshot? = nil, lastEvent: AudioCallEvent? = nil
     ) {
         self.version = version; self.isListening = isListening; self.recipients = recipients
+        self.isListenerStarting = isListenerStarting
         self.call = call; self.lastEvent = lastEvent
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, isListening, isListenerStarting, recipients, call, lastEvent
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            version: container.decode(String.self, forKey: .version),
+            isListening: container.decode(Bool.self, forKey: .isListening),
+            isListenerStarting: container.decodeIfPresent(Bool.self, forKey: .isListenerStarting) ?? false,
+            recipients: container.decode([AudioCallRecipient].self, forKey: .recipients),
+            call: container.decodeIfPresent(AudioCallSnapshot.self, forKey: .call),
+            lastEvent: container.decodeIfPresent(AudioCallEvent.self, forKey: .lastEvent)
+        )
     }
 }
 

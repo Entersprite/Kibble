@@ -32,6 +32,11 @@ final class FakeLaunchServices: LaunchServices {
     var diagnosticsRequested = false
     /// What the composer's paperclip is answered with.
     var filesToSend: [URL] = []
+    var messageFeedbackCount = 0
+    func messageSending() {
+        messageFeedbackCount += 1
+    }
+
     var probeReport = "Written to probe.txt."
 
     /// The clock `makeSession()` hands the engine for the mention backfill.

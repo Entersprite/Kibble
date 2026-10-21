@@ -90,6 +90,7 @@ public extension ChatSessionModel {
             // optimistic row and nothing to take back.
             undo = [.removeMessage(id: optimisticID)]
         }
+        didBeginSending?()
         let taskID = UUID()
         sendTasks[taskID] = Task { @MainActor [weak self, engine] in
             defer { self?.sendTasks.removeValue(forKey: taskID) }

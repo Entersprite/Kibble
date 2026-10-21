@@ -28,6 +28,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     public let callSettings: CallSettingsModel
     let callPanel = IncomingCallPanelHost()
     let callRinger: CallRinger
+    let callSounds = CallSoundFeedback()
     public let diagnostics: DiagnosticReportStore
     private let legacyCallDiagnostics: AudioCallDiagnosticExporter
     var callDiagnostics: AudioCallDiagnosticExporter {

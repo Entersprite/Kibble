@@ -1,6 +1,7 @@
 import AppCore
 import ChatKit
 import Foundation
+import OSLog
 import Synchronization
 import UserNotifications
 
@@ -65,6 +66,13 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, A
     /// `MacAppDelegate` calls it from `applicationWillFinishLaunching`.
     @MainActor
     public func install() {
+        do {
+            try MessageNotificationSound.install()
+        } catch {
+            let error = error as NSError
+            Logger(subsystem: "com.entersprite.kibble", category: "NotificationSound")
+                .error("Sound installation failed: \(error.domain, privacy: .public) \(error.code)")
+        }
         center.delegate = self
         center.setNotificationCategories(Self.categories())
     }
@@ -146,7 +154,7 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, A
             content.subtitle = subtitle
         }
         content.body = notification.body
-        content.sound = notification.playsSound ? .default : nil
+        content.sound = Self.messageSound(playsSound: notification.playsSound)
         content.interruptionLevel = notification.isPassive ? .passive : .active
         // Groups a conversation's notifications together, and is what
         // `withdraw` filters on.
@@ -216,6 +224,10 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, A
     /// again when it happens.
     static func category(for notification: MessageNotification) -> String {
         notification.offersMarkRead ? categoryID : withoutMarkReadCategoryID
+    }
+
+    static func messageSound(playsSound: Bool) -> UNNotificationSound? {
+        playsSound ? MessageNotificationSound.sound : nil
     }
 
     static func micros(_ date: Date) -> Int64 {

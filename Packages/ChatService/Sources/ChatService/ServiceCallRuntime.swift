@@ -33,7 +33,7 @@ actor ServiceCallRuntime {
         self.cleanupAdmission = cleanupAdmission
         self.source = source; self.reservations = reservations
         self.device = .init(principal: principal, device: device)
-        state = .init(version: identity.uuidString + ":0")
+        state = .init(version: identity.uuidString + ":0", isListenerStarting: true)
     }
 
     func start() async {
@@ -51,6 +51,10 @@ actor ServiceCallRuntime {
 
     func startListener() {
         guard listener == nil, !stopped else { return }
+        if !state.isListenerStarting {
+            state.isListenerStarting = true
+            publish()
+        }
         listener = Task { [weak self, source] in
             do {
                 try await source.startListening()
@@ -66,6 +70,7 @@ actor ServiceCallRuntime {
     private func listenerFailed() {
         guard !stopped else { return }
         state.isListening = false
+        state.isListenerStarting = false
         state.lastEvent = .listenerChanged(isListening: false)
         publish()
     }
@@ -132,7 +137,9 @@ actor ServiceCallRuntime {
         case let .recipientsChanged(recipients):
             guard recipients.count <= 4096 else { listenerFailed(); return }
             state.recipients = recipients
-        case let .listenerChanged(listening): state.isListening = listening
+        case let .listenerChanged(listening):
+            state.isListening = listening
+            state.isListenerStarting = false
         case let .snapshot(snapshot):
             guard await receiveSnapshot(snapshot) else { return }
         case .unknown, .listenerBarrier: break

@@ -69,6 +69,9 @@ enum Schema {
             }
         }
         migrator.registerMigration("v21", migrate: addReplicaHistory)
+        migrator.registerMigration("v22") { db in
+            try db.alter(table: "message") { $0.add(column: "callStatus", .text) }
+        }
         return migrator
     }
 

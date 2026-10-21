@@ -176,10 +176,13 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
         )
     }
 
-    func publish(phase: AudioCallPhase, snapshot previous: AudioCallSnapshot, failure: String? = nil) {
+    func publish(
+        phase: AudioCallPhase, snapshot previous: AudioCallSnapshot, failure: String? = nil,
+        endReason: AudioCallEndReason? = nil
+    ) {
         let next = AudioCallSnapshot(
             id: previous.id, recipient: previous.recipient, direction: previous.direction,
-            phase: phase, isMuted: previous.isMuted, failureMessage: failure
+            phase: phase, isMuted: previous.isMuted, failureMessage: failure, endReason: endReason
         )
         snapshot = next
         continuation.yield(.snapshot(next))

@@ -18,6 +18,7 @@ final class NativeAccountCallPresentation {
     private let otherCall: @MainActor () -> AudioCallController?
     private let panel = IncomingCallPanelHost()
     private let ringer: CallRinger
+    private let sounds = CallSoundFeedback()
     private var window: AudioCallWindowHost?
     private var alerts: IncomingCallAlerts?
     private var stopped = false
@@ -99,6 +100,7 @@ final class NativeAccountCallPresentation {
 
     func stop() {
         stopped = true
+        sounds.stop()
         alerts?.update(call: nil, rule: nil, paused: true)
         window?.update(call: nil, windowRequests: 0)
     }
@@ -142,6 +144,7 @@ final class NativeAccountCallPresentation {
                 call: call, rule: rule, paused: environment.settings.isPaused || environment.calls.isEnding,
                 surface: surface
             ) ?? false
+            sounds.update(call: call, isEnding: environment.calls.isEnding, incomingRings: ringer.isRinging)
             window?.update(
                 call: call, windowRequests: environment.calls.windowRequests,
                 devices: binding.audioDevices.devices, alertsIncoming: raises, video: binding.video,

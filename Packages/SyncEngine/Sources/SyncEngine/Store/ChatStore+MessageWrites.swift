@@ -16,9 +16,9 @@ package extension ChatStore {
             try db.execute(
                 sql: """
                 UPDATE message SET isDeleted = 1, text = '', mentions = '[]', reactions = '[]',
-                                   links = '[]', cards = '[]'
+                                   links = '[]', cards = '[]', callStatus = NULL
                 WHERE id = ? AND (isDeleted <> 1 OR text <> '' OR mentions <> '[]'
-                    OR reactions <> '[]' OR links <> '[]' OR cards <> '[]')
+                    OR reactions <> '[]' OR links <> '[]' OR cards <> '[]' OR callStatus IS NOT NULL)
                 """,
                 arguments: [id.rawValue]
             )

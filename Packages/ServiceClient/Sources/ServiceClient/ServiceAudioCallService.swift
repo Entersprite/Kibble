@@ -25,15 +25,7 @@ public final class ServiceAudioCallService: AudioCallService {
         let epoch = generation
         let initial = try await read(after: nil, wait: 0)
         try check(epoch)
-        _ = try projection.accept(initial)
-        sourceID = projection.currentState?.sourceID
-        if let current = projection.currentState {
-            sink.yield(.recipientsChanged(current.recipients))
-            sink.yield(.listenerChanged(isListening: current.isListening))
-            if let call = current.call {
-                sink.yield(.snapshot(call))
-            }
-        }
+        try receive(initial)
         guard observer == nil else { return }
         observer = Task { [weak self] in
             while !Task.isCancelled {

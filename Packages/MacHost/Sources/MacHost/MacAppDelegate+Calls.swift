@@ -195,6 +195,10 @@ public extension MacAppDelegate {
         let person = callPerson()
         withObservationTracking {
             let alertsIncoming = updateCallAlert(person: person)
+            callSounds.update(
+                call: environment.calls.call, isEnding: environment.calls.isEnding,
+                incomingRings: callRinger.isRinging
+            )
             callWindowHost?.update(
                 call: environment.calls.call,
                 windowRequests: environment.calls.windowRequests,
@@ -259,6 +263,7 @@ public extension MacAppDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !terminationRequested else { return .terminateLater }
         terminationRequested = true
+        callSounds.stop()
         callAlerts?.update(call: nil, rule: nil, paused: true)
         callResponseTask?.cancel()
         callCamera.cancel()

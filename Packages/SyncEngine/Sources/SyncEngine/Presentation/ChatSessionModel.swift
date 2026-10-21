@@ -21,6 +21,8 @@ import Observation
 @MainActor
 @Observable
 public final class ChatSessionModel {
+    /// Local feedback for one admitted composer send, never channel echoes or replay.
+    @ObservationIgnored public var didBeginSending: (@MainActor () -> Void)?
     public internal(set) var conversations: [Conversation] = [] // set from +AutoMarkRead.swift
     public internal(set) var directory: [Member.ID: Member] = [:] // set from +Observing.swift
     public internal(set) var messages: [Message] = [] // set from +Mentions.swift

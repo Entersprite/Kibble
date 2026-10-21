@@ -165,6 +165,7 @@ public extension ChatSessionModel {
     internal func sendStaged(_ caption: ComposedMessage, in key: StagingKey) {
         let batch = (composerFiles.staged[key] ?? []).filter { !$0.isUploading }
         guard !batch.isEmpty else { return }
+        didBeginSending?()
         for item in batch {
             setState(.uploading(nil), of: item.id, in: key)
         }

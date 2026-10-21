@@ -21,10 +21,15 @@ extension LocalBridgeAudioCallService {
             )
             snapshot = next
             continuation.yield(.snapshot(next))
-        case .cleared:
+        case .cleared, .remoteEnded:
             guard let current = snapshot, current.phase == .incoming else { return }
             incomingHandle = nil
-            publish(phase: .ended, snapshot: current)
+            let reason: AudioCallEndReason? = if case .remoteEnded = event {
+                .remoteEnded
+            } else {
+                nil
+            }
+            publish(phase: .ended, snapshot: current, endReason: reason)
         }
     }
 
@@ -58,7 +63,14 @@ extension LocalBridgeAudioCallService {
                 snapshot: current,
                 failure: cleanup.message ?? "The call connection ended."
             )
-        default: publish(phase: .ended, snapshot: current, failure: cleanup.message)
+        default:
+            let endReason: AudioCallEndReason? = switch reason {
+            case .localEnded, .ringCancelled: .localEnded
+            case .remoteEnded, .invitationEnded: .remoteEnded
+            case .declined: .declined
+            default: nil
+            }
+            publish(phase: .ended, snapshot: current, failure: cleanup.message, endReason: endReason)
         }
     }
 

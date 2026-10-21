@@ -99,6 +99,7 @@ public extension ChatSessionModel {
             conversationID: selected, threadID: thread, text: message.text, localID: localID,
             mentions: message.mentions
         )
+        didBeginSending?()
         let taskID = UUID()
         sendTasks[taskID] = Task { @MainActor [weak self, engine, undo] in
             defer { self?.sendTasks.removeValue(forKey: taskID) }

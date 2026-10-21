@@ -54,7 +54,7 @@ public extension LocalBridgeAudioCallService {
             try self.checkCall(callID, scope: scope)
             self.incomingHandle = nil
             if let current = self.snapshot {
-                self.publish(phase: .declined, snapshot: current)
+                self.publish(phase: .declined, snapshot: current, endReason: .localEnded)
             }
         }
     }
@@ -84,7 +84,7 @@ public extension LocalBridgeAudioCallService {
         operation = nil
         media = nil
         incomingHandle = nil
-        publish(phase: .ended, snapshot: current, failure: cleanup.message)
+        publish(phase: .ended, snapshot: current, failure: cleanup.message, endReason: .localEnded)
     }
 
     internal func runOperation(

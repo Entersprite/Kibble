@@ -54,11 +54,11 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
     }
 
     public func decline(callID: UUID) async throws {
-        setPhase(.declined, callID: callID)
+        setPhase(.declined, callID: callID, endReason: .localEnded)
     }
 
     public func hangUp(callID: UUID) async throws {
-        setPhase(.ended, callID: callID)
+        setPhase(.ended, callID: callID, endReason: .localEnded)
     }
 
     public func setMuted(_ muted: Bool, callID: UUID) async throws {
@@ -98,12 +98,17 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
     }
 
     public func remoteEnded(callID: UUID) {
-        setPhase(.ended, callID: callID)
+        setPhase(.ended, callID: callID, endReason: .remoteEnded)
     }
 
-    private func setPhase(_ phase: AudioCallPhase, callID: UUID) {
+    public func remoteDeclined(callID: UUID) {
+        setPhase(.declined, callID: callID, endReason: .declined)
+    }
+
+    private func setPhase(_ phase: AudioCallPhase, callID: UUID, endReason: AudioCallEndReason? = nil) {
         guard var call = currentCall, call.id == callID else { return }
         call.phase = phase
+        call.endReason = endReason
         publish(call)
     }
 

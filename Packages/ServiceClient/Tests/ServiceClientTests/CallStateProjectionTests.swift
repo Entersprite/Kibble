@@ -5,6 +5,41 @@ import Testing
 @testable import ServiceClient
 
 struct CallStateProjectionTests {
+    @Test func startupDirectoryUpdatesDoNotReportAListenerFailure() throws {
+        var projection = ServiceCallStateProjection()
+        let stream = UUID().uuidString
+        let initial = try projection.accept(.init(version: stream + ":0", isListenerStarting: true))
+        #expect(initial == [.recipientsChanged([])])
+        let recipient = AudioCallRecipient(
+            conversationID: .init("dm"), memberID: .init("peer"), displayName: "Peer"
+        )
+        #expect(try projection.accept(.init(
+            version: stream + ":1", isListenerStarting: true, recipients: [recipient]
+        )) == [.recipientsChanged([recipient])])
+        #expect(try projection.accept(.init(
+            version: stream + ":2", isListening: true, recipients: [recipient]
+        )) == [.listenerChanged(isListening: true)])
+        #expect(try projection.accept(.init(
+            version: stream + ":3", recipients: [recipient]
+        )) == [.listenerChanged(isListening: false)])
+    }
+
+    @Test func aFailedFirstAttemptAndAFailedReplacementStillReportUnavailable() throws {
+        var projection = ServiceCallStateProjection()
+        let stream = UUID().uuidString
+        _ = try projection.accept(.init(version: stream + ":0", isListenerStarting: true))
+        #expect(try projection.accept(.init(version: stream + ":1")) == [
+            .listenerChanged(isListening: false)
+        ])
+        let replacement = UUID().uuidString
+        #expect(try projection.accept(.init(
+            version: replacement + ":0", isListenerStarting: true
+        )) == [.recipientsChanged([])])
+        #expect(try projection.accept(.init(version: replacement + ":1")) == [
+            .listenerChanged(isListening: false)
+        ])
+    }
+
     @Test func aLateControlReplyCannotRewindANewerObservedMuteState() throws {
         var projection = ServiceCallStateProjection()
         let stream = UUID()

@@ -75,8 +75,11 @@ struct StagedSendTests {
     @Test func twoFilesAreTwoMessagesInOrderWithTheTextOnTheFirst() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
+        var feedback = 0
+        model.didBeginSending = { feedback += 1 }
         model.stage([Self.file("a"), Self.file("b")], in: .conversation)
         model.send(ComposedMessage(text: "hello"))
+        #expect(feedback == 1)
         await settleAutoMarkRead(until: "both sent") { model.stagedAttachments.isEmpty }
 
         let sent = await Self.sends(backend)
@@ -85,6 +88,7 @@ struct StagedSendTests {
             return "\(text)|\(attachments.map(\.name).joined())"
         }
         #expect(shapes == ["hello|a.png", "|b.png"])
+        #expect(feedback == 1)
         await model.stop()
     }
 

@@ -14,6 +14,7 @@ enum MacLaunchProbe: Sendable, Hashable {
     case spaces
     case meetResolve
     case meetCall
+    case notificationSound
 
     /// The first flag present wins, in this order.
     private static var flags: [(flag: String, probe: Self)] {
@@ -25,6 +26,7 @@ enum MacLaunchProbe: Sendable, Hashable {
         ]
         #if DEBUG
             flags.append(("--probe=meet-call", .meetCall))
+            flags.append(("--probe=notification-sound", .notificationSound))
         #endif
         flags.append(("--probe=edit", .edit))
         return flags

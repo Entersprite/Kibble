@@ -43,6 +43,8 @@ public enum NotificationPolicy {
         /// The local user sent it. Covers the channel echoing this client's own
         /// sends back as `messageReceived`.
         case ownMessage
+        /// A call-history entry. Live calls have a separate alert/ringtone path.
+        case callActivity
         /// Nothing has said who the local user is yet, so an own message cannot
         /// be told from anyone else's. Seconds at launch; guessing wrong would
         /// notify someone of their own message.
@@ -135,6 +137,9 @@ public enum NotificationPolicy {
     }
 
     public static func decide(_ arrival: Arrival) -> Decision {
+        if arrival.message.callStatus != nil {
+            return .suppress(.callActivity)
+        }
         guard let me = arrival.me else { return .suppress(.identityUnknown) }
         if arrival.message.sender == me {
             return .suppress(.ownMessage)

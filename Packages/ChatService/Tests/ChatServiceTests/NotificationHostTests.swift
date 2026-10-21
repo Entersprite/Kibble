@@ -125,6 +125,34 @@ struct NotificationHostTests {
         #expect(try store.notifications(for: device).items.isEmpty)
     }
 
+    @Test func callHistoryIsStoredButOnlyOrdinaryChatUsesTheMessageNotificationHost() async throws {
+        let harness = try await NotificationHarness.make()
+        try await ready(harness)
+        let account = harness.accounts[0]
+        let runtime = try #require(await harness.service.runtimes[account.id])
+        for (index, status) in [MessageCallStatus.started, .missed, .ended, .unknown("future")].enumerated() {
+            var message = ReconciliationBackend.message
+            message.id = .init("call-\(index)"); message.sender = .init("peer")
+            message.conversationID = .init("same")
+            message.callStatus = status
+            try await runtime.appendAndPublish(.messageReceived(message), live: true)
+            try await authEventually { await runtime.notificationJob == nil }
+            let storage = await runtime.storage
+            #expect(try storage.recentHistory(in: message.conversationID, limit: 32)
+                .first(where: { $0.id == message.id })?.callStatus == status)
+        }
+        #expect(await harness.host.posts.isEmpty)
+        var ordinary = ReconciliationBackend.message
+        ordinary.id = .init("ordinary"); ordinary.sender = .init("peer"); ordinary.text = "Call started"
+        ordinary.conversationID = .init("same")
+        try await runtime.appendAndPublish(.messageReceived(ordinary), live: true)
+        try await authEventually { await harness.host.posts.count == 1 }
+        let frame = try #require(await harness.host.posts.first)
+        #expect(try ServiceCodec.decode(HostNotificationPost.self, from: frame.payload).message.id == ordinary
+            .id)
+        await harness.service.shutdown()
+    }
+
     private func ready(_ harness: NotificationHarness) async throws {
         try await authEventually {
             for account in harness.accounts {

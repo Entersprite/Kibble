@@ -178,7 +178,8 @@ public enum ChannelEventMapping {
             mentions: mentions(message.annotations),
             links: links(message.annotations, text: message.textBody),
             cards: CardMapping.cards(message.attachments),
-            isReply: ThreadMapping.isReply(message)
+            isReply: ThreadMapping.isReply(message),
+            callStatus: CallMessageMapping.status(in: message.annotations)
         )
     }
 

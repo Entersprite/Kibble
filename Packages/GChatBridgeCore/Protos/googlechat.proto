@@ -992,7 +992,7 @@ message Annotation {
 		MembershipChangedMetadata membership_changed = 11;
 		VideoCallMetadata video_call_metadata = 12;
 		RoomUpdatedMetadata room_updated = 14;
-		//DYNProtoGsuiteIntegrationMetadata gsuite_integration_metadata = 16;
+		GsuiteIntegrationMetadata gsuite_integration_metadata = 16;
 		//DYNProtoGroupRetentionSettingsUpdatedMetaData group_retention_settings_updated = 17;
 		//DYNProtoBabelPlaceholderMetadata babel_placeholder_metadata = 18
 		//DYNProtoReadReceiptsSettingsUpdatedMetadata read_receipts_settings_metadata = 21;
@@ -2252,6 +2252,18 @@ message MeetingSpace {
 		optional bool cse_enabled = 6;
 	}
 	optional Settings settings = 15;
+}
+
+// Call history annotations. Raw enum values preserve future statuses.
+message CallAnnotationData {
+    // 0 unspecified, 1 started, 2 missed, 3 ended.
+    optional int32 call_status = 2;
+}
+
+message GsuiteIntegrationMetadata {
+    // 1 identifies the calling integration; other integrations are not calls.
+    optional int32 client_type = 1;
+    optional CallAnnotationData call_data = 6;
 }
 
 message VideoCallMetadata {

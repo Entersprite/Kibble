@@ -65,6 +65,24 @@ struct AudioCallWireTests {
         let call = try Wire.decode(AudioCallSnapshot.self, from: json)
         #expect(!call.isMuted)
         #expect(call.failureMessage == nil)
+        #expect(call.endReason == nil)
+    }
+
+    @Test func terminalReasonsHaveStableWireShapesAndPreserveNewerValues() throws {
+        for (value, json) in [
+            (AudioCallEndReason.localEnded, #""localEnded""#),
+            (.remoteEnded, #""remoteEnded""#), (.declined, #""declined""#),
+            (.unknown("futureCause"), #""futureCause""#)
+        ] {
+            #expect(try Wire.json(value) == json)
+            #expect(try Wire.decode(AudioCallEndReason.self, from: json) == value)
+        }
+        var call = try AudioCallSnapshot(
+            id: #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001")),
+            recipient: recipient, direction: .outgoing, phase: .ended
+        )
+        call.endReason = .remoteEnded
+        try expectWireStable(AudioCallEvent.snapshot(call), golden: "audio-call-remote-ended")
     }
 
     @Test func everyPhaseAndDirectionRoundTrips() throws {

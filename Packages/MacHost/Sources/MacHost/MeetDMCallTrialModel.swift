@@ -305,7 +305,7 @@ public final class MeetDMCallTrialModel {
                 incomingCall = call
                 incomingStatus = "Incoming call from a loaded human DM."
             }
-        case .cleared: incomingCall = nil
+        case .cleared, .remoteEnded: incomingCall = nil
         }
         await saveReport()
     }

@@ -9,6 +9,7 @@ struct MessageDeliveryWork {
 
 extension ChatSessionModel {
     func resetSubmissionWork() {
+        didBeginSending = nil
         sendTasks = [:]
         messageDeliveryWork = MessageDeliveryWork()
     }

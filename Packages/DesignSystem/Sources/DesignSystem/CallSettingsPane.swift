@@ -9,6 +9,7 @@ public enum CallFocusAccess: Equatable, Sendable {
 /// the person last chose.
 public enum CallRingtone: Hashable, Sendable {
     case kibble
+    case kibbleAlt
     case custom
 }
 
@@ -93,6 +94,7 @@ public struct CallSettingsPane: View {
                     .disabled(!state.showsPanel)
                 Picker("Ringtone", selection: ringtoneSelection) {
                     Text("Kibble").tag(RingtoneMenuItem.kibble)
+                    Text("Kibble Alternate").tag(RingtoneMenuItem.kibbleAlt)
                     if let name = state.customRingtoneName {
                         Text(name).tag(RingtoneMenuItem.custom)
                     }
@@ -136,11 +138,19 @@ public struct CallSettingsPane: View {
 
     private var ringtoneSelection: Binding<RingtoneMenuItem> {
         Binding(
-            get: { state.ringtone == .custom && state.customRingtoneName != nil ? .custom : .kibble },
+            get: {
+                switch state.ringtone {
+                case .kibble: .kibble
+                case .kibbleAlt: .kibbleAlt
+                case .custom: state.customRingtoneName != nil ? .custom : .kibble
+                }
+            },
             set: { item in
                 switch item {
                 case .kibble:
                     actions.setRingtone(.kibble)
+                case .kibbleAlt:
+                    actions.setRingtone(.kibbleAlt)
                 case .custom:
                     actions.setRingtone(.custom)
                 case .chooseFile:
@@ -170,6 +180,7 @@ public struct CallSettingsPane: View {
 /// The ringtone menu's rows: the two sounds, and the row that picks a file.
 private enum RingtoneMenuItem: Hashable {
     case kibble
+    case kibbleAlt
     case custom
     case chooseFile
 }

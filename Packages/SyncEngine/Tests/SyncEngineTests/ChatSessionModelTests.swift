@@ -113,7 +113,12 @@ extension ChatSessionModelTests {
 
         try await model.start()
         model.select(conversation)
+        var sends = 0
+        model.didBeginSending = { sends += 1 }
+        model.send(ComposedMessage(text: ""))
+        #expect(sends == 0)
         model.send(ComposedMessage(text: "hello from the composer"))
+        #expect(sends == 1)
 
         // Synchronous: the optimistic write happens inside `send` itself,
         // before the submitting `Task` is even scheduled.
@@ -136,6 +141,7 @@ extension ChatSessionModelTests {
             await Task.yield()
         }
         #expect(try #require(echo).localID == localID)
+        #expect(sends == 1)
 
         await model.stop()
     }

@@ -21,7 +21,8 @@ struct ServiceCallStateProjection {
         if previous?.recipients != state.recipients {
             events.append(.recipientsChanged(state.recipients))
         }
-        if previous?.isListening != state.isListening {
+        if !state.isListenerStarting,
+           previous?.isListening != state.isListening || previous?.isListenerStarting == true {
             events.append(.listenerChanged(isListening: state.isListening))
         }
         if let call = state.call, previous?.call != call {

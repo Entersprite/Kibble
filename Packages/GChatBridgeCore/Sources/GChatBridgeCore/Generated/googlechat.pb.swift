@@ -5829,19 +5829,26 @@ public nonisolated struct Annotation: @unchecked Sendable {
     set {_uniqueStorage()._metadata = .videoCallMetadata(newValue)}
   }
 
-  ///DYNProtoGsuiteIntegrationMetadata gsuite_integration_metadata = 16;
-  ///DYNProtoGroupRetentionSettingsUpdatedMetaData group_retention_settings_updated = 17;
-  ///DYNProtoBabelPlaceholderMetadata babel_placeholder_metadata = 18
-  ///DYNProtoReadReceiptsSettingsUpdatedMetadata read_receipts_settings_metadata = 21;
-  ///DYNProtoIncomingWebhookChangedMetadata incoming_webhook_changed_metadata = 22;
-  ///DYNProtoIntegrationConfigUpdatedMetadata integration_config_updated = 23;
-  ///DYNProtoConsentedAppUnfurlMetadata consented_app_unfurl_metadata = 24;
   public var roomUpdated: RoomUpdatedMetadata {
     get {
       if case .roomUpdated(let v)? = _storage._metadata {return v}
       return RoomUpdatedMetadata()
     }
     set {_uniqueStorage()._metadata = .roomUpdated(newValue)}
+  }
+
+  ///DYNProtoGroupRetentionSettingsUpdatedMetaData group_retention_settings_updated = 17;
+  ///DYNProtoBabelPlaceholderMetadata babel_placeholder_metadata = 18
+  ///DYNProtoReadReceiptsSettingsUpdatedMetadata read_receipts_settings_metadata = 21;
+  ///DYNProtoIncomingWebhookChangedMetadata incoming_webhook_changed_metadata = 22;
+  ///DYNProtoIntegrationConfigUpdatedMetadata integration_config_updated = 23;
+  ///DYNProtoConsentedAppUnfurlMetadata consented_app_unfurl_metadata = 24;
+  public var gsuiteIntegrationMetadata: GsuiteIntegrationMetadata {
+    get {
+      if case .gsuiteIntegrationMetadata(let v)? = _storage._metadata {return v}
+      return GsuiteIntegrationMetadata()
+    }
+    set {_uniqueStorage()._metadata = .gsuiteIntegrationMetadata(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -5856,14 +5863,14 @@ public nonisolated struct Annotation: @unchecked Sendable {
     case uploadMetadata(UploadMetadata)
     case membershipChanged(MembershipChangedMetadata)
     case videoCallMetadata(VideoCallMetadata)
-    ///DYNProtoGsuiteIntegrationMetadata gsuite_integration_metadata = 16;
+    case roomUpdated(RoomUpdatedMetadata)
     ///DYNProtoGroupRetentionSettingsUpdatedMetaData group_retention_settings_updated = 17;
     ///DYNProtoBabelPlaceholderMetadata babel_placeholder_metadata = 18
     ///DYNProtoReadReceiptsSettingsUpdatedMetadata read_receipts_settings_metadata = 21;
     ///DYNProtoIncomingWebhookChangedMetadata incoming_webhook_changed_metadata = 22;
     ///DYNProtoIntegrationConfigUpdatedMetadata integration_config_updated = 23;
     ///DYNProtoConsentedAppUnfurlMetadata consented_app_unfurl_metadata = 24;
-    case roomUpdated(RoomUpdatedMetadata)
+    case gsuiteIntegrationMetadata(GsuiteIntegrationMetadata)
 
   }
 
@@ -11747,6 +11754,61 @@ public nonisolated struct MeetingSpace: @unchecked Sendable {
   public init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+/// Call history annotations. Raw enum values preserve future statuses.
+public nonisolated struct CallAnnotationData: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 0 unspecified, 1 started, 2 missed, 3 ended.
+  public var callStatus: Int32 {
+    get {_callStatus ?? 0}
+    set {_callStatus = newValue}
+  }
+  /// Returns true if `callStatus` has been explicitly set.
+  public var hasCallStatus: Bool {self._callStatus != nil}
+  /// Clears the value of `callStatus`. Subsequent reads from it will return its default value.
+  public mutating func clearCallStatus() {self._callStatus = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _callStatus: Int32? = nil
+}
+
+public nonisolated struct GsuiteIntegrationMetadata: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 1 identifies the calling integration; other integrations are not calls.
+  public var clientType: Int32 {
+    get {_clientType ?? 0}
+    set {_clientType = newValue}
+  }
+  /// Returns true if `clientType` has been explicitly set.
+  public var hasClientType: Bool {self._clientType != nil}
+  /// Clears the value of `clientType`. Subsequent reads from it will return its default value.
+  public mutating func clearClientType() {self._clientType = nil}
+
+  public var callData: CallAnnotationData {
+    get {_callData ?? CallAnnotationData()}
+    set {_callData = newValue}
+  }
+  /// Returns true if `callData` has been explicitly set.
+  public var hasCallData: Bool {self._callData != nil}
+  /// Clears the value of `callData`. Subsequent reads from it will return its default value.
+  public mutating func clearCallData() {self._callData = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _clientType: Int32? = nil
+  fileprivate var _callData: CallAnnotationData? = nil
 }
 
 public nonisolated struct VideoCallMetadata: Sendable {
@@ -21584,7 +21646,7 @@ nonisolated extension FormatMetadata.FormatType: SwiftProtobuf._ProtoNameProvidi
 
 nonisolated extension Annotation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "Annotation"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{3}start_index\0\u{1}length\0\u{3}drive_metadata\0\u{3}user_mention_metadata\0\u{3}youtube_metadata\0\u{3}url_metadata\0\u{3}format_metadata\0\u{3}local_id\0\u{3}upload_metadata\0\u{3}membership_changed\0\u{3}video_call_metadata\0\u{3}server_invalidated\0\u{3}room_updated\0\u{3}slash_command_metadata\0\u{4}\u{4}unique_id\0\u{3}chip_render_type\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{3}start_index\0\u{1}length\0\u{3}drive_metadata\0\u{3}user_mention_metadata\0\u{3}youtube_metadata\0\u{3}url_metadata\0\u{3}format_metadata\0\u{3}local_id\0\u{3}upload_metadata\0\u{3}membership_changed\0\u{3}video_call_metadata\0\u{3}server_invalidated\0\u{3}room_updated\0\u{3}slash_command_metadata\0\u{3}gsuite_integration_metadata\0\u{4}\u{3}unique_id\0\u{3}chip_render_type\0")
 
   fileprivate class _StorageClass {
     var _type: AnnotationType? = nil
@@ -21766,6 +21828,19 @@ nonisolated extension Annotation: SwiftProtobuf.Message, SwiftProtobuf._MessageI
             _storage._metadata = .slashCommandMetadata(v)
           }
         }()
+        case 16: try {
+          var v: GsuiteIntegrationMetadata?
+          var hadOneofValue = false
+          if let current = _storage._metadata {
+            hadOneofValue = true
+            if case .gsuiteIntegrationMetadata(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._metadata = .gsuiteIntegrationMetadata(v)
+          }
+        }()
         case 19: try { try decoder.decodeSingularStringField(value: &_storage._uniqueID) }()
         case 20: try { try decoder.decodeSingularEnumField(value: &_storage._chipRenderType) }()
         default: break
@@ -21841,6 +21916,10 @@ nonisolated extension Annotation: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       case .slashCommandMetadata?: try {
         guard case .slashCommandMetadata(let v)? = _storage._metadata else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 15)
+      }()
+      case .gsuiteIntegrationMetadata?: try {
+        guard case .gsuiteIntegrationMetadata(let v)? = _storage._metadata else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 16)
       }()
       default: break
       }
@@ -28761,6 +28840,79 @@ nonisolated extension MeetingSpace.Settings: SwiftProtobuf.Message, SwiftProtobu
     if lhs._presentLock != rhs._presentLock {return false}
     if lhs._moderationEnabled != rhs._moderationEnabled {return false}
     if lhs._cseEnabled != rhs._cseEnabled {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension CallAnnotationData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "CallAnnotationData"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{2}call_status\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self._callStatus) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._callStatus {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: CallAnnotationData, rhs: CallAnnotationData) -> Bool {
+    if lhs._callStatus != rhs._callStatus {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension GsuiteIntegrationMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "GsuiteIntegrationMetadata"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}client_type\0\u{4}\u{5}call_data\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self._clientType) }()
+      case 6: try { try decoder.decodeSingularMessageField(value: &self._callData) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._clientType {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._callData {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: GsuiteIntegrationMetadata, rhs: GsuiteIntegrationMetadata) -> Bool {
+    if lhs._clientType != rhs._clientType {return false}
+    if lhs._callData != rhs._callData {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -28,6 +28,12 @@
 	<!-- Keeps the picked folder across launches, as a security-scoped bookmark. -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
+	<!-- Native notification sounds resolve from the user's sound library on macOS.
+	     Limit the installation exception to that directory. -->
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+	<array>
+		<string>/Library/Sounds/</string>
+	</array>
 	<!-- Sparkle's installer and status services, which a sandboxed app reaches
 	     by name. Sparkle's own documentation, "Sandboxing". -->
 	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>

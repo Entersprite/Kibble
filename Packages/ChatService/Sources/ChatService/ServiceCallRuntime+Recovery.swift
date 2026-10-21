@@ -31,6 +31,7 @@ extension ServiceCallRuntime {
         try checkActive()
         recoveryBarrier = nil
         state.isListening = false
+        state.isListenerStarting = false
         state.recipients = []
         state.lastEvent = .listenerChanged(isListening: false)
         publish()

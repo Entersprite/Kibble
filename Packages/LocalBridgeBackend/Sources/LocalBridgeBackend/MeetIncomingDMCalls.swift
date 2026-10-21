@@ -14,6 +14,8 @@ public actor MeetIncomingDMCalls {
         case listening, listeningFailed
         case ring(IncomingMeetDMCall)
         case cleared
+        /// The provider ended the pending invitation, rather than local cleanup or expiry.
+        case remoteEnded
     }
 
     private struct Pending {
@@ -222,7 +224,7 @@ public actor MeetIncomingDMCalls {
             guard pending?.ring.id == id else { return }
             pending = nil
             expiry?.cancel()
-            await receive?(.cleared)
+            await receive?(.remoteEnded)
         case .notification(.stopped): break // The transport reports subscription failures.
         }
     }
