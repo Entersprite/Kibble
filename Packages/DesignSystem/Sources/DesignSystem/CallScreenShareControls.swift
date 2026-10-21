@@ -28,12 +28,8 @@ struct CallScreenShareButton: View {
         .disabled(state.phase == .stopping)
     }
 
+    /// The menu bar's Call menu says the same (`CallMenu`).
     private var title: String {
-        switch state.phase {
-        case .idle: "Share Screen…"
-        case .preparing: "Cancel Sharing"
-        case .sharing: "Stop Sharing"
-        case .stopping: "Stopping Sharing…"
-        }
+        CallMenu.sharingTitle(state.phase)
     }
 }
