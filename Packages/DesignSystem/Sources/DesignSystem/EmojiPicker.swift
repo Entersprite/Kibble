@@ -246,7 +246,8 @@ private struct EmojiCategoryBar: View {
     }
 }
 
-/// The picker's sections as a grid of 32 pt cells, with pinned headers.
+/// The picker's sections as a grid of cells up to 32 pt, each under its
+/// header.
 /// Its own view so it can be rendered without the scroll view around it.
 struct EmojiPickerGrid: View {
     nonisolated static let columns = 9
@@ -278,11 +279,22 @@ struct EmojiPickerGrid: View {
         return nil
     }
 
+    /// Nine columns that share the width the scroll view leaves: up to 32 pt
+    /// each, narrower when a scroller that is always shown takes its 15 pt,
+    /// which fixed 32-pt columns overran. (The saluting face's right side is
+    /// cut on macOS 27 wherever it is drawn, by AppKit text drawing too, so
+    /// it is not a column clipping.)
+    nonisolated static let gridColumns = Array(
+        repeating: GridItem(.flexible(minimum: 28, maximum: 32), spacing: 4),
+        count: columns
+    )
+
     var body: some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.fixed(32), spacing: 4), count: Self.columns),
-            alignment: .leading, spacing: 4, pinnedViews: [.sectionHeaders]
-        ) {
+        // Headers scroll with their emoji rather than pinning: a pinned
+        // header needs a background of its own, and in the picker's glass
+        // popover that drew as a solid band. The category bar jumps between
+        // sections instead.
+        LazyVGrid(columns: Self.gridColumns, alignment: .leading, spacing: 4) {
             ForEach(sections) { section in
                 Section {
                     ForEach(section.items) { item in
@@ -308,8 +320,8 @@ struct EmojiPickerGrid: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 4)
-                        .background(.background)
+                        .padding(.top, 6)
+                        .padding(.bottom, 2)
                         .accessibilityAddTraits(.isHeader)
                         .id(Self.headerID(section))
                 }
@@ -325,7 +337,7 @@ struct EmojiPickerGrid: View {
                 Text(item.choice.emoji).font(.system(size: 22))
             }
         }
-        .frame(width: 32, height: 32)
+        .frame(minWidth: 28, maxWidth: 32, minHeight: 32, maxHeight: 32)
         .contentShape(Rectangle())
     }
 }
