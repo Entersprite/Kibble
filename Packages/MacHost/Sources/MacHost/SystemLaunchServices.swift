@@ -255,10 +255,6 @@ public final class SystemLaunchServices: LaunchServices {
         downloads
     }
 
-    public func chooseFilesToSend() -> [URL] {
-        SystemFilePicker.chooseFilesToSend()
-    }
-
     /// Where to write the channel trace, if `--probe=channeltrace` was asked
     /// for - `nil` on every ordinary launch.
     ///

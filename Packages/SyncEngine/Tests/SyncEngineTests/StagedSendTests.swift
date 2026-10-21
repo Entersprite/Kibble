@@ -127,6 +127,29 @@ struct StagedSendTests {
         await model.stop()
     }
 
+    /// What the host keeps readable: every composer's files, the open
+    /// conversation's or not, until each is sent, removed or the session
+    /// stops.
+    @Test func everyStagedFileIsReportedUntilItLeaves() async throws {
+        let backend = RecordingBackend()
+        let (model, first) = try await Self.model(backend)
+        model.stage([Self.file("a")], in: .conversation)
+        let other = try #require(model.conversations.first { $0.id != first })
+        model.select(other.id)
+        model.stage([Self.file("b")], in: .conversation)
+        #expect(model.stagedFileIDs == ["a", "b"])
+
+        model.unstage("b", in: .conversation)
+        #expect(model.stagedFileIDs == ["a"])
+
+        model.select(first)
+        model.send(ComposedMessage(text: ""))
+        await settleAutoMarkRead(until: "the staged file has gone") { model.stagedFileIDs.isEmpty }
+        model.stage([Self.file("c")], in: .conversation)
+        await model.stop()
+        #expect(model.stagedFileIDs.isEmpty)
+    }
+
     @Test func aRefusedUploadMarksTheFileFailedAndHandsTheTextBack() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)

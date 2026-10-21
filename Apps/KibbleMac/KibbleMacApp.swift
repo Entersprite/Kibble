@@ -106,6 +106,7 @@ struct KibbleMacApp: App {
                 }
             }
             NewConversationCommands(environment: environment)
+            FormatCommands()
             AccountCommands(host: appDelegate.accountHost, isPanelOpen: $isAccountPanelOpen) {
                 settingsPane = "accounts"
             }

@@ -30,8 +30,6 @@ final class FakeLaunchServices: LaunchServices {
     var storedSessionExists = true
     var launchReportRequested = false
     var diagnosticsRequested = false
-    /// What the composer's paperclip is answered with.
-    var filesToSend: [URL] = []
     var messageFeedbackCount = 0
     func messageSending() {
         messageFeedbackCount += 1
@@ -105,10 +103,6 @@ final class FakeLaunchServices: LaunchServices {
         downloadPlatformFake = FakeDownloadPlatform(folder: downloadDirectory)
         store = try existingStore ?? ChatStore.inMemory()
         backend = FakeLaunchBackend(capabilities: backendCapabilities ?? Capabilities(canSendMessages: true))
-    }
-
-    func chooseFilesToSend() -> [URL] {
-        filesToSend
     }
 
     func hasStoredSession() async throws -> Bool {

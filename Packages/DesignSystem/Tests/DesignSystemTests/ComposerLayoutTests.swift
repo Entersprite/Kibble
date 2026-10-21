@@ -27,7 +27,7 @@
         }
 
         private var files: ComposerAttachmentActions {
-            ComposerAttachmentActions(choose: {}, stage: { _ in }, remove: { _ in })
+            ComposerAttachmentActions(stage: { _ in }, remove: { _ in })
         }
 
         @Test func theConversationAndThreadComposersAreTheSameHeight() {
@@ -75,8 +75,9 @@
             #expect(path.contains(CGPoint(x: 298, y: 90)))
         }
 
-        /// The waveform shows on an empty field, as Messages' does, and text
-        /// hides it. An edit never shows it, even one emptied.
+        /// The microphone shows on an empty field, where Messages shows its
+        /// waveform, and text hides it. An edit never shows it, even one
+        /// emptied.
         @Test func dictationIsOfferedOnAnEmptyFieldOnly() {
             var draft = ComposerDraft()
             #expect(ComposerLayout.offersDictation(draft))

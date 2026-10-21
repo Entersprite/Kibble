@@ -10,6 +10,7 @@ public extension AppEnvironment {
         await calls.stop()
         identityTask?.cancel()
         identityTask = nil
+        endStagedFiles()
         settings.onChange = nil
         receiptGate = nil
         if let driver {

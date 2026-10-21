@@ -79,11 +79,6 @@ public protocol LaunchServices: AnyObject {
     /// holds the chosen folder.
     func downloadPlatform() -> any DownloadPlatform
 
-    /// Asks which files to send, and answers the files chosen, or none when
-    /// the person cancelled. A requirement with a default, so a host with no
-    /// picker answers none and the composer's + does nothing worse
-    /// than nothing.
-    func chooseFilesToSend() -> [URL]
     /// Device-local feedback after a composer send passes local admission.
     func messageSending()
     var embeddedMediaOpener: (@MainActor @Sendable (URL) -> Void)? { get }
@@ -97,9 +92,6 @@ public extension LaunchServices {
 
     func closeEmbeddedMedia() {}
     func messageSending() {}
-    func chooseFilesToSend() -> [URL] {
-        []
-    }
 }
 
 /// What the launch was asked for, parsed once.

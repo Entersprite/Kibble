@@ -3,10 +3,20 @@ import SwiftUI
 
 /// The `@` list above the composer (mention composer spec §2): avatar, name,
 /// email, presence; the highlighted row is what Return and Tab pick.
+///
+/// It behaves as a menu does: one highlight, which the arrow keys and the
+/// pointer both move, drawn in the system's selection color with the row's
+/// text made prominent on it. The keyboard stays in the field, so VoiceOver
+/// hears the highlighted person announced, and only VoiceOver: an
+/// announcement is speech, and nobody else asked for it.
 struct MentionSuggestionList: View {
     let suggestions: [MentionSuggestion]
     let highlighted: Int
     let pick: (MentionSuggestion) -> Void
+    /// The pointer entered a row: it becomes the highlighted one.
+    var hover: (Int) -> Void = { _ in }
+
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -14,20 +24,39 @@ struct MentionSuggestionList: View {
                 if suggestion.outsideConversation, index > 0, !suggestions[index - 1].outsideConversation {
                     Divider().padding(.vertical, 2)
                 }
+                let isHighlighted = index == highlighted
                 Button { pick(suggestion) } label: {
                     MentionSuggestionRow(suggestion: suggestion)
                 }
                 .buttonStyle(.plain)
                 .background(
-                    index == highlighted ? Color.accentColor.opacity(0.2) : Color.clear,
+                    isHighlighted ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear),
                     in: .rect(cornerRadius: 6)
                 )
+                .environment(\.backgroundProminence, isHighlighted ? .increased : .standard)
+                .accessibilityAddTraits(isHighlighted ? .isSelected : [])
+                .onHover { inside in
+                    if inside {
+                        hover(index)
+                    }
+                }
             }
         }
         .padding(4)
         .frame(width: 280)
-        .background(.regularMaterial, in: .rect(cornerRadius: 10))
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+        // A control floating over the transcript, as a menu does: glass, not
+        // a material with a drawn shadow.
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+        .onChange(of: announcement, initial: true) { _, spoken in
+            guard voiceOverEnabled, let spoken else { return }
+            AccessibilityNotification.Announcement(spoken).post()
+        }
+    }
+
+    /// What VoiceOver hears for the highlighted row: the row's own two lines.
+    private var announcement: String? {
+        guard suggestions.indices.contains(highlighted) else { return nil }
+        return MentionSuggestionRow.spoken(suggestions[highlighted])
     }
 }
 
@@ -43,6 +72,13 @@ struct MentionSuggestionRow: View {
         guard let member = suggestion.member else { return "Notify everyone in this space" }
         guard suggestion.outsideConversation else { return member.email ?? "" }
         return member.email.map { "Not in this space · \($0)" } ?? "Not in this space"
+    }
+
+    /// The title, then the detail when there is one, as VoiceOver reads them.
+    nonisolated static func spoken(_ suggestion: MentionSuggestion) -> String {
+        let title = suggestion.member == nil ? "@all" : suggestion.name
+        let detail = detail(of: suggestion)
+        return detail.isEmpty ? title : "\(title), \(detail)"
     }
 
     var body: some View {

@@ -106,8 +106,4 @@ final class ServiceAccountLaunchServices: LaunchServices {
     func downloadPlatform() -> any DownloadPlatform {
         downloads
     }
-
-    func chooseFilesToSend() -> [URL] {
-        SystemFilePicker.chooseFilesToSend()
-    }
 }
