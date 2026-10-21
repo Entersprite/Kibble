@@ -12,6 +12,12 @@ import PackageDescription
 /// launch machine - see the design doc §3.1.
 let package = Package(
     name: "AppCore",
+    // Status and failure text shown to the person is written in English, the
+    // only language so far. Resources/Localizable.xcstrings is the String
+    // Catalog, read with String(localized: "…", bundle: #bundle). The resource
+    // bundle is also what lets `#bundle` compile here: in a target without
+    // one, SwiftPM makes the macro an error.
+    defaultLocalization: "en",
     platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "AppCore", targets: ["AppCore"])
@@ -27,6 +33,7 @@ let package = Package(
         .target(
             name: "AppCore",
             dependencies: ["ChatKit", "ChatAPI", "ServiceClient", "SyncEngine", "DesignSystem"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
