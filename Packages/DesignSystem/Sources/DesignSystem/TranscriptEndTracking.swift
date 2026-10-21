@@ -1,3 +1,4 @@
+import ChatKit
 import SwiftUI
 
 /// The actual last row's bottom determines whether arrivals should follow.
@@ -10,11 +11,19 @@ import SwiftUI
 /// near-bottom margin still counts as growth seen from the bottom rather
 /// than as the person scrolling away.
 struct TranscriptEndTracking: ViewModifier {
-    let isLast: Bool
+    let id: Message.ID
+    /// The newest message when the list drew this row.
+    let drawnNewest: Message.ID?
+    /// The newest message now, for when the row leaves (`TranscriptNewest`).
+    let newest: TranscriptNewest
     @Binding var nearBottom: Bool
     /// Asked to scroll to the newest end after the last row grew; `nil`
     /// follows nothing.
     var grew: (() -> Void)?
+
+    private var isLast: Bool {
+        newest.id == id
+    }
 
     struct End: Equatable {
         var height: CGFloat
@@ -22,11 +31,12 @@ struct TranscriptEndTracking: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content
+        let drawnLast = drawnNewest == id
+        return content
             .onGeometryChange(for: End.self) { geometry in
                 End(
                     height: geometry.size.height,
-                    nearBottom: isLast && Self.isNearBottom(
+                    nearBottom: drawnLast && Self.isNearBottom(
                         rowHeight: geometry.size.height,
                         viewport: geometry.bounds(of: .scrollView)
                     )
@@ -42,6 +52,11 @@ struct TranscriptEndTracking: ViewModifier {
                     nearBottom = new.nearBottom
                 }
             }
+            // Read when the row leaves, not when it was last drawn: a row
+            // that is still the newest left because the list scrolled away
+            // from it. One that is no longer the newest was replaced or
+            // removed, as a sent message's row is when the service confirms
+            // it, and the list has not moved.
             .onDisappear {
                 if isLast {
                     nearBottom = false
@@ -58,5 +73,24 @@ struct TranscriptEndTracking: ViewModifier {
     /// rounding is not growth.
     nonisolated static func followsGrowth(from old: End, to new: End) -> Bool {
         old.nearBottom && new.height > old.height + 0.5
+    }
+}
+
+/// The transcript's newest message as of its latest render. A class, so
+/// keeping it current draws nothing, and so a row that leaves reads the
+/// newest as it is then rather than as it was when the row was last drawn.
+///
+/// Measured in the hosted transcript: a sent message's row is replaced when
+/// the service confirms it, and clearing `nearBottom` on that row's leaving
+/// left the transcript believing it had scrolled away. Jump to Latest showed
+/// at the bottom, and the newest row's growth was no longer followed; new
+/// arrivals read the same flag.
+final class TranscriptNewest {
+    private(set) var id: Message.ID?
+
+    /// Records the newest of `messages` while the list draws them.
+    func track(_ messages: [Message]) -> Message.ID? {
+        id = messages.last?.id
+        return id
     }
 }

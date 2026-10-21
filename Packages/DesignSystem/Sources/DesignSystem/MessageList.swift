@@ -49,6 +49,9 @@ public struct MessageList: View {
     @State private var latestJumpRequested = false
     /// The messages on screen, kept unobserved: read only when leaving.
     @State private var seen = TranscriptSeen()
+    /// The newest message as of the latest render, kept unobserved: read by
+    /// the newest row when it leaves (`TranscriptEndTracking`).
+    @State private var newest = TranscriptNewest()
 
     /// The message a search opened, while its two-second tint is showing
     /// (search spec §1.5). `marked` is set once per open, so a later render
@@ -107,6 +110,7 @@ public struct MessageList: View {
             messages: state.messages, occurrences: state.meetingSeries?.occurrences ?? []
         )
         let placements = TranscriptGrouping.placements(messages: state.messages, dividers: dividers)
+        let newestID = newest.track(state.messages)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -147,7 +151,7 @@ public struct MessageList: View {
                         .id(message.id)
                         .modifier(TranscriptAnchorTracking(id: message.id, anchor: readingAnchor))
                         .modifier(TranscriptEndTracking(
-                            isLast: message.id == state.messages.last?.id, nearBottom: $nearBottom
+                            id: message.id, drawnNewest: newestID, newest: newest, nearBottom: $nearBottom
                         ) { followGrowth(proxy) })
                     }
                     if state.hasNewerMessages, let loadNewerMessages {

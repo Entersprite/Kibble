@@ -98,6 +98,38 @@
             })
         }
 
+        /// A sent message's row is replaced when the service confirms it:
+        /// the local id goes and the service's id arrives in its place. The
+        /// transcript has not moved, so it still reads as at the bottom: the
+        /// newest row growing afterwards is followed (that scroll is not
+        /// animated, so a hosted window can check it), and Jump to Latest
+        /// stays hidden for the same reason.
+        @Test func aConfirmedSendKeepsTheTranscriptAtTheBottom() async throws {
+            var state = ChatSceneState(
+                selected: conversation,
+                messages: (0 ..< 40).map { message($0, text: "Message \($0): some words in a bubble") }
+            )
+            state.messages[39].id = Message.ID("local/sent")
+            let (window, host) = host(state, width: 480)
+            defer { window.close() }
+            let scroll = try #require(scrollView(in: host))
+            let atBottom = {
+                guard let document = scroll.documentView else { return false }
+                return document.frame.height - scroll.documentVisibleRect.maxY < 14
+            }
+            #expect(await settle(host) { (scroll.documentView?.frame.height ?? 0) > 1000 && atBottom() })
+            state.messages[39].id = Message.ID("row-39")
+            host.rootView = MessageList(state: state)
+            _ = await settle(host) { false }
+            let before = scroll.documentView?.frame.height ?? 0
+            state.messages[39].reactions = [Reaction(emoji: "👍", count: 1)]
+            state.messages[39].text += String(repeating: " and then the text grew longer", count: 12)
+            host.rootView = MessageList(state: state)
+            #expect(await settle(host) {
+                (scroll.documentView?.frame.height ?? 0) > before + 60 && atBottom()
+            })
+        }
+
         /// Read from the middle, growth below leaves the reading position.
         @Test func aGrowingLastRowLeavesAReaderInTheMiddleAlone() async throws {
             var state = ChatSceneState(
