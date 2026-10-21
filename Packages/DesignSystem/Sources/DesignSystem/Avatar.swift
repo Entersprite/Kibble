@@ -25,6 +25,8 @@ public struct Avatar: View {
     /// or leaving never changes the view's structure.
     private let badged: Bool
     private var presence: Presence?
+    /// Set where the person's name is drawn beside the avatar (`besideName()`).
+    private var faceHidden = false
 
     public init(member: Member.ID, directory: [Member.ID: Member], size: CGFloat = 26) {
         self.member = member
@@ -42,6 +44,16 @@ public struct Avatar: View {
         self.presence = presence
     }
 
+    /// For an avatar drawn beside the person's name: VoiceOver skips the
+    /// photo or initials, which would only repeat the name as letters, and
+    /// still reads the presence badge. A flag on the face rather than a
+    /// different view, so the structure is the same either way.
+    public func besideName() -> Avatar {
+        var avatar = self
+        avatar.faceHidden = true
+        return avatar
+    }
+
     /// Where `badged`, the mask and the overlay are always there, empty
     /// without a badge, so a presence change never alters the view's
     /// structure - which would rebuild the photo loader and refetch the photo.
@@ -50,6 +62,7 @@ public struct Avatar: View {
     public var body: some View {
         if badged {
             face
+                .accessibilityHidden(faceHidden)
                 .mask { PresenceBadge.cutout(for: presence, avatarSize: size) }
                 .overlay(alignment: .bottomTrailing) {
                     if let presence {
@@ -58,6 +71,7 @@ public struct Avatar: View {
                 }
         } else {
             face
+                .accessibilityHidden(faceHidden)
         }
     }
 

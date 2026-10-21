@@ -142,12 +142,10 @@ struct SidebarSeeAllRow: View {
 
     var body: some View {
         Button(action: open) {
-            // A row's 20-point picture column and 8-point gap, so the words
-            // line up with the conversations' names.
+            // A `Label`, as the conversations' rows are, so the words line
+            // up with their names at every sidebar icon size.
             HStack(spacing: 8) {
-                Image(systemName: "ellipsis")
-                    .frame(width: 20)
-                Text("See All")
+                Label("See All", systemImage: "ellipsis")
                 Spacer(minLength: 4)
             }
             .foregroundStyle(.secondary)

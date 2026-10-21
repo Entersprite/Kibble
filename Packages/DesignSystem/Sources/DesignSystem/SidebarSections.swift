@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+import SwiftUI
 
 /// One group of conversations in the sidebar.
 public struct SidebarSection: Identifiable, Sendable, Hashable {
@@ -131,21 +132,30 @@ public enum SidebarSections {
 /// state for a host that keeps none (previews, tests, a future host).
 @MainActor
 enum SectionCollapse {
-    static func collapsed(
-        state: ChatSceneState, actions: ChatSceneActions, local: Set<String>
-    ) -> Set<String> {
-        actions.setSectionCollapsed == nil ? local : state.collapsedSections
-    }
-
-    static func set(
-        _ id: String, collapsed: Bool, actions: ChatSceneActions, local: inout Set<String>
-    ) {
-        if let remember = actions.setSectionCollapsed {
-            remember(id, collapsed)
-        } else if collapsed {
-            local.insert(id)
-        } else {
-            local.remove(id)
-        }
+    /// Whether one section is expanded, as the binding `Section(isExpanded:)`
+    /// takes, over the collapsed set. `SidebarSection.id` is stable across
+    /// rebuilds, so a section keeps its disclosure while its contents change,
+    /// and across launches where the host keeps it.
+    ///
+    /// The closures hold only the host's set and its callback, taken out
+    /// here, never the window's whole snapshot: SwiftUI keeps the binding
+    /// with the section and compares it on every update.
+    static func expansion(
+        of id: String, state: ChatSceneState, actions: ChatSceneActions, local: Binding<Set<String>>
+    ) -> Binding<Bool> {
+        let remember = actions.setSectionCollapsed
+        let stored = remember == nil ? nil : state.collapsedSections
+        return Binding(
+            get: { !(stored ?? local.wrappedValue).contains(id) },
+            set: { isExpanded in
+                if let remember {
+                    remember(id, !isExpanded)
+                } else if isExpanded {
+                    local.wrappedValue.remove(id)
+                } else {
+                    local.wrappedValue.insert(id)
+                }
+            }
+        )
     }
 }
