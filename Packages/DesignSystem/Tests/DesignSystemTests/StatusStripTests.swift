@@ -72,6 +72,15 @@ struct StatusStripTests {
 }
 
 extension StatusStripTests {
+    /// VoiceOver hears a problem as it appears, and nothing for progress or a
+    /// probe's notice. (Whether VoiceOver is on is checked where it posts.)
+    @Test func onlyAWarningIsAnnounced() {
+        #expect(StatusStrip.announcement(for: .warning("Disconnected.")) == "Disconnected.")
+        #expect(StatusStrip.announcement(for: .progress("Connecting…")) == nil)
+        #expect(StatusStrip.announcement(for: .notice("Written to people-probe.txt.")) == nil)
+        #expect(StatusStrip.announcement(for: nil) == nil)
+    }
+
     @Test func resourceRefreshFailureDoesNotClaimConnectionFailure() {
         var state = ChatSceneState(connection: .connected)
         state.resourceSyncStatuses = [.init(resource: .directory, phase: .catchingUp)]

@@ -20,7 +20,7 @@ public struct SearchOverlay: View {
 
     @State private var text: String
     /// What `actions.textChanged` was last told, so a text set here alongside
-    /// a query (Clear, "Messages from") is not sent a second time.
+    /// a query (Clear, "Messages From") is not sent a second time.
     @State private var sent: String
     @State private var selection: SearchRow?
     /// Whether `selection` came from ↑↓ or a hover since the last keystroke,
@@ -61,6 +61,9 @@ public struct SearchOverlay: View {
                 Color.black.opacity(0.18)
                     .contentShape(Rectangle())
                     .onTapGesture { actions.hide() }
+                    // Escape closes the panel too, so VoiceOver has no use
+                    // for the dimmed window behind it.
+                    .accessibilityHidden(true)
                 panel
                     .frame(width: SearchOverlayLayout.panelWidth(for: geo.size.width))
                     .frame(
@@ -79,6 +82,8 @@ public struct SearchOverlay: View {
                 selection = SearchRows.rows(search).first
                 explicitPick = false
             }
+            // A hop rather than `defaultFocus`, which a hosted test could not
+            // show landing in a view inserted into a window already focused.
             DispatchQueue.main.async { focused = true }
         }
         .onChange(of: text) {
@@ -139,9 +144,17 @@ public struct SearchOverlay: View {
             Divider()
             footer
         }
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
-        .clipShape(RoundedRectangle(cornerRadius: 22))
+        // The shape a row's highlight follows (`ConcentricRectangle`).
+        .containerShape(SearchOverlayLayout.panelShape)
+        // Nothing clipped after the glass: it already takes the panel's
+        // shape, and a clip would cut into the effect's own edge. Nothing in
+        // the panel reaches its corners to need one.
+        .glassEffect(.regular, in: SearchOverlayLayout.panelShape)
         .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
+        // One element VoiceOver stays inside while it is open, as in a sheet.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Search")
+        .accessibilityAddTraits(.isModal)
     }
 
     // MARK: The field
@@ -231,12 +244,13 @@ public struct SearchOverlay: View {
     }
 
     @ViewBuilder private var recents: some View {
-        header("Recent searches")
+        header("Recent Searches")
         ForEach(search.recents, id: \.self) { recent in
             row(.recent(recent)) {
                 HStack(spacing: 10) {
                     Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
                         .frame(width: 28)
+                        .accessibilityHidden(true)
                     Text(recent)
                     Spacer()
                 }
@@ -322,7 +336,7 @@ public struct SearchOverlay: View {
         case .trigger?:
             // A new trigger per page, so the next one appears at the new end.
             if search.hits.isEmpty {
-                Button("Search more messages", action: actions.loadMore)
+                Button("Search More Messages", action: actions.loadMore)
                     .buttonStyle(.link)
                     .frame(maxWidth: .infinity)
             } else {
@@ -334,13 +348,21 @@ public struct SearchOverlay: View {
             EmptyView()
         }
     }
+}
 
-    private func row(_ row: SearchRow, @ViewBuilder content: () -> some View) -> some View {
+/// A row, outside the struct so its body stays in lint's limit.
+private extension SearchOverlay {
+    /// A row is one button to VoiceOver: its words, whether it is the one
+    /// Return opens, and opening it as the default action. A person row's
+    /// "Messages From" button is combined into it; that VoiceOver offers it
+    /// as the row's second action is `[Verify]`.
+    func row(_ row: SearchRow, @ViewBuilder content: () -> some View) -> some View {
         content()
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background {
-                RoundedRectangle(cornerRadius: 10)
+                // Rounded in step with the panel's corners.
+                ConcentricRectangle(corners: .concentric(minimum: .fixed(10)), isUniform: true)
                     .fill(selection == row ? Color.accentColor.opacity(0.22) : .clear)
             }
             .contentShape(Rectangle())
@@ -351,45 +373,10 @@ public struct SearchOverlay: View {
                     explicitPick = true
                 }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(selection == row ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { open(row) }
             .padding(.horizontal, 8)
             .id(row)
-    }
-}
-
-/// The panel's fixed pieces, outside the struct so its body stays in lint's limit.
-private extension SearchOverlay {
-    func note(_ text: String) -> some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-    }
-
-    func header(_ title: String, trailing: String? = nil, loading: Bool = false) -> some View {
-        HStack(spacing: 6) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            Spacer()
-            if loading {
-                ProgressView().controlSize(.mini)
-                Text("Searching…").font(.caption).foregroundStyle(.tertiary)
-            } else if let trailing {
-                Text(trailing).font(.caption).monospacedDigit().foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 10)
-        .padding(.bottom, 4)
-    }
-
-    var footer: some View {
-        HStack(spacing: 14) {
-            Hint(keys: "↑↓", label: "Select")
-            Hint(keys: "↩", label: "Open")
-            Hint(keys: "esc", label: "Close")
-            Spacer()
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 9)
     }
 }

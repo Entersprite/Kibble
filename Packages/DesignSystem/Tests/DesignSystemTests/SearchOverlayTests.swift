@@ -35,8 +35,40 @@ struct SearchOverlayTests {
 
     @Test func dateChoicesCountBackFromNow() {
         let now = Date(timeIntervalSince1970: 1_791_000_000)
-        #expect(DateChoice.olderThanAWeek.bound(now: now) == now.addingTimeInterval(-7 * 86400))
+        #expect(DateChoice.week.bound(now: now) == now.addingTimeInterval(-7 * 86400))
+        #expect(DateChoice.day.bound(now: now) == now.addingTimeInterval(-86400))
+        #expect(DateChoice.year.bound(now: now) == now.addingTimeInterval(-365 * 86400))
         #expect(DateChoice.any.bound(now: now) == nil)
+    }
+
+    /// Each Date chip offers its own choices, named in title case.
+    @Test func eachDateChipNamesItsOwnChoices() {
+        #expect(DateChoice.older.map(\.olderTitle) == [
+            "Any Time", "Older Than a Week", "Older Than a Month", "Older Than a Year"
+        ])
+        #expect(DateChoice.newer.map(\.newerTitle) == [
+            "Any Time", "Past Day", "Past Week", "Past Month", "Past Year"
+        ])
+    }
+
+    /// The menu checks the choice that made the query's instant, without
+    /// reading the clock: Any Time with no bound, the remembered choice for
+    /// its own bound, and nothing for a bound it did not make.
+    @Test func aDateChipChecksTheChoiceThatMadeItsBound() {
+        let bound = Date(timeIntervalSince1970: 1_790_000_000)
+        let pick = DatePick(choice: .month, bound: bound)
+        #expect(DatePick.checked(nil, remembered: pick) == .any)
+        #expect(DatePick.checked(nil, remembered: nil) == .any)
+        #expect(DatePick.checked(bound, remembered: pick) == .month)
+        #expect(DatePick.checked(bound.addingTimeInterval(1), remembered: pick) == nil)
+        #expect(DatePick.checked(bound, remembered: nil) == nil)
+    }
+
+    @Test func theHasChipChecksOneChoice() {
+        #expect(HasChoice.of(MessageSearchQuery()) == .anything)
+        #expect(HasChoice.of(MessageSearchQuery(hasFile: true)) == .file)
+        #expect(HasChoice.of(MessageSearchQuery(hasLink: true)) == .link)
+        #expect(HasChoice.of(MessageSearchQuery(hasFile: true, hasLink: true)) == nil)
     }
 
     // MARK: Selection: Spotlight-like — the top result, unless a row is picked
