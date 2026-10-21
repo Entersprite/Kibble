@@ -164,9 +164,14 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         return try encoder.encode(export)
     }
 
+    /// Help › Export Diagnostics…. The panel says what the file holds and
+    /// what it leaves out, since the menu item has no room to.
     @MainActor
     public func export() {
         let panel = NSSavePanel()
+        panel.title = "Export Diagnostics"
+        panel.prompt = "Export"
+        panel.message = Self.exportDescription
         panel.nameFieldStringValue = "kibble-diagnostics.json"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -179,6 +184,11 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
             alert.runModal()
         }
     }
+
+    static let exportDescription = "Saves available crash and hang reports, recent read-state errors, "
+        + "history response summaries, and memory samples. The export contains app version, error codes, "
+        + "stack offsets, and request ages. It excludes messages, account details, file paths, and memory "
+        + "addresses. Reopen Kibble after a crash before exporting."
 }
 
 private struct DiagnosticExport: Codable {

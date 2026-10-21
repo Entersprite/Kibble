@@ -7,11 +7,12 @@ public enum UpdateFrequency: String, CaseIterable, Sendable {
     case hourly
     case daily
 
+    /// Menu items, so in title case.
     var title: String {
         switch self {
-        case .atLaunch: "At launch"
-        case .hourly: "Every hour"
-        case .daily: "Every day"
+        case .atLaunch: "At Launch"
+        case .hourly: "Every Hour"
+        case .daily: "Every Day"
         }
     }
 }
@@ -103,9 +104,20 @@ public struct UpdateSettingsPane: View {
         Form {
             Section {
                 LabeledContent("Version", value: state.version)
-                LabeledContent("Last checked", value: state.lastCheckedText)
-                Button("Check Now", action: actions.checkNow)
-                    .disabled(!state.canCheck)
+                LabeledContent("Last checked") {
+                    HStack(spacing: 10) {
+                        // At its full width: beside the button, a form's value
+                        // column cut a date and time short.
+                        Text(state.lastCheckedText)
+                            .fixedSize()
+                        Button("Check Now", action: actions.checkNow)
+                            .disabled(!state.canCheck)
+                    }
+                }
+            } footer: {
+                if let notice = state.shownNotice {
+                    Text(notice)
+                }
             }
             Section {
                 Toggle("Check for updates automatically", isOn: Binding(
@@ -127,9 +139,6 @@ public struct UpdateSettingsPane: View {
                 .disabled(!state.offersAutomaticOptions)
             } footer: {
                 Text("An update downloaded automatically is installed when you quit Kibble.")
-            }
-            if let notice = state.shownNotice {
-                Text(notice).foregroundStyle(.secondary).font(.callout)
             }
         }
         .formStyle(.grouped)
