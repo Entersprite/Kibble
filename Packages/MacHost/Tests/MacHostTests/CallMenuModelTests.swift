@@ -26,8 +26,12 @@ struct CallMenuModelTests {
 
         let id = try #require(other.startCall(in: conversation, members: [peer], me: me))
         service.publish(id, .connected)
-        #expect(await eventually { model.menu?.callID == id })
-        #expect(model.menu?.entries.map(\.isEnabled) == [true, true])
+        // The menu follows the call through observation, so it can show the
+        // call while still connecting before it shows it connected: wait for
+        // the whole state, not only the call's arrival.
+        #expect(await eventually {
+            model.menu?.callID == id && model.menu?.entries.map(\.isEnabled) == [true, true]
+        })
 
         model.toggleMute()
         #expect(other.call?.isMuted == true)
