@@ -122,11 +122,10 @@ public struct ChatWindow: View {
                             ))
                             .id(AccountScoped(account: state.accountID, value: state.sidebarSelection))
                             .safeAreaInset(edge: .bottom, spacing: 0) {
-                                VStack(spacing: 0) {
-                                    TypingStrip(state: state)
-                                    composer(for: conversation)
-                                }
-                                .background(alignment: .bottom) { ComposerScrim() }
+                                // Who is typing shows once, as the transcript's
+                                // typing bubble (`TypingIndicator`).
+                                composer(for: conversation)
+                                    .background(alignment: .bottom) { ComposerScrim() }
                             }
                             .modifier(FileDropTarget(stage: dropStage))
                         } else if let unavailable {
@@ -363,21 +362,5 @@ struct ComposerScrim: View {
             )
             .allowsHitTesting(false)
             .ignoresSafeArea(edges: .bottom)
-    }
-}
-
-struct TypingStrip: View {
-    let state: ChatSceneState
-
-    var body: some View {
-        if !state.typing.isEmpty {
-            let names = state.typing.map { Display.name(of: $0, in: state.directory) }
-            Text(names.count == 1 ? "\(names[0]) is typing…" : "\(names.count) people are typing…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 4)
-        }
     }
 }

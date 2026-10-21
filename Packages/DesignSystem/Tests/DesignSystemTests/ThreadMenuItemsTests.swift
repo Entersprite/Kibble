@@ -81,7 +81,9 @@
                 mine.items(for: Self.message(sender: Self.me)), into: menu
             )
             let titles = result.items.map { $0.isSeparatorItem ? "-" : $0.title }
-            #expect(titles == ["Reply in Thread", "Edit…", "Delete…", "-", "Copy"])
+            // The message's items, then Edit… and Delete… last in their own
+            // section, then the text's (`MessageMenuTable`).
+            #expect(titles == ["Reply in Thread", "-", "Edit…", "Delete…", "-", "Copy"])
         }
     }
 #endif

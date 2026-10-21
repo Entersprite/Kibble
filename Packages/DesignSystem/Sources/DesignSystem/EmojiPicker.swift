@@ -87,10 +87,15 @@ struct EmojiPickerModel {
 }
 
 /// The full picker (reactions spec §4.3), in a popover: a search field focused
-/// on open, a skin-tone control, and the sections as a grid. Choosing calls
-/// back with the choice and whether it adds, and the host closes the popover.
-/// Return chooses the first result; arrow keys through the grid are deferred
-/// (slice 2 plan, ruling 3).
+/// on open, a skin-tone control, a row of category buttons, and the sections
+/// as a grid. Choosing calls back with the choice and whether it adds, and
+/// the host closes the popover.
+///
+/// The keyboard stays in the search field, and the arrows move one highlight
+/// through the grid (`EmojiPickerNavigation`) that the pointer moves too;
+/// Return chooses the highlighted emoji, or the first result of a query.
+/// Left and Right reach the grid only once something is highlighted, so they
+/// still move the field's caret while typing.
 struct EmojiPicker: View {
     let reactions: [Reaction]
     let actions: ReactionActions
@@ -102,6 +107,8 @@ struct EmojiPicker: View {
     @State private var tone: SkinTone
     @State private var recents: [ReactionChoice] = []
     @State private var custom: [CustomEmojiRef] = []
+    /// The highlighted cell, by `EmojiPickerGrid.cellID`.
+    @State private var highlight: String?
     @FocusState private var searchFocused: Bool
 
     init(
@@ -125,31 +132,56 @@ struct EmojiPicker: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                TextField("Search Emoji", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($searchFocused)
-                    .onSubmit {
-                        if let first = model.firstResult {
-                            choose(first)
+        let sections = model.sections
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    TextField("Search Emoji", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($searchFocused)
+                        .onSubmit { chooseHighlighted(in: sections) }
+                        .onKeyPress(.downArrow) { move(.down, in: sections) }
+                        .onKeyPress(.upArrow) { move(.up, in: sections) }
+                        .onKeyPress(.leftArrow) { highlight == nil ? .ignored : move(.left, in: sections) }
+                        .onKeyPress(.rightArrow) { highlight == nil ? .ignored : move(.right, in: sections) }
+                    Picker("Skin Tone", selection: $tone) {
+                        ForEach(SkinTone.allCases, id: \.self) { tone in
+                            Text(Self.toneSample(tone)).tag(tone)
                         }
                     }
-                Picker("Skin Tone", selection: $tone) {
-                    ForEach(SkinTone.allCases, id: \.self) { tone in
-                        Text(Self.toneSample(tone)).tag(tone)
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .onChange(of: tone) { _, new in actions.setSkinTone(new) }
+                }
+                .padding(8)
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, sections.count > 1 {
+                    EmojiCategoryBar(sections: sections) { section in
+                        withAnimation { proxy.scrollTo(EmojiPickerGrid.headerID(section), anchor: .top) }
                     }
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize()
-                .onChange(of: tone) { _, new in actions.setSkinTone(new) }
+                Divider()
+                ScrollView {
+                    if sections.isEmpty {
+                        Text("No emoji found")
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 40)
+                    }
+                    EmojiPickerGrid(
+                        sections: sections, loadImage: actions.customImage, highlight: highlight,
+                        onHover: { highlight = $0 }, onChoose: choose
+                    )
+                    .padding(8)
+                }
             }
-            .padding(8)
-            Divider()
-            grid
+            .onChange(of: highlight) { _, id in
+                if let id {
+                    proxy.scrollTo(id)
+                }
+            }
         }
         .frame(width: 340, height: 380)
+        .onChange(of: query) { highlight = nil }
         .onAppear {
             recents = actions.recents()
             custom = actions.customCatalog()
@@ -157,16 +189,23 @@ struct EmojiPicker: View {
         }
     }
 
-    private var grid: some View {
-        ScrollView {
-            let sections = model.sections
-            if sections.isEmpty {
-                Text("No emoji found")
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 40)
-            }
-            EmojiPickerGrid(sections: sections, loadImage: actions.customImage, onChoose: choose)
-                .padding(8)
+    private func move(
+        _ direction: EmojiPickerNavigation.Direction, in sections: [EmojiPickerSection]
+    ) -> KeyPress.Result {
+        let navigation = EmojiPickerNavigation(sections: sections.map { section in
+            section.items.map { EmojiPickerGrid.cellID(section, $0) }
+        })
+        let next = navigation.move(from: highlight, direction)
+        guard next != nil || highlight != nil else { return .ignored }
+        highlight = next
+        return .handled
+    }
+
+    private func chooseHighlighted(in sections: [EmojiPickerSection]) {
+        if let highlight, let item = EmojiPickerGrid.item(highlight, in: sections) {
+            choose(item)
+        } else if let first = model.firstResult {
+            choose(first)
         }
     }
 
@@ -180,25 +219,89 @@ struct EmojiPicker: View {
     }
 }
 
+/// One icon-only button per section, scrolling the grid to it. Not focusable:
+/// the search field keeps the keyboard, and the arrows already reach every
+/// section.
+private struct EmojiCategoryBar: View {
+    let sections: [EmojiPickerSection]
+    let jump: (EmojiPickerSection) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(sections) { section in
+                Button { jump(section) } label: {
+                    Label(section.title, systemImage: EmojiCategorySymbols.symbol(for: section.title))
+                        .labelStyle(.iconOnly)
+                        .frame(width: 26, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help(section.title)
+                .focusable(false)
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+    }
+}
+
 /// The picker's sections as a grid of 32 pt cells, with pinned headers.
 /// Its own view so it can be rendered without the scroll view around it.
 struct EmojiPickerGrid: View {
+    nonisolated static let columns = 9
+
     let sections: [EmojiPickerSection]
     let loadImage: ((CustomEmojiRef) async throws -> Data)?
+    /// The highlighted cell, by `cellID`; `nil` highlights none.
+    var highlight: String?
+    /// The pointer entered a cell (its id) or left the highlighted one (`nil`).
+    var onHover: ((String?) -> Void)?
     let onChoose: (EmojiPickerItem) -> Void
+
+    /// An emoji can be in Recent and in its category at once, so a cell is
+    /// named by its section too.
+    static func cellID(_ section: EmojiPickerSection, _ item: EmojiPickerItem) -> String {
+        "\(section.id)/\(item.id)"
+    }
+
+    static func headerID(_ section: EmojiPickerSection) -> String {
+        "header/\(section.id)"
+    }
+
+    static func item(_ cellID: String, in sections: [EmojiPickerSection]) -> EmojiPickerItem? {
+        for section in sections {
+            if let item = section.items.first(where: { Self.cellID(section, $0) == cellID }) {
+                return item
+            }
+        }
+        return nil
+    }
 
     var body: some View {
         LazyVGrid(
-            columns: Array(repeating: GridItem(.fixed(32), spacing: 4), count: 9),
+            columns: Array(repeating: GridItem(.fixed(32), spacing: 4), count: Self.columns),
             alignment: .leading, spacing: 4, pinnedViews: [.sectionHeaders]
         ) {
             ForEach(sections) { section in
                 Section {
                     ForEach(section.items) { item in
+                        let id = Self.cellID(section, item)
                         Button { onChoose(item) } label: { cell(item) }
                             .buttonStyle(.plain)
+                            .focusable(false)
+                            .background(AccountPanelHighlight(isOn: highlight == id, cornerRadius: 6))
+                            .onHover { inside in
+                                if inside {
+                                    onHover?(id)
+                                } else if highlight == id {
+                                    onHover?(nil)
+                                }
+                            }
                             .help(item.name)
                             .accessibilityLabel(item.name)
+                            .accessibilityAddTraits(highlight == id ? .isSelected : [])
+                            .id(id)
                     }
                 } header: {
                     Text(section.title)
@@ -207,6 +310,8 @@ struct EmojiPickerGrid: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 4)
                         .background(.background)
+                        .accessibilityAddTraits(.isHeader)
+                        .id(Self.headerID(section))
                 }
             }
         }

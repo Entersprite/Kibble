@@ -91,6 +91,12 @@
     /// a chat bubble keeps the items for reading it: Look Up, Translate, Copy,
     /// Share and Speech (session 45 review, Important 3). Recognised by action,
     /// never by title, which is localised.
+    ///
+    /// Over a link, `NSTextView` also adds Open Link, an Open With submenu,
+    /// Copy Link and Quick Look Attachments. Those go too: the message menu
+    /// table supplies Open Link and Copy Link in its own order, and a link
+    /// must open through `LinkPolicy` (links spec §7.1), which Open With and
+    /// a Quick Look of the page would bypass.
     @MainActor
     enum ReadingTextMenu {
         static let editingActions: Set<String> = ["cut:", "paste:", "pasteAsPlainText:", "pasteAsRichText:"]
@@ -101,12 +107,29 @@
             "orderFrontFontPanel:", "showGuessPanel:", "orderFrontSubstitutionsPanel:"
         ]
 
+        /// The text view's own link items. Open With has no public action of
+        /// its own: it is the submenu that directly follows Open Link.
+        static let openLinkAction = "_openLinkFromMenu:"
+        static let linkActions: Set<String> = [openLinkAction, "copyLink:", "toggleQuickLookPreviewPanel:"]
+
         static func trimmed(_ menu: NSMenu) -> NSMenu {
-            for item in menu.items.reversed() where isEditing(item) {
+            for (index, item) in menu.items.enumerated().reversed() where isEditing(item) || isLink(item) {
+                if action(of: item) == openLinkAction, index + 1 < menu.items.count,
+                   menu.items[index + 1].submenu != nil {
+                    menu.removeItem(at: index + 1)
+                }
                 menu.removeItem(item)
             }
             collapseSeparators(in: menu)
             return menu
+        }
+
+        private static func action(of item: NSMenuItem) -> String? {
+            item.action.map(NSStringFromSelector)
+        }
+
+        private static func isLink(_ item: NSMenuItem) -> Bool {
+            action(of: item).map(linkActions.contains) ?? false
         }
 
         private static func isEditing(_ item: NSMenuItem) -> Bool {

@@ -26,10 +26,23 @@ struct MessageDeliveryLabel: View {
                 .foregroundStyle(status == .failed ? .red : .secondary)
             if MessageDeliveryPresentation.offersCheck(status), let check {
                 Button(checking ? "Checking…" : "Check Status", action: check)
-                    .buttonStyle(.plain).foregroundStyle(.tint).disabled(checking)
+                    .deliveryCheckStyle()
+                    .disabled(checking)
             }
         }
         .font(.caption2)
         .help("Checking delivery status does not send the message again.")
+    }
+}
+
+private extension View {
+    /// A link button on the Mac, the system's own look for an inline action
+    /// in text; tinted plain text where there is none.
+    @ViewBuilder func deliveryCheckStyle() -> some View {
+        #if os(macOS)
+            buttonStyle(.link)
+        #else
+            buttonStyle(.plain).foregroundStyle(.tint)
+        #endif
     }
 }

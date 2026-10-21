@@ -25,9 +25,19 @@
         var inOwnBubble = false
         /// Opens a clicked link that `LinkPolicy` allows (links spec §7.2).
         var open: (URL) -> Void = { _ in }
+        /// The message the menu's reactions and items act on, when it is not
+        /// the one whose text this shows: forwarded text acts on the row that
+        /// carries it, never on its source.
+        var menuMessage: Message?
 
         func makeCoordinator() -> Coordinator {
-            Coordinator(message: message, actions: actions, onMore: onMore, own: own, open: open)
+            Coordinator(
+                message: menuMessage ?? message,
+                actions: actions,
+                onMore: onMore,
+                own: own,
+                open: open
+            )
         }
 
         func makeNSView(context: Context) -> BubbleTextView {
@@ -45,7 +55,7 @@
 
         func updateNSView(_ view: BubbleTextView, context: Context) {
             context.coordinator.update(
-                message: message,
+                message: menuMessage ?? message,
                 actions: actions,
                 onMore: onMore,
                 own: own,
@@ -111,14 +121,26 @@
                 return true
             }
 
-            /// Reactions, then the thread items, Edit… and Delete…, then the
+            /// Reactions, then the message menu table (the link under the
+            /// pointer, the message's items, Edit… and Delete…), then the
             /// text's own items.
-            func textView(_: NSTextView, menu: NSMenu, for _: NSEvent, at _: Int) -> NSMenu? {
+            func textView(_ view: NSTextView, menu: NSMenu, for _: NSEvent, at index: Int) -> NSMenu? {
                 let own = message.isDeleted ? nil : own
+                let table = MessageMenuTable(
+                    own: own, link: Self.link(in: view.textStorage, at: index), openLink: open
+                )
                 return NativeReactionMenu.insertReactions(
-                    into: NativeOwnMessageMenu.insert(own, into: ReadingTextMenu.trimmed(menu)),
+                    into: NativeOwnMessageMenu.insert(table, into: ReadingTextMenu.trimmed(menu)),
                     message: message, actions: actions, onMore: onMore
                 )
+            }
+
+            /// The link a right-click landed on, when `LinkPolicy` would open it.
+            static func link(in text: NSAttributedString?, at index: Int) -> URL? {
+                guard let text, index >= 0, index < text.length else { return nil }
+                let value = text.attribute(.link, at: index, effectiveRange: nil)
+                let url = (value as? URL) ?? (value as? String).flatMap { URL(string: $0) }
+                return url.flatMap { LinkPolicy.canOpen($0) ? $0 : nil }
             }
         }
     }

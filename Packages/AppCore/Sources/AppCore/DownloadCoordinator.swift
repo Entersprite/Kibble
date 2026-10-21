@@ -50,6 +50,17 @@ public final class DownloadCoordinator {
         }
     }
 
+    /// Where a finished file is now, while it is still there and no transfer
+    /// of it runs; `nil` otherwise. Unlike `open`, it never starts a
+    /// download again: a drag or a share asking for a file that has gone
+    /// simply has none.
+    public func finishedFile(_ attachment: Attachment) -> URL? {
+        guard tasks[attachment.id] == nil, let file = placed[attachment.id], Self.exists(file) else {
+            return nil
+        }
+        return file
+    }
+
     /// Shows the finished file in Finder, by `open`'s rules.
     public func reveal(_ attachment: Attachment) {
         if let file = placedFile(attachment) {

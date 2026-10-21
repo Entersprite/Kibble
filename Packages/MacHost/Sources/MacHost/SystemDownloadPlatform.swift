@@ -86,19 +86,42 @@ public final class SystemDownloadPlatform: DownloadPlatform {
         NSWorkspace.shared.activateFileViewerSelecting([file])
     }
 
+    /// A sheet on the window the person chose Save As… in. The coordinator
+    /// asks for the destination synchronously, so the sheet runs as an
+    /// application-modal sheet - `beginSheetModal` then `runModal(for:)`,
+    /// AppKit's own pattern - and answers before this returns. With no
+    /// window free to take a sheet, the panel runs on its own, as before.
     public func chooseSaveDestination(suggestedName: String) -> URL? {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = suggestedName
         panel.canCreateDirectories = true
-        return panel.runModal() == .OK ? panel.url : nil
+        guard let window = Self.sheetWindow(), window.attachedSheet == nil else {
+            return panel.runModal() == .OK ? panel.url : nil
+        }
+        panel.beginSheetModal(for: window) { NSApp.stopModal(withCode: $0) }
+        return NSApp.runModal(for: panel) == .OK ? panel.url : nil
     }
 
-    /// Modal, like the save panel it follows.
+    /// A sheet on the same window as the save panel it follows. It needs no
+    /// answer, so it is not modal to the app; AppKit queues it while the
+    /// save panel's sheet is still closing.
     public func showFailure(_ message: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = message
-        alert.runModal()
+        if let window = Self.sheetWindow() {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    /// The window a sheet goes on: the key window, else the main one, while
+    /// it is on screen and is not itself a sheet.
+    static func sheetWindow(
+        key: NSWindow? = NSApp.keyWindow, main: NSWindow? = NSApp.mainWindow
+    ) -> NSWindow? {
+        [key, main].compactMap(\.self).first { $0.isVisible && !$0.isSheet }
     }
 
     /// An existing directory this process may write into.
