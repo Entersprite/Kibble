@@ -32,7 +32,7 @@ struct AccountPickerSection: View {
             }
             Spacer(minLength: 0)
             if actions.manage != nil {
-                Button("Manage Accounts…") { commands.perform(.manage) }
+                Button(AccountPanelSpeech.manageTitle) { commands.perform(.manage) }
                     .buttonStyle(.plain)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -61,7 +61,7 @@ struct AccountPickerSection: View {
                 ForEach(state.pendingSignIns) { pending in
                     let target = AccountPanelTarget.pending(pending.id)
                     AccountActionTile(
-                        title: "Finish Signing In", systemImage: "person.crop.circle.badge.clock",
+                        title: AccountPanelSpeech.pendingTitle, systemImage: "person.crop.circle.badge.clock",
                         isHighlighted: highlight == target
                     ) { commands.perform(target) }
                         .accountPanelHover(target, highlight: $highlight)
@@ -71,7 +71,8 @@ struct AccountPickerSection: View {
             if actions.add != nil {
                 let target = AccountPanelTarget.add
                 AccountActionTile(
-                    title: "Add Account", systemImage: "plus", isHighlighted: highlight == target
+                    title: AccountPanelSpeech.addTitle, systemImage: "plus",
+                    isHighlighted: highlight == target
                 ) { commands.perform(target) }
                     .accountPanelHover(target, highlight: $highlight)
                     .id(target)

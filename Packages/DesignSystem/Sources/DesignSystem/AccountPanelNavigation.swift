@@ -7,6 +7,58 @@ enum AccountStatusRow: Hashable {
     case away
     case setStatus
     case clearStatus
+
+    /// The row's words; Do not disturb's say until when (`StatusMenuModel`).
+    func title(_ model: StatusMenuModel) -> String {
+        switch self {
+        case .automatic: "Automatic"
+        case .doNotDisturb: model.doNotDisturbTitle
+        case .away: "Set as away"
+        case .setStatus: "Set a Status…"
+        case .clearStatus: "Clear Status"
+        }
+    }
+
+    func isChecked(_ model: StatusMenuModel) -> Bool {
+        switch self {
+        case .automatic: model.isAutomatic
+        case .doNotDisturb: model.isDoNotDisturb
+        case .away: model.isAway
+        case .setStatus, .clearStatus: false
+        }
+    }
+}
+
+/// What VoiceOver says when the panel's one highlight moves. The panel is a
+/// single focus stop, so VoiceOver's own cursor cannot follow the arrows:
+/// the highlighted row or tile is announced instead, with the same words
+/// the panel draws, and whether it is the checked or current one.
+@MainActor
+enum AccountPanelSpeech {
+    static let addTitle = "Add Account"
+    static let pendingTitle = "Finish Signing In"
+    static let manageTitle = "Manage Accounts…"
+    /// The focusable panel's own name.
+    static let panelLabel = "Status and Accounts"
+
+    static func text(
+        for target: AccountPanelTarget, state: AccountPanelState, status: StatusMenuModel?
+    ) -> String? {
+        switch target {
+        case let .status(row):
+            guard let status else { return nil }
+            return row.isChecked(status) ? "\(row.title(status)), selected" : row.title(status)
+        case let .account(id):
+            guard let account = state.accounts.first(where: { $0.id == id }) else { return nil }
+            return id == state.selectedID ? "\(account.label), current account" : account.label
+        case .pending:
+            return pendingTitle
+        case .add:
+            return addTitle
+        case .manage:
+            return manageTitle
+        }
+    }
 }
 
 /// What the open panel's one highlight can rest on.

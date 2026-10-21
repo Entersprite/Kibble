@@ -105,9 +105,9 @@ struct AccountStatusSection: View {
         )
         VStack(alignment: .leading, spacing: 1) {
             AccountPanelHeader(title: "Status", detail: label)
-            row(.automatic, title: "Automatic", checked: model.isAutomatic)
+            row(.automatic, title: AccountStatusRow.automatic.title(model), checked: model.isAutomatic)
             doNotDisturb(model)
-            row(.away, title: "Set as away", checked: model.isAway)
+            row(.away, title: AccountStatusRow.away.title(model), checked: model.isAway)
             Divider()
                 .padding(.vertical, 4)
                 .padding(.horizontal, 8)
@@ -119,9 +119,9 @@ struct AccountStatusSection: View {
                     .padding(.horizontal, 8)
                     .frame(height: 24)
             }
-            row(.setStatus, title: "Set a Status…")
+            row(.setStatus, title: AccountStatusRow.setStatus.title(model))
             if model.statusLine != nil {
-                row(.clearStatus, title: "Clear Status")
+                row(.clearStatus, title: AccountStatusRow.clearStatus.title(model))
             }
         }
     }
