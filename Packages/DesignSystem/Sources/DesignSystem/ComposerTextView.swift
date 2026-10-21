@@ -41,6 +41,9 @@
         var paste: ComposerPaste?
         /// Told when the field gains or loses the keyboard.
         var onFocusChange: ((Bool) -> Void)?
+        /// Told the styles on at the caret or over the whole selection
+        /// (`ComposerDraft.activeStyles`), for the Format menu's checkmarks.
+        var onStyles: ((Set<ComposerDraft.Style>) -> Void)?
 
         static let maxLines = 6
 
@@ -84,7 +87,7 @@
             if let insertion = coordinator.takeInsertion(insertion) {
                 DispatchQueue.main.async {
                     scroll.window?.makeFirstResponder(scroll.textView)
-                    coordinator.insert(insertion.text, surround: insertion.surround, in: scroll.textView)
+                    coordinator.perform(insertion, in: scroll.textView)
                 }
             }
             if coordinator.takeDictationRequest(dictationRequest) {
@@ -120,7 +123,7 @@
             private var dictationRequest: Int
             /// Set while this class writes into the view, so the delegate
             /// callbacks it causes are not read as the person's edits.
-            private var applying = false
+            var applying = false
 
             init(_ parent: ComposerTextView) {
                 self.parent = parent
@@ -130,22 +133,37 @@
             }
 
             /// Puts the draft into the view when they differ: a send cleared
-            /// it, a restore filled it, a pick replaced the query.
+            /// it, a restore filled it, a pick replaced the query. A restore
+            /// over the same words can differ in formatting alone, and Cmd-B
+            /// with nothing selected changes only what typing takes.
             func show(_ draft: ComposerDraft, in view: NSTextView) {
-                guard view.string != draft.text else { return }
-                applying = true
-                view.string = draft.text
-                // Setting the text outright bypasses undo, so the undo stack
-                // still holds ranges into the old text; undoing one raised an
-                // `NSRangeException` (review finding 1). A send, a restore or a
-                // pick starts the field's undo history afresh.
-                if let storage = view.textStorage {
+                guard let storage = view.textStorage else { return }
+                if view.string != draft.text {
+                    applying = true
+                    view.string = draft.text
+                    // Setting the text outright bypasses undo, so the undo stack
+                    // still holds ranges into the old text; undoing one raised an
+                    // `NSRangeException`. A send, a restore or a pick starts
+                    // the field's undo history afresh.
                     view.undoManager?.removeAllActions(withTarget: storage)
+                    view.setSelectedRange(NSRange(location: draft.caret, length: 0))
+                    ComposerStyle.apply(draft, to: view)
+                    applying = false
+                    reportAnchor(in: view)
+                    reportStylesLater(in: view)
+                } else if !view.hasMarkedText(), !view.isWritingToolsActive,
+                          ComposerStyle.runs(in: storage) != draft.runs {
+                    applying = true
+                    ComposerStyle.apply(draft, to: view)
+                    applying = false
+                    reportStylesLater(in: view)
+                } else {
+                    let selection = view.selectedRange()
+                    ComposerStyle.setTyping(
+                        draft.insertionStyles(location: selection.location, length: selection.length),
+                        in: view
+                    )
                 }
-                ComposerStyle.apply(draft.tokens, to: view)
-                view.setSelectedRange(NSRange(location: draft.caret, length: 0))
-                applying = false
-                reportAnchor(in: view)
             }
 
             /// The insertion to act on, once. `updateNSView` runs again for
@@ -164,106 +182,86 @@
                 return true
             }
 
-            /// Text from outside the keyboard (the emoji picker), over the
-            /// selection. Through the view, never by setting the draft: the
-            /// edit reaches the draft by the delegate route above, so tokens
-            /// after it move, and it is one step Cmd-Z can take back.
-            ///
-            /// Mid-composition (an input method's marked text), the
-            /// composition is kept as typed and the text goes after it, rather
-            /// than splitting it (review finding 5).
-            func insert(_ text: String, surround: String? = nil, in view: NSTextView) {
-                var range = view.selectedRange()
-                if view.hasMarkedText() {
-                    range = NSRange(location: NSMaxRange(view.markedRange()), length: 0)
-                    view.unmarkText()
-                    view.inputContext?.discardMarkedText()
-                }
-                if let marker = surround {
-                    view.undoManager?.beginUndoGrouping()
-                    if marker == "- " {
-                        let source = view.string as NSString
-                        let lines = source.lineRange(for: range)
-                        var starts = [lines.location]
-                        for index in lines.location ..< NSMaxRange(lines)
-                            where source.character(at: index) == 10 {
-                            if index + 1 < NSMaxRange(lines) {
-                                starts.append(index + 1)
-                            }
-                        }
-                        for start in starts.reversed() {
-                            view.insertText(marker, replacementRange: NSRange(location: start, length: 0))
-                        }
-                    } else {
-                        view.insertText(
-                            marker,
-                            replacementRange: NSRange(location: NSMaxRange(range), length: 0)
-                        )
-                        view.insertText(
-                            marker,
-                            replacementRange: NSRange(location: range.location, length: 0)
-                        )
-                        view.setSelectedRange(NSRange(
-                            location: range.location + marker.utf16.count,
-                            length: range.length
-                        ))
-                    }
-                    view.undoManager?.endUndoGrouping()
-                } else {
-                    view.insertText(text, replacementRange: range)
-                }
-            }
-
+            /// What Writing Tools rewrites comes in unstyled: its results are
+            /// plain text, and guessing which words kept which style could
+            /// put bold on the wrong ones.
             func textView(
-                _: NSTextView,
+                _ view: NSTextView,
                 shouldChangeTextIn range: NSRange,
                 replacementString string: String?
             ) -> Bool {
                 guard !applying, let string else { return true }
-                parent.draft.replace(location: range.location, length: range.length, with: string)
+                parent.draft.replace(
+                    location: range.location, length: range.length, with: string,
+                    styles: view.isWritingToolsActive ? [] : nil
+                )
                 return true
             }
 
             func textDidChange(_ notification: Notification) {
-                guard !applying, let view = notification.object as? NSTextView else { return }
-                // Marked text, an undo, or anything the routing above missed.
-                if view.string != parent.draft.text {
-                    parent.draft.edit(view.string)
+                guard !applying, let view = notification.object as? NSTextView,
+                      let storage = view.textStorage else { return }
+                if view.isWritingToolsActive {
+                    if view.string != parent.draft.text {
+                        parent.draft.edit(view.string)
+                    }
+                } else {
+                    // An undo or redo, which puts back formatting with its
+                    // text, a format change (`toggle`), a composition, or
+                    // anything the routing above missed: the view holds what
+                    // the person sees, and the draft follows it.
+                    let runs = ComposerStyle.runs(in: storage)
+                    if view.string != parent.draft.text || runs != parent.draft.runs {
+                        parent.draft.follow(view.string, runs: runs)
+                    }
                 }
                 parent.onActivity?(!view.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                parent.draft.moveCaret(to: view.selectedRange().location)
                 // Restyling resets the storage's attributes, which Writing
                 // Tools is animating while it rewrites; the styles go back on
                 // when it ends.
                 if !view.isWritingToolsActive {
-                    ComposerStyle.apply(parent.draft.tokens, to: view)
+                    ComposerStyle.apply(parent.draft, to: view)
                 }
-                parent.draft.moveCaret(to: view.selectedRange().location)
                 reportAnchor(in: view)
+                reportStyles(in: view)
             }
 
             /// The mentions, which Writing Tools leaves as written: a rewrite
             /// that reworded "@Jane Doe" would turn the mention into plain text
-            /// (`ComposerDraft.replace`), and nobody would be notified.
+            /// (`ComposerDraft.replace`), and nobody would be notified. Code,
+            /// too, which a rewrite would break.
             func textView(
                 _: NSTextView,
                 writingToolsIgnoredRangesInEnclosingRange enclosingRange: NSRange
             ) -> [NSValue] {
-                ComposerWritingTools.ignoredRanges(of: parent.draft.tokens, in: enclosingRange)
-                    .map { NSValue(range: $0) }
+                ComposerWritingTools.ignoredRanges(
+                    of: parent.draft.tokens, code: parent.draft.runs, in: enclosingRange
+                )
+                .map { NSValue(range: $0) }
             }
 
             func textViewWritingToolsDidEnd(_ view: NSTextView) {
-                ComposerStyle.apply(parent.draft.tokens, to: view)
+                ComposerStyle.apply(parent.draft, to: view)
             }
 
             func textDidEndEditing(_ notification: Notification) {
                 parent.onActivity?(false)
             }
 
+            /// The caret's styles become the typing styles, as in any Mac
+            /// text view: the field is plain text to AppKit, which therefore
+            /// never picks them up itself (measured on macOS 27).
             func textViewDidChangeSelection(_ notification: Notification) {
                 guard !applying, let view = notification.object as? NSTextView else { return }
-                parent.draft.moveCaret(to: view.selectedRange().location)
+                let selection = view.selectedRange()
+                parent.draft.moveCaret(to: selection.location)
+                ComposerStyle.setTyping(
+                    parent.draft.insertionStyles(location: selection.location, length: selection.length),
+                    in: view
+                )
                 reportAnchor(in: view)
+                reportStyles(in: view)
             }
 
             func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -353,12 +351,18 @@
     /// What Writing Tools must leave alone in the field, as a decision a
     /// test can reach.
     enum ComposerWritingTools {
-        /// Each mention token's span within `enclosing`, in the text view's
-        /// own offsets (UTF-16, as the draft keeps them), cut to `enclosing`
-        /// where a token straddles its edge.
-        static func ignoredRanges(of tokens: [ComposerDraft.Token], in enclosing: NSRange) -> [NSRange] {
-            tokens.compactMap { token in
-                let span = NSRange(location: token.location, length: token.length)
+        /// Each mention token's span within `enclosing`, then each code and
+        /// code block run's, in the text view's own offsets (UTF-16, as the
+        /// draft keeps them), cut to `enclosing` where one straddles its edge.
+        static func ignoredRanges(
+            of tokens: [ComposerDraft.Token],
+            code runs: [ComposerDraft.Run] = [],
+            in enclosing: NSRange
+        ) -> [NSRange] {
+            let spans = tokens.map { NSRange(location: $0.location, length: $0.length) }
+                + runs.filter { $0.style == .code || $0.style == .codeBlock }
+                .map { NSRange(location: $0.location, length: $0.length) }
+            return spans.compactMap { span in
                 guard let overlap = span.intersection(enclosing), overlap.length > 0 else { return nil }
                 return overlap
             }

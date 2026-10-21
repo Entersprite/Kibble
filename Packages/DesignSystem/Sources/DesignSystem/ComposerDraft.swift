@@ -1,8 +1,9 @@
 import ChatKit
 import Foundation
 
-/// The composer's draft: its text, the mention tokens in it, and the caret.
-/// The decisions worth testing live here, and the views only route into it.
+/// The composer's draft: its text, the mention tokens and formatting runs in
+/// it, and the caret. The decisions worth testing live here, and the views
+/// only route into it.
 ///
 /// A value type because this package's rule is that views take values and hand
 /// back callbacks: a `@State String` inside `Composer` is not reachable from a
@@ -11,6 +12,10 @@ import Foundation
 /// **Offsets are UTF-16 code units**, the unit `NSTextView` edits in and the
 /// unit Google's mention spans count (`findings.md` §41.1), so a token's range
 /// is a `Mention`'s span with no conversion.
+///
+/// Formatting is kept the way tokens are: as runs over the text
+/// (`ComposerDraft+Runs`), moved by every edit, and sent as spans, so the
+/// field draws bold as bold and never as `**`.
 ///
 /// It remembers what it last adopted, and that memory is the point. The host
 /// clears its own copy of a failed draft once the composer reports adopting
@@ -37,6 +42,12 @@ public struct ComposerDraft: Equatable, Sendable {
 
     public private(set) var text = ""
     public private(set) var tokens: [Token] = []
+    /// The formatting, normalized (`ComposerRuns.normalized`). Set within
+    /// this module only by the edits here and `toggle`.
+    public internal(set) var runs: [Run] = []
+    /// The styles chosen for the next typed text with nothing selected
+    /// (Cmd-B at the caret), until the text is typed or the caret moves.
+    public internal(set) var typingOverride: Set<Style>?
     public private(set) var caret = 0
     public private(set) var quote: MessageQuote?
     private var adopted: ComposedMessage?
@@ -50,16 +61,16 @@ public struct ComposerDraft: Equatable, Sendable {
 
     public private(set) var editing: Editing?
 
-    /// How far back from the caret an `@` may be and still open the list.
-    static let maxQueryLength = 40
-
     public init() {}
 
+    /// A saved draft. One saved before the composer drew styles has no
+    /// formatting, and loads as it always did.
     public init(snapshot: ComposerSnapshot) {
         self.init()
         quote = snapshot.quote
         text = snapshot.text
         tokens = Self.tokens(for: ComposedMessage(text: snapshot.text, mentions: snapshot.mentions))
+        runs = ComposerRuns.runs(from: snapshot.formatting, length: (text as NSString).length)
         moveCaret(to: snapshot.caret)
     }
 
@@ -67,7 +78,8 @@ public struct ComposerDraft: Equatable, Sendable {
         let draft = compositionOnly
         return ComposerSnapshot(
             conversation: address.conversation, thread: address.thread,
-            text: draft.text, mentions: draft.untrimmedMentions(), caret: draft.caret, quote: draft.quote
+            text: draft.text, mentions: draft.untrimmedMentions(), caret: draft.caret, quote: draft.quote,
+            formatting: ComposerRuns.formats(draft.runs)
         )
     }
 
@@ -79,24 +91,78 @@ public struct ComposerDraft: Equatable, Sendable {
         return copy
     }
 
-    /// The whole text replaced at once: `TextField`'s binding, or anything
-    /// the text view did that the edit routing did not see. Tokens survive
-    /// only where the new text still reads `@name` at their offsets.
+    /// The whole text replaced at once: `TextField`'s binding, or what
+    /// Writing Tools wrote in the text view while it ran. Tokens survive
+    /// only where the new text still reads `@name` at their offsets. Runs
+    /// keep the text the two share at each end, and what changed between
+    /// comes in plain: a rewrite (Writing Tools) drops the styles of what it
+    /// rewrote rather than guessing them.
     public mutating func edit(_ text: String) {
+        let old = Array(self.text)
+        let new = Array(text)
+        var prefix = 0
+        while prefix < min(old.count, new.count), old[prefix] == new[prefix] {
+            prefix += 1
+        }
+        var suffix = 0
+        while suffix < min(old.count, new.count) - prefix,
+              old[old.count - 1 - suffix] == new[new.count - 1 - suffix] {
+            suffix += 1
+        }
+        let units = { (characters: ArraySlice<Character>) in characters.reduce(0) { $0 + $1.utf16.count } }
+        let location = units(old[..<prefix])
+        runs = ComposerRuns.replacing(
+            runs, location: location,
+            length: units(old[prefix ..< old.count - suffix]),
+            inserted: units(new[prefix ..< new.count - suffix]),
+            styles: []
+        )
         self.text = text
         tokens = tokens.filter { Self.reads($0, in: text) }
+        typingOverride = nil
         caret = (text as NSString).length
     }
 
+    /// The text view's text and formatting, after a change the edit routing
+    /// did not describe: an undo or a redo, which brings styles back with
+    /// the text they were on, or an input method's composition. Tokens as
+    /// `edit(_:)` keeps them.
+    mutating func follow(_ text: String, runs: [Run]) {
+        if text != self.text {
+            self.text = text
+            tokens = tokens.filter { Self.reads($0, in: text) }
+            caret = (text as NSString).length
+        }
+        self.runs = ComposerRuns.runs(from: ComposerRuns.formats(runs), length: (text as NSString).length)
+        typingOverride = nil
+    }
+
+    /// Moving the caret anywhere else forgets a style chosen for typing, as
+    /// a Mac text view does.
     public mutating func moveCaret(to offset: Int) {
-        caret = min(max(0, offset), (text as NSString).length)
+        let moved = min(max(0, offset), (text as NSString).length)
+        if moved != caret {
+            typingOverride = nil
+        }
+        caret = moved
     }
 
     /// One edit, as `NSTextView` reports it. Tokens wholly before it stay,
     /// tokens wholly after it move, and a token the edit touches becomes plain
     /// text, so a mention is never sent whose text no longer names the person.
-    public mutating func replace(location: Int, length: Int, with string: String) {
+    /// Runs move the same way, and the inserted text takes `styles`, by
+    /// default the ones typing there takes (`insertionStyles`).
+    public mutating func replace(
+        location: Int,
+        length: Int,
+        with string: String,
+        styles: Set<Style>? = nil
+    ) {
         let inserted = (string as NSString).length
+        let applied = styles ?? insertionStyles(location: location, length: length)
+        runs = ComposerRuns.replacing(
+            runs, location: location, length: length, inserted: inserted, styles: applied
+        )
         text = (text as NSString).replacingCharacters(
             in: NSRange(location: location, length: length),
             with: string
@@ -113,42 +179,8 @@ public struct ComposerDraft: Equatable, Sendable {
             }
             return nil
         }
+        typingOverride = nil
         caret = location + inserted
-    }
-
-    /// The token Backspace removes whole, if the caret sits at its end.
-    public func token(endingAt offset: Int) -> Token? {
-        tokens.first { $0.end == offset }
-    }
-
-    /// The `@query` the caret is in, per spec §2: an `@` at the start or after
-    /// whitespace, on the caret's line, not inside a token, with no leading
-    /// space in the query and no more than `maxQueryLength` units back.
-    public var activeQuery: Query? {
-        let units = text as NSString
-        guard caret <= units.length,
-              !tokens.contains(where: { $0.location < caret && caret <= $0.end }) else { return nil }
-        var index = caret
-        while index > 0, caret - index < Self.maxQueryLength {
-            index -= 1
-            let unit = units.character(at: index)
-            if unit == 0x0A || unit == 0x0D {
-                return nil
-            }
-            guard unit == 0x40 else { continue }
-            if index > 0, !Self.isWhitespace(units.character(at: index - 1)) {
-                return nil
-            }
-            if tokens.contains(where: { $0.location == index }) {
-                return nil
-            }
-            let query = units.substring(with: NSRange(location: index + 1, length: caret - index - 1))
-            if query.first?.isWhitespace == true {
-                return nil
-            }
-            return Query(location: index, text: query)
-        }
-        return nil
     }
 
     /// Replaces the active query with `@name ` and records the token.
@@ -172,6 +204,10 @@ public struct ComposerDraft: Equatable, Sendable {
         self.quote = quote
     }
 
+    /// With `formatting`, the runs go as spans over the trimmed text, and
+    /// any markup typed by hand (`**bold**`) is still read
+    /// (`MessageMarkup.parse`), the spans of one style merged. Without it,
+    /// the runs are not sent.
     public func composed(formatting: Bool = false) -> ComposedMessage {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty
@@ -183,12 +219,20 @@ public struct ComposerDraft: Equatable, Sendable {
         let mentions = tokens
             .filter { $0.location >= start && $0.end <= end && Self.reads($0, in: text) }
             .map { Mention(target: $0.target, start: $0.location - start, length: $0.length) }
-        let message = ComposedMessage(
+        guard formatting else {
+            return ComposedMessage(text: trimmed, mentions: mentions, content: MessageContent(quote: quote))
+        }
+        var message = MessageMarkup.parse(ComposedMessage(
             text: trimmed,
             mentions: mentions,
-            content: MessageContent(quote: quote)
-        )
-        return formatting ? MessageMarkup.parse(message) : message
+            content: MessageContent(
+                formatting: ComposerRuns.sent(runs, in: text, from: start, to: end),
+                quote: quote
+            )
+        ))
+        let formats = message.content?.formatting ?? []
+        message.content?.formatting = MessageMarkup.merged(formats)
+        return message
     }
 
     /// Puts the field aside and loads `message`, tokens and all, with the
@@ -199,14 +243,12 @@ public struct ComposerDraft: Equatable, Sendable {
         with message: ComposedMessage,
         formatting: Bool = false
     ) {
-        let setAside = editing?.setAside ?? ComposedMessage(
-            text: text,
-            mentions: untrimmedMentions(),
-            content: MessageContent(quote: quote)
-        )
-        let editable = formatting ? MessageMarkup.editable(message) : message
-        text = editable.text
-        tokens = Self.tokens(for: editable)
+        let setAside = editing?.setAside ?? composition
+        let loaded = Self.loaded(message, formatting: formatting)
+        text = loaded.message.text
+        tokens = Self.tokens(for: loaded.message)
+        runs = loaded.runs
+        typingOverride = nil
         quote = message.content?.quote
         caret = (text as NSString).length
         editing = Editing(messageID: messageID, setAside: setAside)
@@ -222,8 +264,20 @@ public struct ComposerDraft: Equatable, Sendable {
         quote = editing.setAside.content?.quote
         text = editing.setAside.text
         tokens = Self.tokens(for: editing.setAside)
+        runs = Self.runs(for: editing.setAside)
+        typingOverride = nil
         caret = (text as NSString).length
         return (editing.messageID, edited)
+    }
+
+    /// The field as a value, untrimmed, its runs as spans over its own text:
+    /// what an edit sets aside.
+    private var composition: ComposedMessage {
+        ComposedMessage(
+            text: text,
+            mentions: untrimmedMentions(),
+            content: MessageContent(formatting: ComposerRuns.formats(runs), quote: quote)
+        )
     }
 
     /// The tokens as mentions at their own offsets, untrimmed, so a set-aside
@@ -236,6 +290,8 @@ public struct ComposerDraft: Equatable, Sendable {
     public mutating func clear() {
         text = ""
         tokens = []
+        runs = []
+        typingOverride = nil
         caret = 0
         quote = nil
     }
@@ -255,13 +311,14 @@ public struct ComposerDraft: Equatable, Sendable {
             return false
         }
         guard original != adopted else { return false }
-        let restoring = formatting ? MessageMarkup.editable(original) : original
+        let loaded = Self.loaded(original, formatting: formatting)
+        let restoring = loaded.message
         if let current = editing {
             // Never merged into the message being edited: it goes with the
             // set-aside draft, and is there when the edit ends.
             editing = Editing(
                 messageID: current.messageID,
-                setAside: Self.merged(restoring, before: current.setAside)
+                setAside: Self.merged(restoring, runs: loaded.runs, before: current.setAside)
             )
             adopted = original
             return true
@@ -273,6 +330,7 @@ public struct ComposerDraft: Equatable, Sendable {
         if text.isEmpty || text == restoring.text {
             text = restoring.text
             tokens = restored
+            runs = loaded.runs
         } else {
             let shift = (restoring.text as NSString).length + 1
             tokens = restored + tokens.map { token in
@@ -280,26 +338,37 @@ public struct ComposerDraft: Equatable, Sendable {
                 moved.location += shift
                 return moved
             }
+            runs = ComposerRuns.normalized(loaded.runs + ComposerRuns.shifted(runs, by: shift))
             text = restoring.text + "\n" + text
         }
+        typingOverride = nil
         caret = (text as NSString).length
         adopted = original
         return true
     }
 
     /// `restoring` first, then what was there on the next line, its mentions
-    /// shifted - `adopt`'s own merge, on values.
+    /// and runs shifted - `adopt`'s own merge, on values.
     private static func merged(
         _ restoring: ComposedMessage,
+        runs: [Run],
         before kept: ComposedMessage
     ) -> ComposedMessage {
-        guard !kept.text.isEmpty, kept.text != restoring.text else { return restoring }
+        guard !kept.text.isEmpty, kept.text != restoring.text else {
+            let formatting = ComposerRuns.formats(runs)
+            return ComposedMessage(
+                text: restoring.text, mentions: restoring.mentions,
+                content: MessageContent(formatting: formatting, quote: restoring.content?.quote)
+            )
+        }
+        let quote = restoring.content?.quote ?? kept.content?.quote
         let shift = (restoring.text as NSString).length + 1
         let moved = kept.mentions
             .map { Mention(target: $0.target, start: $0.start + shift, length: $0.length) }
+        let keptRuns = ComposerRuns.shifted(Self.runs(for: kept), by: shift)
         return ComposedMessage(
             text: restoring.text + "\n" + kept.text, mentions: restoring.mentions + moved,
-            content: MessageContent(quote: restoring.content?.quote ?? kept.content?.quote)
+            content: MessageContent(formatting: ComposerRuns.formats(runs + keptRuns), quote: quote)
         )
     }
 
@@ -319,9 +388,5 @@ public struct ComposerDraft: Equatable, Sendable {
         guard token.location >= 0, token.end <= units.length else { return false }
         return units.substring(with: NSRange(location: token.location, length: token.length)) == "@" + token
             .name
-    }
-
-    private static func isWhitespace(_ unit: unichar) -> Bool {
-        UnicodeScalar(unit).map(CharacterSet.whitespacesAndNewlines.contains) ?? false
     }
 }

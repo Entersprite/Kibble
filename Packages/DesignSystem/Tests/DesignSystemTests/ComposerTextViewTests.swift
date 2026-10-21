@@ -75,14 +75,18 @@
             let harness = windowed(box)
             harness.coordinator.show(box.draft, in: harness.view)
             harness.view.setSelectedRange(NSRange(location: 0, length: 7))
-            harness.coordinator.insert("", surround: "**", in: harness.view)
-            #expect(box.draft.text == "**@Reader** ")
+            harness.undo.beginUndoGrouping()
+            harness.coordinator.toggle(.bold, in: harness.view)
+            harness.undo.endUndoGrouping()
+            #expect(box.draft.text == "@Reader ")
+            #expect(box.draft.tokens.count == 1)
             let composed = box.draft.composed(formatting: true)
             #expect(composed.text == "@Reader")
             #expect(composed.mentions.first?.target == .user(Member.ID("reader")))
-            #expect(composed.content?.formatting.first == MessageFormat(style: "bold", start: 0, length: 7))
+            #expect(composed.content?.formatting == [MessageFormat(style: "bold", start: 0, length: 7)])
             harness.undo.undo()
             #expect(harness.view.string == "@Reader ")
+            #expect(box.draft.runs.isEmpty)
             withExtendedLifetime(harness.window) {}
         }
 
