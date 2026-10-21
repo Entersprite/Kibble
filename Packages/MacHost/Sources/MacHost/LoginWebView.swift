@@ -1,12 +1,14 @@
 import Foundation
 import LocalBridgeBackend
+import WebKit
 
 /// The browser operations the capture model needs from a web view.
 ///
 /// Narrow on purpose, and returning `HTTPCookie` rather than a WebKit type:
 /// `HTTPCookie` is Foundation, so the `HTTPCookie` to `CapturedCookie` mapping
-/// stays in this package where a test can reach it, and the only `WKWebView`
-/// in the repo is one conformance in the app target. Same shape as
+/// stays in this package where a test can reach it, and the one conformance
+/// that names `WKWebView` is `WebKitLoginWebView` below, the view of
+/// `LoginBrowser` that every sign-in window shares. Same shape as
 /// `SecretStorage` and `HTTPTransport` - a boundary that cannot be unit-tested
 /// should be one file wide.
 @MainActor
@@ -55,4 +57,42 @@ public struct LoginWebViewConfiguration: Sendable {
         userAgent: LocalBridgeBackend.captureUserAgent,
         startURL: URL(string: "https://meet.google.com/")!
     )
+}
+
+/// The one `LoginWebView` that is a real browser: `LoginBrowser`'s web view,
+/// as the sign-in models see it.
+@MainActor
+final class WebKitLoginWebView: LoginWebView {
+    let view: WKWebView
+
+    init(_ view: WKWebView) {
+        self.view = view
+    }
+
+    var currentURL: URL? {
+        view.url
+    }
+
+    var currentTitle: String? {
+        view.title
+    }
+
+    func allCookies() async -> [HTTPCookie] {
+        await view.configuration.websiteDataStore.httpCookieStore.allCookies()
+    }
+
+    func navigate(to url: URL) {
+        view.load(URLRequest(url: url))
+    }
+
+    /// Call sign-in recovery's saved call cookies, set before its first page.
+    func seed(_ seeds: [MeetWebCookieSeed]) async {
+        for seed in seeds {
+            guard let cookie = HTTPCookie(properties: [
+                .name: seed.name, .value: seed.value, .domain: seed.domain,
+                .path: seed.path, .secure: "TRUE"
+            ]) else { continue }
+            await view.configuration.websiteDataStore.httpCookieStore.setCookie(cookie)
+        }
+    }
 }
