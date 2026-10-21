@@ -13,6 +13,11 @@ public enum MessageMarkup {
         return content?.formatting.allSatisfy { known.contains($0.style) } ?? true
     }
 
+    /// Reads the markup in `message`'s text. Spans the message already
+    /// carries in `content.formatting` (a composer that draws styles itself
+    /// sends them that way) address the same text the markup is read from:
+    /// they move with it, as mentions do, and come after the parsed spans.
+    /// Text a carried `code` or `codeBlock` span covers is never markup.
     public static func parse(_ message: ComposedMessage) -> ComposedMessage {
         var parser = Parser(message)
         parser.read(0 ..< parser.characters.count, depth: 0)
@@ -25,7 +30,13 @@ public enum MessageMarkup {
             guard start >= 0, end > start else { return nil }
             return Mention(target: mention.target, start: start, length: end - start, mode: mention.mode)
         }
-        let content = MessageContent(formatting: parser.formats, quote: message.content?.quote)
+        let carried = parser.carried.compactMap { format -> MessageFormat? in
+            let start = parser.map[format.start]
+            let end = parser.map[format.start + format.length]
+            guard start >= 0, end > start else { return nil }
+            return MessageFormat(style: format.style, start: start, length: end - start)
+        }
+        let content = MessageContent(formatting: parser.formats + carried, quote: message.content?.quote)
         return ComposedMessage(text: parser.output, mentions: mentions, content: content)
     }
 
@@ -85,7 +96,7 @@ public enum MessageMarkup {
         )
     }
 
-    private static func editableMentions(
+    static func editableMentions(
         _ message: ComposedMessage,
         starts: [Int: Int],
         ends: [Int: Int]
@@ -102,6 +113,10 @@ public enum MessageMarkup {
         let original: ComposedMessage
         let characters: [Character]
         let offsets: [Int]
+        /// The valid spans the message carried in, over its own text.
+        let carried: [MessageFormat]
+        /// The carried code: never read as markup.
+        let code: [Range<Int>]
         var map: [Int]
         var output = ""
         var outputLength = 0
@@ -117,6 +132,9 @@ public enum MessageMarkup {
                 positions.append(offset)
             }
             offsets = positions
+            carried = (message.content?.formatting ?? []).filter { $0.range(in: message.text) != nil }
+            code = carried.filter { $0.style == "code" || $0.style == "codeBlock" }
+                .map { $0.start ..< $0.start + $0.length }
             map = Array(repeating: -1, count: message.text.utf16.count + 1)
         }
 
@@ -147,8 +165,8 @@ public enum MessageMarkup {
                     index = end
                     continue
                 }
-                if !inMention(index), characters[index] == "\\", index + 1 < range.upperBound,
-                   "*`_~\\-".contains(characters[index + 1]) {
+                if !isLiteral(index), characters[index] == "\\", index + 1 < range.upperBound,
+                   !isLiteral(index + 1), "*`_~\\-".contains(characters[index + 1]) {
                     skip(index ..< index + 1)
                     append(index + 1 ..< index + 2)
                     index += 2
@@ -158,7 +176,8 @@ public enum MessageMarkup {
                 for delimiter in MessageMarkup.delimiters {
                     let marker = Array(delimiter.marker)
                     let count = marker.count
-                    guard matches(marker, at: index, end: range.upperBound), !inMention(index),
+                    guard matches(marker, at: index, end: range.upperBound),
+                          !(index ..< index + count).contains(where: isLiteral),
                           let close = closing(marker, from: index + count, end: range.upperBound),
                           close > index + count else { continue }
                     skip(index ..< index + count)
@@ -182,8 +201,9 @@ public enum MessageMarkup {
         }
 
         mutating func readBullet(at index: Int, end limit: Int, depth: Int) -> Int? {
-            if !inMention(index), index == 0 || characters[index - 1] == "\n", index + 1 < limit,
-               characters[index] == "-" || characters[index] == "*", characters[index + 1] == " " {
+            if !isLiteral(index), index == 0 || characters[index - 1] == "\n", index + 1 < limit,
+               !isLiteral(index + 1), characters[index] == "-" || characters[index] == "*",
+               characters[index + 1] == " " {
                 let end = (index + 2 ..< limit).first { characters[$0] == "\n" } ?? limit
                 skip(index ..< index + 2)
                 let start = outputLength
@@ -203,8 +223,8 @@ public enum MessageMarkup {
         mutating func appendCode(_ range: Range<Int>) {
             var index = range.lowerBound
             while index < range.upperBound {
-                if !inMention(index), characters[index] == "\\", index + 1 < range.upperBound,
-                   "`\\".contains(characters[index + 1]) {
+                if !isLiteral(index), characters[index] == "\\", index + 1 < range.upperBound,
+                   !isLiteral(index + 1), "`\\".contains(characters[index + 1]) {
                     skip(index ..< index + 1)
                     index += 1
                 }
@@ -221,16 +241,26 @@ public enum MessageMarkup {
             original.mentions.contains { $0.start <= offsets[index] && offsets[index] < $0.start + $0.length }
         }
 
+        func inCode(_ index: Int) -> Bool {
+            code.contains { $0.contains(offsets[index]) }
+        }
+
+        /// Never markup: a mention's name, or carried code.
+        func isLiteral(_ index: Int) -> Bool {
+            inMention(index) || inCode(index)
+        }
+
         func closing(_ marker: [Character], from start: Int, end: Int) -> Int? {
             var index = start
             while index + marker.count <= end {
-                if characters[index] == "\\" {
+                if characters[index] == "\\", !inCode(index), !inCode(index + 1) {
                     index += 2; continue
                 }
-                if !inMention(index), matches(marker, at: index, end: end) {
+                if matches(marker, at: index, end: end),
+                   !(index ..< index + marker.count).contains(where: isLiteral) {
                     if marker.first == "*" {
                         var stop = index
-                        while stop < end, characters[stop] == "*" {
+                        while stop < end, characters[stop] == "*", !inCode(stop) {
                             stop += 1
                         }
                         let run = stop - index
