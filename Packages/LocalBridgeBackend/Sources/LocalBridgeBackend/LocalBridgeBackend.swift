@@ -130,6 +130,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `--probe=events`' tally (`LocalBridgeBackend+EventTally.swift`); `nil` otherwise.
     var eventTally: EventTallyFile?
     let presencePollInterval: Duration
+    /// How soon a failed presence poll asks again: `defaultPresenceRetryDelay`
+    /// outside tests, doubling up to the interval (`LocalBridgeBackend+Presence`).
+    let presenceRetryDelay: Duration
     /// Coalesced `list_messages` refetches triggered by `MESSAGE_REACTED`
     /// (`LocalBridgeBackend+ReactionRefetch.swift`).
     var reactionRefetches = ReactionRefetches()
@@ -196,6 +199,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// backend opens; see `ChannelSession`'s own doc comment on why `nil`
     /// degrades rather than fails.
     /// - Parameter presencePollInterval: Shortened by tests only.
+    /// - Parameter presenceRetryDelay: Shortened by tests only.
     /// - Parameter reactionRefetchDelay: Shortened by tests only.
     init(
         cookies: SessionCookies,
@@ -205,6 +209,7 @@ public actor LocalBridgeBackend: ChatBackend {
         onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
         reachability: (any ReachabilityMonitor)? = nil,
         presencePollInterval: Duration = defaultPresencePollInterval,
+        presenceRetryDelay: Duration = defaultPresenceRetryDelay,
         reactionRefetchDelay: Duration = defaultReactionRefetchDelay,
         proof: ProviderProof = .portable,
         diagnostics: ProviderDiagnostics = .init()
@@ -217,6 +222,7 @@ public actor LocalBridgeBackend: ChatBackend {
         channelRetry = retry
         channelReachability = reachability
         self.presencePollInterval = presencePollInterval
+        self.presenceRetryDelay = presenceRetryDelay
         self.reactionRefetchDelay = reactionRefetchDelay
         credentials = SessionCredentials(cookies, onRotation: onRotation)
         bootstrap = Bootstrap(transport: transport)

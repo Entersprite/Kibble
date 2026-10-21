@@ -18,13 +18,15 @@ extension PresencePollFixtures {
 
     func backend(
         _ transport: PresenceTransport,
-        interval: Duration = .seconds(3600)
+        interval: Duration = .seconds(3600),
+        failureRetry: Duration = .seconds(3600)
     ) -> LocalBridgeBackend {
         LocalBridgeBackend(
             cookies: Self.cookies,
             transport: transport,
             retry: .default,
-            presencePollInterval: interval
+            presencePollInterval: interval,
+            presenceRetryDelay: failureRetry
         )
     }
 

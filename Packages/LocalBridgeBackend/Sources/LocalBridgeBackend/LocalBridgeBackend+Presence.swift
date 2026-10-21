@@ -66,6 +66,9 @@ extension LocalBridgeBackend {
 
     /// purple's interval (`googlechat_auth.c`, `poll_buddy_status_timeout`).
     static let defaultPresencePollInterval: Duration = .seconds(120)
+    /// The first retry after a failed poll, doubling while it keeps failing,
+    /// up to the interval.
+    static let defaultPresenceRetryDelay: Duration = .seconds(10)
 
     /// What a person who was answered for before, and is missing from a
     /// successful answer now, becomes: something that draws nothing. Leaving
@@ -144,28 +147,53 @@ extension LocalBridgeBackend {
     /// already recorded it, never sent again: on a fresh store, every dot
     /// would stay missing until that person's state changed. Awaiting a task
     /// is not cancelling it, so this cannot finish the lookup early.
+    ///
+    /// **A failed run asks again soon**, after `presenceRetryDelay`, doubling
+    /// while it keeps failing, up to the interval. The failure has just
+    /// withdrawn every dot it asked about, and the likeliest failure is the
+    /// first run after the Mac wakes, whose two minutes ran out during sleep
+    /// and which goes out before the network is back: waiting a whole
+    /// interval left the sidebar without a single dot for two minutes after
+    /// every wake (owner's report, session320).
     func startPresencePoll(using apiClient: ProtoAPIClient, after names: Task<Void, Never>?) {
         guard presencePoll.task == nil else { return }
         let interval = presencePollInterval
+        let firstRetry = presenceRetryDelay
         let generation = directoryGeneration
         presencePoll.task = Task { [weak self] in
             await names?.value
+            var retry = firstRetry
             while !Task.isCancelled {
                 // `nil` once the backend has gone, which ends the loop rather
                 // than sleeping forever on behalf of nobody. Read fresh each
                 // run, because the set grows between runs.
                 guard let people = await self?.presencePoll.allPeople else { return }
+                var answered = true
                 if !people.isEmpty {
                     let ids = people.sorted { $0.rawValue < $1.rawValue }
-                    await self?.pollPresence(ids, using: apiClient, generation: generation)
+                    answered = await self?.pollPresence(ids, using: apiClient, generation: generation) ?? true
                 }
+                let wait = answered ? interval : min(retry, interval)
+                retry = answered ? firstRetry : min(retry * 2, interval)
                 do {
-                    try await Task.sleep(for: interval)
+                    try await Task.sleep(for: wait)
                 } catch {
                     return
                 }
             }
         }
+    }
+
+    /// Asks about everyone now, and then on the usual schedule: the loop
+    /// starts over, keeping who it asks about and what it last said. For a
+    /// channel that came back after an outage, whose dots are as old as the
+    /// outage. Nothing while no poll runs: the next world load starts one.
+    func pollPresenceNow() {
+        guard let apiClient, presencePoll.task != nil else { return }
+        presencePoll.task?.cancel()
+        presencePoll.task = nil
+        PresenceLog.restarted()
+        startPresencePoll(using: apiClient, after: nil)
     }
 
     func stopPresencePoll() {
@@ -184,14 +212,21 @@ extension LocalBridgeBackend {
     /// caller. The loop is cancelled when replaced or stopped. A one-off from
     /// `addPresenceTargets` is never cancelled, so it carries the directory
     /// generation, which every end of a session bumps (`forgetDirectory`).
-    func pollPresence(_ ids: [ChatKit.Member.ID], using apiClient: ProtoAPIClient, generation: Int) async {
+    ///
+    /// Returns whether Google answered, so the loop can ask again soon after
+    /// a failure; a stale call counts as answered, since nobody waits on it.
+    @discardableResult
+    func pollPresence(
+        _ ids: [ChatKit.Member.ID], using apiClient: ProtoAPIClient, generation: Int
+    ) async -> Bool {
         let response: GetUserPresenceResponse
         do {
             response = try await apiClient.call(.getUserPresence, Self.getUserPresenceRequest(ids))
         } catch {
             // A poll from a session that has gone, or one replaced while the
             // call was out: its failure is not news.
-            guard !Task.isCancelled, generation == directoryGeneration else { return }
+            guard !Task.isCancelled, generation == directoryGeneration else { return true }
+            PresenceLog.failed(asked: ids.count, error: error)
             // Withdraw first, then report: every withdrawal event passes
             // through `SyncReducer.supersedingStaleError`, which clears the
             // last error, so an error emitted first was erased at once -
@@ -205,23 +240,25 @@ extension LocalBridgeBackend {
                     error: Self.chatError(fromAPI: error, call: "the /api/ get_user_presence call")
                 )
             }
-            return
+            return false
         }
         // The same checks: a stale session's presence must not land in the
         // next one.
-        guard !Task.isCancelled, generation == directoryGeneration else { return }
+        guard !Task.isCancelled, generation == directoryGeneration else { return true }
         presencePoll.failureReported = false
         resourceRecovered(.presence)
         let answered = PresenceMapping.map(response)
+        PresenceLog.answered(asked: ids.count, answered: answered.count)
         for id in ids {
             let previous = presencePoll.emitted[id]
             guard let next = answered[id] ?? previous.map({ _ in Self.absentPresence }),
                   next != previous
             else { continue }
             presencePoll.emitted[id] = next
-            guard await emitCommitted(.presenceChanged(member: id, presence: next)) else { return }
+            guard await emitCommitted(.presenceChanged(member: id, presence: next)) else { return true }
         }
         await emitStatusChanges(for: ids, in: response)
+        return true
     }
 
     /// A `.statusChanged` for each person whose status differs from the last

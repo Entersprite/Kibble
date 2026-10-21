@@ -172,6 +172,47 @@ struct PresencePollTests: PresencePollFixtures {
         await backend.disconnect()
     }
 
+    /// A failed poll asks again within moments, not a whole interval later:
+    /// the first poll after the Mac wakes runs before its network is back,
+    /// fails, and withdraws every dot, which then stayed missing for two
+    /// minutes (owner's report). With a one-hour interval, only the retry
+    /// can make the second poll.
+    @Test func aFailedPollIsRetriedSoonNotAWholeIntervalLater() async throws {
+        let transport = try transport([.failure, .people(["u-1": .active])], dmMembers: ["u-1"])
+        let backend = backend(transport, interval: .seconds(3600), failureRetry: .milliseconds(20))
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+
+        _ = try await backend.loadConversations()
+        try await awaitPolls(2, on: transport)
+        let events = await log.settle()
+
+        #expect(presences(in: events)[ada] == [.active])
+        await backend.disconnect()
+    }
+
+    /// A channel that comes back after an outage (the Mac waking, the network
+    /// returning) asks about everyone at once rather than at the next
+    /// interval, so the dots are current as soon as the session is.
+    @Test func aResumedChannelAsksAboutEveryoneAtOnce() async throws {
+        let transport = try transport([
+            .people(["u-1": .active]), .people(["u-1": .inactive])
+        ], dmMembers: ["u-1"])
+        let backend = backend(transport, interval: .seconds(3600))
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+
+        _ = try await backend.loadConversations()
+        try await awaitPolls(1, on: transport)
+        try await awaitAnswered(1, on: transport)
+        await backend.channelLifecycleChanged(.resumed)
+        try await awaitPolls(2, on: transport)
+        let events = await log.settle()
+
+        #expect(presences(in: events)[ada] == [.active, .inactive])
+        await backend.disconnect()
+    }
+
     /// The error comes after the withdrawal, never before it. Every
     /// withdrawal event passes through `SyncReducer.supersedingStaleError`,
     /// which clears the last error, so an error emitted first was erased at

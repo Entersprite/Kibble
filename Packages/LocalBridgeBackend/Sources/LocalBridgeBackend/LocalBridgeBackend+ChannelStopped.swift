@@ -145,6 +145,9 @@ extension LocalBridgeBackend {
             if delivery.running {
                 requestProviderRecovery()
             }
+            // Presence is polled, not pushed, so nothing the channel replays
+            // brings the dots back: ask now rather than at the next interval.
+            pollPresenceNow()
         }
     }
 }
