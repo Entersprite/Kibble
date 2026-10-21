@@ -66,6 +66,8 @@ public struct Composer: View {
     @State private var fieldFocused = false
     /// Who the Format menu's value comes from (`ComposerFormatting`).
     @State private var formattingID = UUID()
+    /// The styles on at the field's selection, which the Format menu checks.
+    @State var activeFormats: Set<ComposerFormat> = []
     /// The + shows the system's file importer.
     @State private var choosingFiles = false
 
@@ -145,7 +147,8 @@ public struct Composer: View {
         .fileDialogMessage("Choose files to send")
         .focusedSceneValue(
             \.composerFormatting,
-            fieldFocused && allowsFormatting ? ComposerFormatting(id: formattingID, apply: format) : nil
+            fieldFocused && allowsFormatting
+                ? ComposerFormatting(id: formattingID, active: activeFormats, apply: format) : nil
         )
         .animation(.snappy(duration: 0.15), value: canAct)
         .animation(.snappy(duration: 0.15), value: attachments.map(\.id))
@@ -299,7 +302,8 @@ public struct Composer: View {
                 dictationRequest: dictationRequest,
                 onActivity: { activity?(draft.editing == nil && $0) },
                 paste: pasteActions,
-                onFocusChange: { fieldFocused = $0 }
+                onFocusChange: { fieldFocused = $0 },
+                onStyles: noteStyles
             )
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {

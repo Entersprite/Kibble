@@ -41,12 +41,16 @@
             scroll.autohidesScrollers = true
             scroll.borderType = .noBorder
             let text = scroll.textView
+            // Plain text to the person: a paste or a drop arrives as text,
+            // never with another app's fonts. The field's own formatting is
+            // drawn from the draft (`ComposerStyle`), which plain text allows.
             text.isRichText = false
             text.allowsUndo = true
             spelling.apply(to: text)
             (text as? ComposerNSTextView)?.spelling = spelling
             // Writing Tools rewrites the words and keeps the field plain: its
-            // rich results would carry styles the draft cannot send. Mentions
+            // rich results would carry styles the draft cannot send, and what
+            // it rewrites comes in unstyled (`ComposerDraft.edit`). Mentions
             // are kept out of its reach by the delegate's ignored ranges
             // (`ComposerTextView.Coordinator`).
             text.allowedWritingToolsResultOptions = .plainText
@@ -68,54 +72,6 @@
             text.typingAttributes = ComposerStyle.base
             scroll.documentView = text
             return scroll
-        }
-    }
-
-    /// The field's type and token style. Tokens use the accent style
-    /// `MessageTextAttributes` gives someone else's mention in a bubble.
-    enum ComposerStyle {
-        static var font: NSFont {
-            .preferredFont(forTextStyle: .body)
-        }
-
-        static var base: [NSAttributedString.Key: Any] {
-            [.font: font, .foregroundColor: NSColor.labelColor]
-        }
-
-        static func apply(_ tokens: [ComposerDraft.Token], to view: NSTextView) {
-            guard let storage = view.textStorage, !view.hasMarkedText() else { return }
-            storage.beginEditing()
-            storage.setAttributes(base, range: NSRange(location: 0, length: storage.length))
-            let semibold = NSFont.systemFont(ofSize: font.pointSize, weight: .semibold)
-            for token in tokens where token.end <= storage.length {
-                storage.addAttributes(
-                    [.font: semibold, .foregroundColor: NSColor.controlAccentColor],
-                    range: NSRange(location: token.location, length: token.length)
-                )
-            }
-            storage.endEditing()
-            view.typingAttributes = base
-        }
-
-        /// Measured on a private TextKit stack, never the view's own (CLAUDE.md,
-        /// session 45): one line at least, `maxLines` at most.
-        static func height(of text: NSAttributedString, width: CGFloat, maxLines: Int) -> CGFloat {
-            let storage = NSTextStorage(attributedString: text)
-            let layout = NSLayoutManager()
-            storage.addLayoutManager(layout)
-            let container = NSTextContainer(size: NSSize(
-                width: max(1, width),
-                height: CGFloat.greatestFiniteMagnitude
-            ))
-            container.lineFragmentPadding = 0
-            layout.addTextContainer(container)
-            layout.ensureLayout(for: container)
-            var used = layout.usedRect(for: container)
-            if !layout.extraLineFragmentRect.isEmpty {
-                used = used.union(layout.extraLineFragmentRect)
-            }
-            let line = layout.defaultLineHeight(for: font)
-            return min(max(used.height, line), line * CGFloat(maxLines)).rounded(.up)
         }
     }
 

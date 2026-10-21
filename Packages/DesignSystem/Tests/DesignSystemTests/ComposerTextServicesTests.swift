@@ -158,5 +158,15 @@
             #expect(ComposerFormatting(id: id) { _ in } == ComposerFormatting(id: id) { _ in })
             #expect(ComposerFormatting(id: id) { _ in } != ComposerFormatting(id: UUID()) { _ in })
         }
+
+        /// A new value when the styles at the selection change, so the
+        /// Format menu's checkmarks follow them.
+        @Test func otherStylesAtTheSelectionAreANewValue() {
+            let id = UUID()
+            #expect(ComposerFormatting(id: id, active: [.bold]) { _ in }
+                != ComposerFormatting(id: id) { _ in })
+            #expect(ComposerFormatting(id: id, active: [.bold]) { _ in }
+                == ComposerFormatting(id: id, active: [.bold]) { _ in })
+        }
     }
 #endif

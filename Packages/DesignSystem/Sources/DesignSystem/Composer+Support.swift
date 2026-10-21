@@ -25,10 +25,13 @@ struct ComposerFieldAnchor: PreferenceKey {
     }
 }
 
-/// Text for the field from outside the keyboard (the emoji picker). `id`
-/// makes the same emoji twice two insertions.
+/// What the field takes from outside the keyboard: text (the emoji picker),
+/// a prefix for each selected line (a list's `- `), or a style to turn on or
+/// off (the format button and the Format menu). `id` makes the same emoji
+/// twice two insertions.
 struct ComposerInsertion: Equatable {
     let id = UUID()
-    let text: String
-    var surround: String?
+    var text = ""
+    var linePrefix: String?
+    var toggle: ComposerDraft.Style?
 }

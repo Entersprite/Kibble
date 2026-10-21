@@ -40,6 +40,35 @@ struct ComposerPersistenceTests {
         #expect(try reopened.composerDrafts().isEmpty)
     }
 
+    /// A draft's formatting is saved with it and comes back as the same
+    /// runs, over the same words, with no markup in the text.
+    @Test func aDraftsFormattingSurvivesReopening() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("replica.sqlite").path
+        let writer = try ComposerPersistence(store: ChatStore.onDisk(at: path)) { _ in
+            Issue.record("unexpected save failure")
+        }
+        var draft = ComposerDraft()
+        draft.replace(location: 0, length: 0, with: "bold 😀 and code")
+        draft.toggle(.bold, in: NSRange(location: 0, length: 4))
+        draft.toggle(.code, in: NSRange(location: 12, length: 4))
+        let address = ComposerDraftAddress(conversation: Conversation.ID("conversation"))
+        writer.save([draft.snapshot(at: address)])
+        await writer.finish()
+
+        let saved = try #require(ChatStore.onDisk(at: path).composerDrafts().first)
+        #expect(saved.formatting == [
+            MessageFormat(style: "bold", start: 0, length: 4),
+            MessageFormat(style: "code", start: 12, length: 4)
+        ])
+        let restored = ComposerDraft(snapshot: saved)
+        #expect(restored.text == "bold 😀 and code")
+        #expect(restored.runs == draft.runs)
+        #expect(restored.composed(formatting: true) == draft.composed(formatting: true))
+    }
+
     @Test func disablingRestoresDraftsOnEnableAndSignOutErasesThem() async throws {
         let services = try FakeLaunchServices()
         let environment = AppEnvironment(services: services)
