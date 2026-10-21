@@ -45,7 +45,11 @@ struct SpacesDirectoryContent: View {
         .safeAreaBar(edge: .top) { SpacesScopeBar(state: state, actions: actions) }
         .contextMenu(forSelectionType: Conversation.ID.self) { ids in
             if ids.count == 1, let detail = detail(ids.first) {
-                Button(detail.membership == .joined ? "Open" : "Show Preview…") { open(detail) }
+                if detail.membership == .joined {
+                    Button("Open", systemImage: DirectoryMenuSymbols.open) { open(detail) }
+                } else {
+                    Button("Show Preview…", systemImage: DirectoryMenuSymbols.preview) { open(detail) }
+                }
                 if detail.membership == .joined, let update = actions.updateSidebar {
                     FavoriteMenuButton(
                         target: .conversation(detail.conversation.id), preferences: state.sidebarPreferences,
@@ -53,7 +57,9 @@ struct SpacesDirectoryContent: View {
                     )
                 }
                 if detail.membership == .joined, state.capabilities.canReadConversationDetails {
-                    Button("Show Details…") { actions.browser?.details(detail.conversation.id, false) }
+                    Button("Show Details…", systemImage: DirectoryMenuSymbols.details) {
+                        actions.browser?.details(detail.conversation.id, false)
+                    }
                 }
             }
         } primaryAction: { ids in
@@ -280,7 +286,9 @@ struct SpaceRow: View {
             Spacer(minLength: 8)
             SpaceStatus(detail: detail)
             Button(SpaceDirectoryText.action(detail), action: open)
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
         }
         .padding(.vertical, DirectoryLayout.rowPadding)
         .padding(.horizontal, 4)
@@ -320,7 +328,8 @@ struct SpaceStatus: View {
 
 /// A suggested space: a card with room for its description. Content, so it
 /// sits on the window's own material rather than in glass, which the
-/// guidelines keep for controls; its button is glass.
+/// guidelines keep for controls floating over content; its button is the
+/// list rows' small bordered capsule.
 struct SpaceCard: View {
     let detail: ConversationDetails
     let open: () -> Void
@@ -353,7 +362,9 @@ struct SpaceCard: View {
                 SpaceStatus(detail: detail).font(.subheadline)
                 Spacer()
                 Button(SpaceDirectoryText.action(detail), action: open)
-                    .buttonStyle(.glass)
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
             }
         }
         .padding(16)

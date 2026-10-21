@@ -144,12 +144,17 @@ struct ConversationDirectoryView: View {
             ForEach(people, id: \.id) { person in
                 DirectoryRow(isSelected: selectedPerson == person.id) { revealed in
                     PersonRow(person: person, size: DirectoryLayout.pictureSize) {
+                        // A row's control is content's: bordered, not glass.
                         if canMessage {
-                            Button("Send Message", systemImage: "bubble.left.fill") { message(person.id) }
-                                .labelStyle(.iconOnly)
-                                .buttonStyle(.glass)
-                                .help("Send Message")
-                                .opacity(revealed ? 1 : 0)
+                            Button("Send Message", systemImage: DirectoryMenuSymbols.message) {
+                                message(person.id)
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .controlSize(.small)
+                            .help("Send Message")
+                            .opacity(revealed ? 1 : 0)
                         }
                     }
                 }
@@ -167,7 +172,7 @@ struct ConversationDirectoryView: View {
         .listStyle(.inset)
         .contextMenu(forSelectionType: Member.ID.self) { ids in
             if ids.count == 1, let id = ids.first, canMessage {
-                Button("Send Message") { message(id) }
+                Button("Send Message", systemImage: DirectoryMenuSymbols.message) { message(id) }
                 if let chat = state.conversations.first(where: {
                     $0.kind == .directMessage && $0.members.contains(id) && id != state.me
                 }), let update = actions.updateSidebar {
@@ -237,13 +242,18 @@ struct ConversationDirectoryView: View {
         .listStyle(.inset)
         .contextMenu(forSelectionType: SidebarSelection.self) { ids in
             if ids.count == 1, let id = ids.first {
-                Button("Open") { SidebarPinned.choose(id, actions: actions) }
+                Button("Open", systemImage: DirectoryMenuSymbols.open) { SidebarPinned.choose(
+                    id,
+                    actions: actions
+                ) }
                 if let update = actions.updateSidebar {
                     FavoriteMenuButton(target: id, preferences: state.sidebarPreferences, update: update)
                 }
                 if case let .conversation(conversation) = id,
                    state.capabilities.canReadConversationDetails, let browser = actions.browser {
-                    Button("Show Details…") { browser.details(conversation, false) }
+                    Button("Show Details…", systemImage: DirectoryMenuSymbols.details) {
+                        browser.details(conversation, false)
+                    }
                 }
             }
         } primaryAction: { ids in

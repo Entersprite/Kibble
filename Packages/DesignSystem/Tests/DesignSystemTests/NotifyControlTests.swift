@@ -134,8 +134,8 @@ struct NotifyControlTests {
     }
 
     @Test func theThreeChoicesHaveTheirTitles() {
-        #expect(Display.title(of: NotifyChoice.allMessages) == "All messages")
-        #expect(Display.title(of: NotifyChoice.mentions) == "Mentions only")
+        #expect(Display.title(of: NotifyChoice.allMessages) == "All Messages")
+        #expect(Display.title(of: NotifyChoice.mentions) == "Mentions Only")
         #expect(Display.title(of: NotifyChoice.nothing) == "Nothing")
     }
 }

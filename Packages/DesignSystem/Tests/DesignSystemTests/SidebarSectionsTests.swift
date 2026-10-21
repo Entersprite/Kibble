@@ -29,7 +29,7 @@ struct SidebarSectionsTests {
             conversation("dm:2", .groupDirectMessage, title: "launch"),
             conversation("dm:3", .appDirectMessage, title: "deploybot")
         ])
-        #expect(sections.map(\.title) == ["Direct messages", "Group chats", "Spaces", "Apps"])
+        #expect(sections.map(\.title) == ["Direct Messages", "Group Chats", "Spaces", "Apps"])
     }
 
     @Test func anEmptySectionIsNotShown() {

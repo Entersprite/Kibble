@@ -131,21 +131,29 @@ struct ConversationPeopleForm: View {
     @ViewBuilder private func menuItems(for participant: ConversationParticipant) -> some View {
         if participant.allowedActions.contains("setRole") {
             ForEach(participant.allowedRoles.filter { $0 != participant.role }, id: \.self) { role in
-                Button("Make \(ConversationDetailsText.role(role))") {
+                Button(
+                    "Make \(ConversationDetailsText.role(role))",
+                    systemImage: DirectoryMenuSymbols.setRole
+                ) {
                     actions.mutate(.setRole(participant.id, role))
                 }
             }
         }
         if participant.allowedActions.contains("approveRequest") {
-            Button("Approve Request") { actions.mutate(.approveRequest(participant.id)) }
+            Button("Approve Request", systemImage: DirectoryMenuSymbols.approve) {
+                actions.mutate(.approveRequest(participant.id))
+            }
         }
         if participant.allowedActions.contains("rejectRequest") {
-            Button("Reject Request…", role: .destructive) { confirm(.rejectRequest(participant.id)) }
+            Button("Reject Request…", systemImage: DirectoryMenuSymbols.reject, role: .destructive) {
+                confirm(.rejectRequest(participant.id))
+            }
         }
         if participant.allowedActions.contains("removePerson") {
             Divider()
             Button(
                 "Remove from \(ConversationDetailsText.kind(details.conversation.kind))…",
+                systemImage: DirectoryMenuSymbols.remove,
                 role: .destructive
             ) {
                 confirm(.removePerson(participant.id))
