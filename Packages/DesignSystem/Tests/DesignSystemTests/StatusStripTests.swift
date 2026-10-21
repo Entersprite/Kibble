@@ -21,8 +21,39 @@ struct StatusStripTests {
         }
     }
 
-    @Test func withNoNoticeAnIdleConnectionStillSaysSo() {
-        #expect(StatusStrip.headline(for: ChatSceneState()) == .warning("Not connected."))
+    @Test func startupDoesNotPresentAnIdleConnectionAsAFailure() {
+        #expect(StatusStrip.headline(for: ChatSceneState()) == nil)
+    }
+
+    @Test func ordinaryStartupUsesProgressUntilConnected() {
+        var state = ChatSceneState()
+        for connection in [ConnectionState.idle, .connecting, .connected] {
+            state.connection = connection
+            let expected: StatusStrip.Headline? = connection == .connecting ? .progress("Connecting…") : nil
+            #expect(StatusStrip.headline(for: state) == expected)
+        }
+    }
+
+    @Test func unfamiliarConnectionStatesUseProgressRatherThanWarnings() {
+        let state = ChatSceneState(connection: .unknown("future"))
+        #expect(StatusStrip.headline(for: state) == .progress("Connecting…"))
+    }
+
+    @Test func realErrorsDuringStartupAreStillShownImmediately() {
+        for connection in [ConnectionState.idle, .connecting, .connected] {
+            let state = ChatSceneState(connection: connection, lastError: .notAuthenticated)
+            #expect(StatusStrip
+                .headline(for: state) == .warning("Signed out. Sign in again to keep syncing."))
+        }
+    }
+
+    @Test func actualConnectionLossRemainsAWarningAndRecoveryClearsIt() {
+        var state = ChatSceneState(connection: .disconnected(reason: nil, issue: nil))
+        #expect(StatusStrip.headline(for: state) == .warning("Disconnected."))
+        state.connection = .reconnecting(attempt: 1, issue: .dropped, detail: nil)
+        #expect(StatusStrip.headline(for: state) == .warning("Reconnecting…"))
+        state.connection = .connected
+        #expect(StatusStrip.headline(for: state) == nil)
     }
 
     @Test func connectedAndQuietIsNothing() {

@@ -12,8 +12,8 @@ struct StatusStrip: View {
 
     var body: some View {
         // `headline(for:)` decides: an error, then a finished probe's
-        // notice, then the connection. A warning worth acting on never loses
-        // to a notice; "Not connected." always does.
+        // notice, then the connection. Ordinary startup is progress; a real
+        // error always keeps its warning and recovery controls.
         if case let .warning(message) = Self.headline(for: state) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -50,6 +50,16 @@ struct StatusStrip: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
             .background(.yellow.opacity(0.22))
+        } else if case let .progress(message) = Self.headline(for: state) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(message)
+                Spacer()
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
         } else if case let .notice(notice) = Self.headline(for: state) {
             // Neither the triangle nor the yellow wash: this is what closes
             // the finding that a clean `--probe=keychain` run drew exactly
@@ -70,6 +80,7 @@ struct StatusStrip: View {
     enum Headline: Equatable {
         case warning(String)
         case notice(String)
+        case progress(String)
     }
 
     /// One line, by precedence:
@@ -84,6 +95,14 @@ struct StatusStrip: View {
         }
         if let notice = state.notice {
             return .notice(notice)
+        }
+        switch state.connection {
+        case .idle, .connected:
+            return nil
+        case .connecting, .unknown:
+            return .progress("Connecting…")
+        case .reconnecting, .disconnected:
+            break
         }
         return ConnectionBanner.text(
             for: state.connection, service: state.connectionService

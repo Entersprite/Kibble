@@ -17,10 +17,8 @@ extension AccountRuntime {
                 guard let backend else { return }
                 let epoch = currentEpoch
                 if backend.capabilities.needsFollowedThreadsBackfill {
-                    do {
+                    await reconcileBackground {
                         _ = try await fetchFollowedThreads(backend: backend, epoch: epoch)
-                    } catch {
-                        await reconciliationFailed(error)
                     }
                 }
                 guard backend.capabilities.needsMentionBackfill, !Task.isCancelled, !stopped else { continue }

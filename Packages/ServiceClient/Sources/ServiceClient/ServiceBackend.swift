@@ -214,6 +214,8 @@ public actor ServiceBackend: ProjectedChatBackend {
                 isSnapshot: true,
                 isLive: false, clientTransportAvailable: true
             ), generation: generation)
+        } else if page.events.allSatisfy({ !$0.isLiveArrival }) {
+            try await receiveReplay(page, generation: generation)
         } else {
             for event in page.events {
                 if let cursor {
@@ -242,7 +244,7 @@ public actor ServiceBackend: ProjectedChatBackend {
         }
     }
 
-    private func deliver(_ delivery: ChatDelivery, generation: UUID) async throws {
+    func deliver(_ delivery: ChatDelivery, generation: UUID) async throws {
         guard generation == connectionGeneration else { throw CancellationError() }
         guard let checkpoint = delivery.checkpoint else { throw ServiceFailure.invalidResponse }
         if checkpointed {

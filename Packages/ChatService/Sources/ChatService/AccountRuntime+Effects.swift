@@ -46,10 +46,8 @@ extension AccountRuntime {
                 worldRefreshRequested = false
                 guard let backend else { return }
                 let epoch = currentEpoch
-                do {
+                await reconcileBackground {
                     _ = try await fetchWorld(backend: backend, epoch: epoch)
-                } catch {
-                    await reconciliationFailed(error)
                 }
             }
         }
@@ -98,10 +96,9 @@ extension AccountRuntime {
             while let id = pendingHistory.first, !stopped, !Task.isCancelled {
                 pendingHistory.remove(id)
                 guard let backend else { return }
-                do {
-                    _ = try await fetchMessages(in: id, before: nil, backend: backend, epoch: currentEpoch)
-                } catch {
-                    await reconciliationFailed(error)
+                let epoch = currentEpoch
+                await reconcileBackground {
+                    _ = try await fetchMessages(in: id, before: nil, backend: backend, epoch: epoch)
                 }
             }
         }

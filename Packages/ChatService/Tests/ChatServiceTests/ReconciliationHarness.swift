@@ -21,6 +21,8 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
     private(set) var worldHeld = false
     private(set) var historyHeld = false
     private(set) var worldReads = 0
+    private var worldFailures = 0
+    private var worldFailure = ServiceFailure.overloaded
     private(set) var historyReads = 0
     private(set) var sentCommands: [ChatCommand] = []
     private(set) var receivePresence: Set<Member.ID> = []
@@ -152,8 +154,17 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
         sink.yield(.messageDeleted(id: Self.message.id, in: Self.conversation))
     }
 
-    func loadConversations() async -> [Conversation] {
+    func failNextWorldReads(_ count: Int, with failure: ServiceFailure = .overloaded) {
+        worldFailures = count
+        worldFailure = failure
+    }
+
+    func loadConversations() async throws -> [Conversation] {
         worldReads += 1
+        if worldFailures > 0 {
+            worldFailures -= 1
+            throw worldFailure
+        }
         let captured = rows
         if holdWorld {
             holdWorld = false; worldHeld = true
