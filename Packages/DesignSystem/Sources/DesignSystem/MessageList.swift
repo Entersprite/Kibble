@@ -288,15 +288,6 @@ public struct MessageList: View {
         }
     }
 
-    /// The last row grew while its end was in view: keep that end in view,
-    /// unless an older page's anchor is being restored, newer messages are
-    /// still to come, or a jump is under way.
-    private func followGrowth(_ proxy: ScrollViewProxy) {
-        guard hasPlacedMessages, !state.hasNewerMessages, readingAnchor.restoringID == nil,
-              !latestJumpRequested, let newest = state.messages.last?.id else { return }
-        proxy.scrollTo(newest, anchor: .bottom)
-    }
-
     /// The floating button: to the end of what is loaded, or through the
     /// same latest jump as the list's own button when the newest messages
     /// are not loaded.
@@ -354,6 +345,17 @@ public struct MessageList: View {
         case nil:
             break
         }
+    }
+}
+
+extension MessageList {
+    /// The last row grew while its end was in view: keep that end in view,
+    /// unless an older page's anchor is being restored, newer messages are
+    /// still to come, or a jump is under way.
+    private func followGrowth(_ proxy: ScrollViewProxy) {
+        guard hasPlacedMessages, !state.hasNewerMessages, readingAnchor.restoringID == nil,
+              !latestJumpRequested, let newest = state.messages.last?.id else { return }
+        proxy.scrollTo(newest, anchor: .bottom)
     }
 }
 

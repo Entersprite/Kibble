@@ -40,9 +40,9 @@
         private func brightestIcon(in rep: NSBitmapImageRep) -> CGFloat {
             let scale = CGFloat(rep.pixelsWide) / Self.size.width
             var brightest: CGFloat = 0
-            for x in Int(14 * scale) ..< Int(34 * scale) {
-                for y in 0 ..< rep.pixelsHigh {
-                    guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            for column in Int(14 * scale) ..< Int(34 * scale) {
+                for row in 0 ..< rep.pixelsHigh {
+                    guard let color = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB) else { continue }
                     brightest = max(brightest, color.brightnessComponent * color.alphaComponent)
                 }
             }

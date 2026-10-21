@@ -102,14 +102,6 @@ struct MessageBubble: View {
         .messageAccessibilityActions(menu.table(), addReaction: addsReactions ? { picking = true } : nil)
     }
 
-    /// "Alex Lee, 3:25 PM": the row's sender and time, which a continuing
-    /// row does not draw. The header is hidden from VoiceOver, so every row
-    /// says the same thing.
-    private var accessibilityLabel: String {
-        let sender = isMine ? "You" : Display.name(of: message.sender, in: state.directory)
-        return "\(sender), \(Display.timestamp(of: message.createdAt))"
-    }
-
     /// A continuing row keeps the picture's column empty, so its bubble
     /// lines up with the group's first.
     @ViewBuilder private var avatar: some View {
@@ -374,4 +366,14 @@ struct MessageBubble: View {
             .padding(.vertical, 7)
         }
     #endif
+}
+
+extension MessageBubble {
+    /// "Alex Lee, 3:25 PM": the row's sender and time, which a continuing
+    /// row does not draw. The header is hidden from VoiceOver, so every row
+    /// says the same thing.
+    private var accessibilityLabel: String {
+        let sender = isMine ? "You" : Display.name(of: message.sender, in: state.directory)
+        return "\(sender), \(Display.timestamp(of: message.createdAt))"
+    }
 }
