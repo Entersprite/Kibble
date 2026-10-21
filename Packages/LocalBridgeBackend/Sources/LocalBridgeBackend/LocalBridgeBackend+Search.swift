@@ -20,13 +20,6 @@ public extension LocalBridgeBackend {
         guard isConnected else {
             throw ChatError.unknown("searchMessages requires connect() to succeed first")
         }
-        // Never captured on the wire (`findings.md` §65.5): refused rather
-        // than silently dropped, so no page claims a filter it did not
-        // apply - the same posture `membership(of:in:)` and `searchPeople`
-        // take toward a filter or a conversation they cannot honor.
-        guard query.newerThan == nil else {
-            throw ChatError.unsupported(capability: "messageSearchFilters: newerThan")
-        }
         let page = try decodedPage(for: cursor, matching: query)
         guard let context = bootstrapWiz.flatMap({ BatchExecuteContext($0) }) else {
             throw ChatError.unknown(
@@ -66,10 +59,10 @@ public extension LocalBridgeBackend {
         }
         let inner = try decodedAnswer(in: response)
         let mapped = SearchHitMapping.page(from: inner)
-        let hits = mapped.hits.filter { hit in
-            guard let cutoff = historyCutoffs[hit.conversationID] else { return true }
-            return Microseconds.from(hit.createdAt) > cutoff
+        guard mapped.next == nil || mapped.next != page?.pageToken else {
+            throw ChatError.decoding("Search returned a repeated page cursor")
         }
+        let hits = filteredSearchHits(mapped.hits, query: query)
         SearchLog.page(hits: hits.count, dropped: mapped.dropped, hasNext: mapped.next != nil)
         // A hit's time is its own microseconds (`findings.md` §65.8), so an
         // opened hit's history can anchor on it (`loadMessages(in:before:)`).
@@ -91,6 +84,22 @@ public extension LocalBridgeBackend {
             )
         }
         return MessageSearchPage(hits: hits, next: next)
+    }
+
+    private func filteredSearchHits(
+        _ messages: [ChatKit.Message],
+        query: MessageSearchQuery
+    ) -> [ChatKit.Message] {
+        messages.filter { hit in
+            if let conversation = query.conversation, hit.conversationID != conversation {
+                return false
+            }
+            if let lower = query.newerThan, hit.createdAt <= lower {
+                return false
+            }
+            guard let cutoff = historyCutoffs[hit.conversationID] else { return true }
+            return Microseconds.from(hit.createdAt) > cutoff
+        }
     }
 
     /// `_reqid`: a counter on the actor, mirroring the probe's own
@@ -163,26 +172,19 @@ public extension LocalBridgeBackend {
         )
     }
 
-    /// `nil` for no conversation filter; a space's raw id for one; a throw
-    /// for a direct message - no DM "Said in" was ever captured
-    /// (`findings.md` §65.8), so this refuses rather than guessing its shape,
-    /// the same posture `SearchHitMapping.groupReference(_:)` takes toward an
-    /// unrecognised group reference coming the other way.
+    /// Spaces use the established provider filter. DMs are matched against
+    /// each global result page, preserving its cursor without inventing a
+    /// provider-specific DM filter shape.
     private func conversationSpaceID(for conversationID: Conversation.ID?) throws -> String? {
         guard let conversationID else { return nil }
         guard let group = ChannelEventMapping.groupID(for: conversationID) else {
-            throw ChatError.unknown(
-                "\(conversationID.rawValue) has neither the space/ nor the dm/ prefix "
-                    + "this backend produces"
-            )
+            throw ChatError.decoding("The conversation does not belong to this provider")
         }
-        guard case let .spaceID(space) = group.id, !space.spaceID.isEmpty else {
-            throw ChatError.unsupported(
-                capability: "messageSearchFilters: conversation (a direct message - "
-                    + "no DM \"Said in\" was ever captured on the wire)"
-            )
+        switch group.id {
+        case let .spaceID(space): return space.spaceID
+        case .dmID: return nil
+        case nil: throw ChatError.decoding("The conversation has no provider address")
         }
-        return space.spaceID
     }
 
     /// `SBNmJb`'s own row out of the batchexecute answer: an error code, a

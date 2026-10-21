@@ -7,7 +7,7 @@ extension AccountRuntime {
         switch event {
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged, .historyLoaded,
              .membersResolved, .selfIdentified, .conversationsChanged, .conversationUpdated,
-             .conversationRemoved, .gap:
+             .conversationClassified, .historyInvalidated, .conversationRemoved, .gap:
             mediaFactsVersion = UUID()
         default: break
         }

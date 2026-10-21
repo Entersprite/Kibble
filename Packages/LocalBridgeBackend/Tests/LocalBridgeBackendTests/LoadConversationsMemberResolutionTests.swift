@@ -301,8 +301,9 @@ struct LoadConversationsMemberResolutionTests {
 
         let events = await collectEvents(backend)
         let found = events.contains {
-            guard case let .backendError(error) = $0 else { return false }
-            return error == .transport("the /api/ get_members call: transport error")
+            guard case let .resourceSyncChanged(status) = $0,
+                  status.resource == .profiles else { return false }
+            return status.error == .transport("the /api/ get_members call: transport error")
         }
         #expect(found)
     }

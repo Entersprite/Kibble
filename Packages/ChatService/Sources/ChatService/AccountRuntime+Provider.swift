@@ -26,7 +26,7 @@ extension AccountRuntime {
              SetThreadFollowed.operation:
             return try await dispatchDetails(request, backend: backend, epoch: epoch)
         case OpenDirectConversation.operation, CreateConversation.operation, MutateConversation.operation,
-             SendCommand.operation, SendHint.operation:
+             SendCommand.operation, SendHint.operation, InvokeCardAction.operation:
             return try await dispatchMutations(request, backend: backend, context: context, epoch: epoch)
         default: throw ServiceFailure.unsupportedOperation
         }

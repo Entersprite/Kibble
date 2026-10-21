@@ -241,22 +241,7 @@ struct ReactionMenu: ViewModifier {
                     if actions != nil {
                         Divider()
                     }
-                    if let reply = own.replyInThread {
-                        Button("Reply in Thread", systemImage: ThreadsPresentation.replySymbol, action: reply)
-                    }
-                    if let markUnread = own.markUnread {
-                        Button(
-                            "Mark as Unread",
-                            systemImage: ThreadsPresentation.markUnreadSymbol,
-                            action: markUnread
-                        )
-                    }
-                    if let edit = own.edit {
-                        Button("Edit…", systemImage: "pencil", action: edit)
-                    }
-                    if let delete = own.delete {
-                        Button("Delete…", systemImage: "trash", role: .destructive, action: delete)
-                    }
+                    ownItems(own)
                 }
                 if let link {
                     if actions != nil || own != nil {
@@ -268,6 +253,31 @@ struct ReactionMenu: ViewModifier {
             }
         } else {
             content
+        }
+    }
+
+    @ViewBuilder private func ownItems(_ own: OwnMessageMenuItems) -> some View {
+        if let forward = own.forward {
+            Button("Forward…", systemImage: "arrowshape.turn.up.right", action: forward)
+        }
+        if let quote = own.quote {
+            Button("Quote Reply", systemImage: "arrowshape.turn.up.left", action: quote)
+        }
+        if let reply = own.replyInThread {
+            Button("Reply in Thread", systemImage: ThreadsPresentation.replySymbol, action: reply)
+        }
+        if let markUnread = own.markUnread {
+            Button(
+                "Mark as Unread",
+                systemImage: ThreadsPresentation.markUnreadSymbol,
+                action: markUnread
+            )
+        }
+        if let edit = own.edit {
+            Button("Edit…", systemImage: "pencil", action: edit)
+        }
+        if let delete = own.delete {
+            Button("Delete…", systemImage: "trash", role: .destructive, action: delete)
         }
     }
 

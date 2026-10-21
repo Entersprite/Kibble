@@ -10,7 +10,7 @@ public extension SyncEngine {
     func refreshVisibleConversation(_ conversation: Conversation.ID?) async {
         do {
             let version = conversationMutationVersion
-            let conversations = try await backend.loadConversations()
+            let conversations = try await readConversationDirectory()
             try Task.checkCancellation()
             guard version == conversationMutationVersion else { return }
             try applyConversationSnapshot(conversations)

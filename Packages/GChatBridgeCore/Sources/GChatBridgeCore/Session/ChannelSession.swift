@@ -76,6 +76,7 @@ public actor ChannelSession {
     var requestIdentifier: Int
     /// Stream offset resets for each SID; RID shares the handshake counter and never resets.
     var streamEventOfs = 0
+    private var initialPingOffset = 0
     var groupInterest = ChannelGroupInterest()
     private var generator = SystemRandomNumberGenerator()
     /// The backoff between reconnect attempts.
@@ -200,26 +201,10 @@ public actor ChannelSession {
     /// poll ends, which is minutes after it arrived. Only the effects that need
     /// the network are queued.
     ///
-    /// **`enqueuedFailure` is captured once, here, and travels inside the
-    /// queued effect itself - it is not read again later from a stored
-    /// property.** Fix round 1's Finding 1 traced why that distinction is
-    /// load-bearing: `openStream` can apply *two* separate `.failed(_:)`
-    /// inputs - one from the acknowledge's `send()`, one from the freshly
-    /// opened body's read - before `run()`'s loop ever gets a turn to
-    /// dequeue either one's resulting `.reconnect`/`.awaitNetwork` effect. A
-    /// session-wide "last failure", read at dequeue time, paired the
-    /// *second* failure with the *first* attempt's lifecycle event when that
-    /// happened - confirmed by
-    /// `ChannelSessionReconnectTests.eachReconnectAttemptCarriesTheFailureThatCausedIt`,
-    /// which failed exactly that way before this fix. Snapshotting the
-    /// failure at the moment `ChannelReducer.reduce(_:_:)` actually produces
-    /// the effect ties each attempt to the failure that caused *it*,
-    /// independent of the order attempts are later handled in.
+    /// Snapshot each failure with its queued effect, including rejected HTTP
+    /// heads. Later failures must not change the cause reported for an attempt.
     private func apply(_ input: ChannelInput) {
-        var enqueuedFailure: ChannelFailure?
-        if case let .failed(reason) = input {
-            enqueuedFailure = reason
-        }
+        let enqueuedFailure = input.reconnectFailure
         for effect in ChannelReducer.reduce(&state, input) {
             switch effect {
             case let .deliver(arrays):
@@ -242,41 +227,21 @@ public actor ChannelSession {
             await send(requests.register()) { self.apply(.registered) }
 
         case .handshake:
+            // The GET embeds count=1&ofs=0, so its next forward message is 1.
+            initialPingOffset = 1
             requestIdentifier += 1
             await openStream(
                 requests.handshake(rid: requestIdentifier, zx: nextCacheBuster())
             )
 
-        case let .acknowledge(sid, aid):
-            // Genuinely fire-and-forget - see `ChannelAcknowledge.swift` for
-            // what changed, why, and what the reference does.
-            let ack = requests.acknowledge(sid: sid, aid: aid, zx: nextCacheBuster())
-            await Self.acknowledge(
-                credentials.authorising(ack), via: transport,
-                onHeaders: { await absorb($0, from: ack.url) }, onFailure: { await apply(.failed($0)) }
-            )
-
         case let .sendInitialPing(sid, aid):
-            // RID shares `requestIdentifier` with the handshake; ofs resets
-            // here - see `streamEventOfs`. `nil` means the ping could not be
-            // built - see `sendInitialPingIfPossible`'s own doc comment.
-            requestIdentifier += 1
-            streamEventOfs = 0
-            let ofs = streamEventOfs
-            streamEventOfs += 1
-            let ping = requests.ping(sid: sid, aid: aid, rid: requestIdentifier, ofs: ofs)
-            await Self.sendInitialPingIfPossible(
-                ping, credentials: credentials, via: transport,
-                onHeaders: Self.onPingHeaders(pingURL: ping?.url, credentials: credentials),
-                onFailure: { await apply(.failed($0)) }
-            )
-
-            await prepareGroupSubscription(sid: sid)
+            await sendInitialPing(sid: sid, aid: aid)
 
         case let .reopen(sid, aid):
+            initialPingOffset = 0
             await openStream(requests.reopen(sid: sid, aid: aid, zx: nextCacheBuster()))
 
-        case let .reconnect(attempt):
+        case let .reconnect(attempt, _):
             isRecovering = true
             await onLifecycle?(.reconnecting(attempt: attempt, failure: queued.failure))
             // The wait lives here rather than in the reducer, which carries no
@@ -306,9 +271,28 @@ public actor ChannelSession {
         }
     }
 
+    private func sendInitialPing(sid: String, aid: Int) async {
+        guard state.phase.sid == sid else { return }
+        // RID shares `requestIdentifier` with the handshake; ofs resets
+        // here - see `streamEventOfs`. `nil` means the ping could not be
+        // built - see `sendInitialPingIfPossible`'s own doc comment.
+        requestIdentifier += 1
+        streamEventOfs = initialPingOffset
+        let ofs = streamEventOfs
+        streamEventOfs += 1
+        let ping = requests.ping(sid: sid, aid: aid, rid: requestIdentifier, ofs: ofs)
+        await Self.sendInitialPingIfPossible(
+            ping, credentials: credentials, via: transport,
+            onHeaders: Self.onPingHeaders(pingURL: ping?.url, credentials: credentials),
+            onFailure: { await apply(.failed($0)) }
+        )
+
+        await prepareGroupSubscription(sid: sid)
+    }
+
     private func send(_ request: HTTPRequest, then next: () -> Void) async {
         do {
-            let request = await credentials.authorising(request)
+            let request = await credentials.authorisingChannel(request)
             let response = try await transport.send(request)
             await absorb(response.headers, from: request.url)
             next()
@@ -319,14 +303,19 @@ public actor ChannelSession {
 
     private func openStream(_ request: HTTPRequest) async {
         do {
-            let request = await credentials.authorising(request)
+            let request = await credentials.authorisingChannel(request)
             let stream = try await transport.stream(request)
             await absorb(stream.headers, from: request.url)
             apply(.streamOpened(
                 status: stream.status,
                 initialResponse: stream.headers["X-HTTP-Initial-Response"]
             ))
-            if isRecovering, case .listening = state.phase {
+            // The handshake response is already the backchannel. Post only
+            // the initial client-state ping before consuming its body.
+            await sendInitialPingIfPending()
+            // Rejected headers or a failed acknowledgement retire this body.
+            guard case .listening = state.phase else { return }
+            if isRecovering {
                 isRecovering = false
                 // Cleared because it is no longer true, and a host reading it
                 // after a recovery would report a session that is working as
@@ -334,15 +323,10 @@ public actor ChannelSession {
                 failure = nil
                 await onLifecycle?(.resumed)
             }
-            // The ack goes out before the body is read, not after it: the
-            // reference sends it and then falls into the read loop, and a
-            // client that acks afterwards has acked minutes late.
-            await acknowledgeAndPingIfPending()
-            guard !state.phase.isTerminal else { return }
 
             for try await data in stream.body {
                 apply(.body(data))
-                guard !state.phase.isTerminal else { return }
+                guard case .listening = state.phase else { return }
             }
             apply(.bodyEnded)
         } catch {
@@ -365,21 +349,12 @@ public actor ChannelSession {
         }
     }
 
-    /// Drains only the acknowledgement and the initial ping. Anything else
-    /// queued here would be a new stream, and opening one while this body is
-    /// still being read is how a channel ends up with two SIDs.
-    ///
-    /// **Stops as soon as the phase leaves `.listening`**, not merely once
-    /// nothing more matches: a failed acknowledge still leaves the ping
-    /// queued right behind it, matching the same predicate, and sending it
-    /// anyway can produce a *second* failure before `run()` dequeues the
-    /// first one's `.reconnect` - fix round 1's Finding 1 shape again, one
-    /// effect wider. Pinned by `ChannelSessionFailurePairingTests
-    /// .eachReconnectAttemptCarriesTheFailureThatCausedIt`.
-    private func acknowledgeAndPingIfPending() async {
+    /// Sends the pending initial ping before reading the upgraded backchannel.
+    /// Stop as soon as its failure retires this stream's session.
+    private func sendInitialPingIfPending() async {
         while case .listening = state.phase, let index = pending.firstIndex(where: {
             switch $0.effect {
-            case .acknowledge, .sendInitialPing: true
+            case .sendInitialPing: true
             default: false
             }
         }) {

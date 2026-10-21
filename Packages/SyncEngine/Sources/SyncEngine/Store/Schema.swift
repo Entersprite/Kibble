@@ -72,6 +72,18 @@ enum Schema {
         migrator.registerMigration("v22") { db in
             try db.alter(table: "message") { $0.add(column: "callStatus", .text) }
         }
+        migrator.registerMigration("v23") { db in
+            try db.create(table: "composerDraft") { $0.column("payload", .blob).notNull() }
+        }
+        migrator.registerMigration("v24") { db in
+            try db.alter(table: "message") { $0.add(column: "content", .text) }
+        }
+        migrator.registerMigration("v25") { db in
+            try db.create(table: "resourceSync") { table in
+                table.primaryKey("key", .text)
+                table.column("value", .text).notNull()
+            }
+        }
         return migrator
     }
 

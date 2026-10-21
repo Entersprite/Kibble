@@ -72,7 +72,7 @@ extension SQLiteAccountStorage: ServiceMediaCatalog {
                 ) != true else { continue }
                 let sources = ProviderMediaSource.collect(
                     attachments: message.attachments, reactions: message.reactions,
-                    links: message.links, cards: message.cards
+                    links: message.links, cards: message.cards, forwarded: message.content?.forwarded
                 )
                 try Self.replaceMediaSources(
                     sources, facts: MediaIndexFacts(

@@ -6,6 +6,11 @@ import Foundation
 struct ServiceCallStateProjection {
     private var previous: ServiceCallState?
     private var retiredStreams: Set<String> = []
+    private var connectionUnavailable = false
+    var isConnectionUnavailable: Bool {
+        connectionUnavailable
+    }
+
     var version: String? {
         previous?.version
     }
@@ -16,7 +21,7 @@ struct ServiceCallStateProjection {
 
     mutating func accept(_ state: ServiceCallState) throws -> [AudioCallEvent] {
         let admission = try admit(state)
-        guard admission.accepted else { return [] }
+        guard admission.accepted else { return restoreConnection(after: []) }
         var events = admission.events
         if previous?.recipients != state.recipients {
             events.append(.recipientsChanged(state.recipients))
@@ -32,7 +37,26 @@ struct ServiceCallStateProjection {
             events.append(event)
         }
         previous = state
-        return events
+        return restoreConnection(after: events)
+    }
+
+    mutating func connectionFailed() -> [AudioCallEvent] {
+        guard !connectionUnavailable else { return [] }
+        connectionUnavailable = true
+        return [.listenerChanged(isListening: false)]
+    }
+
+    private mutating func restoreConnection(after events: [AudioCallEvent]) -> [AudioCallEvent] {
+        guard connectionUnavailable else { return events }
+        connectionUnavailable = false
+        let includesListener = events.contains {
+            switch $0 {
+            case .listenerChanged: true
+            default: false
+            }
+        }
+        guard let previous, !previous.isListenerStarting, !includesListener else { return events }
+        return events + [.listenerChanged(isListening: previous.isListening)]
     }
 
     private mutating func admit(_ state: ServiceCallState) throws

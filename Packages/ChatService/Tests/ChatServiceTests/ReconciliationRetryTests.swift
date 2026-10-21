@@ -19,10 +19,12 @@ struct ReconciliationRetryTests {
         let page = try harness.storage.readEvents(after: checkpoint, limit: 256)
         #expect(!page.events.contains {
             if case .backendError = $0.event {
-                true
-            } else {
-                false
+                return true
             }
+            if case let .resourceSyncChanged(status) = $0.event {
+                return status.phase == .failed
+            }
+            return false
         })
         #expect(try harness.storage.conversations().count == 1)
         await harness.service.shutdown()
@@ -39,8 +41,8 @@ struct ReconciliationRetryTests {
         await harness.backend.emit(.gap(scope: .everything, reason: "fixture"))
         try await authEventually {
             try harness.storage.readEvents(after: checkpoint, limit: 256).events.contains {
-                if case .backendError = $0.event {
-                    true
+                if case let .resourceSyncChanged(status) = $0.event {
+                    status.resource == .directory && status.phase == .failed
                 } else {
                     false
                 }

@@ -45,9 +45,12 @@ actor AccountRuntime {
     var typingRefreshRequested: Set<ClientTypingTarget> = []
     var typingStartInFlight = false
     var stopped = false
+    var checkpointedBackend: (any ProviderCheckpointBackend)?
     var backend: (any ChatBackend)?
     var now: @Sendable () -> Date = { Date() }
     var mediaFactsVersion = UUID()
+    var resourceSync: [ResourceSyncAddress: ResourceSyncStatus] = [:]
+    var reads = AccountReadState()
     var worldVersion = UUID()
     var historyWorldVersion = UUID()
     var historyVersions: [Conversation.ID: UUID] = [:]
@@ -135,11 +138,19 @@ actor AccountRuntime {
                     await providerStarts.release(instanceID)
                     return
                 }
-                try await provider.backend.connect()
+                if let source = await checkpointedBackend,
+                   let storage = await storage as? any ServiceProviderCheckpointStorage {
+                    try Task.checkCancellation()
+                    try await source.connect(resumingProviderCheckpoint: storage.providerCheckpoint())
+                } else {
+                    try await provider.backend.connect()
+                }
                 if await !isCurrent(epoch) {
                     await provider.discard()
                 } else {
-                    await requestWorldRefresh()
+                    if await checkpointedBackend == nil {
+                        await requestWorldRefresh()
+                    }
                 }
             } catch {
                 await self?.failed(error, epoch: epoch)
@@ -157,40 +168,28 @@ actor AccountRuntime {
             clientInterestsChanged()
         }
         capabilities = installedCapabilities(from: backend)
-        let events = backend.events
-        consumer = Task { [weak self] in
-            for await event in events {
-                guard !Task.isCancelled else { return }
-                await self?.ingest(event, epoch: epoch)
+        if let source = backend as? any ProviderCheckpointBackend, await source.usesProviderCheckpoints() {
+            guard self.epoch == epoch, !stopped, !Task.isCancelled else { return false }
+            guard storage is any ServiceProviderCheckpointStorage else {
+                await quarantine(.storage)
+                return false
+            }
+            checkpointedBackend = source
+            consumer = Task { [weak self] in await self?.consumeProviderBatches(from: source, epoch: epoch) }
+        } else {
+            guard self.epoch == epoch, !stopped, !Task.isCancelled else { return false }
+            let events = backend.events
+            consumer = Task { [weak self] in
+                for await event in events {
+                    guard !Task.isCancelled else { return }
+                    await self?.ingest(event, epoch: epoch)
+                }
             }
         }
         await installCalls(provider.calls)
         await publishStatus()
         notificationsChanged()
         return isCurrent(epoch)
-    }
-
-    private func ingest(_ event: ChatEvent, epoch: UUID) async {
-        guard self.epoch == epoch, !stopped, !quarantined else { return }
-        switch event {
-        case .backendError(.notAuthenticated), .backendError(.sessionExpired):
-            await quarantine(.authentication)
-            return
-        case let .selfIdentified(member) where member.id != record.selfID:
-            await quarantine(.authentication)
-            return
-        default: break
-        }
-        do {
-            invalidateQueries(for: event)
-            try appendAndPublish(event, live: true)
-            await scheduleEffects(for: event)
-            if case .connectionStateChanged = event {
-                await publishStatus()
-            }
-        } catch {
-            await quarantine(.storage)
-        }
     }
 
     @discardableResult
@@ -207,6 +206,9 @@ actor AccountRuntime {
             events: [ServiceEvent(cursor: cursor, event: event, isLiveArrival: live)],
             hasMore: false
         ))
+        if case let .resourceSyncChanged(status) = event {
+            resourceSyncCommitted(status)
+        }
         if case let .connectionStateChanged(state) = event {
             connection = state
         }
@@ -243,6 +245,9 @@ actor AccountRuntime {
             request.cancel()
         }
         _ = cancelClientInterestJobs()
+        for task in reads.workers {
+            task.cancel()
+        }
         _ = cancelUploadJobs()
         for request in binaryRequests.values {
             request.cancel()
@@ -273,7 +278,7 @@ actor AccountRuntime {
         startup?.cancel()
         consumer?.cancel()
         let effects = [worldRefresh, historyRefresh, backfill, notificationJob, profileRefresh]
-            .compactMap(\.self) + cancelClientInterestJobs()
+            .compactMap(\.self) + cancelClientInterestJobs() + reads.workers
         for task in effects {
             task.cancel()
         }
@@ -295,6 +300,8 @@ actor AccountRuntime {
         pendingHistory.removeAll(); backfillHeads.removeAll(); historyVersions.removeAll()
         clientInterests.removeAll(); subscriberAttachments.removeAll()
         interestSweep = nil; interestPublisher = nil; interestFault = nil; typingRefreshRequested.removeAll()
+        reads = AccountReadState()
+        checkpointedBackend = nil
         backend = nil
         startup = nil
         consumer = nil
@@ -310,6 +317,33 @@ actor AccountRuntime {
 }
 
 extension AccountRuntime {
+    func ingest(_ event: ChatEvent, epoch: UUID) async {
+        guard self.epoch == epoch, !stopped, !quarantined else { return }
+        switch event {
+        case .backendError(.notAuthenticated), .backendError(.sessionExpired):
+            await quarantine(.authentication)
+            return
+        case let .resourceSyncChanged(status)
+            where status.error == .sessionExpired:
+            await quarantine(.authentication)
+            return
+        case let .selfIdentified(member) where member.id != record.selfID:
+            await quarantine(.authentication)
+            return
+        default: break
+        }
+        do {
+            invalidateQueries(for: event)
+            try appendAndPublish(event, live: true)
+            await scheduleEffects(for: event)
+            if case .connectionStateChanged = event {
+                await publishStatus()
+            }
+        } catch {
+            await quarantine(.storage)
+        }
+    }
+
     private func drainRequests(
         _ pending: [Task<JSONValue, any Error>], binaries: [Task<ServiceBinaryFrame, any Error>],
         expiry: Task<Void, Never>?, effects: [Task<Void, Never>]
@@ -338,6 +372,14 @@ extension AccountRuntime {
 
     var currentEpoch: UUID {
         epoch
+    }
+
+    func publishProviderStatus() async {
+        await publishStatus()
+    }
+
+    func setProviderConnection(_ value: ConnectionState) {
+        connection = value
     }
 
     private func publishStatus() async {

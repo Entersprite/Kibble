@@ -10,6 +10,10 @@ public extension FakeBackend {
     /// local, so refusing to answer would be theatre - and it would stop
     /// someone building a sidebar from seeing anything until they had wired up
     /// a lifecycle. Writes are the ones that need a live session.
+    func loadConversationSnapshot() async throws -> ConversationSnapshot {
+        try await ConversationSnapshot(conversations: loadConversations(), isComplete: true)
+    }
+
     func loadConversations() async throws -> [Conversation] {
         world.conversations.filter { !hiddenConversations.contains($0.id) }
     }

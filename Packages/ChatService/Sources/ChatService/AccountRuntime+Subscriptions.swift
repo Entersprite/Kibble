@@ -1,4 +1,5 @@
 import ChatAPI
+import ChatKit
 import Foundation
 
 extension AccountRuntime {
@@ -14,7 +15,11 @@ extension AccountRuntime {
         let id = UUID()
         let (stream, continuation) = AsyncThrowingStream<Data, any Error>
             .makeStream(bufferingPolicy: .bufferingOldest(8))
-        let page = try storage.readEvents(after: cursor, limit: 256)
+        let page = try storage.readEvents(
+            after: cursor,
+            limit: 256,
+            includingHistory: snapshotHistory(for: context)
+        )
         let bytes = try ServiceCodec.encode(page)
         guard bytes.count <= 4 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }
         continuation.yield(bytes)
@@ -27,6 +32,12 @@ extension AccountRuntime {
             Task { await self?.unsubscribe(id) }
         }
         return stream
+    }
+
+    func snapshotHistory(for context: ServiceSessionContext?) -> Set<Conversation.ID> {
+        guard let context, let lease = clientInterests[ClientInterestKey(context)]?.lease,
+              lease.expires > .now else { return [] }
+        return lease.conversations
     }
 
     private func unsubscribe(_ id: UUID) {

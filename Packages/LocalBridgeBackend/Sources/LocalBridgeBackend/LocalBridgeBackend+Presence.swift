@@ -135,8 +135,7 @@ extension LocalBridgeBackend {
         }
     }
 
-    /// Starts the poll, replacing any already running - a world reload
-    /// restarts it with an immediate run.
+    /// Starts the account poll once; directory reads only add targets.
     ///
     /// **The first run waits for `names`, the world load's `get_members`.**
     /// `.setPresence` is an UPDATE and drops presence for anyone the store has
@@ -146,7 +145,7 @@ extension LocalBridgeBackend {
     /// would stay missing until that person's state changed. Awaiting a task
     /// is not cancelling it, so this cannot finish the lookup early.
     func startPresencePoll(using apiClient: ProtoAPIClient, after names: Task<Void, Never>?) {
-        presencePoll.task?.cancel()
+        guard presencePoll.task == nil else { return }
         let interval = presencePollInterval
         let generation = directoryGeneration
         presencePoll.task = Task { [weak self] in
@@ -201,7 +200,10 @@ extension LocalBridgeBackend {
             withdrawPresence(ids)
             if !presencePoll.failureReported {
                 presencePoll.failureReported = true
-                emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_user_presence call")))
+                reportResourceFailure(
+                    .presence,
+                    error: Self.chatError(fromAPI: error, call: "the /api/ get_user_presence call")
+                )
             }
             return
         }
@@ -209,6 +211,7 @@ extension LocalBridgeBackend {
         // next one.
         guard !Task.isCancelled, generation == directoryGeneration else { return }
         presencePoll.failureReported = false
+        resourceRecovered(.presence)
         let answered = PresenceMapping.map(response)
         for id in ids {
             let previous = presencePoll.emitted[id]
@@ -216,16 +219,16 @@ extension LocalBridgeBackend {
                   next != previous
             else { continue }
             presencePoll.emitted[id] = next
-            emit(.presenceChanged(member: id, presence: next))
+            guard await emitCommitted(.presenceChanged(member: id, presence: next)) else { return }
         }
-        emitStatusChanges(for: ids, in: response)
+        await emitStatusChanges(for: ids, in: response)
     }
 
     /// A `.statusChanged` for each person whose status differs from the last
     /// one emitted. Someone answered without a `user_status` says nothing and
     /// keeps theirs; someone missing from the answer altogether loses theirs,
     /// as their dot does; someone who never had one emits nothing for none.
-    private func emitStatusChanges(for ids: [ChatKit.Member.ID], in response: GetUserPresenceResponse) {
+    private func emitStatusChanges(for ids: [ChatKit.Member.ID], in response: GetUserPresenceResponse) async {
         let answered = Set(response.userPresences.map { ChatKit.Member.ID($0.userID.id) })
         let statuses = PresenceMapping.statuses(response, now: Date())
         for id in ids {
@@ -239,7 +242,7 @@ extension LocalBridgeBackend {
             }
             guard next != presencePoll.statuses[id] else { continue }
             presencePoll.statuses[id] = next
-            emit(.statusChanged(member: id, status: next))
+            guard await emitCommitted(.statusChanged(member: id, status: next)) else { return }
         }
     }
 

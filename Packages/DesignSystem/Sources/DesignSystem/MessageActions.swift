@@ -30,6 +30,8 @@ struct OwnMessageHandlers {
     var markUnread: ((Message) -> Void)?
     /// Whether a message's thread has replies already: the mark opens those.
     var hasReplies: (Message) -> Bool = { _ in false }
+    var quote: ((Message) -> Void)?
+    var forward: ((Message) -> Void)?
 
     /// `nil` when the message offers nothing.
     func items(for message: Message) -> OwnMessageMenuItems? {
@@ -46,8 +48,21 @@ struct OwnMessageHandlers {
         let unread = markUnread.flatMap { mark in
             addressable && message.isReply ? { mark(message) } : nil
         }
-        guard edit != nil || delete != nil || reply != nil || unread != nil else { return nil }
-        return OwnMessageMenuItems(edit: edit, delete: delete, replyInThread: reply, markUnread: unread)
+        let quote = quote.flatMap { action in
+            addressable && message.callStatus == nil ? { action(message) } : nil
+        }
+        let forward = forward.flatMap { action in
+            addressable && !message.isDeleted && message.callStatus == nil ? { action(message) } : nil
+        }
+        guard edit != nil || delete != nil || reply != nil || unread != nil || quote != nil || forward != nil
+        else { return nil }
+        return OwnMessageMenuItems(
+            edit: edit,
+            delete: delete,
+            replyInThread: reply,
+            markUnread: unread,
+            quote: quote, forward: forward
+        )
     }
 }
 
@@ -57,4 +72,6 @@ struct OwnMessageMenuItems {
     let delete: (() -> Void)?
     var replyInThread: (() -> Void)?
     var markUnread: (() -> Void)?
+    var quote: (() -> Void)?
+    var forward: (() -> Void)?
 }

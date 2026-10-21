@@ -142,6 +142,9 @@ extension LocalBridgeBackend {
             // because nothing but `connect()` ever refetched it. Emitting the
             // same gap `connect()` does is the whole fix.
             emit(.gap(scope: .everything, reason: LocalBridgeBackend.resumedGapReason))
+            if delivery.running {
+                requestProviderRecovery()
+            }
         }
     }
 }

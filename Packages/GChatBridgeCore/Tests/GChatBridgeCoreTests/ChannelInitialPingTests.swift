@@ -53,7 +53,7 @@ struct ChannelInitialPingTests {
             .queryItems?.first { $0.name == name }?.value
     }
 
-    @Test func thePingIsSentRightAfterTheAcknowledgeForAFreshSID() async throws {
+    @Test func theFastHandshakeOnlyPostsThePingForAFreshSID() async {
         let transport = FakeHTTPTransport(
             responses: [ok(), ok(), ok()],
             streams: [handshakeStream(sid: initialResponse, chunks: []), terminatingStream()]
@@ -63,14 +63,10 @@ struct ChannelInitialPingTests {
         _ = await collect(session)
 
         let labels = await transport.sent.map { $0.traceLabel ?? "unlabeled" }
-        let ackIndex = try #require(labels.firstIndex(of: "acknowledge"))
-        #expect(labels.indices.contains(ackIndex + 1))
-        if labels.indices.contains(ackIndex + 1) {
-            #expect(labels[ackIndex + 1] == "ping")
-        }
+        #expect(labels == ["register", "handshake", "ping", "reopen"])
     }
 
-    @Test func thePingIsAPostFormEncodedRequestCarryingTheAidTheAckAlsoCarries() async throws {
+    @Test func thePingIsAPostFormEncodedRequestCarryingTheInitialAid() async throws {
         let transport = FakeHTTPTransport(
             responses: [ok(), ok(), ok()],
             streams: [handshakeStream(sid: initialResponse, chunks: []), terminatingStream()]
@@ -89,7 +85,7 @@ struct ChannelInitialPingTests {
 
     /// The reference's own `self._rid` and `self._ofs` (`channel.py:326,336`):
     /// `RID` is shared with the handshake and never resets, so it keeps
-    /// climbing across a reconnect's fresh SID; `ofs` resets to 0 right
+    /// climbing across a reconnect's fresh SID; `ofs` follows the embedded handshake message at 1 right
     /// before every ping, since that effect only ever fires at a fresh SID.
     /// Two fresh SIDs (this session's initial one, and the one minted after
     /// a dropped-socket recovery) prove the two counters are tracked
@@ -117,7 +113,7 @@ struct ChannelInitialPingTests {
         #expect(rids[0] != rids[1])
         for ping in pings {
             let body = String(decoding: ping.body ?? Data(), as: UTF8.self)
-            #expect(body.contains("ofs=0"))
+            #expect(body.contains("ofs=1"))
         }
     }
 }

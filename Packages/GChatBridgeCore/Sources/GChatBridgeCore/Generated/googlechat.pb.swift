@@ -3766,82 +3766,82 @@ public nonisolated struct JAddOnsWidget: Sendable {
     fileprivate var _label: String? = nil
   }
 
-  public nonisolated struct DateTimePicker: Sendable {
+  public nonisolated struct DateTimePicker: @unchecked Sendable {
     // SwiftProtobuf.Message conformance is added in an extension below. See the
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
     public var name: String {
-      get {_name ?? String()}
-      set {_name = newValue}
+      get {_storage._name ?? String()}
+      set {_uniqueStorage()._name = newValue}
     }
     /// Returns true if `name` has been explicitly set.
-    public var hasName: Bool {self._name != nil}
+    public var hasName: Bool {_storage._name != nil}
     /// Clears the value of `name`. Subsequent reads from it will return its default value.
-    public mutating func clearName() {self._name = nil}
+    public mutating func clearName() {_uniqueStorage()._name = nil}
 
     public var label: String {
-      get {_label ?? String()}
-      set {_label = newValue}
+      get {_storage._label ?? String()}
+      set {_uniqueStorage()._label = newValue}
     }
     /// Returns true if `label` has been explicitly set.
-    public var hasLabel: Bool {self._label != nil}
+    public var hasLabel: Bool {_storage._label != nil}
     /// Clears the value of `label`. Subsequent reads from it will return its default value.
-    public mutating func clearLabel() {self._label = nil}
+    public mutating func clearLabel() {_uniqueStorage()._label = nil}
 
     public var type: JAddOnsWidget.DateTimePicker.DateTimePickerType {
-      get {_type ?? .unspecifiedType}
-      set {_type = newValue}
+      get {_storage._type ?? .unspecifiedType}
+      set {_uniqueStorage()._type = newValue}
     }
     /// Returns true if `type` has been explicitly set.
-    public var hasType: Bool {self._type != nil}
+    public var hasType: Bool {_storage._type != nil}
     /// Clears the value of `type`. Subsequent reads from it will return its default value.
-    public mutating func clearType() {self._type = nil}
+    public mutating func clearType() {_uniqueStorage()._type = nil}
 
     public var valueMsEpoch: Int64 {
-      get {_valueMsEpoch ?? 0}
-      set {_valueMsEpoch = newValue}
+      get {_storage._valueMsEpoch ?? 0}
+      set {_uniqueStorage()._valueMsEpoch = newValue}
     }
     /// Returns true if `valueMsEpoch` has been explicitly set.
-    public var hasValueMsEpoch: Bool {self._valueMsEpoch != nil}
+    public var hasValueMsEpoch: Bool {_storage._valueMsEpoch != nil}
     /// Clears the value of `valueMsEpoch`. Subsequent reads from it will return its default value.
-    public mutating func clearValueMsEpoch() {self._valueMsEpoch = nil}
+    public mutating func clearValueMsEpoch() {_uniqueStorage()._valueMsEpoch = nil}
 
     public var timezoneOffsetDate: Int32 {
-      get {_timezoneOffsetDate ?? 0}
-      set {_timezoneOffsetDate = newValue}
+      get {_storage._timezoneOffsetDate ?? 0}
+      set {_uniqueStorage()._timezoneOffsetDate = newValue}
     }
     /// Returns true if `timezoneOffsetDate` has been explicitly set.
-    public var hasTimezoneOffsetDate: Bool {self._timezoneOffsetDate != nil}
+    public var hasTimezoneOffsetDate: Bool {_storage._timezoneOffsetDate != nil}
     /// Clears the value of `timezoneOffsetDate`. Subsequent reads from it will return its default value.
-    public mutating func clearTimezoneOffsetDate() {self._timezoneOffsetDate = nil}
+    public mutating func clearTimezoneOffsetDate() {_uniqueStorage()._timezoneOffsetDate = nil}
 
     public var onChange: JAddOnsFormAction {
-      get {_onChange ?? JAddOnsFormAction()}
-      set {_onChange = newValue}
+      get {_storage._onChange ?? JAddOnsFormAction()}
+      set {_uniqueStorage()._onChange = newValue}
     }
     /// Returns true if `onChange` has been explicitly set.
-    public var hasOnChange: Bool {self._onChange != nil}
+    public var hasOnChange: Bool {_storage._onChange != nil}
     /// Clears the value of `onChange`. Subsequent reads from it will return its default value.
-    public mutating func clearOnChange() {self._onChange = nil}
+    public mutating func clearOnChange() {_uniqueStorage()._onChange = nil}
 
     public var color: Int32 {
-      get {_color ?? 0}
-      set {_color = newValue}
+      get {_storage._color ?? 0}
+      set {_uniqueStorage()._color = newValue}
     }
     /// Returns true if `color` has been explicitly set.
-    public var hasColor: Bool {self._color != nil}
+    public var hasColor: Bool {_storage._color != nil}
     /// Clears the value of `color`. Subsequent reads from it will return its default value.
-    public mutating func clearColor() {self._color = nil}
+    public mutating func clearColor() {_uniqueStorage()._color = nil}
 
     public var themeColors: JAddOnsThemeColors {
-      get {_themeColors ?? JAddOnsThemeColors()}
-      set {_themeColors = newValue}
+      get {_storage._themeColors ?? JAddOnsThemeColors()}
+      set {_uniqueStorage()._themeColors = newValue}
     }
     /// Returns true if `themeColors` has been explicitly set.
-    public var hasThemeColors: Bool {self._themeColors != nil}
+    public var hasThemeColors: Bool {_storage._themeColors != nil}
     /// Clears the value of `themeColors`. Subsequent reads from it will return its default value.
-    public mutating func clearThemeColors() {self._themeColors = nil}
+    public mutating func clearThemeColors() {_uniqueStorage()._themeColors = nil}
 
     public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3859,14 +3859,7 @@ public nonisolated struct JAddOnsWidget: Sendable {
 
     public init() {}
 
-    fileprivate var _name: String? = nil
-    fileprivate var _label: String? = nil
-    fileprivate var _type: JAddOnsWidget.DateTimePicker.DateTimePickerType? = nil
-    fileprivate var _valueMsEpoch: Int64? = nil
-    fileprivate var _timezoneOffsetDate: Int32? = nil
-    fileprivate var _onChange: JAddOnsFormAction? = nil
-    fileprivate var _color: Int32? = nil
-    fileprivate var _themeColors: JAddOnsThemeColors? = nil
+    fileprivate var _storage = _StorageClass.defaultInstance
   }
 
   public nonisolated struct TextButton: @unchecked Sendable {
@@ -4099,6 +4092,26 @@ public nonisolated struct JAddOnsFormAction: Sendable {
   /// Clears the value of `persistValues`. Subsequent reads from it will return its default value.
   public mutating func clearPersistValues() {self._persistValues = nil}
 
+  public var interaction: Int32 {
+    get {_interaction ?? 0}
+    set {_interaction = newValue}
+  }
+  /// Returns true if `interaction` has been explicitly set.
+  public var hasInteraction: Bool {self._interaction != nil}
+  /// Clears the value of `interaction`. Subsequent reads from it will return its default value.
+  public mutating func clearInteraction() {self._interaction = nil}
+
+  public var requiredWidgetIds: [String] = []
+
+  public var allWidgetsAreRequired: Bool {
+    get {_allWidgetsAreRequired ?? false}
+    set {_allWidgetsAreRequired = newValue}
+  }
+  /// Returns true if `allWidgetsAreRequired` has been explicitly set.
+  public var hasAllWidgetsAreRequired: Bool {self._allWidgetsAreRequired != nil}
+  /// Clears the value of `allWidgetsAreRequired`. Subsequent reads from it will return its default value.
+  public mutating func clearAllWidgetsAreRequired() {self._allWidgetsAreRequired = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum LoadIndicator: Int, SwiftProtobuf.Enum, Swift.CaseIterable {
@@ -4148,6 +4161,8 @@ public nonisolated struct JAddOnsFormAction: Sendable {
   fileprivate var _encryptedAction: String? = nil
   fileprivate var _loadIndicator: JAddOnsFormAction.LoadIndicator? = nil
   fileprivate var _persistValues: Bool? = nil
+  fileprivate var _interaction: Int32? = nil
+  fileprivate var _allWidgetsAreRequired: Bool? = nil
 }
 
 public nonisolated struct JAddOnsContextualAddOn: Sendable {
@@ -4979,6 +4994,29 @@ public nonisolated struct ReplyToMessage: @unchecked Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  public var referenceType: Int32 {
+    get {_storage._referenceType ?? 0}
+    set {_uniqueStorage()._referenceType = newValue}
+  }
+  /// Returns true if `referenceType` has been explicitly set.
+  public var hasReferenceType: Bool {_storage._referenceType != nil}
+  /// Clears the value of `referenceType`. Subsequent reads from it will return its default value.
+  public mutating func clearReferenceType() {_uniqueStorage()._referenceType = nil}
+
+  public var annotations: [Annotation] {
+    get {_storage._annotations}
+    set {_uniqueStorage()._annotations = newValue}
+  }
+
+  public var messageState: Int32 {
+    get {_storage._messageState ?? 0}
+    set {_uniqueStorage()._messageState = newValue}
+  }
+  /// Returns true if `messageState` has been explicitly set.
+  public var hasMessageState: Bool {_storage._messageState != nil}
+  /// Clears the value of `messageState`. Subsequent reads from it will return its default value.
+  public mutating func clearMessageState() {_uniqueStorage()._messageState = nil}
+
   public var id: MessageId {
     get {_storage._id ?? MessageId()}
     set {_uniqueStorage()._id = newValue}
@@ -5042,23 +5080,23 @@ public nonisolated struct ReplyToMessage: @unchecked Sendable {
   /// Clears the value of `senderAgain`. Subsequent reads from it will return its default value.
   public mutating func clearSenderAgain() {_uniqueStorage()._senderAgain = nil}
 
-  public var lastEditTime: Int64 {
-    get {_storage._lastEditTime ?? 0}
-    set {_uniqueStorage()._lastEditTime = newValue}
+  public var originalCreateTime: Int64 {
+    get {_storage._originalCreateTime ?? 0}
+    set {_uniqueStorage()._originalCreateTime = newValue}
   }
-  /// Returns true if `lastEditTime` has been explicitly set.
-  public var hasLastEditTime: Bool {_storage._lastEditTime != nil}
-  /// Clears the value of `lastEditTime`. Subsequent reads from it will return its default value.
-  public mutating func clearLastEditTime() {_uniqueStorage()._lastEditTime = nil}
+  /// Returns true if `originalCreateTime` has been explicitly set.
+  public var hasOriginalCreateTime: Bool {_storage._originalCreateTime != nil}
+  /// Clears the value of `originalCreateTime`. Subsequent reads from it will return its default value.
+  public mutating func clearOriginalCreateTime() {_uniqueStorage()._originalCreateTime = nil}
 
-  public var createTimeAgainIfEdited: Int64 {
-    get {_storage._createTimeAgainIfEdited ?? 0}
-    set {_uniqueStorage()._createTimeAgainIfEdited = newValue}
+  public var originalLastEditTime: Int64 {
+    get {_storage._originalLastEditTime ?? 0}
+    set {_uniqueStorage()._originalLastEditTime = newValue}
   }
-  /// Returns true if `createTimeAgainIfEdited` has been explicitly set.
-  public var hasCreateTimeAgainIfEdited: Bool {_storage._createTimeAgainIfEdited != nil}
-  /// Clears the value of `createTimeAgainIfEdited`. Subsequent reads from it will return its default value.
-  public mutating func clearCreateTimeAgainIfEdited() {_uniqueStorage()._createTimeAgainIfEdited = nil}
+  /// Returns true if `originalLastEditTime` has been explicitly set.
+  public var hasOriginalLastEditTime: Bool {_storage._originalLastEditTime != nil}
+  /// Clears the value of `originalLastEditTime`. Subsequent reads from it will return its default value.
+  public mutating func clearOriginalLastEditTime() {_uniqueStorage()._originalLastEditTime = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -7226,6 +7264,15 @@ public nonisolated struct SendReplyTarget: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  public var referenceType: Int32 {
+    get {_referenceType ?? 0}
+    set {_referenceType = newValue}
+  }
+  /// Returns true if `referenceType` has been explicitly set.
+  public var hasReferenceType: Bool {self._referenceType != nil}
+  /// Clears the value of `referenceType`. Subsequent reads from it will return its default value.
+  public mutating func clearReferenceType() {self._referenceType = nil}
+
   public var id: MessageId {
     get {_id ?? MessageId()}
     set {_id = newValue}
@@ -7248,6 +7295,7 @@ public nonisolated struct SendReplyTarget: Sendable {
 
   public init() {}
 
+  fileprivate var _referenceType: Int32? = nil
   fileprivate var _id: MessageId? = nil
   fileprivate var _createTime: Int64? = nil
 }
@@ -15383,6 +15431,114 @@ public nonisolated struct DeleteGroupV2Response: Sendable {
   public init() {}
 }
 
+/// Request fields documented by the upstream purple-googlechat schema.
+/// Form inputs and dialog responses remain intentionally unnamed until verified.
+public nonisolated struct SubmitFormActionRequest: @unchecked Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var dialogEvent: Int32 {
+    get {_storage._dialogEvent ?? 0}
+    set {_uniqueStorage()._dialogEvent = newValue}
+  }
+  /// Returns true if `dialogEvent` has been explicitly set.
+  public var hasDialogEvent: Bool {_storage._dialogEvent != nil}
+  /// Clears the value of `dialogEvent`. Subsequent reads from it will return its default value.
+  public mutating func clearDialogEvent() {_uniqueStorage()._dialogEvent = nil}
+
+  public var messageID: MessageId {
+    get {_storage._messageID ?? MessageId()}
+    set {_uniqueStorage()._messageID = newValue}
+  }
+  /// Returns true if `messageID` has been explicitly set.
+  public var hasMessageID: Bool {_storage._messageID != nil}
+  /// Clears the value of `messageID`. Subsequent reads from it will return its default value.
+  public mutating func clearMessageID() {_uniqueStorage()._messageID = nil}
+
+  public var botID: UserId {
+    get {_storage._botID ?? UserId()}
+    set {_uniqueStorage()._botID = newValue}
+  }
+  /// Returns true if `botID` has been explicitly set.
+  public var hasBotID: Bool {_storage._botID != nil}
+  /// Clears the value of `botID`. Subsequent reads from it will return its default value.
+  public mutating func clearBotID() {_uniqueStorage()._botID = nil}
+
+  public var action: JAddOnsFormAction {
+    get {_storage._action ?? JAddOnsFormAction()}
+    set {_uniqueStorage()._action = newValue}
+  }
+  /// Returns true if `action` has been explicitly set.
+  public var hasAction: Bool {_storage._action != nil}
+  /// Clears the value of `action`. Subsequent reads from it will return its default value.
+  public mutating func clearAction() {_uniqueStorage()._action = nil}
+
+  public var groupID: GroupId {
+    get {_storage._groupID ?? GroupId()}
+    set {_uniqueStorage()._groupID = newValue}
+  }
+  /// Returns true if `groupID` has been explicitly set.
+  public var hasGroupID: Bool {_storage._groupID != nil}
+  /// Clears the value of `groupID`. Subsequent reads from it will return its default value.
+  public mutating func clearGroupID() {_uniqueStorage()._groupID = nil}
+
+  public var topicID: TopicId {
+    get {_storage._topicID ?? TopicId()}
+    set {_uniqueStorage()._topicID = newValue}
+  }
+  /// Returns true if `topicID` has been explicitly set.
+  public var hasTopicID: Bool {_storage._topicID != nil}
+  /// Clears the value of `topicID`. Subsequent reads from it will return its default value.
+  public mutating func clearTopicID() {_uniqueStorage()._topicID = nil}
+
+  public var requestHeader: RequestHeader {
+    get {_storage._requestHeader ?? RequestHeader()}
+    set {_uniqueStorage()._requestHeader = newValue}
+  }
+  /// Returns true if `requestHeader` has been explicitly set.
+  public var hasRequestHeader: Bool {_storage._requestHeader != nil}
+  /// Clears the value of `requestHeader`. Subsequent reads from it will return its default value.
+  public mutating func clearRequestHeader() {_uniqueStorage()._requestHeader = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+public nonisolated struct SubmitFormActionResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var cardItem: JAddOnsCardItem {
+    get {_cardItem ?? JAddOnsCardItem()}
+    set {_cardItem = newValue}
+  }
+  /// Returns true if `cardItem` has been explicitly set.
+  public var hasCardItem: Bool {self._cardItem != nil}
+  /// Clears the value of `cardItem`. Subsequent reads from it will return its default value.
+  public mutating func clearCardItem() {self._cardItem = nil}
+
+  public var setupURL: String {
+    get {_setupURL ?? String()}
+    set {_setupURL = newValue}
+  }
+  /// Returns true if `setupURL` has been explicitly set.
+  public var hasSetupURL: Bool {self._setupURL != nil}
+  /// Clears the value of `setupURL`. Subsequent reads from it will return its default value.
+  public mutating func clearSetupURL() {self._setupURL = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _cardItem: JAddOnsCardItem? = nil
+  fileprivate var _setupURL: String? = nil
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 nonisolated extension UserType: SwiftProtobuf._ProtoNameProviding {
@@ -19480,66 +19636,116 @@ nonisolated extension JAddOnsWidget.DateTimePicker: SwiftProtobuf.Message, Swift
   public static let protoMessageName: String = JAddOnsWidget.protoMessageName + ".DateTimePicker"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}label\0\u{1}type\0\u{3}value_ms_epoch\0\u{3}timezone_offset_date\0\u{3}on_change\0\u{1}color\0\u{3}theme_colors\0")
 
+  fileprivate class _StorageClass {
+    var _name: String? = nil
+    var _label: String? = nil
+    var _type: JAddOnsWidget.DateTimePicker.DateTimePickerType? = nil
+    var _valueMsEpoch: Int64? = nil
+    var _timezoneOffsetDate: Int32? = nil
+    var _onChange: JAddOnsFormAction? = nil
+    var _color: Int32? = nil
+    var _themeColors: JAddOnsThemeColors? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _name = source._name
+      _label = source._label
+      _type = source._type
+      _valueMsEpoch = source._valueMsEpoch
+      _timezoneOffsetDate = source._timezoneOffsetDate
+      _onChange = source._onChange
+      _color = source._color
+      _themeColors = source._themeColors
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self._name) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self._label) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self._type) }()
-      case 4: try { try decoder.decodeSingularInt64Field(value: &self._valueMsEpoch) }()
-      case 5: try { try decoder.decodeSingularInt32Field(value: &self._timezoneOffsetDate) }()
-      case 6: try { try decoder.decodeSingularMessageField(value: &self._onChange) }()
-      case 7: try { try decoder.decodeSingularInt32Field(value: &self._color) }()
-      case 8: try { try decoder.decodeSingularMessageField(value: &self._themeColors) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._name) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._label) }()
+        case 3: try { try decoder.decodeSingularEnumField(value: &_storage._type) }()
+        case 4: try { try decoder.decodeSingularInt64Field(value: &_storage._valueMsEpoch) }()
+        case 5: try { try decoder.decodeSingularInt32Field(value: &_storage._timezoneOffsetDate) }()
+        case 6: try { try decoder.decodeSingularMessageField(value: &_storage._onChange) }()
+        case 7: try { try decoder.decodeSingularInt32Field(value: &_storage._color) }()
+        case 8: try { try decoder.decodeSingularMessageField(value: &_storage._themeColors) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._name {
-      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._label {
-      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
-    } }()
-    try { if let v = self._type {
-      try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
-    } }()
-    try { if let v = self._valueMsEpoch {
-      try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
-    } }()
-    try { if let v = self._timezoneOffsetDate {
-      try visitor.visitSingularInt32Field(value: v, fieldNumber: 5)
-    } }()
-    try { if let v = self._onChange {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-    } }()
-    try { if let v = self._color {
-      try visitor.visitSingularInt32Field(value: v, fieldNumber: 7)
-    } }()
-    try { if let v = self._themeColors {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
-    } }()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._name {
+        try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._label {
+        try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+      } }()
+      try { if let v = _storage._type {
+        try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
+      } }()
+      try { if let v = _storage._valueMsEpoch {
+        try visitor.visitSingularInt64Field(value: v, fieldNumber: 4)
+      } }()
+      try { if let v = _storage._timezoneOffsetDate {
+        try visitor.visitSingularInt32Field(value: v, fieldNumber: 5)
+      } }()
+      try { if let v = _storage._onChange {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+      } }()
+      try { if let v = _storage._color {
+        try visitor.visitSingularInt32Field(value: v, fieldNumber: 7)
+      } }()
+      try { if let v = _storage._themeColors {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+      } }()
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: JAddOnsWidget.DateTimePicker, rhs: JAddOnsWidget.DateTimePicker) -> Bool {
-    if lhs._name != rhs._name {return false}
-    if lhs._label != rhs._label {return false}
-    if lhs._type != rhs._type {return false}
-    if lhs._valueMsEpoch != rhs._valueMsEpoch {return false}
-    if lhs._timezoneOffsetDate != rhs._timezoneOffsetDate {return false}
-    if lhs._onChange != rhs._onChange {return false}
-    if lhs._color != rhs._color {return false}
-    if lhs._themeColors != rhs._themeColors {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._name != rhs_storage._name {return false}
+        if _storage._label != rhs_storage._label {return false}
+        if _storage._type != rhs_storage._type {return false}
+        if _storage._valueMsEpoch != rhs_storage._valueMsEpoch {return false}
+        if _storage._timezoneOffsetDate != rhs_storage._timezoneOffsetDate {return false}
+        if _storage._onChange != rhs_storage._onChange {return false}
+        if _storage._color != rhs_storage._color {return false}
+        if _storage._themeColors != rhs_storage._themeColors {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -19790,7 +19996,7 @@ nonisolated extension JAddOnsWidget.Button: SwiftProtobuf.Message, SwiftProtobuf
 
 nonisolated extension JAddOnsFormAction: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "JAddOnsFormAction"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}action_method_name\0\u{4}\u{2}parameters_deprecated\0\u{1}parameters\0\u{3}load_indicator\0\u{3}persist_values\0\u{3}encrypted_action\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}action_method_name\0\u{4}\u{2}parameters_deprecated\0\u{1}parameters\0\u{3}load_indicator\0\u{3}persist_values\0\u{3}encrypted_action\0\u{1}interaction\0\u{3}required_widget_ids\0\u{3}all_widgets_are_required\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -19804,6 +20010,9 @@ nonisolated extension JAddOnsFormAction: SwiftProtobuf.Message, SwiftProtobuf._M
       case 5: try { try decoder.decodeSingularEnumField(value: &self._loadIndicator) }()
       case 6: try { try decoder.decodeSingularBoolField(value: &self._persistValues) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self._encryptedAction) }()
+      case 8: try { try decoder.decodeSingularInt32Field(value: &self._interaction) }()
+      case 9: try { try decoder.decodeRepeatedStringField(value: &self.requiredWidgetIds) }()
+      case 10: try { try decoder.decodeSingularBoolField(value: &self._allWidgetsAreRequired) }()
       default: break
       }
     }
@@ -19832,6 +20041,15 @@ nonisolated extension JAddOnsFormAction: SwiftProtobuf.Message, SwiftProtobuf._M
     try { if let v = self._encryptedAction {
       try visitor.visitSingularStringField(value: v, fieldNumber: 7)
     } }()
+    try { if let v = self._interaction {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 8)
+    } }()
+    if !self.requiredWidgetIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.requiredWidgetIds, fieldNumber: 9)
+    }
+    try { if let v = self._allWidgetsAreRequired {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 10)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -19842,6 +20060,9 @@ nonisolated extension JAddOnsFormAction: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs._encryptedAction != rhs._encryptedAction {return false}
     if lhs._loadIndicator != rhs._loadIndicator {return false}
     if lhs._persistValues != rhs._persistValues {return false}
+    if lhs._interaction != rhs._interaction {return false}
+    if lhs.requiredWidgetIds != rhs.requiredWidgetIds {return false}
+    if lhs._allWidgetsAreRequired != rhs._allWidgetsAreRequired {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -20936,9 +21157,12 @@ nonisolated extension Message.MessageType: SwiftProtobuf._ProtoNameProviding {
 
 nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ReplyToMessage"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}create_time\0\u{4}\u{2}sender_id\0\u{1}sender\0\u{3}text_body\0\u{4}\u{4}unknown_int\0\u{4}\u{2}sender_again\0\u{3}last_edit_time\0\u{3}create_time_again_if_edited\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}create_time\0\u{3}message_state\0\u{3}sender_id\0\u{1}sender\0\u{3}text_body\0\u{1}annotations\0\u{4}\u{3}unknown_int\0\u{4}\u{2}sender_again\0\u{3}original_create_time\0\u{3}original_last_edit_time\0\u{3}reference_type\0")
 
   fileprivate class _StorageClass {
+    var _referenceType: Int32? = nil
+    var _annotations: [Annotation] = []
+    var _messageState: Int32? = nil
     var _id: MessageId? = nil
     var _createTime: Int64? = nil
     var _senderID: UserId? = nil
@@ -20946,8 +21170,8 @@ nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
     var _textBody: String? = nil
     var _unknownInt: Int32? = nil
     var _senderAgain: User? = nil
-    var _lastEditTime: Int64? = nil
-    var _createTimeAgainIfEdited: Int64? = nil
+    var _originalCreateTime: Int64? = nil
+    var _originalLastEditTime: Int64? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -20958,6 +21182,9 @@ nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
     private init() {}
 
     init(copying source: _StorageClass) {
+      _referenceType = source._referenceType
+      _annotations = source._annotations
+      _messageState = source._messageState
       _id = source._id
       _createTime = source._createTime
       _senderID = source._senderID
@@ -20965,8 +21192,8 @@ nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
       _textBody = source._textBody
       _unknownInt = source._unknownInt
       _senderAgain = source._senderAgain
-      _lastEditTime = source._lastEditTime
-      _createTimeAgainIfEdited = source._createTimeAgainIfEdited
+      _originalCreateTime = source._originalCreateTime
+      _originalLastEditTime = source._originalLastEditTime
     }
   }
 
@@ -20987,13 +21214,16 @@ nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
         switch fieldNumber {
         case 1: try { try decoder.decodeSingularMessageField(value: &_storage._id) }()
         case 2: try { try decoder.decodeSingularInt64Field(value: &_storage._createTime) }()
+        case 3: try { try decoder.decodeSingularInt32Field(value: &_storage._messageState) }()
         case 4: try { try decoder.decodeSingularMessageField(value: &_storage._senderID) }()
         case 5: try { try decoder.decodeSingularMessageField(value: &_storage._sender) }()
         case 6: try { try decoder.decodeSingularStringField(value: &_storage._textBody) }()
+        case 7: try { try decoder.decodeRepeatedMessageField(value: &_storage._annotations) }()
         case 10: try { try decoder.decodeSingularInt32Field(value: &_storage._unknownInt) }()
         case 12: try { try decoder.decodeSingularMessageField(value: &_storage._senderAgain) }()
-        case 13: try { try decoder.decodeSingularInt64Field(value: &_storage._lastEditTime) }()
-        case 14: try { try decoder.decodeSingularInt64Field(value: &_storage._createTimeAgainIfEdited) }()
+        case 13: try { try decoder.decodeSingularInt64Field(value: &_storage._originalCreateTime) }()
+        case 14: try { try decoder.decodeSingularInt64Field(value: &_storage._originalLastEditTime) }()
+        case 15: try { try decoder.decodeSingularInt32Field(value: &_storage._referenceType) }()
         default: break
         }
       }
@@ -21012,6 +21242,9 @@ nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
       try { if let v = _storage._createTime {
         try visitor.visitSingularInt64Field(value: v, fieldNumber: 2)
       } }()
+      try { if let v = _storage._messageState {
+        try visitor.visitSingularInt32Field(value: v, fieldNumber: 3)
+      } }()
       try { if let v = _storage._senderID {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
       } }()
@@ -21021,17 +21254,23 @@ nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
       try { if let v = _storage._textBody {
         try visitor.visitSingularStringField(value: v, fieldNumber: 6)
       } }()
+      if !_storage._annotations.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._annotations, fieldNumber: 7)
+      }
       try { if let v = _storage._unknownInt {
         try visitor.visitSingularInt32Field(value: v, fieldNumber: 10)
       } }()
       try { if let v = _storage._senderAgain {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
       } }()
-      try { if let v = _storage._lastEditTime {
+      try { if let v = _storage._originalCreateTime {
         try visitor.visitSingularInt64Field(value: v, fieldNumber: 13)
       } }()
-      try { if let v = _storage._createTimeAgainIfEdited {
+      try { if let v = _storage._originalLastEditTime {
         try visitor.visitSingularInt64Field(value: v, fieldNumber: 14)
+      } }()
+      try { if let v = _storage._referenceType {
+        try visitor.visitSingularInt32Field(value: v, fieldNumber: 15)
       } }()
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -21042,6 +21281,9 @@ nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
       let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
         let rhs_storage = _args.1
+        if _storage._referenceType != rhs_storage._referenceType {return false}
+        if _storage._annotations != rhs_storage._annotations {return false}
+        if _storage._messageState != rhs_storage._messageState {return false}
         if _storage._id != rhs_storage._id {return false}
         if _storage._createTime != rhs_storage._createTime {return false}
         if _storage._senderID != rhs_storage._senderID {return false}
@@ -21049,8 +21291,8 @@ nonisolated extension ReplyToMessage: SwiftProtobuf.Message, SwiftProtobuf._Mess
         if _storage._textBody != rhs_storage._textBody {return false}
         if _storage._unknownInt != rhs_storage._unknownInt {return false}
         if _storage._senderAgain != rhs_storage._senderAgain {return false}
-        if _storage._lastEditTime != rhs_storage._lastEditTime {return false}
-        if _storage._createTimeAgainIfEdited != rhs_storage._createTimeAgainIfEdited {return false}
+        if _storage._originalCreateTime != rhs_storage._originalCreateTime {return false}
+        if _storage._originalLastEditTime != rhs_storage._originalLastEditTime {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -23478,7 +23720,7 @@ nonisolated extension TopicLabelId: SwiftProtobuf.Message, SwiftProtobuf._Messag
 
 nonisolated extension SendReplyTarget: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "SendReplyTarget"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}create_time\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}create_time\0\u{4}\u{2}reference_type\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -23488,6 +23730,7 @@ nonisolated extension SendReplyTarget: SwiftProtobuf.Message, SwiftProtobuf._Mes
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._id) }()
       case 2: try { try decoder.decodeSingularInt64Field(value: &self._createTime) }()
+      case 4: try { try decoder.decodeSingularInt32Field(value: &self._referenceType) }()
       default: break
       }
     }
@@ -23504,10 +23747,14 @@ nonisolated extension SendReplyTarget: SwiftProtobuf.Message, SwiftProtobuf._Mes
     try { if let v = self._createTime {
       try visitor.visitSingularInt64Field(value: v, fieldNumber: 2)
     } }()
+    try { if let v = self._referenceType {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: SendReplyTarget, rhs: SendReplyTarget) -> Bool {
+    if lhs._referenceType != rhs._referenceType {return false}
     if lhs._id != rhs._id {return false}
     if lhs._createTime != rhs._createTime {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
@@ -33124,6 +33371,157 @@ nonisolated extension DeleteGroupV2Response: SwiftProtobuf.Message, SwiftProtobu
   }
 
   public static func ==(lhs: DeleteGroupV2Response, rhs: DeleteGroupV2Response) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension SubmitFormActionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "SubmitFormActionRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}dialog_event\0\u{3}message_id\0\u{3}bot_id\0\u{1}action\0\u{4}\u{2}group_id\0\u{4}\u{2}topic_id\0\u{3}request_header\0")
+
+  fileprivate class _StorageClass {
+    var _dialogEvent: Int32? = nil
+    var _messageID: MessageId? = nil
+    var _botID: UserId? = nil
+    var _action: JAddOnsFormAction? = nil
+    var _groupID: GroupId? = nil
+    var _topicID: TopicId? = nil
+    var _requestHeader: RequestHeader? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _dialogEvent = source._dialogEvent
+      _messageID = source._messageID
+      _botID = source._botID
+      _action = source._action
+      _groupID = source._groupID
+      _topicID = source._topicID
+      _requestHeader = source._requestHeader
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularInt32Field(value: &_storage._dialogEvent) }()
+        case 2: try { try decoder.decodeSingularMessageField(value: &_storage._messageID) }()
+        case 3: try { try decoder.decodeSingularMessageField(value: &_storage._botID) }()
+        case 4: try { try decoder.decodeSingularMessageField(value: &_storage._action) }()
+        case 6: try { try decoder.decodeSingularMessageField(value: &_storage._groupID) }()
+        case 8: try { try decoder.decodeSingularMessageField(value: &_storage._topicID) }()
+        case 9: try { try decoder.decodeSingularMessageField(value: &_storage._requestHeader) }()
+        default: break
+        }
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._dialogEvent {
+        try visitor.visitSingularInt32Field(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._messageID {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+      } }()
+      try { if let v = _storage._botID {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+      } }()
+      try { if let v = _storage._action {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+      } }()
+      try { if let v = _storage._groupID {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+      } }()
+      try { if let v = _storage._topicID {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+      } }()
+      try { if let v = _storage._requestHeader {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
+      } }()
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: SubmitFormActionRequest, rhs: SubmitFormActionRequest) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._dialogEvent != rhs_storage._dialogEvent {return false}
+        if _storage._messageID != rhs_storage._messageID {return false}
+        if _storage._botID != rhs_storage._botID {return false}
+        if _storage._action != rhs_storage._action {return false}
+        if _storage._groupID != rhs_storage._groupID {return false}
+        if _storage._topicID != rhs_storage._topicID {return false}
+        if _storage._requestHeader != rhs_storage._requestHeader {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension SubmitFormActionResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "SubmitFormActionResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{3}card_item\0\u{3}setup_url\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._cardItem) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self._setupURL) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._cardItem {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._setupURL {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 4)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: SubmitFormActionResponse, rhs: SubmitFormActionResponse) -> Bool {
+    if lhs._cardItem != rhs._cardItem {return false}
+    if lhs._setupURL != rhs._setupURL {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

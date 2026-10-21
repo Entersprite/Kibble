@@ -59,7 +59,7 @@ public struct RetryPolicy: Sendable {
     /// `attempt`, including `Int.max`.
     private static let maxExponent = 32
 
-    func waitBeforeRetry(attempt: Int) async throws {
+    public func waitBeforeRetry(attempt: Int) async throws {
         guard baseDelay > .zero else {
             try await sleep(.zero)
             return

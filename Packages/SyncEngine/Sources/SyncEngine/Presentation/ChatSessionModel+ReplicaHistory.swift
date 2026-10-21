@@ -20,11 +20,15 @@ extension ChatSessionModel {
         guard let selected else { return }
         let thread = threads.openThread
         historyTask?.cancel()
-        messages = []
         meetingWork.exhausted = []
         meetingWork.visible = []
+        let request: TranscriptWindowRequest = if !transcriptIncludesLatest, let first = messages.first {
+            .starting(TranscriptCursor(first), min(500, max(100, messages.count)))
+        } else {
+            .latest(min(500, max(100, messages.count)))
+        }
         resetTranscript()
-        observeTranscript(in: selected, request: .latest(100))
+        observeTranscript(in: selected, request: request)
         refreshLatestTranscript(in: selected)
         if let thread {
             closeThread()

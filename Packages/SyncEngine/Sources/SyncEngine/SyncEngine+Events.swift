@@ -42,7 +42,7 @@ extension SyncEngine {
             case .reloadConversations:
                 guard !(backend is any ProjectedChatBackend) else { return }
                 let version = conversationMutationVersion
-                let conversations = try await backend.loadConversations()
+                let conversations = try await readConversationDirectory()
                 guard version == conversationMutationVersion else { return }
                 try applyConversationSnapshot(conversations)
                 worldLoaded(forceMentionBackfill: true)

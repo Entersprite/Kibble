@@ -1,23 +1,27 @@
 import Foundation
 
-/// A Chat app's card (links spec §3.2), reduced to what a client can draw
-/// and honour: a header, sections of text, decorated rows, pictures,
-/// dividers, and buttons that open a URL. Buttons that call back into the
-/// app are never mapped, because the seam cannot honour them.
-///
-/// **An empty card is meaningful:** the bridge received a card and could map
-/// nothing in it, and the view draws a note in its place.
+/// Semantic app-card content, optional provider-issued actions and a web handoff.
+/// Empty cards retain an explicit unavailable presentation.
 public struct AppCard: Codable, Hashable, Sendable {
     public var header: Header?
     public var sections: [Section]
+    public var actions: [AppCardAction]?
+    public var interactionFallback: LinkButton?
 
-    public init(header: Header? = nil, sections: [Section] = []) {
+    public init(
+        header: Header? = nil,
+        sections: [Section] = [],
+        actions: [AppCardAction]? = nil,
+        interactionFallback: LinkButton? = nil
+    ) {
         self.header = header
         self.sections = sections
+        self.actions = actions
+        self.interactionFallback = interactionFallback
     }
 
     public var isEmpty: Bool {
-        header == nil && sections.isEmpty
+        header == nil && sections.isEmpty && actions?.isEmpty != false && interactionFallback == nil
     }
 
     public struct Header: Hashable, Sendable {

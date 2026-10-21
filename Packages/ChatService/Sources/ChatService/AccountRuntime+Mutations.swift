@@ -32,12 +32,19 @@ extension AccountRuntime {
                     expectedRevision: payload.expectedRevision
                 )
             }
+        case InvokeCardAction.operation:
+            let payload = try request.decodePayload(InvokeCardAction.self)
+            guard capabilities.canInvokeCardActions else { throw ServiceFailure.unsupportedOperation }
+            return try await performOperation(payload.operationID, request: request, epoch: epoch) {
+                try await backend.invokeCardAction(payload.action)
+            }
         case SendCommand.operation:
             let payload = try request.decodePayload(SendCommand.self)
             guard !SendHint.accepts(payload.command) else { throw ServiceFailure.invalidRequest }
             let result = try await performOperation(
                 payload.operationID, request: request, epoch: epoch,
                 authorize: {
+                    try authorizeForward(payload.command)
                     try authorizePrivacy(payload.command)
                     try authorizeUploadedAttachments(payload.command)
                 }, perform: {

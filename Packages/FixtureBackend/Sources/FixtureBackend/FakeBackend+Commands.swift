@@ -21,14 +21,19 @@ public extension FakeBackend {
     /// is stronger than any list a test could keep.
     func send(_ command: ChatCommand) async throws {
         try requireConnected()
+        try command.validateMessageContent(capabilities: capabilities)
         switch command {
-        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions, content):
             try sendMessage(
-                in: conversationID, thread: threadID, body: ComposedMessage(text: text, mentions: mentions),
+                in: conversationID, thread: threadID, body: ComposedMessage(
+                    text: text,
+                    mentions: mentions,
+                    content: content
+                ),
                 localID: localID, attachments: attachments
             )
-        case let .editMessage(id, text, _, _, mentions):
-            try editMessage(id, text: text, mentions: mentions)
+        case let .editMessage(id, text, _, _, mentions, content):
+            try editMessage(id, text: text, mentions: mentions, content: content)
         case let .deleteMessage(id, _, _):
             try deleteMessage(id)
         case let .setReaction(messageID, emoji, add, _, _, customEmoji):
@@ -87,6 +92,7 @@ private extension FakeBackend {
             throw ChatError.unknown("no conversation \(conversationID) in this fixture world")
         }
 
+        let body = try resolvedForward(body)
         let message = Message(
             id: Message.ID(nextIdentifier("fixture-msg")),
             conversationID: conversationID,
@@ -101,7 +107,7 @@ private extension FakeBackend {
             mentions: body.mentions,
             // A send into a thread is a reply: the command says so, and the
             // id is never read for it (threads spec §1).
-            isReply: thread != nil
+            isReply: thread != nil, content: body.content
         )
         world.messages.append(message)
         emit(.messageReceived(message))
@@ -132,11 +138,17 @@ private extension FakeBackend {
         }
     }
 
-    func editMessage(_ id: Message.ID, text: String, mentions: [Mention] = []) throws {
+    func editMessage(
+        _ id: Message.ID,
+        text: String,
+        mentions: [Mention] = [],
+        content: MessageContent? = nil
+    ) throws {
         try require(capabilities.canEditMessages, "canEditMessages")
         let edited = try updateMessage(id) {
             $0.text = text
             $0.mentions = mentions
+            $0.content = content
             // Spans into the old text no longer mean anything (review finding 1).
             $0.links = $0.links.filter { $0.start == nil }
             $0.editedAt = advance()
@@ -151,6 +163,7 @@ private extension FakeBackend {
             // Cleared, not removed: the tombstone keeps its place in the
             // ordering, so paging does not develop a hole.
             $0.text = ""
+            $0.content = nil
         }
         emit(.messageDeleted(id: id, in: deleted.conversationID))
     }

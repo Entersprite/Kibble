@@ -68,6 +68,24 @@
             undo.endUndoGrouping()
         }
 
+        @Test func formattingASelectedMentionPreservesItsTargetAndCanBeUndone() {
+            let box = Box()
+            box.draft.edit("@")
+            box.draft.pick(.user(Member.ID("reader")), name: "Reader")
+            let harness = windowed(box)
+            harness.coordinator.show(box.draft, in: harness.view)
+            harness.view.setSelectedRange(NSRange(location: 0, length: 7))
+            harness.coordinator.insert("", surround: "**", in: harness.view)
+            #expect(box.draft.text == "**@Reader** ")
+            let composed = box.draft.composed(formatting: true)
+            #expect(composed.text == "@Reader")
+            #expect(composed.mentions.first?.target == .user(Member.ID("reader")))
+            #expect(composed.content?.formatting.first == MessageFormat(style: "bold", start: 0, length: 7))
+            harness.undo.undo()
+            #expect(harness.view.string == "@Reader ")
+            withExtendedLifetime(harness.window) {}
+        }
+
         /// Review finding 1: a send sets the text outright, and undo then
         /// replayed ranges from the old text - an `NSRangeException`.
         @Test func aSendLeavesNothingToUndo() {

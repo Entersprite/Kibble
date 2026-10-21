@@ -191,8 +191,8 @@ struct PresencePollTests: PresencePollFixtures {
             $0 == .presenceChanged(member: ada, presence: LocalBridgeBackend.absentPresence)
         })
         let error = try #require(events.firstIndex {
-            if case let .backendError(error) = $0 {
-                return "\(error)".contains("get_user_presence")
+            if case let .resourceSyncChanged(status) = $0 {
+                return status.resource == .presence && status.phase == .failed
             }
             return false
         })
@@ -317,12 +317,8 @@ struct PresencePollTests: PresencePollFixtures {
         #expect(presences(in: events).isEmpty)
     }
 
-    /// A world reload replaces the poll rather than adding a second one: the
-    /// first poll's answer, held until after the reload, emits nothing.
-    /// Deleting the cancel in `startPresencePoll` turns this red.
-    @Test func aWorldReloadReplacesThePoll() async throws {
-        // The held first poll takes its answer only once released, so the
-        // reload's poll takes the first one here.
+    /// Repeated directory reads leave the held account poll intact.
+    @Test func aWorldReloadKeepsTheExistingPoll() async throws {
         let transport = try transport(
             [.people(["u-1": .active]), .people(["u-1": .inactive])], dmMembers: ["u-1"], heldPolls: 1
         )
@@ -333,10 +329,10 @@ struct PresencePollTests: PresencePollFixtures {
         _ = try await backend.loadConversations()
         try await awaitPolls(1, on: transport)
         _ = try await backend.loadConversations()
-        try await awaitPolls(2, on: transport)
         _ = await log.settle()
+        #expect(await transport.polls.count == 1)
         await transport.release()
-        try await awaitAnswered(2, on: transport)
+        try await awaitAnswered(1, on: transport)
         let events = await log.settle()
 
         #expect(presences(in: events)[ada] == [.active])

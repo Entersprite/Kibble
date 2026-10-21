@@ -2,6 +2,14 @@ import ChatAPI
 import ChatKit
 
 extension AccountRuntime {
+    func authorizeForward(_ command: ChatCommand) throws {
+        guard case let .sendMessage(destination, _, _, _, attachments, _, content) = command,
+              let source = content?.forwardSource else { return }
+        guard capabilities.canForwardMessages else { throw ServiceFailure.unsupportedOperation }
+        guard attachments.isEmpty, try storage.conversation(source.conversation) != nil,
+              try storage.conversation(destination) != nil else { throw ServiceFailure.notAuthorized }
+    }
+
     /// Resolve the current canonical rule immediately before first dispatch.
     /// Previously completed operations can be inspected without re-dispatching.
     /// No client-supplied settings or conversation kind influence this decision.

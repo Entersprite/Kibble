@@ -31,6 +31,7 @@ struct MessageBubble: View {
 
     /// The transcript's, which `MessageList` sets to `LinkPolicy.openURLAction`.
     @Environment(\.openURL) private var openURL
+    @Environment(\.invokeCardAction) private var invokeCardAction
 
     private var parts: AttachmentLayout.Parts {
         AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
@@ -81,6 +82,17 @@ struct MessageBubble: View {
                 } else if let status = message.callStatus {
                     CallMessageCard(status: status)
                 } else {
+                    if let forwarded = message.content?.forwarded {
+                        ForwardedMessageCard(
+                            forwarded: forwarded, directory: state.directory, me: state.me,
+                            downloads: state.downloads, loadAttachment: loadAttachment,
+                            openAttachment: openAttachment, loadRemoteImage: loadRemoteImage,
+                            attachmentFiles: attachmentFiles
+                        )
+                    }
+                    if let quote = message.content?.quote {
+                        MessageQuotePreview(quote: quote, directory: state.directory)
+                    }
                     // Pictures above the words, as Messages draws them, and
                     // files last; an image-only message has no empty bubble.
                     if let loadAttachment {
@@ -108,7 +120,20 @@ struct MessageBubble: View {
                             ))
                     }
                     ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
-                        AppCardView(card: card, load: loadRemoteImage)
+                        AppCardView(
+                            card: card,
+                            load: loadRemoteImage,
+                            perform: invokeCardAction.map { invoke in
+                                { action in
+                                    try await invoke(AppCardActionRequest(
+                                        conversation: message.conversationID,
+                                        thread: message.threadID,
+                                        message: message.id,
+                                        action: action
+                                    ))
+                                }
+                            }
+                        )
                     }
                 }
                 if !message.reactions.isEmpty {

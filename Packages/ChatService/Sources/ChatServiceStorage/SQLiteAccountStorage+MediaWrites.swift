@@ -45,7 +45,11 @@ extension SQLiteAccountStorage {
                 try indexProfileMedia(member.id.rawValue, member: true, db: db)
             }
         case let .selfIdentified(member): try indexProfileMedia(member.id.rawValue, member: true, db: db)
-        case let .conversationUpdated(row): try indexProfileMedia(row.id.rawValue, member: false, db: db)
+        case let .conversationUpdated(row), let .conversationClassified(row): try indexProfileMedia(
+                row.id.rawValue,
+                member: false,
+                db: db
+            )
         case let .conversationsChanged(rows):
             try db.execute(sql: """
             DELETE FROM serviceMediaReference WHERE originKind IN ('message', 'conversation') AND NOT EXISTS (
@@ -55,6 +59,8 @@ extension SQLiteAccountStorage {
             for row in rows {
                 try indexProfileMedia(row.id.rawValue, member: false, db: db)
             }
+        case .historyInvalidated:
+            try db.execute(sql: "DELETE FROM serviceMediaReference WHERE originKind = 'message'")
         case let .conversationRemoved(id, _):
             try db.execute(
                 sql: "DELETE FROM serviceMediaReference WHERE conversationID = ?",
@@ -66,7 +72,7 @@ extension SQLiteAccountStorage {
 
     static func indexStoredMedia(_ id: String, db: Database) throws {
         guard let row = try Row.fetchOne(db, sql: """
-        SELECT conversationID, attachments, reactions, links, cards, createdAt FROM message
+        SELECT conversationID, attachments, reactions, links, cards, content, createdAt FROM message
         WHERE id = ? AND isDeleted = 0
         """, arguments: [id]) else {
             try db.execute(
@@ -75,11 +81,15 @@ extension SQLiteAccountStorage {
             )
             return
         }
+        let contentJSON: String? = row["content"]
+        let content = try contentJSON
+            .map { try ServiceCodec.decode(MessageContent.self, from: Data($0.utf8)) }
         let sources = try ProviderMediaSource.collect(
             attachments: decodeMediaColumn([Attachment].self, row: row, key: "attachments"),
             reactions: decodeMediaColumn([Reaction].self, row: row, key: "reactions"),
             links: decodeMediaColumn([MessageLink].self, row: row, key: "links"),
-            cards: decodeMediaColumn([AppCard].self, row: row, key: "cards")
+            cards: decodeMediaColumn([AppCard].self, row: row, key: "cards"),
+            forwarded: content?.forwarded
         )
         try replaceMediaSources(
             sources,

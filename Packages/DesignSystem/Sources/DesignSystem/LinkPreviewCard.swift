@@ -43,13 +43,20 @@ struct LinkPreviewCard: View {
     let link: MessageLink
     let load: ((URL) async throws -> Data)?
     @Environment(\.openURL) private var openURL
+    @Environment(\.openEmbeddedMedia) private var openMedia
 
     var body: some View {
-        Button { openURL(link.url) } label: {
+        Button {
+            if let player = link.preview?.playbackURL, let openMedia {
+                openMedia(player)
+            } else {
+                openURL(link.url)
+            }
+        } label: {
             VStack(alignment: .leading, spacing: 0) {
                 picture
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(LinkCardLayout.title(for: link))
+                    Label(LinkCardLayout.title(for: link), systemImage: symbol)
                         .font(.callout.weight(.semibold))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -70,6 +77,14 @@ struct LinkPreviewCard: View {
         .buttonStyle(.plain)
         .help(link.url.absoluteString)
         .accessibilityAddTraits(.isLink)
+    }
+
+    private var symbol: String {
+        switch link.preview?.presentation {
+        case "video": "play.rectangle"
+        case "document": "doc.text"
+        default: "link"
+        }
     }
 
     @ViewBuilder private var picture: some View {

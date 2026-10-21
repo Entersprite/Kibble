@@ -50,6 +50,7 @@ struct StagingKey: Hashable {
 @MainActor
 public struct ComposerFiles {
     var staged: [StagingKey: [StagedAttachment]] = [:]
+    var failedReplies: [StagingKey: ComposedMessage] = [:]
     /// Tracked so `stop()` cancels them: an upload left running would post
     /// into an account that has signed out.
     var sends: [UUID: Task<Void, Never>] = [:]
@@ -67,6 +68,7 @@ public struct ComposerFiles {
         }
         sends = [:]
         staged = [:]
+        failedReplies = [:]
     }
 }
 
@@ -80,6 +82,33 @@ public enum StagingTarget: Sendable {
 }
 
 public extension ChatSessionModel {
+    var failedReplyDraft: ComposedMessage? {
+        key(for: .openThread).flatMap { composerFiles.failedReplies[$0] }
+    }
+
+    func clearFailedReplyDraft(in conversation: Conversation.ID, thread: MessageThread.ID) {
+        composerFiles.failedReplies[StagingKey(conversation: conversation, thread: thread)] = nil
+    }
+
+    internal func restoreReply(_ draft: ComposedMessage, in key: StagingKey) {
+        guard !draft.text.isEmpty else { return }
+        if let previous = composerFiles.failedReplies[key] {
+            let shift = (previous.text as NSString).length + 1
+            composerFiles.failedReplies[key] = ComposedMessage(
+                text: previous.text + "\n" + draft.text,
+                mentions: previous.mentions + draft.mentions.map {
+                    Mention(target: $0.target, start: $0.start + shift, length: $0.length)
+                }, content: MessageContent(
+                    formatting: (previous.content?.formatting ?? []) + (draft.content?.formatting ?? []).map {
+                        MessageFormat(style: $0.style, start: $0.start + shift, length: $0.length)
+                    }, quote: previous.content?.quote ?? draft.content?.quote
+                )
+            )
+        } else {
+            composerFiles.failedReplies[key] = draft
+        }
+    }
+
     /// The open thread's staged files.
     var threadStagedAttachments: [StagedAttachment] {
         key(for: .openThread).flatMap { composerFiles.staged[$0] } ?? []
@@ -237,14 +266,14 @@ public extension ChatSessionModel {
                 attachments: [attachment],
                 localID: localID,
                 mentions: caption.mentions,
-                isReply: key.thread != nil
+                isReply: key.thread != nil, content: caption.content
             )) else { return false }
             undo = [.removeMessage(id: optimisticID)]
         }
         return await engine.submit(
             .sendMessage(
                 conversationID: key.conversation, threadID: key.thread, text: caption.text, localID: localID,
-                attachments: [attachment], mentions: caption.mentions
+                attachments: [attachment], mentions: caption.mentions, content: caption.content
             ),
             undoing: undo
         )
@@ -259,10 +288,9 @@ public extension ChatSessionModel {
         for file in remaining {
             setState(file.id == id ? .failed : .ready, of: file.id, in: key)
         }
-        // Not a reply's text: the restore slot is the conversation
-        // composer's, and a reply restored there would post at the top level
-        // (`sendReply`'s rule).
-        if !caption.text.isEmpty, key.thread == nil {
+        if key.thread != nil {
+            restoreReply(caption, in: key)
+        } else if !caption.text.isEmpty {
             failed = (conversationID: key.conversation, draft: caption)
         }
     }

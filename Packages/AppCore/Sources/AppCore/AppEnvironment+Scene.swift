@@ -57,7 +57,7 @@ public extension AppEnvironment {
             activity: model.activity, pendingMessages: model.pendingMessageIDs,
             connection: model.connectionState,
             connectionService: connectionService,
-            lastError: model.lastError ?? (model.isClientTransportAvailable ? nil :
+            lastError: draftSaveFailure ?? model.lastError ?? (model.isClientTransportAvailable ? nil :
                 .transport("The account connection was interrupted. Retrying…")),
             notice: calls.listenerFailure,
             capabilities: model.capabilities,
@@ -88,6 +88,7 @@ public extension AppEnvironment {
                 calls.canCall(conversation: $0, directory: model.directory, me: model.me)
             }.map(\.id))
         )
+        state.resourceSyncStatuses = model.resourceSyncStatuses
         state.browser = browserScene(model)
         state.composerDrafts = composerDrafts
         state.messageDeliveryStatuses = model.messageDeliveryStatuses
@@ -271,12 +272,34 @@ public extension AppEnvironment {
         actions.selectMeetingSeries = { [weak self] in self?.runningModel?.selectMeetingSeries($0) }
         actions.visibleMeetingMessages = { [weak self] in self?.runningModel?.visibleMeetingMessages($0) }
         actions.showDirectory = browserActions?.show
-        actions.preserveDraft = { [weak self] address, draft in
-            guard let self, case .running = phase else { return }
-            composerDrafts[address] = draft.text.isEmpty ? nil : draft.compositionOnly
+        actions.preserveDraft = { [weak self, weak persistence = composerPersistence] address, draft in
+            guard let self, let persistence, composerPersistence === persistence else { return }
+            preserveComposerDraft(draft, at: address)
         }
         actions.checkMessageDelivery = { [weak self] in self?.runningModel?.checkMessageDelivery($0) }
+        if let model = runningModel, model.capabilities.canForwardMessages {
+            actions.forwardMessage = { [weak self, weak model] id, destination, comment in
+                guard let self, let model, runningModel === model else { return false }
+                let accepted = await model.forward(id, to: destination, comment: comment)
+                guard runningModel === model else { return false }
+                return accepted
+            }
+        }
         actions.imageLoader = imageLoader
+        if let model = runningModel, model.capabilities.canInvokeCardActions {
+            actions.invokeCardAction = { [weak self, weak model] action in
+                guard let self, let model, runningModel === model else { throw NoSession() }
+                let result = try await model.invokeCardAction(action)
+                guard runningModel === model else { throw NoSession() }
+                return result
+            }
+        }
+        if let open = services.embeddedMediaOpener {
+            actions.openEmbeddedMedia = { [weak self, weak persistence = composerPersistence] url in
+                guard let self, let persistence, composerPersistence === persistence else { return }
+                open(url)
+            }
+        }
         actions.loadRemoteImage = imageLoader.map { loader in { url in try await loader.load(url) } }
         return actions
     }

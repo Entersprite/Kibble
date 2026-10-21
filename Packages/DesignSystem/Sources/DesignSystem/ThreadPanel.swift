@@ -74,6 +74,8 @@ struct ThreadPanel: View {
     /// The height of the window toolbar's band above the panel, or 0 when
     /// something else is drawn between them (`StatusStrip`).
     let band: CGFloat
+    var quoteRequest: ComposerQuoteRequest?
+    var onQuoteAdopted: (() -> Void)?
 
     /// The title is a bar the replies scroll under, raised into the band so
     /// it sits level with the window's title. Below the band, with a divider,
@@ -109,6 +111,10 @@ struct ThreadPanel: View {
             Composer(
                 placeholder: "the thread" + (state.sendingAs.map { " as \($0)" } ?? ""),
                 activity: { actions.typingActivity?(panel.thread.conversationID, panel.thread.id, $0) },
+                restoring: panel.failedDraft,
+                onRestored: {
+                    threads.clearFailedDraft?(panel.thread.conversationID, panel.thread.id)
+                },
                 attachments: panel.stagedAttachments,
                 attachmentActions: threads.attachments,
                 mentions: state.capabilities.canMention
@@ -127,6 +133,10 @@ struct ThreadPanel: View {
                         conversation: panel.thread.conversationID, thread: panel.thread.id
                     ), $0) }
                 },
+                allowsFormatting: state.capabilities.canFormatMessages,
+                quoteRequest: quoteRequest,
+                onQuoteAdopted: onQuoteAdopted,
+                quoteDirectory: state.directory,
                 // The thread open at call time, not captured as `sendHere` is: safe only
                 // while these mentions have no `nonMembers`, so nothing is awaited first.
                 send: threads.sendReply

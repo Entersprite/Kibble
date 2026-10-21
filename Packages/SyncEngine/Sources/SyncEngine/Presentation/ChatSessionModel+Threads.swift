@@ -71,9 +71,8 @@ public extension ChatSessionModel {
     /// staged in the thread go the way `send(_:)` sends the conversation's
     /// (`sendStaged(_:in:)`), as replies (session 60).
     ///
-    /// A refusal takes the row back and is recorded where errors show. Its
-    /// text is not handed back: `failedDraft` belongs to the conversation's
-    /// composer, and restoring a reply there would post it at the top level.
+    /// A definite refusal restores the original composition only to this
+    /// thread. Unconfirmed deliveries retain their pending row instead.
     func sendReply(_ message: ComposedMessage) {
         guard let selected, let thread = threads.openThread, capabilities.canSendMessages else { return }
         let key = StagingKey(conversation: selected, thread: thread)
@@ -90,21 +89,26 @@ public extension ChatSessionModel {
             guard beginOptimistic(Message(
                 id: optimisticID, conversationID: selected, threadID: thread, sender: me,
                 text: message.text, createdAt: Date(), localID: localID, mentions: message.mentions,
-                isReply: true
-            )) else { return }
+                isReply: true, content: message.content
+            )) else {
+                restoreReply(message, in: key)
+                return
+            }
             // By id, never by `localID`, for `send(_:)`'s reason.
             undo = [.removeMessage(id: optimisticID)]
         }
         let command = ChatCommand.sendMessage(
             conversationID: selected, threadID: thread, text: message.text, localID: localID,
-            mentions: message.mentions
+            mentions: message.mentions, content: message.content
         )
         didBeginSending?()
         let taskID = UUID()
         sendTasks[taskID] = Task { @MainActor [weak self, engine, undo] in
             defer { self?.sendTasks.removeValue(forKey: taskID) }
             guard !Task.isCancelled else { return }
-            await engine.submit(command, undoing: undo)
+            let accepted = await engine.submit(command, undoing: undo)
+            guard let self, !Task.isCancelled, !accepted else { return }
+            restoreReply(message, in: key)
         }
     }
 

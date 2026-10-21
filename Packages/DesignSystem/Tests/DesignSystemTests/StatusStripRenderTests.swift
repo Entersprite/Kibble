@@ -9,7 +9,10 @@
     struct StatusStripRenderTests {
         @Test func startupAndFailureStripsFitANarrowWindow() throws {
             for dark in [false, true] {
+                var refreshFailure = ChatSceneState(connection: .connected)
+                refreshFailure.resourceSyncStatuses = [.init(resource: .directory, phase: .failed)]
                 let states: [ChatSceneState] = [
+                    refreshFailure,
                     .init(connection: .connecting),
                     .init(connection: .reconnecting(attempt: 1, issue: .noInternet, detail: nil)),
                     .init(connection: .connecting, lastError: .notAuthenticated)

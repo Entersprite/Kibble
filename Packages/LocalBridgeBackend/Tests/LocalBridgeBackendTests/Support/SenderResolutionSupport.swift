@@ -275,8 +275,8 @@ extension SenderResolutionFixtures {
 
     func lookupErrors(in events: [ChatEvent]) -> Int {
         events.count {
-            if case let .backendError(error) = $0 {
-                return "\(error)".contains("get_members")
+            if case let .resourceSyncChanged(status) = $0 {
+                return status.resource == .profiles && status.phase == .failed
             }
             return false
         }

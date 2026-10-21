@@ -38,6 +38,7 @@ public struct ComposerDraft: Equatable, Sendable {
     public private(set) var text = ""
     public private(set) var tokens: [Token] = []
     public private(set) var caret = 0
+    public private(set) var quote: MessageQuote?
     private var adopted: ComposedMessage?
 
     /// The message being edited, when the field holds one (edit spec §5).
@@ -53,6 +54,22 @@ public struct ComposerDraft: Equatable, Sendable {
     static let maxQueryLength = 40
 
     public init() {}
+
+    public init(snapshot: ComposerSnapshot) {
+        self.init()
+        quote = snapshot.quote
+        text = snapshot.text
+        tokens = Self.tokens(for: ComposedMessage(text: snapshot.text, mentions: snapshot.mentions))
+        moveCaret(to: snapshot.caret)
+    }
+
+    public func snapshot(at address: ComposerDraftAddress) -> ComposerSnapshot {
+        let draft = compositionOnly
+        return ComposerSnapshot(
+            conversation: address.conversation, thread: address.thread,
+            text: draft.text, mentions: draft.untrimmedMentions(), caret: draft.caret, quote: draft.quote
+        )
+    }
 
     /// A destroyed composer cancels its edit. Keep the unsent composition it
     /// set aside, so edited message text cannot become a new outgoing draft.
@@ -150,9 +167,15 @@ public struct ComposerDraft: Equatable, Sendable {
 
     /// What Send sends: the text trimmed of surrounding whitespace, and the
     /// tokens' spans shifted by what the trim removed in front.
-    public func composed() -> ComposedMessage {
+    public mutating func setQuote(_ quote: MessageQuote?) {
+        guard editing == nil else { return }
+        self.quote = quote
+    }
+
+    public func composed(formatting: Bool = false) -> ComposedMessage {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ComposedMessage(text: "") }
+        guard !trimmed.isEmpty
+        else { return ComposedMessage(text: "", content: MessageContent(quote: quote)) }
         // `trimmed` starts at the first non-whitespace unit, so its first
         // occurrence is where the trim began.
         let start = (text as NSString).range(of: trimmed).location
@@ -160,26 +183,43 @@ public struct ComposerDraft: Equatable, Sendable {
         let mentions = tokens
             .filter { $0.location >= start && $0.end <= end && Self.reads($0, in: text) }
             .map { Mention(target: $0.target, start: $0.location - start, length: $0.length) }
-        return ComposedMessage(text: trimmed, mentions: mentions)
+        let message = ComposedMessage(
+            text: trimmed,
+            mentions: mentions,
+            content: MessageContent(quote: quote)
+        )
+        return formatting ? MessageMarkup.parse(message) : message
     }
 
     /// Puts the field aside and loads `message`, tokens and all, with the
     /// caret at the end. Beginning again while editing keeps the first
     /// set-aside draft: the previous edit's text is not the person's draft.
-    public mutating func beginEditing(_ messageID: Message.ID, with message: ComposedMessage) {
-        let setAside = editing?.setAside ?? ComposedMessage(text: text, mentions: untrimmedMentions())
-        text = message.text
-        tokens = Self.tokens(for: message)
+    public mutating func beginEditing(
+        _ messageID: Message.ID,
+        with message: ComposedMessage,
+        formatting: Bool = false
+    ) {
+        let setAside = editing?.setAside ?? ComposedMessage(
+            text: text,
+            mentions: untrimmedMentions(),
+            content: MessageContent(quote: quote)
+        )
+        let editable = formatting ? MessageMarkup.editable(message) : message
+        text = editable.text
+        tokens = Self.tokens(for: editable)
+        quote = message.content?.quote
         caret = (text as NSString).length
         editing = Editing(messageID: messageID, setAside: setAside)
     }
 
     /// Ends the edit, saved or cancelled: hands back what the field held,
     /// and puts the set-aside draft back. `nil` when nothing was being edited.
-    public mutating func endEditing() -> (messageID: Message.ID, message: ComposedMessage)? {
+    public mutating func endEditing(formatting: Bool = false)
+        -> (messageID: Message.ID, message: ComposedMessage)? {
         guard let editing else { return nil }
-        let edited = composed()
+        let edited = composed(formatting: formatting)
         self.editing = nil
+        quote = editing.setAside.content?.quote
         text = editing.setAside.text
         tokens = Self.tokens(for: editing.setAside)
         caret = (text as NSString).length
@@ -197,6 +237,7 @@ public struct ComposerDraft: Equatable, Sendable {
         text = ""
         tokens = []
         caret = 0
+        quote = nil
     }
 
     /// Adopts `restoring` if it is new, and says whether it did.
@@ -208,12 +249,13 @@ public struct ComposerDraft: Equatable, Sendable {
     /// hand its caption back minutes after Send, by which time the field
     /// may hold the next message; the caption then goes first and the newer
     /// text after it, its tokens shifted, and nothing is lost.
-    public mutating func adopt(_ restoring: ComposedMessage?) -> Bool {
-        guard let restoring, !restoring.text.isEmpty else {
+    public mutating func adopt(_ restoring: ComposedMessage?, formatting: Bool = false) -> Bool {
+        guard let original = restoring, !original.text.isEmpty else {
             adopted = nil
             return false
         }
-        guard restoring != adopted else { return false }
+        guard original != adopted else { return false }
+        let restoring = formatting ? MessageMarkup.editable(original) : original
         if let current = editing {
             // Never merged into the message being edited: it goes with the
             // set-aside draft, and is there when the edit ends.
@@ -221,8 +263,11 @@ public struct ComposerDraft: Equatable, Sendable {
                 messageID: current.messageID,
                 setAside: Self.merged(restoring, before: current.setAside)
             )
-            adopted = restoring
+            adopted = original
             return true
+        }
+        if let quote = restoring.content?.quote {
+            self.quote = quote
         }
         let restored = Self.tokens(for: restoring)
         if text.isEmpty || text == restoring.text {
@@ -238,7 +283,7 @@ public struct ComposerDraft: Equatable, Sendable {
             text = restoring.text + "\n" + text
         }
         caret = (text as NSString).length
-        adopted = restoring
+        adopted = original
         return true
     }
 
@@ -252,7 +297,10 @@ public struct ComposerDraft: Equatable, Sendable {
         let shift = (restoring.text as NSString).length + 1
         let moved = kept.mentions
             .map { Mention(target: $0.target, start: $0.start + shift, length: $0.length) }
-        return ComposedMessage(text: restoring.text + "\n" + kept.text, mentions: restoring.mentions + moved)
+        return ComposedMessage(
+            text: restoring.text + "\n" + kept.text, mentions: restoring.mentions + moved,
+            content: MessageContent(quote: restoring.content?.quote ?? kept.content?.quote)
+        )
     }
 
     private static func tokens(for message: ComposedMessage) -> [Token] {

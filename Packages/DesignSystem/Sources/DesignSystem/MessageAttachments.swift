@@ -35,7 +35,8 @@ enum AttachmentLayout {
         let files = message.attachments.filter { !canLoadImages || !drawsAsPicture($0) }
         let previews = previewLinks(message.links)
         let hasText = !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasOther = !message.attachments.isEmpty || !previews.isEmpty || !message.cards.isEmpty
+        let hasOther = !message.attachments.isEmpty || !previews.isEmpty || !message.cards.isEmpty ||
+            message.content?.forwarded != nil
         return Parts(
             images: images, files: files, showsText: hasText || !hasOther,
             previews: previews, cards: message.cards

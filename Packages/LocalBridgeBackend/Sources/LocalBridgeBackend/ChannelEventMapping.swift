@@ -176,10 +176,13 @@ public enum ChannelEventMapping {
             attachments: attachments(message.annotations),
             localID: message.hasLocalID ? message.localID : nil,
             mentions: mentions(message.annotations),
-            links: links(message.annotations, text: message.textBody),
-            cards: CardMapping.cards(message.attachments),
+            links: MessageEmbedMapping.links(
+                message.annotations, alongside: links(message.annotations, text: message.textBody)
+            ),
+            cards: CardMapping.cards(message.attachments, group: message.id.parentID.topicID.groupID),
             isReply: ThreadMapping.isReply(message),
-            callStatus: CallMessageMapping.status(in: message.annotations)
+            callStatus: CallMessageMapping.status(in: message.annotations),
+            content: MessageContentMapping.content(message)
         )
     }
 

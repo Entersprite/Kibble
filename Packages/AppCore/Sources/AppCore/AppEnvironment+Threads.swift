@@ -45,7 +45,8 @@ extension AppEnvironment {
             scrollTarget: model.threads.scrollTarget,
             scrollGeneration: model.threads.scrollGeneration,
             followPending: model.threads.followPending,
-            stagedAttachments: Self.composerAttachments(model.threadStagedAttachments)
+            stagedAttachments: Self.composerAttachments(model.threadStagedAttachments),
+            failedDraft: model.failedReplyDraft
         )
     }
 
@@ -62,7 +63,10 @@ extension AppEnvironment {
             openItem: { [weak self] conversation, thread in
                 self?.runningModel?.openThreadItem(thread, in: conversation)
             },
-            attachments: composerAttachmentActions(in: .openThread)
+            attachments: composerAttachmentActions(in: .openThread),
+            clearFailedDraft: { [weak self] conversation, thread in
+                self?.runningModel?.clearFailedReplyDraft(in: conversation, thread: thread)
+            }
         )
     }
 }

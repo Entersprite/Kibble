@@ -23,7 +23,10 @@ extension ChatWindow {
                     ThreadPanel(
                         panel: panel, state: state, actions: actions, threads: threads,
                         own: { panelHandlers(for: $0) }, editing: panelEditing(), dropStage: panelDropStage,
-                        band: threadBand
+                        band: threadBand,
+                        quoteRequest: panelQuote?.quote.conversation == panel.thread.conversationID
+                            && panelQuote?.quote.thread == panel.thread.id ? panelQuote : nil,
+                        onQuoteAdopted: { panelQuote = nil }
                     )
                     .id(state.accountID)
                 }

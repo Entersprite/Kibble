@@ -126,10 +126,18 @@ struct ThreadPanelTests {
         let model = harness.model
         await settleAutoMarkRead(until: "you are known") { model.me != nil }
         await harness.backend.failSubmissions(true)
-        model.sendReply(ComposedMessage(text: "never sent"))
-        await settleAutoMarkRead(until: "the refusal is recorded") { model.lastError != nil }
+        let original = ComposedMessage(text: "never sent")
+        model.sendReply(original)
+        await settleAutoMarkRead(until: "the refusal and its draft are delivered") {
+            model.lastError != nil && model.failedReplyDraft == original
+        }
+        #expect(model.failedDraft == nil)
+        model.closeThread()
+        #expect(model.failedReplyDraft == nil)
+        model.openThread(thread)
+        #expect(model.failedReplyDraft == original)
         let localID = try #require(await harness.backend.commands.compactMap { command -> String? in
-            if case let .sendMessage(_, _, _, localID, _, _) = command {
+            if case let .sendMessage(_, _, _, localID, _, _, _) = command {
                 localID
             } else {
                 nil

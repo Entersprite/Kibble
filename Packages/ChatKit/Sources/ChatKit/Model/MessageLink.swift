@@ -41,6 +41,9 @@ public struct LinkPreview: Codable, Hashable, Sendable {
     public var imageWidth: Int?
     public var imageHeight: Int?
     public var domain: String?
+    public var presentation: String?
+    /// An optional player opened explicitly through the native host.
+    public var playbackURL: URL?
 
     public init(
         title: String,
@@ -48,7 +51,9 @@ public struct LinkPreview: Codable, Hashable, Sendable {
         imageURL: URL? = nil,
         imageWidth: Int? = nil,
         imageHeight: Int? = nil,
-        domain: String? = nil
+        domain: String? = nil,
+        presentation: String? = nil,
+        playbackURL: URL? = nil
     ) {
         self.title = title
         self.snippet = snippet
@@ -56,5 +61,7 @@ public struct LinkPreview: Codable, Hashable, Sendable {
         self.imageWidth = imageWidth
         self.imageHeight = imageHeight
         self.domain = domain
+        self.presentation = presentation
+        self.playbackURL = playbackURL
     }
 }

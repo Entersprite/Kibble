@@ -41,6 +41,7 @@ extension ChatEvent {
         case historyBefore
         case meeting
         case history
+        case syncStatus
         case backfill
     }
 
@@ -74,6 +75,9 @@ extension ChatEvent {
         case threadChanged
         case unreadThreadsChanged
         case gap
+        case conversationClassified
+        case historyInvalidated
+        case resourceSyncChanged
         case backendError
         case unknown
     }
@@ -88,6 +92,7 @@ extension ChatEvent {
                 ?? Self.decodeStateEvent(raw, from: container)
                 ?? Self.decodeThreadEvent(raw, from: container)
                 ?? Self.decodeConversationActionEvent(raw, from: container)
+                ?? Self.decodeSynchronizationEvent(raw, from: container)
         self = try decoded ?? .unknown(type: raw, payload: UnknownFrame.payload(from: decoder))
     }
 
@@ -243,6 +248,7 @@ extension ChatEvent {
             || encodeStateEvent(into: &container)
             || encodeThreadEvent(into: &container)
             || encodeConversationActionEvent(into: &container)
+            || encodeSynchronizationEvent(into: &container)
         guard handled else {
             throw WireEncoding.unhandled(self, path: container.codingPath)
         }

@@ -75,7 +75,7 @@ actor DeliveryStatusBackend: MessageDeliveryTrackingBackend {
     }
 
     func send(_ command: ChatCommand) async throws {
-        if case let .sendMessage(_, _, _, localID, _, _) = command {
+        if case let .sendMessage(_, _, _, localID, _, _, _) = command {
             sends.append(command)
             if holdingSend {
                 await withCheckedContinuation { heldSend.append($0) }
@@ -100,7 +100,8 @@ actor DeliveryStatusBackend: MessageDeliveryTrackingBackend {
     }
 
     func echo() async {
-        guard case let .sendMessage(conversation, thread, text, localID, attachments, mentions)? = sends.last
+        guard case let .sendMessage(conversation, thread, text, localID, attachments, mentions, _)? = sends
+            .last
         else { return }
         continuation.yield(.messageReceived(Message(
             id: Message.ID("canonical"),

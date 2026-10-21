@@ -10,6 +10,7 @@
             guard let items else { return menu }
             var next = 0
             let entries: [(String, (() -> Void)?)] = [
+                ("Quote Reply", items.quote), ("Forward…", items.forward),
                 ("Reply in Thread", items.replyInThread), ("Mark as Unread", items.markUnread),
                 ("Edit…", items.edit), ("Delete…", items.delete)
             ]

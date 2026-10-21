@@ -51,15 +51,12 @@ extension LocalBridgeBackend {
         Set(conversations.filter { $0.kind == .directMessage }.flatMap(\.members))
     }
 
-    /// Starts the poll, replacing any already running. The first run waits
+    /// Starts the account poll once. The first run waits
     /// for `lookups`, the name lookups that create the member rows its UPDATE
     /// writes to (`startPresencePoll` explains the race).
     func startCalendarPoll(for conversations: [Conversation], after lookups: [Task<Void, Never>?]) {
-        calendarPoll.task?.cancel()
-        calendarPoll.people = Self.calendarTargets(from: conversations)
-        // Everyone is sent once more: a write dropped because the person had
-        // no row yet (a failed lookup) is healed by the next world load.
-        calendarPoll.emitted = [:]
+        calendarPoll.people.formUnion(Self.calendarTargets(from: conversations))
+        guard calendarPoll.task == nil else { return }
         let generation = directoryGeneration
         calendarPoll.task = Task { [weak self] in
             for lookup in lookups {
@@ -107,12 +104,13 @@ extension LocalBridgeBackend {
             answered.merge(schedules) { _, new in new }
         }
         calendarPoll.failureReported = false
+        resourceRecovered(.calendar)
         let now = Date()
         for id in people {
             let next = answered[id]
             guard !Self.drawsTheSame(calendarPoll.emitted[id], next, now: now) else { continue }
             calendarPoll.emitted[id] = next
-            emit(.calendarChanged(member: id, schedule: next))
+            guard await emitCommitted(.calendarChanged(member: id, schedule: next)) else { return }
         }
     }
 
@@ -193,6 +191,6 @@ extension LocalBridgeBackend {
     private func reportCalendarFailure() {
         guard !calendarPoll.failureReported else { return }
         calendarPoll.failureReported = true
-        emit(.backendError(.unknown("the calendar status call failed")))
+        reportResourceFailure(.calendar, error: .unknown("The calendar status call failed."))
     }
 }

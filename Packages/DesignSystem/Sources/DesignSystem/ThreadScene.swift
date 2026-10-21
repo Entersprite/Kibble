@@ -38,6 +38,7 @@ public struct ThreadSceneState: Sendable, Equatable {
 
 /// The thread panel's content.
 public struct ThreadPanelState: Sendable, Equatable {
+    public var failedDraft: ComposedMessage?
     public var thread: MessageThread
     public var conversationTitle: String
     /// The first message included, oldest first.
@@ -62,7 +63,8 @@ public struct ThreadPanelState: Sendable, Equatable {
         scrollTarget: Message.ID? = nil,
         scrollGeneration: Int = 0,
         followPending: Bool = false,
-        stagedAttachments: [ComposerAttachment] = []
+        stagedAttachments: [ComposerAttachment] = [],
+        failedDraft: ComposedMessage? = nil
     ) {
         self.thread = thread
         self.conversationTitle = conversationTitle
@@ -71,6 +73,7 @@ public struct ThreadPanelState: Sendable, Equatable {
         self.scrollGeneration = scrollGeneration
         self.followPending = followPending
         self.stagedAttachments = stagedAttachments
+        self.failedDraft = failedDraft
     }
 
     /// The message that started the thread, when the store has it.
@@ -124,6 +127,7 @@ public struct ThreadListItem: Identifiable, Sendable, Equatable {
 /// gets no mark, no menu item, no panel and no Threads row.
 @MainActor
 public struct ThreadActions {
+    public var clearFailedDraft: ((Conversation.ID, MessageThread.ID) -> Void)?
     public var open: (MessageThread.ID) -> Void
     public var close: () -> Void
     public var sendReply: (ComposedMessage) -> Void
@@ -143,7 +147,8 @@ public struct ThreadActions {
         markUnread: @escaping (Message) -> Void,
         showList: @escaping () -> Void,
         openItem: @escaping (Conversation.ID, MessageThread.ID) -> Void,
-        attachments: ComposerAttachmentActions? = nil
+        attachments: ComposerAttachmentActions? = nil,
+        clearFailedDraft: ((Conversation.ID, MessageThread.ID) -> Void)? = nil
     ) {
         self.open = open
         self.close = close
@@ -153,5 +158,6 @@ public struct ThreadActions {
         self.showList = showList
         self.openItem = openItem
         self.attachments = attachments
+        self.clearFailedDraft = clearFailedDraft
     }
 }

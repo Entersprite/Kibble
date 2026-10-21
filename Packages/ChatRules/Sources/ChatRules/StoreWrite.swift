@@ -168,6 +168,8 @@ public enum StoreWrite: Sendable, Equatable {
 
     /// The Mentions list's backfill status (the mentions-list spec §2): a
     /// claim about *now*, which `clearEphemeralState` drops.
+    case classifyConversation(Conversation)
+    case setResourceSyncStatus(ResourceSyncStatus)
     case setMentionBackfill(MentionBackfillStatus)
 
     /// Drops everything that is a claim about *now*: typing, presence, status, the

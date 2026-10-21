@@ -15,8 +15,12 @@ extension AccountRuntime {
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         case LoadConversations.operation:
-            _ = try request.decodePayload(LoadConversations.self)
-            let value = try await fetchWorld(backend: backend, epoch: epoch)
+            let payload = try request.decodePayload(LoadConversations.self)
+            let value = try await fetchWorld(
+                backend: backend,
+                epoch: epoch,
+                maximumAge: payload.maximumAge ?? 0
+            )
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         case LoadMessages.operation:

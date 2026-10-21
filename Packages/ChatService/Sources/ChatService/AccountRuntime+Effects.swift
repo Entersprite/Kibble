@@ -8,32 +8,42 @@ extension AccountRuntime {
         if let member = ownMember(in: event) {
             requestProfileRefresh(member)
         }
+        scheduleContinuityEffects(for: event)
+        for effect in SyncReducer.reduce(event).effects {
+            switch effect {
+            case .reloadConversations:
+                backfillHeads.removeAll()
+                if checkpointedBackend == nil {
+                    requestWorldRefresh()
+                }
+            case let .reloadMessages(id): await scheduleHistoryRefresh(id)
+            case .announceArrival, .withdrawAnnouncements: break
+            }
+        }
+    }
+
+    private func scheduleContinuityEffects(for event: ChatEvent) {
         switch event {
         case .conversationsChanged: requestBackfill()
+        case .historyInvalidated: requestBackfill(replay: true)
         case .connectionStateChanged(.connected):
-            requestWorldRefresh()
+            if checkpointedBackend == nil {
+                requestWorldRefresh()
+            }
             if aggregateClientInterests().hasAny || publishedInterests.hasAny {
                 clientInterestsChanged(force: true)
             }
         default: break
         }
-        for effect in SyncReducer.reduce(event).effects {
-            switch effect {
-            case .reloadConversations:
-                backfillHeads.removeAll()
-                requestWorldRefresh()
-            case let .reloadMessages(id):
-                if pendingHistory.count < 1024 {
-                    pendingHistory.insert(id)
-                    requestHistoryRefresh()
-                } else {
-                    // Refuse overload explicitly instead of silently losing
-                    // reconciliation work or retaining an unbounded queue.
-                    await quarantine(.storage)
-                }
-            case .announceArrival, .withdrawAnnouncements: break
-            }
+    }
+
+    private func scheduleHistoryRefresh(_ id: Conversation.ID) async {
+        guard pendingHistory.count < 1024 else {
+            await quarantine(.storage)
+            return
         }
+        pendingHistory.insert(id)
+        requestHistoryRefresh()
     }
 
     func requestWorldRefresh() {
@@ -47,7 +57,7 @@ extension AccountRuntime {
                 guard let backend else { return }
                 let epoch = currentEpoch
                 await reconcileBackground {
-                    _ = try await fetchWorld(backend: backend, epoch: epoch)
+                    _ = try await fetchWorld(backend: backend, epoch: epoch, maximumAge: 30)
                 }
             }
         }
@@ -97,22 +107,26 @@ extension AccountRuntime {
                 pendingHistory.remove(id)
                 guard let backend else { return }
                 let epoch = currentEpoch
-                await reconcileBackground {
+                await reconcileBackground(resource: .history, conversation: id) {
                     _ = try await fetchMessages(in: id, before: nil, backend: backend, epoch: epoch)
                 }
             }
         }
     }
 
-    func reconciliationFailed(_ error: any Error) async {
-        guard !Task.isCancelled, !stopped, !quarantinedForSubscription else { return }
+    func reconciliationFailed(
+        _ error: any Error, resource: ResourceSyncStatus.Resource = .directory,
+        conversation: Conversation.ID? = nil
+    ) async {
+        guard !Task.isCancelled, !(error is CancellationError), !stopped,
+              !quarantinedForSubscription else { return }
         if error as? ChatError == .sessionExpired {
             await quarantine(.authentication)
         } else {
-            do { try appendAndPublish(
-                .backendError(.transport("Account refresh could not complete.")),
-                live: false
-            ) } catch { await quarantine(.storage) }
+            do { try recordResourceSync(.init(
+                resource: resource, conversationID: conversation, phase: .failed,
+                error: error as? ChatError ?? .unknown("The refresh could not complete.")
+            )) } catch { await quarantine(.storage) }
         }
     }
 }

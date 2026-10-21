@@ -180,7 +180,7 @@ struct ForwardCompatibilityTests {
     @Test func aSendWithoutMentionsDecodesWithNone() throws {
         let json = #"{"type":"sendMessage","conversationID":"space:AAAA1111","text":"hi"}"#
         let command = try JSONDecoder().decode(ChatCommand.self, from: Data(json.utf8))
-        guard case let .sendMessage(_, _, _, _, _, mentions) = command else {
+        guard case let .sendMessage(_, _, _, _, _, mentions, _) = command else {
             Issue.record("expected sendMessage")
             return
         }

@@ -74,25 +74,13 @@ public enum ChannelInput: Sendable {
 public enum ChannelEffect: Sendable, Hashable {
     case register
     case handshake
-    case acknowledge(sid: String, aid: Int)
-    /// The reference's own `_send_initial_ping()` (`channel.py:347-360`),
-    /// sent once per fresh SID via `send_stream_event` (`channel.py:303-337`)
-    /// - immediately after the acknowledge and before the poll's body is
-    /// read, matching the reference's own ordering. `findings.md` §12.4
-    /// records this client never sent it and its absence was never ruled
-    /// out as the reason a sent message waits for something else to prod
-    /// the conversation before the other party sees it.
-    ///
-    /// Carries only the SID and the AID this side already knows, the same
-    /// as `.acknowledge` - the `RID`/`ofs` counters the actual request needs
-    /// are driver state, never read or produced here. See
-    /// `ChannelSession`'s own `requestIdentifier`/`streamEventOfs`.
+    /// Post the initial client-state ping without opening another backchannel.
     case sendInitialPing(sid: String, aid: Int)
     case reopen(sid: String, aid: Int)
     /// Wait, then send `.retry`. The delay lives in the driver: this side
     /// carries no clock and no randomness, which is `ChannelInput`'s stated
     /// contract and the reason the reducer is testable without waiting.
-    case reconnect(attempt: Int)
+    case reconnect(attempt: Int, failure: ChannelFailure? = nil)
     /// Wait for the network to come back, then send `.retry`.
     ///
     /// Distinct from `.reconnect` because it is a different *kind* of wait,
@@ -289,10 +277,10 @@ private extension ChannelState {
         // watermark over would ask it to skip past events it has not sent.
         highestProcessedAid = 0
         listen(sid: sid)
-        // The ping rides along with the acknowledge, in that order - the
-        // reference sends its own ack-equivalent GET and then
-        // `_send_initial_ping()`, both before it ever reads the body.
-        return [.acknowledge(sid: sid, aid: 0), .sendInitialPing(sid: sid, aid: 0)]
+        // X-HTTP-Initial-Response upgrades this request to the backchannel.
+        // Opening a second RID=rpc GET competes with the stream being read.
+        // The current WebChannel client keeps this stream and only posts the ping.
+        return [.sendInitialPing(sid: sid, aid: 0)]
     }
 
     mutating func received(_ data: Data) -> [ChannelEffect] {
@@ -316,10 +304,25 @@ private extension ChannelState {
         }
         guard !arrays.isEmpty else { return [] }
 
-        // Never backwards. An out-of-order or repeated array must not lower the
-        // watermark, or the next reopen asks for what has already been handled.
-        highestProcessedAid = max(highestProcessedAid, arrays.map(\.aid).max() ?? 0)
-        return [.deliver(arrays)]
+        return deliverUntilControl(arrays)
+    }
+
+    mutating func deliverUntilControl(_ arrays: [ChannelArray]) -> [ChannelEffect] {
+        var delivered: [ChannelArray] = []
+        for array in arrays {
+            let control: ChannelFailure? = switch array.data {
+            case .array([.string("close")]): .serverClosed
+            case .array([.string("stop")]): .serverStopped
+            default: nil
+            }
+            if let control {
+                let prefix: [ChannelEffect] = delivered.isEmpty ? [] : [.deliver(delivered)]
+                return prefix + failed(control)
+            }
+            highestProcessedAid = max(highestProcessedAid, array.aid)
+            delivered.append(array)
+        }
+        return [.deliver(delivered)]
     }
 
     mutating func fail(_ failure: ChannelFailure) -> [ChannelEffect] {
@@ -355,7 +358,7 @@ private extension ChannelState {
         if case .transport(.notConnectedToInternet) = failure {
             return [.awaitNetwork(attempt: attempt)]
         }
-        return [.reconnect(attempt: attempt)]
+        return [.reconnect(attempt: attempt, failure: failure == .serverClosed ? failure : nil)]
     }
 
     mutating func retry() -> [ChannelEffect] {

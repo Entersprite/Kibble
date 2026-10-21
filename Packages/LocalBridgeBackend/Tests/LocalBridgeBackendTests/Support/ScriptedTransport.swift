@@ -25,17 +25,20 @@ actor ScriptedTransport: HTTPTransport {
         /// that ends is ordinary and reopens; a body that throws is a dropped
         /// socket, which is the only thing the channel reconnects from.
         let dropsAfterChunks: Bool
+        let failure: (any Error)?
 
         init(
             status: Int = 200,
             headers: HTTPHeaders = HTTPHeaders([]),
             chunks: [String],
-            dropsAfterChunks: Bool = false
+            dropsAfterChunks: Bool = false,
+            failure: (any Error)? = nil
         ) {
             self.status = status
             self.headers = headers
             self.chunks = chunks
             self.dropsAfterChunks = dropsAfterChunks
+            self.failure = failure
         }
     }
 
@@ -71,7 +74,7 @@ actor ScriptedTransport: HTTPTransport {
                 for chunk in script.chunks {
                     continuation.yield(Data(chunk.utf8))
                 }
-                continuation.finish(throwing: script.dropsAfterChunks ? Dropped() : nil)
+                continuation.finish(throwing: script.failure ?? (script.dropsAfterChunks ? Dropped() : nil))
             }
         )
     }

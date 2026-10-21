@@ -12,6 +12,7 @@
             let text: String
             let mentions: [Mention]
             let links: [MessageLink]
+            let formatting: [MessageFormat]
             let me: Member.ID?
             let inOwnBubble: Bool
             let font: NSFont
@@ -33,6 +34,7 @@
         ) -> NSAttributedString {
             let input = Input(
                 text: message.text, mentions: message.mentions, links: message.links,
+                formatting: message.content?.formatting ?? [],
                 me: me, inOwnBubble: inOwnBubble, font: font, accent: accent,
                 foreground: inOwnBubble ? .white : .labelColor
             )
@@ -42,6 +44,7 @@
             misses += 1
             let text = NSAttributedString(attributedString: MessageTextAttributes.attributed(
                 input.text, mentions: input.mentions, links: input.links,
+                formatting: input.formatting,
                 me: me, inOwnBubble: inOwnBubble, font: font, accent: accent
             ))
             // Conservatively price copied keys, UTF-16 text and attribute runs.

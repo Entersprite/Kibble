@@ -5,6 +5,7 @@ public extension AppEnvironment {
     /// Disabling retains disk state; authentication/removal require a checked
     /// erase before the account workspace can offer sign-in again.
     func detachClient(erasingPrivateData: Bool) async throws {
+        await finishComposerPersistence()
         await stopPolicyReplica()
         await calls.stop()
         identityTask?.cancel()

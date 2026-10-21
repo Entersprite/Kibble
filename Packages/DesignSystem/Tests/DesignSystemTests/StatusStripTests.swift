@@ -70,3 +70,28 @@ struct StatusStripTests {
         #expect(StatusStrip.headline(for: state) == .warning("Google isn't responding."))
     }
 }
+
+extension StatusStripTests {
+    @Test func resourceRefreshFailureDoesNotClaimConnectionFailure() {
+        var state = ChatSceneState(connection: .connected)
+        state.resourceSyncStatuses = [.init(resource: .directory, phase: .catchingUp)]
+        #expect(StatusStrip.headline(for: state) == nil)
+        state.resourceSyncStatuses = [.init(resource: .directory, phase: .failed)]
+        #expect(StatusStrip
+            .headline(for: state) == .warning("Could not refresh conversations. Showing saved data."))
+        state.connection = .disconnected(reason: nil, issue: nil)
+        #expect(StatusStrip.headline(for: state) == .warning("Disconnected."))
+    }
+
+    @Test func unrelatedAndOptionalResourceFailuresDoNotInterruptTheSelectedChat() {
+        var state = ChatSceneState(connection: .connected)
+        state.resourceSyncStatuses = [
+            .init(resource: .history, conversationID: .init("another-chat"), phase: .failed),
+            .init(resource: .presence, phase: .failed), .init(resource: .profiles, phase: .failed)
+        ]
+        #expect(StatusStrip.headline(for: state) == nil)
+        state.selected = .init("another-chat")
+        #expect(StatusStrip
+            .headline(for: state) == .warning("Could not refresh messages. Showing saved data."))
+    }
+}

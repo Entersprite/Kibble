@@ -11,8 +11,10 @@ actor TestProviders: AccountProviderFactory {
     private(set) var made: [ConnectedAccountID: Int] = [:]
     private(set) var forgotten: Set<ConnectedAccountID> = []
     private var forgetFailures: Int
+    private let includeCardActions: Bool
 
-    init(forgetFailures: Int = 0) {
+    init(forgetFailures: Int = 0, includeCardActions: Bool = false) {
+        self.includeCardActions = includeCardActions
         self.forgetFailures = forgetFailures
     }
 
@@ -22,7 +24,7 @@ actor TestProviders: AccountProviderFactory {
 
     func makeProvider(for account: AccountRecord) -> AccountProvider {
         made[account.id, default: 0] += 1
-        let world = FixtureWorld(
+        var world = FixtureWorld(
             me: account.selfID,
             members: [Member(id: account.selfID, kind: .human, displayName: account.label)],
             conversations: [Conversation(
@@ -32,6 +34,20 @@ actor TestProviders: AccountProviderFactory {
             )],
             messages: [], startedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
+        if includeCardActions {
+            world.messages = [Message(
+                id: .init("card"),
+                conversationID: .init("same-conversation"),
+                threadID: .init("thread"),
+                sender: account.selfID,
+                text: "Example app",
+                createdAt: world.startedAt,
+                cards: [AppCard(actions: [AppCardAction(
+                    id: "action",
+                    label: "Acknowledge"
+                )])]
+            )]
+        }
         return AccountProvider(backend: FakeBackend(world: world))
     }
 
@@ -52,7 +68,7 @@ struct ServiceHarness {
     let transport: InProcessChatTransport
     let directory: URL
 
-    static func make() async throws -> ServiceHarness {
+    static func make(includeCardActions: Bool = false) async throws -> ServiceHarness {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let registry = try SQLiteAccountRegistry(path: directory.appendingPathComponent("registry.sqlite")
@@ -74,7 +90,7 @@ struct ServiceHarness {
         )
         try registry.save(first)
         try registry.save(second)
-        let providers = TestProviders()
+        let providers = TestProviders(includeCardActions: includeCardActions)
         let service = ChatService(
             registry: registry,
             storage: SQLiteServiceStorageFactory(directory: directory),

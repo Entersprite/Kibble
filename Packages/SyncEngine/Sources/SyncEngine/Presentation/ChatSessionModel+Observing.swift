@@ -12,6 +12,7 @@ import GRDB
 extension ChatSessionModel {
     func startModelObservers() {
         // First, so a name is there by the time anything that shows one lands.
+        watch(store.observeResourceSyncStatuses()) { [weak self] in self?.resourceSyncStatuses = $0 }
         watchDirectory()
         watch(store.observeConversations()) { [weak self] in self?.conversationsObserved($0) }
         watch(store.observeConnectionState()) { [weak self] in

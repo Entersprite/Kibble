@@ -37,30 +37,36 @@ struct SearchFilterRow: View {
     let setQuery: (MessageSearchQuery) -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            if filters.contains(.from) {
-                fromChip
-            }
-            if filters.contains(.conversation) {
-                conversationChip
-            }
-            if filters.contains(.olderThan) {
-                dateChip
-            }
-            if filters.contains(.hasFile) || filters.contains(.hasLink) {
-                hasChip
-            }
-            if filters.contains(.mentionsMe) {
-                Button { change { $0.mentionsMe.toggle() } } label: {
-                    Chip(title: "Mentions me", icon: "at", active: query.mentionsMe, menu: false)
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                if filters.contains(.from) {
+                    fromChip
                 }
-                .buttonStyle(.plain)
-            }
-            Spacer(minLength: 8)
-            if filters.contains(.newestFirst) {
-                sortMenu
+                if filters.contains(.conversation) {
+                    conversationChip
+                }
+                if filters.contains(.olderThan) {
+                    dateChip
+                }
+                if filters.contains(.newerThan) {
+                    newerDateChip
+                }
+                if filters.contains(.hasFile) || filters.contains(.hasLink) {
+                    hasChip
+                }
+                if filters.contains(.mentionsMe) {
+                    Button { change { $0.mentionsMe.toggle() } } label: {
+                        Chip(title: "Mentions me", icon: "at", active: query.mentionsMe, menu: false)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 8)
+                if filters.contains(.newestFirst) {
+                    sortMenu
+                }
             }
         }
+        .scrollIndicators(.hidden)
         .padding(.horizontal, 14)
         .padding(.bottom, 12)
     }
@@ -127,6 +133,23 @@ struct SearchFilterRow: View {
                     ?? "Date",
                 icon: "calendar",
                 active: query.olderThan != nil
+            )
+        }
+        .chipMenu()
+    }
+
+    private var newerDateChip: some View {
+        Menu {
+            Button("Any time") { change { $0.newerThan = nil } }
+            Button("Past day") { change { $0.newerThan = Date.now.addingTimeInterval(-86400) } }
+            Button("Past week") { change { $0.newerThan = Date.now.addingTimeInterval(-604_800) } }
+            Button("Past month") { change { $0.newerThan = Date.now.addingTimeInterval(-2_592_000) } }
+            Button("Past year") { change { $0.newerThan = Date.now.addingTimeInterval(-31_536_000) } }
+        } label: {
+            Chip(
+                title: query.newerThan.map { "After \($0.formatted(.dateTime.month(.abbreviated).day()))" }
+                    ?? "After",
+                icon: "calendar", active: query.newerThan != nil
             )
         }
         .chipMenu()

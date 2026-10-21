@@ -2,25 +2,37 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
-/// Chat app cards (links spec §4.2): `Message.attachments[].card_add_on_data`
-/// (field 7, named by purple's proto; `findings.md` §60 is `[Verify]`) to
-/// `AppCard`.
-///
-/// Maps what a client can draw and honour: text, decorated rows, pictures,
-/// dividers, and buttons that open a URL. **A button whose click calls back
-/// into the app is dropped** (CLAUDE.md: never draw a control the seam cannot
-/// honour), and so is every form input. A card left with nothing becomes the
-/// empty `AppCard`, which the view draws as a note.
+/// Provider cards rendered as semantic content. Form-free callbacks are mapped
+/// separately; cards requiring unsupported inputs retain a web handoff.
 enum CardMapping {
-    static func cards(_ attachments: [GChatBridgeCore.Attachment]) -> [AppCard] {
-        attachments.compactMap { $0.hasCardAddOnData ? card($0.cardAddOnData) : nil }
+    static func cards(_ attachments: [GChatBridgeCore.Attachment], group: GroupId? = nil) -> [AppCard] {
+        attachments.compactMap { attachment in
+            guard attachment.hasCardAddOnData else { return nil }
+            var mapped = card(attachment.cardAddOnData)
+            let interaction = CardInteractionMapping.map(attachment, group: group)
+            mapped.actions = interaction.actions.isEmpty ? nil : interaction.actions
+            mapped.interactionFallback = interaction.fallback
+            return mapped
+        }
     }
 
     static func card(_ item: JAddOnsCardItem) -> AppCard {
-        AppCard(
-            header: item.hasHeader ? header(item.header) : nil,
-            sections: item.sections.compactMap(section)
-        )
+        var sections = item.sections.compactMap(section)
+        var footer = item.fixedFooter.buttons.compactMap(linkButton)
+        for value in [item.fixedFooter.primaryButton, item.fixedFooter.secondaryButton] {
+            var button = JAddOnsWidget.Button()
+            button.textButton = value
+            if let mapped = linkButton(button) {
+                footer.append(mapped)
+            }
+        }
+        footer += item.cardActions.compactMap { action in
+            link(action.onClick).map { LinkButton(label: action.actionLabel, url: $0) }
+        }
+        if !footer.isEmpty {
+            sections.append(AppCard.Section(widgets: [.buttons(footer)]))
+        }
+        return AppCard(header: item.hasHeader ? header(item.header) : nil, sections: sections)
     }
 
     /// One wire widget can be two here: its data, then its row of buttons.
@@ -124,7 +136,8 @@ enum CardMapping {
     }
 
     private static func linkButton(_ button: JAddOnsWidget.Button) -> LinkButton? {
-        guard case let .textButton(text)? = button.type, text.hasOnClick, let url = link(text.onClick),
+        guard case let .textButton(text)? = button.type, !text.disabled, text.hasOnClick,
+              let url = link(text.onClick),
               let label = RichTextMapping.text(text.text)?.plainText
         else { return nil }
         return LinkButton(label: label, url: url)

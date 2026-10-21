@@ -8,7 +8,7 @@ public extension ServiceBackend {
             try await sendClientHint(command)
             return
         }
-        let id = if case let .sendMessage(_, _, _, localID?, _, _) = command {
+        let id = if case let .sendMessage(_, _, _, localID?, _, _, _) = command {
             ServiceOperationID("send:\(localID)")
         } else {
             ServiceOperationID(ClientOperationID.make())
@@ -29,7 +29,7 @@ public extension ServiceBackend {
     }
 
     func loadConversations() async throws -> [Conversation] {
-        try await projected { try await call(LoadConversations()) }
+        try await projected { try await call(LoadConversations(maximumAge: 30)) }
     }
 
     func loadMessages(in conversation: Conversation.ID, before: Message.ID?) async throws -> [Message] {

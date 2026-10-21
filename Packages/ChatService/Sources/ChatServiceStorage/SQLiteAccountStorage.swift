@@ -10,7 +10,7 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
     let account: ConnectedAccountID
     let database: DatabaseQueue
     let projection: ChatStore
-    private let retention: Int
+    let retention: Int
     let limits: AccountRetentionLimits
     let retentionClock: @Sendable () -> Date
 
@@ -38,6 +38,9 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
                 throw ServiceFailure.incompatibleVersion
             }
             try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS serviceProviderCheckpoint (
+                id INTEGER PRIMARY KEY CHECK(id = 1), checkpoint BLOB, batchID TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS serviceJournal (
                 sequence INTEGER PRIMARY KEY, event BLOB NOT NULL, live INTEGER NOT NULL
             );
@@ -54,20 +57,24 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
             try Self.initializeMediaCatalog(db)
             try Self.initializeNotificationTables(db)
             // A crash after dispatch is ambiguous. Never automatically dispatch it again.
-            let rows = try Row.fetchAll(db, sql: "SELECT id, value FROM serviceOperation")
-            for row in rows {
-                let previous = try ServiceCodec.decode(ServiceOperation.self, from: row["value"] as Data)
-                if previous.state == "dispatching" {
-                    let value = ServiceOperation(id: previous.id, state: "unknown")
-                    try db.execute(
-                        sql: "UPDATE serviceOperation SET value = ? WHERE id = ?",
-                        arguments: [ServiceCodec.encode(value), previous.id.rawValue]
-                    )
-                }
-            }
+            try Self.recoverDispatchedOperations(db)
         }
         try database.write { db in try pruneRetention(db) }
         try projection.apply([.clearEphemeralState])
+    }
+
+    private static func recoverDispatchedOperations(_ db: Database) throws {
+        let rows = try Row.fetchAll(db, sql: "SELECT id, value FROM serviceOperation")
+        for row in rows {
+            let previous = try ServiceCodec.decode(ServiceOperation.self, from: row["value"] as Data)
+            if previous.state == "dispatching" {
+                let value = ServiceOperation(id: previous.id, state: "unknown")
+                try db.execute(
+                    sql: "UPDATE serviceOperation SET value = ? WHERE id = ?",
+                    arguments: [ServiceCodec.encode(value), previous.id.rawValue]
+                )
+            }
+        }
     }
 
     public func checkpoint() throws -> ServiceCursor {
@@ -115,8 +122,14 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
     }
 
     public func readEvents(after cursor: ServiceCursor?, limit: Int) throws -> ServiceEventPage {
+        try readEvents(after: cursor, limit: limit, includingHistory: [])
+    }
+
+    public func readEvents(
+        after cursor: ServiceCursor?, limit: Int, includingHistory: Set<Conversation.ID>
+    ) throws -> ServiceEventPage {
         let limit = min(256, max(1, limit))
-        return try projection.readSnapshot { db, snapshot in
+        return try projection.readSnapshot(includingHistory: includingHistory) { db, snapshot in
             let end = try checkpoint(db)
             let first = try Int64
                 .fetchOne(db, sql: "SELECT MIN(sequence) FROM serviceJournal") ?? (Int64(end.sequence) + 1)
@@ -158,11 +171,11 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
         }
     }
 
-    private static func sequence(_ db: Database) throws -> Int64 {
+    static func sequence(_ db: Database) throws -> Int64 {
         try Int64.fetchOne(db, sql: "SELECT sequence FROM serviceMetadata WHERE id = 1") ?? 0
     }
 
-    private func checkpoint(_ db: Database) throws -> ServiceCursor {
+    func checkpoint(_ db: Database) throws -> ServiceCursor {
         guard let stream = try String.fetchOne(db, sql: "SELECT stream FROM serviceMetadata WHERE id = 1")
         else {
             throw ServiceFailure.internalFailure

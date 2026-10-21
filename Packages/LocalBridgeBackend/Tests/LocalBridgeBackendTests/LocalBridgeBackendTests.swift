@@ -152,8 +152,8 @@ struct LocalBridgeBackendTests {
             canMention: true, canMentionNonMembers: true, needsMentionBackfill: true,
             canFetchRemoteImages: true, canSearchMessages: true,
             messageSearchFilters: [
-                .from, .conversation, .olderThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
-            ]
+                .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
+            ], extendedFlags: ["formattedMessages", "quotedMessages", "cardActions", "forwardMessages"]
         ))
     }
 

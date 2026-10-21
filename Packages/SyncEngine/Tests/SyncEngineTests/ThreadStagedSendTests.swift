@@ -69,7 +69,7 @@ struct ThreadStagedSendTests {
         await settleAutoMarkRead(until: "the staged file has gone") { model.threadStagedAttachments.isEmpty }
 
         let sent = await Self.sends(harness.backend)
-        guard case let .sendMessage(conversation, threadID, text, _, attachments, _)? = sent.first else {
+        guard case let .sendMessage(conversation, threadID, text, _, attachments, _, _)? = sent.first else {
             Issue.record("expected one sendMessage")
             return
         }
@@ -103,16 +103,14 @@ struct ThreadStagedSendTests {
         model.sendReply(ComposedMessage(text: ""))
         await settleAutoMarkRead(until: "both sent") { model.threadStagedAttachments.isEmpty }
         let shapes = await Self.sends(harness.backend).compactMap { command -> String? in
-            guard case let .sendMessage(_, threadID, text, _, attachments, _) = command else { return nil }
+            guard case let .sendMessage(_, threadID, text, _, attachments, _, _) = command else { return nil }
             return "\(threadID?.rawValue ?? "-")|\(text)|\(attachments.map(\.name).joined())"
         }
         #expect(shapes == ["thread:test||a.png", "thread:test||b.png"])
         await model.stop()
     }
 
-    /// The files stay for Send to try again. The text is not handed back:
-    /// the restore slot is the conversation composer's, and a reply restored
-    /// there would post at the top level (`sendReply`'s rule).
+    /// The failed caption returns only to its original thread.
     @Test func aRefusedUploadKeepsTheFilesAndRestoresNothingInTheConversation() async throws {
         let harness = try await opened()
         let model = harness.model
@@ -126,6 +124,13 @@ struct ThreadStagedSendTests {
         #expect(model.threadStagedAttachments.map(\.state) == [.failed, .ready])
         #expect(await Self.sends(harness.backend).isEmpty)
         #expect(model.failedDraft == nil)
+        #expect(model.failedReplyDraft?.text == "caption")
+        model.closeThread()
+        #expect(model.failedReplyDraft == nil)
+        model.openThread(thread)
+        #expect(model.failedReplyDraft?.text == "caption")
+        model.clearFailedReplyDraft(in: ThreadFixture.conversation, thread: thread)
+        #expect(model.failedReplyDraft == nil)
         await settleAutoMarkRead(until: "the refusal is recorded") { model.lastError != nil }
         await model.stop()
     }
@@ -143,7 +148,8 @@ struct ThreadStagedSendTests {
         model.closeThread()
         await harness.backend.releaseHeldUpload()
         await settleAutoMarkRead(until: "the reply is sent") { await Self.sends(harness.backend).count == 1 }
-        guard case let .sendMessage(_, threadID, text, _, attachments, _)? = await Self.sends(harness.backend)
+        guard case let .sendMessage(_, threadID, text, _, attachments, _, _)? = await Self
+            .sends(harness.backend)
             .first
         else {
             Issue.record("expected one sendMessage")

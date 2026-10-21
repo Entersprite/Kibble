@@ -199,7 +199,7 @@ struct LoadConversationsTests {
     /// from the sidebar across a run with no evidence anything went wrong.
     /// `.backendError(.unknown(...))` carries the **count only** - never the
     /// dropped item's room name or space id.
-    @Test func loadConversationsEmitsABackendErrorCountWhenItemsAreSkipped() async throws {
+    @Test func loadConversationsReportsScopedFailureCountWhenItemsAreSkipped() async throws {
         let droppedName = "Dropped - empty space id"
         let backend = try backend(apiResponse: apiResponse(items: [
             worldItem(spaceID: "s-1", roomName: "Kept"),
@@ -213,12 +213,12 @@ struct LoadConversationsTests {
         var found: ChatError?
         for _ in 0 ..< 20 where found == nil {
             guard let event = await iterator.next() else { break }
-            if case let .backendError(error) = event, case .unknown = error {
-                found = error
+            if case let .resourceSyncChanged(status) = event, status.resource == .directoryDetails {
+                found = status.error
             }
         }
-        guard case let .unknown(message)? = found else {
-            Issue.record("expected a .backendError(.unknown) event reporting the skip count")
+        guard case let .decoding(message)? = found else {
+            Issue.record("expected scoped directory coverage failure reporting the skip count")
             return
         }
         #expect(message.contains("1"))

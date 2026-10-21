@@ -9,6 +9,7 @@ struct AppCardView: View {
     static let maxWidth: CGFloat = 420
     let card: AppCard
     let load: ((URL) async throws -> Data)?
+    var perform: (@MainActor (AppCardAction) async throws -> AppCardActionResult)?
 
     var body: some View {
         if card.isEmpty {
@@ -28,6 +29,10 @@ struct AppCardView: View {
                         Divider()
                     }
                     CardSectionView(section: section, load: load).padding(12)
+                }
+                if card.actions?.isEmpty == false || card.interactionFallback != nil {
+                    Divider()
+                    AppCardControls(card: card, perform: perform).id(card).padding(12)
                 }
             }
             .frame(maxWidth: Self.maxWidth, alignment: .leading)

@@ -51,7 +51,9 @@ extension AccountRuntime {
             return try dispatchClientAttachment(request, context: context)
         case ReadEvents.operation:
             let payload = try request.decodePayload(ReadEvents.self)
-            return try ServiceCodec.value(storage.readEvents(after: payload.cursor, limit: payload.limit))
+            return try ServiceCodec.value(storage.readEvents(
+                after: payload.cursor, limit: payload.limit, includingHistory: snapshotHistory(for: context)
+            ))
         case GetProjectionCheckpoint.operation:
             _ = try request.decodePayload(GetProjectionCheckpoint.self)
             return try ServiceCodec.value(storage.checkpoint())

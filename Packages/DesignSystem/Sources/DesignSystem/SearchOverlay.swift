@@ -294,7 +294,7 @@ public struct SearchOverlay: View {
         )
         if search.failed {
             note("Couldn't search right now.")
-        } else if !search.isSearching, search.hits.isEmpty {
+        } else if !search.isSearching, search.hits.isEmpty, !search.hasMore {
             note("No messages match. Try another word or remove a filter.")
         }
         let titles = conversationTitles
@@ -321,9 +321,15 @@ public struct SearchOverlay: View {
             .padding(.vertical, 8)
         case .trigger?:
             // A new trigger per page, so the next one appears at the new end.
-            Color.clear.frame(height: 1)
-                .id("more-\(search.hits.count)")
-                .onAppear { actions.loadMore() }
+            if search.hits.isEmpty {
+                Button("Search more messages", action: actions.loadMore)
+                    .buttonStyle(.link)
+                    .frame(maxWidth: .infinity)
+            } else {
+                Color.clear.frame(height: 1)
+                    .id("more-\(search.hits.count)")
+                    .onAppear { actions.loadMore() }
+            }
         case nil:
             EmptyView()
         }

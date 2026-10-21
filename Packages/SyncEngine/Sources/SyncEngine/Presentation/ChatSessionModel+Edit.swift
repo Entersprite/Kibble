@@ -25,11 +25,13 @@ public extension ChatSessionModel {
               let original = try? store.message(id),
               !original.isDeleted,
               !message.text.isEmpty,
-              message.text != original.text || message.mentions != original.mentions
+              message.text != original.text || message.mentions != original.mentions || message
+              .content != original.content
         else { return }
         var edited = original
         edited.text = message.text
         edited.mentions = message.mentions
+        edited.content = message.content
         // Spans into the old text would land on whatever the new text holds
         // there; the server's version brings the real ones (review finding 1).
         edited.links = original.links.filter { $0.start == nil }
@@ -38,11 +40,12 @@ public extension ChatSessionModel {
         submitEdit(
             .editMessage(
                 id: id, text: message.text, conversationID: original.conversationID,
-                threadID: original.threadID, mentions: message.mentions
+                threadID: original.threadID, mentions: message.mentions, content: message.content
             ),
             restoring: original
         ) { current in
             !current.isDeleted && current.text == edited.text && current.mentions == edited.mentions
+                && current.content == edited.content
         }
     }
 

@@ -6,6 +6,7 @@ extension AccountRuntime {
     func invalidateCallFacts(for event: ChatEvent) {
         switch event {
         case let .conversationsChanged(conversations): invalidateCallWorld(conversations)
+        case let .conversationClassified(row): invalidateCallMembership(row.id)
         case let .conversationUpdated(conversation):
             let previous = try? storage.conversation(conversation.id)
             if previous?.kind != conversation.kind ||

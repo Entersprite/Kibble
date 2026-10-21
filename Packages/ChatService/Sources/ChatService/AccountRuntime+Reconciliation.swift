@@ -8,17 +8,20 @@ extension AccountRuntime {
         switch event {
         case let .conversationsChanged(rows):
             worldVersion = UUID()
+            reads.directoryCompletedAt = nil
             historyWorldVersion = UUID()
             let current = Set(rows.map(\.id))
             historyVersions = historyVersions.filter { current.contains($0.key) }
         case let .conversationUpdated(row): invalidate(row.id)
-        case let .conversationRemoved(id, _), let .conversationUnreadMarkChanged(id, _),
-             let .readStateChanged(id, _, _), let .unreadThreadsChanged(id, _),
-             let .meetingMetadataChanged(id, _): invalidate(id)
-        case let .messageReceived(message), let .messageUpdated(message): invalidate(message.conversationID)
-        case let .messageDeleted(_, id): invalidate(id)
-        case .gap(scope: .everything, reason: _):
+        case let .conversationRemoved(id, _):
             worldVersion = UUID()
+            reads.directoryCompletedAt = nil
+            invalidate(id)
+        case let .messageUpdated(message): invalidate(message.conversationID)
+        case let .messageDeleted(_, id): invalidate(id)
+        case .historyInvalidated, .gap(scope: .everything, reason: _):
+            worldVersion = UUID()
+            reads.directoryCompletedAt = nil
             historyWorldVersion = UUID()
         case let .gap(scope: .conversation(id), reason: _): invalidate(id)
         case let .reactionChanged(id, _):
@@ -31,76 +34,84 @@ extension AccountRuntime {
     }
 
     private func invalidate(_ id: Conversation.ID) {
-        worldVersion = UUID()
         historyVersions[id] = UUID()
     }
 
-    func fetchWorld(backend: any ChatBackend, epoch: UUID) async throws -> [Conversation] {
-        for _ in 0 ..< 3 {
-            try checkEpoch(epoch)
-            let version = worldVersion
-            let rows = try await withProviderWork(epoch: epoch) { try await backend.loadConversations() }
-            try checkEpoch(epoch)
-            guard version == worldVersion else { continue }
-            let event = ChatEvent.conversationsChanged(rows)
-            try await commitQuery(event)
-            invalidateQueries(for: event)
-            requestBackfill()
-            return rows
+    func reconcileWorld(backend: any ChatBackend, epoch: UUID) async throws -> [Conversation] {
+        try checkEpoch(epoch)
+        let version = worldVersion
+        let baseline = try storage.conversations()
+        let snapshot = try await withProviderWork(epoch: epoch) {
+            try await backend.loadConversationSnapshot()
         }
-        throw ServiceFailure.overloaded
+        try checkEpoch(epoch)
+        guard version == worldVersion else {
+            if checkpointedBackend != nil,
+               reads.directoryCompletedAt != nil {
+                return try storage.conversations()
+            }
+            return try await fetchWorld(backend: backend, epoch: epoch)
+        }
+        let rows = try snapshot.merging(current: storage.conversations(), baseline: baseline)
+        let event = ChatEvent.conversationsChanged(rows)
+        if try Set(rows) != Set(storage.conversations()) {
+            try await commitQuery(event)
+        }
+        try recordResourceSync(.init(resource: .directory, phase: .ready))
+        requestBackfill()
+        return try storage.conversations()
     }
 
-    func fetchMessages(
+    func reconcileMessages(
         in conversation: Conversation.ID, before: Message.ID?, thread: MessageThread.ID? = nil,
         backend: any ChatBackend, epoch: UUID
     ) async throws -> MessagePage {
-        for _ in 0 ..< 3 {
-            try checkEpoch(epoch)
-            let version = historyVersions[conversation]
-            let world = historyWorldVersion
-            let snapshot: ThreadMessagesSnapshot = try await withProviderWork(epoch: epoch) {
-                if let thread {
-                    return try await backend.loadThreadSnapshot(thread, in: conversation)
-                }
-                return try await ThreadMessagesSnapshot(
-                    messages: backend.loadMessages(in: conversation, before: before), isComplete: false
-                )
+        try checkEpoch(epoch)
+        let version = historyVersions[conversation]
+        let world = historyWorldVersion
+        let snapshot: ThreadMessagesSnapshot = try await withProviderWork(epoch: epoch) {
+            if let thread {
+                return try await backend.loadThreadSnapshot(thread, in: conversation)
             }
-            try checkEpoch(epoch)
-            guard world == historyWorldVersion, version == historyVersions[conversation] else { continue }
-            let update = try MessageHistoryUpdate(
-                messages: snapshot.messages, conversationID: conversation, threadID: thread,
-                isComplete: snapshot.isComplete
-            )
-            let cursor = try await commitQuery(.historyLoaded(update))
-            historyVersions[conversation] = UUID()
-            return MessagePage(
-                messages: snapshot.messages, nextCursor: nil, isComplete: snapshot.isComplete,
-                checkpoint: cursor
+            return try await ThreadMessagesSnapshot(
+                messages: backend.loadMessages(in: conversation, before: before), isComplete: false
             )
         }
-        throw ServiceFailure.overloaded
+        try checkEpoch(epoch)
+        guard world == historyWorldVersion, version == historyVersions[conversation] else {
+            return try await fetchMessages(
+                in: conversation, before: before, thread: thread, backend: backend, epoch: epoch
+            )
+        }
+        let update = try MessageHistoryUpdate(
+            messages: snapshot.messages, conversationID: conversation, threadID: thread,
+            isComplete: snapshot.isComplete
+        )
+        let cursor = try await commitQuery(.historyLoaded(update))
+        historyVersions[conversation] = UUID()
+        try recordResourceSync(.init(resource: .history, conversationID: conversation, phase: .ready))
+        return MessagePage(
+            messages: snapshot.messages, nextCursor: nil, isComplete: snapshot.isComplete,
+            checkpoint: cursor
+        )
     }
 
-    func fetchFollowedThreads(backend: any ChatBackend, epoch: UUID) async throws -> [Message] {
-        for _ in 0 ..< 3 {
-            try checkEpoch(epoch)
-            let world = historyWorldVersion
-            let versions = historyVersions
-            let rows = try await withProviderWork(epoch: epoch) { try await backend.loadFollowedThreads() }
-            try checkEpoch(epoch)
-            guard world == historyWorldVersion, rows.allSatisfy({
-                versions[$0.conversationID] == historyVersions[$0.conversationID]
-            }) else { continue }
-            let update = try MessageHistoryUpdate(messages: rows, conversationID: nil, keepsReactions: true)
-            try await commitQuery(.historyLoaded(update))
-            for row in rows {
-                historyVersions[row.conversationID] = UUID()
-            }
-            return rows
+    func reconcileFollowedThreads(backend: any ChatBackend, epoch: UUID) async throws -> [Message] {
+        try checkEpoch(epoch)
+        let world = historyWorldVersion
+        let versions = historyVersions
+        let rows = try await withProviderWork(epoch: epoch) { try await backend.loadFollowedThreads() }
+        try checkEpoch(epoch)
+        guard world == historyWorldVersion, rows.allSatisfy({
+            versions[$0.conversationID] == historyVersions[$0.conversationID]
+        }) else { return try await fetchFollowedThreads(backend: backend, epoch: epoch) }
+        let update = try MessageHistoryUpdate(messages: rows, conversationID: nil, keepsReactions: true)
+        try await commitQuery(.historyLoaded(update))
+        for row in rows {
+            historyVersions[row.conversationID] = UUID()
         }
-        throw ServiceFailure.overloaded
+        try recordResourceSync(.init(resource: .followedThreads, phase: .ready))
+        return rows
     }
 
     @discardableResult

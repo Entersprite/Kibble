@@ -59,6 +59,20 @@ public extension ChatStore {
         }
     }
 
+    /// Validates an owner's expected checkpoint before changing its projection.
+    func apply<Value>(
+        _ writes: [StoreWrite], when shouldApply: @Sendable (Database) throws -> Bool,
+        committing commit: @Sendable (Database, Bool) throws -> Value
+    ) throws -> Value {
+        try database.write { db in
+            let accepted = try shouldApply(db)
+            if accepted {
+                try Self.apply(writes, in: db)
+            }
+            return try commit(db, accepted)
+        }
+    }
+
     internal static func apply(_ writes: [StoreWrite], in db: Database) throws {
         for write in writes {
             try perform(write, in: db)
@@ -87,7 +101,8 @@ public extension ChatStore {
             try performActivityWrite(write, in: db)
         case .removeConversation, .setConversationUnreadMark:
             try performConversationActionWrite(write, in: db)
-        case .replaceConversations, .upsertConversation, .restoreConversation, .upsertMembers, .setMembership:
+        case .classifyConversation, .replaceConversations, .upsertConversation, .restoreConversation,
+             .upsertMembers, .setMembership:
             try performConversationWrite(write, in: db)
         case .setPresence, .setStatus, .setCalendar:
             try performMemberWrite(write, in: db)
@@ -100,7 +115,8 @@ public extension ChatStore {
              .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries,
              .invalidateReplicaHistory:
             try performMessageWrite(write, in: db)
-        case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
+        case .setResourceSyncStatus, .setTyping, .setConnectionState, .setLastError, .setLocalMember,
+             .setMentionBackfill,
              .setAvailability, .clearEphemeralState:
             try performSessionWrite(write, in: db)
         }
@@ -135,8 +151,22 @@ public extension ChatStore {
         }
     }
 
+    private static func classifyConversation(_ row: Conversation, in db: Database) throws {
+        if try ConversationRow.exists(db, key: row.id.rawValue) {
+            let kind = try Wire.string(row.kind)
+            try db.execute(
+                sql: "UPDATE conversation SET kind = ? WHERE id = ? AND kind <> ?",
+                arguments: [kind, row.id.rawValue, kind]
+            )
+        } else {
+            try upsert(row, in: db)
+        }
+    }
+
     private static func performConversationWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case let .classifyConversation(row):
+            try classifyConversation(row, in: db)
         case let .replaceConversations(conversations):
             let keep = conversations.map(\.id.rawValue)
             // Membership goes with them, by cascade. Messages deliberately do
@@ -261,9 +291,12 @@ public extension ChatStore {
                 sql: "UPDATE syncState SET availability = ? WHERE id = 1",
                 arguments: [Wire.json(availability)]
             )
+        case let .setResourceSyncStatus(status):
+            try setResourceSyncStatus(status, in: db)
         case let .setMentionBackfill(status):
             try setMentionBackfill(status, in: db)
         case .clearEphemeralState:
+            try db.execute(sql: "DELETE FROM resourceSync")
             try db.execute(sql: "DELETE FROM activityTyping")
             try db.execute(sql: "DELETE FROM receiptAvailability")
             try db.execute(sql: "DELETE FROM readReceipt")

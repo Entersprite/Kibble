@@ -43,6 +43,7 @@ public extension SyncEngine {
             return await submitConversationAction(action, in: id) == nil
         }
         do {
+            try command.validateMessageContent(capabilities: backend.capabilities)
             try await backend.send(command)
             try Task.checkCancellation()
             guard generation == managementGeneration else { return false }

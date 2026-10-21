@@ -46,7 +46,15 @@ struct QueryGapTests {
             // The repair started, but cannot commit and accidentally hide the stale query.
             try await authEventually { await harness.backend.historyReads == 2 }
             await harness.backend.releaseHistoryQuery(1)
-            try await authEventually { await harness.backend.historyReads == 3 }
+            let runtime = try #require(await harness.service.runtimes[harness.record.id])
+            try await authEventually {
+                let jobs = await runtime.reads.histories.values
+                for job in jobs where await job.waitingCount == 2 {
+                    return true
+                }
+                return false
+            }
+            #expect(await harness.backend.historyReads == 2)
             #expect(try harness.history().isEmpty)
             await harness.backend.releaseAllHistoryQueries()
             let result = try await query.value

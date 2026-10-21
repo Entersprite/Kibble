@@ -13,6 +13,10 @@ import SwiftUI
 public struct Composer: View {
     let activity: ((Bool) -> Void)?
     let placeholder: String
+    let allowsFormatting: Bool
+    let quoteRequest: ComposerQuoteRequest?
+    let onQuoteAdopted: (() -> Void)?
+    let quoteDirectory: [Member.ID: Member]
     let send: (ComposedMessage) -> Void
     let preserveDraft: ((ComposerDraft) -> Void)?
 
@@ -36,18 +40,18 @@ public struct Composer: View {
     let emoji: ReactionActions?
 
     @State var draft = ComposerDraft()
-    @FocusState private var isFocused: Bool
+    @FocusState var isFocused: Bool
     /// Bumped to put the caret in the macOS field (`ComposerTextView`).
-    @State private var focusRequest = 0
+    @State var focusRequest = 0
     @State private var highlighted = 0
     /// The `@` whose list Esc closed, so it stays closed until a new `@`.
     @State private var dismissedAt: Int?
     @State private var anchorX: CGFloat = 0
-    @State private var sendGate = ComposerSendGate()
-    @State private var pendingInvite: PendingInvite?
+    @State var sendGate = ComposerSendGate()
+    @State var pendingInvite: PendingInvite?
     /// The message whose membership check is out, so a composer torn down
     /// meanwhile can hand it back.
-    @State private var checking: ComposedMessage?
+    @State var checking: ComposedMessage?
     /// The picked emoji, for the macOS field to put in (`ComposerTextView`).
     @State var insertion: ComposerInsertion?
     /// Bumped by the waveform (`ComposerTextView`).
@@ -65,8 +69,16 @@ public struct Composer: View {
         emoji: ReactionActions? = nil,
         initialDraft: ComposerDraft = ComposerDraft(),
         preserveDraft: ((ComposerDraft) -> Void)? = nil,
+        allowsFormatting: Bool = false,
+        quoteRequest: ComposerQuoteRequest? = nil,
+        onQuoteAdopted: (() -> Void)? = nil,
+        quoteDirectory: [Member.ID: Member] = [:],
         send: @escaping (ComposedMessage) -> Void
     ) {
+        self.allowsFormatting = allowsFormatting
+        self.quoteRequest = quoteRequest
+        self.onQuoteAdopted = onQuoteAdopted
+        self.quoteDirectory = quoteDirectory
         self.activity = activity
         self.placeholder = placeholder
         self.restoring = restoring
@@ -95,6 +107,19 @@ public struct Composer: View {
                     )
                 }
                 box
+                if allowsFormatting {
+                    ComposerFormattingButton { marker in
+                        #if os(macOS)
+                            insertion = ComposerInsertion(text: "", surround: marker)
+                        #else
+                            draft.replace(
+                                location: draft.caret,
+                                length: 0,
+                                with: marker == "- " ? marker : marker + marker
+                            )
+                        #endif
+                    }
+                }
                 if let emoji {
                     ComposerEmojiButton(reactions: emoji, pick: insert)
                 }
@@ -170,8 +195,14 @@ public struct Composer: View {
         .onChange(of: editing?.request, initial: true) { _, request in
             begin(request)
         }
+        .onChange(of: quoteRequest?.id, initial: true) { _, _ in
+            guard let quoteRequest, draft.editing == nil else { return }
+            draft.setQuote(quoteRequest.quote)
+            focusRequest += 1
+            onQuoteAdopted?()
+        }
         .onChange(of: restoring, initial: true) { _, text in
-            guard draft.adopt(text) else { return }
+            guard draft.adopt(text, formatting: allowsFormatting) else { return }
             isFocused = true
             focusRequest += 1
             onRestored?()
@@ -187,6 +218,9 @@ public struct Composer: View {
                 ComposerEditBar(canSave: canAct, save: submit, cancel: cancelEdit)
             } else if !attachments.isEmpty {
                 ComposerAttachmentStrip(attachments: attachments) { attachmentActions?.remove($0) }
+            }
+            if let quote = draft.quote, draft.editing == nil {
+                MessageQuotePreview(quote: quote, directory: quoteDirectory, cancel: { draft.setQuote(nil) })
             }
             field
         }
@@ -308,7 +342,11 @@ public struct Composer: View {
                 if let newest = editing?.newest {
                     begin(ComposerEditRequest(
                         messageID: newest.id,
-                        message: ComposedMessage(text: newest.text, mentions: newest.mentions)
+                        message: ComposedMessage(
+                            text: newest.text,
+                            mentions: newest.mentions,
+                            content: newest.content
+                        )
                     ))
                 }
             case .cancelEdit: cancelEdit()
@@ -325,70 +363,5 @@ public struct Composer: View {
         if suggestion.outsideConversation, case let .user(id) = suggestion.target {
             mentions?.outsidePicked?(id)
         }
-    }
-
-    /// Text, or a staged file that is not already on its way.
-    private var canSubmit: Bool {
-        !trimmed.isEmpty || attachments.contains { !$0.isUploading }
-    }
-
-    /// Clears optimistically. The message comes back through the event stream
-    /// and lands in the store; the field emptying immediately is what makes the
-    /// app feel like it did something.
-    /// Without a way to ask who is outside, sends at once. With one, asks;
-    /// anyone outside brings up the confirmation (mention non-members spec
-    /// §2). One Return at a time, and the draft cleared only if it still says
-    /// what was sent (review focus 3 and 4).
-    private func submit() {
-        switch ComposerEditKeys.submitAction(draft: draft, canSend: canSubmit) {
-        case .nothing:
-            return
-        case .save:
-            if let ended = draft.endEditing() {
-                editing?.save(ended.messageID, ended.message)
-                editing?.ended()
-            }
-            return
-        case .send:
-            break
-        }
-        let message = draft.composed()
-        guard let ask = mentions?.nonMembers else {
-            draft.clear()
-            send(message)
-            return
-        }
-        guard sendGate.begin() else { return }
-        checking = message
-        Task { @MainActor in
-            defer {
-                sendGate.end()
-                checking = nil
-            }
-            let outside = await ask(message)
-            if outside.isEmpty {
-                finish(message)
-            } else {
-                pendingInvite = PendingInvite(message: message, people: outside)
-            }
-        }
-    }
-
-    /// Return does something: sends, or saves an edit.
-    private var canAct: Bool {
-        ComposerEditKeys.submitAction(draft: draft, canSend: canSubmit) != .nothing
-    }
-
-    private func begin(_ request: ComposerEditRequest?) {
-        guard let request, let editing else { return }
-        draft.beginEditing(request.messageID, with: request.message)
-        editing.began(request.messageID)
-        isFocused = true
-        focusRequest += 1
-    }
-
-    private func cancelEdit() {
-        guard draft.endEditing() != nil else { return }
-        editing?.ended()
     }
 }

@@ -31,12 +31,16 @@ public final class ServiceAudioCallService: AudioCallService {
             while !Task.isCancelled {
                 guard let self, generation == epoch else { return }
                 do {
-                    let next = try await read(after: projection.version, wait: 20000)
+                    let next = try await read(
+                        after: projection.version, wait: projection.isConnectionUnavailable ? 0 : 20000
+                    )
                     try check(epoch)
                     try receive(next)
                 } catch {
                     guard !Task.isCancelled, generation == epoch else { return }
-                    sink.yield(.listenerChanged(isListening: false))
+                    for event in projection.connectionFailed() {
+                        sink.yield(event)
+                    }
                     do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 }
             }

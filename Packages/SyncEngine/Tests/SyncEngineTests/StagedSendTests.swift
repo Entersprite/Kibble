@@ -58,7 +58,7 @@ struct StagedSendTests {
 
         #expect(await backend.uploads.map(\.id) == ["a"])
         let sent = await Self.sends(backend)
-        guard case let .sendMessage(sentTo, _, text, _, attachments, _)? = sent.first else {
+        guard case let .sendMessage(sentTo, _, text, _, attachments, _, _)? = sent.first else {
             Issue.record("expected one sendMessage")
             return
         }
@@ -84,7 +84,7 @@ struct StagedSendTests {
 
         let sent = await Self.sends(backend)
         let shapes = sent.compactMap { command -> String? in
-            guard case let .sendMessage(_, _, text, _, attachments, _) = command else { return nil }
+            guard case let .sendMessage(_, _, text, _, attachments, _, _) = command else { return nil }
             return "\(text)|\(attachments.map(\.name).joined())"
         }
         #expect(shapes == ["hello|a.png", "|b.png"])

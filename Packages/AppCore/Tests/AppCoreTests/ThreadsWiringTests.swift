@@ -159,7 +159,7 @@ struct ThreadsWiringTests {
         environment.actions.threads?.sendReply(ComposedMessage(text: "on it"))
         #expect(await eventually {
             services.backend.sent.contains { command in
-                guard case let .sendMessage(conversation, thread, text, _, _, _) = command
+                guard case let .sendMessage(conversation, thread, text, _, _, _, _) = command
                 else { return false }
                 return conversation == space.id && thread == topic && text == "on it"
             }

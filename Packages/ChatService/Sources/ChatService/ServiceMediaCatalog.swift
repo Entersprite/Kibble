@@ -17,7 +17,8 @@ public enum ProviderMediaSource: Hashable, Sendable {
     }
 
     public static func collect(
-        attachments: [Attachment], reactions: [Reaction], links: [MessageLink], cards: [AppCard]
+        attachments: [Attachment], reactions: [Reaction], links: [MessageLink], cards: [AppCard],
+        forwarded: ForwardedMessage? = nil
     ) -> [ProviderMediaSource] {
         var values = attachments.filter { !$0.id.isEmpty }.map(Self.attachment)
         values += reactions.compactMap(\.customEmoji)
@@ -36,6 +37,13 @@ public enum ProviderMediaSource: Hashable, Sendable {
                 default: break
                 }
             }
+        }
+        if let forwarded, !forwarded.source.isDeleted {
+            values += forwarded.attachments.filter { !$0.id.isEmpty }.map(Self.attachment)
+            urls += forwarded.links.compactMap { $0.preview?.imageURL }
+        }
+        if let url = forwarded?.senderAvatarURL {
+            urls.append(url)
         }
         values += urls.filter { $0.scheme?.lowercased() == "https" }.map { .remoteImage($0.absoluteURL) }
         return values

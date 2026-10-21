@@ -5,7 +5,7 @@ import Foundation
 public extension SyncEngine {
     func reloadConversationDirectory() async throws {
         let version = managementScope
-        let conversations = try await backend.loadConversations()
+        let conversations = try await readConversationDirectory()
         try checkManagementScope(version)
         try applyConversationSnapshot(conversations)
         worldLoaded()

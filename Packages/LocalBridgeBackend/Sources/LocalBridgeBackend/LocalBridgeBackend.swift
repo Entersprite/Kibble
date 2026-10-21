@@ -17,6 +17,9 @@ public actor LocalBridgeBackend: ChatBackend {
     // file to `file_length`.
 
     public nonisolated let events: AsyncStream<ChatEvent>
+    public nonisolated let providerEventBatches: AsyncStream<ProviderEventBatch>
+    let providerBatchContinuation: AsyncStream<ProviderEventBatch>.Continuation
+    var delivery = ProviderDeliveryState()
 
     /// The last failure, for a host that wants to report more than the stream
     /// carries. The event stream remains the supported channel.
@@ -77,6 +80,8 @@ public actor LocalBridgeBackend: ChatBackend {
     /// racing it to emit `membersChanged` for a world that has moved on.
     /// Not `private`: the presence poll waits for it (`startPresencePoll`).
     var memberResolution: Task<Void, Never>?
+    var resourceFailures: [ResourceSyncStatus.Resource: ResourceSyncStatus] = [:]
+    var pendingDirectoryProfiles: [Conversation.ID: Conversation] = [:]
     var meetingMetadata = MeetingMetadataHydration()
     var meetingMetadataCacheFile: MeetingMetadataCacheFile?
     var meetingMetadataNow: @Sendable () -> Date = { Date() }
@@ -85,6 +90,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// asking about now, so a sender who appears on every page is looked up
     /// once. Not `private`: `LocalBridgeBackend+Directory.swift` owns the
     /// lookups. Cleared by `disconnect()`.
+    var appMemberIDs: Set<ChatKit.Member.ID> = []
     var requestedMemberIDs: Set<ChatKit.Member.ID> = []
     /// Who manages this account, from its own `User` the first time
     /// `get_members` returns it (`LocalBridgeBackend+Organization.swift`).
@@ -218,6 +224,8 @@ public actor LocalBridgeBackend: ChatBackend {
             of: ChatEvent.self,
             bufferingPolicy: .unbounded
         )
+        (providerEventBatches, providerBatchContinuation) = AsyncStream
+            .makeStream(bufferingPolicy: .bufferingOldest(1))
     }
 
     /// Verifies the session, and stops there.
@@ -290,7 +298,13 @@ public actor LocalBridgeBackend: ChatBackend {
     }
 
     public func disconnect() async {
-        guard isConnected else { return }
+        let providerJobs = stopProviderBatches()
+        guard isConnected else {
+            for job in providerJobs {
+                await job.value
+            }
+            return
+        }
         isConnected = false
         bootstrapWiz = nil
         apiClient = nil
@@ -311,6 +325,9 @@ public actor LocalBridgeBackend: ChatBackend {
         selfIdentification = nil
         stopPolls()
         await stopChannel()
+        for job in providerJobs {
+            await job.value
+        }
         emit(.connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
 
@@ -356,28 +373,5 @@ public actor LocalBridgeBackend: ChatBackend {
         await channel?.stop()
         channel = nil
         task?.cancel()
-    }
-
-    /// One delivered array, translated and emitted.
-    ///
-    /// `ChannelEventMapping` returns one domain event per body and never drops
-    /// one, so a type this bridge does not understand still reaches the store as
-    /// `.unknown` rather than disappearing between two layers that each assumed
-    /// the other handled it.
-    private func deliver(_ array: ChannelArray) {
-        guard let event = ChannelEvent(array) else { return }
-        recordInTally(event)
-        for body in event.bodies {
-            if let reacted = ChannelEventMapping.reactedMessage(in: body) {
-                requestReactionRefetch(reacted)
-            }
-        }
-        let chatEvents = ChannelEventMapping.chatEvents(from: event)
-        messageTimes.remember(chatEvents.flatMap(Self.messages(in:)))
-        for (body, chatEvent) in zip(event.bodies, chatEvents) {
-            reconcileHiddenConversation(chatEvent, type: body.typeTag)
-            emit(chatEvent)
-        }
-        resolveUnknownMembers(chatEvents.flatMap(Self.memberIDs(in:)))
     }
 }

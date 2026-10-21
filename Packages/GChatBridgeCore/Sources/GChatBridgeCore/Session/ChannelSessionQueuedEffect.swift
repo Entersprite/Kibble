@@ -22,4 +22,23 @@ struct QueuedEffect: Sendable {
     /// Only meaningful for `.reconnect`/`.awaitNetwork` - every other effect
     /// shape ignores it.
     let failure: ChannelFailure?
+
+    init(effect: ChannelEffect, failure: ChannelFailure?) {
+        self.effect = effect
+        if case let .reconnect(_, cause) = effect {
+            self.failure = failure ?? cause
+        } else {
+            self.failure = failure
+        }
+    }
+}
+
+extension ChannelInput {
+    var reconnectFailure: ChannelFailure? {
+        switch self {
+        case let .failed(reason): reason
+        case let .streamOpened(status, _) where status != 200: .unexpectedStatus(status)
+        default: nil
+        }
+    }
 }

@@ -10,9 +10,11 @@ import Foundation
 public struct ComposedMessage: Hashable, Sendable {
     public var text: String
     public var mentions: [Mention]
+    public var content: MessageContent?
 
-    public init(text: String, mentions: [Mention] = []) {
+    public init(text: String, mentions: [Mention] = [], content: MessageContent? = nil) {
         self.text = text
         self.mentions = mentions
+        self.content = content?.isEmpty == true ? nil : content
     }
 }

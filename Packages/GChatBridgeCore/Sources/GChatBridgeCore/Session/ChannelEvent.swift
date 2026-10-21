@@ -55,9 +55,11 @@ public struct ChannelEventBody: Sendable, Hashable {
 /// would have called a quarter of the traffic untagged.
 public struct ChannelEvent: Sendable, Hashable {
     public let bodies: [ChannelEventBody]
+    public let revision: ChannelEventRevision?
 
-    public init(bodies: [ChannelEventBody]) {
+    public init(bodies: [ChannelEventBody], revision: ChannelEventRevision? = nil) {
         self.bodies = bodies
+        self.revision = revision
     }
 
     /// Reads the event out of a delivered array, or `nil` when it carries none
@@ -73,12 +75,17 @@ public struct ChannelEvent: Sendable, Hashable {
             let event = wrapper.first?.arrayValue
         else { return nil }
 
-        // Index 7. An event with fewer entries is one whose later fields were
-        // all unset, which is ordinary rather than malformed.
-        let bodies = event.count > 7 ? event[7].arrayValue ?? [] : []
-        self.bodies = bodies.map {
+        let value = PBLiteValue.array(event)
+        var bodies: [ChannelEventBody] = []
+        if let primary = Self.field(4, in: value) {
+            bodies.append(ChannelEventBody(
+                typeTag: Self.typeTag(of: primary) ?? Self.field(3, in: value)?.intValue, value: primary
+            ))
+        }
+        bodies += (Self.field(8, in: value)?.arrayValue ?? []).map {
             ChannelEventBody(typeTag: Self.typeTag(of: $0), value: $0)
         }
+        self.init(bodies: bodies, revision: Self.revision(in: value))
     }
 
     /// Field 12, in whichever of the two encodings the body used.

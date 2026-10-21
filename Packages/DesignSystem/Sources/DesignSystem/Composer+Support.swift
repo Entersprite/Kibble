@@ -30,4 +30,5 @@ struct ComposerFieldAnchor: PreferenceKey {
 struct ComposerInsertion: Equatable {
     let id = UUID()
     let text: String
+    var surround: String?
 }

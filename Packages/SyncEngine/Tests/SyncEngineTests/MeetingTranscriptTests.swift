@@ -85,7 +85,7 @@ struct MeetingTranscriptTests {
         model.send(ComposedMessage(text: "For today’s meeting"))
         for _ in 0 ..< 10000 {
             if await backend.commands.contains(where: {
-                if case let .sendMessage(id, _, _, _, _, _) = $0 {
+                if case let .sendMessage(id, _, _, _, _, _, _) = $0 {
                     return id == latest
                 }
                 return false
@@ -95,7 +95,7 @@ struct MeetingTranscriptTests {
             await Task.yield()
         }
         #expect(await backend.commands.contains {
-            if case let .sendMessage(id, _, _, _, _, _) = $0 {
+            if case let .sendMessage(id, _, _, _, _, _, _) = $0 {
                 return id == latest
             }
             return false

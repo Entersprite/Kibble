@@ -21,8 +21,8 @@ enum OwnMessageRule {
     }
 
     static func canEdit(_ message: Message, me: Member.ID?) -> Bool {
-        canDelete(message, me: me) && message.callStatus == nil &&
-            !message.text.isEmpty && message.attachments.isEmpty
+        canDelete(message, me: me) && message.callStatus == nil && message.content?.forwarded == nil &&
+            !message.text.isEmpty && message.attachments.isEmpty && MessageMarkup.canEdit(message.content)
     }
 
     /// What Up arrow edits: the last editable message, in transcript order.

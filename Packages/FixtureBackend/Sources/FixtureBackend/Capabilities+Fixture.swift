@@ -40,6 +40,6 @@ public extension Capabilities {
         canSearchMessages: true,
         messageSearchFilters: [
             .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
-        ]
+        ], extendedFlags: ["formattedMessages", "quotedMessages", "cardActions", "forwardMessages"]
     )
 }

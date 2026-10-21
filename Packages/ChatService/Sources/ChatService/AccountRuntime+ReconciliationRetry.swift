@@ -1,10 +1,14 @@
 import ChatAPI
+import ChatKit
 import Foundation
 
 extension AccountRuntime {
     /// Admission pressure and invalidated query snapshots can settle during
     /// startup. Retry bounded read-only work before reporting refresh failure.
-    func reconcileBackground(_ operation: () async throws -> Void) async {
+    func reconcileBackground(
+        resource: ResourceSyncStatus.Resource = .directory, conversation: Conversation.ID? = nil,
+        _ operation: () async throws -> Void
+    ) async {
         for attempt in 0 ..< 3 {
             guard !Task.isCancelled, !stopped, !quarantinedForSubscription else { return }
             do {
@@ -18,7 +22,7 @@ extension AccountRuntime {
                         return
                     }
                 } else {
-                    await reconciliationFailed(error)
+                    await reconciliationFailed(error, resource: resource, conversation: conversation)
                     return
                 }
             }

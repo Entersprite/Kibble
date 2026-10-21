@@ -9,9 +9,25 @@ private actor OpenChannelTransport: HTTPTransport {
 
     private(set) var sent: [HTTPRequest] = []
     private var opened = false
+    private let holdsInitialPing: Bool
+    private var pingWaiter: CheckedContinuation<Void, Never>?
+    private(set) var initialPingWaiting = false
+
+    init(holdsInitialPing: Bool = false) {
+        self.holdsInitialPing = holdsInitialPing
+    }
+
+    func releaseInitialPing() {
+        pingWaiter?.resume()
+        pingWaiter = nil
+    }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         sent.append(request)
+        if holdsInitialPing, request.traceLabel == "ping", !initialPingWaiting {
+            initialPingWaiting = true
+            await withCheckedContinuation { pingWaiter = $0 }
+        }
         return HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data())
     }
 
@@ -68,6 +84,26 @@ struct ChannelActivityPingTests {
         #expect(await transport.sent.isEmpty)
     }
 
+    @Test func activityWaitsForTheInitialPingToFinish() async throws {
+        let transport = OpenChannelTransport(holdsInitialPing: true)
+        let session = try ChannelSession(
+            cookies: #require(SessionCookies(header: "SID=account; COMPASS=retired")),
+            transport: transport, retry: .immediate
+        )
+        let running = Task { await session.start() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await !transport.initialPingWaiting, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await transport.initialPingWaiting)
+        await session.sendActivityPing(active: false)
+        #expect(await transport.pings().count == 1)
+        await transport.releaseInitialPing()
+        await session.stop()
+        running.cancel()
+        await running.value
+    }
+
     /// The second ping on the listening channel: same SID, the next RID, the
     /// next stream offset.
     @Test func aListeningChannelSendsItWithItsOwnCounters() async throws {
@@ -88,11 +124,12 @@ struct ChannelActivityPingTests {
         await session.stop()
         running.cancel()
         #expect(pings.count == 2)
+        #expect(pings.allSatisfy { $0.headers["Cookie"] == "SID=a" })
         let again = try #require(pings.last)
         #expect(query("SID", of: again.url) == "S3ss10n")
         let initialRID = try #require(query("RID", of: initial.url).flatMap { Int($0) })
         #expect(query("RID", of: again.url) == String(initialRID + 1))
-        #expect(body(again).hasPrefix("count=1&ofs=1&"))
+        #expect(body(again).hasPrefix("count=1&ofs=2&"))
         #expect(body(again).hasSuffix("%5B2%2Cnull%2C2%2Cnull%2C4%2Ctrue%5D%5D"))
     }
 }

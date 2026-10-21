@@ -17,7 +17,7 @@ extension AccountRuntime {
                 guard let backend else { return }
                 let epoch = currentEpoch
                 if backend.capabilities.needsFollowedThreadsBackfill {
-                    await reconcileBackground {
+                    await reconcileBackground(resource: .followedThreads) {
                         _ = try await fetchFollowedThreads(backend: backend, epoch: epoch)
                     }
                 }
@@ -62,7 +62,7 @@ extension AccountRuntime {
             }
             try checkEpoch(epoch)
             try appendAndPublish(.mentionBackfillChanged(.init(failedConversations: failures)), live: false)
-        } catch { await reconciliationFailed(error) }
+        } catch { await reconciliationFailed(error, resource: .history) }
     }
 
     private func backfillHistory(

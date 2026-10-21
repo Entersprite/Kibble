@@ -101,7 +101,7 @@ struct GroupSubscriptionTests {
             ])
             #expect(requests.map { query("SID", of: $0.url) } == ["session-1", "session-1", "session-2"])
             #expect(requests.map { String(decoding: $0.body!, as: UTF8.self).components(separatedBy: "&")[1] }
-                == ["ofs=1", "ofs=2", "ofs=1"])
+                == ["ofs=2", "ofs=3", "ofs=2"])
             let rids = requests.compactMap { query("RID", of: $0.url).flatMap(Int.init) }
             #expect(rids == rids.sorted())
             await session.stop()

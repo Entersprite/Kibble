@@ -689,6 +689,9 @@ message JAddOnsFormAction {
 	optional string encrypted_action = 7;
 	optional LoadIndicator load_indicator = 5;
 	optional bool persist_values = 6;
+	optional int32 interaction = 8;
+	repeated string required_widget_ids = 9;
+	optional bool all_widgets_are_required = 10;
 }
 
 message JAddOnsContextualAddOn {
@@ -838,6 +841,9 @@ message Message {
 }
 
 message ReplyToMessage {
+	optional int32 reference_type = 15;
+	repeated Annotation annotations = 7;
+	optional int32 message_state = 3;
 	optional MessageId id = 1;
 	optional int64 create_time = 2;
 	optional UserId sender_id = 4;
@@ -845,8 +851,8 @@ message ReplyToMessage {
 	optional string text_body = 6;
 	optional int32 unknown_int = 10;
 	optional User sender_again = 12;
-	optional int64 last_edit_time = 13;
-	optional int64 create_time_again_if_edited = 14;
+	optional int64 original_create_time = 13;
+	optional int64 original_last_edit_time = 14;
 }
 
 message AppProfile {
@@ -1265,6 +1271,7 @@ message TopicLabelId {
 }
 
 message SendReplyTarget {
+	optional int32 reference_type = 4;
 	optional MessageId id = 1;
 	optional int64 create_time = 2;
 }
@@ -3019,3 +3026,19 @@ message DeleteGroupV2Request {
  optional bool preserve_linked_group = 2;
 }
 message DeleteGroupV2Response {}
+
+// Request fields documented by the upstream purple-googlechat schema.
+// Form inputs and dialog responses remain intentionally unnamed until verified.
+message SubmitFormActionRequest {
+    optional int32 dialog_event = 1;
+    optional MessageId message_id = 2;
+    optional UserId bot_id = 3;
+    optional JAddOnsFormAction action = 4;
+    optional GroupId group_id = 6;
+    optional TopicId topic_id = 8;
+    optional RequestHeader request_header = 9;
+}
+message SubmitFormActionResponse {
+    optional JAddOnsCardItem card_item = 3;
+    optional string setup_url = 4;
+}

@@ -3,6 +3,26 @@ import GChatBridgeCore
 
 extension LocalBridgeBackend {
     func emit(_ event: ChatEvent) {
+        guard prepareEvent(event) else { return }
+        if delivery.running {
+            enqueueProviderBatch(.init(events: [event]))
+        } else {
+            continuation.yield(event)
+        }
+    }
+
+    func emitCommitted(_ event: ChatEvent) async -> Bool {
+        if !delivery.running {
+            emit(event); return !Task.isCancelled
+        }
+        guard !Task.isCancelled, prepareEvent(event) else { return false }
+        do {
+            try await submitProviderBatch(.init(events: [event]))
+            return true
+        } catch { return false }
+    }
+
+    func prepareEvent(_ event: ChatEvent) -> Bool {
         if case let .conversationRemoved(id, _) = event {
             meetingMetadata.targets[id] = nil
             meetingMetadata.cache[id] = nil
@@ -13,7 +33,7 @@ extension LocalBridgeBackend {
         case let .messageReceived(message), let .messageUpdated(message):
             if let cutoff = historyCutoffs[message.conversationID],
                Microseconds.from(message.createdAt) <= cutoff {
-                return
+                return false
             }
         default: break
         }
@@ -23,6 +43,6 @@ extension LocalBridgeBackend {
         if case let .readReceiptsChanged(update) = event {
             receiptRevisions[update.conversationID, default: 0] += 1
         }
-        continuation.yield(event)
+        return true
     }
 }

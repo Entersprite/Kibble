@@ -32,7 +32,8 @@ struct StatusStrip: View {
                     // route back to sign-in is a window a person can only
                     // escape by editing their Keychain - see
                     // `ChatSceneActions.signIn`.
-                    if let signIn = actions.signIn {
+                    if state.resourceSyncWarning == nil || state.lastError != nil,
+                       let signIn = actions.signIn {
                         Button("Sign in again", action: signIn)
                             .buttonStyle(.link)
                             .font(.caption)
@@ -97,7 +98,9 @@ struct StatusStrip: View {
             return .notice(notice)
         }
         switch state.connection {
-        case .idle, .connected:
+        case .connected:
+            return state.resourceSyncWarning.map(Headline.warning)
+        case .idle:
             return nil
         case .connecting, .unknown:
             return .progress("Connecting…")

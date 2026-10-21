@@ -86,9 +86,16 @@ public protocol LaunchServices: AnyObject {
     func chooseFilesToSend() -> [URL]
     /// Device-local feedback after a composer send passes local admission.
     func messageSending()
+    var embeddedMediaOpener: (@MainActor @Sendable (URL) -> Void)? { get }
+    func closeEmbeddedMedia()
 }
 
 public extension LaunchServices {
+    var embeddedMediaOpener: (@MainActor @Sendable (URL) -> Void)? {
+        nil
+    }
+
+    func closeEmbeddedMedia() {}
     func messageSending() {}
     func chooseFilesToSend() -> [URL] {
         []

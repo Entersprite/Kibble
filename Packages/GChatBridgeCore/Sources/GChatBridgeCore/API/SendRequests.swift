@@ -39,7 +39,8 @@ public enum SendRequests {
         group: GroupId,
         text: String,
         localID: String,
-        annotations: [Annotation] = []
+        annotations: [Annotation] = [],
+        quote: SendReplyTarget? = nil
     ) -> CreateTopicRequest {
         var request = CreateTopicRequest()
         request.requestHeader = APIRequestHeader.make()
@@ -51,6 +52,9 @@ public enum SendRequests {
         request.historyV2 = true
         request.annotations = annotations
         request.messageInfo = messageInfo()
+        if let quote {
+            request.messageInfo.replyTo = quote
+        }
         return request
     }
 
@@ -63,7 +67,8 @@ public enum SendRequests {
         topicID: String,
         text: String,
         localID: String,
-        annotations: [Annotation] = []
+        annotations: [Annotation] = [],
+        quote: SendReplyTarget? = nil
     ) -> CreateMessageRequest {
         var topic = TopicId()
         topic.groupID = group
@@ -78,6 +83,9 @@ public enum SendRequests {
         request.textBody = text
         request.annotations = annotations
         request.messageInfo = messageInfo()
+        if let quote {
+            request.messageInfo.replyTo = quote
+        }
         return request
     }
 

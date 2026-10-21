@@ -59,6 +59,9 @@ public protocol AccountRegistry: Sendable {
 public protocol ServiceAccountStorage: Sendable {
     func append(_ event: ChatEvent, live: Bool) throws -> ServiceCursor
     func readEvents(after cursor: ServiceCursor?, limit: Int) throws -> ServiceEventPage
+    func readEvents(
+        after cursor: ServiceCursor?, limit: Int, includingHistory: Set<Conversation.ID>
+    ) throws -> ServiceEventPage
     func conversations() throws -> [Conversation]
     func conversation(_ id: Conversation.ID) throws -> Conversation?
     func checkpoint() throws -> ServiceCursor
@@ -104,4 +107,12 @@ public struct AccountProvider: Sendable {
 public protocol AccountProviderFactory: Sendable {
     func makeProvider(for account: AccountRecord) async throws -> AccountProvider
     func forgetCredentials(for account: AccountRecord) async throws
+}
+
+public extension ServiceAccountStorage {
+    func readEvents(
+        after cursor: ServiceCursor?, limit: Int, includingHistory: Set<Conversation.ID>
+    ) throws -> ServiceEventPage {
+        try readEvents(after: cursor, limit: limit)
+    }
 }

@@ -19,14 +19,15 @@ extension LocalBridgeBackend {
         text: String,
         conversationID: Conversation.ID?,
         threadID: MessageThread.ID?,
-        mentions: [ChatKit.Mention]
+        mentions: [ChatKit.Mention], content: MessageContent? = nil
     ) async throws {
         let target = try address(id, conversationID, threadID, what: "an edit")
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ChatError.unknown("an edit needs text; removing a message is a delete")
         }
         let plain = mentions.map { ChatKit.Mention(target: $0.target, start: $0.start, length: $0.length) }
-        let annotations = await mentionAnnotations(plain, using: target.client)
+        let formats = try MessageContentMapping.annotations(content?.formatting ?? [], text: text)
+        let annotations = await mentionAnnotations(plain, using: target.client) + formats
         let request = MessageEditRequests.editMessage(
             group: target.group, topicID: target.topic, messageID: id.rawValue, text: text,
             annotations: annotations

@@ -3,7 +3,7 @@ import SwiftUI
 
 extension Composer {
     func finish(_ message: ComposedMessage) {
-        if ComposerSendGate.clears(draft: draft.composed(), sent: message) {
+        if ComposerSendGate.clears(draft: draft.composed(formatting: allowsFormatting), sent: message) {
             draft.clear()
         }
         if let sendHere = mentions?.sendHere {
@@ -14,7 +14,7 @@ extension Composer {
     }
 
     var trimmed: String {
-        draft.composed().text
+        draft.composed(formatting: allowsFormatting).text
     }
 
     func insert(_ text: String) {

@@ -33,6 +33,7 @@ enum LaunchProbes {
 
     /// What each launch probe runs. The native call trial has its own window.
     private static let reports: [MacLaunchProbe: @MainActor () async -> String] = [
+        .synchronization: { await synchronizationProbe() },
         .keychain: { await keychainCheck() }, .api: { await apiProbe() },
         .punctual: { await punctualProbe() }, .upload: { await uploadProbe() },
         .people: { await peopleProbe() }, .organization: { await organizationProbe() },
@@ -214,7 +215,7 @@ enum LaunchProbes {
     /// landed: a probe report is pasted into `findings.md` by hand, and a
     /// confirmation that lied about where the text went would send someone
     /// looking for a file that is not there.
-    private static func write(_ text: String, to name: String) -> String {
+    static func write(_ text: String, to name: String) -> String {
         guard let directory = try? SystemLaunchServices.supportDirectory() else {
             return "Could not resolve where to write \(name)."
         }

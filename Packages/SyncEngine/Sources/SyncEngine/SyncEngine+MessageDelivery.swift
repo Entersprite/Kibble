@@ -5,7 +5,7 @@ import Foundation
 extension SyncEngine {
     func canDispatchTrackedMessage(_ command: ChatCommand, undoing writes: [StoreWrite]) -> Bool {
         guard tracksMessageDelivery,
-              case let .sendMessage(_, _, _, localID, _, _) = command else { return true }
+              case let .sendMessage(_, _, _, localID, _, _, _) = command else { return true }
         do {
             let pending = try store.messageDeliveries()
                 .first { $0.localID == localID && $0.status == .sending }

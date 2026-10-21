@@ -37,6 +37,7 @@ public final class ChatSessionModel {
     /// report itself through the database it just failed to read.
     ///
     /// Not `private(set)`: that catch lives in `ChatSessionModel+Observing.swift`.
+    public internal(set) var resourceSyncStatuses: [ResourceSyncStatus] = []
     public internal(set) var lastError: ChatError?
     public internal(set) var isClientTransportAvailable = true
     var conversationActionError: ChatError?

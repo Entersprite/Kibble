@@ -22,14 +22,12 @@ public enum SyncReducer {
     /// someone decides what it means for the store.
     public static func reduce(_ event: ChatEvent) -> Reduction {
         switch event {
-        case .historyLoaded, .mentionBackfillChanged:
+        case .historyInvalidated, .historyLoaded, .mentionBackfillChanged:
             reduceHistoryEvent(event)
         case .scopedTypingChanged, .readReceiptsChanged:
             reduceActivityEvent(event)
-        case let .meetingMetadataLoadingChanged(isLoading):
-            Reduction(writes: [.setMeetingMetadataLoading(isLoading)])
-        case let .meetingMetadataChanged(id, meeting):
-            Reduction(writes: [.setMeetingMetadata(conversation: id, meeting: meeting)])
+        case .meetingMetadataLoadingChanged, .meetingMetadataChanged, .conversationClassified:
+            reduceDetailEvent(event)
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged:
             supersedingStaleError(reduceMessageEvent(event))
         case .conversationRemoved, .conversationUnreadMarkChanged:
@@ -41,8 +39,20 @@ public enum SyncReducer {
             supersedingStaleError(reduceThreadEvent(event))
         case .selfIdentified, .availabilityChanged:
             supersedingStaleError(reduceSessionEvent(event))
-        case .connectionStateChanged, .backendError, .gap, .unknown:
+        case .resourceSyncChanged, .connectionStateChanged, .backendError, .gap, .unknown:
             reduceSessionEvent(event)
+        }
+    }
+
+    private static func reduceDetailEvent(_ event: ChatEvent) -> Reduction {
+        switch event {
+        case let .conversationClassified(row): Reduction(writes: [.classifyConversation(row)])
+        case let .meetingMetadataLoadingChanged(loading): Reduction(
+                writes: [.setMeetingMetadataLoading(loading)]
+            )
+        case let .meetingMetadataChanged(id, meeting):
+            Reduction(writes: [.setMeetingMetadata(conversation: id, meeting: meeting)])
+        default: Reduction()
         }
     }
 
@@ -70,6 +80,7 @@ public enum SyncReducer {
                 ))
             }
             return Reduction(writes: writes)
+        case .historyInvalidated: return Reduction(writes: [.invalidateReplicaHistory])
         case let .mentionBackfillChanged(status):
             return Reduction(writes: [.setMentionBackfill(status)])
         default: return Reduction()
@@ -217,6 +228,8 @@ public enum SyncReducer {
             ])
         case let .availabilityChanged(availability):
             Reduction(writes: [.setAvailability(availability)])
+        case let .resourceSyncChanged(status):
+            Reduction(writes: [.setResourceSyncStatus(status)])
         case let .backendError(error):
             Reduction(writes: [.setLastError(error)])
         case let .gap(scope, _):

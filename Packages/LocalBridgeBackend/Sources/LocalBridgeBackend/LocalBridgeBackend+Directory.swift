@@ -26,7 +26,7 @@ extension LocalBridgeBackend {
         for conversations: [Conversation],
         using apiClient: ProtoAPIClient
     ) async {
-        let ids = Array(Set(conversations.flatMap(\.members)))
+        let ids = Array(Set(conversations.flatMap(\.members)).subtracting(requestedMemberIDs))
         guard !ids.isEmpty else { return }
         // Recorded before the call, so a history page loading meanwhile does
         // not ask about the same people a second time.
@@ -39,34 +39,50 @@ extension LocalBridgeBackend {
         } catch {
             // Forgotten, so the senders' own lookup can ask again - unless the
             // session has gone, whose set `disconnect()` already cleared.
-            if generation == directoryGeneration {
-                requestedMemberIDs.subtract(ids)
-            }
-            emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_members call")))
+            guard !Task.isCancelled, generation == directoryGeneration else { return }
+            requestedMemberIDs.subtract(ids)
+            reportResourceFailure(
+                .profiles,
+                error: Self.chatError(fromAPI: error, call: "the /api/ get_members call")
+            )
             return
         }
 
+        guard !Task.isCancelled, generation == directoryGeneration else { return }
         let mapped = MemberMapping.map(response)
         remember(emailsOf: mapped.members)
         if mapped.skipped > 0 {
-            emit(.backendError(.unknown(
-                "\(mapped.skipped) member(s) could not be mapped and were skipped"
-            )))
+            reportResourceFailure(.profiles, error: .decoding("Some member profiles could not be read."))
+        } else {
+            resourceRecovered(.profiles)
         }
 
-        let byID = Dictionary(uniqueKeysWithValues: mapped.members.map { ($0.id, $0) })
-        for conversation in conversations {
-            let members = conversation.members.compactMap { byID[$0] }
-            guard !members.isEmpty else { continue }
-            emit(.membersResolved(members))
-            if let reclassified = Self.asAppDirectMessage(conversation, members: members) {
-                emit(.conversationUpdated(reclassified))
-            }
-        }
+        await emitDirectoryProfiles(mapped.members, for: conversations)
         // Not immediately: the presence poll's first run waits for this very
         // lookup, and asks about everyone added here.
         if generation == directoryGeneration {
-            addPresenceTargets(mapped.members, immediately: false, using: apiClient, generation: generation)
+            addPresenceTargets(
+                mapped.members,
+                immediately: false,
+                using: apiClient,
+                generation: generation
+            )
+        }
+    }
+
+    private func emitDirectoryProfiles(
+        _ profiles: [ChatKit.Member],
+        for conversations: [Conversation]
+    ) async {
+        let byID = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+        for conversation in conversations {
+            let members = conversation.members.compactMap { byID[$0] }
+            guard !members.isEmpty else { continue }
+            guard await emitCommitted(.membersResolved(members)) else { return }
+            if var reclassified = Self.asAppDirectMessage(conversation, members: members) {
+                reclassified.readPosition = conversation.readPosition
+                guard await emitCommitted(.conversationClassified(reclassified)) else { return }
+            }
         }
     }
 
@@ -120,26 +136,30 @@ extension LocalBridgeBackend {
         do {
             response = try await apiClient.call(.getMembers, Self.getMembersRequest(ids))
         } catch {
-            guard generation == directoryGeneration else { return }
+            guard !Task.isCancelled, generation == directoryGeneration else { return }
             requestedMemberIDs.subtract(ids)
-            emit(.backendError(Self.chatError(fromAPI: error, call: "the /api/ get_members call")))
+            reportResourceFailure(
+                .profiles,
+                error: Self.chatError(fromAPI: error, call: "the /api/ get_members call")
+            )
             return
         }
         // After the await: `disconnect()` may have run while the call was out,
         // and a stale session's names must not land in the next one.
-        guard generation == directoryGeneration else { return }
+        guard !Task.isCancelled, generation == directoryGeneration else { return }
         // Before the names are emitted: the service asks for the organization
         // once it sees the account's own member.
         noteOwnOrganization(in: response)
+        guard !Task.isCancelled, generation == directoryGeneration else { return }
         let mapped = MemberMapping.map(response)
         remember(emailsOf: mapped.members)
         if mapped.skipped > 0 {
-            emit(.backendError(.unknown(
-                "\(mapped.skipped) member(s) could not be mapped and were skipped"
-            )))
+            reportResourceFailure(.profiles, error: .decoding("Some member profiles could not be read."))
+        } else {
+            resourceRecovered(.profiles)
         }
         guard !mapped.members.isEmpty else { return }
-        emit(.membersResolved(mapped.members))
+        guard await emitCommitted(.membersResolved(mapped.members)) else { return }
         // After the names, so their member rows exist when presence lands.
         addPresenceTargets(mapped.members, immediately: true, using: apiClient, generation: generation)
     }
@@ -155,6 +175,11 @@ extension LocalBridgeBackend {
         }
         meetingMetadata = MeetingMetadataHydration()
         requestedMemberIDs = []
+        appMemberIDs = []
+        pendingDirectoryProfiles.removeAll()
+        for resource in Array(resourceFailures.keys) {
+            resourceRecovered(resource)
+        }
         memberEmails = [:]
         peopleKey = PeopleKeyState()
         receiptRevisions = [:]

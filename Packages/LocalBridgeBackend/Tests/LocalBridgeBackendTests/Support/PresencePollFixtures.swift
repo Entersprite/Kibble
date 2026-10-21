@@ -78,8 +78,8 @@ extension PresencePollFixtures {
 
     func pollErrors(in events: [ChatEvent]) -> Int {
         events.count {
-            if case let .backendError(error) = $0 {
-                return "\(error)".contains("get_user_presence")
+            if case let .resourceSyncChanged(status) = $0 {
+                return status.resource == .presence && status.phase == .failed
             }
             return false
         }

@@ -49,6 +49,8 @@ public final class AppEnvironment {
     /// The active backend's connection label; cleared with its session.
     var connectionService: ConnectionService?
     @ObservationIgnored var composerDrafts: [ComposerDraftAddress: ComposerDraft] = [:]
+    @ObservationIgnored var composerPersistence: ComposerPersistence?
+    var draftSaveFailure: ChatError?
 
     /// This session's attachment cache (`AppEnvironment+Attachments.swift`).
     var attachments: AttachmentCache?
@@ -177,6 +179,7 @@ public final class AppEnvironment {
             try store.apply([.clearEphemeralState])
             let selection = try await services.makeSession()
             let engine = prepareEngine(for: selection, store: store)
+            try await loadComposerDrafts(store: store)
             // Receipts are withheld until an account is identified; its saved
             // rules then decide. The old `ghostMode` key migrates into the
             // first account's global rule (`NotificationSettingsModel`).
@@ -328,8 +331,9 @@ public final class AppEnvironment {
     /// `LaunchServices` directly, since there is genuinely no live model to
     /// ask; erasing an already-empty store is a cheap no-op, which is the
     /// point - nothing here has to know whether there is anything to erase.
-    private func enterNeedsSignIn(reason: String?) async {
+    func enterNeedsSignIn(reason: String?) async {
         defer { releasePresentationCaches() }
+        await finishComposerPersistence()
         await calls.stop()
         identityTask?.cancel()
         identityTask = nil
@@ -376,23 +380,5 @@ public final class AppEnvironment {
         connectionService = nil
         composerDrafts = [:]
         phase = .needsSignIn(reason: reason)
-    }
-
-    /// The way back to sign-in from a launch that failed.
-    ///
-    /// `.needsSignIn` is otherwise reachable from exactly two inputs - no
-    /// stored session, and `ChatError.notAuthenticated`. Everything else lands
-    /// in `.failed` and would stay there: a page-shape change
-    /// (`findings.md` §18), a client refused as an unsupported browser (where
-    /// re-capturing with a different user agent is the actual fix), a stored
-    /// session that no longer decodes. Each reproduces on every relaunch, and
-    /// the only escape would be deleting a credential by hand - which is not
-    /// something this app's intended user can do.
-    ///
-    /// The reason carried forward is the failure itself, so the capture window
-    /// says what went wrong rather than implying the person did something.
-    public func requestSignIn() {
-        guard case let .failed(message) = phase else { return }
-        Task { await enterNeedsSignIn(reason: message) }
     }
 }

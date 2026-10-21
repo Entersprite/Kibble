@@ -51,10 +51,10 @@ extension ChannelSession {
             guard let request = requests.subscribe(
                 group: group, sid: sid, aid: state.highestProcessedAid, rid: requestIdentifier, ofs: ofs
             ) else { continue }
-            let authorised = await credentials.authorising(request)
+            let authorised = await credentials.authorisingChannel(request)
             guard !Task.isCancelled, revision == groupInterest.revision,
                   state.phase.sid == sid else { return }
-            await Self.acknowledge(
+            await Self.sendControl(
                 authorised, via: transport,
                 onHeaders: Self.onPingHeaders(pingURL: request.url, credentials: credentials),
                 onFailure: { _ in }

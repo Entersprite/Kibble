@@ -21,12 +21,13 @@ public extension LocalBridgeBackend {
     /// this and why that is a deliberate departure from every other `/api/`
     /// family in this package.
     func send(_ command: ChatCommand) async throws {
+        try command.validateMessageContent(capabilities: capabilities)
         switch command {
-        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions, content):
             try await sendMessage(
                 conversationID: conversationID,
                 threadID: threadID,
-                body: ComposedMessage(text: text, mentions: mentions),
+                body: ComposedMessage(text: text, mentions: mentions, content: content),
                 localID: localID,
                 attachments: attachments
             )
@@ -43,9 +44,10 @@ public extension LocalBridgeBackend {
                 messageID: messageID, emoji: emoji, add: add,
                 conversationID: conversationID, threadID: threadID, customEmoji: customEmoji
             )
-        case let .editMessage(id, text, conversationID, threadID, mentions):
+        case let .editMessage(id, text, conversationID, threadID, mentions, content):
             try await editMessage(
-                id: id, text: text, conversationID: conversationID, threadID: threadID, mentions: mentions
+                id: id, text: text, conversationID: conversationID, threadID: threadID, mentions: mentions,
+                content: content
             )
         case let .deleteMessage(id, conversationID, threadID):
             try await deleteMessage(id: id, conversationID: conversationID, threadID: threadID)
@@ -83,8 +85,10 @@ public extension LocalBridgeBackend {
         // the server echoes this back on the resulting message and it is the
         // only thing that marks the echo as ours.
         let identifier = localID ?? SendRequests.makeLocalID()
+        let quote = try await sendReference(body.content, in: conversationID)
+        let formats = try MessageContentMapping.annotations(body.content?.formatting ?? [], text: text)
         let annotations = await Self.uploadAnnotations(attachments, uploaded: uploadedMetadata)
-            + mentionAnnotations(body.mentions, using: apiClient)
+            + mentionAnnotations(body.mentions, using: apiClient) + formats
         // `threadID` is never `nil` for a message this backend produced itself
         // (`ChannelEventMapping.swift` always fills it in from the topic a
         // message was posted in), so the emptiness check - not just the
@@ -97,7 +101,7 @@ public extension LocalBridgeBackend {
             do {
                 response = try await apiClient.call(.createMessage, SendRequests.createMessage(
                     group: group, topicID: threadID.rawValue, text: text, localID: identifier,
-                    annotations: annotations
+                    annotations: annotations, quote: quote
                 ))
             } catch {
                 throw Self.chatError(fromAPI: error, call: "the /api/ create_message call")
@@ -111,7 +115,7 @@ public extension LocalBridgeBackend {
             let response: CreateTopicResponse
             do {
                 response = try await apiClient.call(.createTopic, SendRequests.createTopic(
-                    group: group, text: text, localID: identifier, annotations: annotations
+                    group: group, text: text, localID: identifier, annotations: annotations, quote: quote
                 ))
             } catch {
                 throw Self.chatError(fromAPI: error, call: "the /api/ create_topic call")

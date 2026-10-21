@@ -81,7 +81,7 @@ public extension ChatSessionModel {
                 text: text,
                 createdAt: Date(),
                 localID: localID,
-                mentions: message.mentions
+                mentions: message.mentions, content: message.content
             )) else {
                 failed = (conversationID: selected, draft: message)
                 return
@@ -98,7 +98,7 @@ public extension ChatSessionModel {
             let accepted = await engine.submit(
                 .sendMessage(
                     conversationID: selected, threadID: nil, text: text, localID: localID,
-                    mentions: message.mentions
+                    mentions: message.mentions, content: message.content
                 ),
                 // By id, not by `localID`. The server echoes `localID` back on
                 // the delivered message, so a `localID` retraction would

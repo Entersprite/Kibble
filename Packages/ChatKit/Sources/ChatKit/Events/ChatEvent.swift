@@ -173,6 +173,10 @@ public enum ChatEvent: Codable, Hashable, Sendable {
 
     /// Something failed in a way the client should know about, without the
     /// stream ending.
+    /// Change kind only for an existing row; seed the supplied row when absent.
+    case conversationClassified(Conversation)
+    case historyInvalidated
+    case resourceSyncChanged(ResourceSyncStatus)
     case backendError(ChatError)
 
     /// A frame from a newer backend, kept whole. `type` is its discriminator;

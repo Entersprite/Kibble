@@ -68,8 +68,13 @@ public protocol ChatBackend: Sendable {
     /// event.
     func send(_ command: ChatCommand) async throws
 
+    func invokeCardAction(_ action: AppCardActionRequest) async throws -> AppCardActionResult
+
     /// The conversation list, fully replacing whatever the client had.
     func loadConversations() async throws -> [Conversation]
+
+    /// A typed directory response; partial coverage cannot establish absence.
+    func loadConversationSnapshot() async throws -> ConversationSnapshot
 
     // [Verify] `before:` as a message-id cursor is an OPEN QUESTION, recorded
     // here rather than designed away. The wire protocol has no message-id

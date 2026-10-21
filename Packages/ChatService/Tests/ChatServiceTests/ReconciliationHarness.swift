@@ -6,12 +6,19 @@ import InProcessChatTransport
 import Synchronization
 @testable import ChatService
 
-actor ReconciliationBackend: ManagedChatActivityBackend {
+actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBackend {
     nonisolated let capabilities: Capabilities
     nonisolated let events: AsyncStream<ChatEvent>
     private let sink: AsyncStream<ChatEvent>.Continuation
+    nonisolated let providerEventBatches: AsyncStream<ProviderEventBatch>
+    let providerBatchSink: AsyncStream<ProviderEventBatch>.Continuation
+    let checkpointing: Bool
+    var acknowledgedBatches: [String] = []
+    var resumedCheckpoint: Data?
+    var acknowledgementObserver: (@Sendable (String) -> Void)?
     private var rows: [Conversation]
     private var history: [Message]
+    private var directoryComplete = true
     private var holdWorld = false
     private var holdHistory = false
     private var worldWaiter: CheckedContinuation<Void, Never>?
@@ -43,7 +50,10 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
         sender: Member.ID("peer"), text: "Original", createdAt: date
     )
 
-    init(backfill: Bool = false, holdHistory: Bool = false) {
+    init(backfill: Bool = false, holdHistory: Bool = false, checkpointing: Bool = false) {
+        self.checkpointing = checkpointing
+        (providerEventBatches, providerBatchSink) = AsyncStream
+            .makeStream(bufferingPolicy: .bufferingOldest(128))
         capabilities = Capabilities(needsMentionBackfill: backfill)
         self.holdHistory = holdHistory
         rows = [Conversation(id: Self.conversation, kind: .space, title: "Original", lastActivity: Self.date)]
@@ -159,6 +169,16 @@ actor ReconciliationBackend: ManagedChatActivityBackend {
         worldFailure = failure
     }
 
+    func replaceDirectorySilently(_ conversations: [Conversation], complete: Bool) {
+        rows = conversations
+        directoryComplete = complete
+    }
+
+    func loadConversationSnapshot() async throws -> ConversationSnapshot {
+        let complete = directoryComplete
+        return try await ConversationSnapshot(conversations: loadConversations(), isComplete: complete)
+    }
+
     func loadConversations() async throws -> [Conversation] {
         worldReads += 1
         if worldFailures > 0 {
@@ -211,14 +231,18 @@ struct ReconciliationHarness {
 
     static func make(
         backfill: Bool = false, holdHistory: Bool = false, policies: (any AccountPolicyStore)? = nil,
-        reservations: OperationReservationCounter? = nil
+        reservations: OperationReservationCounter? = nil, checkpointing: Bool = false
     ) async throws -> Self {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let registry = try SQLiteAccountRegistry(path: folder.appendingPathComponent("registry.sqlite").path)
         let record = LinkHarness.existing()
         try registry.save(record)
-        let backend = ReconciliationBackend(backfill: backfill, holdHistory: holdHistory)
+        let backend = ReconciliationBackend(
+            backfill: backfill,
+            holdHistory: holdHistory,
+            checkpointing: checkpointing
+        )
         var storage: any ServiceStorageFactory = SQLiteServiceStorageFactory(directory: folder)
         if let reservations {
             storage = CountedStorageFactory(backing: storage, reservations: reservations)

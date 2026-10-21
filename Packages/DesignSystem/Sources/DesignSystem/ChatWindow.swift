@@ -19,6 +19,9 @@ public struct ChatWindow: View {
     @State var editRequest: ComposerEditRequest?
     @State var editingMessage: Message.ID?
     @State var pendingDelete: Message?
+    @State var pendingForward: ForwardMessageSelection?
+    @State var transcriptQuote: ComposerQuoteRequest?
+    @State var panelQuote: ComposerQuoteRequest?
     /// Moved on at the selected DM partner's next boundary, so the header's
     /// words change on time (spec §6.3). Read by `subtitle` as a floor for
     /// `now`, which is what makes SwiftUI redraw it.
@@ -185,15 +188,24 @@ public struct ChatWindow: View {
         .onChange(of: state.threads.panel?.thread.id) { forgetPanelEdit() }
         // What was pending names the other account's messages.
         .onChange(of: state.accountID) {
+            transcriptQuote = nil
+            panelQuote = nil
             editRequest = nil
             editingMessage = nil
             pendingDelete = nil
+            pendingForward = nil
             forgetPanelEdit()
         }
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
+        .sheet(item: $pendingForward) { selection in
+            ForwardMessageSheet(message: selection.message, state: state, send: actions.forwardMessage)
+                .id(AccountScoped(account: state.accountID, value: selection.id))
+        }
         .overlay { searchOverlay }
         .modifier(ConversationPanelPresentation(state: state, actions: actions))
         .environment(\.sceneImageLoader, actions.imageLoader)
+        .environment(\.openEmbeddedMedia, actions.openEmbeddedMedia)
+        .environment(\.invokeCardAction, actions.invokeCardAction)
     }
 
     /// The bar's content: the field, or why there isn't one.
@@ -232,6 +244,10 @@ public struct ChatWindow: View {
                 preserveDraft: actions.preserveDraft.map { preserve in
                     { preserve(ComposerDraftAddress(conversation: conversation.id), $0) }
                 },
+                allowsFormatting: state.capabilities.canFormatMessages,
+                quoteRequest: transcriptQuote?.quote.conversation == conversation.id ? transcriptQuote : nil,
+                onQuoteAdopted: { transcriptQuote = nil },
+                quoteDirectory: state.directory,
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without

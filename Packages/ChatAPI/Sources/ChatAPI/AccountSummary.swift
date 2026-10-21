@@ -84,8 +84,12 @@ public struct LoadConversations: ServiceRequestPayload {
     public typealias Response = [Conversation]
     public static let operation = "loadConversations"
     public static let requiresAccount = true
+    /// Missing or zero forces a read. New clients may reuse recent canonical data.
+    public let maximumAge: TimeInterval?
 
-    public init() {}
+    public init(maximumAge: TimeInterval? = nil) {
+        self.maximumAge = maximumAge
+    }
 }
 
 /// Coverage is explicit: a partial page cannot establish absence or deletion.
