@@ -29,6 +29,9 @@ public struct ChatWindow: View {
     /// The height of the toolbar's band over the thread column, where the
     /// panel raises its title (`ChatWindow+ThreadColumn.swift`).
     @State var threadBand: CGFloat = 0
+    /// The width Follow and Close draw at, which the thread's title keeps
+    /// clear of (`ChatWindow+ThreadColumn.swift`).
+    @State var threadTools: CGFloat = 0
     /// Where each account's transcript was, so switching back returns there.
     @State private var transcriptPositions = TranscriptPositions()
 
@@ -133,7 +136,7 @@ public struct ChatWindow: View {
                             AccountUnavailableView(unavailable: unavailable)
                         } else {
                             ContentUnavailableView(
-                                "Pick a conversation",
+                                "No Conversation Selected",
                                 systemImage: "sidebar.left",
                                 description: Text("Choose one from the sidebar to read it.")
                             )
@@ -144,39 +147,7 @@ public struct ChatWindow: View {
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
             .task(id: nextHeaderRedraw) { await waitForHeaderRedraw() }
-            // Draws nothing; keeps the toolbar, so its band is 52 pt and two
-            // rows, and the thread's section (session 65, `ThreadColumnBridge`).
-            .toolbar {
-                ToolbarSpacer(.flexible)
-                if showsDetailsButton, let conversation = state.selectedConversation,
-                   let browser = actions.browser {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button(
-                            state.meetingSeries == nil ? "Conversation Details" : "Latest Meeting Details",
-                            systemImage: "info.circle"
-                        ) {
-                            browser.details(conversation.id, false)
-                        }
-                    }
-                }
-                // Each its own round glass: neighboring items share one capsule.
-                if showsDetailsButton, callConversation != nil, actions.call != nil {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                }
-                if let callConversation, let call = actions.call {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Call", systemImage: "phone") { call(callConversation) }
-                            .help("Start audio call")
-                    }
-                }
-                if let videoCallConversation, let videoCall = actions.videoCall {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Video Call", systemImage: "video") { videoCall(videoCallConversation) }
-                            .help("Start video call")
-                    }
-                }
-            }
+            .toolbar { conversationToolbar }
             .navigationSplitViewColumnWidth(min: ThreadColumnLayout.minimumWidth, ideal: 640)
         } detail: {
             threadColumn

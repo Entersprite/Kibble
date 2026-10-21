@@ -1,9 +1,10 @@
 import ChatKit
 import SwiftUI
 
-/// The window's title and subtitle, and the clock that redraws it on time (meeting
-/// indicator spec §6.3). Moved out of `ChatWindow.swift`, which sits at
-/// `file_length`; `headerClock` is not `private` for this file's sake.
+/// The window's title and subtitle, the clock that redraws them on time (meeting
+/// indicator spec §6.3), and the conversation column's toolbar. Moved out of
+/// `ChatWindow.swift`, which sits at `file_length`; `headerClock` is not
+/// `private` for this file's sake.
 extension ChatWindow {
     /// Not for a one-to-one DM: its details are only the person's name and the
     /// notification settings its sidebar menu already offers.
@@ -26,6 +27,49 @@ extension ChatWindow {
     /// Where Video Call goes: beside Call, for a host whose calls carry video.
     var videoCallConversation: Conversation.ID? {
         actions.videoCall == nil ? nil : callConversation
+    }
+
+    /// The conversation column's toolbar.
+    ///
+    /// The flexible spacer draws nothing and is always there: it keeps the
+    /// toolbar, so its band is 52 pt and two rows, and the thread's titlebar
+    /// section (session 65, `ThreadColumnBridge`). Details and the calls never
+    /// share the band, since Details leaves out a DM and only a DM has calls.
+    /// Call and Video Call are neighbors with no spacer between them, so they
+    /// share one glass capsule, as a pair of related actions does.
+    @ToolbarContentBuilder var conversationToolbar: some ToolbarContent {
+        ToolbarSpacer(.flexible)
+        if showsDetailsButton, let conversation = state.selectedConversation, let browser = actions.browser {
+            ToolbarItem(placement: .primaryAction) {
+                let meeting = state.meetingSeries != nil
+                let title = meeting ? "Latest Meeting Details" : "Conversation Details"
+                Button(title, systemImage: "info.circle") { browser.details(conversation.id, false) }
+                    .help(meeting ? "Show the latest meeting’s details" : "Show conversation details")
+            }
+        }
+        if let callConversation, let call = actions.call {
+            Self.favored(ToolbarItem(placement: .primaryAction) {
+                Button("Call", systemImage: "phone") { call(callConversation) }
+                    .help("Start audio call")
+            })
+        }
+        if let videoCallConversation, let videoCall = actions.videoCall {
+            Self.favored(ToolbarItem(placement: .primaryAction) {
+                Button("Video Call", systemImage: "video") { videoCall(videoCallConversation) }
+                    .help("Start video call")
+            })
+        }
+    }
+
+    /// The calls stay in the toolbar longest when the window is too narrow for
+    /// every item. The priority arrived in macOS 26.1; on 26.0 the item keeps
+    /// the automatic order.
+    @ToolbarContentBuilder private static func favored(_ item: some ToolbarContent) -> some ToolbarContent {
+        if #available(macOS 26.1, iOS 27, *) {
+            item.visibilityPriority(.high)
+        } else {
+            item
+        }
     }
 
     var title: String {

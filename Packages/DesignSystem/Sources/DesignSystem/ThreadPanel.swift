@@ -74,6 +74,9 @@ struct ThreadPanel: View {
     /// The height of the window toolbar's band above the panel, or 0 when
     /// something else is drawn between them (`StatusStrip`).
     let band: CGFloat
+    /// How far the title keeps from the trailing edge while it sits in the
+    /// band, clear of Follow and Close (`ThreadColumnLayout.titleReserve`).
+    var titleReserve: CGFloat = ThreadColumnLayout.titleReserve(tools: 0)
     var quoteRequest: ComposerQuoteRequest?
     var onQuoteAdopted: (() -> Void)?
 
@@ -86,7 +89,7 @@ struct ThreadPanel: View {
                 ColumnTitle(title: "Thread", subtitle: panel.conversationTitle)
                     .padding(.leading, ColumnTitle.inset)
                     // In the band, clear of Follow and Close above it.
-                    .padding(.trailing, band > 0 ? ThreadFollowButton.reserve : ColumnTitle.inset)
+                    .padding(.trailing, band > 0 ? titleReserve : ColumnTitle.inset)
                     .padding(.vertical, band > 0 ? 0 : 8)
                     .frame(maxWidth: .infinity, minHeight: band, alignment: .leading)
             }
@@ -158,14 +161,15 @@ struct ThreadPanel: View {
 /// size:** one sized to the panel was not laid out again when the panel's
 /// width changed (past the window's edge after one resize, gone after the
 /// next), and a flexible one was held at its minimum (session 63).
+///
+/// The system's glass button in a capsule, in the control's own font.
 struct ThreadFollowButton: View {
     let panel: ThreadPanelState
     let threads: ThreadActions
 
-    /// How far the panel's title keeps from the window's trailing edge: the
-    /// buttons' item at its widest ("Following", 152 pt), the toolbar's 8-pt
-    /// margin, and 8 pt (measured, session 63).
-    static let reserve: CGFloat = 168
+    /// The label's height: with the regular size's 4-point padding on each
+    /// side, the button is as tall as Close beside it (31 pt, measured hosted).
+    static let labelHeight = ComposerLayout.lineHeight - 8
 
     var body: some View {
         Button {
@@ -174,15 +178,10 @@ struct ThreadFollowButton: View {
             Label(ThreadsPresentation.followTitle(isFollowed: isFollowed), systemImage: followSymbol)
                 // A toolbar draws icons alone, and a bare + reads as "new".
                 .labelStyle(.titleAndIcon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 14)
-                .frame(height: ComposerLayout.lineHeight)
-                .contentShape(.capsule)
+                .frame(minHeight: Self.labelHeight)
         }
-        .buttonStyle(.plain)
-        // The composer's glass, in a capsule for the words.
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
         // The toggle changes only once the server agreed (spec §3).
         .disabled(panel.followPending)
     }
