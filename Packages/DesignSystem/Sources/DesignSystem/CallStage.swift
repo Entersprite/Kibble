@@ -4,6 +4,7 @@ import SwiftUI
 /// Behind a call without video: a deep fixed gradient, colored by the
 /// person's photo when there is one, the way Music colors its backdrop from
 /// the artwork. Dragging it moves the window, since the titlebar is hidden.
+/// It runs under the transparent titlebar to the window's edges.
 struct CallBackdrop: View {
     let photo: URL?
 
@@ -22,6 +23,7 @@ struct CallBackdrop: View {
             .clipped()
             .windowDragArea()
             .accessibilityHidden(true)
+            .ignoresSafeArea()
     }
 
     /// The avatar monogram's hue, darkened so white text and glass read on it.
@@ -31,10 +33,10 @@ struct CallBackdrop: View {
     ]
 }
 
-/// The other person's video, filling the window behind the controls. A camera
-/// gets soft scrims so the window buttons and the glass stay legible on any
-/// picture; a shared screen is shown as it is, since a scrim over a light
-/// document reads as a gray band.
+/// The other person's video, filling the window behind the controls, under
+/// the transparent titlebar included. A camera gets soft scrims so the window
+/// buttons and the glass stay legible on any picture; a shared screen is
+/// shown as it is, since a scrim over a light document reads as a gray band.
 struct CallRemoteStage: View {
     let content: AnyView
     let isScreen: Bool
@@ -55,6 +57,7 @@ struct CallRemoteStage: View {
             // a clear layer above it is what lets a drag move the window.
             Color.clear.contentShape(Rectangle()).windowDragArea()
         }
+        .ignoresSafeArea()
         .transition(.opacity)
     }
 

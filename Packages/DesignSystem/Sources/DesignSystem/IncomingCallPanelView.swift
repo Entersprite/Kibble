@@ -80,7 +80,7 @@ public struct IncomingCallPanelView: View {
                 )
                 CallRoundButton(
                     title: content.endsOtherCall ? "End Call and Answer" : "Accept",
-                    symbol: "phone.fill", tone: .accept, size: 38, action: accept
+                    symbol: "phone.fill", tone: .accept, size: 38, rings: true, action: accept
                 )
             }
         }
@@ -111,35 +111,50 @@ public struct IncomingCallPanelView: View {
     }
 
     /// Clicking who is calling opens the call window, as a notification's
-    /// body does.
+    /// body does. A plain button, so the whole area, gaps included, takes the
+    /// first click the host lets through.
+    ///
+    /// The last line can take two lines: the panel cannot grow, and a
+    /// failure such as "Another call is already using this device." needs
+    /// more than this column's width. A long account name gives up its own
+    /// middle instead, keeping both of its ends and all of "Kibble call".
     private var caller: some View {
-        HStack(spacing: 12) {
-            avatar
-            VStack(alignment: .leading, spacing: 2) {
-                Text(content.name ?? "Incoming call")
-                    .font(.headline)
-                    .lineLimit(1)
-                Text((content.name == nil ? "Kibble" : "Kibble call") +
-                    (content.accountLabel.map { " · \($0)" } ?? ""))
+        Button(action: open) {
+            HStack(spacing: 12) {
+                avatar
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(content.name ?? "Incoming call")
+                        .font(.headline)
+                        .lineLimit(1)
+                    HStack(spacing: 0) {
+                        Text(content.name == nil ? "Kibble" : "Kibble call")
+                            .fixedSize()
+                        if let account = content.accountLabel {
+                            Text(" · \(account)")
+                                .truncationMode(.middle)
+                        }
+                    }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                if let problem = content.problem {
-                    Text(problem)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .lineLimit(1)
-                } else if content.endsOtherCall {
-                    Text("Answering ends your other call")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if let problem = content.problem {
+                        Text(problem)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if content.endsOtherCall {
+                        Text("Answering ends your other call")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: open)
-        .accessibilityAddTraits(.isButton)
+        .buttonStyle(.plain)
         .accessibilityAction(named: "Show Call", open)
     }
 
