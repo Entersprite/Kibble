@@ -62,15 +62,17 @@ struct ComposerFormattingButton: View {
             }
         } label: {
             Label("Format", systemImage: "textformat").labelStyle(.iconOnly)
+                .foregroundStyle(.primary)
                 .frame(width: ComposerLayout.lineHeight, height: ComposerLayout.lineHeight)
+                .contentShape(.circle)
         }
-        // `.borderlessButton` is deprecated; this pair draws the same
-        // borderless pull-down. The tint keeps its label primary, as the
-        // emoji button's is and as `.borderlessButton` drew it: a borderless
-        // button alone dims it (rendered side by side).
+        // A plain pull-down with no indicator, so the label alone fills the
+        // glass circle, as the + and emoji buttons beside it do. A borderless
+        // button style drew a chevron beside the label, which widened the
+        // button and left the circle small and off its center.
         .menuStyle(.button)
-        .buttonStyle(.borderless)
-        .tint(.primary)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
         .glassEffect(.regular.interactive(), in: .circle)
         .help("Format selected text")
