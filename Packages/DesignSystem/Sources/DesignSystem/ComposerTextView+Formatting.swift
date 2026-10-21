@@ -1,12 +1,63 @@
 #if os(macOS)
     import AppKit
 
-    /// What reaches the field from outside the keyboard: the emoji picker's
-    /// text, a list's `- `, and the format button's and Format menu's styles.
-    /// Each goes through the view, never by setting the draft, so it reaches
-    /// the draft by the delegate route, moves the tokens and runs after it,
-    /// and is one step Cmd-Z can take back.
+    /// What reaches the field from outside the typing: the emoji picker's
+    /// text, and the Format submenu's and the format shortcuts' styles and
+    /// list. Each goes through the view, never by setting the draft, so it
+    /// reaches the draft by the delegate route, moves the tokens and runs
+    /// after it, and is one step Cmd-Z can take back.
     extension ComposerTextView.Coordinator {
+        /// A Format choice: the style on or off over the selection, or for
+        /// what is typed next; for a list, `- ` before each selected line.
+        func apply(_ format: ComposerFormat, in view: NSTextView) {
+            if let style = format.style {
+                toggle(style, in: view)
+            } else {
+                prefixLines(with: format.marker, in: view)
+            }
+        }
+
+        /// The field's context menu, with Format first where the conversation
+        /// can be formatted: every choice, the styles on at the selection
+        /// checked, and the shortcuts shown that the field answers itself.
+        /// There is no format button and no Format menu in the menu bar; this
+        /// is where formatting lives (owner decision).
+        func textView(_ view: NSTextView, menu: NSMenu, for _: NSEvent, at _: Int) -> NSMenu? {
+            guard parent.formatting else { return menu }
+            let item = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
+            item.image = NSImage(systemSymbolName: ComposerFormat.menuSymbol, accessibilityDescription: nil)
+            item.submenu = formatMenu(for: view)
+            menu.insertItem(item, at: 0)
+            menu.insertItem(.separator(), at: 1)
+            return menu
+        }
+
+        func formatMenu(for view: NSTextView) -> NSMenu {
+            let on = ComposerFormat.choices(for: parent.draft.activeStyles(in: view.selectedRange()))
+            let menu = NSMenu(title: "Format")
+            for format in ComposerFormat.allCases {
+                if format == .code {
+                    menu.addItem(.separator())
+                }
+                let trampoline = ReactionMenuTrampoline { [weak self, weak view] in
+                    guard let self, let view else { return }
+                    view.window?.makeFirstResponder(view)
+                    apply(format, in: view)
+                }
+                let item = NSMenuItem(
+                    title: format.title, action: #selector(ReactionMenuTrampoline.choose(_:)),
+                    keyEquivalent: format.keyEquivalent
+                )
+                item.keyEquivalentModifierMask = format.keyEquivalentModifiers
+                item.target = trampoline
+                // `target` is weak: the item keeps the trampoline alive itself.
+                item.representedObject = trampoline
+                item.state = on.contains(format) ? .on : .off
+                menu.addItem(item)
+            }
+            return menu
+        }
+
         func perform(_ insertion: ComposerInsertion, in view: NSTextView) {
             if let style = insertion.toggle {
                 toggle(style, in: view)
@@ -73,7 +124,7 @@
             view.didChangeText()
         }
 
-        /// The styles on at the selection, for the Format menu's checkmarks.
+        /// The styles on at the selection, for whoever listens (`onStyles`).
         func reportStyles(in view: NSTextView) {
             parent.onStyles?(parent.draft.activeStyles(in: view.selectedRange()))
         }

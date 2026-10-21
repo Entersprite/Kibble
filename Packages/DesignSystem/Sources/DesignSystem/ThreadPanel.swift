@@ -162,14 +162,13 @@ struct ThreadPanel: View {
 /// width changed (past the window's edge after one resize, gone after the
 /// next), and a flexible one was held at its minimum (session 63).
 ///
-/// The system's glass button in a capsule, in the control's own font.
+/// The composer's glass in a capsule, at the composer's line height and in
+/// 13-point semibold, so it reads as Close's neighbor. The system's glass
+/// button style drew it in a larger font and twice the weight (owner's
+/// screenshot), so it stays a plain button wearing glass.
 struct ThreadFollowButton: View {
     let panel: ThreadPanelState
     let threads: ThreadActions
-
-    /// The label's height: with the regular size's 4-point padding on each
-    /// side, the button is as tall as Close beside it (31 pt, measured hosted).
-    static let labelHeight = ComposerLayout.lineHeight - 8
 
     var body: some View {
         Button {
@@ -178,10 +177,14 @@ struct ThreadFollowButton: View {
             Label(ThreadsPresentation.followTitle(isFollowed: isFollowed), systemImage: followSymbol)
                 // A toolbar draws icons alone, and a bare + reads as "new".
                 .labelStyle(.titleAndIcon)
-                .frame(minHeight: Self.labelHeight)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .frame(height: ComposerLayout.lineHeight)
+                .contentShape(.capsule)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
         // The toggle changes only once the server agreed (spec §3).
         .disabled(panel.followPending)
     }
@@ -261,7 +264,10 @@ struct ThreadPanelList: View {
     /// no mark.
     private func bubble(_ message: Message) -> some View {
         MessageBubble(
-            message: message, state: MessageRowState(message: message, scene: state, showsThread: false),
+            message: message,
+            state: MessageRowState(
+                message: message, scene: state, showsThread: false, badgesSender: message.sender != state.me
+            ),
             loadAttachment: actions.loadAttachment, openAttachment: actions.openAttachment,
             loadRemoteImage: actions.loadRemoteImage,
             attachmentFiles: actions.attachmentFiles,

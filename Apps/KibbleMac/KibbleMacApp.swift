@@ -114,7 +114,6 @@ struct KibbleMacApp: App {
             // publishes what is enabled (`MainWindowCommands`).
             ConversationCommands { sceneActions(for: environment, showSettings: {}) }
             CallCommands(menu: appDelegate.callMenu.menu, model: appDelegate.callMenu)
-            FormatCommands()
             AccountCommands(host: appDelegate.accountHost, isPanelOpen: $isAccountPanelOpen) {
                 settingsPane = "accounts"
             }

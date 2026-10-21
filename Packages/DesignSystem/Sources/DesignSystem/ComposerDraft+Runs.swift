@@ -60,8 +60,8 @@ public extension ComposerDraft {
     }
 
     /// The styles to show as on for `selection`, as Notes checks them in its
-    /// Format menu: the typing styles with nothing selected, otherwise those
-    /// every selected character has.
+    /// Format menu (here the field's Format submenu): the typing styles with
+    /// nothing selected, otherwise those every selected character has.
     func activeStyles(in selection: NSRange) -> Set<Style> {
         guard selection.length > 0 else { return typingStyles }
         return Set(Style.allCases.filter { ComposerRuns.covers($0, selection, in: text, runs: runs) })

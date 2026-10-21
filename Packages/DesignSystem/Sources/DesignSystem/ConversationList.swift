@@ -231,20 +231,21 @@ struct ConversationRow: View {
         Display.dmPartner(of: conversation, directory: state.directory, me: state.me)
     }
 
-    /// A `Label`, so the name lines up with the pinned rows' and the picture
-    /// sits in the sidebar's own icon column at every sidebar icon size.
+    /// The picture beside the name in a plain stack, never a `Label`'s icon
+    /// slot: the sidebar redraws what sits in that slot in its own style,
+    /// which turned the away ring black in a focused window and dropped
+    /// presence badges (owner's screenshots), and gave rows uneven heights.
     private func row(now: Date) -> some View {
-        HStack(spacing: 8) {
-            Label {
-                Text(Display.title(of: conversation, directory: state.directory, me: state.me))
-                    .lineLimit(1)
-                    // `hasUnread`, not `unreadCount`: the count is always zero on
-                    // the wire (`findings.md` §37.8), so weighting on it meant no
-                    // conversation was ever bold.
-                    .fontWeight(showsUnread ? .semibold : .regular)
-            } icon: {
-                icon
-            }
+        let side = SidebarRowPicture.diameter(rowSize)
+        return HStack(spacing: 8) {
+            icon
+                .frame(width: side, height: side)
+            Text(Display.title(of: conversation, directory: state.directory, me: state.me))
+                .lineLimit(1)
+                // `hasUnread`, not `unreadCount`: the count is always zero on
+                // the wire (`findings.md` §37.8), so weighting on it meant no
+                // conversation was ever bold.
+                .fontWeight(showsUnread ? .semibold : .regular)
             Spacer(minLength: 4)
             // After the spacer, so the marks sit at the trailing edge, beside
             // the mute bell and the unread dot, rather than after the name.

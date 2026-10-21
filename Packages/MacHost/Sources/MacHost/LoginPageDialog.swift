@@ -35,6 +35,16 @@ enum LoginPageDialog: Equatable {
         return "\(host) says"
     }
 
+    /// The first-run window's answer, given at once without asking
+    /// (`LoginDialogPolicy.answer`): an alert dismissed, a confirmation
+    /// accepted, a prompt given no text.
+    var automaticAnswer: Answer {
+        switch self {
+        case .alert, .confirm: Answer(confirmed: true)
+        case .prompt: Answer(confirmed: false)
+        }
+    }
+
     /// What a sheet's response means: only OK, the first button, confirms.
     /// Cancel, Esc and a refusal all answer no.
     func answer(_ response: NSApplication.ModalResponse, text: String?) -> Answer {

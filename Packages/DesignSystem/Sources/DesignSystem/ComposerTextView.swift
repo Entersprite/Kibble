@@ -39,10 +39,12 @@
         var onActivity: ((Bool) -> Void)?
         /// Pasted files and pictures, while the composer can stage them.
         var paste: ComposerPaste?
-        /// Told when the field gains or loses the keyboard.
-        var onFocusChange: ((Bool) -> Void)?
+        /// Whether this conversation can be formatted: the field's context
+        /// menu then has a Format submenu, and Cmd-B, Cmd-I, Cmd-U and
+        /// Shift-Cmd-X format while it has the keyboard (`ComposerFormat`).
+        var formatting = false
         /// Told the styles on at the caret or over the whole selection
-        /// (`ComposerDraft.activeStyles`), for the Format menu's checkmarks.
+        /// (`ComposerDraft.activeStyles`), after every change.
         var onStyles: ((Set<ComposerDraft.Style>) -> Void)?
 
         static let maxLines = 6
@@ -55,17 +57,22 @@
             let scroll = ComposerScrollView.make()
             scroll.textView.delegate = context.coordinator
             Self.describe(scroll.textView, placeholder: placeholder)
-            connect(scroll.textView)
+            connect(scroll.textView, to: context.coordinator)
             context.coordinator.show(draft, in: scroll.textView)
             return scroll
         }
 
-        /// The current paste and focus callbacks, on every update: both
-        /// close over this composer's latest state.
-        private func connect(_ view: NSTextView) {
+        /// The current paste and shortcut callbacks, on every update: the
+        /// paste closes over this composer's latest state.
+        private func connect(_ view: NSTextView, to coordinator: Coordinator) {
             guard let view = view as? ComposerNSTextView else { return }
             view.paste = paste
-            view.focusChanged = onFocusChange
+            view.formatShortcut = formatting
+                ? { [weak coordinator, weak view] format in
+                    guard let coordinator, let view else { return }
+                    coordinator.apply(format, in: view)
+                }
+                : nil
         }
 
         /// The label and placeholder VoiceOver reads, which the `TextField`
@@ -79,7 +86,7 @@
             let coordinator = context.coordinator
             coordinator.parent = self
             Self.describe(scroll.textView, placeholder: placeholder)
-            connect(scroll.textView)
+            connect(scroll.textView, to: coordinator)
             coordinator.show(draft, in: scroll.textView)
             // Both after this update, because both write the draft's binding,
             // which an update must not; and the field takes focus first, since

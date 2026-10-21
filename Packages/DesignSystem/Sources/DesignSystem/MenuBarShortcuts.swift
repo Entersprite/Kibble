@@ -7,8 +7,8 @@ import SwiftUI
 /// system's Find… showed no shortcut at all (measured in a menu-bar probe).
 /// A clash therefore fails nothing and shows only as a command that stopped
 /// answering its keys. Binding through this table is what lets a test prove
-/// that no two commands share a shortcut, the Format menu's and the system's
-/// included (`MenuBarShortcutsTests`).
+/// that no two commands share a shortcut, the composer's format keys and the
+/// system's included (`MenuBarShortcutsTests`).
 ///
 /// An item with no convention to follow gets no shortcut rather than an
 /// invented one: Show Details, Call, Go to Mentions and the call's camera
@@ -56,14 +56,14 @@ public enum MenuBarShortcuts {
         (0 ..< 9).contains(index) ? KeyEquivalent(Character(String(index + 1))) : nil
     }
 
-    /// Everything Kibble binds itself, the Format menu's included.
+    /// Everything Kibble binds itself, the composer field's format keys included.
     public static var all: [KeyboardShortcut] {
         [
             search, nextResult, previousResult, newMessage, newGroupChat, mainWindow, accountPanel,
             nextConversation, previousConversation, markAsRead, muteCall
         ]
             + (0 ..< 9).compactMap(account) + (0 ..< 9).compactMap(conversation)
-            + ComposerFormat.menuBarItems.compactMap(\.shortcut)
+            + ComposerFormat.keyed.compactMap(\.shortcut)
     }
 
     /// What the system and SwiftUI already bind in the menus of every Mac app

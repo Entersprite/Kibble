@@ -49,57 +49,82 @@ extension TranscriptLatestJump.Context {
     }
 }
 
-/// The floating Jump to Latest, above the typing row, in the transcript's own
+/// The floating jump to the newest messages, centered at the transcript's
+/// foot, just above the composer and the typing row, in the transcript's own
 /// bottom inset and never the toolbar's band (`CLAUDE.md`).
 struct TranscriptJumpOverlay: ViewModifier {
     @Binding var nearBottom: Bool
+    @Binding var unseen: Bool
     let context: TranscriptLatestJump.Context
     let perform: (TranscriptLatestJump.Action) -> Void
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: .bottomTrailing) {
-            JumpToLatestButton(nearBottom: $nearBottom, context: context, perform: perform)
-                .padding(.trailing, TranscriptLayout.horizontalPadding)
+        content.overlay(alignment: .bottom) {
+            JumpToLatestButton(nearBottom: $nearBottom, unseen: $unseen, context: context, perform: perform)
                 .padding(.bottom, 8)
         }
     }
 }
 
-/// An icon-only round glass button at the transcript's foot: a control
-/// floating over content, which is what Liquid Glass is for. Always in the
-/// view tree and faded rather than inserted, so showing it moves nothing.
+/// A Liquid Glass capsule saying Jump to Newest while the newest end is out
+/// of view: a control floating over content, which is what glass is for.
+/// When someone's message arrives meanwhile, it turns blue and says New
+/// Messages, so the person knows there is something new without being moved
+/// from what they are reading. Seeing the newest end again, by this button or
+/// by scrolling, puts it back.
 ///
-/// It reads `nearBottom` itself, through the binding, so only it redraws as
-/// the newest end comes and goes. Read in `MessageList`'s body, the same
-/// state redrew the whole transcript in the middle of placing a search's
-/// target, and the placement was lost (measured in the hosted transcript
-/// tests).
+/// Always in the view tree and faded rather than inserted, so showing it
+/// moves nothing. It reads `nearBottom` itself, through the binding, so only
+/// it redraws as the newest end comes and goes. Read in `MessageList`'s body,
+/// the same state redrew the whole transcript in the middle of placing a
+/// search's target, and the placement was lost (measured in the hosted
+/// transcript tests).
 struct JumpToLatestButton: View {
     static let symbol = "arrow.down"
 
     @Binding var nearBottom: Bool
+    @Binding var unseen: Bool
     let context: TranscriptLatestJump.Context
     let perform: (TranscriptLatestJump.Action) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    static func title(unseen: Bool) -> String {
+        unseen ? "New Messages" : "Jump to Newest"
+    }
+
     var body: some View {
         let action = TranscriptLatestJump.action(nearBottom: nearBottom, context)
-        Button {
-            if let action {
-                perform(action)
+        Group {
+            if unseen {
+                button(action).buttonStyle(.glassProminent).tint(.blue)
+            } else {
+                button(action).buttonStyle(.glass)
             }
-        } label: {
-            Label("Jump to Latest", systemImage: Self.symbol)
-                .labelStyle(.iconOnly)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonBorderShape(.capsule)
         .controlSize(.large)
-        .help("Jump to Latest")
         .opacity(action == nil ? 0 : 1)
         .allowsHitTesting(action != nil)
         .accessibilityHidden(action == nil)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: action)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: unseen)
+        .onChange(of: nearBottom) { _, atBottom in
+            if atBottom {
+                unseen = false
+            }
+        }
+    }
+
+    private func button(_ action: TranscriptLatestJump.Action?) -> some View {
+        Button {
+            if let action {
+                unseen = false
+                perform(action)
+            }
+        } label: {
+            Label(Self.title(unseen: unseen), systemImage: Self.symbol)
+                .labelStyle(.titleAndIcon)
+        }
     }
 }
 

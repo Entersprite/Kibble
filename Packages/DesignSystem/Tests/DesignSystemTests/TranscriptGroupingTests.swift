@@ -43,6 +43,18 @@ struct TranscriptGroupingTests {
         #expect(rows.map(\.continuesGroup) == [false, true, true])
     }
 
+    /// The sender's picture goes beside each group's last message, as in
+    /// Messages: never the first, and a message alone is its own last.
+    @Test func thePictureGoesBesideEachGroupsLastMessage() {
+        let rows = Self.placements([
+            Self.message("a", minutes: 0), Self.message("b", minutes: 1), Self.message("c", minutes: 2),
+            Self.message("d", Self.sam, minutes: 3),
+            Self.message("e", minutes: 4), Self.message("f", minutes: 20)
+        ])
+        #expect(rows.map(\.endsGroup) == [false, false, true, true, true, true])
+        #expect(rows.map(\.continuesGroup) == [false, true, true, false, false, false])
+    }
+
     @Test func fiveMinutesOrMoreStartsAGroup() {
         let rows = Self.placements([Self.message("a", minutes: 0), Self.message("b", minutes: 5)])
         #expect(rows.map(\.continuesGroup) == [false, false])

@@ -1,11 +1,13 @@
+import AppKit
 import ChatKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 @testable import DesignSystem
 
-/// The floating Jump to Latest, the rotors, following a growing last row and
-/// the text bubble's widest, as pure rules.
+/// The floating jump to the newest, unseen arrivals, tapbacks, the rotors,
+/// following a growing last row and the text bubble's widest.
 @MainActor
 struct TranscriptControlsTests {
     @Test func jumpToLatestShowsOnlyWhereItCanGoSomewhere() {
@@ -27,6 +29,62 @@ struct TranscriptControlsTests {
         #expect(action(hasNewer: true, latestJump: false) == nil)
         #expect(action(loading: true) == nil)
         #expect(action(isEmpty: true) == nil)
+    }
+
+    @Test func theJumpSaysNewMessagesOnlyWhenSomethingArrived() {
+        #expect(JumpToLatestButton.title(unseen: false) == "Jump to Newest")
+        #expect(JumpToLatestButton.title(unseen: true) == "New Messages")
+    }
+
+    /// Only someone else's message arriving while the newest end is out of
+    /// view turns the jump into New Messages; history, a trimmed window and
+    /// your own message do not.
+    @Test func onlyAnUnseenArrivalFromSomeoneElseCounts() {
+        let alex = Member.ID("alex")
+        let me = Member.ID("me")
+        func message(_ id: String, _ sender: Member.ID = alex) -> Message {
+            Message(
+                id: Message.ID(id), conversationID: Conversation.ID("c"), threadID: MessageThread.ID("t"),
+                sender: sender, text: id, createdAt: Date(timeIntervalSince1970: 0)
+            )
+        }
+        func unseen(_ old: String?, _ new: String?, _ messages: [Message], expected: Bool = false) -> Bool {
+            let before: Message.ID? = old.map { Message.ID($0) }
+            let after: Message.ID? = new.map { Message.ID($0) }
+            return TranscriptArrival.isUnseen(
+                from: before, to: after, messages: messages, me: me, expected: expected
+            )
+        }
+        let arrived = [message("a"), message("b")]
+        #expect(unseen("a", "b", arrived))
+        // Following the newest end, or a page of history asked for.
+        #expect(!unseen("a", "b", arrived, expected: true))
+        #expect(!unseen("a", "b", [message("a"), message("b", me)]))
+        // The window trimmed below: the old newest is gone, nothing arrived.
+        #expect(!unseen("z", "b", arrived))
+        #expect(!unseen(nil, "b", arrived))
+        #expect(!unseen("b", "b", arrived))
+    }
+
+    /// A tapback shows a count only when more than one chose the emoji, and
+    /// at most five emoji before the rest are counted.
+    @Test func aTapbackStaysSmall() {
+        let one = Reaction(emoji: "👍", count: 1, includesMe: true)
+        let two = Reaction(emoji: "🎉", count: 2)
+        let single = NSHostingView(rootView: ReactionCapsuleContent(reaction: one, showsSingleCount: false))
+        let counted = NSHostingView(rootView: ReactionCapsuleContent(reaction: one))
+        #expect(single.fittingSize.width < counted.fittingSize.width)
+        #expect(NSHostingView(rootView: ReactionCapsuleContent(reaction: two, showsSingleCount: false))
+            .fittingSize.width > single.fittingSize.width)
+
+        let emoji = ["😀", "😃", "😄", "😁", "😆", "😅", "🤣"]
+        let many = emoji.map { Reaction(emoji: $0, count: 1) }
+        let five = NSHostingView(rootView: ReactionTapbacks(reactions: Array(many.prefix(5)), isMine: false))
+        let seven = NSHostingView(rootView: ReactionTapbacks(reactions: many, isMine: false))
+        // Seven draws five and "+2", not seven.
+        #expect(seven.fittingSize.width > five.fittingSize.width)
+        #expect(seven.fittingSize.width < five.fittingSize.width + 40)
+        #expect(five.fittingSize.height == ReactionTapbacks.height)
     }
 
     @Test func followingNeedsGrowthSeenFromTheBottom() {

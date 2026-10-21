@@ -6,16 +6,18 @@
     @testable import DesignSystem
 
     /// Formatting in the field as a person meets it: hosted in a window, a
-    /// choice from the format button or the Format menu arrives the way
-    /// `Composer.format` sends it (through `updateNSView`, acted on a turn
-    /// of the main queue later), and text arrives as the keyboard types it.
-    /// Bold is bold in the text storage, and no markup reaches the text.
+    /// style arrives through the field (an insertion through `updateNSView`,
+    /// acted on a turn of the main queue later, or the field's Format submenu
+    /// and keys), and text arrives as the keyboard types it. Bold is bold in
+    /// the text storage, and no markup reaches the text.
     @MainActor
     struct ComposerFormattingHostedTests {
         @MainActor
         final class Box {
             var draft = ComposerDraft()
             var styles: Set<ComposerDraft.Style> = []
+            /// Whether the field formats, kept across every rebuild of it.
+            var formatting = false
         }
 
         struct Hosted {
@@ -34,11 +36,13 @@
                 onKey: { _ in },
                 onSubmit: {},
                 insertion: insertion,
+                formatting: box.formatting,
                 onStyles: { box.styles = $0 }
             )
         }
 
-        private func hosted(_ box: Box) throws -> Hosted {
+        func hosted(_ box: Box, formatting: Bool = false) throws -> Hosted {
+            box.formatting = formatting
             let host = NSHostingView(rootView: field(box))
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 360, height: 120),
@@ -62,15 +66,15 @@
         }
 
         /// What the keyboard does: one undoable step per string.
-        private func type(_ text: String, in hosted: Hosted) {
+        func type(_ text: String, in hosted: Hosted) {
             hosted.undo.beginUndoGrouping()
             hosted.view.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
             hosted.undo.endUndoGrouping()
         }
 
-        /// The format button's or the Format menu's choice, as one step, and
-        /// waits, bounded, until the field has acted on it.
-        private func choose(_ style: ComposerDraft.Style, in hosted: Hosted, _ box: Box) async {
+        /// A style chosen from outside the typing, as one step, and waits,
+        /// bounded, until the field has acted on it.
+        func choose(_ style: ComposerDraft.Style, in hosted: Hosted, _ box: Box) async {
             let before = box.draft
             hosted.undo.beginUndoGrouping()
             hosted.host.rootView = field(box, insertion: ComposerInsertion(toggle: style))
@@ -277,8 +281,8 @@
             withExtendedLifetime(hosted.window) {}
         }
 
-        /// The Format menu's checkmarks follow the caret and the selection,
-        /// and a style chosen for typing, as Notes' do.
+        /// The styles on at the selection follow the caret and the selection,
+        /// and a style chosen for typing, as Notes' Format menu does.
         @Test func theStylesOnAtTheSelectionAreReported() async throws {
             let box = Box()
             let hosted = try hosted(box)

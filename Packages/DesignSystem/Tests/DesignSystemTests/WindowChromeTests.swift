@@ -25,8 +25,8 @@
             #expect(Set(DirectoryMenuSymbols.all).count == DirectoryMenuSymbols.all.count)
         }
 
-        /// Follow is the system's glass button, as tall as Close beside it in
-        /// either state.
+        /// Follow wears the composer's glass at the composer's line height, as
+        /// tall as Close beside it in either state.
         @Test func followIsAsTallAsClose() {
             for followed in [false, true] {
                 let panel = ThreadPanelState(

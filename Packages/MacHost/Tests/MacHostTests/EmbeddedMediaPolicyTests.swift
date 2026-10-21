@@ -34,9 +34,10 @@ struct EmbeddedMediaPolicyTests {
     }
 
     @MainActor
-    @Test func theWindowKeepsTheVideosShapeAndStaysOutOfTabs() {
+    @Test func theWindowResizesFreelyAndStaysOutOfTabs() {
         let window = EmbeddedMediaPresenter.makeWindow()
-        #expect(window.contentAspectRatio == NSSize(width: 16, height: 9))
+        // No fixed shape: a portrait or 4:3 video gets a window to match.
+        #expect(window.contentAspectRatio == .zero)
         #expect(window.contentMinSize == NSSize(width: 480, height: 270))
         #expect(window.tabbingMode == .disallowed)
         #expect(window.title == "Video")

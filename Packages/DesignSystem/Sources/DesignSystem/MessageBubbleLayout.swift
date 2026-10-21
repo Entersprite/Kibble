@@ -34,6 +34,18 @@ enum MessageBubbleLayout {
     static let ownFill = Color.blue
 }
 
+extension VerticalAlignment {
+    private enum MessageBottom: AlignmentID {
+        static func defaultValue(in dimensions: ViewDimensions) -> CGFloat {
+            dimensions[.bottom]
+        }
+    }
+
+    /// A transcript row's message's foot, where the sender's picture sits
+    /// (`MessageBubble`), whatever is drawn under the message.
+    static let messageBottom = VerticalAlignment(MessageBottom.self)
+}
+
 /// Offers its content at most `MessageBubbleLayout.maxTextWidth(row:)` and
 /// takes the content's own size, so a long text wraps at the limit and a
 /// short one stays as narrow as its words (`frame(maxWidth:)` would grow to
@@ -63,40 +75,5 @@ struct BubbleWidthLimit: Layout {
             at: bounds.origin, anchor: .topLeading,
             proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
         )
-    }
-}
-
-/// Add Reaction, shown while the pointer is over a row, beside the message
-/// and centered on it, in the room the row's spacer keeps, so nothing moves.
-/// Only until the message has reactions, whose row ends with an add button
-/// of its own. VoiceOver reaches the same action through the row's actions.
-///
-/// Always in the tree and only faded: inside an `if`, an overlay's explicit
-/// alignment guide was ignored (measured headless), which put the button
-/// over the bubble's edge.
-struct AddReactionHoverButton: View {
-    let isMine: Bool
-    let shown: Bool
-    let action: () -> Void
-
-    var body: some View {
-        let mine = isMine
-        Button(action: action) {
-            Label("Add Reaction", systemImage: MessageMenuSymbols.moreEmoji)
-                .labelStyle(.iconOnly)
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-                .frame(width: 24, height: 24)
-                .background(.quinary, in: Circle())
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .alignmentGuide(mine ? HorizontalAlignment.leading : .trailing) { dimensions in
-            mine ? dimensions[.trailing] + 6 : dimensions[.leading] - 6
-        }
-        .help("Add Reaction")
-        .opacity(shown ? 1 : 0)
-        .allowsHitTesting(shown)
-        .accessibilityHidden(true)
     }
 }

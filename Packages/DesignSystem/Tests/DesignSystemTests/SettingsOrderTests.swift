@@ -1,11 +1,13 @@
+import AppKit
 import ChatKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import DesignSystem
 
-/// The reorder model Settings › Accounts and Settings › Sidebar share: a
-/// drag, Move Up and Move Down, and the accessibility actions agree on every
-/// end, and Favorites never leaves the top of the sidebar.
+/// The reorder model Settings › Accounts and Settings › Sidebar share: the
+/// arrows and the accessibility actions agree on every end, and Favorites
+/// never leaves the top of the sidebar.
 struct SettingsOrderTests {
     private struct Row: Identifiable, Equatable {
         let id: String
@@ -25,13 +27,6 @@ struct SettingsOrderTests {
         #expect(SettingsOrder.moving("a", .down, in: [Row(id: "a")]) == nil)
     }
 
-    @Test func aDragLandsWhereOnMoveSays() {
-        // onMove's destination is an offset before the move: c to the top is 0.
-        #expect(SettingsOrder.moving(rows, fromOffsets: [2], toOffset: 0).map(\.id) == ["c", "a", "b"])
-        // a below c is offset 3, past the end.
-        #expect(SettingsOrder.moving(rows, fromOffsets: [0], toOffset: 3).map(\.id) == ["b", "c", "a"])
-    }
-
     @Test func aRowsPlaceFollowsTheEnds() {
         let places = rows.map { SettingsOrder.place(of: $0.id, in: rows) }
         #expect(places.map(\.canMoveUp) == [false, true, true])
@@ -49,8 +44,26 @@ struct SettingsOrderTests {
         #expect(SettingsOrder.place(of: "a", in: rows).isReorderable)
     }
 
-    @Test func menuTitlesAreTitleCase() {
+    @Test func titlesAreTitleCase() {
         #expect(SettingsMove.allCases.map(\.title) == ["Move Up", "Move Down"])
+        #expect(SettingsMoveButtons.title(.up, name: "Spaces") == "Move Spaces Up")
+        #expect(SettingsMoveButtons.title(.down, name: "Spaces") == "Move Spaces Down")
+    }
+
+    /// Every row draws its arrows, one click a move; a list of one draws none.
+    @MainActor
+    @Test func eachRowDrawsTwoArrowsAndALoneRowDrawsNone() {
+        let middle = NSHostingView(rootView: SettingsMoveButtons(
+            name: "b", place: SettingsOrder.place(of: "b", in: rows), move: { _ in }
+        ))
+        let alone = NSHostingView(rootView: SettingsMoveButtons(
+            name: "a", place: SettingsOrder.place(of: "a", in: [Row(id: "a")]), move: { _ in }
+        ))
+        #expect(middle.fittingSize.width > 20)
+        #expect(alone.fittingSize.width == 0)
+        for direction in SettingsMove.allCases {
+            #expect(NSImage(systemSymbolName: direction.systemImage, accessibilityDescription: nil) != nil)
+        }
     }
 
     // MARK: Sidebar sections
@@ -88,13 +101,6 @@ struct SettingsOrderTests {
             == ["favorites", "directMessage", "groupDirectMessage", "appDirectMessage", "space", "meetChat"])
         // Its own sorting choice survives the move.
         #expect(moved.favoritesSection.sort == .name)
-    }
-
-    @Test func aDragAmongSectionsKeepsFavoritesFirst() {
-        let preferences = SidebarPreferences()
-        let moved = SidebarSectionOrder.moving(preferences, fromOffsets: [4], toOffset: 0)
-        #expect(moved.sections.map(\.id)
-            == ["favorites", "meetChat", "directMessage", "groupDirectMessage", "space", "appDirectMessage"])
     }
 
     @Test func aMoveKeepsEachSectionsOwnSettings() throws {

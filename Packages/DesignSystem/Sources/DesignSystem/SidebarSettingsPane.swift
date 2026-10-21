@@ -24,17 +24,10 @@ public struct SidebarSettingsPane: View {
                 ForEach(sections) { section in
                     order(section)
                 }
-                .onMove { source, destination in
-                    update(SidebarSectionOrder.moving(
-                        preferences,
-                        fromOffsets: source,
-                        toOffset: destination
-                    ))
-                }
             } header: {
                 Text("Sections")
             } footer: {
-                Text("Turn off a section to hide it. To change the order, drag a section or use its menu. "
+                Text("Turn off a section to hide it. Use the arrows to change the order sections appear in. "
                     + "Favorites always comes first.")
             }
             ForEach(preferences.displaySections.filter(\.isVisible)) { section in
@@ -70,8 +63,7 @@ public struct SidebarSettingsPane: View {
         .formStyle(.grouped)
     }
 
-    /// A section's row: its name, its menu, and its switch. The menu is the
-    /// keyboard's way to reorder, beside the drag and the accessibility actions.
+    /// A section's row: its name, its arrows, and its switch.
     private func order(_ section: SidebarSectionPreference) -> some View {
         let place = SettingsOrder.place(of: section.id, in: sections)
         let move = { (direction: SettingsMove) in
@@ -82,17 +74,7 @@ public struct SidebarSettingsPane: View {
         return HStack(spacing: 6) {
             Text(section.title)
             Spacer()
-            Menu {
-                SettingsMoveMenuItems(place: place, move: move)
-            } label: {
-                Label("\(section.title) Options", systemImage: "ellipsis.circle")
-                    .labelStyle(.iconOnly)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.borderless)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .disabled(!place.isReorderable)
+            SettingsMoveButtons(name: section.title, place: place, move: move)
             Toggle("Show \(section.title)", isOn: Binding(
                 get: { section.isVisible },
                 set: { var changed = section; changed.isVisible = $0; change(changed) }
@@ -102,7 +84,6 @@ public struct SidebarSettingsPane: View {
             .padding(.leading, 6)
         }
         .settingsMoveActions(place, move: move)
-        .contextMenu { SettingsMoveMenuItems(place: place, move: move) }
     }
 
     private func change(_ section: SidebarSectionPreference) {
@@ -129,16 +110,6 @@ enum SidebarSectionOrder {
         _ id: String, _ move: SettingsMove, in preferences: SidebarPreferences
     ) -> SidebarPreferences? {
         SettingsOrder.moving(id, move, in: preferences.orderedSections).map { ordering(preferences, as: $0) }
-    }
-
-    /// A drag among the reorderable sections.
-    static func moving(
-        _ preferences: SidebarPreferences, fromOffsets source: IndexSet, toOffset destination: Int
-    ) -> SidebarPreferences {
-        ordering(
-            preferences,
-            as: SettingsOrder.moving(preferences.orderedSections, fromOffsets: source, toOffset: destination)
-        )
     }
 }
 

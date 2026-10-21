@@ -57,12 +57,10 @@ struct MeetingSeriesRow: View {
     }
 
     var body: some View {
+        // A plain stack, as `ConversationRow` is: never a `Label`'s icon slot.
         HStack(spacing: 8) {
-            Label {
-                Text(row.title).lineLimit(1).fontWeight(row.showsUnread ? .semibold : .regular)
-            } icon: {
-                MeetingPicture(size: SidebarRowPicture.diameter(rowSize)).accessibilityHidden(true)
-            }
+            MeetingPicture(size: SidebarRowPicture.diameter(rowSize)).accessibilityHidden(true)
+            Text(row.title).lineLimit(1).fontWeight(row.showsUnread ? .semibold : .regular)
             Spacer(minLength: 4)
             if row.muted {
                 Image(systemName: "bell.slash").font(.caption2).foregroundStyle(.tertiary)

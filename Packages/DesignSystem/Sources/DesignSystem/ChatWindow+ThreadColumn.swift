@@ -37,16 +37,12 @@ extension ChatWindow {
                     // beside the divider (session 65, measured).
                     ToolbarSpacer(.flexible, placement: .primaryAction)
                     // Their own glass, the composer's, not the toolbar's capsule
-                    // (session 63). One container draws the two as neighbors in one
-                    // pass; spacing 0 keeps them two shapes that never merge.
-                    // Measured, so the title keeps clear of them at whatever width
-                    // they draw.
+                    // (session 63). Measured, so the title keeps clear of them at
+                    // whatever width they draw.
                     ToolbarItem(placement: .primaryAction) {
-                        GlassEffectContainer(spacing: 0) {
-                            HStack(spacing: ComposerLayout.spacing) {
-                                ThreadFollowButton(panel: panel, threads: threads)
-                                ThreadCloseButton(threads: threads)
-                            }
+                        HStack(spacing: ComposerLayout.spacing) {
+                            ThreadFollowButton(panel: panel, threads: threads)
+                            ThreadCloseButton(threads: threads)
                         }
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { threadTools = $0 }
                     }

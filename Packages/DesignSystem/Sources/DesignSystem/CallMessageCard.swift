@@ -2,10 +2,22 @@ import ChatKit
 import SwiftUI
 
 /// Transcript history only. The incoming-call banner owns live call controls.
+///
+/// Every card is the same size, whatever it says: the glyph sits in a fixed
+/// column, and the words take the width of the longest title. A card sized
+/// to its own words drew Call missed wider than Call ended (owner's
+/// screenshot).
 struct CallMessageCard: View {
     let status: MessageCallStatus
 
+    static let statuses: [MessageCallStatus] = [.started, .missed, .ended, .unknown("")]
+    static let glyphSize = CGSize(width: 26, height: 22)
+
     private var title: String {
+        Self.title(of: status)
+    }
+
+    static func title(of status: MessageCallStatus) -> String {
         switch status {
         case .started: "Call started"
         case .missed: "Call missed"
@@ -27,10 +39,17 @@ struct CallMessageCard: View {
             Image(systemName: status == .missed ? "video.slash.fill" : "video.fill")
                 .font(.title3)
                 .foregroundStyle(tint)
+                .frame(width: Self.glyphSize.width, height: Self.glyphSize.height)
                 .accessibilityHidden(true)
-            Text(title)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(status == .missed ? .red : .primary)
+            ZStack(alignment: .leading) {
+                // Every title, unseen, so the widest sets the card's width.
+                ForEach(Self.statuses, id: \.self) { other in
+                    Text(Self.title(of: other)).hidden()
+                }
+                Text(title)
+                    .foregroundStyle(status == .missed ? .red : .primary)
+            }
+            .font(.callout.weight(.medium))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

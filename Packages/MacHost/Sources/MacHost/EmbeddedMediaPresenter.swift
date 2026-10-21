@@ -35,8 +35,7 @@ enum EmbeddedMediaPolicy {
 /// One explicit player for the process, with no login data or account cookies.
 /// The original account owner alone can dismiss it during account teardown.
 ///
-/// The window keeps the video's 16:9 shape as it is resized, and opens where
-/// the last one was left. The player's own full-screen button works. Nothing
+/// The window resizes to any shape, and opens where the last one was left. The player's own full-screen button works. Nothing
 /// plays until the person presses play.
 @MainActor
 final class EmbeddedMediaPresenter: NSObject, NSWindowDelegate, WKNavigationDelegate {
@@ -90,7 +89,8 @@ final class EmbeddedMediaPresenter: NSObject, NSWindowDelegate, WKNavigationDele
             backing: .buffered, defer: false
         )
         player.title = EmbeddedMediaPolicy.windowTitle(nil)
-        player.contentAspectRatio = NSSize(width: 16, height: 9)
+        // Free to resize to any shape: a portrait or 4:3 video must not be
+        // letterboxed into a fixed one (owner decision).
         player.contentMinSize = NSSize(width: 480, height: 270)
         player.tabbingMode = .disallowed
         player.isReleasedWhenClosed = false

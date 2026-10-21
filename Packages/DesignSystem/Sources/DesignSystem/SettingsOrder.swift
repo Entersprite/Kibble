@@ -12,19 +12,20 @@ enum SettingsMove: CaseIterable, Hashable, Sendable {
         }
     }
 
+    /// The arrow buttons' glyphs (`SettingsMoveButtons`).
     var systemImage: String {
         switch self {
-        case .up: "arrow.up"
-        case .down: "arrow.down"
+        case .up: "chevron.up"
+        case .down: "chevron.down"
         }
     }
 }
 
-/// The one way Settings › Accounts and Settings › Sidebar change an order.
-/// A drag (`onMove`), Move Up and Move Down in a row's menu, and the same two
-/// as named accessibility actions all produce the new order here, so the
-/// three can never disagree about the ends. A drag alone left no way to
-/// reorder from the keyboard, and arrow buttons on every row were clutter.
+/// The one way Settings › Accounts and Settings › Sidebar change an order:
+/// an up and a down arrow on every row, one click a place, and the same two
+/// as named accessibility actions, so both can never disagree about the
+/// ends. A drag inside a grouped `Form` did not move rows, and a menu put
+/// another click before every move (owner's check).
 enum SettingsOrder {
     /// `items` with the one identified by `id` one place earlier or later;
     /// `nil` when it is already at that end, or not listed at all.
@@ -37,18 +38,7 @@ enum SettingsOrder {
         return moved
     }
 
-    /// A drag's result, as `onMove` reports it.
-    static func moving<Item>(
-        _ items: [Item],
-        fromOffsets source: IndexSet,
-        toOffset destination: Int
-    ) -> [Item] {
-        var moved = items
-        moved.move(fromOffsets: source, toOffset: destination)
-        return moved
-    }
-
-    /// A row's place in the list, for its menu and its accessibility actions.
+    /// A row's place in the list, for its arrows and its accessibility actions.
     static func place<Item: Identifiable>(of id: Item.ID, in items: [Item]) -> SettingsRowPlace {
         SettingsRowPlace(
             canMoveUp: moving(id, .up, in: items) != nil,
@@ -62,8 +52,8 @@ struct SettingsRowPlace: Equatable, Sendable {
     var canMoveUp: Bool
     var canMoveDown: Bool
 
-    /// Whether the row's menu offers Move Up and Move Down at all; at an end,
-    /// the one that cannot apply is shown disabled, as a pull-down menu does.
+    /// Whether the row draws its arrows at all; at an end, the one that
+    /// cannot apply is drawn disabled.
     var isReorderable: Bool {
         canMoveUp || canMoveDown
     }
@@ -82,24 +72,41 @@ struct SettingsRowPlace: Equatable, Sendable {
     }
 }
 
-/// Move Up and Move Down for a row's menu and context menu.
-struct SettingsMoveMenuItems: View {
+/// A row's up and down arrows, borderless and icon-only, as Settings › Sidebar
+/// has always drawn them. `name` says what moves, for the help tag's
+/// neighbor, VoiceOver ("Move Spaces Up").
+struct SettingsMoveButtons: View {
+    let name: String
     let place: SettingsRowPlace
     let move: (SettingsMove) -> Void
 
     var body: some View {
         if place.isReorderable {
-            ForEach(SettingsMove.allCases, id: \.self) { direction in
-                Button(direction.title, systemImage: direction.systemImage) { move(direction) }
+            HStack(spacing: 6) {
+                ForEach(SettingsMove.allCases, id: \.self) { direction in
+                    Button { move(direction) } label: {
+                        Label(Self.title(direction, name: name), systemImage: direction.systemImage)
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderless)
                     .disabled(!place.allows(direction))
+                    .help(direction.title)
+                }
             }
+        }
+    }
+
+    static func title(_ direction: SettingsMove, name: String) -> String {
+        switch direction {
+        case .up: "Move \(name) Up"
+        case .down: "Move \(name) Down"
         }
     }
 }
 
 extension View {
     /// The row's possible moves as named accessibility actions, so VoiceOver
-    /// can reorder without a drag. Metadata only: nothing is announced.
+    /// can reorder from the row itself. Metadata only: nothing is announced.
     func settingsMoveActions(_ place: SettingsRowPlace, move: @escaping (SettingsMove) -> Void) -> some View {
         accessibilityActions {
             ForEach(place.available, id: \.self) { direction in

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Settings › Accounts: every connected account in list order, with what can
 /// be done to it, and Add Account. The order, which the account panel and
-/// ⌃⌘1…9 follow, changes by dragging a row or from its menu (`SettingsOrder`).
+/// ⌃⌘1…9 follow, changes with each row's arrows (`SettingsOrder`).
 public struct AccountsSettingsPane: View {
     private let state: AccountPanelState
     private let actions: AccountPanelActions
@@ -25,7 +25,6 @@ public struct AccountsSettingsPane: View {
                         move: { move(account.id, $0) }
                     )
                 }
-                .onMove(perform: drag)
             } footer: {
                 Text(footer)
             }
@@ -38,15 +37,6 @@ public struct AccountsSettingsPane: View {
         .formStyle(.grouped)
     }
 
-    /// No drag where the host cannot reorder.
-    private var drag: ((IndexSet, Int) -> Void)? {
-        guard let reorder = actions.reorder else { return nil }
-        let accounts = state.accounts
-        return { source, destination in
-            reorder(SettingsOrder.moving(accounts, fromOffsets: source, toOffset: destination).map(\.id))
-        }
-    }
-
     private func move(_ id: String, _ direction: SettingsMove) {
         guard let reorder = actions.reorder,
               let moved = SettingsOrder.moving(id, direction, in: state.accounts) else { return }
@@ -54,7 +44,7 @@ public struct AccountsSettingsPane: View {
     }
 
     private var footer: String {
-        let order = actions.reorder == nil ? "" : "To change the order, drag an account or use its menu. "
+        let order = actions.reorder == nil ? "" : "Use the arrows to change the order. "
         return order + "Control-Command-1 through 9 switch to the first nine accounts. "
             + "Signing out keeps an account and its settings until you sign in again with it; "
             + "removing it also forgets its settings."
@@ -84,6 +74,7 @@ struct AccountsSettingsRow: View {
             }
             Spacer(minLength: 8)
             AccountsSettingsStatus(status: account.status)
+            SettingsMoveButtons(name: account.label, place: place, move: move)
             Menu {
                 menu
             } label: {
@@ -121,10 +112,6 @@ struct AccountsSettingsRow: View {
             } else {
                 Button("Enable", systemImage: "play.circle") { setEnabled(account.id, true) }
             }
-        }
-        if place.isReorderable {
-            Divider()
-            SettingsMoveMenuItems(place: place, move: move)
         }
         if account.status != .removing {
             Divider()

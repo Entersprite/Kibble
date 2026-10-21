@@ -4,10 +4,13 @@ import SwiftUI
 
 /// How one transcript row sits among its neighbors.
 struct TranscriptRowPlacement: Equatable {
-    /// The row continues the previous message's group, so it draws no name,
-    /// picture or time; it keeps the picture's column, and its read receipt
-    /// and thread mark keep their places.
+    /// The row continues the previous message's group, so it draws no name
+    /// or time; its read receipt and thread mark keep their places.
     var continuesGroup = false
+    /// The row is its group's last, the next message starting a new one or
+    /// there being none: the sender's picture goes beside it, as in Messages.
+    /// Every other row keeps the picture's column empty.
+    var endsGroup = true
     /// The start of the day a separator before the row names; `nil` draws
     /// none.
     var day: Date?
@@ -46,6 +49,11 @@ enum TranscriptGrouping {
             }
             if let previous, !divided, day == previousDay {
                 placement.continuesGroup = continues(message, after: previous)
+                // The group goes on past the previous row, so its picture
+                // moves down to this one.
+                if placement.continuesGroup {
+                    result[previous.id]?.endsGroup = false
+                }
             }
             result[message.id] = placement
             previous = message

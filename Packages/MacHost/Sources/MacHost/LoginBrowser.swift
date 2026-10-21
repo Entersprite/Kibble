@@ -19,7 +19,8 @@ import WebKit
 /// - a load that fails reported to the window's model, so the window says so
 ///   instead of staying blank;
 /// - the page's JavaScript dialogs as sheets on the window, answered only by
-///   the person (`LoginPageDialog`);
+///   the person (`LoginPageDialog`), except in the first-run window, which
+///   answers them itself as it always has (`LoginDialogPolicy`);
 /// - back and forward swipes; and
 /// - the page's host, for the window's subtitle, so the person can see whose
 ///   page is asking for their password.
@@ -41,6 +42,8 @@ struct LoginBrowser: NSViewRepresentable {
 
     let start: URL?
     let traces: Bool
+    /// How the page's JavaScript dialogs are answered.
+    var dialogs = LoginDialogPolicy.ask
     let events: Events
     let pageHost: @MainActor (String) -> Void
 
@@ -56,7 +59,7 @@ struct LoginBrowser: NSViewRepresentable {
     func updateNSView(_: WKWebView, context _: Context) {}
 
     func makeCoordinator() -> LoginBrowserDelegate {
-        LoginBrowserDelegate(events: events, traces: traces, pageHost: pageHost)
+        LoginBrowserDelegate(events: events, traces: traces, dialogs: dialogs, pageHost: pageHost)
     }
 
     static func dismantleNSView(_: WKWebView, coordinator: LoginBrowserDelegate) {
@@ -98,17 +101,29 @@ struct LoginBrowser: NSViewRepresentable {
     }
 }
 
+/// How a sign-in browser answers the page's JavaScript dialogs.
+enum LoginDialogPolicy {
+    /// As sheets on the window, answered by the person.
+    case ask
+    /// At once, as the first-run window always has: an alert is dismissed
+    /// and a confirmation accepted, so nothing in Google's flow waits on a
+    /// dialog; a prompt gets no text. Each is written to `LoginTrace`.
+    case answer
+}
+
 extension LoginBrowser {
     /// The capture model's browser: the first-run window and Add Account.
     /// It opens Chat itself.
     init(
         capturing model: CookieCaptureModel,
         traces: Bool = false,
+        dialogs: LoginDialogPolicy = .ask,
         pageHost: @escaping @MainActor (String) -> Void
     ) {
         self.init(
             start: LoginWebViewConfiguration.chat.startURL,
             traces: traces,
+            dialogs: dialogs,
             events: Events(
                 attached: { model.attach($0) },
                 settled: { model.pageSettled($0) },
@@ -134,72 +149,26 @@ extension LoginBrowser {
     }
 }
 
-/// The first-run window's browser, for the app target, which names no WebKit
-/// type. The window shows `pageHost`'s host as its subtitle.
-public struct CookieCaptureBrowser: View {
-    private let model: CookieCaptureModel
-    private let traces: Bool
-    private let pageHost: @MainActor (String) -> Void
-
-    public init(
-        model: CookieCaptureModel, traces: Bool = false,
-        pageHost: @escaping @MainActor (String) -> Void = { _ in }
-    ) {
-        self.model = model
-        self.traces = traces
-        self.pageHost = pageHost
-    }
-
-    public var body: some View {
-        LoginBrowser(capturing: model, traces: traces, pageHost: pageHost)
-    }
-}
-
-/// The capture model's buttons, the same in every window that signs in with
-/// it. None of them takes Return, which belongs to the page's own form.
-public struct CookieCaptureButtons: View {
-    private let model: CookieCaptureModel
-
-    public init(model: CookieCaptureModel) {
-        self.model = model
-    }
-
-    public var body: some View {
-        if let setup = model.callSetup, setup.isActive {
-            Button("Try Again") { setup.retry() }
-                .disabled(setup.isSaving || setup.isFinishing)
-            Button("Continue to Chat") { Task { await setup.continueToChat() } }
-                .disabled(setup.isFinishing)
-        } else if model.showsManualControls {
-            // Shown once automatic saving can no longer finish on its own,
-            // so a failed automatic capture is never a dead end
-            // (`CookieCaptureModel.showsManualControls`).
-            Button("Capture Now") { model.capture() }
-            // `save()` completes sign-in itself, behind the same latch as the
-            // automatic save, so a press that lands while that save is in
-            // flight cannot leave the window twice
-            // (`CookieCaptureModel.hasCompleted`).
-            Button("Save and Continue") { Task { await model.save() } }
-                .disabled(!model.canSave)
-        }
-    }
-}
-
 /// The browser's navigation and UI delegate, and the owner of the adapter the
 /// model holds weakly.
 @MainActor
 final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     private let events: LoginBrowser.Events
     private let traces: Bool
+    private let policy: LoginDialogPolicy
     private let pageHost: @MainActor (String) -> Void
     private(set) var page: WebKitLoginWebView?
     private var shownHost: String?
     private var dialogs: [(alert: NSAlert, reply: LoginDialogReply)] = []
     private var closeObserver: (any NSObjectProtocol)?
 
-    init(events: LoginBrowser.Events, traces: Bool, pageHost: @escaping @MainActor (String) -> Void) {
+    init(
+        events: LoginBrowser.Events, traces: Bool, dialogs: LoginDialogPolicy = .ask,
+        pageHost: @escaping @MainActor (String) -> Void
+    ) {
         self.events = events
         self.traces = traces
+        policy = dialogs
         self.pageHost = pageHost
     }
 
@@ -216,6 +185,20 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     // MARK: Navigation
+
+    /// Every navigation is allowed, as WebKit's default does; the first-run
+    /// window writes each decision to `LoginTrace`, as it always has.
+    func webView(
+        _: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+    ) {
+        if traces {
+            let target = navigationAction.targetFrame == nil ? " [new window]" : ""
+            LoginTrace.note("policy: allow\(target)", url: navigationAction.request.url)
+        }
+        decisionHandler(.allow)
+    }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation _: WKNavigation!) {
         if traces {
@@ -295,7 +278,7 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         if traces {
             LoginTrace.note("js alert: \(message.prefix(120))")
         }
-        present(.alert(message), in: webView, from: frame) { _ in completionHandler() }
+        handle(.alert(message), in: webView, host: frame.securityOrigin.host) { _ in completionHandler() }
     }
 
     func webView(
@@ -307,7 +290,9 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         if traces {
             LoginTrace.note("js confirm: \(message.prefix(120))")
         }
-        present(.confirm(message), in: webView, from: frame) { completionHandler($0.confirmed) }
+        handle(.confirm(message), in: webView, host: frame.securityOrigin.host) {
+            completionHandler($0.confirmed)
+        }
     }
 
     func webView(
@@ -320,15 +305,28 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         if traces {
             LoginTrace.note("js prompt: \(prompt.prefix(120))")
         }
-        present(.prompt(prompt, defaultText: defaultText), in: webView, from: frame) {
+        handle(.prompt(prompt, defaultText: defaultText), in: webView, host: frame.securityOrigin.host) {
             completionHandler($0.text)
+        }
+    }
+
+    /// A page's dialog, answered as this window's policy says: at once in the
+    /// first-run window, otherwise by the person. `host` names the page that
+    /// asked, for the sheet's title.
+    func handle(
+        _ dialog: LoginPageDialog, in webView: WKWebView, host: String?,
+        send: @escaping @MainActor (LoginPageDialog.Answer) -> Void
+    ) {
+        switch policy {
+        case .answer: send(dialog.automaticAnswer)
+        case .ask: present(dialog, in: webView, host: host, send: send)
         }
     }
 
     /// Shows a page's dialog as a sheet on the browser's window. With no
     /// window to show it on, the page is refused, as a closed one would be.
     private func present(
-        _ dialog: LoginPageDialog, in webView: WKWebView, from frame: WKFrameInfo,
+        _ dialog: LoginPageDialog, in webView: WKWebView, host: String?,
         send: @escaping @MainActor (LoginPageDialog.Answer) -> Void
     ) {
         let reply = LoginDialogReply(dialog: dialog, send: send)
@@ -337,7 +335,7 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
             return
         }
         let alert = NSAlert()
-        alert.messageText = LoginPageDialog.title(host: frame.securityOrigin.host)
+        alert.messageText = LoginPageDialog.title(host: host)
         alert.informativeText = dialog.message
         alert.addButton(withTitle: "OK")
         if dialog.canCancel {

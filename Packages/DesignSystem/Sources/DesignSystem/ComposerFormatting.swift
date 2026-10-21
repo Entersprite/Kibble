@@ -1,8 +1,11 @@
 import SwiftUI
+#if os(macOS)
+    import AppKit
+#endif
 
 /// One of the composer's formatting choices: the style the field draws, and
-/// the title and shortcut both the format button and the menu bar's Format
-/// menu show, so the two cannot drift apart.
+/// the title and shortcut the field's Format submenu shows and its keyboard
+/// answers (`ComposerTextView`), so the two cannot drift apart.
 public enum ComposerFormat: String, CaseIterable, Identifiable, Sendable {
     case bold, italic, underline, strikethrough, code, codeBlock, bulletedList
 
@@ -71,46 +74,40 @@ public enum ComposerFormat: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// The Format menu's items: the styles that apply within a line. A code
-    /// block and a list reshape whole lines, and stay on the format button.
-    public static let menuBarItems: [ComposerFormat] = [.bold, .italic, .underline, .strikethrough, .code]
+    /// The choices with a shortcut, which the field answers itself while it
+    /// has the keyboard; no menu bar command may take one of their keys
+    /// (`MenuBarShortcuts.all`).
+    public static let keyed: [ComposerFormat] = allCases.filter { $0.shortcut != nil }
+
+    /// The Format submenu's picture (checked by `ComposerLayoutTests`).
+    static let menuSymbol = "textformat"
 }
 
-/// The focused composer's formatting, for the menu bar. `Composer` publishes
-/// it with `focusedSceneValue` only while its field has the keyboard and its
-/// conversation can be formatted, so the menu's items are disabled
-/// everywhere else, as Format items are in a Mac app with no text to format.
-///
-/// Equal while it comes from the same composer with the same styles on: a
-/// new value on every keystroke would rebuild the menu bar's Format menu
-/// each time, and `apply` reaches the composer's state wherever it was
-/// captured. The styles change only where the caret or selection meets
-/// other formatting.
-public struct ComposerFormatting: Equatable {
-    /// The composer it comes from.
-    public let id: UUID
-    /// The styles on at the field's caret or over its whole selection,
-    /// which the Format menu checks, as Notes does.
-    public let active: Set<ComposerFormat>
-    /// Turns the style on or off over the field's selection, as one
-    /// undoable step, or for what is typed next.
-    public let apply: @MainActor (ComposerFormat) -> Void
+#if os(macOS)
+    extension ComposerFormat {
+        /// The shortcut as an `NSMenuItem` shows it; empty for none.
+        var keyEquivalent: String {
+            shortcut.map { String($0.key.character) } ?? ""
+        }
 
-    public init(
-        id: UUID,
-        active: Set<ComposerFormat> = [],
-        apply: @escaping @MainActor (ComposerFormat) -> Void
-    ) {
-        self.id = id
-        self.active = active
-        self.apply = apply
+        var keyEquivalentModifiers: NSEvent.ModifierFlags {
+            guard let modifiers = shortcut?.modifiers else { return [] }
+            let pairs: [(EventModifiers, NSEvent.ModifierFlags)] = [
+                (.command, .command), (.shift, .shift), (.option, .option), (.control, .control)
+            ]
+            return pairs.reduce(into: []) { flags, pair in
+                if modifiers.contains(pair.0) {
+                    flags.insert(pair.1)
+                }
+            }
+        }
+
+        /// The choice a key press asks for: its key, ignoring case, with
+        /// exactly its modifiers; `nil` for any other press.
+        static func choice(key: String?, modifiers: NSEvent.ModifierFlags) -> ComposerFormat? {
+            guard let key = key?.lowercased() else { return nil }
+            let pressed = modifiers.intersection([.command, .shift, .option, .control])
+            return keyed.first { $0.keyEquivalent == key && $0.keyEquivalentModifiers == pressed }
+        }
     }
-
-    public static func == (lhs: ComposerFormatting, rhs: ComposerFormatting) -> Bool {
-        lhs.id == rhs.id && lhs.active == rhs.active
-    }
-}
-
-public extension FocusedValues {
-    @Entry var composerFormatting: ComposerFormatting?
-}
+#endif

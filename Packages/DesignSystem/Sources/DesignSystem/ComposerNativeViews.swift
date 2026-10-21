@@ -104,15 +104,28 @@
     }
 
     /// The composer's text view: what it accepts from a drag and a paste,
-    /// whether it has the keyboard, and the Spelling and Grammar choices it
+    /// the format keys it answers, and the Spelling and Grammar choices it
     /// remembers.
     final class ComposerNSTextView: NSTextView {
         /// Set while the composer can stage files (`ComposerPaste`).
         var paste: ComposerPaste?
-        /// Told when the field gains or loses the keyboard, for the Format
-        /// menu (`ComposerFormatting`).
-        var focusChanged: ((Bool) -> Void)?
+        /// Set where the conversation can be formatted: Cmd-B, Cmd-I, Cmd-U
+        /// and Shift-Cmd-X format while this field has the keyboard. No menu
+        /// bar item claims those keys, so they reach the window, which offers
+        /// them to its views before anything else.
+        var formatShortcut: ((ComposerFormat) -> Void)?
         var spelling = ComposerSpelling()
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            if let formatShortcut, window?.firstResponder === self, !hasMarkedText(),
+               let format = ComposerFormat.choice(
+                   key: event.charactersIgnoringModifiers, modifiers: event.modifierFlags
+               ) {
+                formatShortcut(format)
+                return true
+            }
+            return super.performKeyEquivalent(with: event)
+        }
 
         /// Accepts dragged text only. An editable text view takes file and
         /// URL drags by default, and AppKit gives a drag to the deepest view
@@ -135,22 +148,6 @@
                 return staged
             }
             return super.readSelection(from: pboard, type: type)
-        }
-
-        override func becomeFirstResponder() -> Bool {
-            let became = super.becomeFirstResponder()
-            if became {
-                focusChanged?(true)
-            }
-            return became
-        }
-
-        override func resignFirstResponder() -> Bool {
-            let resigned = super.resignFirstResponder()
-            if resigned {
-                focusChanged?(false)
-            }
-            return resigned
         }
 
         override func toggleContinuousSpellChecking(_ sender: Any?) {

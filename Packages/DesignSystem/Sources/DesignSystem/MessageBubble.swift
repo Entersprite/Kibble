@@ -25,16 +25,18 @@ struct MessageBubble: View {
     var markOn = false
     var checkDelivery: ((Message.ID) -> Void)?
     /// The row continues the previous message's group
-    /// (`TranscriptGrouping`): no name, picture or time of its own.
+    /// (`TranscriptGrouping`): no name or time of its own.
     var continuesGroup = false
+    /// The row ends its group, so the sender's picture goes beside it, at
+    /// the foot of the message, as in Messages; other rows keep the column.
+    var endsGroup = true
     /// A day separator above names the day, so the row's time omits it.
     var datedBySeparator = false
 
     /// Whether the full emoji picker is open for this message: from either
-    /// menu's "More Emoji…", the row's "+" or the hover button (reactions
-    /// spec §4.1-§4.3).
+    /// menu's "More Emoji…" (reactions spec §4.2-§4.3). The context menus are
+    /// the only way to add a reaction (owner decision).
     @State private var picking = false
-    @State private var hovering = false
     /// The message's pictures and downloads as Quick Look pages.
     @State private var gallery = AttachmentGallery()
 
@@ -67,7 +69,10 @@ struct MessageBubble: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: MessageBubbleLayout.spacing) {
+        // On the message's own foot, never the column's: the reactions,
+        // delivery label, receipts and thread mark under it do not move the
+        // picture.
+        HStack(alignment: .messageBottom, spacing: MessageBubbleLayout.spacing) {
             if isMine {
                 Spacer(minLength: MessageBubbleLayout.opposite)
             }
@@ -95,20 +100,23 @@ struct MessageBubble: View {
                 .padding(.horizontal, -6)
         }
         .padding(.top, continuesGroup ? 0 : 6)
-        .onHover { hovering = $0 }
         .quickLookPreview($gallery.selection, in: gallery.items)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
         .messageAccessibilityActions(menu.table(), addReaction: addsReactions ? { picking = true } : nil)
     }
 
-    /// A continuing row keeps the picture's column empty, so its bubble
-    /// lines up with the group's first.
+    /// The sender's picture beside the group's last message; every other row
+    /// keeps the picture's column empty, so the group's bubbles line up.
     @ViewBuilder private var avatar: some View {
-        if continuesGroup {
-            Color.clear.frame(width: MessageBubbleLayout.avatarSide, height: 1)
+        if endsGroup {
+            Avatar(
+                member: message.sender, directory: state.directory, size: MessageBubbleLayout.avatarSide,
+                presence: state.senderPresence
+            )
+            .alignmentGuide(.messageBottom) { $0[.bottom] }
         } else {
-            Avatar(member: message.sender, directory: state.directory, size: MessageBubbleLayout.avatarSide)
+            Color.clear.frame(width: MessageBubbleLayout.avatarSide, height: 1)
         }
     }
 
@@ -117,9 +125,9 @@ struct MessageBubble: View {
             if !continuesGroup {
                 header.accessibilityHidden(true)
             }
-            // The message itself, apart from its name, reactions and marks,
-            // so the hover button sits beside what was said: the column
-            // around it can span the row (the read receipt's row does).
+            // The message itself, apart from its name and the marks under
+            // it: the reactions hang from its corner, and the picture lines up
+            // with its foot.
             VStack(alignment: isMine ? .trailing : .leading, spacing: 2) {
                 if message.isDeleted {
                     bubble
@@ -129,25 +137,11 @@ struct MessageBubble: View {
                     messageContent
                 }
             }
-            .overlay(alignment: isMine ? .leading : .trailing) {
-                // Not once the message has reactions: their row ends with an
-                // add button of its own.
-                AddReactionHoverButton(
-                    isMine: isMine, shown: addsReactions && hovering && message.reactions.isEmpty
-                ) {
-                    picking = true
-                }
-            }
-            if !message.reactions.isEmpty {
-                ReactionRow(
-                    reactions: message.reactions,
-                    toggle: availableReactions.map { actions in
-                        { choice, add in actions.toggle(message.id, choice, add) }
-                    },
-                    loadImage: availableReactions?.customImage,
-                    onAdd: addsReactions ? { picking = true } : nil
-                )
-            }
+            .overlay(alignment: isMine ? .topLeading : .topTrailing) { tapbacks }
+            .alignmentGuide(.messageBottom) { $0[.bottom] }
+            // Room for the reactions above the message, so they never cover
+            // the message before it.
+            .padding(.top, message.reactions.isEmpty || message.isDeleted ? 0 : ReactionTapbacks.rise)
             if let delivery = state.deliveryStatus {
                 MessageDeliveryLabel(
                     status: delivery,
@@ -369,6 +363,27 @@ struct MessageBubble: View {
 }
 
 extension MessageBubble {
+    /// Hung from the message's top corner: its foot over the message's top
+    /// edge, a little of it over the corner, the rest past the message's
+    /// edge. Always in the overlay, drawing nothing without reactions, so
+    /// these guides hold (`ReactionTapbacks.body`).
+    var tapbacks: some View {
+        let mine = isMine
+        return ReactionTapbacks(
+            reactions: message.isDeleted ? [] : message.reactions,
+            isMine: mine,
+            toggle: availableReactions.map { actions in
+                { choice, add in actions.toggle(message.id, choice, add) }
+            },
+            loadImage: availableReactions?.customImage
+        )
+        .alignmentGuide(.top) { $0[.bottom] - ReactionTapbacks.overlap }
+        .alignmentGuide(mine ? HorizontalAlignment.leading : .trailing) { dimensions in
+            let inset = ReactionTapbacks.inset
+            return mine ? dimensions[.trailing] - inset : dimensions[.leading] + inset
+        }
+    }
+
     /// "Alex Lee, 3:25 PM": the row's sender and time, which a continuing
     /// row does not draw. The header is hidden from VoiceOver, so every row
     /// says the same thing.

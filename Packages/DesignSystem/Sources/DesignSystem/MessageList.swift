@@ -31,7 +31,7 @@ public struct MessageList: View {
     /// Reply in Thread, Mark as Unread, Edit… and Delete…; `nil` offers none
     /// (edit spec §5, threads spec §5). Set by `ChatWindow` through
     /// `ownMessages(_:)`: the handlers are the window's, and internal.
-    private var own: OwnMessageHandlers?
+    var own: OwnMessageHandlers?
     /// Where this account's transcript was when it last left the screen.
     private var resume: TranscriptResume?
 
@@ -40,25 +40,31 @@ public struct MessageList: View {
     /// Mentions pane, which removes this view, so a fresh list has honoured
     /// nothing.
     @State private var honoured: TranscriptScroll.Request?
-    @State private var hasPlacedMessages = false
-    @State private var readingAnchor = TranscriptReadingAnchor()
-    @State private var nearBottom = true
-    @State private var paging = TranscriptPaging()
+    @State var hasPlacedMessages = false
+    @State var readingAnchor = TranscriptReadingAnchor()
+    @State var nearBottom = true
+    @State var paging = TranscriptPaging()
     @State private var lastOlderBoundary: Message.ID?
     @State private var lastNewerBoundary: Message.ID?
-    @State private var latestJumpRequested = false
+    @State var latestJumpRequested = false
     /// The messages on screen, kept unobserved: read only when leaving.
     @State private var seen = TranscriptSeen()
     /// The newest message as of the latest render, kept unobserved: read by
     /// the newest row when it leaves (`TranscriptEndTracking`).
     @State private var newest = TranscriptNewest()
+    /// Someone else's message arrived while the newest end was out of view,
+    /// so the jump button says New Messages until the end is seen again.
+    @State var unseenArrivals = false
+    /// The newest message when a page of newer history was asked for: its
+    /// arrival is history, not a new message (`noteArrival`).
+    @State var newerPageFrom: Message.ID?
 
     /// The message a search opened, while its two-second tint is showing
     /// (search spec §1.5). `marked` is set once per open, so a later render
     /// of the same highlight does not restart the mark, and opening it again
     /// does.
-    @State private var marked: TranscriptScroll.Request?
-    @State private var markOn = false
+    @State var marked: TranscriptScroll.Request?
+    @State var markOn = false
 
     public init(
         state: ChatSceneState,
@@ -114,40 +120,33 @@ public struct MessageList: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
-                    if state.hasOlderMessages, let loadOlderMessages {
-                        Button("Load older messages") {
-                            readingAnchor.capture()
-                            loadOlderMessages()
-                        }
-                        .disabled(state.isLoadingOlderMessages || state.isLoadingNewerMessages)
-                        .frame(maxWidth: .infinity)
+                    // Older messages load as the person scrolls up to them
+                    // (`pageOlderNearTheTop`), with no button to press. The
+                    // slot is there while there are any, the spinner only
+                    // while a page loads, so nothing below moves when it does.
+                    if state.hasOlderMessages {
+                        ProgressView()
+                            .controlSize(.small)
+                            .opacity(state.isLoadingOlderMessages ? 1 : 0)
+                            .frame(maxWidth: .infinity, minHeight: 24)
+                            .accessibilityHidden(!state.isLoadingOlderMessages)
                     }
                     ForEach(state.messages, id: \.id) { message in
                         let placement = placements[message.id] ?? TranscriptRowPlacement()
-                        if let start = dividers[message.id] {
-                            MeetingOccurrenceDivider(start: start)
+                        // One view per message, its divider and day separator
+                        // inside it: a message that sometimes brought an extra
+                        // view before it threw off the lazy stack's estimates,
+                        // so a jump to a message (a search, a mention) landed
+                        // hundreds of rows away (measured offline).
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let start = dividers[message.id] {
+                                MeetingOccurrenceDivider(start: start)
+                            }
+                            if let day = placement.day {
+                                TranscriptDaySeparator(day: day)
+                            }
+                            bubble(message, placement: placement, marker: marker)
                         }
-                        if let day = placement.day {
-                            TranscriptDaySeparator(day: day)
-                        }
-                        MessageBubble(
-                            message: message,
-                            state: MessageRowState(
-                                message: message, scene: state, showsThread: threads != nil,
-                                downloads: downloads
-                            ),
-                            receiptDirectory: marker?.messageID == message.id
-                                ? RowDirectory.avatars(marker?.readers ?? [], in: state.directory) : [:],
-                            receiptReaders: marker?.messageID == message.id ? marker?.readers ?? [] : [],
-                            receiptSlot: state.capabilities.receivesReadReceipts,
-                            groupReceipt: state.selectedConversation?.kind != .directMessage,
-                            loadAttachment: loadAttachment, openAttachment: openAttachment,
-                            loadRemoteImage: loadRemoteImage,
-                            attachmentFiles: attachmentFiles,
-                            reactions: reactions, own: own, openThread: threads?.open,
-                            marked: marked?.id, markOn: markOn, checkDelivery: checkMessageDelivery,
-                            continuesGroup: placement.continuesGroup, datedBySeparator: true
-                        )
                         .id(message.id)
                         .modifier(TranscriptAnchorTracking(id: message.id, anchor: readingAnchor))
                         .modifier(TranscriptEndTracking(
@@ -155,13 +154,14 @@ public struct MessageList: View {
                         ) { followGrowth(proxy) })
                     }
                     if state.hasNewerMessages, let loadNewerMessages {
-                        Button(state.newerMessagesAreLatestJump ? "Jump to latest" : "Load newer messages") {
+                        Button(state.newerMessagesAreLatestJump ? "Jump to Newest" : "Load Newer Messages") {
                             latestJumpRequested = state.newerMessagesAreLatestJump
                             if latestJumpRequested {
                                 readingAnchor.cancel()
                             } else {
                                 readingAnchor.capture()
                             }
+                            newerPageFrom = state.messages.last?.id
                             loadNewerMessages()
                         }
                         .disabled(state.isLoadingOlderMessages || state.isLoadingNewerMessages)
@@ -179,6 +179,7 @@ public struct MessageList: View {
             }
             .modifier(TranscriptJumpOverlay(
                 nearBottom: $nearBottom,
+                unseen: $unseenArrivals,
                 context: TranscriptLatestJump.Context(state, canLoadNewer: loadNewerMessages != nil)
             ) { jumpToLatest($0, proxy) })
             .safeAreaInset(edge: .bottom, spacing: 0) { TranscriptTypingRow(state: state) }
@@ -193,6 +194,14 @@ public struct MessageList: View {
             }
             .onScrollGeometryChange(for: CGSize.self) { $0.containerSize } action: { _, _ in
                 paging.hasUserIntent = false
+            }
+            .onScrollGeometryChange(
+                for: TranscriptTop.self,
+                of: { TranscriptTop($0) },
+                action: { old, new in pageOlderNearTheTop(from: old, to: new) }
+            )
+            .onChange(of: state.messages.last?.id) { old, new in
+                noteArrival(from: old, to: new)
             }
             .onScrollTargetVisibilityChange(idType: Message.ID.self, threshold: 0.01) { ids in
                 seen.ids = ids
@@ -325,7 +334,7 @@ public struct MessageList: View {
         return true
     }
 
-    private func pageIfNeeded(_ page: TranscriptPaging.Page?) {
+    func pageIfNeeded(_ page: TranscriptPaging.Page?) {
         switch page {
         case .older:
             guard state.hasOlderMessages, !state.isLoadingOlderMessages, !state.isLoadingNewerMessages,
@@ -341,36 +350,10 @@ public struct MessageList: View {
                   let loadNewerMessages else { return }
             lastNewerBoundary = boundary
             readingAnchor.capture()
+            newerPageFrom = boundary
             loadNewerMessages()
         case nil:
             break
         }
-    }
-}
-
-extension MessageList {
-    /// The last row grew while its end was in view: keep that end in view,
-    /// unless an older page's anchor is being restored, newer messages are
-    /// still to come, or a jump is under way.
-    private func followGrowth(_ proxy: ScrollViewProxy) {
-        guard hasPlacedMessages, !state.hasNewerMessages, readingAnchor.restoringID == nil,
-              !latestJumpRequested, let newest = state.messages.last?.id else { return }
-        proxy.scrollTo(newest, anchor: .bottom)
-    }
-}
-
-/// What `MessageList`'s mark watches: the message a search opened, the open
-/// that opened it, and whether the transcript has loaded it yet. `loaded` is
-/// the count rather than the message ids, so the trigger stays cheap to
-/// compare and still fires once the target's page lands.
-struct TranscriptMarkTrigger: Equatable {
-    let target: Message.ID?
-    let generation: Int
-    let loaded: Int
-
-    init(_ state: ChatSceneState) {
-        target = state.highlightedMessage
-        generation = state.searchOpenGeneration
-        loaded = state.messages.count
     }
 }

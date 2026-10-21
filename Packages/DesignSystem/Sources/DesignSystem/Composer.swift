@@ -11,9 +11,9 @@ import SwiftUI
 /// that cannot do anything is the mistake `ChatWindow` refuses to make with its
 /// "cannot send messages yet" text. Measurements are `ComposerLayout`'s.
 ///
-/// While its field has the keyboard and the conversation can be formatted,
-/// it offers the menu bar's Format menu its formatting
-/// (`ComposerFormatting`).
+/// There is no format button: where the conversation can be formatted, the
+/// field's own context menu has a Format submenu and the field answers the
+/// format shortcuts (`ComposerTextView.formatting`).
 public struct Composer: View {
     let activity: ((Bool) -> Void)?
     let placeholder: String
@@ -60,14 +60,6 @@ public struct Composer: View {
     @State var insertion: ComposerInsertion?
     /// Bumped by the microphone (`ComposerTextView`).
     @State private var dictationRequest = 0
-    /// Whether the field has the keyboard, which an `NSTextView` reports
-    /// itself (`ComposerNSTextView`): it decides whether this composer
-    /// offers the Format menu its formatting.
-    @State private var fieldFocused = false
-    /// Who the Format menu's value comes from (`ComposerFormatting`).
-    @State private var formattingID = UUID()
-    /// The styles on at the field's selection, which the Format menu checks.
-    @State var activeFormats: Set<ComposerFormat> = []
     /// The + shows the system's file importer.
     @State private var choosingFiles = false
 
@@ -121,9 +113,6 @@ public struct Composer: View {
                     )
                 }
                 box
-                if allowsFormatting {
-                    ComposerFormattingButton(showsShortcuts: fieldFocused, choose: format)
-                }
                 if let emoji {
                     ComposerEmojiButton(reactions: emoji, pick: insert)
                 }
@@ -145,11 +134,6 @@ public struct Composer: View {
         }
         .fileDialogConfirmationLabel("Attach")
         .fileDialogMessage("Choose files to send")
-        .focusedSceneValue(
-            \.composerFormatting,
-            fieldFocused && allowsFormatting
-                ? ComposerFormatting(id: formattingID, active: activeFormats, apply: format) : nil
-        )
         .animation(.snappy(duration: 0.15), value: canAct)
         .animation(.snappy(duration: 0.15), value: attachments.map(\.id))
         .overlayPreferenceValue(ComposerFieldAnchor.self) { anchor in
@@ -302,8 +286,7 @@ public struct Composer: View {
                 dictationRequest: dictationRequest,
                 onActivity: { activity?(draft.editing == nil && $0) },
                 paste: pasteActions,
-                onFocusChange: { fieldFocused = $0 },
-                onStyles: noteStyles
+                formatting: allowsFormatting
             )
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {

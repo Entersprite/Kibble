@@ -123,118 +123,135 @@ enum ReactionDisplay {
     }
 }
 
-/// The message's reactions. With actions, each is a toggle whose on state is
-/// the person's own reaction (`.isSelected` for VoiceOver, with its count in
-/// the label); without, a plain capsule.
-struct ReactionRow: View {
+/// The message's reactions as Messages draws tapbacks: one small bubble
+/// hanging from the top corner of what was said, at the trailing corner of
+/// someone else's message and the leading corner of yours, overlapping the
+/// corner, with two small circles for a tail. Each reaction is its emoji, and
+/// its count when more than one person chose it; the ones you chose are blue,
+/// as your own tapback is in Messages. Clicking one adds or removes yours.
+///
+/// The only reaction control on the message: adding one is the context
+/// menu's (owner decision), so there is no hover button and no "+".
+struct ReactionTapbacks: View {
     let reactions: [Reaction]
-    /// `nil` draws plain capsules; set, each capsule toggles the person's own
+    /// Hangs from the leading corner (your message) or the trailing one.
+    let isMine: Bool
+    /// `nil` draws them read-only; set, each toggles the person's own
     /// reaction for its emoji.
     var toggle: ((ReactionChoice, Bool) -> Void)?
     /// A custom emoji's picture; `nil` shows shortcodes.
     var loadImage: ((CustomEmojiRef) async throws -> Data)?
-    /// Opens the picker from a "+" capsule ending the row (spec §4.1); `nil`
-    /// draws no "+", with no actions to honour it.
-    var onAdd: (() -> Void)?
 
+    /// The bubble's height, and how much of it sits over the message: only
+    /// its foot, so it never covers the first line's words.
+    static let height: CGFloat = 26
+    static let overlap: CGFloat = 6
+    /// The room a message with reactions keeps above itself.
+    static let rise: CGFloat = height - overlap
+    /// How much of its width sits over the message's corner; the rest hangs
+    /// past the message's edge, as a tapback does in Messages.
+    static let inset: CGFloat = 12
+    /// Shown before the rest are counted as "+N", so the bubble stays small.
+    static let shown = 5
+    /// The ring of window background that sets it off from what it overlaps.
+    static let ring: CGFloat = 2
+
+    /// Nothing at all without reactions, so a message's overlay can always
+    /// hold one, and the alignment guides placing it are never inside an `if`
+    /// (`CLAUDE.md`).
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(reactions, id: \.key) { reaction in
-                if let toggle {
-                    Toggle(isOn: Binding(
-                        get: { reaction.includesMe },
-                        set: { toggle(reaction.choice, $0) }
-                    )) {
-                        ReactionCapsuleContent(reaction: reaction, loadImage: loadImage)
-                    }
-                    .toggleStyle(ReactionToggleStyle())
-                    .accessibilityLabel(ReactionDisplay.accessibilityLabel(for: reaction))
+        if !reactions.isEmpty {
+            bubble
+        }
+    }
+
+    /// Every reaction is the person's own: the whole tapback is blue, as
+    /// your own tapback is in Messages, rather than a blue chip in gray.
+    private var allMine: Bool {
+        reactions.allSatisfy(\.includesMe)
+    }
+
+    private var bubble: some View {
+        let visible = reactions.prefix(Self.shown)
+        let hidden = reactions.count - visible.count
+        return HStack(spacing: 2) {
+            ForEach(Array(visible), id: \.key) { reaction in
+                chip(reaction)
+            }
+            if hidden > 0 {
+                Text("+\(hidden)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(allMine ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                    .padding(.horizontal, 3)
+            }
+        }
+        .padding(.horizontal, 3)
+        .frame(height: Self.height)
+        // Blue when all of it is yours; otherwise a gray that hides what it
+        // covers in either appearance, the window's background with a
+        // tertiary fill over it. The ring is the same outline a little
+        // larger, filled with the background behind it: a stroke would draw
+        // the tail's edge inside the bubble.
+        .background {
+            ZStack {
+                ReactionTapbackShape(isMine: isMine).fill(.background).padding(-Self.ring)
+                if allMine {
+                    ReactionTapbackShape(isMine: isMine).fill(MessageBubbleLayout.ownFill)
                 } else {
-                    ReactionCapsule(reaction: reaction, loadImage: loadImage)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(ReactionDisplay.accessibilityLabel(for: reaction))
+                    ReactionTapbackShape(isMine: isMine).fill(.tertiary)
                 }
             }
-            if let onAdd {
-                Button(action: onAdd) {
-                    Label("Add Reaction", systemImage: EmojiPickerModel.addSymbol)
-                        .labelStyle(.iconOnly)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.quinary)
-                        .clipShape(Capsule())
-                }
+        }
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Reactions")
+    }
+
+    @ViewBuilder private func chip(_ reaction: Reaction) -> some View {
+        let label = ReactionDisplay.accessibilityLabel(for: reaction)
+        // A chip of its own only where the tapback mixes yours and others'.
+        let ownChip = reaction.includesMe && !allMine
+        let content = ReactionCapsuleContent(
+            reaction: reaction, loadImage: loadImage, showsSingleCount: false
+        )
+        .font(.callout)
+        .foregroundStyle(reaction.includesMe ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+        .padding(.horizontal, 5)
+        .frame(height: Self.height - 6)
+        .background(
+            ownChip ? AnyShapeStyle(MessageBubbleLayout.ownFill) : AnyShapeStyle(.clear), in: Capsule()
+        )
+        .contentShape(Capsule())
+        if let toggle {
+            Button { toggle(reaction.choice, !reaction.includesMe) } label: { content }
                 .buttonStyle(.plain)
-            }
+                .help(label)
+                .accessibilityLabel(label)
+                .accessibilityAddTraits(reaction.includesMe ? .isSelected : [])
+        } else {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
         }
     }
 }
 
-/// A reaction chip drawn as Messages and Mail draw a small pill: the quinary
-/// fill of a received bubble, tinted with an edge when it is yours, darker
-/// while pressed. Chosen over the system's button-style toggle, whose bezel
-/// at small size is heavier than the row of emoji it holds (rendered side by
-/// side). It is still a toggle, so VoiceOver hears selected or not.
-struct ReactionToggleStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Button {
-            configuration.isOn.toggle()
-        } label: {
-            configuration.label
-        }
-        .buttonStyle(ReactionChipButtonStyle(isOn: configuration.isOn))
-        .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
-    }
-}
+/// The tapback's outline: a capsule, and a small round tail at its foot on
+/// the side over the message. One circle, joined to the capsule: a second,
+/// loose one drew as a stray dot on the message's edge (rendered).
+struct ReactionTapbackShape: Shape {
+    let isMine: Bool
 
-private struct ReactionChipButtonStyle: ButtonStyle {
-    let isOn: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(fill(pressed: configuration.isPressed), in: Capsule())
-            .overlay(Capsule()
-                .strokeBorder(isOn ? AnyShapeStyle(.tint.opacity(0.55)) : AnyShapeStyle(.clear)))
-            .contentShape(Capsule())
-    }
-
-    private func fill(pressed: Bool) -> AnyShapeStyle {
-        switch (isOn, pressed) {
-        case (true, false): AnyShapeStyle(.tint.opacity(0.18))
-        case (true, true): AnyShapeStyle(.tint.opacity(0.3))
-        case (false, false): AnyShapeStyle(.quinary)
-        case (false, true): AnyShapeStyle(.quaternary)
-        }
-    }
-}
-
-/// One emoji and its count, in a capsule: the read-only chip.
-struct ReactionCapsule: View {
-    let reaction: Reaction
-    var loadImage: ((CustomEmojiRef) async throws -> Data)?
-    var image: CGImage?
-
-    init(
-        reaction: Reaction,
-        loadImage: ((CustomEmojiRef) async throws -> Data)? = nil,
-        image: CGImage? = nil
-    ) {
-        self.reaction = reaction
-        self.loadImage = loadImage
-        self.image = image
-    }
-
-    var body: some View {
-        ReactionCapsuleContent(reaction: reaction, loadImage: loadImage, image: image)
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(reaction.includesMe ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.quinary))
-            .clipShape(Capsule())
+    func path(in rect: CGRect) -> Path {
+        var path = Path(roundedRect: rect, cornerRadius: rect.height / 2)
+        // Sized from the rectangle, so the ring's larger copy (the same
+        // shape in a padded rectangle) grows its tail too.
+        let tail = rect.height * 0.3
+        // Below the leading end of someone else's tapback, below the
+        // trailing end of yours: the ends over the message.
+        let center = isMine ? rect.maxX - rect.height / 2 + 2 : rect.minX + rect.height / 2 - 2
+        path.addEllipse(in: CGRect(x: center - tail / 2, y: rect.maxY - tail / 2, width: tail, height: tail))
+        return path
     }
 }
 
@@ -244,16 +261,20 @@ struct ReactionCapsule: View {
 struct ReactionCapsuleContent: View {
     let reaction: Reaction
     var loadImage: ((CustomEmojiRef) async throws -> Data)?
+    /// Whether a count of one is drawn; a tapback shows only counts above one.
+    var showsSingleCount = true
     @State private var image: CGImage?
 
     /// `image` is for a render harness, which cannot run `.task`.
     init(
         reaction: Reaction,
         loadImage: ((CustomEmojiRef) async throws -> Data)? = nil,
+        showsSingleCount: Bool = true,
         image: CGImage? = nil
     ) {
         self.reaction = reaction
         self.loadImage = loadImage
+        self.showsSingleCount = showsSingleCount
         _image = State(initialValue: image)
     }
 
@@ -268,7 +289,9 @@ struct ReactionCapsuleContent: View {
             } else {
                 Text(reaction.emoji)
             }
-            Text("\(reaction.count)").monospacedDigit()
+            if showsSingleCount || reaction.count > 1 {
+                Text("\(reaction.count)").monospacedDigit()
+            }
         }
         .task(id: ReactionDisplay.imageTaskKey(for: reaction, canLoad: loadImage != nil)) {
             guard let loadImage, image == nil,

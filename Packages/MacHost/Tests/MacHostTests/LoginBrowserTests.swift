@@ -111,6 +111,37 @@ struct LoginBrowserTests {
         #expect(confirm.canCancel && prompt.canCancel)
     }
 
+    /// The first-run window answers the page's dialogs at once, as it always
+    /// has, so nothing in the sign-in waits on one; Add Account asks the
+    /// person, and with no window to ask in, refuses.
+    @Test func onlyTheFirstRunWindowAnswersThePagesDialogsItself() {
+        let firstRun = CookieCaptureBrowser(model: captureModel(), traces: true).browser
+        #expect(firstRun.dialogs == .answer)
+        #expect(firstRun.traces)
+        #expect(LoginBrowser(capturing: captureModel(), pageHost: { _ in }).dialogs == .ask)
+
+        // Through the delegate's one route for every dialog; WebKit traps on
+        // a frame made outside a page, so the host is given directly.
+        let view = LoginBrowser.makeWebView()
+        let answering = firstRun.makeCoordinator()
+        answering.attach(view)
+        var answers: [LoginPageDialog.Answer] = []
+        let dialogs: [LoginPageDialog] = [
+            .confirm("Leave?"), .alert("Hi"), .prompt("Name?", defaultText: "Avery")
+        ]
+        for dialog in dialogs {
+            answering.handle(dialog, in: view, host: nil) { answers.append($0) }
+        }
+        #expect(answers.map(\.confirmed) == [true, true, false])
+        #expect(answers.map(\.text) == [nil, nil, nil])
+
+        let asking = LoginBrowser(capturing: captureModel(), pageHost: { _ in }).makeCoordinator()
+        asking.attach(view)
+        var refused: [Bool] = []
+        asking.handle(.confirm("Leave?"), in: view, host: nil) { refused.append($0.confirmed) }
+        #expect(refused == [false])
+    }
+
     @Test func aDialogNamesThePageThatAsked() {
         #expect(LoginPageDialog.title(host: "accounts.google.com") == "accounts.google.com says")
         #expect(LoginPageDialog.title(host: "") == "This page says")
