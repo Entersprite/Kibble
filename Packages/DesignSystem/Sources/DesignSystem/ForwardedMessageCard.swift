@@ -2,7 +2,15 @@ import ChatKit
 import SwiftUI
 
 /// A received snapshot, with no actions against its source conversation.
+/// Its text, files, pictures and link cards carry the row's menu
+/// (`MessageMenuContext`), so a right-click anywhere on the card offers the
+/// row's reactions and items, acting on the row's message.
 struct ForwardedMessageCard: View {
+    /// The card's corners. Declared as its `containerShape`, so a picture
+    /// inside rounds concentrically with them (`ConcentricRectangle`).
+    static let cornerRadius: CGFloat = 16
+    static let padding: CGFloat = 10
+
     let forwarded: ForwardedMessage
     let directory: [Member.ID: Member]
     var me: Member.ID?
@@ -11,6 +19,9 @@ struct ForwardedMessageCard: View {
     var openAttachment: ((Attachment) async throws -> URL)?
     var loadRemoteImage: ((URL) async throws -> Data)?
     var attachmentFiles: AttachmentFileActions?
+    var menu: MessageMenuContext?
+    var gallery: AttachmentGallery?
+    var quickLook: ((Attachment) -> Void)?
 
     @Environment(\.openURL) private var openURL
 
@@ -49,9 +60,10 @@ struct ForwardedMessageCard: View {
                 snapshot
             }
         }
-        .padding(10)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+        .padding(Self.padding)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Self.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).stroke(.quaternary))
+        .containerShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
         .accessibilityElement(children: .contain)
     }
 
@@ -60,8 +72,9 @@ struct ForwardedMessageCard: View {
             #if os(macOS)
                 MessageTextView(
                     insets: .init(top: 0, left: 0, bottom: 0, right: 0),
-                    message: forwarded.message, actions: nil, me: me,
-                    open: { openURL($0) }
+                    message: forwarded.message, actions: menu?.reactions, me: me,
+                    onMore: menu?.onMore, own: menu?.own,
+                    open: { openURL($0) }, menuMessage: menu?.message
                 )
             #else
                 Text(forwarded.source.text).textSelection(.enabled)
@@ -70,15 +83,16 @@ struct ForwardedMessageCard: View {
         if let loadAttachment {
             ForEach(parts.images, id: \.id) { image in
                 ViewThatFits(in: .horizontal) {
-                    AttachmentImage(attachment: image, load: loadAttachment, open: openAttachment)
-                    AttachmentChip(
-                        attachment: image, state: downloads[image.id] ?? .idle, actions: attachmentFiles
+                    AttachmentImage(
+                        attachment: image, load: loadAttachment, open: openAttachment, gallery: gallery,
+                        quickLook: quickLook, menu: menu, saveAs: attachmentFiles?.saveAs, nested: true
                     )
+                    chip(image)
                 }
             }
         }
         ForEach(parts.files, id: \.id) { file in
-            AttachmentChip(attachment: file, state: downloads[file.id] ?? .idle, actions: attachmentFiles)
+            chip(file)
         }
         ForEach(parts.previews, id: \.url) { link in
             ViewThatFits(in: .horizontal) {
@@ -86,10 +100,18 @@ struct ForwardedMessageCard: View {
                 Link(LinkCardLayout.title(for: link), destination: link.url)
                     .font(.callout).lineLimit(2)
             }
+            .modifier(ReactionMenu(context: menu ?? .empty(forwarded.message), link: link.url))
         }
         if forwarded.source.text.isEmpty, forwarded.attachments.isEmpty, parts.previews.isEmpty {
             placeholder("Forwarded a message")
         }
+    }
+
+    private func chip(_ file: Attachment) -> some View {
+        AttachmentChip(
+            attachment: file, state: downloads[file.id] ?? .idle, actions: attachmentFiles, menu: menu,
+            quickLook: quickLook
+        )
     }
 
     private func placeholder(_ text: String) -> some View {

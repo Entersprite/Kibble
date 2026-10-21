@@ -5,8 +5,14 @@ import SwiftUI
 /// the header, then the sections, separated by dividers. Links and buttons
 /// open through the transcript's `LinkPolicy`. An empty card - one the bridge
 /// could map nothing from - is a note, never an empty box.
+///
+/// The card declares its corners as its `containerShape`, so a picture in it
+/// rounds concentrically with them (`ConcentricRectangle`).
 struct AppCardView: View {
     static let maxWidth: CGFloat = 420
+    static let cornerRadius: CGFloat = 14
+    /// The least a picture in a card rounds a corner far from the card's.
+    static let pictureMinimumCorner: CGFloat = 8
     let card: AppCard
     let load: ((URL) async throws -> Data)?
     var perform: (@MainActor (AppCardAction) async throws -> AppCardActionResult)?
@@ -36,7 +42,8 @@ struct AppCardView: View {
                 }
             }
             .frame(maxWidth: Self.maxWidth, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
+            .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).strokeBorder(.quaternary))
+            .containerShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
         }
     }
 }
@@ -113,7 +120,28 @@ private struct CardWidgetView: View {
         }
     }
 
+    /// A row with a link is a button that opens it, with the link as its
+    /// tooltip; a row without one is plain content with no tooltip. Its own
+    /// button stays outside, so it is never a button inside a button.
     private func decorated(_ row: AppCard.Decorated) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            if let link = row.link {
+                Button { openURL(link) } label: {
+                    decoratedContent(row).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(link.absoluteString)
+                .accessibilityAddTraits(.isLink)
+            } else {
+                decoratedContent(row)
+            }
+            if let button = row.button {
+                CardButtons(buttons: [button])
+            }
+        }
+    }
+
+    private func decoratedContent(_ row: AppCard.Decorated) -> some View {
         HStack(alignment: .top, spacing: 10) {
             if let icon = row.iconURL, let load {
                 RemoteImageView(url: icon, load: load) { phase in
@@ -136,39 +164,38 @@ private struct CardWidgetView: View {
                 }
             }
             Spacer(minLength: 0)
-            if let button = row.button {
-                CardButtons(buttons: [button])
-            }
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if let link = row.link {
-                openURL(link)
-            }
-        }
-        .help(row.link?.absoluteString ?? "")
     }
 
+    /// A picture with a link opens it as a button does, with the link as its
+    /// tooltip; one without is only a picture.
     @ViewBuilder private func image(_ picture: AppCard.Picture) -> some View {
         if let load {
             RemoteImageView(url: picture.url, load: load) { phase in
-                Rectangle().fill(.quaternary)
-                    .aspectRatio(CardImageLayout.aspect(picture.aspectRatio), contentMode: .fit)
-                    .overlay {
-                        if case let .loaded(image) = phase {
-                            Image(image, scale: 1, label: Text(picture.altText ?? ""))
-                                .resizable()
-                                .scaledToFit()
-                                .onTapGesture {
-                                    if let link = picture.link {
-                                        openURL(link)
-                                    }
-                                }
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                if let link = picture.link {
+                    Button { openURL(link) } label: { pictureFrame(picture, phase: phase) }
+                        .buttonStyle(.plain)
+                        .help(link.absoluteString)
+                        .accessibilityAddTraits(.isLink)
+                } else {
+                    pictureFrame(picture, phase: phase)
+                }
             }
         }
+    }
+
+    private func pictureFrame(_ picture: AppCard.Picture, phase: RemoteImagePhase) -> some View {
+        Rectangle().fill(.quaternary)
+            .aspectRatio(CardImageLayout.aspect(picture.aspectRatio), contentMode: .fit)
+            .overlay {
+                if case let .loaded(image) = phase {
+                    Image(image, scale: 1, label: Text(picture.altText ?? ""))
+                        .resizable()
+                        .scaledToFit()
+                }
+            }
+            .clipShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(AppCardView
+                    .pictureMinimumCorner))))
     }
 }
 

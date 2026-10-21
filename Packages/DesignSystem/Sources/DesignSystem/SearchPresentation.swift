@@ -1,6 +1,9 @@
 import ChatKit
 import Foundation
 import SwiftUI
+#if os(macOS)
+    import AppKit
+#endif
 
 /// What search rows and the bar say. Pure, so each rule is a test.
 enum SearchPresentation {
@@ -18,7 +21,10 @@ enum SearchPresentation {
         return "…" + flat.dropFirst(offset - lead / 2)
     }
 
-    /// Every occurrence of every word in semibold on a yellow tint.
+    /// Every occurrence of every word strongly emphasized on the system's
+    /// find highlight. Emphasis rather than a font, so a match keeps the
+    /// size and design of the text around it: a fixed `.callout` made
+    /// matches a point smaller than the 13-point titles they sat in.
     static func highlighted(_ text: String, words: [String]) -> AttributedString {
         var marked = AttributedString(text)
         for word in words where !word.isEmpty {
@@ -26,8 +32,8 @@ enum SearchPresentation {
             while from < marked.endIndex,
                   let range = marked[from ..< marked.endIndex]
                   .range(of: word, options: [.caseInsensitive, .diacriticInsensitive]) {
-                marked[range].font = .callout.weight(.semibold)
-                marked[range].backgroundColor = Color.yellow.opacity(0.35)
+                marked[range].inlinePresentationIntent = .stronglyEmphasized
+                marked[range].backgroundColor = SearchHighlight.color.opacity(SearchHighlight.textOpacity)
                 from = range.upperBound
             }
         }
@@ -90,4 +96,21 @@ enum SearchPresentation {
     private static func folded(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
+}
+
+/// The color search marks a match with: AppKit's find highlight, the yellow
+/// of every find indicator on the Mac, and plain yellow where there is none.
+/// Used under text, so it is tinted rather than solid: text keeps its own
+/// color, which a solid yellow would make unreadable in dark appearance.
+enum SearchHighlight {
+    static var color: Color {
+        #if os(macOS)
+            Color(nsColor: .findHighlightColor)
+        #else
+            Color.yellow
+        #endif
+    }
+
+    /// Under a match's words.
+    static let textOpacity = 0.45
 }

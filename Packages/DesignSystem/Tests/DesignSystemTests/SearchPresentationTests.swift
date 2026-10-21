@@ -29,6 +29,17 @@ struct SearchPresentationTests {
         #expect(runs == ["Déploy", "deploy"])
     }
 
+    /// A match is emphasized, never given a font of its own, so it keeps the
+    /// size of the title or snippet it sits in; it sits on the find color.
+    @Test func aMatchKeepsTheFontAroundIt() {
+        let marked = SearchPresentation.highlighted("Release deploy steps", words: ["deploy"])
+        let match = marked.runs.filter { $0.backgroundColor != nil }
+        #expect(match.count == 1)
+        #expect(marked.runs.allSatisfy { $0.font == nil })
+        #expect(match.first?.inlinePresentationIntent == .stronglyEmphasized)
+        #expect(match.first?.backgroundColor == SearchHighlight.color.opacity(SearchHighlight.textOpacity))
+    }
+
     @Test func datesReadLikeMessages() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "UTC"))

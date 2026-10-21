@@ -106,6 +106,7 @@ public struct MessageList: View {
         let dividers = MeetingTranscriptPresentation.dividers(
             messages: state.messages, occurrences: state.meetingSeries?.occurrences ?? []
         )
+        let placements = TranscriptGrouping.placements(messages: state.messages, dividers: dividers)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -118,8 +119,12 @@ public struct MessageList: View {
                         .frame(maxWidth: .infinity)
                     }
                     ForEach(state.messages, id: \.id) { message in
+                        let placement = placements[message.id] ?? TranscriptRowPlacement()
                         if let start = dividers[message.id] {
                             MeetingOccurrenceDivider(start: start)
+                        }
+                        if let day = placement.day {
+                            TranscriptDaySeparator(day: day)
                         }
                         MessageBubble(
                             message: message,
@@ -136,13 +141,14 @@ public struct MessageList: View {
                             loadRemoteImage: loadRemoteImage,
                             attachmentFiles: attachmentFiles,
                             reactions: reactions, own: own, openThread: threads?.open,
-                            marked: marked?.id, markOn: markOn, checkDelivery: checkMessageDelivery
+                            marked: marked?.id, markOn: markOn, checkDelivery: checkMessageDelivery,
+                            continuesGroup: placement.continuesGroup, datedBySeparator: true
                         )
                         .id(message.id)
                         .modifier(TranscriptAnchorTracking(id: message.id, anchor: readingAnchor))
                         .modifier(TranscriptEndTracking(
                             isLast: message.id == state.messages.last?.id, nearBottom: $nearBottom
-                        ))
+                        ) { followGrowth(proxy) })
                     }
                     if state.hasNewerMessages, let loadNewerMessages {
                         Button(state.newerMessagesAreLatestJump ? "Jump to latest" : "Load newer messages") {
@@ -162,27 +168,16 @@ public struct MessageList: View {
                 #if os(macOS)
                     .background { TranscriptScrollBridge(anchor: readingAnchor) }
                 #endif
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, TranscriptLayout.horizontalPadding)
                     .padding(.vertical, 12)
                     // Every link under the transcript opens through one rule (links spec §7.1).
                     .environment(\.openURL, LinkPolicy.openURLAction)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if state.capabilities.receivesTypingState {
-                    HStack {
-                        let typists = ActivityPresentation.typists(state)
-                        if !typists.isEmpty {
-                            TypingIndicator(
-                                members: typists,
-                                directory: state.directory,
-                                namesVisible: state.selectedConversation?.kind != .directMessage
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
-                    .padding(.leading, 50).padding(.trailing, 16)
-                }
-            }
+            .modifier(TranscriptJumpOverlay(
+                nearBottom: $nearBottom,
+                context: TranscriptLatestJump.Context(state, canLoadNewer: loadNewerMessages != nil)
+            ) { jumpToLatest($0, proxy) })
+            .safeAreaInset(edge: .bottom, spacing: 0) { TranscriptTypingRow(state: state) }
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting || phase == .decelerating {
@@ -275,22 +270,8 @@ public struct MessageList: View {
                 readingAnchor.cancel()
                 latestJumpRequested = false
             }
-            .task(id: TranscriptMarkTrigger(state)) {
-                let request = state.highlightedMessage.map {
-                    TranscriptScroll.Request(id: $0, generation: state.searchOpenGeneration)
-                }
-                guard TranscriptMark.shouldMark(request, in: state.messages, marked: marked) else {
-                    return
-                }
-                let justMarked = request
-                marked = justMarked
-                await TranscriptMark.fade(
-                    on: { withAnimation(.easeIn(duration: 0.15)) { markOn = true } },
-                    sleep: { try await Task.sleep(for: .seconds(2)) },
-                    isStillMarked: { marked == justMarked },
-                    off: { withAnimation(.easeOut(duration: 0.6)) { markOn = false } }
-                )
-            }
+            .modifier(TranscriptSearchMark(state: state, marked: $marked, markOn: $markOn))
+            .modifier(TranscriptRotors(messages: state.messages, me: state.me, directory: state.directory))
         }
         .overlay {
             if state.messages.isEmpty {
@@ -300,6 +281,33 @@ public struct MessageList: View {
                     description: Text("History loads when you open a conversation.")
                 )
             }
+        }
+    }
+
+    /// The last row grew while its end was in view: keep that end in view,
+    /// unless an older page's anchor is being restored, newer messages are
+    /// still to come, or a jump is under way.
+    private func followGrowth(_ proxy: ScrollViewProxy) {
+        guard hasPlacedMessages, !state.hasNewerMessages, readingAnchor.restoringID == nil,
+              !latestJumpRequested, let newest = state.messages.last?.id else { return }
+        proxy.scrollTo(newest, anchor: .bottom)
+    }
+
+    /// The floating button: to the end of what is loaded, or through the
+    /// same latest jump as the list's own button when the newest messages
+    /// are not loaded.
+    private func jumpToLatest(_ action: TranscriptLatestJump.Action, _ proxy: ScrollViewProxy) {
+        switch action {
+        case .scroll:
+            guard let newest = state.messages.last?.id else { return }
+            paging.hasUserIntent = false
+            readingAnchor.cancel()
+            withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(newest, anchor: .bottom) }
+        case .load:
+            guard let loadNewerMessages else { return }
+            latestJumpRequested = true
+            readingAnchor.cancel()
+            loadNewerMessages()
         }
     }
 
