@@ -5,8 +5,8 @@
     @testable import DesignSystem
 
     /// An SF Symbol name is an unchecked string: a wrong one renders as empty
-    /// space (`CLAUDE.md`). Every symbol the sidebar and its row menu use is
-    /// checked.
+    /// space (`CLAUDE.md`). Every symbol the sidebar, its row menu and the
+    /// Set a Status sheet use is checked.
     @MainActor
     struct SidebarSymbolTests {
         private let actions: [ConversationAction] = [.markUnread, .leave, .hide, .block, .delete]
@@ -17,7 +17,8 @@
 
         @Test func everySymbolExists() {
             let names = rowMenuItems.map(\.symbol) + FavoriteMenu.symbols + [
-                SidebarPinned.searchSymbol, SidebarPinned.mentionsSymbol, SidebarRowPicture.spaceSymbol
+                SidebarPinned.searchSymbol, SidebarPinned.mentionsSymbol, SidebarRowPicture.spaceSymbol,
+                SetStatusSheet.emojiSymbol
             ]
             for name in names {
                 #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")
