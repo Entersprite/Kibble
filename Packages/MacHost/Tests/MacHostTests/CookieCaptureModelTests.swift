@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct CookieCaptureModelTests {
     private func settle(_ model: CookieCaptureModel, _ view: FakeLoginWebView) async throws {
-        // Mirrors production: `CookieCaptureView.WebView.makeNSView` calls
+        // Mirrors production: `LoginBrowser.makeNSView` calls
         // `attach(_:)` once, before the navigation delegate ever calls
         // `pageSettled`/`failed` - `capture()` reads the attached weak
         // reference, not `pageSettled`'s parameter. Calling `attach` again on
@@ -91,7 +91,7 @@ struct CookieCaptureModelTests {
         #expect(view.cookieReadCount == 1)
         // Asserted here and nowhere else before: nothing in this suite used to
         // check `canSave` in its *true* state, so a mapping hard-wired to
-        // `false` would have left "Save and continue" permanently disabled
+        // `false` would have left "Save and Continue" permanently disabled
         // with all 890 tests passing - killing the only recovery from a failed
         // auto-save.
         #expect(model.canSave)

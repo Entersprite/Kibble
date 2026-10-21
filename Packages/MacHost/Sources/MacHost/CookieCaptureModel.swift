@@ -24,9 +24,9 @@ import Observation
 ///   the real Keychain - which would mean a test suite that overwrote the
 ///   person's live session (ruling R7).
 ///
-/// The untestable residue is now one `WKWebView` conformance in the app
-/// target, which is the shape CLAUDE.md asks for: a boundary that cannot be
-/// unit-tested should be one file wide.
+/// The untestable residue is now `WebKitLoginWebView`, the adapter over
+/// `LoginBrowser`'s web view, which is the shape CLAUDE.md asks for: a
+/// boundary that cannot be unit-tested should be one file wide.
 ///
 /// ## What still belongs below the seam
 ///
@@ -59,6 +59,12 @@ public final class CookieCaptureModel {
     public private(set) var canSave = false
     /// Optional call sign-in uses this login's fresh browser and saved Chat account.
     public let callSetup: CallSignInSetup?
+
+    /// What the window says under the page: call setup's progress while it
+    /// runs, the capture's otherwise.
+    public var visibleStatus: String {
+        callSetup?.isActive == true ? callSetup?.status ?? status : status
+    }
 
     /// What is already in the Keychain, for the window to show. Refreshed after
     /// a save so the person sees the thing they just created.
@@ -125,8 +131,8 @@ public final class CookieCaptureModel {
     private var hasCompleted = false
     private var isSaving = false
 
-    /// Whether `CookieCaptureView` should show its manual "Capture now" /
-    /// "Save and continue" buttons.
+    /// Whether the window should show the manual "Capture Now" / "Save and
+    /// Continue" buttons (`CookieCaptureButtons`).
     ///
     /// A failed automatic save exposes the manual fallback. Pending writes,
     /// optional call setup and completed sign-ins offer no second Chat write.
@@ -207,7 +213,7 @@ public final class CookieCaptureModel {
         status = "Navigation failed: \(error.localizedDescription)"
     }
 
-    /// Note the missing host gate: "Capture now" may be pressed on any page,
+    /// Note the missing host gate: "Capture Now" may be pressed on any page,
     /// and it becomes visible in exactly the "auto-save did not finish, try
     /// manually" state where someone is plausibly still mid-flow on
     /// `accounts.google.com`. That is deliberate - a manual escape hatch that

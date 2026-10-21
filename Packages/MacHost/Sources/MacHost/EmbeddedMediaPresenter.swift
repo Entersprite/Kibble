@@ -23,16 +23,29 @@ enum EmbeddedMediaPolicy {
         request.setValue("https://" + bundleID.lowercased(), forHTTPHeaderField: "Referer")
         return request
     }
+
+    /// The player window's title: the video's own, from its page, once the
+    /// page has one.
+    static func windowTitle(_ pageTitle: String?) -> String {
+        let title = pageTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? "Video" : title
+    }
 }
 
 /// One explicit player for the process, with no login data or account cookies.
 /// The original account owner alone can dismiss it during account teardown.
+///
+/// The window keeps the video's 16:9 shape as it is resized, and opens where
+/// the last one was left. The player's own full-screen button works. Nothing
+/// plays until the person presses play.
 @MainActor
 final class EmbeddedMediaPresenter: NSObject, NSWindowDelegate, WKNavigationDelegate {
     static let shared = EmbeddedMediaPresenter()
+    static let frameName = "EmbeddedVideo"
     private var owner: ObjectIdentifier?
     private var window: NSWindow?
     private var webView: WKWebView?
+    private var titleObservation: NSKeyValueObservation?
 
     func open(_ url: URL, owner: ObjectIdentifier) {
         guard let request = EmbeddedMediaPolicy.request(
@@ -40,26 +53,48 @@ final class EmbeddedMediaPresenter: NSObject, NSWindowDelegate, WKNavigationDele
         ) else { return }
         closeCurrent()
         self.owner = owner
+        let web = WKWebView(frame: .zero, configuration: Self.configuration())
+        web.navigationDelegate = self
+        let player = Self.makeWindow()
+        player.contentView = web
+        player.delegate = self
+        window = player
+        webView = web
+        if !player.setFrameUsingName(Self.frameName) {
+            player.center()
+        }
+        player.setFrameAutosaveName(Self.frameName)
+        titleObservation = web.observe(\.title, options: [.new]) { [weak self] web, _ in
+            MainActor.assumeIsolated {
+                guard let self, web === self.webView else { return }
+                self.window?.title = EmbeddedMediaPolicy.windowTitle(web.title)
+            }
+        }
+        player.makeKeyAndOrderFront(nil)
+        web.load(request)
+    }
+
+    /// No website data kept, and no playback the person did not start.
+    static func configuration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.mediaTypesRequiringUserActionForPlayback = .all
-        let web = WKWebView(frame: .zero, configuration: configuration)
-        web.navigationDelegate = self
+        configuration.preferences.isElementFullscreenEnabled = true
+        return configuration
+    }
+
+    static func makeWindow() -> NSWindow {
         let player = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 450),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false
         )
-        player.title = "Video"
+        player.title = EmbeddedMediaPolicy.windowTitle(nil)
+        player.contentAspectRatio = NSSize(width: 16, height: 9)
         player.contentMinSize = NSSize(width: 480, height: 270)
+        player.tabbingMode = .disallowed
         player.isReleasedWhenClosed = false
-        player.contentView = web
-        player.delegate = self
-        window = player
-        webView = web
-        player.center()
-        player.makeKeyAndOrderFront(nil)
-        web.load(request)
+        return player
     }
 
     func close(owner: ObjectIdentifier) {
@@ -68,8 +103,13 @@ final class EmbeddedMediaPresenter: NSObject, NSWindowDelegate, WKNavigationDele
     }
 
     private func closeCurrent() {
+        titleObservation?.invalidate()
+        titleObservation = nil
         webView?.stopLoading()
         webView?.loadHTMLString("", baseURL: nil)
+        // Hands the saved frame's name to the next player, which may open
+        // before this window is gone.
+        window?.setFrameAutosaveName("")
         window?.delegate = nil
         window?.close()
         window = nil

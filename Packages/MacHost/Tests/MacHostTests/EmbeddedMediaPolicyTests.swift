@@ -22,4 +22,30 @@ struct EmbeddedMediaPolicyTests {
             #expect(!EmbeddedMediaPolicy.allows(candidate))
         }
     }
+
+    /// Nothing kept and nothing played unasked; the player's own full-screen
+    /// button works.
+    @MainActor
+    @Test func thePlayerKeepsNoDataAndWaitsForPlay() {
+        let configuration = EmbeddedMediaPresenter.configuration()
+        #expect(!configuration.websiteDataStore.isPersistent)
+        #expect(configuration.mediaTypesRequiringUserActionForPlayback == .all)
+        #expect(configuration.preferences.isElementFullscreenEnabled)
+    }
+
+    @MainActor
+    @Test func theWindowKeepsTheVideosShapeAndStaysOutOfTabs() {
+        let window = EmbeddedMediaPresenter.makeWindow()
+        #expect(window.contentAspectRatio == NSSize(width: 16, height: 9))
+        #expect(window.contentMinSize == NSSize(width: 480, height: 270))
+        #expect(window.tabbingMode == .disallowed)
+        #expect(window.title == "Video")
+        #expect(!window.isReleasedWhenClosed)
+    }
+
+    @Test func theWindowTakesThePagesTitleOnceThereIsOne() {
+        #expect(EmbeddedMediaPolicy.windowTitle(nil) == "Video")
+        #expect(EmbeddedMediaPolicy.windowTitle("  ") == "Video")
+        #expect(EmbeddedMediaPolicy.windowTitle(" Launch Recap - YouTube\n") == "Launch Recap - YouTube")
+    }
 }

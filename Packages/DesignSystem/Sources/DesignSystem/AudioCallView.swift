@@ -95,6 +95,9 @@ public struct CallTiming: Equatable, Sendable {
 /// corner. The host decides when that happens and how big the window is.
 /// `screenPreview` is what you are sharing: it takes the person's place in
 /// the audio layout and a corner tile in the video layout.
+///
+/// The backdrop and the other person's video run under the transparent
+/// titlebar, to the window's edges; everything else keeps to the safe area.
 public struct AudioCallView: View {
     private let call: AudioCallSnapshot
     private let actions: AudioCallActions
@@ -152,17 +155,20 @@ public struct AudioCallView: View {
                 Spacer(minLength: 20)
                 controls
             }
-            .padding(.top, CallLayout.titlebarClearance)
+            .padding(.top, CallLayout.titlebarGap)
             .padding(.horizontal, 20)
             .padding(.bottom, 22)
             // The audio layout's column keeps the compact width in a larger
             // window, a full-screen one, while the backdrop fills it.
             .frame(width: video == nil ? CallLayout.compact.width : nil)
         }
+        // The only text in the titlebar's band, so it alone reaches into it.
         .overlay(alignment: .top) {
             if let live = liveVideo, live.remote != nil {
                 CallVideoTitle(call: call, timing: timing, isScreen: live.remoteIsScreen)
                     .padding(.top, 9)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea()
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -176,11 +182,10 @@ public struct AudioCallView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
                 }
             }
-            .padding(.top, CallLayout.titlebarClearance)
+            .padding(.top, CallLayout.titlebarGap)
             .padding(.trailing, 16)
         }
         .modifier(CallFrame(isVideo: video != nil))
-        .ignoresSafeArea()
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
         .environment(\.sceneImageLoader, actions.imageLoader)
@@ -302,8 +307,11 @@ public enum CallLayout {
     public static let video = CGSize(width: 760, height: 480)
     /// The smallest a video call window can be resized to.
     public static let videoMinimum = CGSize(width: 480, height: 360)
-    /// Clears the transparent titlebar and its window buttons.
-    static let titlebarClearance: CGFloat = 46
+    /// Space between the stage's content and the transparent titlebar, whose
+    /// window buttons the content keeps clear of through the safe area. Under
+    /// a 32-point titlebar that is 46 points from the window's top; in full
+    /// screen, where the titlebar is hidden, the content moves up.
+    static let titlebarGap: CGFloat = 14
     static let button: CGFloat = 46
     static let answerButton: CGFloat = 62
 }

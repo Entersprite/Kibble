@@ -8,11 +8,19 @@ import SwiftUI
 /// glass in a window that is not key without its tint, so End would turn gray
 /// exactly when the person is sharing from another app, and the incoming call
 /// panel is never key at all.
+///
+/// The two finishes are two branches, so a control that changes finish, as
+/// Mute does from glass to white, is replaced rather than changed and
+/// crossfades. A changed glyph within one finish, the camera's, turns into
+/// the new one in place (`CallGlyphMotion`).
 struct CallRoundButton: View {
     let title: String
     let symbol: String
     var tone = CallControlTone.plain
     var size = CallLayout.button
+    /// Wiggles the glyph while a call waits to be answered, as a ringing
+    /// phone does.
+    var rings = false
     let action: () -> Void
     @Environment(\.isEnabled) private var isEnabled
 
@@ -23,6 +31,7 @@ struct CallRoundButton: View {
                     .labelStyle(.iconOnly)
                     .font(.system(size: (size * 0.39).rounded(), weight: .semibold))
                     .foregroundStyle(tone.foreground)
+                    .modifier(CallGlyphMotion(rings: rings))
                     .frame(width: size, height: size)
                     .background(tone.fill, in: .circle)
                     .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
@@ -34,7 +43,7 @@ struct CallRoundButton: View {
             .help(title)
         } else {
             Button(action: action) {
-                CallRoundFace(title: title, symbol: symbol, tone: tone, size: size)
+                CallRoundFace(title: title, symbol: symbol, tone: tone, size: size, rings: rings)
             }
             .buttonStyle(.plain)
             .help(title)
@@ -43,12 +52,25 @@ struct CallRoundButton: View {
 }
 
 /// Dims while pressed, as glass's own interactive response would.
-private struct CallSolidButtonStyle: ButtonStyle {
+struct CallSolidButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .brightness(configuration.isPressed ? -0.12 : 0)
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+/// How a round control's glyph moves: a new glyph replaces the old one in
+/// place, and a ringing one wiggles. Neither moves with Reduce Motion on.
+struct CallGlyphMotion: ViewModifier {
+    var rings = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+            .symbolEffect(.wiggle, options: .repeat(.periodic(delay: 0.8)), isActive: rings && !reduceMotion)
     }
 }
 
@@ -78,6 +100,7 @@ struct CallRoundFace: View {
     let symbol: String
     let tone: CallControlTone
     let size: CGFloat
+    var rings = false
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
@@ -85,6 +108,7 @@ struct CallRoundFace: View {
             .labelStyle(.iconOnly)
             .font(.system(size: (size * 0.39).rounded(), weight: .semibold))
             .foregroundStyle(tone.foreground)
+            .modifier(CallGlyphMotion(rings: rings))
             .opacity(isEnabled ? 1 : 0.35)
             .frame(width: size, height: size)
             .glassEffect(.regular.interactive(isEnabled), in: .circle)
@@ -214,7 +238,7 @@ struct CallAnswerControls: View {
                 answer("Decline", symbol: "phone.down.fill", tone: .end, action: decline)
                 answer(
                     endsOtherCall ? "End Call and Answer" : "Accept",
-                    symbol: "phone.fill", tone: .accept, action: accept
+                    symbol: "phone.fill", tone: .accept, rings: true, action: accept
                 )
             }
         }
@@ -222,11 +246,13 @@ struct CallAnswerControls: View {
     }
 
     private func answer(
-        _ title: String, symbol: String, tone: CallControlTone, action: @escaping () -> Void
+        _ title: String, symbol: String, tone: CallControlTone, rings: Bool = false,
+        action: @escaping () -> Void
     ) -> some View {
         VStack(spacing: 8) {
             CallRoundButton(
-                title: title, symbol: symbol, tone: tone, size: CallLayout.answerButton, action: action
+                title: title, symbol: symbol, tone: tone, size: CallLayout.answerButton, rings: rings,
+                action: action
             )
             Text(title)
                 .font(.callout)
@@ -252,9 +278,7 @@ struct CallFinishedControls: View {
                             .keyboardShortcut(.cancelAction)
                     }
                     if let callBack {
-                        Button("Call Back", systemImage: "phone.fill", action: callBack)
-                            .buttonStyle(.glassProminent)
-                            .tint(.green)
+                        CallBackButton(action: callBack)
                     }
                 }
                 .controlSize(.extraLarge)
@@ -269,5 +293,26 @@ struct CallFinishedControls: View {
                     .help("Copy call diagnostics")
             }
         }
+    }
+}
+
+/// Call Back, green like Accept and for the same reason solid: a tinted glass
+/// button turns gray in a window that is not key, and a finished call's
+/// window often is not. Its metrics are the extra-large glass button's beside
+/// it, the body font in a 36-point capsule with 18 points each side.
+struct CallBackButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Call Back", systemImage: "phone.fill")
+                .font(.body)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .frame(height: 36)
+                .background(CallControlTone.accept.fill, in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(CallSolidButtonStyle())
     }
 }
