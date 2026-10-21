@@ -141,4 +141,63 @@ struct ConversationMenuTests {
             .init(item: .unmute, targets: [old.id, latest.id])
         ])
     }
+
+    // MARK: The list's one menu, resolved for the clicked row
+
+    private let ada = Member(id: Member.ID("users/ada"), kind: .human, displayName: "Ada Lovelace")
+    private let me = Member.ID("users/me")
+
+    private func sidebar(_ conversations: [Conversation], state: ChatSceneState) -> [SidebarSection] {
+        SidebarProjection.build(
+            conversations,
+            preferences: state.sidebarPreferences,
+            directory: state.directory
+        )
+    }
+
+    /// The clicked row's own items, its favorite, and the name a
+    /// confirmation asks about, as the per-row menu had them.
+    @Test func aRightClickedConversationGetsItsOwnMenu() {
+        let dm = Conversation(id: id, kind: .directMessage, hasUnread: true, members: [me, ada.id])
+        let state = ChatSceneState(conversations: [dm], directory: [ada.id: ada], me: me, muted: [id])
+        let menu = ConversationMenu.rowMenu(
+            for: [.conversation(id)], in: sidebar([dm], state: state), state: state, offers: all
+        )
+        #expect(menu == ConversationMenu.RowMenu(
+            entries: [.markAsRead, .unmute, .notificationSettings].map { .init(item: $0, targets: [id]) },
+            favorite: .conversation(id),
+            title: "Ada Lovelace"
+        ))
+    }
+
+    @Test func aRightClickedMeetingSeriesActsOnItsOriginals() throws {
+        let old = meeting("old", start: 100, unread: true)
+        let latest = meeting("latest", start: 200, unread: true)
+        let state = ChatSceneState(conversations: [old, latest])
+        let series = try #require(MeetingSeries.build([old, latest]).first)
+        let menu = try #require(ConversationMenu.rowMenu(
+            for: [.meetingSeries(series.id)], in: sidebar([old, latest], state: state), state: state,
+            offers: all
+        ))
+        #expect(menu.entries == ConversationMenu.entries(for: series, state: state, offers: all))
+        #expect(menu.favorite == .meetingSeries(series.id))
+        #expect(menu.title == "Planning")
+    }
+
+    /// Empty space, a pinned row, several rows, or a row the sections no
+    /// longer hold: no menu at all, rather than one for the wrong thing.
+    @Test func onlyOneRowTheListDrewHasAMenu() {
+        let dm = Conversation(id: id, kind: .directMessage, members: [me, ada.id])
+        let space = Conversation(id: .init("space/1"), kind: .space, title: "Deploys")
+        let state = ChatSceneState(conversations: [dm, space], directory: [ada.id: ada], me: me)
+        let sections = sidebar([dm, space], state: state)
+        func menu(_ clicked: Set<SidebarSelection>) -> ConversationMenu.RowMenu? {
+            ConversationMenu.rowMenu(for: clicked, in: sections, state: state, offers: all)
+        }
+        #expect(menu([]) == nil)
+        #expect(menu([.mentions]) == nil)
+        #expect(menu([.conversation(id), .conversation(space.id)]) == nil)
+        #expect(menu([.conversation(.init("gone"))]) == nil)
+        #expect(menu([.conversation(space.id)])?.title == "Deploys")
+    }
 }

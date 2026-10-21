@@ -3,16 +3,16 @@ import SwiftUI
 /// The Search row: opens the search overlay, as Edit › Search… (⌘F) does. A
 /// button rather than a selectable row, because search is an overlay over the
 /// window and nothing in the sidebar is chosen by it.
+///
+/// A `Label`, so the sidebar sizes and tints its symbol as it does every
+/// other sidebar icon, following the person's sidebar icon size.
 struct SearchSidebarRow: View {
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .frame(width: 20)
-                    .foregroundStyle(.secondary)
-                Text("Search")
+            HStack(spacing: 4) {
+                Label("Search", systemImage: SidebarPinned.searchSymbol)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text("⌘F")
@@ -20,7 +20,6 @@ struct SearchSidebarRow: View {
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
-            .padding(.vertical, 1)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -28,29 +27,16 @@ struct SearchSidebarRow: View {
     }
 }
 
-/// The Mentions row (the mentions-list spec §4): an `at` symbol, verified
-/// present with `NSImage(systemSymbolName:accessibilityDescription:)`, and a
-/// badge of unread mentions. It has no context menu and no rules.
+/// The Mentions row (the mentions-list spec §4): a `Label` with the `at`
+/// symbol and the list's own badge of unread mentions. It has no context
+/// menu and no rules.
 struct MentionsSidebarRow: View {
     let unread: Int
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "at")
-                .frame(width: 20)
-                .foregroundStyle(.secondary)
-            Text("Mentions")
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            if let badge = MentionsPresentation.badge(unread: unread) {
-                Text(badge)
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(badge) unread")
-            }
-        }
-        .padding(.vertical, 1)
+        Label("Mentions", systemImage: SidebarPinned.mentionsSymbol)
+            .lineLimit(1)
+            .badge(SidebarPinned.badge(MentionsPresentation.badge(unread: unread)))
     }
 }
 
@@ -60,22 +46,9 @@ struct ThreadsSidebarRow: View {
     let unread: Int
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: ThreadsPresentation.rowSymbol)
-                .frame(width: 20)
-                .foregroundStyle(.secondary)
-            Text(ThreadsPresentation.title)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            if let badge = ThreadsPresentation.badge(unread: unread) {
-                Text(badge)
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(badge) unread")
-            }
-        }
-        .padding(.vertical, 1)
+        Label(ThreadsPresentation.title, systemImage: ThreadsPresentation.rowSymbol)
+            .lineLimit(1)
+            .badge(SidebarPinned.badge(ThreadsPresentation.badge(unread: unread)))
     }
 }
 
@@ -91,6 +64,17 @@ enum PinnedRow: Hashable {
 /// never highlighted at once.
 @MainActor
 enum SidebarPinned {
+    /// Verified with `NSImage(systemSymbolName:accessibilityDescription:)`
+    /// (`SidebarSymbolTests`); a wrong name compiles and draws nothing.
+    static let searchSymbol = "magnifyingglass"
+    static let mentionsSymbol = "at"
+
+    /// The list's own badge, which draws nothing for `nil`. VoiceOver reads
+    /// "3 unread" rather than a bare number beside the row's name.
+    static func badge(_ count: String?) -> Text? {
+        count.map { Text($0).accessibilityLabel("\($0) unread") }
+    }
+
     /// Each row only where its action is offered: Search with
     /// `actions.search`, the gate Edit › Search… uses too.
     static func rows(_ actions: ChatSceneActions) -> [PinnedRow] {

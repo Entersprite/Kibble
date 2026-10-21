@@ -52,7 +52,7 @@ public struct ConversationList: View {
             conversations
         }
         .alert(
-            pendingAction?.action.confirmationTitle ?? "",
+            pendingAction?.confirmationTitle ?? "",
             isPresented: Binding(get: { pendingAction != nil }, set: {
                 if !$0 {
                     pendingAction = nil
@@ -65,75 +65,70 @@ public struct ConversationList: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { pending in
-            Text(pending.title + "\n\n" + pending.action.confirmationMessage)
+            Text(pending.action.confirmationMessage)
         }
         // A confirmation asked in one account does not wait in another.
         .onChange(of: state.accountID) { pendingAction = nil }
     }
 
-    private func rowActions(for conversation: Conversation) -> ChatSceneActions {
+    /// `actions` with the conversation actions that need a confirmation
+    /// asking for one first, about the conversation called `title`.
+    private func confirming(_ actions: ChatSceneActions, title: String) -> ChatSceneActions {
         var result = actions
         if let original = actions.conversationActions {
             let pending = $pendingAction
-            let title = Display.title(of: conversation, directory: state.directory, me: state.me)
-            result
-                .conversationActions = ConversationActions(capabilities: original
-                    .capabilities) { action, id in
-                        if action.needsConfirmation {
-                            pending.wrappedValue = PendingConversationAction(
-                                conversation: id,
-                                action: action,
-                                title: title,
-                                perform: original.perform
-                            )
-                        } else {
-                            original.perform(action, id)
-                        }
+            let capabilities = original.capabilities
+            result.conversationActions = ConversationActions(capabilities: capabilities) { action, id in
+                if action.needsConfirmation {
+                    pending.wrappedValue = PendingConversationAction(
+                        conversation: id, action: action, title: title, perform: original.perform
+                    )
+                } else {
+                    original.perform(action, id)
                 }
+            }
         }
         return result
     }
 
+    /// The menu for a right-clicked row, built when the menu opens rather
+    /// than with every row on every render, from the sections and state this
+    /// list was drawn with.
+    @ViewBuilder
+    private func rowMenu(_ clicked: Set<SidebarSelection>, in sections: [SidebarSection]) -> some View {
+        if let menu = ConversationMenu.rowMenu(
+            for: clicked, in: sections, state: state, offers: ConversationMenu.Offers(actions)
+        ) {
+            ConversationRowMenu(
+                entries: menu.entries, favoriteTarget: menu.favorite,
+                preferences: state.sidebarPreferences, actions: confirming(actions, title: menu.title)
+            )
+        }
+    }
+
     private var conversations: some View {
-        let preferences = state.sidebarPreferences
+        let sections = isAccountUnavailable ? [] : SidebarProjection.build(
+            state.conversations, preferences: state.sidebarPreferences,
+            directory: state.directory, me: state.me
+        )
         return List(selection: selectionBinding) {
-            ForEach(isAccountUnavailable ? [] : SidebarProjection.build(
-                state.conversations, preferences: state.sidebarPreferences,
-                directory: state.directory, me: state.me
-            )) { section in
-                Section(isExpanded: expansion(of: section.id)) {
+            ForEach(sections) { section in
+                Section(
+                    isExpanded: SectionCollapse.expansion(
+                        of: section.id, state: state, actions: actions, local: $collapsed
+                    )
+                ) {
                     ForEach(section.items) { item in
                         switch item {
                         case let .meeting(series):
-                            let menuActions = rowActions(for: series.latest)
-                            let favoriteTarget = SidebarSelection.meetingSeries(series.id)
-                            let entries = ConversationMenu.entries(
-                                for: series, state: state, offers: ConversationMenu.Offers(actions)
-                            )
                             MeetingSeriesRow(series: series, state: state)
                                 .tag(SidebarSelection.meetingSeries(series.id))
-                                .contextMenu { [menuActions, preferences] in
-                                    ConversationRowMenu(
-                                        entries: entries, favoriteTarget: favoriteTarget,
-                                        preferences: preferences, actions: menuActions
-                                    )
-                                }
                         case let .conversation(conversation):
-                            let menuActions = rowActions(for: conversation)
-                            let items = ConversationMenu.items(
-                                for: conversation, state: state, offers: ConversationMenu.Offers(actions)
-                            )
                             ConversationRow(
                                 conversation: conversation,
                                 state: ConversationRowState(conversation: conversation, scene: state)
                             )
                             .tag(SidebarSelection.conversation(conversation.id))
-                            .contextMenu { [menuActions, preferences] in
-                                ConversationRowMenu(
-                                    id: conversation.id, items: items,
-                                    preferences: preferences, actions: menuActions
-                                )
-                            }
                         }
                     }
                     if section.id != "favorites", let showDirectory = actions.showDirectory {
@@ -156,6 +151,12 @@ public struct ConversationList: View {
                     }
                 }
             }
+        }
+        // One menu for the whole list, resolved for the clicked row when it
+        // opens. A `.contextMenu` on each row built every row's menu with the
+        // row, on every render (CLAUDE.md, menus are built with the view).
+        .contextMenu(forSelectionType: SidebarSelection.self) { clicked in
+            rowMenu(clicked, in: sections)
         }
         .listStyle(.sidebar)
         .sidebarFade()
@@ -193,33 +194,6 @@ public struct ConversationList: View {
         .scrollEdgeEffectStyle(.soft, for: .bottom)
     }
 
-    /// Whether one section is expanded, as a binding over the collapsed set.
-    ///
-    /// `SidebarSection.id` is stable across rebuilds by construction - that is
-    /// what its own doc comment promises it for - so a section keeps its
-    /// disclosure state while its contents change underneath it, and across
-    /// launches where the host keeps it.
-    private func expansion(of id: String) -> Binding<Bool> {
-        let stored = actions.setSectionCollapsed == nil ? nil : state.collapsedSections
-        let local = $collapsed
-        let setSection = actions.setSectionCollapsed
-        return Binding(
-            get: {
-                let shut = stored ?? local.wrappedValue
-                return !shut.contains(id)
-            },
-            set: { isExpanded in
-                if let setSection {
-                    setSection(id, !isExpanded)
-                } else if isExpanded {
-                    local.wrappedValue.remove(id)
-                } else {
-                    local.wrappedValue.insert(id)
-                }
-            }
-        )
-    }
-
     /// Conversations only: a pinned row is selected in `PinnedList`.
     private var selectionBinding: Binding<SidebarSelection?> {
         let selected = SidebarPinned.conversationSelection(state)
@@ -233,6 +207,8 @@ public struct ConversationList: View {
 struct ConversationRow: View {
     let conversation: Conversation
     let state: ConversationRowState
+    /// The person's sidebar icon size (System Settings), which the picture follows.
+    @Environment(\.sidebarRowSize) private var rowSize
 
     private var showsUnread: Bool {
         state.showsUnread
@@ -255,15 +231,20 @@ struct ConversationRow: View {
         Display.dmPartner(of: conversation, directory: state.directory, me: state.me)
     }
 
+    /// A `Label`, so the name lines up with the pinned rows' and the picture
+    /// sits in the sidebar's own icon column at every sidebar icon size.
     private func row(now: Date) -> some View {
         HStack(spacing: 8) {
-            icon
-            Text(Display.title(of: conversation, directory: state.directory, me: state.me))
-                .lineLimit(1)
-                // `hasUnread`, not `unreadCount`: the count is always zero on
-                // the wire (`findings.md` §37.8), so weighting on it meant no
-                // conversation was ever bold.
-                .fontWeight(showsUnread ? .semibold : .regular)
+            Label {
+                Text(Display.title(of: conversation, directory: state.directory, me: state.me))
+                    .lineLimit(1)
+                    // `hasUnread`, not `unreadCount`: the count is always zero on
+                    // the wire (`findings.md` §37.8), so weighting on it meant no
+                    // conversation was ever bold.
+                    .fontWeight(showsUnread ? .semibold : .regular)
+            } icon: {
+                icon
+            }
             Spacer(minLength: 4)
             // After the spacer, so the marks sit at the trailing edge, beside
             // the mute bell and the unread dot, rather than after the name.
@@ -333,35 +314,59 @@ struct ConversationRow: View {
     /// same disc every other avatar uses. Apple's own group composite is
     /// artwork, not a symbol, so this is the nearest stock thing rather than the
     /// identical one.
+    ///
+    /// The name sits beside every one of these, so VoiceOver skips the
+    /// picture and reads the name, keeping a DM partner's presence.
     @ViewBuilder private var icon: some View {
+        let size = SidebarRowPicture.diameter(rowSize)
         switch conversation.kind {
         case .directMessage, .appDirectMessage:
             if let other = conversation.members.first(where: { $0 != state.me }) {
                 Avatar(
                     member: other,
                     directory: state.directory,
-                    size: 20,
+                    size: size,
                     presence: Display.presence(
                         of: conversation, directory: state.directory, me: state.me,
                         connection: state.connection
                     )
                 )
+                .besideName()
             } else {
-                UnknownPersonGlyph(size: 20)
+                UnknownPersonGlyph(size: size).accessibilityHidden(true)
             }
         case .groupDirectMessage:
-            MonogramCircle(size: 20) {
-                Image(systemName: "person.3.fill").font(.system(size: 9))
+            MonogramCircle(size: size) {
+                Image(systemName: "person.3.fill").font(.system(size: size * 0.45))
             }
+            .accessibilityHidden(true)
         case .space:
-            Text("#").fontWeight(.semibold).frame(width: 20).foregroundStyle(.secondary)
+            // A symbol rather than a typed "#", so it is drawn and sized as
+            // the sidebar draws its other icons.
+            Image(systemName: SidebarRowPicture.spaceSymbol)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
         case .meetChat:
-            // `video.fill` verified present via
-            // `NSImage(systemSymbolName:accessibilityDescription:)` - a wrong
-            // symbol name compiles and renders as empty space.
-            MeetingPicture()
+            MeetingPicture(size: size).accessibilityHidden(true)
         case .unknown:
-            Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
+            Image(systemName: "questionmark.circle").foregroundStyle(.tertiary).accessibilityHidden(true)
         }
     }
+}
+
+/// How big a sidebar row's picture is: the size the sidebar draws a `Label`'s
+/// symbol at for the person's sidebar icon size (System Settings ›
+/// Appearance). Measured in a hosted sidebar list on macOS 27, the `at`
+/// symbol's frame was about 16, 20 and 23 points for small, medium and large.
+enum SidebarRowPicture {
+    static func diameter(_ size: SidebarRowSize) -> CGFloat {
+        switch size {
+        case .small: 16
+        case .large: 24
+        default: 20
+        }
+    }
+
+    /// Checked to exist by `SidebarSymbolTests`.
+    static let spaceSymbol = "number"
 }

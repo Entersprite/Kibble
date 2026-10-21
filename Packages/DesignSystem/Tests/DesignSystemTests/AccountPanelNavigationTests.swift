@@ -86,6 +86,28 @@ struct AccountPanelNavigationTests {
         #expect(navigation.move(from: .account("removed"), direction: .left) == .account("second"))
     }
 
+    /// What VoiceOver hears as the highlight moves: the words the panel
+    /// draws, and which row is checked and which account is current.
+    @Test func theHighlightIsSpokenWithThePanelsOwnWords() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let away = StatusMenuModel(availability: .away, status: nil, now: now)
+        func spoken(_ target: AccountPanelTarget) -> String? {
+            AccountPanelSpeech.text(for: target, state: state, status: away)
+        }
+        #expect(spoken(.status(.away)) == "Set as away, selected")
+        #expect(spoken(.status(.automatic)) == "Automatic")
+        #expect(spoken(.status(.doNotDisturb)) == away.doNotDisturbTitle)
+        #expect(spoken(.status(.setStatus)) == "Set a Status…")
+        #expect(spoken(.account("second")) == "second, current account")
+        #expect(spoken(.account("first")) == "first")
+        #expect(spoken(.account("removed")) == nil)
+        #expect(spoken(.pending("pending")) == "Finish Signing In")
+        #expect(spoken(.add) == "Add Account")
+        #expect(spoken(.manage) == "Manage Accounts…")
+        // No status section, nothing to say for its rows.
+        #expect(AccountPanelSpeech.text(for: .status(.away), state: state, status: nil) == nil)
+    }
+
     @Test func badgesExcludeTheSelectedAccountAndDisabledUnread() {
         var panel = state
         #expect(panel.othersUnread == 3)

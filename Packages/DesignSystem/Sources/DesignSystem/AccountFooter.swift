@@ -94,7 +94,8 @@ struct AccountFooter: View {
             sections
                 .frame(width: width, height: height, alignment: .bottomLeading)
                 .modifier(AccountPanelKeyboard(
-                    isOpen: isOpen, navigation: navigation, highlight: $highlight, choose: commands.perform
+                    isOpen: isOpen, navigation: navigation, highlight: $highlight, choose: commands.perform,
+                    spoken: spoken
                 ))
                 .opacity(isOpen ? 1 : 0)
                 .animation(isOpen ? reveal : .easeIn(duration: 0.08), value: isOpen)
@@ -145,6 +146,23 @@ struct AccountFooter: View {
             state: state, actions: actions,
             status: showsStatus ? AccountStatusSection.rows(hasStatusLine: statusLine != nil) : []
         )
+    }
+
+    /// What VoiceOver says as the highlight moves, from the state the panel
+    /// draws; the status rows' words are read when it moves, as they are drawn.
+    private var spoken: (AccountPanelTarget) -> String? {
+        let state = state
+        let showsStatus = showsStatus
+        return { target in
+            let status = showsStatus ? state.scene.map {
+                StatusMenuModel(
+                    availability: $0.availability,
+                    status: AccountFooterOverlay.status($0),
+                    now: .now
+                )
+            } : nil
+            return AccountPanelSpeech.text(for: target, state: state, status: status)
+        }
     }
 
     private var commands: AccountPanelCommands {

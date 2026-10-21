@@ -49,6 +49,8 @@ struct ConversationItemRowState: Equatable {
 
 struct MeetingSeriesRow: View {
     let row: ConversationItemRowState
+    /// The picture follows the person's sidebar icon size, as `ConversationRow`'s does.
+    @Environment(\.sidebarRowSize) private var rowSize
 
     init(series: MeetingSeries, state: ChatSceneState) {
         row = ConversationItemRowState(item: .meeting(series), scene: state)
@@ -56,8 +58,11 @@ struct MeetingSeriesRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            MeetingPicture()
-            Text(row.title).lineLimit(1).fontWeight(row.showsUnread ? .semibold : .regular)
+            Label {
+                Text(row.title).lineLimit(1).fontWeight(row.showsUnread ? .semibold : .regular)
+            } icon: {
+                MeetingPicture(size: SidebarRowPicture.diameter(rowSize)).accessibilityHidden(true)
+            }
             Spacer(minLength: 4)
             if row.muted {
                 Image(systemName: "bell.slash").font(.caption2).foregroundStyle(.tertiary)

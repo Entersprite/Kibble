@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// A round glass button, as Messages draws its + and emoji buttons beside the
-/// field; the sidebar footer's gear is one too. A label rather than a bare
-/// image, so VoiceOver reads the title.
+/// field. A label rather than a bare image, so VoiceOver reads the title.
 struct RoundGlassButton: View {
     let title: String
     let systemImage: String

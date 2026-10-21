@@ -14,14 +14,20 @@ struct AccountPanelKeyboard: ViewModifier {
     @Binding var highlight: AccountPanelTarget?
     /// `nil` when Return is pressed with nothing highlighted, which closes.
     let choose: (AccountPanelTarget?) -> Void
+    /// What VoiceOver says for a highlighted target (`AccountPanelSpeech`).
+    var spoken: (AccountPanelTarget) -> String? = { _ in nil }
     @FocusState private var focused: Bool
     @State private var recent = AccountPanelNavigation.Recent()
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     func body(content: Content) -> some View {
         content
             .focusable(isOpen)
             .focused($focused)
             .focusEffectDisabled()
+            // The one focus stop has a name, so VoiceOver says what it is in.
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(AccountPanelSpeech.panelLabel)
             .onMoveCommand { direction in
                 highlight = navigation.move(from: highlight, direction: direction, recent: recent)
             }
@@ -38,7 +44,13 @@ struct AccountPanelKeyboard: ViewModifier {
                     return .ignored
                 }
             }
-            .onChange(of: highlight) { _, target in recent.note(target) }
+            .onChange(of: highlight) { _, target in
+                recent.note(target)
+                // Posted only while VoiceOver is on; nothing is posted otherwise.
+                if voiceOver, let target, let text = spoken(target) {
+                    AccessibilityNotification.Announcement(text).post()
+                }
+            }
             .onChange(of: isOpen, initial: true) { _, open in
                 highlight = nil
                 recent = .init()

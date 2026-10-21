@@ -34,6 +34,19 @@ enum FavoriteMenu {
         }
         return next
     }
+
+    /// The item's words and symbol: a star to add, a struck-out star to
+    /// remove. Checked to exist by `SidebarSymbolTests`.
+    static func item(
+        for target: SidebarSelection, in preferences: SidebarPreferences
+    ) -> (title: String, symbol: String) {
+        if contains(target, in: preferences) {
+            return ("Remove from Favorites", "star.slash")
+        }
+        return ("Add to Favorites", "star")
+    }
+
+    static let symbols = ["star", "star.slash"]
 }
 
 struct FavoriteMenuButton: View {
@@ -42,9 +55,9 @@ struct FavoriteMenuButton: View {
     let update: (SidebarPreferences) -> Void
 
     var body: some View {
-        Button(FavoriteMenu
-            .contains(target, in: preferences) ? "Remove from Favorites" : "Add to Favorites") {
-                update(FavoriteMenu.toggling(target, in: preferences))
-            }
+        let item = FavoriteMenu.item(for: target, in: preferences)
+        Button(item.title, systemImage: item.symbol) {
+            update(FavoriteMenu.toggling(target, in: preferences))
+        }
     }
 }

@@ -54,6 +54,23 @@ struct SidebarPinnedRowsTests {
         )
     }
 
+    /// The list draws its own badge, and none at zero: Mentions and Threads
+    /// hand it nothing when nothing is unread.
+    @Test func aBadgeOnlyWhereSomethingIsUnread() {
+        #expect(SidebarPinned.badge(MentionsPresentation.badge(unread: 0)) == nil)
+        #expect(SidebarPinned.badge(ThreadsPresentation.badge(unread: 0)) == nil)
+        #expect(SidebarPinned.badge(MentionsPresentation.badge(unread: 3)) != nil)
+    }
+
+    /// A row's picture is the size the sidebar draws its symbols at, for each
+    /// of the person's sidebar icon sizes, so names line up with the pinned
+    /// rows' and rows grow and shrink together.
+    @Test func rowPicturesFollowTheSidebarIconSize() {
+        #expect(SidebarRowPicture.diameter(.small) == 16)
+        #expect(SidebarRowPicture.diameter(.medium) == 20)
+        #expect(SidebarRowPicture.diameter(.large) == 24)
+    }
+
     @Test func choosingARowAsksForWhatItShows() {
         let calls = Calls()
         let actions = ChatSceneActions(

@@ -102,6 +102,72 @@ extension ConversationMenu {
     }
 }
 
+extension ConversationMenu.Item {
+    var title: String {
+        switch self {
+        case .call: "Call"
+        case .markAsRead: "Mark as Read"
+        case let .action(action): action.menuTitle
+        case .mute: "Mute"
+        case .unmute: "Unmute"
+        case .notificationSettings: "Notification Settings…"
+        }
+    }
+
+    /// Checked to exist by `SidebarSymbolTests`: a wrong name compiles and
+    /// draws nothing.
+    var symbol: String {
+        switch self {
+        case .call: "phone"
+        case .markAsRead: "envelope.open"
+        case let .action(action): action.menuSymbol
+        case .mute: "bell.slash"
+        case .unmute: "bell"
+        case .notificationSettings: "bell.badge"
+        }
+    }
+}
+
+extension ConversationMenu {
+    /// A right-click's menu, resolved when the menu opens: the entries for
+    /// the clicked row, what Favorites adds or removes, and the name a
+    /// confirmation asks about.
+    struct RowMenu: Equatable {
+        let entries: [Entry]
+        let favorite: SidebarSelection
+        let title: String
+    }
+
+    /// The menu for the rows a right-click names, from the sections the list
+    /// drew and the state it drew them with: never a read of anything else.
+    /// One row, since the sidebar selects one; a click on empty space or on
+    /// several rows has no menu, as does a row the sections no longer hold.
+    static func rowMenu(
+        for clicked: Set<SidebarSelection>, in sections: [SidebarSection], state: ChatSceneState,
+        offers: Offers
+    ) -> RowMenu? {
+        guard clicked.count == 1, let target = clicked.first else { return nil }
+        let item = sections.lazy.flatMap(\.items).first { $0.id == target }
+        switch item {
+        case let .conversation(conversation)?:
+            return RowMenu(
+                entries: items(for: conversation, state: state, offers: offers).map {
+                    Entry(item: $0, targets: [conversation.id])
+                },
+                favorite: target,
+                title: Display.title(of: conversation, directory: state.directory, me: state.me)
+            )
+        case let .meeting(series)?:
+            return RowMenu(
+                entries: entries(for: series, state: state, offers: offers), favorite: target,
+                title: series.title
+            )
+        case nil:
+            return nil
+        }
+    }
+}
+
 extension ConversationMenu.Offers {
     @MainActor init(_ actions: ChatSceneActions) {
         self.init(
