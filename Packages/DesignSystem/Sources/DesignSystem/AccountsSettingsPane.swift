@@ -176,13 +176,14 @@ struct AccountsSettingsStatus: View {
     }
 }
 
-/// A yellow caution glyph beside primary text, as System Settings marks an
-/// item that needs attention.
+/// The system's caution glyph beside primary text, as System Settings marks an
+/// item that needs attention. Multicolor, so the symbol carries the system's
+/// own warning colors rather than a fixed yellow.
 private struct AccountsSettingsWarningStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 5) {
             configuration.icon
-                .foregroundStyle(.yellow)
+                .symbolRenderingMode(.multicolor)
                 .imageScale(.medium)
             configuration.title
         }

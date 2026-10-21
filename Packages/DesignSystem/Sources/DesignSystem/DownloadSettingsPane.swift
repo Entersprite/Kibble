@@ -23,10 +23,7 @@ public struct DownloadSettingsState: Equatable, Sendable {
     }
 
     /// The menu's checked item. On the default folder it is the Downloads
-    /// choice itself, so the menu never lists Downloads twice. A chosen folder
-    /// that is gone reads as the default with a notice; choosing Downloads
-    /// there forgets that folder and clears the notice, provided the menu
-    /// reports a choice of its checked item ([Verify] in the running app).
+    /// choice itself, so the menu never lists Downloads twice.
     var currentItem: DownloadFolderMenuItem {
         isDefault ? .downloads : .current
     }
@@ -36,13 +33,22 @@ public struct DownloadSettingsState: Equatable, Sendable {
     var offersDownloads: Bool {
         !isDefault
     }
+
+    /// A chosen folder that is gone reads as the default with a notice, and
+    /// only the host's reset forgets it and clears the notice. That gets an
+    /// item of its own rather than relying on a menu reporting a choice of
+    /// its already checked item, which a picker need not do.
+    var offersForgetMissingFolder: Bool {
+        isDefault && notice != nil
+    }
 }
 
-/// The folder menu's rows: the folder in use, Downloads, and the row that
-/// opens the folder picker.
+/// The folder menu's rows: the folder in use, Downloads, the reset after a
+/// chosen folder went missing, and the row that opens the folder picker.
 enum DownloadFolderMenuItem: Hashable {
     case current
     case downloads
+    case forgetMissing
     case other
 }
 
@@ -81,6 +87,9 @@ public struct DownloadSettingsPane: View {
                     if state.offersDownloads {
                         Text("Downloads").tag(DownloadFolderMenuItem.downloads)
                     }
+                    if state.offersForgetMissingFolder {
+                        Text("Forget Missing Folder").tag(DownloadFolderMenuItem.forgetMissing)
+                    }
                     Divider()
                     Text("Other…").tag(DownloadFolderMenuItem.other)
                 }
@@ -105,7 +114,7 @@ public struct DownloadSettingsPane: View {
             set: { item in
                 switch item {
                 case .current: break
-                case .downloads: actions.useDefault()
+                case .downloads, .forgetMissing: actions.useDefault()
                 case .other: actions.choose()
                 }
             }

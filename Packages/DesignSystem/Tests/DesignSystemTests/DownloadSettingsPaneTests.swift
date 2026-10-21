@@ -26,4 +26,18 @@ struct DownloadSettingsPaneTests {
         #expect(state.currentItem == checked)
         #expect(state.offersDownloads == listsDownloads)
     }
+
+    /// A chosen folder that is gone reads as the default with a notice; the
+    /// reset that forgets it is an item of its own, never the checked one.
+    @Test("Forget Missing Folder appears only for a missing chosen folder", arguments: [
+        (true, nil as String?, false),
+        (false, nil, false),
+        (true, "The folder Kibble was saving to is gone, so downloads go to Downloads.", true),
+        (false, "Kibble couldn't remember “Projects”, so it is still saving to Work.", false)
+    ])
+    func forgetMissingFolder(_ isDefault: Bool, _ notice: String?, _ offered: Bool) {
+        let state = state(isDefault: isDefault, notice: notice)
+        #expect(state.offersForgetMissingFolder == offered)
+        #expect(state.currentItem != .forgetMissing)
+    }
 }
