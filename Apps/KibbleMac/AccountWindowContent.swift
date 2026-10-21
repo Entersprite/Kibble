@@ -30,17 +30,23 @@ struct AccountWindowContent: View {
                 AccountsPlaceholder(phase: .starting)
             }
         }
-        .overlay(alignment: .top) {
-            if host.workspace != nil, let error = host.error {
-                HStack(spacing: 12) {
-                    Text(error)
-                    Button("Dismiss") { host.dismissError() }
+        // The host's error as the system's alert, its sentence the title, as
+        // `NSAlert(error:)` shows one. It waits while the refused sign-in's
+        // alert below is up, so the two never ask at once. Without a
+        // workspace the placeholder already shows the error in its place.
+        .alert(
+            isPresented: Binding(
+                get: { host.workspace != nil && host.error != nil && host.refusedSignIn == nil },
+                set: {
+                    if !$0 {
+                        host.dismissError()
+                    }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .glassEffect(.regular, in: .capsule)
-                .padding(.top, 60)
-            }
+            ),
+            error: host.error.map(AccountHostError.init)
+        ) {
+            Button("OK") { host.dismissError() }
+                .keyboardShortcut(.defaultAction)
         }
         .alert(
             "That Is a Different Google Account",
@@ -62,6 +68,17 @@ struct AccountWindowContent: View {
             Button("Cancel", role: .cancel) { host.dismissRefusedSignIn() }
         } message: { id in
             Text(refusalMessage(id))
+        }
+    }
+
+    /// The host's message as an error the system's alert can title itself
+    /// with. The error-presenting alert is the one macOS 26 already has; the
+    /// newer `alert(error:)` for any `Error` would need macOS 27.
+    private struct AccountHostError: LocalizedError {
+        let message: String
+
+        var errorDescription: String? {
+            message
         }
     }
 

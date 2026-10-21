@@ -32,6 +32,8 @@ public struct AccountUnavailable {
     }
 }
 
+/// The way out is the system's prominent button, not glass: this screen is
+/// the window's content, and glass is for controls floating over content.
 struct AccountUnavailableView: View {
     let unavailable: AccountUnavailable
 
@@ -54,7 +56,7 @@ struct AccountUnavailableView: View {
                 Text("It keeps its conversations on this Mac, but does not connect or notify you.")
             } actions: {
                 if let enable = unavailable.enable {
-                    Button("Enable Account", action: enable).buttonStyle(.glassProminent)
+                    Button("Enable Account", action: enable).buttonStyle(.borderedProminent)
                 }
             }
         case .signInRequired:
@@ -64,7 +66,7 @@ struct AccountUnavailableView: View {
                 Text("\(unavailable.label) was signed out. Sign in to connect it again.")
             } actions: {
                 if let reconnect = unavailable.reconnect {
-                    Button("Reconnect…", action: reconnect).buttonStyle(.glassProminent)
+                    Button("Reconnect…", action: reconnect).buttonStyle(.borderedProminent)
                 }
             }
         case let .failed(message):
@@ -74,7 +76,7 @@ struct AccountUnavailableView: View {
                 Text(message)
             } actions: {
                 if let reconnect = unavailable.reconnect {
-                    Button("Try Again", action: reconnect).buttonStyle(.glassProminent)
+                    Button("Try Again", action: reconnect).buttonStyle(.borderedProminent)
                 }
                 if let copy = unavailable.copyDiagnostics {
                     Button("Copy Diagnostics", action: copy)
@@ -121,7 +123,7 @@ public struct AccountsPlaceholder: View {
                     Text(message)
                 } actions: {
                     if let retry {
-                        Button("Try Again", action: retry).buttonStyle(.glassProminent)
+                        Button("Try Again", action: retry).buttonStyle(.borderedProminent)
                     }
                 }
             case .noAccounts:
@@ -131,7 +133,7 @@ public struct AccountsPlaceholder: View {
                     Text("Add an account to see its conversations here.")
                 } actions: {
                     if let addAccount {
-                        Button("Add Account…", action: addAccount).buttonStyle(.glassProminent)
+                        Button("Add Account…", action: addAccount).buttonStyle(.borderedProminent)
                     }
                 }
             }

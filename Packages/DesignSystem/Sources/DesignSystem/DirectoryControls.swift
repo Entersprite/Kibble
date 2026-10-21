@@ -10,7 +10,8 @@ struct PersonRow<Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Avatar(member: person.id, directory: [person.id: person], size: size)
+            // The name is beside it: VoiceOver reads that, not the initials.
+            Avatar(member: person.id, directory: [person.id: person], size: size).besideName()
             VStack(alignment: .leading, spacing: 1) {
                 Text(PersonName.of(person)).lineLimit(1)
                 if let email = person.email, email != person.displayName {
@@ -43,6 +44,9 @@ extension PersonRow where Trailing == EmptyView {
 /// A conversation's picture where it stands for the whole conversation: the
 /// other person for a DM, a rounded square for a space (the shape spaces have
 /// in every directory), and the group cluster for a group chat.
+///
+/// Always drawn beside the conversation's name, so VoiceOver reads the name
+/// and skips the picture, whose initials or letter would only repeat it.
 struct ConversationPicture: View {
     let conversation: Conversation
     var directory: [Member.ID: Member] = [:]
@@ -53,18 +57,19 @@ struct ConversationPicture: View {
         switch conversation.kind {
         case .directMessage, .appDirectMessage:
             if let other = conversation.members.first(where: { $0 != me }) {
-                Avatar(member: other, directory: directory, size: size)
+                Avatar(member: other, directory: directory, size: size).besideName()
             } else {
-                UnknownPersonGlyph(size: size)
+                UnknownPersonGlyph(size: size).accessibilityHidden(true)
             }
         case .meetChat:
-            MeetingPicture(size: size)
+            MeetingPicture(size: size).accessibilityHidden(true)
         case .groupDirectMessage:
             MonogramCircle(size: size) {
                 Image(systemName: "person.3.fill").font(.system(size: size * 0.38))
             }
+            .accessibilityHidden(true)
         default:
-            spaceTile
+            spaceTile.accessibilityHidden(true)
         }
     }
 
@@ -186,6 +191,22 @@ struct DirectoryRow<Content: View>: View {
             .padding(.horizontal, 4)
             .onHover { hovering = $0 }
     }
+}
+
+/// The symbols of the directory lists' and the People tab's menus, in one
+/// place so each name is checked (`WindowChromeTests`): a wrong one
+/// renders as empty space.
+enum DirectoryMenuSymbols {
+    static let message = "message"
+    static let open = "arrow.up.forward.app"
+    static let preview = "eye"
+    static let details = "info.circle"
+    static let setRole = "person.badge.key"
+    static let approve = "checkmark.circle"
+    static let reject = "xmark.circle"
+    static let remove = "person.badge.minus"
+
+    static let all = [message, open, preview, details, setRole, approve, reject, remove]
 }
 
 /// The directory lists' shared measures: roomier than a sidebar, like the

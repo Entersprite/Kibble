@@ -3,78 +3,110 @@ import SwiftUI
 
 /// Connection and errors, read from the store like everything else - which is
 /// why a view can show them without ever touching a backend.
+///
+/// Drawn as the search results bar is, a glass capsule under the toolbar, so
+/// the two bars read as one family. A problem carries the system's caution
+/// symbol in its own colors and its recovery buttons; starting up is neutral
+/// progress, never a warning (the owner's rule: connecting is progress).
 struct StatusStrip: View {
     let state: ChatSceneState
     /// Required rather than defaulted: a defaulted `ChatSceneActions()` has no
     /// `signIn`, so a call site that forgot it would silently draw a banner
     /// with no way out - which is the bug this parameter exists to fix.
     let actions: ChatSceneActions
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     var body: some View {
-        // `headline(for:)` decides: an error, then a finished probe's
-        // notice, then the connection. Ordinary startup is progress; a real
-        // error always keeps its warning and recovery controls.
-        if case let .warning(message) = Self.headline(for: state) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+        let headline = Self.headline(for: state)
+        // A stack that is always there, so the announcement below has a view
+        // to hang from while the strip shows nothing.
+        VStack(spacing: 0) {
+            // `headline(for:)` decides: an error, then a finished probe's
+            // notice, then the connection. Ordinary startup is progress; a
+            // real error always keeps its warning and recovery controls.
+            switch headline {
+            case let .warning(message)?:
+                warning(message)
+            case let .progress(message)?:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
                     Text(message)
-                    Spacer()
-                    // Drawn only where the host offered one, and only once
-                    // `ConnectionBanner.offersReconnect` says the wait has
-                    // earned it - see `ChatSceneActions.reconnect`.
-                    if canReconnect, let reconnect = actions.reconnect {
-                        Button("Reconnect now", action: reconnect)
-                            .buttonStyle(.link)
-                            .font(.caption)
-                    }
-                    // Drawn only where the host offered one. A window with no
-                    // route back to sign-in is a window a person can only
-                    // escape by editing their Keychain - see
-                    // `ChatSceneActions.signIn`.
-                    if state.resourceSyncWarning == nil || state.lastError != nil,
-                       let signIn = actions.signIn {
-                        Button("Sign in again", action: signIn)
-                            .buttonStyle(.link)
-                            .font(.caption)
-                    }
                 }
+                .foregroundStyle(.secondary)
+                .contentBar()
+            case let .notice(notice)?:
+                // Neither the caution symbol nor its colors: this is what
+                // closes the finding that a clean `--probe=keychain` run drew
+                // exactly like a failure. A different symbol is the whole
+                // fix - the words already said "written to a file", not "wrong".
+                Label(notice, systemImage: "checkmark.circle.fill")
+                    .contentBar()
+            case nil:
+                EmptyView()
+            }
+        }
+        .font(.callout)
+        .onChange(of: headline, initial: true) { _, headline in
+            // Posted only while VoiceOver is on; nothing is posted otherwise.
+            guard voiceOver, let spoken = Self.announcement(for: headline) else { return }
+            AccessibilityNotification.Announcement(spoken).post()
+        }
+    }
+
+    /// The words and the buttons on one line where they fit; in a narrow
+    /// column, the buttons go under the words, which wrap rather than
+    /// truncate.
+    private func warning(_ message: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                warningText(message)
+                recovery
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                warningText(message)
+                HStack(spacing: 8) { recovery }
+            }
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .contentBar()
+    }
+
+    private func warningText(_ message: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.multicolor)
+                .accessibilityLabel("Warning")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(message)
                 // Secondary, never the headline - diagnostic only (spec §8).
-                // Drawn only when there is one, so the banner's height is
+                // Drawn only when there is one, so the bar's height is
                 // unchanged whenever there is nothing to add.
                 if let detail = bannerDetail {
                     Text(detail)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .font(.caption)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .background(.yellow.opacity(0.22))
-        } else if case let .progress(message) = Self.headline(for: state) {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini)
-                Text(message)
-                Spacer()
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-        } else if case let .notice(notice) = Self.headline(for: state) {
-            // Neither the triangle nor the yellow wash: this is what closes
-            // the finding that a clean `--probe=keychain` run drew exactly
-            // like a failure. A different icon and background are the whole
-            // fix - the words already said "written to a file", not "wrong".
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
-                Text(notice)
-                Spacer()
-            }
-            .font(.caption)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .background(.secondary.opacity(0.12))
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private var recovery: some View {
+        // Drawn only where the host offered one, and only once
+        // `ConnectionBanner.offersReconnect` says the wait has earned it -
+        // see `ChatSceneActions.reconnect`.
+        if canReconnect, let reconnect = actions.reconnect {
+            Button("Reconnect Now", action: reconnect)
+                .fixedSize()
+        }
+        // Drawn only where the host offered one. A window with no route back
+        // to sign-in is a window a person can only escape by editing their
+        // Keychain - see `ChatSceneActions.signIn`.
+        if state.resourceSyncWarning == nil || state.lastError != nil, let signIn = actions.signIn {
+            Button("Sign In Again", action: signIn)
+                .fixedSize()
         }
     }
 
@@ -82,6 +114,13 @@ struct StatusStrip: View {
         case warning(String)
         case notice(String)
         case progress(String)
+    }
+
+    /// What VoiceOver hears when the strip changes: a problem, as it appears.
+    /// Progress is not news, and a probe's notice is for the person who ran it.
+    static func announcement(for headline: Headline?) -> String? {
+        guard case let .warning(message)? = headline else { return nil }
+        return message
     }
 
     /// One line, by precedence:
@@ -139,4 +178,30 @@ struct StatusStrip: View {
         case let .unknown(message): message
         }
     }
+}
+
+extension View {
+    /// The content column's bars under the toolbar, the connection's and the
+    /// search's, in one shape: glass around its content, centered, kept clear
+    /// of the column's edges. A control layer over the window's background,
+    /// never over a message.
+    ///
+    /// A capsule on one line (the corner is more than half a line's height, so
+    /// the ends are round), and a rounded rectangle when a narrow column wraps
+    /// the words, where a capsule's ends would cut into them.
+    func contentBar() -> some View {
+        padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .glassEffect(.regular, in: .rect(cornerRadius: ContentBarLayout.cornerRadius, style: .continuous))
+            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+enum ContentBarLayout {
+    /// Half the height of a one-line bar with small buttons (36 pt, measured
+    /// hosted), so every one-line bar is a capsule; a line of words alone is
+    /// shorter, and its corner is clamped to the same round end.
+    static let cornerRadius: CGFloat = 18
 }

@@ -99,10 +99,52 @@ enum SearchRows {
     }
 }
 
+/// The panel's fixed pieces, here so `SearchOverlay.swift` stays in lint's limit.
+extension SearchOverlay {
+    func note(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+    }
+
+    func header(_ title: String, trailing: String? = nil, loading: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Spacer()
+            if loading {
+                ProgressView().controlSize(.mini)
+                Text("Searching…").font(.caption).foregroundStyle(.tertiary)
+            } else if let trailing {
+                Text(trailing).font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        // VoiceOver's headings rotor moves from section to section.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    var footer: some View {
+        HStack(spacing: 14) {
+            Hint(keys: "↑↓", label: "Select")
+            Hint(keys: "↩", label: "Open")
+            Hint(keys: "esc", label: "Close")
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+    }
+}
+
 /// The panel's size in the window (the mockup's): at most 680 pt wide and
 /// 560 tall, with 40 pt each side and 60 below kept clear.
 enum SearchOverlayLayout {
     static let topInset: CGFloat = 24
+    static let panelShape = RoundedRectangle(cornerRadius: 22)
 
     static func panelWidth(for width: CGFloat) -> CGFloat {
         max(0, min(680, width - 80))
@@ -137,8 +179,8 @@ struct ConversationHit: View {
         switch conversation.kind {
         case .space:
             Display.memberCountLabel(of: conversation).map { "Space · \($0)" } ?? "Space"
-        case .directMessage: "Direct message"
-        case .groupDirectMessage: "Group chat"
+        case .directMessage: "Direct Message"
+        case .groupDirectMessage: "Group Chat"
         default: "Conversation"
         }
     }
@@ -151,7 +193,7 @@ struct ConversationIcon: View {
 
     var body: some View {
         if conversation.kind == .directMessage, let other = conversation.members.first(where: { $0 != me }) {
-            Avatar(member: other, directory: directory, size: 28)
+            Avatar(member: other, directory: directory, size: 28).besideName()
         } else {
             RoundedRectangle(cornerRadius: 7)
                 .fill(Color.secondary.opacity(0.22))
@@ -161,6 +203,8 @@ struct ConversationIcon: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
+                // The row names its kind in words.
+                .accessibilityHidden(true)
         }
     }
 }
@@ -180,14 +224,14 @@ struct PersonHit: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Avatar(member: person.id, directory: directory, size: 28)
+            Avatar(member: person.id, directory: directory, size: 28).besideName()
             VStack(alignment: .leading, spacing: 1) {
                 Text(SearchPresentation.highlighted(name, words: words))
                 Text(person.email ?? "").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             if let messagesFrom {
-                Button("Messages from", action: messagesFrom)
+                Button("Messages From", action: messagesFrom)
                     .controlSize(.small)
                     .buttonStyle(.bordered)
             }
@@ -204,7 +248,7 @@ struct MessageHit: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Avatar(member: message.sender, directory: directory, size: 28)
+            Avatar(member: message.sender, directory: directory, size: 28).besideName()
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(Display.name(of: message.sender, in: directory)).fontWeight(.semibold)
@@ -212,7 +256,7 @@ struct MessageHit: View {
                         Text("in \(conversationTitle)").foregroundStyle(.secondary)
                     }
                     if message.isReply {
-                        Label("Thread reply", systemImage: "arrowshape.turn.up.left")
+                        Label("Thread Reply", systemImage: "arrowshape.turn.up.left")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6)

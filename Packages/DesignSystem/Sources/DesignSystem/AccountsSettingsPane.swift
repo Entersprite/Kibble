@@ -69,7 +69,7 @@ struct AccountsSettingsRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Avatar(member: account.me, directory: account.directory, size: 32)
+            Avatar(member: account.me, directory: account.directory, size: 32).besideName()
                 .environment(\.sceneImageLoader, account.imageLoader)
                 .opacity(account.isEnabled ? 1 : 0.45)
             VStack(alignment: .leading, spacing: 2) {

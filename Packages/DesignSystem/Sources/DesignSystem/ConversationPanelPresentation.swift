@@ -93,41 +93,41 @@ struct ConversationLoadingSheet: View {
     let actions: ConversationBrowserActions
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                if let error = state.browser.panelError {
-                    ContentUnavailableView {
-                        Label(
-                            state.browser.panelTarget == nil
-                                ? "Couldn’t Open the Conversation" : "Couldn’t Load Details",
-                            systemImage: "exclamationmark.triangle"
-                        )
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        if let target = state.browser.panelTarget {
-                            Button("Try Again") { actions.details(target, false) }
-                        } else if state.browser.needsReconciliation {
-                            Button("Review Conversations…", action: actions.reviewCreation)
-                        }
+        Group {
+            if let error = state.browser.panelError {
+                ContentUnavailableView {
+                    Label(
+                        state.browser.panelTarget == nil
+                            ? "Couldn’t Open the Conversation" : "Couldn’t Load Details",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                } description: {
+                    Text(error)
+                } actions: {
+                    if let target = state.browser.panelTarget {
+                        Button("Try Again") { actions.details(target, false) }
+                    } else if state.browser.needsReconciliation {
+                        Button("Review Conversations…", action: actions.reviewCreation)
                     }
-                } else {
-                    ProgressView("Loading Details…")
                 }
+            } else {
+                ProgressView("Loading Details…")
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            SheetButtonBar {
-                Spacer()
-                if state.browser.panelError == nil {
-                    Button("Cancel", role: .cancel, action: actions.closePanel)
-                        .keyboardShortcut(.cancelAction)
-                } else {
+        }
+        .frame(width: 380, height: 200)
+        // The sheet's own placements: Escape cancels and Return is Done,
+        // with no shortcut written here.
+        .toolbar {
+            if state.browser.panelError == nil {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: actions.closePanel)
+                }
+            } else {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done", action: actions.closePanel)
-                        .keyboardShortcut(.defaultAction)
                 }
             }
         }
-        .frame(width: 380, height: 260)
         .onExitCommand(perform: actions.closePanel)
     }
 }
@@ -163,19 +163,6 @@ struct SheetHeader<Accessory: View>: View {
 extension SheetHeader where Accessory == EmptyView {
     init(title: String, message: String? = nil) {
         self.init(title: title, message: message) { EmptyView() }
-    }
-}
-
-/// The row of buttons along a sheet's bottom edge: secondary actions lead,
-/// then a spacer, then Cancel and the default button at the trailing edge.
-struct SheetButtonBar<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        HStack(spacing: 8) { content }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 20)
     }
 }
 

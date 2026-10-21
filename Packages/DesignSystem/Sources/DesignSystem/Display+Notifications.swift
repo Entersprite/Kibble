@@ -5,8 +5,8 @@ public extension Display {
     /// A section's name - the sidebar heading and the settings row alike.
     static func title(of section: SectionKey) -> String {
         switch section {
-        case .directMessages: "Direct messages"
-        case .groupChats: "Group chats"
+        case .directMessages: "Direct Messages"
+        case .groupChats: "Group Chats"
         case .spaces: "Spaces"
         case .apps: "Apps"
         case .meetChats: "Meet Chats"
@@ -18,9 +18,9 @@ public extension Display {
     static func title(of delivery: Delivery) -> String {
         switch delivery {
         case .off: "Off"
-        case .notificationCenter: "Notification Center only"
+        case .notificationCenter: "Notification Center Only"
         case .banner: "Banner"
-        case .bannerAndSound: "Banner and sound"
+        case .bannerAndSound: "Banner and Sound"
         case let .unknown(raw): raw
         }
     }
@@ -28,8 +28,8 @@ public extension Display {
     /// The "Notify about" control's items (mentions spec §4).
     static func title(of choice: NotifyChoice) -> String {
         switch choice {
-        case .allMessages: "All messages"
-        case .mentions: "Mentions only"
+        case .allMessages: "All Messages"
+        case .mentions: "Mentions Only"
         case .nothing: "Nothing"
         }
     }

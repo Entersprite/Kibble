@@ -24,6 +24,7 @@ extension ChatWindow {
                         panel: panel, state: state, actions: actions, threads: threads,
                         own: { panelHandlers(for: $0) }, editing: panelEditing(), dropStage: panelDropStage,
                         band: threadBand,
+                        titleReserve: ThreadColumnLayout.titleReserve(tools: threadTools),
                         quoteRequest: panelQuote?.quote.conversation == panel.thread.conversationID
                             && panelQuote?.quote.thread == panel.thread.id ? panelQuote : nil,
                         onQuoteAdopted: { panelQuote = nil }
@@ -36,12 +37,18 @@ extension ChatWindow {
                     // beside the divider (session 65, measured).
                     ToolbarSpacer(.flexible, placement: .primaryAction)
                     // Their own glass, the composer's, not the toolbar's capsule
-                    // (session 63).
+                    // (session 63). One container draws the two as neighbors in one
+                    // pass; spacing 0 keeps them two shapes that never merge.
+                    // Measured, so the title keeps clear of them at whatever width
+                    // they draw.
                     ToolbarItem(placement: .primaryAction) {
-                        HStack(spacing: ComposerLayout.spacing) {
-                            ThreadFollowButton(panel: panel, threads: threads)
-                            ThreadCloseButton(threads: threads)
+                        GlassEffectContainer(spacing: 0) {
+                            HStack(spacing: ComposerLayout.spacing) {
+                                ThreadFollowButton(panel: panel, threads: threads)
+                                ThreadCloseButton(threads: threads)
+                            }
                         }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { threadTools = $0 }
                     }
                     .sharedBackgroundVisibility(.hidden)
                 }
@@ -58,6 +65,14 @@ enum ThreadColumnLayout {
     /// Neither the conversation nor the thread is drawn narrower than this
     /// while there is room for both (session 58's minimum).
     static let minimumWidth: CGFloat = 260
+
+    /// How far the thread's title keeps from the window's trailing edge while
+    /// it sits in the band: Follow and Close at the width they draw, the
+    /// toolbar's 8-point margin, and 8 points (session 63's measure). Until
+    /// they have been measured, the widest they drew before (152 points).
+    static func titleReserve(tools: CGFloat) -> CGFloat {
+        (tools > 0 ? tools : 152) + 16
+    }
 
     /// The thread's width when it opens: the width it last had, or half of
     /// what the conversation and the thread share, clamped so both keep the

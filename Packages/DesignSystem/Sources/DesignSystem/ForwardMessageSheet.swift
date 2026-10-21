@@ -8,6 +8,14 @@ struct ForwardMessageSelection: Identifiable {
     }
 }
 
+/// Forward…: the message, a conversation to send it to, and an optional
+/// comment. Laid out as the conversation sheets are: a `SheetHeader`, and
+/// Cancel and Forward in the sheet's own placements at the trailing edge,
+/// with Escape and Return.
+///
+/// The search field leads to the list: Down Arrow moves the keyboard into it,
+/// selecting the first conversation when none is, so a destination can be
+/// found and chosen without the pointer.
 struct ForwardMessageSheet: View {
     let message: Message
     let state: ChatSceneState
@@ -18,6 +26,11 @@ struct ForwardMessageSheet: View {
     @State private var comment = ""
     @State private var sending = false
     @State private var failed = false
+    @FocusState private var focus: Field?
+
+    private enum Field: Hashable {
+        case search, list
+    }
 
     private var destinations: [Conversation] {
         state.conversations.filter {
@@ -35,45 +48,79 @@ struct ForwardMessageSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Forward Message").font(.title2.weight(.semibold))
-            MessageQuotePreview(quote: preview, directory: state.directory)
-            TextField("Find a conversation", text: $query).textFieldStyle(.roundedBorder)
-            List(selection: $destination) {
-                ForEach(destinations, id: \.id) { conversation in
-                    Text(Display.title(of: conversation, directory: state.directory, me: state.me))
-                        .tag(conversation.id)
+        VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: "Forward Message")
+            VStack(alignment: .leading, spacing: 12) {
+                MessageQuotePreview(quote: preview, directory: state.directory)
+                TextField("Find a conversation", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focus, equals: .search)
+                    .onKeyPress(.downArrow) {
+                        guard let first = destinations.first else { return .ignored }
+                        if destination == nil {
+                            destination = first.id
+                        }
+                        focus = .list
+                        return .handled
+                    }
+                list
+                TextField("Add a comment (optional)", text: $comment, axis: .vertical)
+                    .lineLimit(2 ... 4).textFieldStyle(.roundedBorder)
+                if failed {
+                    SheetErrorRow(
+                        message: "The message could not be forwarded. Your selection and comment are kept."
+                    )
+                    .font(.callout)
                 }
             }
-            .frame(minHeight: 160, idealHeight: 220, maxHeight: 260)
-            .overlay {
-                if destinations.isEmpty {
-                    Text("No conversations found").foregroundStyle(.secondary)
-                }
-            }
-            .accessibilityLabel("Forward to conversation")
-            TextField("Add a comment (optional)", text: $comment, axis: .vertical)
-                .lineLimit(2 ... 4).textFieldStyle(.roundedBorder)
-            if failed {
-                Text("The message could not be forwarded. Your selection and comment are kept.")
-                    .font(.callout).foregroundStyle(.red)
-            }
-            buttons
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
         }
-        .padding(20)
         .frame(minWidth: 360, idealWidth: 460, maxWidth: 540)
+        .toolbar { buttons }
         .interactiveDismissDisabled(sending)
     }
 
-    private var buttons: some View {
-        HStack {
-            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(sending)
-            Spacer()
-            if sending {
+    private var list: some View {
+        List(selection: $destination) {
+            ForEach(destinations, id: \.id) { conversation in
+                HStack(spacing: 8) {
+                    ConversationPicture(
+                        conversation: conversation, directory: state.directory, me: state.me, size: 22
+                    )
+                    Text(Display.title(of: conversation, directory: state.directory, me: state.me))
+                        .lineLimit(1)
+                }
+                .tag(conversation.id)
+            }
+        }
+        .focused($focus, equals: .list)
+        .frame(minHeight: 160, idealHeight: 220, maxHeight: 260)
+        .overlay {
+            if destinations.isEmpty {
+                if query.isEmpty {
+                    ContentUnavailableView("No Conversations", systemImage: "bubble.left.and.bubble.right")
+                } else {
+                    ContentUnavailableView.search(text: query)
+                }
+            }
+        }
+        .accessibilityLabel("Forward to conversation")
+    }
+
+    @ToolbarContentBuilder private var buttons: some ToolbarContent {
+        if sending {
+            ToolbarItem(placement: .automatic) {
                 ProgressView().controlSize(.small)
             }
+        }
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") { dismiss() }
+                .disabled(sending)
+        }
+        ToolbarItem(placement: .confirmationAction) {
             Button("Forward") { submit() }
-                .keyboardShortcut(.defaultAction)
                 .disabled(sending || destination == nil || send == nil)
         }
     }

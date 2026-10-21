@@ -20,8 +20,11 @@ enum SearchBarText {
 }
 
 /// The bar under the toolbar: the search, where you are in it, ‹ › to step,
-/// Show All to reopen the overlay, ✕ to end. Its own row in the content
+/// Show All to reopen the overlay, Done to end. Its own row in the content
 /// column, under `StatusStrip`, so it never covers a message.
+///
+/// Previous and Next are one control, as a pair of steps through a list is in
+/// Safari's find bar, and Done ends the search as it ends a find.
 struct SearchResultsBar: View {
     let bar: SearchBarScene
     let state: ChatSceneState
@@ -29,7 +32,9 @@ struct SearchResultsBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(SearchPresentation.summary(
                 of: bar.query, directory: state.directory, conversations: state.conversations, me: state.me
             ))
@@ -38,33 +43,36 @@ struct SearchResultsBar: View {
             if bar.isOpening {
                 ProgressView().controlSize(.small)
             }
+            // Before the search's own words, which give way first.
             Text(SearchBarText.position(bar))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-            Divider().frame(height: 16)
-            Button { actions.step(-1) } label: {
-                Label("Previous Result", systemImage: "chevron.left").labelStyle(.iconOnly)
+                .lineLimit(1)
+                .layoutPriority(1)
+            ControlGroup {
+                Button { actions.step(-1) } label: {
+                    Label("Previous Result", systemImage: "chevron.left")
+                }
+                .disabled(bar.index == 0)
+                .help("Previous result (⇧⌘G)")
+                Button { actions.step(1) } label: {
+                    Label("Next Result", systemImage: "chevron.right")
+                }
+                .disabled(bar.index >= bar.count - 1 && !bar.hasMore)
+                .help("Next result (⌘G)")
             }
-            .disabled(bar.index == 0)
-            .help("Previous result (⇧⌘G)")
-            Button { actions.step(1) } label: {
-                Label("Next Result", systemImage: "chevron.right").labelStyle(.iconOnly)
-            }
-            .disabled(bar.index >= bar.count - 1 && !bar.hasMore)
-            .help("Next result (⌘G)")
+            .fixedSize()
             Button("Show All", action: actions.show)
-            Button(action: actions.end) {
-                Label("End Search", systemImage: "xmark").labelStyle(.iconOnly)
-            }
-            .help("End search")
+                .fixedSize()
+            Button("Done", action: actions.end)
+                .fixedSize()
+                .help("End search")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
         .font(.callout)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .glassEffect(.regular, in: Capsule())
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
+        .contentBar()
     }
 }
 
