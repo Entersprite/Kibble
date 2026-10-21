@@ -13,6 +13,11 @@ import PackageDescription
 /// `AppCore` reusable and the iOS binary free of reverse-engineered code.
 let package = Package(
     name: "MacHost",
+    // The host's windows, menus and alerts are written in English, the only
+    // language so far. Resources/Localizable.xcstrings is the String Catalog;
+    // as in DesignSystem, text meant for it passes `bundle: #bundle`, because
+    // SwiftUI and String(localized:) otherwise look in the app's main bundle.
+    defaultLocalization: "en",
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "MacHost", targets: ["MacHost"])
@@ -51,7 +56,8 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "LiveKitWebRTC", package: "webrtc-xcframework")
             ],
-            // Kibble's own ringtone (`Ringtone.bundled`).
+            // Kibble's own ringtone (`Ringtone.bundled`), the call and message
+            // sounds, and the String Catalog.
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
