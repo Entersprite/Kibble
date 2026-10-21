@@ -80,7 +80,7 @@ public enum Display {
     ///
     /// A resolved id with no directory entry yet still falls through to
     /// `name(of:in:)`'s own fallback - the raw identifier - the same partial
-    /// answer `ConversationRow` and `TypingStrip` already show for anyone
+    /// answer `ConversationRow` already shows for anyone
     /// else not yet in the directory, so a signed-in person is not a special
     /// case. Only `me == nil` gets a different answer: there is no
     /// identifier at all to fall back to yet, and a footer visible the
