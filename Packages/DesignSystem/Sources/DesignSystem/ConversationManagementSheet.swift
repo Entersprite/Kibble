@@ -31,9 +31,9 @@ struct ConversationManagementSheet: View {
             }
         }
         .safeAreaBar(edge: .top) { header }
-        .safeAreaBar(edge: .bottom) { buttons }
         .scrollEdgeEffectStyle(.soft, for: .vertical)
-        .frame(width: 520, height: 580)
+        .frame(width: 520, height: 520)
+        .toolbar { buttons }
         .disabled(state.browser.isSubmitting)
         .onExitCommand(perform: actions.closePanel)
         .onAppear(perform: reset)
@@ -226,30 +226,42 @@ struct ConversationManagementSheet: View {
         [.join, .requestJoin, .acceptInvitation].first { allows($0.action) }
     }
 
-    private var buttons: some View {
-        SheetButtonBar {
-            if state.browser.isSubmitting {
-                ProgressView().controlSize(.small)
+    /// The sheet's own placements: the spinner and Decline Invitation… at the
+    /// leading edge, where macOS puts a destructive action in a sheet, and
+    /// Cancel and the default button trailing, with Escape and Return.
+    @ToolbarContentBuilder private var buttons: some ToolbarContent {
+        let declines = allows(ConversationMutation.declineInvitation.action)
+        if state.browser.isSubmitting || declines {
+            ToolbarItem(placement: .destructiveAction) {
+                HStack(spacing: 8) {
+                    if state.browser.isSubmitting {
+                        ProgressView().controlSize(.small)
+                    }
+                    if declines {
+                        Button("Decline Invitation…") { pending = .declineInvitation }
+                    }
+                }
             }
-            if allows(ConversationMutation.declineInvitation.action) {
-                Button("Decline Invitation…") { pending = .declineInvitation }
+        }
+        if tab == .about, identityChanged {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel", action: actions.closePanel)
             }
-            Spacer()
-            if tab == .about, identityChanged {
-                Button("Cancel", role: .cancel, action: actions.closePanel)
-                    .keyboardShortcut(.cancelAction)
+            ToolbarItem(placement: .confirmationAction) {
                 Button("Save", action: save)
-                    .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
-            } else if let joining {
-                Button("Cancel", role: .cancel, action: actions.closePanel)
-                    .keyboardShortcut(.cancelAction)
+            }
+        } else if let joining {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel", action: actions.closePanel)
+            }
+            ToolbarItem(placement: .confirmationAction) {
                 Button(ConversationDetailsText.joinTitle(joining)) { actions.mutate(joining) }
-                    .keyboardShortcut(.defaultAction)
                     .disabled(state.browser.needsReconciliation)
-            } else {
+            }
+        } else {
+            ToolbarItem(placement: .confirmationAction) {
                 Button("Done", action: actions.closePanel)
-                    .keyboardShortcut(.defaultAction)
             }
         }
     }
