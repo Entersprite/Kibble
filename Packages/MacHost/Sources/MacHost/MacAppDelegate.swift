@@ -46,6 +46,9 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     let callCamera = CallCameraRequest()
+    /// The menu bar's Call menu, following whichever account's call holds the
+    /// device (`CallMenuModel`).
+    public let callMenu = CallMenuModel()
     private let legacyCallAudioDevices: CallAudioDeviceController
     var callAudioDevices: CallAudioDeviceController {
         selectedCallBinding?.audioDevices ?? legacyCallAudioDevices
@@ -153,6 +156,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
             diagnostics.sampleMemory()
         }
         startAccountCalls()
+        callMenu.start { [weak self] in self?.callMenuSources() ?? ([], nil) }
         startMemoryMonitoring()
         let environment = legacyEnvironment
         let fixture = accountHost

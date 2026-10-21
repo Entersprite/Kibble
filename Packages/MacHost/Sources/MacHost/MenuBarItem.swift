@@ -53,6 +53,8 @@ public struct MenuBarLabel: View {
             if badgeTotal > 0 {
                 Label("\(badgeTotal)", systemImage: "bubble.left.and.bubble.right")
                     .labelStyle(.titleAndIcon)
+                    // A bare number says nothing to VoiceOver about whose it is.
+                    .accessibilityLabel(MenuBarLabel.spokenLabel(unread: badgeTotal))
             } else {
                 Label("Kibble", systemImage: "bubble.left.and.bubble.right")
                     .labelStyle(.iconOnly)
@@ -69,6 +71,12 @@ public struct MenuBarLabel: View {
         .onChange(of: badgeTotal, initial: true) { _, count in
             DockBadge.show(count)
         }
+    }
+
+    /// What VoiceOver reads for the item: "Kibble, 3 unread" while there is
+    /// something unread, and the label's own "Kibble" otherwise.
+    static func spokenLabel(unread: Int) -> String {
+        unread > 0 ? "Kibble, \(unread) unread" : "Kibble"
     }
 }
 
@@ -88,7 +96,7 @@ public struct MenuBarContent: View {
         if environment.canEditNotificationRules || devicePause != nil {
             if let status = devicePause?.status ?? environment.pauseStatus {
                 Text(status)
-                Button("Resume Notifications") {
+                Button("Resume Notifications", systemImage: MenuBarSymbols.resumeNotifications) {
                     if let devicePause {
                         devicePause.resume()
                     } else {
@@ -96,7 +104,7 @@ public struct MenuBarContent: View {
                     }
                 }
             } else {
-                Menu("Pause Notifications") {
+                Menu("Pause Notifications", systemImage: MenuBarSymbols.pauseNotifications) {
                     ForEach(PauseDuration.allCases, id: \.self) { duration in
                         Button(Display.title(of: duration)) {
                             if let devicePause {
@@ -110,7 +118,7 @@ public struct MenuBarContent: View {
             }
             Divider()
         }
-        Button("Open Kibble") {
+        Button("Open Kibble", systemImage: MenuBarSymbols.openWindow) {
             MainWindow.show(using: openWindow)
         }
         Divider()

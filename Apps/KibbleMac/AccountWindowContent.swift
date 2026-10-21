@@ -78,13 +78,14 @@ struct AccountWindowContent: View {
     private func shell(_ workspace: AccountWorkspace, showSettings: @escaping () -> Void) -> some View {
         let environment = workspace.selectedEnvironment
         let scene = workspace.selectedScene() ?? ChatSceneState()
+        let actions = environment.map { chatActions($0, showSettings) }
         return AccountShell(
             state: workspace.accountPanelState(scene: environment == nil ? nil : scene),
             actions: panelActions(environment, showSettings: showSettings),
             isPanelOpen: $isPanelOpen
         ) {
-            if let environment {
-                ChatWindow(state: scene, actions: chatActions(environment, showSettings))
+            if let actions {
+                ChatWindow(state: scene, actions: actions)
             } else {
                 ChatWindow(
                     state: scene, actions: ChatSceneActions(showSettings: showSettings),
@@ -92,6 +93,13 @@ struct AccountWindowContent: View {
                 )
             }
         }
+        // The menu bar's window commands act on the selected account's
+        // window, from the same state and actions; an account that is not
+        // running offers none.
+        .focusedSceneValue(\.mainWindowCommands, environment.flatMap { environment in
+            actions
+                .map { MainWindowCommands(scope: ObjectIdentifier(environment), state: scene, actions: $0) }
+        })
     }
 
     private func panelActions(_ environment: AppEnvironment?, showSettings: @escaping () -> Void)
@@ -172,21 +180,23 @@ struct AccountCommands: Commands {
                             host.selectAccount(account.id.rawValue)
                         }
                     ))
-                    .keyboardShortcut(
-                        KeyEquivalent(Character(String(index + 1))),
-                        modifiers: [.control, .command]
-                    )
+                    .keyboardShortcut(MenuBarShortcuts.account(index))
                 }
                 Divider()
-                Button(isPanelOpen ? "Hide Account Panel" : "Show Account Panel") {
+                Button(
+                    isPanelOpen ? "Hide Account Panel" : "Show Account Panel",
+                    systemImage: MenuBarSymbols.accountPanel
+                ) {
                     openWindow(id: MainWindow.id)
                     isPanelOpen.toggle()
                 }
-                .keyboardShortcut("0", modifiers: [.control, .command])
+                .keyboardShortcut(MenuBarShortcuts.accountPanel)
                 .disabled(workspace?.accounts.isEmpty ?? true)
                 Divider()
-                Button("Add Account…") { Task { await host.addAccount() } }
-                Button("Manage Accounts…") {
+                Button("Add Account…", systemImage: MenuBarSymbols.addAccount) {
+                    Task { await host.addAccount() }
+                }
+                Button("Manage Accounts…", systemImage: MenuBarSymbols.manageAccounts) {
                     selectAccountsPane()
                     openSettings()
                 }

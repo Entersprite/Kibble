@@ -126,23 +126,51 @@ public extension MacAppDelegate {
         video: CallVideoController
     ) {
         actions.toggleCamera = {
-            if calls.call?.id == id, calls.call?.phase == .connected || calls.call?.phase == .ringing,
-               !calls.isEnding {
+            if canUseVideo(in: id, calls: calls) {
                 video.toggle()
             }
         }
         actions.selectCamera = { device in
-            if calls.call?.id == id, calls.call?.phase == .connected || calls.call?.phase == .ringing,
-               !calls.isEnding {
+            if canUseVideo(in: id, calls: calls) {
                 video.select(device)
             }
         }
         actions.toggleScreenSharing = {
-            if calls.call?.id == id, calls.call?.phase == .connected || calls.call?.phase == .ringing,
-               !calls.isEnding {
+            if canUseVideo(in: id, calls: calls) {
                 video.screenSharing.toggle()
             }
         }
+    }
+
+    /// Whether the camera and sharing may change for call `id`: still that
+    /// call, ringing or connected, and not ending. The call window's controls
+    /// and the menu bar's Call menu both ask.
+    internal static func canUseVideo(in id: UUID, calls: AudioCallController) -> Bool {
+        calls.call?.id == id && (calls.call?.phase == .connected || calls.call?.phase == .ringing)
+            && !calls.isEnding
+    }
+
+    /// Every account's calls for the menu bar's Call menu, and the selected
+    /// account's: each account's own controller, with the camera of the
+    /// provider generation it is bound to.
+    internal func callMenuSources() -> (all: [CallMenuModel.Source], selected: CallMenuModel.Source?) {
+        guard let host = accountHost else {
+            let legacy = CallMenuModel.Source(calls: environment.calls, video: callVideo)
+            return ([legacy], legacy)
+        }
+        guard let workspace = host.workspace else { return ([], nil) }
+        var selected: CallMenuModel.Source?
+        let all = workspace.accounts.compactMap { account -> CallMenuModel.Source? in
+            guard let environment = workspace.environment(for: account.id) else { return nil }
+            let source = CallMenuModel.Source(
+                calls: environment.calls, video: host.callBindings.binding(for: account)?.video
+            )
+            if account.id == workspace.selectedID {
+                selected = source
+            }
+            return source
+        }
+        return (all, selected)
     }
 
     /// The panel's buttons act on the call they were shown for, and only while

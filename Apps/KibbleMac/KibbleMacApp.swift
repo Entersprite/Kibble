@@ -75,11 +75,13 @@ struct KibbleMacApp: App {
                 )
         }
         .defaultSize(width: 1100, height: 720)
+        // Window › Kibble brings the window back once it has been closed.
+        .keyboardShortcut(MenuBarShortcuts.mainWindow)
         .commands {
             // The standard panel, with three short lines about the license as its
             // credits (`AboutPanel`).
             CommandGroup(replacing: .appInfo) {
-                Button("About Kibble") {
+                Button("About Kibble", systemImage: MenuBarSymbols.about) {
                     AboutPanel.show()
                 }
             }
@@ -87,25 +89,31 @@ struct KibbleMacApp: App {
             // the legal texts (`HelpWindows`) and the diagnostics export, which
             // is app-wide and needs no window: its save panel runs app-modal.
             CommandGroup(replacing: .help) {
-                Button("Kibble on GitHub") {
+                Button("Kibble on GitHub", systemImage: MenuBarSymbols.source) {
                     HelpWindows.openSource()
                 }
                 Divider()
-                Button("Disclaimer") {
+                Button("Disclaimer", systemImage: MenuBarSymbols.disclaimer) {
                     HelpWindows.show(.disclaimer)
                 }
-                Button("License") {
+                Button("License", systemImage: MenuBarSymbols.license) {
                     HelpWindows.show(.license)
                 }
-                Button("Acknowledgments") {
+                Button("Acknowledgments", systemImage: MenuBarSymbols.acknowledgments) {
                     HelpWindows.show(.acknowledgments)
                 }
                 Divider()
-                Button("Export Diagnostics…") {
+                Button("Export Diagnostics…", systemImage: MenuBarSymbols.exportDiagnostics) {
                     appDelegate.diagnostics.export()
                 }
             }
             NewConversationCommands(environment: environment)
+            FindCommands(environment: environment)
+            // Draws, while the main window is not in front, the items the
+            // selected account's window would offer; the window itself
+            // publishes what is enabled (`MainWindowCommands`).
+            ConversationCommands { sceneActions(for: environment, showSettings: {}) }
+            CallCommands(menu: appDelegate.callMenu.menu, model: appDelegate.callMenu)
             FormatCommands()
             AccountCommands(host: appDelegate.accountHost, isPanelOpen: $isAccountPanelOpen) {
                 settingsPane = "accounts"
@@ -125,24 +133,6 @@ struct KibbleMacApp: App {
                     }
                 }
                 .disabled(appDelegate.accountHost == nil ? !environment.canSignOut : signedInAccount == nil)
-            }
-            // Search (search spec §1.1): ⌘F, as in Messages, and ⌘G to step.
-            CommandGroup(after: .textEditing) {
-                Button("Search…") {
-                    environment.showSearch()
-                }
-                .keyboardShortcut("f")
-                .disabled(!environment.canSearch)
-                Button("Next Result") {
-                    environment.stepSearch(1)
-                }
-                .keyboardShortcut("g")
-                .disabled(!environment.canStepSearch)
-                Button("Previous Result") {
-                    environment.stepSearch(-1)
-                }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(!environment.canStepSearch)
             }
         }
 
@@ -246,10 +236,17 @@ struct KibbleMacApp: App {
             // one thing, and it is `environment.actions`' job: a failed launch
             // offers a way back to sign-in, and a probe report does not.
             SettingsOpening { showSettings in
-                ChatWindow(
-                    state: environment.sceneState,
-                    actions: sceneActions(for: environment, showSettings: showSettings)
-                )
+                let state = environment.sceneState
+                let actions = sceneActions(for: environment, showSettings: showSettings)
+                ChatWindow(state: state, actions: actions)
+                    .focusedSceneValue(
+                        \.mainWindowCommands,
+                        MainWindowCommands(
+                            scope: ObjectIdentifier(environment),
+                            state: state,
+                            actions: actions
+                        )
+                    )
             }
         }
     }
@@ -288,13 +285,13 @@ private struct NewConversationCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Message…") { begin(.message) }
-                .keyboardShortcut("n")
+            Button("New Message…", systemImage: MenuBarSymbols.newMessage) { begin(.message) }
+                .keyboardShortcut(MenuBarShortcuts.newMessage)
                 .disabled(!environment.canBeginConversation(.message))
-            Button("New Group Chat…") { begin(.groupChat) }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("New Group Chat…", systemImage: MenuBarSymbols.newGroupChat) { begin(.groupChat) }
+                .keyboardShortcut(MenuBarShortcuts.newGroupChat)
                 .disabled(!environment.canBeginConversation(.groupChat))
-            Button("New Space…") { begin(.space) }
+            Button("New Space…", systemImage: MenuBarSymbols.newSpace) { begin(.space) }
                 .disabled(!environment.canBeginConversation(.space))
         }
     }
