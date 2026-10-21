@@ -55,6 +55,10 @@ targets:
     platform: macOS
     sources:
       - path: Apps/KibbleMac
+        # The folder's maintainer notes are for the repository, not the
+        # bundle: without this xcodegen copies AGENTS.md into Resources.
+        excludes:
+          - "**/*.md"
       # Shipped inside the app, because the licenses of what Kibble bundles
       # require their notices in every copy. The Help menu shows both
       # (MacHost's HelpWindows), and scripts/package.sh refuses a release
