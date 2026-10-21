@@ -66,9 +66,10 @@ struct BubbleWidthLimit: Layout {
     }
 }
 
-/// Add Reaction, shown while the pointer is over a row, beside the bubble
-/// in the room the row's spacer keeps, so nothing moves. VoiceOver reaches
-/// the same action through the row's actions instead.
+/// Add Reaction, shown while the pointer is over a row, beside the message
+/// and centered on it, in the room the row's spacer keeps, so nothing moves.
+/// Only until the message has reactions, whose row ends with an add button
+/// of its own. VoiceOver reaches the same action through the row's actions.
 ///
 /// Always in the tree and only faded: inside an `if`, an overlay's explicit
 /// alignment guide was ignored (measured headless), which put the button

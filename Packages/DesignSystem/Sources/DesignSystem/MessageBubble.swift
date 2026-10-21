@@ -76,11 +76,6 @@ struct MessageBubble: View {
             }
             column
                 .modifier(ReactionMenu(context: menu))
-                .overlay(alignment: isMine ? .bottomLeading : .bottomTrailing) {
-                    AddReactionHoverButton(isMine: isMine, shown: addsReactions && hovering) {
-                        picking = true
-                    }
-                }
                 .popover(isPresented: $picking, arrowEdge: .bottom) {
                     if let reactions = availableReactions {
                         EmojiPicker(reactions: message.reactions, actions: reactions) { choice, add in
@@ -130,12 +125,26 @@ struct MessageBubble: View {
             if !continuesGroup {
                 header.accessibilityHidden(true)
             }
-            if message.isDeleted {
-                bubble
-            } else if let status = message.callStatus {
-                CallMessageCard(status: status)
-            } else {
-                messageContent
+            // The message itself, apart from its name, reactions and marks,
+            // so the hover button sits beside what was said: the column
+            // around it can span the row (the read receipt's row does).
+            VStack(alignment: isMine ? .trailing : .leading, spacing: 2) {
+                if message.isDeleted {
+                    bubble
+                } else if let status = message.callStatus {
+                    CallMessageCard(status: status)
+                } else {
+                    messageContent
+                }
+            }
+            .overlay(alignment: isMine ? .leading : .trailing) {
+                // Not once the message has reactions: their row ends with an
+                // add button of its own.
+                AddReactionHoverButton(
+                    isMine: isMine, shown: addsReactions && hovering && message.reactions.isEmpty
+                ) {
+                    picking = true
+                }
             }
             if !message.reactions.isEmpty {
                 ReactionRow(
