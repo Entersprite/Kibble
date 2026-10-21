@@ -50,6 +50,8 @@ public enum MentionsPresentation {
 
     public static let lookingText = "Looking for mentions…"
     public static let emptyText = "No mentions in the last 30 days"
+    /// The context menu's item, which does what Return and a double-click do.
+    static let openTitle = "Show in Conversation"
 
     /// The plain count, and no badge at zero (ruling 13).
     public static func badge(unread: Int) -> String? {
@@ -74,15 +76,15 @@ public enum MentionsPresentation {
     }
 }
 
-/// The Mentions list, in the detail pane. A `ScrollView` of a `LazyVStack`,
-/// not a `List`, so that the list itself can be rendered headless
-/// (`MentionsPaneList`, ruling 17). It never sees a store: values in,
-/// `open` out.
+/// The Mentions list, in the detail pane: a `List`, as Mail's message list
+/// is. A click selects a row, and Return or a double-click opens it; the
+/// context menu offers the same. It never sees a store: values in, `open` out.
 public struct MentionsPane: View {
     let items: [MentionItem]
     let status: MentionsStatus
     let me: Member.ID?
     let open: (Conversation.ID, Message.ID) -> Void
+    @State private var selection: Message.ID?
 
     public init(
         items: [MentionItem], status: MentionsStatus, me: Member.ID?,
@@ -95,8 +97,28 @@ public struct MentionsPane: View {
     }
 
     public var body: some View {
-        ScrollView {
-            MentionsPaneList(items: items, status: status, me: me, open: open)
+        List(selection: $selection) {
+            Section {
+                ForEach(items) { item in
+                    MentionItemRow(item: item, me: me)
+                }
+            } footer: {
+                if let footer = MentionsPresentation.footer(status) {
+                    Text(footer)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .listStyle(.inset)
+        .contextMenu(forSelectionType: Message.ID.self) { ids in
+            if let item = PaneSelection.single(ids, in: items) {
+                Button(MentionsPresentation.openTitle) { open(item.conversationID, item.id) }
+            }
+        } primaryAction: { ids in
+            if let item = PaneSelection.single(ids, in: items) {
+                open(item.conversationID, item.id)
+            }
         }
         .overlay {
             switch MentionsPresentation.content(items: items, status: status) {
@@ -111,27 +133,12 @@ public struct MentionsPane: View {
     }
 }
 
-/// The items and the footer, as plain stacks.
-struct MentionsPaneList: View {
-    let items: [MentionItem]
-    let status: MentionsStatus
-    let me: Member.ID?
-    let open: (Conversation.ID, Message.ID) -> Void
-
-    var body: some View {
-        LazyVStack(alignment: .leading, spacing: 4) {
-            ForEach(items) { item in
-                MentionItemRow(item: item, me: me, open: open)
-            }
-            if let footer = MentionsPresentation.footer(status) {
-                Text(footer)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-            }
-        }
-        .padding(12)
+/// The one row a context menu, Return or a double-click acts on: a pane
+/// opens one item at a time, so several selected, or none, is no row.
+enum PaneSelection {
+    static func single<Item: Identifiable>(_ ids: Set<Item.ID>, in items: [Item]) -> Item? {
+        guard ids.count == 1, let id = ids.first else { return nil }
+        return items.first { $0.id == id }
     }
 }
 
@@ -141,40 +148,33 @@ struct MentionsPaneList: View {
 struct MentionItemRow: View {
     let item: MentionItem
     let me: Member.ID?
-    let open: (Conversation.ID, Message.ID) -> Void
 
     var body: some View {
-        Button {
-            open(item.conversationID, item.id)
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(item.conversationTitle)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
-                    Text(item.senderName)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(Display.timestamp(of: item.createdAt))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                Text(MentionHighlight.attributed(
-                    item.text, mentions: item.mentions, me: me, inOwnBubble: false
-                ))
-                .lineLimit(3)
-                // `nil`, not `.regular`, while read: a `.regular` weight
-                // overrides the span's own semibold, and the render check
-                // showed `@all` drawn regular because of it.
-                .fontWeight(item.isUnread ? .semibold : nil)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(item.conversationTitle)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Text(item.senderName)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(Display.timestamp(of: item.createdAt))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            Text(MentionHighlight.attributed(
+                item.text, mentions: item.mentions, me: me, inOwnBubble: false
+            ))
+            .lineLimit(3)
+            // `nil`, not `.regular`, while read: a `.regular` weight
+            // overrides the span's own semibold, and the render check
+            // showed `@all` drawn regular because of it.
+            .fontWeight(item.isUnread ? .semibold : nil)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
