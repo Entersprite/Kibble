@@ -166,7 +166,8 @@
                     reportAnchor(in: view)
                     reportStylesLater(in: view)
                 } else if !view.hasMarkedText(), !view.isWritingToolsActive,
-                          ComposerStyle.runs(in: storage) != draft.runs {
+                          ComposerStyle.runs(in: storage) != draft.runs
+                          || ComposerStyle.customEmoji(in: storage) != draft.customEmoji {
                     applying = true
                     ComposerStyle.apply(draft, to: view)
                     applying = false
@@ -225,8 +226,13 @@
                     // anything the routing above missed: the view holds what
                     // the person sees, and the draft follows it.
                     let runs = ComposerStyle.runs(in: storage)
-                    if view.string != parent.draft.text || runs != parent.draft.runs {
-                        parent.draft.follow(view.string, runs: runs)
+                    if view.string != parent.draft.text || runs != parent.draft.runs
+                        || ComposerStyle.customEmoji(in: storage) != parent.draft.customEmoji {
+                        parent.draft.follow(
+                            view.string,
+                            runs: runs,
+                            customEmoji: ComposerStyle.customEmoji(in: storage)
+                        )
                     }
                 }
                 parent.onActivity?(!view.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

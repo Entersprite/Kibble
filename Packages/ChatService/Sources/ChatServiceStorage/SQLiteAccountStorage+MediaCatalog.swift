@@ -72,7 +72,8 @@ extension SQLiteAccountStorage: ServiceMediaCatalog {
                 ) != true else { continue }
                 let sources = ProviderMediaSource.collect(
                     attachments: message.attachments, reactions: message.reactions,
-                    links: message.links, cards: message.cards, forwarded: message.content?.forwarded
+                    links: message.links, cards: message.cards, forwarded: message.content?.forwarded,
+                    customEmoji: message.content?.customEmoji.map(\.emoji) ?? []
                 )
                 try Self.replaceMediaSources(
                     sources, facts: MediaIndexFacts(
@@ -107,13 +108,18 @@ extension SQLiteAccountStorage: ServiceMediaCatalog {
     public func rememberQueryMembers(_ members: [Member], at date: Date) throws {
         try database.write { db in
             for member in members {
-                guard let url = member.avatarURL else { continue }
+                var sources: [ProviderMediaSource] = member.avatarURL.map { [.remoteImage($0)] } ?? []
+                if let emoji = member.status?.customEmoji,
+                   emoji.imageToken?.isEmpty == false {
+                    sources.append(.customEmoji(emoji))
+                }
+                guard !sources.isEmpty else { continue }
                 let exists = try Bool.fetchOne(
                     db, sql: "SELECT EXISTS(SELECT 1 FROM member WHERE id = ?)",
                     arguments: [member.id.rawValue]
                 ) == true
                 try Self.replaceMediaSources(
-                    [.remoteImage(url)], facts: MediaIndexFacts(
+                    sources, facts: MediaIndexFacts(
                         origin: .member(member.id), canonical: exists, createdAt: 0,
                         expiry: date.addingTimeInterval(900).timeIntervalSince1970,
                         touchedAt: date.timeIntervalSince1970

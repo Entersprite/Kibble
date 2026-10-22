@@ -105,7 +105,10 @@ public extension ComposerDraft {
         formatting: Bool
     ) -> (message: ComposedMessage, runs: [Run]) {
         guard formatting else {
-            let quote = MessageContent(quote: message.content?.quote)
+            let quote = MessageContent(
+                customEmoji: message.content?.customEmoji ?? [],
+                quote: message.content?.quote
+            )
             return (ComposedMessage(text: message.text, mentions: message.mentions, content: quote), [])
         }
         #if os(macOS)

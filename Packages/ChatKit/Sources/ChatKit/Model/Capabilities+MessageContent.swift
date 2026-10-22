@@ -1,6 +1,14 @@
 import Foundation
 
 public extension Capabilities {
+    var canSendCustomEmoji: Bool {
+        extendedFlags.contains("customEmojiMessages")
+    }
+
+    var canSetCustomEmojiStatus: Bool {
+        extendedFlags.contains("customEmojiStatus")
+    }
+
     var canForwardMessages: Bool {
         extendedFlags.contains("forwardMessages")
     }

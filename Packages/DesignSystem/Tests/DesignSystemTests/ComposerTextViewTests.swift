@@ -68,6 +68,54 @@
             undo.endUndoGrouping()
         }
 
+        @Test func customEmojiInsertionUndoRedoAndSubsequentTypingKeepTheReference() throws {
+            let box = Box()
+            let harness = windowed(box)
+            let emoji = CustomEmojiRef(id: "custom-emoji", shortcode: "parrot", imageToken: "opaque")
+            type("😀 ", into: harness.view, undo: harness.undo)
+            harness.undo.beginUndoGrouping()
+            harness.coordinator.perform(
+                ComposerInsertion(text: emoji.displayText, customEmoji: emoji), in: harness.view
+            )
+            harness.undo.endUndoGrouping()
+            #expect(box.draft.customEmoji == [MessageCustomEmoji(
+                emoji: emoji, start: 3, length: emoji.displayText.utf16.count
+            )])
+            harness.undo.undo()
+            #expect(box.draft.text == "😀 ")
+            #expect(box.draft.customEmoji.isEmpty)
+            harness.undo.redo()
+            #expect(box.draft.customEmoji.first?.emoji == emoji)
+            type(" next", into: harness.view, undo: harness.undo)
+            #expect(box.draft.customEmoji.first?.length == emoji.displayText.utf16.count)
+            let span = try #require(box.draft.composed().content?.customEmoji.first)
+            #expect(span.range(in: box.draft.text) != nil)
+            withExtendedLifetime(harness.window) {}
+        }
+
+        @Test func sameTextDraftAdoptsCustomMetadataBeforeTheNextNativeEdit() throws {
+            let box = Box()
+            let harness = windowed(box)
+            let emoji = CustomEmojiRef(id: "custom-emoji", shortcode: "parrot", imageToken: "opaque")
+            box.draft.edit(emoji.displayText)
+            harness.coordinator.show(box.draft, in: harness.view)
+            let content = MessageContent(customEmoji: [MessageCustomEmoji(
+                emoji: emoji,
+                start: 0,
+                length: emoji.displayText.utf16
+                    .count
+            )])
+            let adopted = box.draft.adopt(ComposedMessage(text: emoji.displayText, content: content))
+            #expect(adopted)
+            harness.coordinator.show(box.draft, in: harness.view)
+            let storage = try #require(harness.view.textStorage)
+            #expect(ComposerStyle.customEmoji(in: storage) == content.customEmoji)
+            harness.view.setSelectedRange(NSRange(location: storage.length, length: 0))
+            type("!", into: harness.view, undo: harness.undo)
+            #expect(box.draft.composed().content?.customEmoji == content.customEmoji)
+            withExtendedLifetime(harness.window) {}
+        }
+
         @Test func formattingASelectedMentionPreservesItsTargetAndCanBeUndone() {
             let box = Box()
             box.draft.edit("@")

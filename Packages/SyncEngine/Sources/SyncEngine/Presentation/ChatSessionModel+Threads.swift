@@ -37,6 +37,7 @@ public extension ChatSessionModel {
         threads.work.panelTasks = [
             observe(store.observeThread(thread, in: selected)) { [weak self] in
                 self?.threads.messages = $0
+                self?.noteCustomEmoji(in: $0)
                 self?.markOpenThreadReadIfNeeded()
             },
             // With the observation, so closing the panel cancels a fetch

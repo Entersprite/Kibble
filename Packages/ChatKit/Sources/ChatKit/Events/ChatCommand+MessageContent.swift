@@ -12,6 +12,15 @@ public extension ChatCommand {
             guard let conversation
             else { throw ChatError.decoding("Formatted edits need their conversation") }
             try content.validate(text: text, conversation: conversation, capabilities: capabilities)
+        case let .setStatus(status):
+            guard status?.customEmoji == nil || capabilities.canSetCustomEmojiStatus else {
+                throw ChatError.unsupported(capability: "customEmojiStatus")
+            }
+            if let emoji = status?.customEmoji {
+                guard !emoji.id.isEmpty, !emoji.shortcode.isEmpty, status?.emoji == nil else {
+                    throw ChatError.decoding("Invalid custom status emoji")
+                }
+            }
         default: break
         }
     }

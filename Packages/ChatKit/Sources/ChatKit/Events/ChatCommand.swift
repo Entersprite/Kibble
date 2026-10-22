@@ -123,8 +123,9 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     case loadMembers(conversationID: Conversation.ID)
 
     /// Your own custom status: emoji, text and when it clears; `nil` clears it
-    /// (set-your-status spec §2). A backend sends the Unicode emoji only, never
-    /// a custom emoji's shortcode. The answer arrives as `.statusChanged` for you.
+    /// (set-your-status spec §2). Custom emoji need an explicit reference and
+    /// the customEmojiStatus capability; a shortcode alone is never submitted.
+    /// The answer arrives as `.statusChanged` for you.
     case setStatus(MemberStatus?)
 
     /// Your own availability. The answer arrives as `.availabilityChanged`.

@@ -17,6 +17,15 @@ extension Composer {
         draft.composed(formatting: allowsFormatting).text
     }
 
+    func insert(_ choice: ReactionChoice) {
+        #if os(macOS)
+            insertion = ComposerInsertion(text: choice.emoji, customEmoji: choice.customEmoji)
+        #else
+            draft.insertEmoji(choice)
+            isFocused = true
+        #endif
+    }
+
     func insert(_ text: String) {
         #if os(macOS)
             insertion = ComposerInsertion(text: text)

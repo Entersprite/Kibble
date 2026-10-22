@@ -54,6 +54,7 @@ public extension MessageMarkup {
         escaping: Bool
     ) -> ComposedMessage {
         let formats = (message.content?.formatting ?? []).filter { $0.range(in: message.text) != nil }
+        let customEmoji = (message.content?.customEmoji ?? []).filter { $0.range(in: message.text) != nil }
         let source = message.text as NSString
         let items = Set(formats.filter { $0.style == "bulletItem" }.map(\.start))
         // Carried code is never parsed, so nothing in it needs an escape.
@@ -72,7 +73,7 @@ public extension MessageMarkup {
                 append("- ")
             }
             starts[offset] = textLength
-            let literal = message.mentions.contains { $0.start <= offset && offset < $0.start + $0.length }
+            let literal = isProtected(offset, message, customEmoji)
                 || verbatim.contains { $0.start <= offset && offset < $0.start + $0.length }
             let literalBullet = character == "-" && (offset == 0 || source.character(at: offset - 1) == 10)
                 && offset + 1 < source.length && source.character(at: offset + 1) == 32
@@ -91,7 +92,11 @@ public extension MessageMarkup {
         return ComposedMessage(
             text: text,
             mentions: editableMentions(message, starts: starts, ends: ends),
-            content: MessageContent(formatting: spans, quote: message.content?.quote)
+            content: MessageContent(
+                formatting: spans,
+                customEmoji: editableEmoji(message, starts: starts, ends: ends),
+                quote: message.content?.quote
+            )
         )
     }
 }

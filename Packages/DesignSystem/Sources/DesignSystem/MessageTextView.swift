@@ -31,6 +31,7 @@
         var menuMessage: Message?
         /// A plain single click on a forward's unselected text opens its original.
         var openReference: (() -> Void)?
+        var emojiImages: [CustomEmojiRef: Data] = [:]
 
         func makeCoordinator() -> Coordinator {
             Coordinator(
@@ -52,7 +53,7 @@
             view.show(context.coordinator.textCache.attributed(
                 message: message,
                 me: me,
-                inOwnBubble: inOwnBubble
+                inOwnBubble: inOwnBubble, emojiImages: emojiImages
             ))
             return view
         }
@@ -72,7 +73,7 @@
             view.show(context.coordinator.textCache.attributed(
                 message: message,
                 me: me,
-                inOwnBubble: inOwnBubble
+                inOwnBubble: inOwnBubble, emojiImages: emojiImages
             ))
         }
 

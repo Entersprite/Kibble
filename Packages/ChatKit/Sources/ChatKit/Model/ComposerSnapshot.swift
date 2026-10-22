@@ -14,11 +14,12 @@ public struct ComposerSnapshot: Codable, Equatable, Sendable {
     public var caret: Int
     public var quote: MessageQuote?
     public var formatting: [MessageFormat]
+    public var customEmoji: [MessageCustomEmoji]
 
     public init(
         conversation: Conversation.ID, thread: MessageThread.ID? = nil,
         text: String, mentions: [Mention] = [], caret: Int = 0, quote: MessageQuote? = nil,
-        formatting: [MessageFormat] = []
+        formatting: [MessageFormat] = [], customEmoji: [MessageCustomEmoji] = []
     ) {
         self.conversation = conversation
         self.thread = thread
@@ -27,10 +28,11 @@ public struct ComposerSnapshot: Codable, Equatable, Sendable {
         self.caret = caret
         self.quote = quote
         self.formatting = formatting
+        self.customEmoji = customEmoji
     }
 
     private enum CodingKeys: String, CodingKey {
-        case conversation, thread, text, mentions, caret, quote, formatting
+        case conversation, thread, text, mentions, caret, quote, formatting, customEmoji
     }
 
     public init(from decoder: any Decoder) throws {
@@ -42,6 +44,7 @@ public struct ComposerSnapshot: Codable, Equatable, Sendable {
         caret = try container.decode(Int.self, forKey: .caret)
         quote = try container.decodeIfPresent(MessageQuote.self, forKey: .quote)
         formatting = try container.decodeIfPresent([MessageFormat].self, forKey: .formatting) ?? []
+        customEmoji = try container.decodeIfPresent([MessageCustomEmoji].self, forKey: .customEmoji) ?? []
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -52,6 +55,9 @@ public struct ComposerSnapshot: Codable, Equatable, Sendable {
         try container.encode(mentions, forKey: .mentions)
         try container.encode(caret, forKey: .caret)
         try container.encodeIfPresent(quote, forKey: .quote)
+        if !customEmoji.isEmpty {
+            try container.encode(customEmoji, forKey: .customEmoji)
+        }
         if !formatting.isEmpty {
             try container.encode(formatting, forKey: .formatting)
         }

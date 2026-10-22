@@ -66,6 +66,8 @@ public final class ChatSessionModel {
     public internal(set) var isLoadingMeetingMetadata = false
     /// The 24 newest recent reactions, fed by `store.observeRecentReactions`.
     public internal(set) var recentReactionChoices: [ReactionChoice] = []
+    /// Behind `customEmoji` (`ChatSessionModel+Reactions.swift`).
+    var seenCustomEmoji = SeenCustomEmoji()
     /// The `@` list's people for the selected conversation, observed
     /// (`ChatStore.observeMentionCandidates`), never read during a render
     /// (CLAUDE.md, session 46).

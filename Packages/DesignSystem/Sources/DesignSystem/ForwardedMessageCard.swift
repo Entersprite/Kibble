@@ -11,6 +11,7 @@ struct ForwardedMessageCard: View {
     static let cornerRadius: CGFloat = 16
     static let padding: CGFloat = 10
 
+    @State private var emojiImages: [CustomEmojiRef: Data] = [:]
     let forwarded: ForwardedMessage
     let directory: [Member.ID: Member]
     var me: Member.ID?
@@ -67,6 +68,20 @@ struct ForwardedMessageCard: View {
                 snapshot
             }
         }
+        .task(id: CustomEmojiLoadingKey(
+            emoji: forwarded.customEmoji.map(\.emoji),
+            canLoad: menu?.reactions?.customImage != nil
+        )) {
+            emojiImages = [:]
+            guard !forwarded.source.isDeleted, let load = menu?.reactions?.customImage else { return }
+            for emoji in Set(forwarded.customEmoji.prefix(256).map(\.emoji)) {
+                let data = try? await load(emoji)
+                guard !Task.isCancelled else { return }
+                if let data {
+                    emojiImages[emoji] = data
+                }
+            }
+        }
         .padding(Self.padding)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Self.cornerRadius))
         .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).stroke(.quaternary))
@@ -84,7 +99,8 @@ struct ForwardedMessageCard: View {
                     insets: .init(top: 0, left: 0, bottom: 0, right: 0),
                     message: linkPresentation.message, actions: menu?.reactions, me: me,
                     onMore: menu?.onMore, own: menu?.own,
-                    open: { openURL($0) }, menuMessage: menu?.message, openReference: openOriginal
+                    open: { openURL($0) }, menuMessage: menu?.message,
+                    openReference: openOriginal, emojiImages: emojiImages
                 )
             #else
                 Text(linkPresentation.message.text).textSelection(.enabled)

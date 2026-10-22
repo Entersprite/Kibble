@@ -37,6 +37,7 @@ struct MessageBubble: View {
     /// menu's "More Emoji…" (reactions spec §4.2-§4.3). The context menus are
     /// the only way to add a reaction (owner decision).
     @State private var picking = false
+    @State var inlineEmojiImages: [CustomEmojiRef: Data] = [:]
     /// The message's pictures and downloads as Quick Look pages.
     @State private var gallery = AttachmentGallery()
 
@@ -47,10 +48,6 @@ struct MessageBubble: View {
 
     private var ownItems: OwnMessageMenuItems? {
         state.canUseProviderActions ? own?.items(for: message) : nil
-    }
-
-    private var availableReactions: ReactionActions? {
-        state.canUseProviderActions ? reactions : nil
     }
 
     private var isMine: Bool {
@@ -80,7 +77,9 @@ struct MessageBubble: View {
                 .modifier(ReactionMenu(context: menu))
                 .popover(isPresented: $picking, arrowEdge: .bottom) {
                     if let reactions = availableReactions {
-                        EmojiPicker(reactions: message.reactions, actions: reactions) { choice, add in
+                        EmojiPicker(
+                            reactions: message.reactions, actions: reactions, use: .reaction
+                        ) { choice, add in
                             reactions.toggle(message.id, choice, add)
                             picking = false
                         }
@@ -90,6 +89,7 @@ struct MessageBubble: View {
                 Spacer(minLength: MessageBubbleLayout.opposite)
             }
         }
+        .task(id: inlineEmojiLoadKey) { await loadInlineEmoji() }
         .padding(.vertical, 2)
         .background {
             RoundedRectangle(cornerRadius: 12)
@@ -338,7 +338,7 @@ struct MessageBubble: View {
                     onMore: { picking = true },
                     own: ownItems,
                     inOwnBubble: isMine,
-                    open: { openURL($0) }, menuMessage: message
+                    open: { openURL($0) }, menuMessage: message, emojiImages: inlineEmojiImages
                 )
                 if message.editedAt != nil {
                     editedLabel

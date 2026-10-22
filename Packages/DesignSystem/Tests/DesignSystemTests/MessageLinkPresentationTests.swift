@@ -71,6 +71,38 @@ struct MessageLinkPresentationTests {
         ))
     }
 
+    @Test func customEmojiKeepTheirIdentityAndUTF16OffsetsAfterAnInternalLinkIsRemoved() throws {
+        let raw = "https://internal.example/original"
+        let emoji = CustomEmojiRef(id: "party-id", shortcode: "party", imageToken: "token")
+        let text = "👋 \(raw) \(emoji.displayText)"
+        let range = (text as NSString).range(of: emoji.displayText)
+        let span = MessageCustomEmoji(emoji: emoji, start: range.location, length: range.length)
+        var original = message(text)
+        original.content = MessageContent(customEmoji: [span])
+        let result = MessageLinkPresentation(original, internalHosts: ["internal.example"])
+        let rendered = try #require(result.message.content?.customEmoji.first)
+        #expect(rendered.emoji == emoji)
+        #expect(rendered.start == span.start - raw.utf16.count)
+        #expect(rendered.range(in: result.message.text) != nil)
+        #expect(original.content?.customEmoji == [span])
+    }
+
+    @Test func removingALinkDropsOverlappingAndInvalidEmojiSpans() throws {
+        let emoji = CustomEmojiRef(id: "party-id", shortcode: "party")
+        let text = "\(emoji.displayText) tail"
+        var original = try message(text, links: [MessageLink(
+            url: #require(URL(string: "https://internal.example/original")),
+            start: 0, length: emoji.displayText.utf16.count, messageAddress: address
+        )])
+        original.content = MessageContent(customEmoji: [
+            MessageCustomEmoji(emoji: emoji, start: 0, length: emoji.displayText.utf16.count),
+            MessageCustomEmoji(emoji: emoji, start: Int.max, length: 1)
+        ])
+        let result = MessageLinkPresentation(original, internalHosts: ["internal.example"])
+        #expect(result.message.text == " tail")
+        #expect(result.message.content?.customEmoji.isEmpty == true)
+    }
+
     @Test func malformedUTF16RangesCannotRemoveAdjacentText() throws {
         let link = try MessageLink(
             url: #require(URL(string: "https://internal.example/")),

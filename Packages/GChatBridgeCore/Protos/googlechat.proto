@@ -970,6 +970,10 @@ message FormatMetadata {
 	optional int32 font_color = 2;
 }
 
+message CustomEmojiMetadata {
+    optional CustomEmoji custom_emoji = 1;
+}
+
 message Annotation {
 	optional AnnotationType type = 1;
 	optional int32 start_index = 2;
@@ -994,6 +998,7 @@ message Annotation {
 
 		YoutubeMetadata youtube_metadata = 6;
 		UrlMetadata url_metadata = 7;
+        CustomEmojiMetadata custom_emoji_metadata = 26;
 		UploadMetadata upload_metadata = 10;
 		MembershipChangedMetadata membership_changed = 11;
 		VideoCallMetadata video_call_metadata = 12;
@@ -2068,6 +2073,7 @@ enum AnnotationType {
 	INCOMING_WEBHOOK_CHANGED = 22;
 	INTEGRATION_CONFIG_UPDATED = 23;
 	CONSENTED_APP_UNFURL = 24;
+    CUSTOM_EMOJI = 25;
 }
 
 message GroupDetails {

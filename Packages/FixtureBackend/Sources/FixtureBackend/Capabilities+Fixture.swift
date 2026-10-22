@@ -41,7 +41,8 @@ public extension Capabilities {
         messageSearchFilters: [
             .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
         ], extendedFlags: [
-            "formattedMessages", "quotedMessages", "cardActions", "forwardMessages", "conversationPreview"
+            "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
+            "conversationPreview", "customEmojiMessages", "customEmojiStatus"
         ]
     )
 }

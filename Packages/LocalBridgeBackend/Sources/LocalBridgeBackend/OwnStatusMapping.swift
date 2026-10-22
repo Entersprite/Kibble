@@ -45,13 +45,13 @@ enum AvailabilityMapping {
 /// What each setting sends (spec §1). Every shape is `[Verify]` until the
 /// owner's first use.
 enum OwnStatusRequests {
-    /// Unicode emoji and text, and the end as a timestamp; "Don't clear"
+    /// Unicode or typed custom emoji and text, and an expiry timestamp; "Don't clear"
     /// sends no timing. `nil`, or a status with neither emoji nor text,
     /// clears: no status and a remaining duration of zero, as purple does.
     static func setCustomStatus(_ status: MemberStatus?) -> SetCustomStatusRequest {
         var request = SetCustomStatusRequest()
         request.requestHeader = APIRequestHeader.make()
-        guard let status, status.emoji != nil || status.text != nil else {
+        guard let status, status.emoji != nil || status.customEmoji != nil || status.text != nil else {
             request.customStatusRemainingDurationUsec = 0
             return request
         }
@@ -62,6 +62,10 @@ enum OwnStatusRequests {
         if let emoji = status.emoji {
             custom.emoji.unicode = emoji
         }
+        if let emoji = status.customEmoji {
+            custom.emoji.customEmoji.uuid = emoji.id
+            custom.emoji.customEmoji.shortcode = emoji.shortcode
+        }
         request.customStatus = custom
         if let expiresAt = status.expiresAt {
             request.customStatusExpiryTimestampUsec = microseconds(expiresAt)
@@ -69,11 +73,17 @@ enum OwnStatusRequests {
         return request
     }
 
-    /// What `setCustomStatus(_:)` sends, as a status: Unicode emoji and text
-    /// with the end, never a shortcode; `nil` for a clear.
+    /// What was submitted, including a custom identity when supplied. A legacy
+    /// shortcode without an identity is never submitted; `nil` clears.
     static func sent(_ status: MemberStatus?) -> MemberStatus? {
-        guard let status, status.emoji != nil || status.text != nil else { return nil }
-        return MemberStatus(emoji: status.emoji, text: status.text, expiresAt: status.expiresAt)
+        guard let status,
+              status.emoji != nil || status.customEmoji != nil || status.text != nil else { return nil }
+        return MemberStatus(
+            emoji: status.emoji,
+            customEmoji: status.customEmoji,
+            text: status.text,
+            expiresAt: status.expiresAt
+        )
     }
 
     static func setPresenceShared(_ shared: Bool) -> SetPresenceSharedRequest {

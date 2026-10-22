@@ -64,27 +64,78 @@ package extension ChatStore {
 
     /// Every distinct custom emoji in this account's stored reactions, in the
     /// order first met, preferring a reference that carries a token. The one
-    /// read of reactions across messages: run when the picker opens, not per
-    /// render, and filtered in SQL to rows that can hold a custom emoji.
-    func storedCustomEmoji() throws -> [CustomEmojiRef] {
-        let rows = try database.read { db in
-            try String.fetchAll(db, sql: "SELECT reactions FROM message WHERE reactions LIKE '%customEmoji%'")
+    /// read of reactions across messages, filtered in SQL to rows that can
+    /// hold a custom emoji: off the main thread, once a session
+    /// (`ChatSessionModel.customEmoji`), never while a view renders.
+    func storedCustomEmoji() async throws -> [CustomEmojiRef] {
+        let (rows, recents) = try await database.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT reactions, content FROM message
+                WHERE reactions LIKE '%customEmoji%' OR content LIKE '%customEmoji%'
+                """
+            )
+            .map { (reactions: $0["reactions"] as String, content: $0["content"] as String?) }
+            let recents = try Row.fetchAll(db, sql: """
+            SELECT customEmojiID, shortcode, imageToken FROM emojiRecent
+            WHERE customEmojiID IS NOT NULL AND shortcode IS NOT NULL
+            ORDER BY usedAt DESC
+            """).map { row in
+                CustomEmojiRef(
+                    id: row["customEmojiID"],
+                    shortcode: row["shortcode"],
+                    imageToken: row["imageToken"]
+                )
+            }
+            return (rows, recents)
         }
-        var byID: [String: CustomEmojiRef] = [:]
-        var order: [String] = []
-        for json in rows {
-            guard let reactions = try? Wire.value([Reaction].self, from: json) else { continue }
-            for emoji in reactions.compactMap(\.customEmoji) {
-                if let known = byID[emoji.id] {
-                    if known.imageToken == nil, emoji.imageToken != nil {
-                        byID[emoji.id] = emoji
-                    }
-                } else {
-                    byID[emoji.id] = emoji
-                    order.append(emoji.id)
-                }
+        var seen = SeenCustomEmoji()
+        for row in rows {
+            if let reactions = try? Wire.value(
+                [Reaction].self,
+                from: row.reactions
+            ) {
+                seen.insert(contentsOf: reactions.compactMap(\.customEmoji))
+            }
+            if let json = row.content, let content = try? Wire.value(
+                MessageContent.self,
+                from: json
+            ) {
+                seen.insert(contentsOf: content.customEmoji.map(\.emoji))
+                seen.insert(contentsOf: content.forwarded?.customEmoji.map(\.emoji) ?? [])
             }
         }
-        return order.compactMap { byID[$0] }
+        seen.insert(contentsOf: recents)
+        return seen.emoji
+    }
+}
+
+/// Distinct custom emoji in the order first met. A reference that carries an
+/// image token replaces one without: history and the live push do not always
+/// both carry it (`findings.md` §54.3).
+package struct SeenCustomEmoji: Equatable, Sendable {
+    package private(set) var emoji: [CustomEmojiRef] = []
+    private var indexByID: [String: Int] = [:]
+
+    package init() {}
+
+    /// Whether anything was added or replaced.
+    @discardableResult
+    package mutating func insert(contentsOf candidates: some Sequence<CustomEmojiRef>) -> Bool {
+        var changed = false
+        for candidate in candidates {
+            if let index = indexByID[candidate.id] {
+                if emoji[index].imageToken == nil, candidate.imageToken != nil {
+                    emoji[index] = candidate
+                    changed = true
+                }
+            } else {
+                indexByID[candidate.id] = emoji.count
+                emoji.append(candidate)
+                changed = true
+            }
+        }
+        return changed
     }
 }

@@ -101,7 +101,9 @@ public extension ChatSessionModel {
                 }, content: MessageContent(
                     formatting: (previous.content?.formatting ?? []) + (draft.content?.formatting ?? []).map {
                         MessageFormat(style: $0.style, start: $0.start + shift, length: $0.length)
-                    }, quote: previous.content?.quote ?? draft.content?.quote
+                    }, customEmoji: (previous.content?.customEmoji ?? [])
+                        + (draft.content?.customEmoji ?? []).map { $0.shifted(by: shift) },
+                    quote: previous.content?.quote ?? draft.content?.quote
                 )
             )
         } else {

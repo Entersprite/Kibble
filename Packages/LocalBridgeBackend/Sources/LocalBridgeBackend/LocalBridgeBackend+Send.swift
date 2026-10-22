@@ -87,6 +87,7 @@ public extension LocalBridgeBackend {
         let identifier = localID ?? SendRequests.makeLocalID()
         let quote = try await sendReference(body.content, in: conversationID, localID: identifier)
         let formats = try MessageContentMapping.annotations(body.content?.formatting ?? [], text: text)
+            + MessageContentMapping.emojiAnnotations(body.content?.customEmoji ?? [], text: text)
         let annotations = await Self.uploadAnnotations(attachments, uploaded: uploadedMetadata)
             + mentionAnnotations(body.mentions, using: apiClient) + formats
         // `threadID` is never `nil` for a message this backend produced itself

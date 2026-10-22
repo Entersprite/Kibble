@@ -223,8 +223,10 @@ public extension AppEnvironment {
                         return try await loadCustomEmoji(emoji)
                     } : nil,
                     recents: { [weak self] in self?.runningModel?.recentReactions(limit: 24) ?? [] },
-                    customCatalog: { [weak self] in self?.runningModel?.storedCustomEmoji() ?? [] },
+                    customCatalog: { [weak self] in self?.runningModel?.customEmoji ?? [] },
                     skinTone: skinTone,
+                    canComposeCustomEmoji: runningModel?.capabilities.canSendCustomEmoji == true,
+                    canSetCustomEmojiStatus: runningModel?.capabilities.canSetCustomEmojiStatus == true,
                     setSkinTone: { [weak self] in self?.setSkinTone($0) }
                 )
                 : nil,

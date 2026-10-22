@@ -15,6 +15,7 @@ extension FakeBackend {
         result.content?.forwarded = ForwardedMessage(
             source: source, senderName: author?.displayName, senderAvatarURL: author?.avatarURL,
             mentions: original.mentions, formatting: original.content?.formatting ?? [],
+            customEmoji: original.content?.customEmoji ?? [],
             attachments: original.attachments, links: original.links
         )
         return result

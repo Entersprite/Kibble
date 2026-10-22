@@ -23,6 +23,7 @@ struct MediaIndexFacts {
 extension SQLiteAccountStorage {
     static func updateMediaCatalog(_ event: ChatEvent, db: Database) throws {
         switch event {
+        case let .statusChanged(member, _): try indexProfileMedia(member.rawValue, member: true, db: db)
         case let .messageReceived(message), let .messageUpdated(message):
             try indexStoredMedia(message.id.rawValue, db: db)
         case let .historyLoaded(update):
@@ -97,7 +98,7 @@ extension SQLiteAccountStorage {
             reactions: decodeMediaColumn([Reaction].self, row: row, key: "reactions"),
             links: decodeMediaColumn([MessageLink].self, row: row, key: "links"),
             cards: decodeMediaColumn([AppCard].self, row: row, key: "cards"),
-            forwarded: content?.forwarded
+            forwarded: content?.forwarded, customEmoji: content?.customEmoji.map(\.emoji) ?? []
         )
         try replaceMediaSources(
             sources,
@@ -111,10 +112,17 @@ extension SQLiteAccountStorage {
 
     static func indexProfileMedia(_ id: String, member: Bool, db: Database) throws {
         let table = member ? "member" : "conversation"
-        let row = try Row.fetchOne(db, sql: "SELECT avatarURL FROM \(table) WHERE id = ?", arguments: [id])
+        let columns = member ? "avatarURL, status" : "avatarURL"
+        let row = try Row.fetchOne(db, sql: "SELECT \(columns) FROM \(table) WHERE id = ?", arguments: [id])
         let url = (row?["avatarURL"] as String?).flatMap(URL.init(string:))
+        var sources: [ProviderMediaSource] = url.map { [.remoteImage($0)] } ?? []
+        if member, let json = row?["status"] as String?,
+           let status = try? ServiceCodec.decode(MemberStatus.self, from: Data(json.utf8)),
+           let emoji = status.customEmoji, emoji.imageToken?.isEmpty == false {
+            sources.append(.customEmoji(emoji))
+        }
         try replaceMediaSources(
-            url.map { [.remoteImage($0)] } ?? [],
+            sources,
             facts: MediaIndexFacts(
                 origin: member ? .member(.init(id)) : .conversation(.init(id)), canonical: true,
                 createdAt: 0, expiry: 253_402_300_799,

@@ -4,12 +4,7 @@ import ChatPersistence
 public extension ChatSessionModel {
     func stop() async {
         browser.stop()
-        for watcher in watchers + conversationWatchers {
-            watcher.cancel()
-        }
-        watchers = []
-        isClientTransportAvailable = true
-        conversationWatchers = []
+        stopModelObservers()
         // Cancelled, not joined: the request behind it may not itself be
         // abortable, and blocking `stop()` on a hung call would make sign-out
         // hang with it. `SyncEngine.loadMoreMessages`'s own cancellation

@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import ChatKit
 
     /// What reaches the field from outside the typing: the emoji picker's
     /// text, and the Format submenu's and the format shortcuts' styles and
@@ -64,7 +65,21 @@
             } else if let prefix = insertion.linePrefix {
                 prefixLines(with: prefix, in: view)
             } else {
-                insert(insertion.text, in: view)
+                if let emoji = insertion.customEmoji, let data = try? JSONEncoder().encode(emoji) {
+                    let value = NSMutableAttributedString(
+                        string: insertion.text,
+                        attributes: view.typingAttributes
+                    )
+                    value.addAttribute(
+                        ComposerStyle.emojiKey,
+                        value: data,
+                        range: NSRange(location: 0, length: value.length)
+                    )
+                    let range = commitComposition(in: view) ?? view.selectedRange()
+                    view.insertText(value, replacementRange: range)
+                } else {
+                    insert(insertion.text, in: view)
+                }
             }
         }
 

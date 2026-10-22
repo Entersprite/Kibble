@@ -60,7 +60,8 @@ public extension LocalBridgeBackend {
             messageSearchFilters: [
                 .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
             ], internalLinkHosts: ["chat.google.com"], extendedFlags: [
-                "formattedMessages", "quotedMessages", "cardActions", "forwardMessages", "conversationPreview"
+                "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
+                "conversationPreview", "customEmojiMessages", "customEmojiStatus"
             ]
         )
     }

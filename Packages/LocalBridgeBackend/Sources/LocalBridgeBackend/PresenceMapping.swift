@@ -61,6 +61,13 @@ public enum PresenceMapping {
         let status = MemberStatus(
             emoji: [unicode, legacy].first { !$0.isEmpty },
             customEmojiShortcode: shortcode,
+            customEmoji: custom.emoji.hasCustomEmoji && !custom.emoji.customEmoji.uuid
+                .isEmpty ? CustomEmojiRef(
+                    id: custom.emoji.customEmoji.uuid,
+                    shortcode: custom.emoji.customEmoji.shortcode,
+                    imageToken: custom.emoji.customEmoji.hasReadToken ? custom.emoji.customEmoji
+                        .readToken : nil
+                ) : nil,
             text: custom.hasStatusText && !custom.statusText.isEmpty ? custom.statusText : nil,
             expiresAt: expiry
         )

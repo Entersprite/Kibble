@@ -13,10 +13,29 @@ public extension ChatSessionModel {
         Array(recentReactionChoices.prefix(limit))
     }
 
-    /// The distinct custom emoji in this account's stored reactions. A store
-    /// read, so the picker calls it once when it opens.
-    func storedCustomEmoji() -> [CustomEmojiRef] {
-        (try? store.storedCustomEmoji()) ?? []
+    /// The custom emoji this account has seen in reactions, first met first:
+    /// the picker's Custom section. Views read it while they render, so it is
+    /// memory, never a store read: the stored reactions' are read once, off
+    /// the main thread, as the session starts (`loadSeenCustomEmoji()`), and
+    /// each transcript, thread and recent reaction delivered adds its own.
+    var customEmoji: [CustomEmojiRef] {
+        seenCustomEmoji.emoji
+    }
+
+    /// Adds any custom emoji in these messages' reactions to `customEmoji`.
+    internal func noteCustomEmoji(in messages: [Message]) {
+        noteCustomEmoji(messages.lazy.flatMap(\.reactions).compactMap(\.customEmoji))
+        noteCustomEmoji(messages.lazy.flatMap { $0.content?.customEmoji.map(\.emoji) ?? [] })
+        noteCustomEmoji(messages.lazy.flatMap { $0.content?.forwarded?.customEmoji.map(\.emoji) ?? [] })
+    }
+
+    /// Assigns only on a change, so a delivery with nothing new redraws no
+    /// picker.
+    internal func noteCustomEmoji(_ candidates: some Sequence<CustomEmojiRef>) {
+        var seen = seenCustomEmoji
+        if seen.insert(contentsOf: candidates) {
+            seenCustomEmoji = seen
+        }
     }
 
     /// Adds or removes the person's own reaction, and shows it at once.
@@ -80,6 +99,16 @@ public extension ChatSessionModel {
             ),
             messageID: messageID, choice: choice, add: add
         )
+    }
+
+    /// The stored reactions' custom emoji, read once off the main thread and
+    /// added to whatever deliveries have noted meanwhile. Tracked with the
+    /// watchers, so `stop()` cancels a read still running.
+    internal func loadSeenCustomEmoji() -> Task<Void, Never> {
+        Task { @MainActor [weak self, store] in
+            guard let stored = try? await store.storedCustomEmoji(), !Task.isCancelled else { return }
+            self?.noteCustomEmoji(stored)
+        }
     }
 
     /// Chains `command` after whatever this session last submitted through

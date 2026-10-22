@@ -19,9 +19,12 @@ public struct ReactionActions {
     /// answer from memory, never from a store read.
     public var recents: () -> [ReactionChoice]
     /// The custom emoji this account has seen, for the picker's Custom
-    /// section (spec §2.4's fallback: no catalog call is known).
+    /// section (spec §2.4's fallback: no catalog call is known). Called while
+    /// the picker renders, like `recents`, so a host answers from memory.
     public var customCatalog: () -> [CustomEmojiRef]
     /// The app's one skin tone, and how to change it (spec §3, §4.4).
+    public var canComposeCustomEmoji: Bool
+    public var canSetCustomEmojiStatus: Bool
     public var skinTone: SkinTone
     public var setSkinTone: (SkinTone) -> Void
 
@@ -31,6 +34,7 @@ public struct ReactionActions {
         recents: @escaping () -> [ReactionChoice] = { [] },
         customCatalog: @escaping () -> [CustomEmojiRef] = { [] },
         skinTone: SkinTone = .none,
+        canComposeCustomEmoji: Bool = false, canSetCustomEmojiStatus: Bool = false,
         setSkinTone: @escaping (SkinTone) -> Void = { _ in }
     ) {
         self.toggle = toggle
@@ -38,6 +42,8 @@ public struct ReactionActions {
         self.recents = recents
         self.customCatalog = customCatalog
         self.skinTone = skinTone
+        self.canComposeCustomEmoji = canComposeCustomEmoji
+        self.canSetCustomEmojiStatus = canSetCustomEmojiStatus
         self.setSkinTone = setSkinTone
     }
 }

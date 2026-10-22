@@ -217,6 +217,7 @@ public nonisolated enum AnnotationType: Int, SwiftProtobuf.Enum, Swift.CaseItera
   case incomingWebhookChanged = 22
   case integrationConfigUpdated = 23
   case consentedAppUnfurl = 24
+  case customEmoji = 25
 
   public init() {
     self = .unknown
@@ -5722,6 +5723,27 @@ public nonisolated struct FormatMetadata: Sendable {
   fileprivate var _fontColor: Int32? = nil
 }
 
+public nonisolated struct CustomEmojiMetadata: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var customEmoji: CustomEmoji {
+    get {_customEmoji ?? CustomEmoji()}
+    set {_customEmoji = newValue}
+  }
+  /// Returns true if `customEmoji` has been explicitly set.
+  public var hasCustomEmoji: Bool {self._customEmoji != nil}
+  /// Clears the value of `customEmoji`. Subsequent reads from it will return its default value.
+  public mutating func clearCustomEmoji() {self._customEmoji = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _customEmoji: CustomEmoji? = nil
+}
+
 public nonisolated struct Annotation: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -5843,6 +5865,14 @@ public nonisolated struct Annotation: @unchecked Sendable {
     set {_uniqueStorage()._metadata = .urlMetadata(newValue)}
   }
 
+  public var customEmojiMetadata: CustomEmojiMetadata {
+    get {
+      if case .customEmojiMetadata(let v)? = _storage._metadata {return v}
+      return CustomEmojiMetadata()
+    }
+    set {_uniqueStorage()._metadata = .customEmojiMetadata(newValue)}
+  }
+
   public var uploadMetadata: UploadMetadata {
     get {
       if case .uploadMetadata(let v)? = _storage._metadata {return v}
@@ -5898,6 +5928,7 @@ public nonisolated struct Annotation: @unchecked Sendable {
     case driveMetadata(DriveMetadata)
     case youtubeMetadata(YoutubeMetadata)
     case urlMetadata(UrlMetadata)
+    case customEmojiMetadata(CustomEmojiMetadata)
     case uploadMetadata(UploadMetadata)
     case membershipChanged(MembershipChangedMetadata)
     case videoCallMetadata(VideoCallMetadata)
@@ -15586,7 +15617,7 @@ nonisolated extension Platform: SwiftProtobuf._ProtoNameProviding {
 }
 
 nonisolated extension AnnotationType: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ANNOTATION_TYPE_UNKNOWN\0\u{1}URL\0\u{1}DRIVE_FILE\0\u{1}DRIVE_DOC\0\u{1}DRIVE_SHEET\0\u{1}DRIVE_SLIDE\0\u{1}USER_MENTION\0\u{1}VIDEO\0\u{1}FORMAT_DATA\0\u{1}IMAGE\0\u{1}PDF\0\u{1}VIDEO_CALL\0\u{1}MEMBERSHIP_CHANGED\0\u{1}UPLOAD_METADATA\0\u{1}ROOM_UPDATED\0\u{1}INVITATION\0\u{1}SLASH_COMMAND\0\u{1}GSUITE_INTEGRATION\0\u{1}DRIVE_FORM\0\u{1}GROUP_RETENTION_SETTINGS_UPDATED\0\u{1}BABEL_PLACEHOLDER\0\u{1}READ_RECEIPTS_SETTINGS_UPDATED\0\u{1}INCOMING_WEBHOOK_CHANGED\0\u{1}INTEGRATION_CONFIG_UPDATED\0\u{1}CONSENTED_APP_UNFURL\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ANNOTATION_TYPE_UNKNOWN\0\u{1}URL\0\u{1}DRIVE_FILE\0\u{1}DRIVE_DOC\0\u{1}DRIVE_SHEET\0\u{1}DRIVE_SLIDE\0\u{1}USER_MENTION\0\u{1}VIDEO\0\u{1}FORMAT_DATA\0\u{1}IMAGE\0\u{1}PDF\0\u{1}VIDEO_CALL\0\u{1}MEMBERSHIP_CHANGED\0\u{1}UPLOAD_METADATA\0\u{1}ROOM_UPDATED\0\u{1}INVITATION\0\u{1}SLASH_COMMAND\0\u{1}GSUITE_INTEGRATION\0\u{1}DRIVE_FORM\0\u{1}GROUP_RETENTION_SETTINGS_UPDATED\0\u{1}BABEL_PLACEHOLDER\0\u{1}READ_RECEIPTS_SETTINGS_UPDATED\0\u{1}INCOMING_WEBHOOK_CHANGED\0\u{1}INTEGRATION_CONFIG_UPDATED\0\u{1}CONSENTED_APP_UNFURL\0\u{1}CUSTOM_EMOJI\0")
 }
 
 nonisolated extension DialInNumberClass: SwiftProtobuf._ProtoNameProviding {
@@ -21886,9 +21917,43 @@ nonisolated extension FormatMetadata.FormatType: SwiftProtobuf._ProtoNameProvidi
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0TYPE_UNSPECIFIED\0\u{1}BOLD\0\u{1}ITALIC\0\u{1}STRIKE\0\u{1}SOURCE_CODE\0\u{1}MONOSPACE\0\u{1}HIDDEN\0\u{1}MONOSPACE_BLOCK\0\u{1}UNDERLINE\0\u{1}FONT_COLOR\0\u{1}BULLETED_LIST\0\u{1}BULLETED_LIST_ITEM\0\u{1}CLIENT_HIDDEN\0")
 }
 
+nonisolated extension CustomEmojiMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "CustomEmojiMetadata"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}custom_emoji\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._customEmoji) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._customEmoji {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: CustomEmojiMetadata, rhs: CustomEmojiMetadata) -> Bool {
+    if lhs._customEmoji != rhs._customEmoji {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Annotation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "Annotation"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{3}start_index\0\u{1}length\0\u{3}drive_metadata\0\u{3}user_mention_metadata\0\u{3}youtube_metadata\0\u{3}url_metadata\0\u{3}format_metadata\0\u{3}local_id\0\u{3}upload_metadata\0\u{3}membership_changed\0\u{3}video_call_metadata\0\u{3}server_invalidated\0\u{3}room_updated\0\u{3}slash_command_metadata\0\u{3}gsuite_integration_metadata\0\u{4}\u{3}unique_id\0\u{3}chip_render_type\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{3}start_index\0\u{1}length\0\u{3}drive_metadata\0\u{3}user_mention_metadata\0\u{3}youtube_metadata\0\u{3}url_metadata\0\u{3}format_metadata\0\u{3}local_id\0\u{3}upload_metadata\0\u{3}membership_changed\0\u{3}video_call_metadata\0\u{3}server_invalidated\0\u{3}room_updated\0\u{3}slash_command_metadata\0\u{3}gsuite_integration_metadata\0\u{4}\u{3}unique_id\0\u{3}chip_render_type\0\u{4}\u{6}custom_emoji_metadata\0")
 
   fileprivate class _StorageClass {
     var _type: AnnotationType? = nil
@@ -22085,6 +22150,19 @@ nonisolated extension Annotation: SwiftProtobuf.Message, SwiftProtobuf._MessageI
         }()
         case 19: try { try decoder.decodeSingularStringField(value: &_storage._uniqueID) }()
         case 20: try { try decoder.decodeSingularEnumField(value: &_storage._chipRenderType) }()
+        case 26: try {
+          var v: CustomEmojiMetadata?
+          var hadOneofValue = false
+          if let current = _storage._metadata {
+            hadOneofValue = true
+            if case .customEmojiMetadata(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._metadata = .customEmojiMetadata(v)
+          }
+        }()
         default: break
         }
       }
@@ -22170,6 +22248,9 @@ nonisolated extension Annotation: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       } }()
       try { if let v = _storage._chipRenderType {
         try visitor.visitSingularEnumField(value: v, fieldNumber: 20)
+      } }()
+      try { if case .customEmojiMetadata(let v)? = _storage._metadata {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 26)
       } }()
     }
     try unknownFields.traverse(visitor: &visitor)

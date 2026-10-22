@@ -106,6 +106,7 @@ struct OwnForwardSnapshots {
                 $0.scheme?.lowercased() == "https" ? $0 : nil
             },
             mentions: mapped.mentions, formatting: mapped.content?.formatting ?? [],
+            customEmoji: mapped.content?.customEmoji ?? [],
             attachments: mapped.attachments, links: mapped.links
         )
     }

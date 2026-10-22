@@ -190,6 +190,7 @@ extension ChatSessionModel {
         transcriptWork.watcher = observe(observation) { [weak self] window in
             guard let self, selected == conversation, transcriptWork.generation == generation else { return }
             messages = window.messages
+            noteCustomEmoji(in: window.messages)
             unconfirmedMessageIDs = window.unconfirmed
             transcriptWork.cachedOlder = window.hasOlder
             // Older pages are verified against the server from the oldest row

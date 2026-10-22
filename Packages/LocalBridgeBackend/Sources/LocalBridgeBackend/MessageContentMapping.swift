@@ -23,6 +23,22 @@ enum MessageContentMapping {
         }
         let value = MessageContent(
             formatting: formatting,
+            customEmoji: message.annotations.compactMap { annotation in
+                guard annotation.type == .customEmoji,
+                      case let .customEmojiMetadata(metadata)? = annotation.metadata else { return nil }
+                let value = metadata.customEmoji
+                let ref = CustomEmojiRef(
+                    id: value.uuid,
+                    shortcode: value.shortcode,
+                    imageToken: value.hasReadToken ? value.readToken : nil
+                )
+                let span = MessageCustomEmoji(
+                    emoji: ref,
+                    start: Int(annotation.startIndex),
+                    length: Int(annotation.length)
+                )
+                return span.range(in: message.textBody) == nil ? nil : span
+            },
             quote: quote(message),
             forwarded: ForwardedMessageMapping.forwarded(message)
         )
@@ -58,6 +74,22 @@ enum MessageContentMapping {
             annotation.startIndex = start
             annotation.length = length
             annotation.formatMetadata.formatType = type
+            return annotation
+        }
+    }
+
+    static func emojiAnnotations(_ spans: [MessageCustomEmoji], text: String) throws -> [Annotation] {
+        try spans.map { span in
+            guard span.range(in: text) != nil, let start = Int32(exactly: span.start),
+                  let length = Int32(exactly: span.length)
+            else { throw ChatError.decoding("Invalid custom emoji span") }
+            var annotation = Annotation()
+            annotation.type = .customEmoji
+            annotation.startIndex = start
+            annotation.length = length
+            annotation.chipRenderType = .render
+            annotation.customEmojiMetadata.customEmoji.uuid = span.emoji.id
+            annotation.customEmojiMetadata.customEmoji.shortcode = span.emoji.shortcode
             return annotation
         }
     }

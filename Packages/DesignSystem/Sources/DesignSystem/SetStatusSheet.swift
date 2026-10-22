@@ -96,12 +96,15 @@ struct SetStatusSheet: View {
         .accessibilityHint("Fills in this status")
     }
 
-    /// The reactions' picker, Unicode only: a custom emoji is ignored (spec §2).
+    /// The shared picker, with custom choices only when the host supports them.
     private var emojiButton: some View {
         Button {
             pickingEmoji = true
         } label: {
-            if draft.emoji.isEmpty {
+            if let custom = draft.customEmoji {
+                CustomEmojiCell(emoji: custom, load: reactions?.customImage)
+                    .frame(width: 24, height: 24)
+            } else if draft.emoji.isEmpty {
                 Label("Choose Emoji", systemImage: Self.emojiSymbol)
                     .labelStyle(.iconOnly)
                     .foregroundStyle(.secondary)
@@ -117,10 +120,13 @@ struct SetStatusSheet: View {
         .help("Choose an emoji")
         .popover(isPresented: $pickingEmoji) {
             if let reactions {
-                EmojiPicker(reactions: [], actions: reactions) { choice, _ in
-                    if choice.customEmoji == nil {
-                        draft.emoji = choice.emoji
-                    }
+                EmojiPicker(
+                    reactions: [],
+                    actions: reactions,
+                    use: reactions.canSetCustomEmojiStatus ? .reaction : .text
+                ) { choice, _ in
+                    draft.emoji = choice.customEmoji == nil ? choice.emoji : ""
+                    draft.customEmoji = choice.customEmoji
                     pickingEmoji = false
                 }
             }

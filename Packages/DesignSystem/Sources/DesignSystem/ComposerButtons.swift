@@ -1,3 +1,4 @@
+import ChatKit
 import SwiftUI
 
 /// A round glass button, as Messages draws its + and emoji buttons beside the
@@ -24,15 +25,15 @@ struct RoundGlassButton: View {
 }
 
 /// The emoji button and its picker, which opens to the left of the button as
-/// Messages' does. Standard emoji only: a custom one needs an annotation the
-/// composer does not build.
+/// Messages' does. Custom choices are offered when this host can send
+/// their typed annotations.
 struct ComposerEmojiButton: View {
     let reactions: ReactionActions
     /// The field takes focus back through the insertion. Closed without a
     /// pick, nothing refocuses it: the button never took first responder, so
     /// the field still has it, and a click that closed the picker may have
     /// given it to another field (review finding 1).
-    let pick: (String) -> Void
+    let pick: (ReactionChoice) -> Void
 
     @State private var picking = false
 
@@ -41,9 +42,13 @@ struct ComposerEmojiButton: View {
             picking = true
         }
         .popover(isPresented: $picking, arrowEdge: .leading) {
-            EmojiPicker(reactions: [], actions: reactions, offersCustom: false) { choice, _ in
+            EmojiPicker(
+                reactions: [],
+                actions: reactions,
+                use: reactions.canComposeCustomEmoji ? .reaction : .text
+            ) { choice, _ in
                 picking = false
-                pick(choice.emoji)
+                pick(choice)
             }
         }
     }

@@ -31,6 +31,7 @@ struct ComposerFieldAnchor: PreferenceKey {
 struct ComposerInsertion: Equatable {
     let id = UUID()
     var text = ""
+    var customEmoji: CustomEmojiRef?
     var linePrefix: String?
     var toggle: ComposerDraft.Style?
 }

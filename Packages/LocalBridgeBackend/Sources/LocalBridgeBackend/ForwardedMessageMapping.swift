@@ -38,6 +38,7 @@ enum ForwardedMessageMapping {
             senderName: author.name.map { String($0.prefix(200)) },
             senderAvatarURL: author.avatar,
             mentions: mapped.mentions, formatting: mapped.content?.formatting ?? [],
+            customEmoji: mapped.content?.customEmoji ?? [],
             attachments: mapped.isDeleted ? [] : mapped.attachments,
             links: mapped.isDeleted ? [] : mapped.links
         )

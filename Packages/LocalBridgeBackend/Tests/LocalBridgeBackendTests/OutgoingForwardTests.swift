@@ -23,6 +23,13 @@ actor ForwardTransport: HTTPTransport {
         original.deleteTime = 3_000_000
     }
 
+    func addCustomEmoji(_ emoji: CustomEmojiRef) throws {
+        original.textBody = emoji.displayText
+        let span = MessageCustomEmoji(emoji: emoji, start: 0, length: emoji.displayText.utf16.count)
+        original.annotations = try MessageContentMapping.emojiAnnotations([span], text: original.textBody)
+        original.annotations[0].customEmojiMetadata.customEmoji.readToken = emoji.imageToken ?? ""
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let body: Data
         switch request.url.path {
@@ -119,6 +126,32 @@ struct OutgoingForwardTests {
             return
         }
         #expect(plain.content == nil)
+        await backend.disconnect()
+    }
+
+    @Test func ownForwardEchoRetainsCustomEmojiFromTheVerifiedSource() async throws {
+        let transport = ForwardTransport()
+        let emoji = CustomEmojiRef(id: "party-id", shortcode: "party", imageToken: "source-token")
+        try await transport.addCustomEmoji(emoji)
+        let backend = try LocalBridgeBackend(
+            cookies: #require(SessionCookies(header: "SID=a; OSID=b")), transport: transport
+        )
+        try await backend.connect()
+        let source = try #require(await ChannelEventMapping.domainMessage(transport.original))
+        try await backend.send(.sendMessage(
+            conversationID: .init("space/destination"), threadID: nil, text: "", localID: "emoji-echo",
+            content: MessageContent(forwardSource: MessageQuote(message: source))
+        ))
+        let events = try await backend
+            .prepareChannelEvent(ChannelEvent(protobuf: Self.posted(localID: "emoji-echo")))
+        guard case let .messageReceived(echo)? = events.first else {
+            Issue.record("The forward echo was not delivered")
+            return
+        }
+        let forwarded = try #require(echo.content?.forwarded)
+        #expect(forwarded.customEmoji == source.content?.customEmoji)
+        #expect(forwarded.customEmoji.first?.emoji == emoji)
+        #expect(forwarded.customEmoji.first?.range(in: forwarded.source.text) != nil)
         await backend.disconnect()
     }
 

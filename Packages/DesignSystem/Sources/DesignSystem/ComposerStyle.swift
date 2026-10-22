@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import ChatKit
 
     /// The field's type, and how it draws tokens and formatting: bold text
     /// bold, italic italic, underlined, struck through, and code in a
@@ -29,6 +30,8 @@
         /// draft follows the view (`ComposerDraft.follow`), as it does for
         /// the text. A draft-only record would lose the styles of any text
         /// an undo brought back.
+        static let emojiKey = NSAttributedString.Key("KibbleComposerEmoji")
+
         static let styleKey = NSAttributedString.Key("KibbleComposerStyles")
 
         /// The faint fill behind code. A system fill, so it follows the
@@ -100,6 +103,15 @@
                     range: NSRange(location: start, length: end - start)
                 )
             }
+            for span in draft.customEmoji where span.range(in: draft.text) != nil {
+                if let data = try? JSONEncoder().encode(span.emoji) {
+                    storage.addAttribute(
+                        emojiKey,
+                        value: data,
+                        range: NSRange(location: span.start, length: span.length)
+                    )
+                }
+            }
             storage.endEditing()
             let selection = view.selectedRange()
             setTyping(draft.insertionStyles(location: selection.location, length: selection.length), in: view)
@@ -112,6 +124,7 @@
             let wanted = attributes(for: styles)
             guard (view.typingAttributes[styleKey] as? Int) != (wanted[styleKey] as? Int)
                 || view.typingAttributes[.font] as? NSFont != wanted[.font] as? NSFont
+                || view.typingAttributes[emojiKey] != nil
             else { return }
             view.typingAttributes = wanted
         }
@@ -149,6 +162,24 @@
                 }
             }
             return ComposerRuns.normalized(runs)
+        }
+
+        static func customEmoji(in text: NSAttributedString) -> [MessageCustomEmoji] {
+            var result: [MessageCustomEmoji] = []
+            text.enumerateAttribute(emojiKey, in: NSRange(
+                location: 0,
+                length: text.length
+            )) { value, range, _ in
+                guard let data = value as? Data, let emoji = try? JSONDecoder().decode(
+                    CustomEmojiRef.self,
+                    from: data
+                ) else { return }
+                let span = MessageCustomEmoji(emoji: emoji, start: range.location, length: range.length)
+                if span.range(in: text.string) != nil {
+                    result.append(span)
+                }
+            }
+            return result
         }
 
         private static func bits(_ styles: Set<Style>) -> Int {

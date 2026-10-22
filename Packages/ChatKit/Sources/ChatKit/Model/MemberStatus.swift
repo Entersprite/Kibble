@@ -14,9 +14,10 @@ public struct MemberStatus: Codable, Hashable, Sendable {
     /// A Unicode emoji, drawn as text.
     public var emoji: String?
     /// A custom (uploaded image) emoji's shortcode, such as `:party-parrot:`.
-    /// Its image is not carried: fetching it needs an authenticated URL that
-    /// expires, so a client draws a stock glyph and shows the shortcode.
+    /// Retained for older clients and statuses without a full reference.
     public var customEmojiShortcode: String?
+    /// The typed identity and optional opaque image handle, when supplied.
+    public var customEmoji: CustomEmojiRef?
     public var text: String?
     /// `nil` means it does not expire. RFC 3339 frames retain microseconds.
     public var expiresAt: Date?
@@ -24,11 +25,13 @@ public struct MemberStatus: Codable, Hashable, Sendable {
     public init(
         emoji: String? = nil,
         customEmojiShortcode: String? = nil,
+        customEmoji: CustomEmojiRef? = nil,
         text: String? = nil,
         expiresAt: Date? = nil
     ) {
         self.emoji = emoji
-        self.customEmojiShortcode = customEmojiShortcode
+        self.customEmojiShortcode = customEmojiShortcode ?? customEmoji?.shortcode
+        self.customEmoji = customEmoji
         self.text = text
         self.expiresAt = expiresAt
     }
@@ -44,7 +47,7 @@ public struct MemberStatus: Codable, Hashable, Sendable {
 public extension MemberStatus {
     internal enum CodingKeys: String, CodingKey {
         case emoji
-        case customEmojiShortcode
+        case customEmojiShortcode, customEmoji
         case text
         case expiresAt
     }
@@ -57,6 +60,7 @@ public extension MemberStatus {
         try self.init(
             emoji: container.decodeIfPresent(String.self, forKey: .emoji),
             customEmojiShortcode: container.decodeIfPresent(String.self, forKey: .customEmojiShortcode),
+            customEmoji: container.decodeIfPresent(CustomEmojiRef.self, forKey: .customEmoji),
             text: container.decodeIfPresent(String.self, forKey: .text),
             expiresAt: container.decodeWireIfPresent(Date.self, forKey: .expiresAt)
         )
@@ -66,6 +70,7 @@ public extension MemberStatus {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(emoji, forKey: .emoji)
         try container.encodeIfPresent(customEmojiShortcode, forKey: .customEmojiShortcode)
+        try container.encodeIfPresent(customEmoji, forKey: .customEmoji)
         try container.encodeIfPresent(text, forKey: .text)
         try container.encodeWireIfPresent(expiresAt, forKey: .expiresAt)
     }

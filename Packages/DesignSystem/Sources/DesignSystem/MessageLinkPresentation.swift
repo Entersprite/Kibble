@@ -20,8 +20,10 @@ struct MessageLinkPresentation {
 
     private static func links(in original: Message, internalHosts: Set<String>) -> [MessageLink] {
         var links = original.links
-        if original.text.contains("://"), !internalHosts.isEmpty,
-           let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+        if original.text.contains("://"), internalHosts.contains(where: {
+            original.text.range(of: $0, options: .caseInsensitive) != nil
+        }),
+            let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
             for match in detector.matches(
                 in: original.text,
                 range: NSRange(original.text.startIndex..., in: original.text)
@@ -71,6 +73,13 @@ struct MessageLinkPresentation {
             let start = Self.offset(format.start, after: removed)
             let end = Self.offset(format.start + format.length, after: removed)
             return end > start ? MessageFormat(style: format.style, start: start, length: end - start) : nil
+        }
+        result.content?.customEmoji = (original.content?.customEmoji ?? []).compactMap { span in
+            guard span.range(in: original.text) != nil,
+                  !Self.overlaps(span.start, span.length, removed) else { return nil }
+            var span = span
+            span.start = Self.offset(span.start, after: removed)
+            return span
         }
         result.links = links.compactMap { link in
             guard link.messageAddress == nil, !internalHosts.contains(link.url.host()?.lowercased() ?? "")

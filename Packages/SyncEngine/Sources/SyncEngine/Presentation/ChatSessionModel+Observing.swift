@@ -10,6 +10,17 @@ import GRDB
 /// `directory` and `lastError` are `internal` there for this file's sake,
 /// the same trade `+AutoMarkRead.swift` already made for `conversations`.
 extension ChatSessionModel {
+    func stopModelObservers() {
+        for watcher in watchers + conversationWatchers {
+            watcher.cancel()
+        }
+        watchers = []
+        seenCustomEmoji = SeenCustomEmoji()
+        recentReactionChoices = []
+        isClientTransportAvailable = true
+        conversationWatchers = []
+    }
+
     func startModelObservers() {
         // First, so a name is there by the time anything that shows one lands.
         watch(store.observeResourceSyncStatuses()) { [weak self] in self?.resourceSyncStatuses = $0 }
@@ -25,7 +36,11 @@ extension ChatSessionModel {
         watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
         watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
         watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
-        watch(store.observeRecentReactions(limit: 24)) { [weak self] in self?.recentReactionChoices = $0 }
+        watch(store.observeRecentReactions(limit: 24)) { [weak self] in
+            self?.recentReactionChoices = $0
+            self?.noteCustomEmoji($0.compactMap(\.customEmoji))
+        }
+        watchers.append(loadSeenCustomEmoji())
         // Everything `SyncEngine.record` writes arrives here. Without it the
         // property below was set only by an observation throwing, so a refused
         // send or a failed history page was recorded and never rendered.
@@ -64,6 +79,7 @@ extension ChatSessionModel {
             guard let self else { return }
             var members = Dictionary(uniqueKeysWithValues: $0.map { ($0.id, $0) })
             observeOwnStatus(in: &members)
+            noteCustomEmoji(members.values.compactMap { $0.status?.customEmoji })
             directory = members
         }
     }

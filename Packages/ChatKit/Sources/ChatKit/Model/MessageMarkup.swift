@@ -36,7 +36,18 @@ public enum MessageMarkup {
             guard start >= 0, end > start else { return nil }
             return MessageFormat(style: format.style, start: start, length: end - start)
         }
-        let content = MessageContent(formatting: parser.formats + carried, quote: message.content?.quote)
+        let emoji = (message.content?.customEmoji ?? []).compactMap { span -> MessageCustomEmoji? in
+            guard span.range(in: message.text) != nil else { return nil }
+            let start = parser.map[span.start]
+            let end = parser.map[span.start + span.length]
+            return start >= 0 && end > start
+                ? MessageCustomEmoji(emoji: span.emoji, start: start, length: end - start) : nil
+        }
+        let content = MessageContent(
+            formatting: parser.formats + carried,
+            customEmoji: emoji,
+            quote: message.content?.quote
+        )
         return ComposedMessage(text: parser.output, mentions: mentions, content: content)
     }
 
@@ -44,6 +55,7 @@ public enum MessageMarkup {
     /// typed syntax, so reopening never reparses or silently sends anything.
     public static func editable(_ message: ComposedMessage) -> ComposedMessage {
         let formats = (message.content?.formatting ?? []).filter { $0.range(in: message.text) != nil }
+        let customEmoji = (message.content?.customEmoji ?? []).filter { $0.range(in: message.text) != nil }
         let source = message.text as NSString
         let boundaries = Set([0, source.length] + formats.flatMap { [$0.start, $0.start + $0.length] })
             .sorted()
@@ -74,12 +86,11 @@ public enum MessageMarkup {
             let code = styles.contains { $0.style == "code" || $0.style == "codeBlock" }
             for character in source.substring(with: NSRange(location: start, length: end - start)) {
                 starts[offset] = textLength
-                let mentioned = message.mentions
-                    .contains { $0.start <= offset && offset < $0.start + $0.length }
                 let literalBullet = !code && character == "-" &&
                     (offset == 0 || source.character(at: offset - 1) == 10)
                     && offset + 1 < source.length && source.character(at: offset + 1) == 32
-                if !mentioned, literalBullet || (code ? "`\\" : "*`_~\\").contains(character) {
+                if !isProtected(offset, message, customEmoji),
+                   literalBullet || (code ? "`\\" : "*`_~\\").contains(character) {
                     append("\\")
                 }
                 append(String(character))
@@ -92,8 +103,41 @@ public enum MessageMarkup {
         return ComposedMessage(
             text: text,
             mentions: editableMentions(message, starts: starts, ends: ends),
-            content: MessageContent(quote: message.content?.quote)
+            content: editableContent(message, starts: starts, ends: ends)
         )
+    }
+
+    static func isProtected(
+        _ offset: Int,
+        _ message: ComposedMessage,
+        _ customEmoji: [MessageCustomEmoji]
+    ) -> Bool {
+        message.mentions.contains { $0.start <= offset && offset < $0.start + $0.length }
+            || customEmoji.contains { $0.start <= offset && offset < $0.start + $0.length }
+    }
+
+    private static func editableContent(
+        _ message: ComposedMessage,
+        starts: [Int: Int],
+        ends: [Int: Int]
+    ) -> MessageContent {
+        MessageContent(
+            customEmoji: editableEmoji(message, starts: starts, ends: ends),
+            quote: message.content?.quote
+        )
+    }
+
+    static func editableEmoji(
+        _ message: ComposedMessage,
+        starts: [Int: Int],
+        ends: [Int: Int]
+    ) -> [MessageCustomEmoji] {
+        (message.content?.customEmoji ?? []).compactMap { span in
+            guard span.range(in: message.text) != nil,
+                  let start = starts[span.start], let end = ends[span.start + span.length],
+                  end > start else { return nil }
+            return MessageCustomEmoji(emoji: span.emoji, start: start, length: end - start)
+        }
     }
 
     static func editableMentions(
@@ -111,6 +155,7 @@ public enum MessageMarkup {
 
     private struct Parser {
         let original: ComposedMessage
+        let customEmoji: [MessageCustomEmoji]
         let characters: [Character]
         let offsets: [Int]
         /// The valid spans the message carried in, over its own text.
@@ -124,6 +169,7 @@ public enum MessageMarkup {
 
         init(_ message: ComposedMessage) {
             original = message
+            customEmoji = (message.content?.customEmoji ?? []).filter { $0.range(in: message.text) != nil }
             characters = Array(message.text)
             var positions = [0]
             var offset = 0
@@ -247,7 +293,9 @@ public enum MessageMarkup {
 
         /// Never markup: a mention's name, or carried code.
         func isLiteral(_ index: Int) -> Bool {
-            inMention(index) || inCode(index)
+            inMention(index) || inCode(index) || customEmoji.contains {
+                $0.start <= offsets[index] && offsets[index] < $0.start + $0.length
+            }
         }
 
         func closing(_ marker: [Character], from start: Int, end: Int) -> Int? {

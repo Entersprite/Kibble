@@ -153,7 +153,10 @@ struct LocalBridgeBackendTests {
             canFetchRemoteImages: true, canSearchMessages: true,
             messageSearchFilters: [
                 .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
-            ], extendedFlags: ["formattedMessages", "quotedMessages", "cardActions", "forwardMessages"]
+            ], internalLinkHosts: ["chat.google.com"], extendedFlags: [
+                "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
+                "conversationPreview", "customEmojiMessages", "customEmojiStatus"
+            ]
         ))
     }
 

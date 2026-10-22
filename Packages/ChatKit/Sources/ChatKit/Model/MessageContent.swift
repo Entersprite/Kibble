@@ -3,31 +3,36 @@ import Foundation
 /// Optional message content. Unknown formatting names survive a wire round trip.
 public struct MessageContent: Codable, Hashable, Sendable {
     public var formatting: [MessageFormat]
+    public var customEmoji: [MessageCustomEmoji]
     public var quote: MessageQuote?
     public var forwarded: ForwardedMessage?
     public var forwardSource: MessageQuote?
 
     public init(
         formatting: [MessageFormat] = [],
+        customEmoji: [MessageCustomEmoji] = [],
         quote: MessageQuote? = nil,
         forwarded: ForwardedMessage? = nil,
         forwardSource: MessageQuote? = nil
     ) {
         self.formatting = formatting
+        self.customEmoji = customEmoji
         self.quote = quote
         self.forwarded = forwarded
         self.forwardSource = forwardSource
     }
 
     public var isEmpty: Bool {
-        formatting.isEmpty && quote == nil && forwarded == nil && forwardSource == nil
+        formatting.isEmpty && customEmoji.isEmpty && quote == nil && forwarded == nil && forwardSource == nil
     }
 
-    private enum CodingKeys: String, CodingKey { case formatting, quote, forwarded, forwardSource }
+    private enum CodingKeys: String,
+        CodingKey { case formatting, customEmoji, quote, forwarded, forwardSource }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         formatting = try container.decodeIfPresent([MessageFormat].self, forKey: .formatting) ?? []
+        customEmoji = try container.decodeIfPresent([MessageCustomEmoji].self, forKey: .customEmoji) ?? []
         quote = try container.decodeIfPresent(MessageQuote.self, forKey: .quote)
         forwarded = try container.decodeIfPresent(ForwardedMessage.self, forKey: .forwarded)
         forwardSource = try container.decodeIfPresent(MessageQuote.self, forKey: .forwardSource)
@@ -37,6 +42,9 @@ public struct MessageContent: Codable, Hashable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         if !formatting.isEmpty {
             try container.encode(formatting, forKey: .formatting)
+        }
+        if !customEmoji.isEmpty {
+            try container.encode(customEmoji, forKey: .customEmoji)
         }
         try container.encodeIfPresent(quote, forKey: .quote)
         try container.encodeIfPresent(forwarded, forKey: .forwarded)
@@ -58,7 +66,16 @@ public struct MessageContent: Codable, Hashable, Sendable {
         guard quote == nil || capabilities.canQuoteMessages else {
             throw ChatError.unsupported(capability: "quotedMessages")
         }
-        guard formatting.count <= 1024, formatting.allSatisfy({ $0.range(in: text) != nil }),
+        guard customEmoji.isEmpty || capabilities.canSendCustomEmoji else {
+            throw ChatError.unsupported(capability: "customEmojiMessages")
+        }
+        guard customEmoji.count <= 1024, customEmoji.allSatisfy({ $0.range(in: text) != nil }) else {
+            throw ChatError.decoding("Invalid custom emoji content")
+        }
+        let ordered = customEmoji.sorted { $0.start < $1.start }
+        let overlaps = zip(ordered, ordered.dropFirst()).contains { $0.start + $0.length > $1.start }
+        guard !overlaps,
+              formatting.count <= 1024, formatting.allSatisfy({ $0.range(in: text) != nil }),
               quote == nil || quote?.conversation == conversation else {
             throw ChatError.decoding("Invalid message content")
         }

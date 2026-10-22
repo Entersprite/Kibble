@@ -41,6 +41,7 @@ public struct ComposerDraft: Equatable, Sendable {
     }
 
     public private(set) var text = ""
+    public internal(set) var customEmoji: [MessageCustomEmoji] = []
     public private(set) var tokens: [Token] = []
     /// The formatting, normalized (`ComposerRuns.normalized`). Set within
     /// this module only by the edits here and `toggle`.
@@ -69,6 +70,7 @@ public struct ComposerDraft: Equatable, Sendable {
         self.init()
         quote = snapshot.quote
         text = snapshot.text
+        customEmoji = snapshot.customEmoji.filter { $0.range(in: snapshot.text) != nil }
         tokens = Self.tokens(for: ComposedMessage(text: snapshot.text, mentions: snapshot.mentions))
         runs = ComposerRuns.runs(from: snapshot.formatting, length: (text as NSString).length)
         moveCaret(to: snapshot.caret)
@@ -79,7 +81,7 @@ public struct ComposerDraft: Equatable, Sendable {
         return ComposerSnapshot(
             conversation: address.conversation, thread: address.thread,
             text: draft.text, mentions: draft.untrimmedMentions(), caret: draft.caret, quote: draft.quote,
-            formatting: ComposerRuns.formats(draft.runs)
+            formatting: ComposerRuns.formats(draft.runs), customEmoji: draft.customEmoji
         )
     }
 
@@ -117,7 +119,14 @@ public struct ComposerDraft: Equatable, Sendable {
             inserted: units(new[prefix ..< new.count - suffix]),
             styles: []
         )
+        customEmoji = MessageCustomEmoji.replacing(
+            customEmoji,
+            location: location,
+            length: units(old[prefix ..< old.count - suffix]),
+            inserted: units(new[prefix ..< new.count - suffix])
+        )
         self.text = text
+        customEmoji = customEmoji.filter { $0.range(in: text) != nil }
         tokens = tokens.filter { Self.reads($0, in: text) }
         typingOverride = nil
         caret = (text as NSString).length
@@ -127,12 +136,13 @@ public struct ComposerDraft: Equatable, Sendable {
     /// did not describe: an undo or a redo, which brings styles back with
     /// the text they were on, or an input method's composition. Tokens as
     /// `edit(_:)` keeps them.
-    mutating func follow(_ text: String, runs: [Run]) {
+    mutating func follow(_ text: String, runs: [Run], customEmoji: [MessageCustomEmoji]? = nil) {
         if text != self.text {
             self.text = text
             tokens = tokens.filter { Self.reads($0, in: text) }
             caret = (text as NSString).length
         }
+        self.customEmoji = (customEmoji ?? self.customEmoji).filter { $0.range(in: text) != nil }
         self.runs = ComposerRuns.runs(from: ComposerRuns.formats(runs), length: (text as NSString).length)
         typingOverride = nil
     }
@@ -159,6 +169,12 @@ public struct ComposerDraft: Equatable, Sendable {
         styles: Set<Style>? = nil
     ) {
         let inserted = (string as NSString).length
+        customEmoji = MessageCustomEmoji.replacing(
+            customEmoji,
+            location: location,
+            length: length,
+            inserted: inserted
+        )
         let applied = styles ?? insertionStyles(location: location, length: length)
         runs = ComposerRuns.replacing(
             runs, location: location, length: length, inserted: inserted, styles: applied
@@ -204,37 +220,6 @@ public struct ComposerDraft: Equatable, Sendable {
         self.quote = quote
     }
 
-    /// With `formatting`, the runs go as spans over the trimmed text, and
-    /// any markup typed by hand (`**bold**`) is still read
-    /// (`MessageMarkup.parse`), the spans of one style merged. Without it,
-    /// the runs are not sent.
-    public func composed(formatting: Bool = false) -> ComposedMessage {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty
-        else { return ComposedMessage(text: "", content: MessageContent(quote: quote)) }
-        // `trimmed` starts at the first non-whitespace unit, so its first
-        // occurrence is where the trim began.
-        let start = (text as NSString).range(of: trimmed).location
-        let end = start + (trimmed as NSString).length
-        let mentions = tokens
-            .filter { $0.location >= start && $0.end <= end && Self.reads($0, in: text) }
-            .map { Mention(target: $0.target, start: $0.location - start, length: $0.length) }
-        guard formatting else {
-            return ComposedMessage(text: trimmed, mentions: mentions, content: MessageContent(quote: quote))
-        }
-        var message = MessageMarkup.parse(ComposedMessage(
-            text: trimmed,
-            mentions: mentions,
-            content: MessageContent(
-                formatting: ComposerRuns.sent(runs, in: text, from: start, to: end),
-                quote: quote
-            )
-        ))
-        let formats = message.content?.formatting ?? []
-        message.content?.formatting = MessageMarkup.merged(formats)
-        return message
-    }
-
     /// Puts the field aside and loads `message`, tokens and all, with the
     /// caret at the end. Beginning again while editing keeps the first
     /// set-aside draft: the previous edit's text is not the person's draft.
@@ -246,6 +231,7 @@ public struct ComposerDraft: Equatable, Sendable {
         let setAside = editing?.setAside ?? composition
         let loaded = Self.loaded(message, formatting: formatting)
         text = loaded.message.text
+        customEmoji = loaded.message.content?.customEmoji ?? []
         tokens = Self.tokens(for: loaded.message)
         runs = loaded.runs
         typingOverride = nil
@@ -263,6 +249,7 @@ public struct ComposerDraft: Equatable, Sendable {
         self.editing = nil
         quote = editing.setAside.content?.quote
         text = editing.setAside.text
+        customEmoji = editing.setAside.content?.customEmoji ?? []
         tokens = Self.tokens(for: editing.setAside)
         runs = Self.runs(for: editing.setAside)
         typingOverride = nil
@@ -276,7 +263,11 @@ public struct ComposerDraft: Equatable, Sendable {
         ComposedMessage(
             text: text,
             mentions: untrimmedMentions(),
-            content: MessageContent(formatting: ComposerRuns.formats(runs), quote: quote)
+            content: MessageContent(
+                formatting: ComposerRuns.formats(runs),
+                customEmoji: customEmoji,
+                quote: quote
+            )
         )
     }
 
@@ -289,6 +280,7 @@ public struct ComposerDraft: Equatable, Sendable {
 
     public mutating func clear() {
         text = ""
+        customEmoji = []
         tokens = []
         runs = []
         typingOverride = nil
@@ -329,10 +321,12 @@ public struct ComposerDraft: Equatable, Sendable {
         let restored = Self.tokens(for: restoring)
         if text.isEmpty || text == restoring.text {
             text = restoring.text
+            customEmoji = restoring.content?.customEmoji ?? []
             tokens = restored
             runs = loaded.runs
         } else {
             let shift = (restoring.text as NSString).length + 1
+            customEmoji = (restoring.content?.customEmoji ?? []) + customEmoji.map { $0.shifted(by: shift) }
             tokens = restored + tokens.map { token in
                 var moved = token
                 moved.location += shift
@@ -358,7 +352,11 @@ public struct ComposerDraft: Equatable, Sendable {
             let formatting = ComposerRuns.formats(runs)
             return ComposedMessage(
                 text: restoring.text, mentions: restoring.mentions,
-                content: MessageContent(formatting: formatting, quote: restoring.content?.quote)
+                content: MessageContent(
+                    formatting: formatting,
+                    customEmoji: restoring.content?.customEmoji ?? [],
+                    quote: restoring.content?.quote
+                )
             )
         }
         let quote = restoring.content?.quote ?? kept.content?.quote
@@ -368,7 +366,12 @@ public struct ComposerDraft: Equatable, Sendable {
         let keptRuns = ComposerRuns.shifted(Self.runs(for: kept), by: shift)
         return ComposedMessage(
             text: restoring.text + "\n" + kept.text, mentions: restoring.mentions + moved,
-            content: MessageContent(formatting: ComposerRuns.formats(runs + keptRuns), quote: quote)
+            content: MessageContent(
+                formatting: ComposerRuns.formats(runs + keptRuns),
+                customEmoji: (restoring.content?.customEmoji ?? []) +
+                    (kept.content?.customEmoji ?? []).map { $0.shifted(by: shift) },
+                quote: quote
+            )
         )
     }
 
@@ -383,7 +386,7 @@ public struct ComposerDraft: Equatable, Sendable {
     }
 
     /// Whether `token`'s span still reads `@name` in `text`.
-    private static func reads(_ token: Token, in text: String) -> Bool {
+    static func reads(_ token: Token, in text: String) -> Bool {
         let units = text as NSString
         guard token.location >= 0, token.end <= units.length else { return false }
         return units.substring(with: NSRange(location: token.location, length: token.length)) == "@" + token

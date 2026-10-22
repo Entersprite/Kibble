@@ -18,10 +18,10 @@ public enum ProviderMediaSource: Hashable, Sendable {
 
     public static func collect(
         attachments: [Attachment], reactions: [Reaction], links: [MessageLink], cards: [AppCard],
-        forwarded: ForwardedMessage? = nil
+        forwarded: ForwardedMessage? = nil, customEmoji: [CustomEmojiRef] = []
     ) -> [ProviderMediaSource] {
         var values = attachments.filter { !$0.id.isEmpty }.map(Self.attachment)
-        values += reactions.compactMap(\.customEmoji)
+        values += (reactions.compactMap(\.customEmoji) + customEmoji)
             .filter { $0.imageToken?.isEmpty == false && !$0.id.isEmpty }.map(Self.customEmoji)
         var urls = links.compactMap { $0.preview?.imageURL }
         for card in cards {
@@ -39,6 +39,8 @@ public enum ProviderMediaSource: Hashable, Sendable {
             }
         }
         if let forwarded, !forwarded.source.isDeleted {
+            values += forwarded.customEmoji.map(\.emoji)
+                .filter { $0.imageToken?.isEmpty == false && !$0.id.isEmpty }.map(Self.customEmoji)
             values += forwarded.attachments.filter { !$0.id.isEmpty }.map(Self.attachment)
             urls += forwarded.links.compactMap { $0.preview?.imageURL }
         }
