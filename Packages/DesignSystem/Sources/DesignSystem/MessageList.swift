@@ -226,7 +226,7 @@ public struct MessageList: View {
                     _ = readingAnchor.restore(in: state.messages)
                 }
             }
-            .task(id: TranscriptScroll.Trigger(state)) {
+            .task(id: [state.messages.first?.id, state.messages.last?.id]) {
                 guard let id = readingAnchor.restoringID else { return }
                 await Task.yield()
                 guard !Task.isCancelled, readingAnchor.restoringID == id else { return }
