@@ -12,24 +12,34 @@ extension AccountRuntime {
             historyWorldVersion = UUID()
             let current = Set(rows.map(\.id))
             historyVersions = historyVersions.filter { current.contains($0.key) }
-        case let .conversationUpdated(row): invalidate(row.id)
+        case .conversationUpdated, .messageUpdated, .messageDeleted, .gap(scope: .conversation, reason: _),
+             .conversationHistoryInvalidated:
+            Self.fencedConversations(by: event).forEach(invalidate)
         case let .conversationRemoved(id, _):
             worldVersion = UUID()
             reads.directoryCompletedAt = nil
             invalidate(id)
-        case let .messageUpdated(message): invalidate(message.conversationID)
-        case let .messageDeleted(_, id): invalidate(id)
         case .historyInvalidated, .gap(scope: .everything, reason: _):
             worldVersion = UUID()
             reads.directoryCompletedAt = nil
             historyWorldVersion = UUID()
-        case let .gap(scope: .conversation(id), reason: _): invalidate(id)
         case let .reactionChanged(id, _):
             // Reaction events carry only a message ID; fence all in-flight
             // history rather than guessing its conversation from ID syntax.
             _ = id
             historyWorldVersion = UUID()
         default: break
+        }
+    }
+
+    /// The conversations whose in-flight history reads an event fences.
+    private static func fencedConversations(by event: ChatEvent) -> [Conversation.ID] {
+        switch event {
+        case let .conversationUpdated(row): [row.id]
+        case let .messageUpdated(message): [message.conversationID]
+        case let .messageDeleted(_, id), let .gap(scope: .conversation(id), reason: _): [id]
+        case let .conversationHistoryInvalidated(ids): ids
+        default: []
         }
     }
 

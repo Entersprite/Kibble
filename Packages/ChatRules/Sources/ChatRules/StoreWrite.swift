@@ -10,6 +10,8 @@ import Foundation
 public enum StoreWrite: Sendable, Equatable {
     /// Retains cached rows but requires fresh history before exposing them.
     case invalidateReplicaHistory
+    /// The same, for these conversations' rows only.
+    case invalidateConversationHistory([Conversation.ID])
     case beginMessageDelivery(Message.ID)
     case setMessageDelivery(Message.ID, MessageDeliveryStatus)
     case interruptMessageDeliveries

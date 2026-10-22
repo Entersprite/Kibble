@@ -61,6 +61,14 @@ extension SQLiteAccountStorage {
             }
         case .historyInvalidated:
             try db.execute(sql: "DELETE FROM serviceMediaReference WHERE originKind = 'message'")
+        case let .conversationHistoryInvalidated(ids) where !ids.isEmpty:
+            try db.execute(
+                sql: """
+                DELETE FROM serviceMediaReference WHERE originKind = 'message'
+                AND conversationID IN (\(databaseQuestionMarks(count: ids.count)))
+                """,
+                arguments: StatementArguments(ids.map(\.rawValue))
+            )
         case let .conversationRemoved(id, _):
             try db.execute(
                 sql: "DELETE FROM serviceMediaReference WHERE conversationID = ?",

@@ -62,8 +62,91 @@ struct ProviderRecoveryTests {
         await transport.configure(replies: [.initWith(.abortedFromRevisionTooOld)])
         try await withBackend(transport) { backend, log in
             try await eventually { await backend.recoveryFinished() }
-            #expect(await log.batches.contains { $0.invalidatesHistory })
+            let batches = await log.batches
+            // Only the conversation whose catch-up expired loses confidence.
+            #expect(batches.flatMap(\.events).contains(
+                .conversationHistoryInvalidated([Conversation.ID("space/a")])
+            ))
+            #expect(!batches.contains { $0.invalidatesHistory })
             #expect(await backend.recoveredRevision("space/a") == 12)
+        }
+    }
+
+    @Test func aConversationWithNoSavedPositionInvalidatesOnlyItsOwnHistory() async throws {
+        let transport = ProviderRecoveryTransport()
+        await transport.configure(replies: [.initWith(.completed)])
+        var cursor = Self.cursor
+        cursor.groups = ["space/a": 12]
+        try await withBackend(transport, cursor: cursor) { backend, log in
+            try await eventually { await backend.recoveryFinished() }
+            let batches = await log.batches
+            #expect(batches.flatMap(\.events).contains(
+                .conversationHistoryInvalidated([Conversation.ID("space/b")])
+            ))
+            #expect(!batches.contains { $0.invalidatesHistory })
+            #expect(await backend.recoveredRevision("space/b") == 10)
+        }
+    }
+
+    /// Too many changed conversations to catch up one by one, from a known
+    /// baseline: their history alone is unknown, not the whole account's.
+    @Test func aRebaseFromABaselineInvalidatesOnlyTheChangedConversations() async throws {
+        let transport = ProviderRecoveryTransport()
+        let changed = (0 ..< 65).map { ("c\($0)", Int64(10)) }
+        await transport.addGroups(changed)
+        var cursor = Self.cursor
+        for (id, _) in changed {
+            cursor.groups["space/\(id)"] = 5
+        }
+        try await withBackend(transport, cursor: cursor) { backend, log in
+            try await eventually { await backend.recoveryFinished() }
+            let batches = await log.batches
+            let expected = (changed.map { "space/\($0.0)" } + ["space/a"]).sorted()
+                .map { Conversation.ID($0) }
+            #expect(batches.flatMap(\.events).contains(.conversationHistoryInvalidated(expected)))
+            #expect(!batches.contains { $0.invalidatesHistory })
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func aRebaseWithoutABaselineOrPastTheBoundInvalidatesEverything(pastTheBound: Bool) async throws {
+        let transport = ProviderRecoveryTransport()
+        var cursor = Self.cursor
+        if pastTheBound {
+            let changed = (0 ..< LocalBridgeBackend.scopedInvalidationLimit).map { ("c\($0)", Int64(10)) }
+            await transport.addGroups(changed)
+        } else {
+            cursor.baseline = false
+        }
+        try await withBackend(transport, cursor: cursor) { backend, log in
+            try await eventually { await backend.recoveryFinished() }
+            let batches = await log.batches
+            #expect(batches.contains { $0.invalidatesHistory })
+            #expect(!batches.flatMap(\.events).contains {
+                if case .conversationHistoryInvalidated = $0 { true } else { false }
+            })
+        }
+    }
+
+    @Test func aReactionNotOnItsThreadPageInvalidatesOnlyItsConversation() async throws {
+        let transport = ProviderRecoveryTransport()
+        var reaction = Event()
+        reaction.groupRevision.timestamp = 12
+        reaction.type = .messageReacted
+        var body = Event.EventBody()
+        body.eventType = .messageReacted
+        var target = ProviderRecoveryTransport.event(revision: 12).bodies[0].messagePosted.message.id
+        target.messageID = "not-on-the-page"
+        body.messageReaction.messageID = target
+        reaction.bodies = [body]
+        await transport.configure(replies: [.initWith(.completed, events: [reaction])])
+        try await withBackend(transport) { backend, log in
+            try await eventually { await backend.recoveryFinished() }
+            let batches = await log.batches
+            #expect(batches.flatMap(\.events).contains(
+                .conversationHistoryInvalidated([Conversation.ID("space/a")])
+            ))
+            #expect(!batches.flatMap(\.events).contains(.historyInvalidated))
         }
     }
 
@@ -151,8 +234,16 @@ struct ProviderRecoveryTests {
         }
     }
 
+    private static var cursor: GoogleProviderCursor {
+        var cursor = GoogleProviderCursor()
+        cursor.identity = "me"; cursor.baseline = true; cursor.user = 20
+        cursor.groups = ["space/a": 10, "space/b": 10]
+        return cursor
+    }
+
     private func withBackend(
         _ transport: ProviderRecoveryTransport,
+        cursor: GoogleProviderCursor = Self.cursor,
         run: (LocalBridgeBackend, RecoveryBatchLog) async throws -> Void
     ) async throws {
         let cookies = try #require(SessionCookies(header: "SID=fixture; COMPASS=fixture; OSID=fixture"))
@@ -169,9 +260,6 @@ struct ProviderRecoveryTests {
                 await backend.acknowledgeProviderBatch(batch.id)
             }
         }
-        var cursor = GoogleProviderCursor()
-        cursor.identity = "me"; cursor.baseline = true; cursor.user = 20
-        cursor.groups = ["space/a": 10, "space/b": 10]
         do {
             let source: any ProviderCheckpointBackend = backend
             try await source.connect(resumingProviderCheckpoint: cursor.encoded())

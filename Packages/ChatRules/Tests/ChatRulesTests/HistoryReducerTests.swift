@@ -34,4 +34,14 @@ struct HistoryReducerTests {
         ])
         #expect(SyncReducer.reduce(.mentionBackfillChanged(.init(running: true))).effects.isEmpty)
     }
+
+    /// The account-wide and the per-conversation forms write different things,
+    /// and neither has an effect: the service owns refetching.
+    @Test func historyConfidenceIsWithdrawnAtTheScopeTheEventNames() {
+        let chats = [Conversation.ID("space/a")]
+        #expect(SyncReducer.reduce(.historyInvalidated).writes == [.invalidateReplicaHistory])
+        let scoped = SyncReducer.reduce(.conversationHistoryInvalidated(chats))
+        #expect(scoped.writes == [.invalidateConversationHistory(chats)])
+        #expect(scoped.effects.isEmpty)
+    }
 }

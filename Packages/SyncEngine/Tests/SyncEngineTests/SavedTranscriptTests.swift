@@ -115,6 +115,39 @@ struct SavedTranscriptTests {
         print("Saved history, 10k unconfirmed, 20 windows: \(start.duration(to: clock.now))")
     }
 
+    /// One conversation's confidence goes; the account's epoch and every other
+    /// conversation's confirmed rows stay.
+    @Test func aConversationsInvalidationHidesOnlyItsOwnRows() async throws {
+        let store = try ChatStore.inMemory()
+        let other = Conversation.ID("other-chat")
+        try store.apply([
+            .replaceConversations([
+                Conversation(id: conversation, kind: .space), Conversation(id: other, kind: .space)
+            ]),
+            .upsertMessage(message(1)), .upsertMessage(message(2, in: other))
+        ])
+        var pending = message(3)
+        pending.id = Message.ID("row-3")
+        pending.localID = "operation-3"
+        try store.apply([.upsertMessage(pending), .beginMessageDelivery(pending.id)])
+        let epoch = try store.replicaHistoryEpoch()
+
+        try store.apply([.invalidateConversationHistory([conversation])])
+
+        #expect(try store.replicaHistoryEpoch() == epoch)
+        #expect(try store.messages(in: other).map(\.id) == [message(2, in: other).id])
+        // The pending send stays visible; the saved row does not.
+        #expect(try store.messages(in: conversation).map(\.id) == [pending.id])
+        let saved = try await store.transcriptWindow(
+            in: conversation, request: .latest(100), includingUnconfirmed: true
+        )
+        #expect(saved.messages.map(\.id) == [message(1).id, pending.id])
+        #expect(saved.unconfirmed == [message(1).id])
+        // An authoritative page confirms the row again.
+        try store.apply([.upsertMessage(message(1))])
+        #expect(try store.messages(in: conversation).map(\.id) == [message(1).id, pending.id])
+    }
+
     // MARK: - The model
 
     @MainActor
@@ -189,6 +222,42 @@ struct SavedTranscriptTests {
         }
         #expect(model.messages.isEmpty)
         #expect(model.unconfirmedMessageIDs.isEmpty)
+        await model.stop()
+    }
+
+    /// Only the open chat's confidence is withdrawn: it stays on screen from
+    /// the saved copy instead of going blank, until its rows are confirmed again.
+    @MainActor
+    @Test func theOpenChatKeepsItsRowsWhenOnlyItsHistoryIsInvalidated() async throws {
+        let setup = try await started()
+        let (model, backend) = (setup.model, setup.backend)
+        await backend.answer(conversation, with: [message(1), message(4)])
+        await backend.openGate()
+        model.select(conversation)
+        for _ in 0 ..< 5000 where model.messages.count < 2 || !model.unconfirmedMessageIDs.isEmpty
+            || model.isLoadingLatestMessages {
+            await Task.yield()
+        }
+        #expect(model.unconfirmedMessageIDs.isEmpty)
+        // A later window - paging, a jump, a refresh - asks with the default.
+        model.observeTranscript(in: conversation, request: .latest(100))
+        for _ in 0 ..< 500 where model.messages.count < 2 {
+            await Task.yield()
+        }
+
+        try model.store.apply([.invalidateConversationHistory([conversation])])
+        for _ in 0 ..< 500 where model.unconfirmedMessageIDs.isEmpty {
+            await Task.yield()
+        }
+        #expect(model.messages.map(\.id) == [message(1).id, message(4).id])
+        #expect(model.unconfirmedMessageIDs == [message(1).id, message(4).id])
+
+        try model.store.apply([.upsertMessage(message(1)), .upsertMessage(message(4))])
+        for _ in 0 ..< 500 where !model.unconfirmedMessageIDs.isEmpty {
+            await Task.yield()
+        }
+        #expect(model.unconfirmedMessageIDs.isEmpty)
+        #expect(model.messages.map(\.id) == [message(1).id, message(4).id])
         await model.stop()
     }
 

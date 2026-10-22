@@ -150,11 +150,16 @@ extension ChatSessionModel {
     func confirmSavedTranscript(in conversation: Conversation.ID, page: [Message]) {
         guard transcriptWork.includesUnconfirmed, selected == conversation,
               !page.contains(where: { !$0.isReply }), !unconfirmedMessageIDs.isEmpty else { return }
-        observeTranscript(in: conversation, request: .latest(max(100, messages.count)))
+        observeTranscript(
+            in: conversation, request: .latest(max(100, messages.count)), includingUnconfirmed: false
+        )
     }
 
+    /// Every window falls back to the saved copy while nothing in its chat is
+    /// confirmed, which is also what keeps an open chat on screen when only
+    /// its own history confidence is withdrawn.
     func observeTranscript(
-        in conversation: Conversation.ID, request: TranscriptWindowRequest, includingUnconfirmed: Bool = false
+        in conversation: Conversation.ID, request: TranscriptWindowRequest, includingUnconfirmed: Bool = true
     ) {
         transcriptWork.watcher?.cancel()
         transcriptWork.pageTask?.cancel()

@@ -45,9 +45,10 @@ extension LocalBridgeBackend {
             )
             try requireRecoverySession(generation)
             guard try permitsCatchUp(response) else {
+                // Only this conversation's missed changes are unknown.
                 delivery.rebasedRecovery = true
                 try await submitProviderBatch(.init(
-                    invalidatesHistory: true,
+                    events: [.conversationHistoryInvalidated([id])],
                     patch: .init(groups: [id.rawValue: end])
                 ))
                 return
@@ -132,8 +133,12 @@ extension LocalBridgeBackend {
             guard let wire = response.messages.first(where: { $0.id.messageID == target.messageID.rawValue }),
                   let message = ChannelEventMapping.domainMessage(wire) else {
                 // The bounded thread page cannot establish this reaction set.
-                // Drop cached history confidence before accepting its revision.
-                events.append(.historyInvalidated)
+                // Drop cached history confidence before accepting its revision:
+                // the reacted conversation's alone when the target names it.
+                events.append(
+                    ChannelEventMapping.conversationID(target.parent.topicID.groupID)
+                        .map { .conversationHistoryInvalidated([$0]) } ?? .historyInvalidated
+                )
                 continue
             }
             events.append(.reactionChanged(messageID: target.messageID, reactions: message.reactions))

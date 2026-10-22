@@ -3,6 +3,10 @@ import Foundation
 import GChatBridgeCore
 
 extension LocalBridgeBackend {
+    /// How many conversations a rebase may withdraw history confidence from
+    /// one by one; past it the whole account's goes, in one cheaper write.
+    static let scopedInvalidationLimit = 512
+
     func requestProviderRecovery() {
         guard delivery.running, isConnected else { return }
         delivery.recovering = true
@@ -86,6 +90,12 @@ extension LocalBridgeBackend {
         }, uniquingKeysWith: max)
         let changed = revisions.filter { delivery.cursor.groups[$0.key, default: 0] < $0.value }
         let reset = !delivery.cursor.baseline || changed.count > 64
+        // A rebase from an established baseline skips the changed groups'
+        // catch-up, so only their history is unknown; without a baseline,
+        // or past a bound, every conversation's is.
+        let invalidated: [Conversation.ID] = reset && delivery.cursor.baseline
+            && changed.count <= Self.scopedInvalidationLimit
+            ? changed.keys.sorted().map { Conversation.ID($0) } : []
         delivery.overflowed = false
         var patch = ProviderCursorPatch(identity: identity, baseline: true)
         if reset {
@@ -93,8 +103,9 @@ extension LocalBridgeBackend {
                 .timestamp; patch.rebase = true
         }
         try await submitProviderBatch(.init(
+            events: invalidated.isEmpty ? [] : [.conversationHistoryInvalidated(invalidated)],
             directory: result.snapshot,
-            invalidatesHistory: reset,
+            invalidatesHistory: reset && invalidated.isEmpty,
             patch: patch
         ))
         delivery.directory = result.snapshot
@@ -121,8 +132,9 @@ extension LocalBridgeBackend {
             let before = delivery.cursor.groups[id.rawValue] ?? 0
             guard before < item.groupRevision.timestamp else { continue }
             if before == 0 {
+                // No saved position for this conversation: its history alone is unknown.
                 try await submitProviderBatch(.init(
-                    invalidatesHistory: true,
+                    events: [.conversationHistoryInvalidated([id])],
                     patch: .init(groups: [id.rawValue: item.groupRevision.timestamp])
                 ))
             } else {

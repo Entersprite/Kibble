@@ -5,7 +5,9 @@ extension ChatEvent {
         _ tag: String, from container: KeyedDecodingContainer<CodingKeys>
     ) throws -> ChatEvent? {
         switch tag {
-        case Tag.historyInvalidated.rawValue: .historyInvalidated
+        case Tag.historyInvalidated.rawValue:
+            try container.decodeIfPresent([Conversation.ID].self, forKey: .conversationIDs)
+                .map(ChatEvent.conversationHistoryInvalidated) ?? .historyInvalidated
         case Tag.resourceSyncChanged.rawValue:
             try .resourceSyncChanged(container.decode(ResourceSyncStatus.self, forKey: .syncStatus))
         case Tag.conversationClassified.rawValue:
@@ -18,6 +20,9 @@ extension ChatEvent {
         switch self {
         case .historyInvalidated:
             try container.encode(Tag.historyInvalidated.rawValue, forKey: .type)
+        case let .conversationHistoryInvalidated(ids):
+            try container.encode(Tag.historyInvalidated.rawValue, forKey: .type)
+            try container.encode(ids, forKey: .conversationIDs)
         case let .resourceSyncChanged(status):
             try container.encode(Tag.resourceSyncChanged.rawValue, forKey: .type)
             try container.encode(status, forKey: .syncStatus)

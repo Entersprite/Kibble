@@ -113,7 +113,7 @@ public extension ChatStore {
         case .upsertMessage, .upsertMessageKeepingReactions, .insertMessageIfAbsent, .markMessageDeleted,
              .removeMessage, .reconcileThread, .setReactions,
              .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries,
-             .invalidateReplicaHistory:
+             .invalidateReplicaHistory, .invalidateConversationHistory:
             try performMessageWrite(write, in: db)
         case .setResourceSyncStatus, .setTyping, .setConnectionState, .setLastError, .setLocalMember,
              .setMentionBackfill,
@@ -215,8 +215,8 @@ public extension ChatStore {
 
     private static func performMessageWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
-        case .invalidateReplicaHistory:
-            try invalidateReplicaHistory(in: db)
+        case .invalidateReplicaHistory, .invalidateConversationHistory:
+            try performHistoryConfidenceWrite(write, in: db)
         case .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries:
             try performDeliveryWrite(write, in: db)
         case let .upsertMessageKeepingReactions(message):

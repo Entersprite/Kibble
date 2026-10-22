@@ -175,7 +175,13 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// stream ending.
     /// Change kind only for an existing row; seed the supplied row when absent.
     case conversationClassified(Conversation)
+    /// Saved history can no longer be trusted anywhere in the account.
     case historyInvalidated
+    /// Saved history can no longer be trusted in these conversations only;
+    /// the rest of the account keeps its confidence. On the wire it is
+    /// `historyInvalidated` with the conversations listed, so a reader that
+    /// does not know the list invalidates everything, never too little.
+    case conversationHistoryInvalidated([Conversation.ID])
     case resourceSyncChanged(ResourceSyncStatus)
     case backendError(ChatError)
 

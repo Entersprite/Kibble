@@ -14,9 +14,15 @@ actor ProviderRecoveryTransport: HTTPTransport {
     var messageWaiter: CheckedContinuation<Void, Never>?
     var streams: [AsyncThrowingStream<Data, any Error>.Continuation] = []
     private(set) var froms: [Int64] = []
+    /// More spaces in the world, by space id and revision.
+    var extraGroups: [(String, Int64)] = []
 
     func configure(replies: [CatchUpResponse], hold: Bool = false, group: Int64 = 12, user: Int64 = 20) {
         self.replies = replies; self.hold = hold; groupRevision = group; userRevision = user
+    }
+
+    func addGroups(_ groups: [(String, Int64)]) {
+        extraGroups = groups
     }
 
     func holdReactionRead() {
@@ -88,7 +94,11 @@ actor ProviderRecoveryTransport: HTTPTransport {
         first.groupRevision.timestamp = groupRevision
         var second = WorldItemFixture.item(groupID: WorldItemFixture.spaceGroupID("b"), roomName: "B")
         second.groupRevision.timestamp = 10
-        response.worldItems = [first, second]
+        response.worldItems = [first, second] + extraGroups.map { id, revision in
+            var item = WorldItemFixture.item(groupID: WorldItemFixture.spaceGroupID(id), roomName: id)
+            item.groupRevision.timestamp = revision
+            return item
+        }
         return response
     }
 

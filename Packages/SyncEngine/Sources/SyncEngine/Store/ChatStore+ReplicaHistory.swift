@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -32,6 +33,27 @@ extension ChatStore {
         let epoch = try fetchReplicaHistoryEpoch(db)
         guard epoch < Int64.max else { throw ChatError.decoding("History verification state is exhausted.") }
         try db.execute(sql: "UPDATE replicaHistory SET epoch = ? WHERE id = 1", arguments: [epoch + 1])
+    }
+
+    static func performHistoryConfidenceWrite(_ write: StoreWrite, in db: Database) throws {
+        switch write {
+        case .invalidateReplicaHistory: try invalidateReplicaHistory(in: db)
+        case let .invalidateConversationHistory(ids): try invalidateConversationHistory(ids, in: db)
+        default: break
+        }
+    }
+
+    /// Withdraws confidence from these conversations' rows only. They are
+    /// stamped below any epoch the account can hold (epochs start at 0), so
+    /// `currentMessage` hides them until an authoritative page verifies each
+    /// again. Every other conversation keeps its confidence; nothing is deleted.
+    static func invalidateConversationHistory(_ ids: [Conversation.ID], in db: Database) throws {
+        guard !ids.isEmpty else { return }
+        let values = ids.map(\.rawValue)
+        try db.execute(sql: """
+        UPDATE message SET replicaHistoryEpoch = -1
+        WHERE conversationID IN (\(databaseQuestionMarks(count: values.count))) AND replicaHistoryEpoch <> -1
+        """, arguments: StatementArguments(values))
     }
 
     static func verifyMessageHistory(_ id: String, in db: Database) throws {

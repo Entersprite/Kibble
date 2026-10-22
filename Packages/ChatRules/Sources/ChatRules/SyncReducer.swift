@@ -22,7 +22,7 @@ public enum SyncReducer {
     /// someone decides what it means for the store.
     public static func reduce(_ event: ChatEvent) -> Reduction {
         switch event {
-        case .historyInvalidated, .historyLoaded, .mentionBackfillChanged:
+        case .historyInvalidated, .conversationHistoryInvalidated, .historyLoaded, .mentionBackfillChanged:
             reduceHistoryEvent(event)
         case .scopedTypingChanged, .readReceiptsChanged:
             reduceActivityEvent(event)
@@ -81,6 +81,8 @@ public enum SyncReducer {
             }
             return Reduction(writes: writes)
         case .historyInvalidated: return Reduction(writes: [.invalidateReplicaHistory])
+        case let .conversationHistoryInvalidated(ids):
+            return Reduction(writes: [.invalidateConversationHistory(ids)])
         case let .mentionBackfillChanged(status):
             return Reduction(writes: [.setMentionBackfill(status)])
         default: return Reduction()

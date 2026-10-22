@@ -43,6 +43,7 @@ extension ChatEvent {
         case history
         case syncStatus
         case backfill
+        case conversationIDs
     }
 
     /// The discriminators, in one place, so the encoder and decoder cannot

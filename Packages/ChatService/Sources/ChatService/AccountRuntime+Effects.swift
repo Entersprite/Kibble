@@ -26,6 +26,7 @@ extension AccountRuntime {
         switch event {
         case .conversationsChanged: requestBackfill()
         case .historyInvalidated: requestBackfill(replay: true)
+        case let .conversationHistoryInvalidated(ids): refreshInvalidatedHistory(ids)
         case .connectionStateChanged(.connected):
             if checkpointedBackend == nil {
                 requestWorldRefresh()
@@ -35,6 +36,22 @@ extension AccountRuntime {
             }
         default: break
         }
+    }
+
+    /// Only these conversations lost confidence. One a client is viewing is
+    /// fetched again at once; the other recent ones are left to the background
+    /// refill, which must fetch them from the provider rather than re-send
+    /// saved rows that are no longer confirmed.
+    private func refreshInvalidatedHistory(_ ids: [Conversation.ID]) {
+        let viewed = aggregateClientInterests().conversations
+        for id in ids {
+            backfillHeads[id] = nil
+            if viewed.contains(id), pendingHistory.count < 1024 {
+                pendingHistory.insert(id)
+            }
+        }
+        requestHistoryRefresh()
+        requestBackfill()
     }
 
     private func scheduleHistoryRefresh(_ id: Conversation.ID) async {
