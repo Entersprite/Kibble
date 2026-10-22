@@ -35,7 +35,11 @@ struct SilencedNotificationsNotice: Equatable {
     }
 
     var text: String {
-        "\(name) has notifications silenced"
+        if let until {
+            "\(name) has notifications silenced until \(until.formatted(date: .omitted, time: .shortened))"
+        } else {
+            "\(name) has notifications silenced"
+        }
     }
 }
 

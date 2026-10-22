@@ -35,7 +35,10 @@ struct SilencedNotificationsTests {
     @Test func aDirectMessageWithSomeoneInDoNotDisturbShowsIt() throws {
         let end = now.addingTimeInterval(3600)
         let shown = try #require(notice(.doNotDisturb, until: end))
-        #expect(shown.text == "Ada has notifications silenced")
+        #expect(shown
+            .text ==
+            "Ada has notifications silenced until \(end.formatted(date: .omitted, time: .shortened))")
+        #expect(notice(.doNotDisturb)?.text == "Ada has notifications silenced")
         #expect(shown.until == end)
         #expect(notice(.active) == nil)
         #expect(notice(.inactive) == nil)
