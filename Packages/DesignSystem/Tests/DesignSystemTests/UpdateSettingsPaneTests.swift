@@ -6,6 +6,7 @@ struct UpdateSettingsPaneTests {
     private func state(
         isEnabled: Bool = true,
         lastChecked: Date? = nil,
+        checksAtLaunch: Bool = true,
         frequency: UpdateFrequency = .daily,
         notice: String? = nil
     ) -> UpdateSettingsState {
@@ -14,7 +15,7 @@ struct UpdateSettingsPaneTests {
             isEnabled: isEnabled,
             canCheck: true,
             lastChecked: lastChecked,
-            checksAtLaunch: true,
+            checksAtLaunch: checksAtLaunch,
             frequency: frequency,
             automaticallyInstalls: false,
             notice: notice
@@ -33,15 +34,22 @@ struct UpdateSettingsPaneTests {
         ))
     }
 
-    @Test("Automatic install is offered while the schedule runs", arguments: [
-        (true, UpdateFrequency.daily, true),
-        (true, .weekly, true),
-        (true, .never, false),
-        (false, .daily, false),
-        (false, .never, false)
+    @Test("Automatic install is offered while Kibble checks on its own", arguments: [
+        (true, true, UpdateFrequency.daily, true),
+        (true, true, .never, true),
+        (true, false, .weekly, true),
+        (true, false, .never, false),
+        (false, true, .daily, false),
+        (false, false, .never, false)
     ])
-    func automaticInstall(_ isEnabled: Bool, _ frequency: UpdateFrequency, _ offered: Bool) {
-        #expect(state(isEnabled: isEnabled, frequency: frequency).offersAutomaticInstall == offered)
+    func automaticInstall(
+        _ isEnabled: Bool,
+        _ atLaunch: Bool,
+        _ frequency: UpdateFrequency,
+        _ offered: Bool
+    ) {
+        #expect(state(isEnabled: isEnabled, checksAtLaunch: atLaunch, frequency: frequency)
+            .offersAutomaticInstall == offered)
     }
 
     @Test func aDevelopmentBuildSaysUpdatesAreOffWhateverElseItCarries() {

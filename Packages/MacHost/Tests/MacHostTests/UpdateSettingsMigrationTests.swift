@@ -113,8 +113,26 @@ struct UpdateSettingsMigrationTests {
         #expect(store.string(forKey: UpdateSettingsModel.frequencyKey) == "weekly")
     }
 
-    /// An install choice stored earlier stays; under Never the updater does
-    /// not see it.
+    /// Earlier versions defaulted automatic install to off and wrote it only
+    /// when the person chose it, so a stored `false` stays and an unset one
+    /// takes today's default, on.
+    @Test("An install choice stored earlier wins over the new default", arguments: [
+        (false as Bool?, false),
+        (true, true),
+        (nil, true)
+    ])
+    func installChoice(_ stored: Bool?, _ expected: Bool) throws {
+        let store = try defaults([:])
+        store.set(stored, forKey: UpdateSettingsModel.installKey)
+        let fake = FakeUpdater()
+        let model = UpdateSettingsModel(updater: fake, defaults: store, version: "1")
+        model.start()
+        #expect(model.state.automaticallyInstalls == expected)
+        #expect(fake.automaticallyInstalls == expected)
+    }
+
+    /// An install choice stored earlier stays; with automatic checks turned
+    /// off earlier, nothing checks on its own, so the updater does not see it.
     @Test func anEarlierInstallChoiceIsKept() throws {
         let store = try defaults([
             UpdateSettingsModel.legacyAutomaticKey: false,

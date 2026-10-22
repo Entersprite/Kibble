@@ -122,6 +122,13 @@ struct KibbleMacApp: App {
                     appDelegate.updates.checkNow()
                 }
                 .disabled(!appDelegate.updates.canCheck)
+                // Only while a downloaded update waits, which installs on quit
+                // if this is never chosen.
+                if appDelegate.updates.isReadyToInstall {
+                    Button("Restart to Update") {
+                        appDelegate.updates.restartToUpdate()
+                    }
+                }
                 Divider()
                 Button("Sign Out…") {
                     if appDelegate.accountHost != nil {

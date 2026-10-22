@@ -27,14 +27,17 @@ public struct UpdateSettingsState: Equatable, Sendable {
     public var version: String
     /// `false` in a development build, which never starts an updater.
     public var isEnabled: Bool
-    /// Whether Check Now can run: an updater that started and is not
-    /// already checking.
+    /// Whether Check Now can run: an updater that started, is not already
+    /// checking and has no downloaded update waiting.
     public var canCheck: Bool
     public var lastChecked: Date?
     /// One quiet check each time Kibble starts, apart from the schedule.
     public var checksAtLaunch: Bool
     public var frequency: UpdateFrequency
     public var automaticallyInstalls: Bool
+    /// The version of a downloaded update waiting to install, which Restart
+    /// to Update installs at once; `nil` while none waits.
+    public var readyVersion: String?
     /// A one-line diagnostic, e.g. an updater that could not start.
     public var notice: String?
 
@@ -46,6 +49,7 @@ public struct UpdateSettingsState: Equatable, Sendable {
         checksAtLaunch: Bool,
         frequency: UpdateFrequency,
         automaticallyInstalls: Bool,
+        readyVersion: String? = nil,
         notice: String? = nil
     ) {
         self.version = version
@@ -55,6 +59,7 @@ public struct UpdateSettingsState: Equatable, Sendable {
         self.checksAtLaunch = checksAtLaunch
         self.frequency = frequency
         self.automaticallyInstalls = automaticallyInstalls
+        self.readyVersion = readyVersion
         self.notice = notice
     }
 
@@ -63,9 +68,9 @@ public struct UpdateSettingsState: Equatable, Sendable {
     }
 
     /// Automatic install only means something while Kibble checks on its
-    /// own schedule; the choice is kept under Never.
+    /// own, at launch or on the schedule; the choice is kept meanwhile.
     var offersAutomaticInstall: Bool {
-        isEnabled && frequency != .never
+        isEnabled && (checksAtLaunch || frequency != .never)
     }
 
     var shownNotice: String? {
@@ -79,22 +84,26 @@ public struct UpdateSettingsActions {
     public var setChecksAtLaunch: (Bool) -> Void
     public var setFrequency: (UpdateFrequency) -> Void
     public var setAutomaticallyInstalls: (Bool) -> Void
+    public var restartToUpdate: () -> Void
 
     public init(
         checkNow: @escaping () -> Void,
         setChecksAtLaunch: @escaping (Bool) -> Void,
         setFrequency: @escaping (UpdateFrequency) -> Void,
-        setAutomaticallyInstalls: @escaping (Bool) -> Void
+        setAutomaticallyInstalls: @escaping (Bool) -> Void,
+        restartToUpdate: @escaping () -> Void
     ) {
         self.checkNow = checkNow
         self.setChecksAtLaunch = setChecksAtLaunch
         self.setFrequency = setFrequency
         self.setAutomaticallyInstalls = setAutomaticallyInstalls
+        self.restartToUpdate = restartToUpdate
     }
 }
 
-/// Settings › Updates: the version, a manual check, and how Kibble checks
-/// on its own. The update window itself is the updater's, not this pane's.
+/// Settings › Updates: the version, a manual check, a downloaded update
+/// waiting for a restart, and how Kibble checks on its own. The update window
+/// itself is the updater's, not this pane's.
 public struct UpdateSettingsPane: View {
     private let state: UpdateSettingsState
     private let actions: UpdateSettingsActions
@@ -116,6 +125,15 @@ public struct UpdateSettingsPane: View {
                             .fixedSize()
                         Button("Check Now", action: actions.checkNow)
                             .disabled(!state.canCheck)
+                    }
+                }
+                if let ready = state.readyVersion {
+                    LabeledContent("Ready to install") {
+                        HStack(spacing: 10) {
+                            Text(ready)
+                                .fixedSize()
+                            Button("Restart to Update", action: actions.restartToUpdate)
+                        }
                     }
                 }
             } footer: {
@@ -142,7 +160,7 @@ public struct UpdateSettingsPane: View {
                 ))
                 .disabled(!state.offersAutomaticInstall)
             } footer: {
-                Text("An update downloaded automatically is installed when you quit Kibble.")
+                Text("Downloaded updates install when you quit Kibble, or right away with Restart to Update.")
             }
         }
         .formStyle(.grouped)

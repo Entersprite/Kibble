@@ -23,9 +23,11 @@ and notarized by Apple.
 
 From then on Kibble updates itself through [Sparkle](https://sparkle-project.org):
 by hand from Kibble › Check for Updates…, or on its own at launch and every hour,
-day or week (Settings › Updates). Updating from an older Kibble that was not yet
-notarized, macOS asks once for your login password so Kibble can bring its saved
-session along; choose **Always Allow**.
+day or week (Settings › Updates). An update found on its own downloads in the
+background and installs when you quit Kibble, or right away from Kibble ›
+Restart to Update. Updating from an older Kibble that was not yet notarized,
+macOS asks once for your login password so Kibble can bring its saved session
+along; choose **Always Allow**.
 Releases from before updates existed (v2026.41.1 and earlier) have to be
 replaced by hand once.
 

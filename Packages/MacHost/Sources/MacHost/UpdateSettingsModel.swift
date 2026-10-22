@@ -12,6 +12,12 @@ import Observation
 ///
 /// **Choices stored by earlier versions are moved once, in `init`**
 /// (`migrate`): an explicit choice always wins over a new default.
+///
+/// **An update downloaded in the background waits for a restart.** The
+/// updater reports it as `readyVersion`; Restart to Update, in the app menu
+/// and in the pane, installs it and relaunches at once, and if nobody
+/// chooses it, it installs when Kibble quits. Each step goes to the unified
+/// log (`UpdateLog`), so a silent failure leaves a trace.
 @MainActor
 @Observable
 public final class UpdateSettingsModel {
@@ -36,14 +42,32 @@ public final class UpdateSettingsModel {
     public private(set) var checksAtLaunch: Bool
     /// Sparkle's scheduler: off for Never, otherwise on at the interval.
     public private(set) var frequency: UpdateFrequency
-    /// The person's choice, kept under Never; the updater only sees it while
-    /// its scheduler runs. Measured: with Sparkle's scheduler off, a
-    /// background check fetches the feed and downloads nothing, so automatic
-    /// install would never happen.
+    /// Download in the background, then install on quit or at Restart to
+    /// Update. On by default; a stored `false` was the person's (here or in
+    /// Sparkle's update window) and stays.
+    ///
+    /// **It reaches the updater whenever Kibble checks on its own**, at
+    /// launch or on the schedule. Sparkle downloads in the background only
+    /// while it allows automatic updates, which by default follows its
+    /// scheduler: measured, a launch check with the scheduler off fetched the
+    /// feed and downloaded nothing. `SUAllowsAutomaticUpdates` in `Info.plist`
+    /// makes Sparkle allow them whatever its scheduler says
+    /// (`SPUUpdaterSettings.m`, Sparkle 2.10), so under Never the launch check
+    /// downloads too. With neither on, nothing would use it, so the updater
+    /// is told no and the choice is kept. Turned off after a download, it
+    /// does not stop that update from installing on quit: Sparkle always
+    /// installs one it has downloaded.
     public private(set) var automaticallyInstalls: Bool
     public private(set) var canCheck = false
     public private(set) var lastChecked: Date?
     public private(set) var notice: String?
+    /// The version of a downloaded update waiting to install, or `nil`.
+    public private(set) var readyVersion: String?
+    /// Whether Restart to Update has anything to install.
+    public var isReadyToInstall: Bool {
+        readyVersion != nil
+    }
+
     public let version: String
 
     @ObservationIgnored private let updater: (any AppUpdating)?
@@ -62,7 +86,7 @@ public final class UpdateSettingsModel {
         checksAtLaunch = defaults.object(forKey: Self.launchKey) as? Bool ?? true
         frequency = defaults.string(forKey: Self.frequencyKey)
             .flatMap(UpdateFrequency.init(rawValue:)) ?? .daily
-        automaticallyInstalls = defaults.object(forKey: Self.installKey) as? Bool ?? false
+        automaticallyInstalls = defaults.object(forKey: Self.installKey) as? Bool ?? true
     }
 
     /// Whether this build checks for updates at all: `KibbleUpdatesEnabled`
@@ -103,16 +127,19 @@ public final class UpdateSettingsModel {
         guard let updater, !started else { return }
         started = true
         apply()
+        UpdateLog.started(atLaunch: checksAtLaunch, frequency: frequency, installs: pushedInstalls == true)
         updater.onChange = { [weak self] in self?.refresh() }
         do {
             try updater.start()
         } catch {
+            UpdateLog.startFailed(error)
             notice = "Kibble couldn't start checking for updates: \(error.localizedDescription)"
             refresh()
             return
         }
         refresh()
         if checksAtLaunch {
+            UpdateLog.launchCheck()
             updater.checkInBackground()
         }
     }
@@ -122,10 +149,19 @@ public final class UpdateSettingsModel {
         updater?.checkNow()
     }
 
+    /// Installs the waiting update and relaunches, through the updater; with
+    /// none waiting, does nothing.
+    public func restartToUpdate() {
+        UpdateLog.restartRequested(ready: isReadyToInstall)
+        guard isReadyToInstall else { return }
+        updater?.installNow()
+    }
+
     /// Turning it on checks nothing now: the next check is the next launch.
     public func setChecksAtLaunch(_ isOn: Bool) {
         checksAtLaunch = isOn
         defaults.set(isOn, forKey: Self.launchKey)
+        apply()
     }
 
     /// Sparkle restarts its schedule from the last check, so an interval that
@@ -151,6 +187,7 @@ public final class UpdateSettingsModel {
             checksAtLaunch: checksAtLaunch,
             frequency: frequency,
             automaticallyInstalls: automaticallyInstalls,
+            readyVersion: readyVersion,
             notice: notice
         )
     }
@@ -160,7 +197,8 @@ public final class UpdateSettingsModel {
             checkNow: { [weak self] in self?.checkNow() },
             setChecksAtLaunch: { [weak self] in self?.setChecksAtLaunch($0) },
             setFrequency: { [weak self] in self?.setFrequency($0) },
-            setAutomaticallyInstalls: { [weak self] in self?.setAutomaticallyInstalls($0) }
+            setAutomaticallyInstalls: { [weak self] in self?.setAutomaticallyInstalls($0) },
+            restartToUpdate: { [weak self] in self?.restartToUpdate() }
         )
     }
 
@@ -172,7 +210,7 @@ public final class UpdateSettingsModel {
         if let interval = Self.interval(frequency) {
             updater.checkInterval = interval
         }
-        let installs = frequency != .never && automaticallyInstalls
+        let installs = automaticallyInstalls && (checksAtLaunch || frequency != .never)
         updater.automaticallyInstalls = installs
         pushedInstalls = installs
     }
@@ -195,6 +233,7 @@ public final class UpdateSettingsModel {
         guard let updater else { return }
         canCheck = notice == nil && updater.canCheck
         lastChecked = updater.lastChecked
+        readyVersion = updater.readyVersion
         if let pushedInstalls, updater.automaticallyInstalls != pushedInstalls {
             automaticallyInstalls = updater.automaticallyInstalls
             defaults.set(automaticallyInstalls, forKey: Self.installKey)
