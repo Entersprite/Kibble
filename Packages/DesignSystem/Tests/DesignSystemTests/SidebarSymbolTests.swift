@@ -17,8 +17,8 @@
 
         @Test func everySymbolExists() {
             let names = rowMenuItems.map(\.symbol) + FavoriteMenu.symbols + [
-                SidebarPinned.searchSymbol, SidebarPinned.mentionsSymbol, SidebarRowPicture.spaceSymbol,
-                SetStatusSheet.emojiSymbol
+                SidebarPinned.searchSymbol, SidebarPinned.mentionsSymbol, ThreadsPresentation.rowSymbol,
+                SidebarRowPicture.seeAllSymbol, SetStatusSheet.emojiSymbol
             ]
             for name in names {
                 #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")

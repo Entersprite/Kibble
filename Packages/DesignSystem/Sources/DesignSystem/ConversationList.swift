@@ -342,9 +342,11 @@ struct ConversationRow: View {
             }
             .accessibilityHidden(true)
         case .space:
-            // A symbol rather than a typed "#", so it is sized as the sidebar
-            // sizes its other icons, in a concrete color (`SidebarSymbol`).
-            SidebarSymbol(name: SidebarRowPicture.spaceSymbol)
+            // A typed hash in the name's own font, in a concrete color for
+            // the reason `SidebarSymbol` gives.
+            Text(verbatim: "#")
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.secondary)
                 .accessibilityHidden(true)
         case .meetChat:
             MeetingPicture(size: size).accessibilityHidden(true)
@@ -354,10 +356,9 @@ struct ConversationRow: View {
     }
 }
 
-/// How big a sidebar row's picture is: the size the sidebar draws a `Label`'s
-/// symbol at for the person's sidebar icon size (System Settings ›
-/// Appearance). Measured in a hosted sidebar list on macOS 27, the `at`
-/// symbol's frame was about 16, 20 and 23 points for small, medium and large.
+/// How big a sidebar row's picture is, for the person's sidebar icon size
+/// (System Settings › Appearance): the width of the column every row starts
+/// with, whether it holds a picture or a symbol.
 enum SidebarRowPicture {
     static func diameter(_ size: SidebarRowSize) -> CGFloat {
         switch size {
@@ -367,6 +368,17 @@ enum SidebarRowPicture {
         }
     }
 
+    /// The square every sidebar symbol is fitted into: the size of the row's
+    /// text, as the symbols were when they took the row's font, so a symbol
+    /// is never larger than the name beside it.
+    static func symbol(_ size: SidebarRowSize) -> CGFloat {
+        switch size {
+        case .small: 11
+        case .large: 15
+        default: 13
+        }
+    }
+
     /// Checked to exist by `SidebarSymbolTests`.
-    static let spaceSymbol = "number"
+    static let seeAllSymbol = "ellipsis"
 }

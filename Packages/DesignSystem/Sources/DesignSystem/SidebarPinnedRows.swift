@@ -4,23 +4,22 @@ import SwiftUI
 /// button rather than a selectable row, because search is an overlay over the
 /// window and nothing in the sidebar is chosen by it.
 ///
-/// A `Label`, so the sidebar sizes its symbol as it does every other sidebar
-/// icon, following the person's sidebar icon size; the symbol's color is
-/// `SidebarSymbol`'s.
+/// Its symbol and name sit where a conversation's picture and name do
+/// (`SidebarSymbolTitle`).
 struct SearchSidebarRow: View {
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Label("Search", sidebarSymbol: SidebarPinned.searchSymbol)
-                    .lineLimit(1)
+            HStack(spacing: 8) {
+                SidebarSymbolTitle(title: "Search", symbol: SidebarPinned.searchSymbol)
                 Spacer(minLength: 4)
                 Text("⌘F")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
+            .padding(.vertical, 1)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -28,15 +27,14 @@ struct SearchSidebarRow: View {
     }
 }
 
-/// The Mentions row (the mentions-list spec §4): a `Label` with the `at`
-/// symbol and the list's own badge of unread mentions. It has no context
-/// menu and no rules.
+/// The Mentions row (the mentions-list spec §4): the `at` symbol and the
+/// list's own badge of unread mentions. It has no context menu and no rules.
 struct MentionsSidebarRow: View {
     let unread: Int
 
     var body: some View {
-        Label("Mentions", sidebarSymbol: SidebarPinned.mentionsSymbol)
-            .lineLimit(1)
+        SidebarSymbolTitle(title: "Mentions", symbol: SidebarPinned.mentionsSymbol)
+            .padding(.vertical, 1)
             .badge(SidebarPinned.badge(MentionsPresentation.badge(unread: unread)))
     }
 }
@@ -47,8 +45,8 @@ struct ThreadsSidebarRow: View {
     let unread: Int
 
     var body: some View {
-        Label(ThreadsPresentation.title, sidebarSymbol: ThreadsPresentation.rowSymbol)
-            .lineLimit(1)
+        SidebarSymbolTitle(title: ThreadsPresentation.title, symbol: ThreadsPresentation.rowSymbol)
+            .padding(.vertical, 1)
             .badge(SidebarPinned.badge(ThreadsPresentation.badge(unread: unread)))
     }
 }
