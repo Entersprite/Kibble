@@ -66,7 +66,10 @@ struct DownloadClientTests {
         let photo = try #require(URL(string: "https://acme.example/profile.png"))
         let canonical = try await harness.canonical(harness.first.id)
         _ = try canonical.append(
-            .membersResolved([Member(id: .init("peer"), kind: .human, avatarURL: photo)]),
+            .membersChanged(
+                conversationID: .init("same"),
+                members: [Member(id: .init("peer"), kind: .human, avatarURL: photo)]
+            ),
             live: false
         )
         #expect(try await backend.remoteImage(photo).starts(with: Data([137, 80, 78, 71])))
@@ -75,6 +78,7 @@ struct DownloadClientTests {
             attachment,
             size: .original
         ) }
+        await #expect(throws: ServiceFailure.notAuthorized) { try await foreign.remoteImage(photo) }
         for request in await tap.requests {
             let json = try String(decoding: ServiceCodec.encode(request), as: UTF8.self)
             #expect(!json.contains(file.path))

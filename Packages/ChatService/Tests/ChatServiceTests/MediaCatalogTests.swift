@@ -153,6 +153,26 @@ struct MediaCatalogTests {
             .origin == .conversation(conversation))
     }
 
+    @Test func membershipProfilesAuthorizePhotosAndRevokeReplacedPhotos() throws {
+        let store = try store()
+        var member = Member(id: .init("member"), kind: .human, avatarURL: image)
+        _ = try store.append(.membersChanged(conversationID: conversation, members: [member]), live: false)
+        let photo = try #require(store.mediaSources(for: .remoteImage(image), at: Date()).first)
+        #expect(photo.origin == .member(member.id))
+        #expect(try store.isCurrentMediaSource(photo, at: Date()))
+
+        _ = try store.append(.membersChanged(conversationID: conversation, members: [member]), live: false)
+        #expect(try store.isCurrentMediaSource(photo, at: Date()))
+
+        member.avatarURL = cardImage
+        _ = try store.append(.membersChanged(conversationID: conversation, members: [member]), live: false)
+        #expect(try !store.isCurrentMediaSource(photo, at: Date()))
+        let replacement = try #require(store.mediaSources(for: .remoteImage(cardImage), at: Date()).first)
+        #expect(replacement.origin == .member(member.id))
+        #expect(try store.isCurrentMediaSource(replacement, at: Date()))
+        #expect(try self.store().mediaSources(for: .remoteImage(cardImage), at: Date()).isEmpty)
+    }
+
     @Test func unknownSelectorRetainsItsStructuredPayloadAndNeverBecomesAuthority() throws {
         let value = JSONValue.object([
             "type": .string("future"),

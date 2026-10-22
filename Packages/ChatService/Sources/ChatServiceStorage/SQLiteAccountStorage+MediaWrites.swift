@@ -41,7 +41,7 @@ extension SQLiteAccountStorage {
 
     private static func updateProfileMedia(_ event: ChatEvent, db: Database) throws {
         switch event {
-        case let .membersResolved(members):
+        case let .membersResolved(members), let .membersChanged(_, members):
             for member in members {
                 try indexProfileMedia(member.id.rawValue, member: true, db: db)
             }
