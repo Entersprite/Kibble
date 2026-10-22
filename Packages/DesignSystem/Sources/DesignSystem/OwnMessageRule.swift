@@ -21,7 +21,7 @@ enum OwnMessageRule {
     }
 
     static func canEdit(_ message: Message, me: Member.ID?) -> Bool {
-        canDelete(message, me: me) && message.callStatus == nil && message.content?.forwarded == nil &&
+        canDelete(message, me: me) && message.callStatus == nil && message.forwardedSnapshot == nil &&
             !message.text.isEmpty && message.attachments.isEmpty && MessageMarkup.canEdit(message.content)
     }
 

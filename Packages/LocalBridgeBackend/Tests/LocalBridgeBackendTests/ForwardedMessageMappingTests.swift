@@ -69,6 +69,64 @@ struct ForwardedMessageMappingTests {
         #expect(deleted.text == "My comment")
     }
 
+    /// A forward whose reference names no source still draws its author and
+    /// text; the snapshot's address is left empty, so nothing opens it.
+    @Test func forwardWithoutASourceAddressKeepsItsAuthorAndText() throws {
+        var wire = message(text: "Original body")
+        wire.replyTo = PBLiteDecoder.decode(ReplyToMessage.self, from: .array([.object([
+            "5": .array([.object(["1": .array([.string("source-sender")]), "2": .string("Alex Example")])]),
+            "6": .string("Original body"), "13": .string("1000000"), "15": .number(.integer(2))
+        ])])).message
+        let received = try #require(ChannelEventMapping.domainMessage(wire))
+        let forwarded = try #require(received.content?.forwarded)
+        #expect(forwarded.source.text == "Original body")
+        #expect(forwarded.source.sender == Member.ID("source-sender"))
+        #expect(forwarded.senderName == "Alex Example")
+        #expect(forwarded.source.id.rawValue.isEmpty)
+        #expect(forwarded.source.conversation.rawValue.isEmpty)
+        #expect(forwarded.source.thread.rawValue.isEmpty)
+        #expect(received.content?.quote == nil)
+    }
+
+    /// No quote crosses conversations, so an untyped reference to another
+    /// conversation is a forward.
+    @Test func untypedReferenceToAnotherConversationIsAForward() throws {
+        var wire = message(text: "Original body")
+        wire.replyTo.clearReferenceType()
+        #expect(!wire.replyTo.hasReferenceType)
+        let received = try #require(ChannelEventMapping.domainMessage(wire))
+        #expect(received.content?.forwarded?.source.text == "Original body")
+        #expect(received.content?.quote == nil)
+        wire.replyTo.id.parentID.topicID.groupID = wire.id.parentID.topicID.groupID
+        let quoted = try #require(ChannelEventMapping.domainMessage(wire))
+        #expect(quoted.content?.forwarded == nil)
+        #expect(quoted.content?.quote?.text == "Original body")
+    }
+
+    /// The author is whichever of the nested profile, the bare id and the
+    /// second profile the reference carries, for quotes as for forwards.
+    @Test func authorComesFromWhicheverFieldTheReferenceCarries() throws {
+        var bare = message(text: "Body")
+        bare.replyTo.clearSender()
+        #expect(ForwardedMessageMapping.author(of: bare.replyTo).id == "source-sender")
+        var nested = message(text: "Body")
+        nested.replyTo.clearSenderID()
+        #expect(ForwardedMessageMapping.author(of: nested.replyTo).id == "source-sender")
+        #expect(ForwardedMessageMapping.author(of: nested.replyTo).name == "Alex Example")
+        var second = message(text: "Body")
+        second.replyTo.clearSender()
+        second.replyTo.clearSenderID()
+        second.replyTo.senderAgain.userID.id = "updater"
+        second.replyTo.senderAgain.name = "Sam Example"
+        #expect(ForwardedMessageMapping.author(of: second.replyTo).id == "updater")
+        #expect(ForwardedMessageMapping.author(of: second.replyTo).name == "Sam Example")
+        var quote = message(type: 1, text: "Quoted")
+        quote.replyTo.id.parentID.topicID.groupID = quote.id.parentID.topicID.groupID
+        quote.replyTo.clearSenderID()
+        let quoted = try #require(ChannelEventMapping.domainMessage(quote)?.content?.quote)
+        #expect(quoted.sender == Member.ID("source-sender"))
+    }
+
     @Test func quoteAndUnknownReferencesAreNeverMisclassifiedAsForwards() throws {
         for type in [0, 1, 3, 99] {
             var wire = message(type: type, text: "Quoted body")

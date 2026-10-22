@@ -40,7 +40,7 @@ enum MessageContentMapping {
         return MessageQuote(message: ChatKit.Message(
             id: ChatKit.Message.ID(quoted.id.messageID), conversationID: conversation,
             threadID: MessageThread.ID(quoted.id.parentID.topicID.topicID),
-            sender: Member.ID(quoted.senderID.id), text: quoted.textBody,
+            sender: Member.ID(ForwardedMessageMapping.author(of: quoted).id), text: quoted.textBody,
             createdAt: Microseconds.date(quoted.createTime), isDeleted: quoted.messageState == 2
         ))
     }

@@ -74,6 +74,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// disconnect writes its entry afterwards; that is harmless, because a
     /// token names one upload and a send only looks up the ones it carries.
     var uploadedMetadata: [String: UploadMetadata] = [:]
+    /// The sources of this session's forwards, for their echoes
+    /// (`completingOwnForward(_:)`). Cleared by `disconnect()`.
+    var ownForwards = OwnForwardSnapshots()
 
     /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
     /// and so a second `loadConversations()` supersedes the first rather than
@@ -317,6 +320,7 @@ public actor LocalBridgeBackend: ChatBackend {
         attachmentFetch = nil
         attachmentUpload = nil
         uploadedMetadata = [:]
+        ownForwards.forgetAll()
         messageTimes.forgetAll()
         conversationHeads = [:]
         conversationDetails = [:]

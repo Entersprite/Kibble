@@ -84,4 +84,60 @@ struct OutgoingForwardTests {
         #expect(await transport.sent.count == 2)
         await backend.disconnect()
     }
+
+    /// The echo of this session's forward shows the source it was checked
+    /// against when the echo itself carries no reference; anyone else's
+    /// message, and an echo that carries one, are left as they arrived.
+    @Test func ownForwardEchoWithoutItsReferenceShowsTheCheckedSource() async throws {
+        let transport = ForwardTransport()
+        let backend = try LocalBridgeBackend(
+            cookies: #require(SessionCookies(header: "SID=a; OSID=b")),
+            transport: transport
+        )
+        try await backend.connect()
+        let source = try #require(await ChannelEventMapping.domainMessage(transport.original))
+        try await backend.send(.sendMessage(
+            conversationID: .init("space/destination"), threadID: nil, text: "", localID: "forward-echo",
+            content: MessageContent(forwardSource: MessageQuote(message: source))
+        ))
+        let echoed = try await backend
+            .prepareChannelEvent(ChannelEvent(protobuf: Self.posted(localID: "forward-echo")))
+        guard case let .messageReceived(echo)? = echoed.first else {
+            Issue.record("The echo was not delivered as a message")
+            return
+        }
+        let forwarded = try #require(echo.content?.forwarded)
+        #expect(forwarded.source.id == ChatKit.Message.ID("source"))
+        #expect(forwarded.source.conversation == Conversation.ID("dm/source-chat"))
+        #expect(forwarded.source.thread == MessageThread.ID("source-thread"))
+        #expect(forwarded.source.sender == Member.ID("author"))
+        #expect(forwarded.source.text == "Original")
+        #expect(echo.text.isEmpty)
+        let other = try await backend.prepareChannelEvent(ChannelEvent(protobuf: Self.posted(localID: nil)))
+        guard case let .messageReceived(plain)? = other.first else {
+            Issue.record("The other message was not delivered")
+            return
+        }
+        #expect(plain.content == nil)
+        await backend.disconnect()
+    }
+
+    private static func posted(localID: String?) -> Event {
+        var message = GChatBridgeCore.Message()
+        message.id.messageID = "echo-\(localID ?? "other")"
+        message.id.parentID.topicID.topicID = message.id.messageID
+        message.id.parentID.topicID.groupID.spaceID.spaceID = "destination"
+        message.creator.userID.id = "me"
+        message.createTime = 5_000_000
+        if let localID {
+            message.localID = localID
+        }
+        var event = Event()
+        event.type = .messagePosted
+        var body = Event.EventBody()
+        body.eventType = .messagePosted
+        body.messagePosted.message = message
+        event.bodies = [body]
+        return event
+    }
 }

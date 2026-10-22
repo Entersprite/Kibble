@@ -101,7 +101,7 @@ extension LocalBridgeBackend {
             )
         }
         events += try await recoverReactions(in: channel, generation: generation)
-        events = events.filter(prepareEvent)
+        events = events.map(completingOwnForward).filter(prepareEvent)
         messageTimes.remember(events.flatMap(Self.messages(in:)))
         resolveUnknownMembers(events.flatMap(Self.memberIDs(in:)))
         if events.isEmpty {

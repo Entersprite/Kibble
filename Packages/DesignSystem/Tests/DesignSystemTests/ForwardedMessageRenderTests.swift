@@ -53,6 +53,18 @@
             #expect(OwnMessageRule.canDelete(message, me: message.sender))
         }
 
+        /// A forward that carries only its addressed source, with no comment,
+        /// draws that source as its card rather than an empty bubble.
+        @Test func forwardWithOnlyItsSourceDrawsACardNotAnEmptyBubble() {
+            var message = message(body: "Original body", comment: "", deleted: false)
+            let source = message.content?.forwarded?.source
+            message.content = MessageContent(forwardSource: source)
+            #expect(message.content?.forwarded == nil)
+            #expect(!AttachmentLayout.parts(of: message, canLoadImages: false).showsText)
+            #expect(message.forwardedSnapshot?.source.text == "Original body")
+            #expect(!OwnMessageRule.canEdit(message, me: message.sender))
+        }
+
         private func row(body: String, comment: String, deleted: Bool, media: Bool = false) -> some View {
             var message = message(body: body, comment: comment, deleted: deleted)
             if media {

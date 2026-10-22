@@ -191,7 +191,7 @@ struct MessageBubble: View {
     }
 
     @ViewBuilder private var messageContent: some View {
-        if let forwarded = message.content?.forwarded {
+        if let forwarded = message.forwardedSnapshot {
             ForwardedMessageCard(
                 forwarded: forwarded, directory: state.directory, me: state.me,
                 downloads: state.downloads, loadAttachment: loadAttachment,
@@ -255,7 +255,7 @@ struct MessageBubble: View {
     /// download of the message as pages, the forwarded snapshot's included,
     /// in the order they are drawn. Worked out when asked, never while drawn.
     private var quickLook: (Attachment) -> Void {
-        let forwarded = message.content?.forwarded.map {
+        let forwarded = message.forwardedSnapshot.map {
             AttachmentLayout.parts(of: $0.message, canLoadImages: loadAttachment != nil)
         }
         let pictures = (forwarded?.images ?? []) + parts.images

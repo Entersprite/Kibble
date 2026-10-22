@@ -21,7 +21,7 @@ extension LocalBridgeBackend {
                 requestReactionRefetch(reacted)
             }
         }
-        let mapped = ChannelEventMapping.chatEvents(from: event)
+        let mapped = ChannelEventMapping.chatEvents(from: event).map(completingOwnForward)
         messageTimes.remember(mapped.flatMap(Self.messages(in:)))
         var accepted: [ChatEvent] = []
         for (body, event) in zip(event.bodies, mapped) {

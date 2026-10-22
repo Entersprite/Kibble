@@ -85,7 +85,7 @@ public extension LocalBridgeBackend {
         // the server echoes this back on the resulting message and it is the
         // only thing that marks the echo as ours.
         let identifier = localID ?? SendRequests.makeLocalID()
-        let quote = try await sendReference(body.content, in: conversationID)
+        let quote = try await sendReference(body.content, in: conversationID, localID: identifier)
         let formats = try MessageContentMapping.annotations(body.content?.formatting ?? [], text: text)
         let annotations = await Self.uploadAnnotations(attachments, uploaded: uploadedMetadata)
             + mentionAnnotations(body.mentions, using: apiClient) + formats

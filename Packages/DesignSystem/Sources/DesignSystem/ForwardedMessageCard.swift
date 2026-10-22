@@ -118,3 +118,12 @@ struct ForwardedMessageCard: View {
         Text(text).font(.callout.italic()).foregroundStyle(.secondary)
     }
 }
+
+extension Message {
+    /// What a forward card draws: the received snapshot, or the addressed
+    /// source of a forward that has none yet, so a forward never draws as an
+    /// empty bubble.
+    var forwardedSnapshot: ForwardedMessage? {
+        content?.forwarded ?? content?.forwardSource.map { ForwardedMessage(source: $0) }
+    }
+}
