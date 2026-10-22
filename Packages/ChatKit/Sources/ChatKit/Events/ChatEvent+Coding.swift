@@ -44,6 +44,7 @@ extension ChatEvent {
         case syncStatus
         case backfill
         case conversationIDs
+        case doNotDisturbUntil
     }
 
     /// The discriminators, in one place, so the encoder and decoder cannot
@@ -199,7 +200,8 @@ extension ChatEvent {
         case Tag.presenceChanged.rawValue:
             try .presenceChanged(
                 member: container.decode(Member.ID.self, forKey: .member),
-                presence: container.decode(Presence.self, forKey: .presence)
+                presence: container.decode(Presence.self, forKey: .presence),
+                doNotDisturbUntil: container.decodeWireIfPresent(Date.self, forKey: .doNotDisturbUntil)
             )
         case Tag.statusChanged.rawValue:
             try .statusChanged(
@@ -354,10 +356,11 @@ extension ChatEvent {
             try container.encode(conversationID, forKey: .conversationID)
             try container.encodeWire(lastReadAt, forKey: .lastReadAt)
             try container.encode(unread, forKey: .unread)
-        case let .presenceChanged(member, presence):
+        case let .presenceChanged(member, presence, doNotDisturbUntil):
             try container.encode(Tag.presenceChanged.rawValue, forKey: .type)
             try container.encode(member, forKey: .member)
             try container.encode(presence, forKey: .presence)
+            try container.encodeWireIfPresent(doNotDisturbUntil, forKey: .doNotDisturbUntil)
         case let .statusChanged(member, status):
             try container.encode(Tag.statusChanged.rawValue, forKey: .type)
             try container.encode(member, forKey: .member)

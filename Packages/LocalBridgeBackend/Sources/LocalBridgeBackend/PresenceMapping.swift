@@ -82,6 +82,37 @@ public enum PresenceMapping {
         return emoji.customEmoji.shortcode
     }
 
+    /// Each answered person's Do not disturb end, for those in Do not
+    /// disturb whose end the answer says (`doNotDisturbUntil(of:now:)`).
+    public static func doNotDisturbEnds(
+        _ response: GetUserPresenceResponse,
+        now: Date
+    ) -> [ChatKit.Member.ID: Date] {
+        var result: [ChatKit.Member.ID: Date] = [:]
+        for entry in response.userPresences where !entry.userID.id.isEmpty {
+            result[ChatKit.Member.ID(entry.userID.id)] = doNotDisturbUntil(of: entry, now: now)
+        }
+        return result
+    }
+
+    /// When the entry's Do not disturb ends, for an entry in Do not disturb
+    /// whose `user_status.dnd_settings` says: `dnd_expiry_time_usec`, or else
+    /// `now` plus `state_remaining_duration_usec`. The live poll carried both,
+    /// agreeing to the second. An end already past is kept,
+    /// not dropped: it is what tells a client the claim has run out.
+    static func doNotDisturbUntil(of entry: UserPresence, now: Date) -> Date? {
+        guard presence(of: entry) == .doNotDisturb, entry.hasUserStatus, entry.userStatus.hasDndSettings
+        else { return nil }
+        let dnd = entry.userStatus.dndSettings
+        if dnd.hasDndExpiryTimeUsec, dnd.dndExpiryTimeUsec > 0 {
+            return Date(timeIntervalSince1970: Double(dnd.dndExpiryTimeUsec) / 1_000_000)
+        }
+        if dnd.hasStateRemainingDurationUsec, dnd.stateRemainingDurationUsec > 0 {
+            return now.addingTimeInterval(Double(dnd.stateRemainingDurationUsec) / 1_000_000)
+        }
+        return nil
+    }
+
     /// `nil` when the entry says nothing about presence at all - "nobody told
     /// us", which `Member.presence` keeps distinct from `.unknown`.
     static func presence(of entry: UserPresence) -> ChatKit.Presence? {

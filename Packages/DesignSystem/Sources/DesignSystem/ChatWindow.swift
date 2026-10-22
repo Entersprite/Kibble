@@ -126,9 +126,19 @@ public struct ChatWindow: View {
                             .id(AccountScoped(account: state.accountID, value: state.sidebarSelection))
                             .safeAreaInset(edge: .bottom, spacing: 0) {
                                 // Who is typing shows once, as the transcript's
-                                // typing bubble (`TypingIndicator`).
-                                composer(for: conversation)
-                                    .background(alignment: .bottom) { ComposerScrim() }
+                                // typing bubble (`TypingIndicator`). The silenced
+                                // line sits on the composer, so the transcript's
+                                // own foot (typing, Jump to Newest) rises above it.
+                                VStack(spacing: 0) {
+                                    if let notice = SilencedNotificationsNotice(
+                                        conversation: conversation, directory: state.directory,
+                                        me: state.me, connection: state.connection
+                                    ) {
+                                        SilencedNotificationsLine(notice: notice)
+                                    }
+                                    composer(for: conversation)
+                                }
+                                .background(alignment: .bottom) { ComposerScrim() }
                             }
                             .modifier(FileDropTarget(stage: dropStage))
                         } else if let unavailable {

@@ -55,14 +55,23 @@ public extension ChatStore {
     }
 
     /// Who `ChatCommand.watchPresence` names when `conversation` is opened:
-    /// people who posted in it, have a member row - so `.setPresence` cannot
-    /// drop the answer - and are not the local user.
+    /// people who posted in it, or the other person in a one-to-one DM, who
+    /// have a member row - so `.setPresence` cannot drop the answer - and
+    /// are not the local user.
     func presenceCandidates(in conversation: Conversation.ID) throws -> [Member.ID] {
         try database.read { db in
             let senders = try String.fetchAll(
                 db,
-                sql: "SELECT DISTINCT sender FROM currentMessage AS message WHERE conversationID = ?",
-                arguments: [conversation.rawValue]
+                sql: """
+                SELECT DISTINCT sender FROM currentMessage AS message WHERE conversationID = ?
+                UNION SELECT memberID FROM conversationMember WHERE conversationID = ?
+                    AND conversationID IN (SELECT id FROM conversation WHERE kind = ?)
+                """,
+                arguments: [
+                    conversation.rawValue,
+                    conversation.rawValue,
+                    Wire.string(Conversation.Kind.directMessage)
+                ]
             )
             let me = try Self.fetchMe(db)
             return try MemberRow.filter(keys: senders).order(Column("id").asc).fetchAll(db)

@@ -16,6 +16,9 @@ actor PresenceTransport: HTTPTransport {
         /// Everyone active, each with a `user_status`: a custom status with
         /// this text and a palm tree, or `nil` for one with no custom status.
         case statuses([String: String?])
+        /// Everyone in Do not disturb, each until this many microseconds
+        /// since 1970 (`dnd_expiry_time_usec`).
+        case doNotDisturb([String: Int64])
         case failure
     }
 
@@ -120,6 +123,17 @@ actor PresenceTransport: HTTPTransport {
                     entry.userStatus.customStatus.statusText = text
                     entry.userStatus.customStatus.emoji.unicode = "🌴"
                 }
+                return entry
+            }
+        case let .doNotDisturb(ends)?:
+            response.userPresences = ends.keys.sorted().map { id in
+                var entry = UserPresence()
+                entry.userID.id = id
+                entry.presence = .active
+                entry.dndState = .dnd
+                entry.userStatus.userID.id = id
+                entry.userStatus.dndSettings.dndState = .dnd
+                entry.userStatus.dndSettings.dndExpiryTimeUsec = ends[id] ?? 0
                 return entry
             }
         case .failure?, nil:

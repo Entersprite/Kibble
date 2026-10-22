@@ -205,8 +205,10 @@ public enum SyncReducer {
             Reduction(writes: [
                 .setTyping(conversation: conversationID, member: member, isTyping: isTyping)
             ])
-        case let .presenceChanged(member, presence):
-            Reduction(writes: [.setPresence(member: member, presence: presence)])
+        case let .presenceChanged(member, presence, doNotDisturbUntil):
+            Reduction(writes: [
+                .setPresence(member: member, presence: presence, doNotDisturbUntil: doNotDisturbUntil)
+            ])
         case let .statusChanged(member, status):
             Reduction(writes: [.setStatus(member: member, status: status)])
         case let .calendarChanged(member, schedule):

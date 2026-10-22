@@ -148,7 +148,9 @@ public enum StoreWrite: Sendable, Equatable {
     case clearActivityTyping
 
     case setTyping(conversation: Conversation.ID, member: Member.ID, isTyping: Bool)
-    case setPresence(member: Member.ID, presence: Presence)
+    /// Presence and its Do not disturb end are one claim, written together,
+    /// so a person leaving Do not disturb takes the old end with it.
+    case setPresence(member: Member.ID, presence: Presence, doNotDisturbUntil: Date? = nil)
     /// `nil` clears it. A claim about now, dropped by `clearEphemeralState`.
     case setStatus(member: Member.ID, status: MemberStatus?)
     /// `nil` clears it. Dropped by `clearEphemeralState`, like `setStatus`.

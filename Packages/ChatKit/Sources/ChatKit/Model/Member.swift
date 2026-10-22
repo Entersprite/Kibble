@@ -20,6 +20,13 @@ public struct Member: Codable, Hashable, Sendable {
     /// state we have never seen.
     public var presence: Presence?
 
+    /// When this person's Do not disturb ends, while `presence` is
+    /// `.doNotDisturb` and the backend said; `nil` otherwise. A claim about
+    /// now, written with `presence` and never without it. It can already be
+    /// past: the next answer about the person is what moves `presence` on,
+    /// so a client checks it against its own clock.
+    public var doNotDisturbUntil: Date?
+
     /// A claim about now, like `presence`: `nil` is "nobody told us", and a
     /// status that has been cleared arrives as `.statusChanged` with `nil`.
     public var status: MemberStatus?
@@ -38,7 +45,8 @@ public struct Member: Codable, Hashable, Sendable {
         avatarURL: URL? = nil,
         presence: Presence? = nil,
         status: MemberStatus? = nil,
-        calendar: CalendarSchedule? = nil
+        calendar: CalendarSchedule? = nil,
+        doNotDisturbUntil: Date? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -48,6 +56,7 @@ public struct Member: Codable, Hashable, Sendable {
         self.presence = presence
         self.status = status
         self.calendar = calendar
+        self.doNotDisturbUntil = doNotDisturbUntil
     }
 }
 
@@ -129,6 +138,7 @@ public extension Member {
         case presence
         case status
         case calendar
+        case doNotDisturbUntil
     }
 
     /// Hand-written for the same reason as `Conversation`: `id` and `kind` are
@@ -143,7 +153,8 @@ public extension Member {
             avatarURL: container.decodeIfPresent(URL.self, forKey: .avatarURL),
             presence: container.decodeIfPresent(Presence.self, forKey: .presence),
             status: container.decodeIfPresent(MemberStatus.self, forKey: .status),
-            calendar: container.decodeIfPresent(CalendarSchedule.self, forKey: .calendar)
+            calendar: container.decodeIfPresent(CalendarSchedule.self, forKey: .calendar),
+            doNotDisturbUntil: container.decodeWireIfPresent(Date.self, forKey: .doNotDisturbUntil)
         )
     }
 
@@ -157,5 +168,6 @@ public extension Member {
         try container.encodeIfPresent(presence, forKey: .presence)
         try container.encodeIfPresent(status, forKey: .status)
         try container.encodeIfPresent(calendar, forKey: .calendar)
+        try container.encodeWireIfPresent(doNotDisturbUntil, forKey: .doNotDisturbUntil)
     }
 }

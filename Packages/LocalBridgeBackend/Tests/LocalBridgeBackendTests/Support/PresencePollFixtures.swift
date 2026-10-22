@@ -72,7 +72,7 @@ extension PresencePollFixtures {
 
     func presences(in events: [ChatEvent]) -> [ChatKit.Member.ID: [ChatKit.Presence]] {
         var result: [ChatKit.Member.ID: [ChatKit.Presence]] = [:]
-        for case let .presenceChanged(member, presence) in events {
+        for case let .presenceChanged(member, presence, _) in events {
             result[member, default: []].append(presence)
         }
         return result

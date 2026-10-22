@@ -36,7 +36,7 @@ extension LocalBridgeBackend {
 
         /// The last value emitted per person, so a poll that learns nothing
         /// new emits nothing. Cleared by `disconnect()`.
-        var emitted: [ChatKit.Member.ID: ChatKit.Presence] = [:]
+        var emitted: [ChatKit.Member.ID: EmittedPresence] = [:]
         /// The last status emitted per person, the same way. Only people who
         /// have had one are here: a status that is cleared is removed.
         var statuses: [ChatKit.Member.ID: MemberStatus] = [:]
@@ -75,6 +75,27 @@ extension LocalBridgeBackend {
     /// the old value would keep a dot green for as long as the process runs.
     static let absentPresence = ChatKit.Presence.unknown("absent")
 
+    /// One person's last emitted presence and Do not disturb end.
+    struct EmittedPresence: Equatable {
+        var presence: ChatKit.Presence
+        var doNotDisturbUntil: Date?
+
+        /// An end read from a remaining duration moves with each answer's
+        /// own clock, so ends this close together are the same end, or every
+        /// poll would emit again for someone whose Do not disturb has not
+        /// changed.
+        static let endTolerance: TimeInterval = 5
+
+        func says(_ other: Self?) -> Bool {
+            guard let other, presence == other.presence else { return false }
+            switch (doNotDisturbUntil, other.doNotDisturbUntil) {
+            case (nil, nil): return true
+            case let (mine?, theirs?): return abs(mine.timeIntervalSince(theirs)) <= Self.endTolerance
+            default: return false
+            }
+        }
+    }
+
     /// The people among `members`: presence is asked about humans only. The
     /// local user is included when named, which costs one id and draws
     /// nothing.
@@ -103,7 +124,10 @@ extension LocalBridgeBackend {
     }
 
     /// `ChatCommand.watchPresence`: people a client has on screen, asked
-    /// about at once.
+    /// about at once, whether or not the poll already asks about them. A
+    /// client names them when a conversation opens, and what it shows there,
+    /// such as the other person's Do not disturb in a DM, should be news
+    /// from now rather than up to an interval old.
     ///
     /// The client names people this backend may never have fetched a page
     /// for this session - a transcript shows every stored message, from every
@@ -120,7 +144,12 @@ extension LocalBridgeBackend {
     func watchPresence(_ ids: [ChatKit.Member.ID]) {
         guard let apiClient else { return }
         let people = Set(ids.filter { !$0.rawValue.isEmpty }).sorted { $0.rawValue < $1.rawValue }
-        addPresenceTargets(ids: people, immediately: true, using: apiClient, generation: directoryGeneration)
+        presencePoll.people.formUnion(people)
+        guard !people.isEmpty, presencePoll.task != nil else { return }
+        let generation = directoryGeneration
+        Task { [weak self] in
+            await self?.pollPresence(people, using: apiClient, generation: generation)
+        }
     }
 
     private func addPresenceTargets(
@@ -249,13 +278,20 @@ extension LocalBridgeBackend {
         resourceRecovered(.presence)
         let answered = PresenceMapping.map(response)
         PresenceLog.answered(asked: ids.count, answered: answered.count)
+        let ends = PresenceMapping.doNotDisturbEnds(response, now: Date())
         for id in ids {
             let previous = presencePoll.emitted[id]
-            guard let next = answered[id] ?? previous.map({ _ in Self.absentPresence }),
-                  next != previous
-            else { continue }
+            let presence = answered[id] ?? previous.map { _ in Self.absentPresence }
+            guard let presence else { continue }
+            let next = EmittedPresence(
+                presence: presence,
+                doNotDisturbUntil: answered[id] == nil ? nil : ends[id]
+            )
+            guard !next.says(previous) else { continue }
             presencePoll.emitted[id] = next
-            guard await emitCommitted(.presenceChanged(member: id, presence: next)) else { return true }
+            guard await emitCommitted(.presenceChanged(
+                member: id, presence: next.presence, doNotDisturbUntil: next.doNotDisturbUntil
+            )) else { return true }
         }
         await emitStatusChanges(for: ids, in: response)
         return true
@@ -299,7 +335,8 @@ extension LocalBridgeBackend {
     /// for, whose dots would otherwise vanish for up to an interval.
     private func withdrawPresence(_ ids: [ChatKit.Member.ID]) {
         for id in ids {
-            if let presence = presencePoll.emitted.removeValue(forKey: id), presence != Self.absentPresence {
+            if let emitted = presencePoll.emitted.removeValue(forKey: id),
+               emitted.presence != Self.absentPresence {
                 emit(.presenceChanged(member: id, presence: Self.absentPresence))
             }
             if presencePoll.statuses.removeValue(forKey: id) != nil {

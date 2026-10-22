@@ -124,7 +124,10 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// names.
     case membersResolved([Member])
 
-    case presenceChanged(member: Member.ID, presence: Presence)
+    /// Someone's presence, and when their Do not disturb ends if it is on
+    /// and the backend knows (`Member.doNotDisturbUntil`). The end is an
+    /// optional key, so an older client decodes the frame and loses only it.
+    case presenceChanged(member: Member.ID, presence: Presence, doNotDisturbUntil: Date? = nil)
 
     /// Someone's status changed, or was cleared (`nil`). A claim about now,
     /// like `presenceChanged`. An older client decodes it as `.unknown` and

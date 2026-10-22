@@ -51,6 +51,28 @@ struct PresenceWatchTests {
         #expect(try store.presenceCandidates(in: space) == [alice])
     }
 
+    /// The other person in a one-to-one DM is named even before they have
+    /// posted there, so what the DM shows of them is asked about on opening.
+    /// A space's members who never posted are not.
+    @Test func aDirectMessagesOtherPersonIsACandidateWithoutPosting() throws {
+        let store = try ChatStore.inMemory()
+        let dm = Conversation.ID("dm:1")
+        let quiet = Member.ID("people/quiet")
+        try store.apply([
+            .setLocalMember(me),
+            .upsertMembers([
+                Member(id: me, kind: .human),
+                Member(id: alice, kind: .human),
+                Member(id: quiet, kind: .human)
+            ]),
+            .upsertConversation(Conversation(id: dm, kind: .directMessage, members: [me, alice])),
+            .upsertConversation(Conversation(id: space, kind: .space, members: [me, quiet]))
+        ])
+
+        #expect(try store.presenceCandidates(in: dm) == [alice])
+        #expect(try store.presenceCandidates(in: space).isEmpty)
+    }
+
     // MARK: - When the model sends it
 
     private struct Harness {

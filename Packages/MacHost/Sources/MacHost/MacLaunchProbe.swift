@@ -6,6 +6,7 @@ enum MacLaunchProbe: Sendable, Hashable {
     case keychain
     case api
     case synchronization
+    case preview
     case punctual
     case upload
     case people
@@ -20,7 +21,12 @@ enum MacLaunchProbe: Sendable, Hashable {
     /// The first flag present wins, in this order.
     private static var flags: [(flag: String, probe: Self)] {
         var flags: [(flag: String, probe: Self)] = [
-            ("--probe=sync", .synchronization), ("--probe=keychain", .keychain), ("--probe=api", .api), (
+            ("--probe=sync", .synchronization), ("--probe=preview", .preview),
+            ("--probe=keychain", .keychain),
+            (
+                "--probe=api",
+                .api
+            ), (
                 "--probe=punctual",
                 .punctual
             ),

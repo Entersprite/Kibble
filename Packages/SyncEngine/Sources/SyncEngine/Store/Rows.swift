@@ -104,6 +104,8 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
     var email: String?
     var avatarURL: String?
     var presence: String?
+    /// Seconds since 1970 (`StoredDate`), only beside a Do not disturb.
+    var doNotDisturbUntil: Double?
     /// JSON (`MemberStatus`), or `NULL` for none.
     var status: String?
     /// JSON (`CalendarSchedule`), or `NULL` for none.
@@ -116,6 +118,7 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
         email = member.email
         avatarURL = member.avatarURL?.absoluteString
         presence = try member.presence.map(Wire.string)
+        doNotDisturbUntil = member.doNotDisturbUntil.map(StoredDate.value)
         status = try member.status.map(Wire.json)
         calendar = try member.calendar.map(Wire.json)
     }
@@ -132,7 +135,8 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
                 // versus we were told something this build does not know.
                 presence: presence.map { try Wire.fromString(Presence.self, $0) },
                 status: status.map { try Wire.value(MemberStatus.self, from: $0) },
-                calendar: calendar.map { try Wire.value(CalendarSchedule.self, from: $0) }
+                calendar: calendar.map { try Wire.value(CalendarSchedule.self, from: $0) },
+                doNotDisturbUntil: doNotDisturbUntil.map(StoredDate.date)
             )
         }
     }

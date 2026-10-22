@@ -204,6 +204,8 @@ private extension FakeBackend {
             throw ChatError.unknown("no member \(member) in this fixture world")
         }
         world.members[index].presence = presence
+        // A scripted change says nothing of an end, so none is kept.
+        world.members[index].doNotDisturbUntil = nil
         emit(.presenceChanged(member: member, presence: presence))
     }
 

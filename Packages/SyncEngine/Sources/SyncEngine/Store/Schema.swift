@@ -84,6 +84,11 @@ enum Schema {
                 table.column("value", .text).notNull()
             }
         }
+        // `Member.doNotDisturbUntil`, seconds since 1970. Nullable, like
+        // `presence` beside it: a claim about now that startup clears.
+        migrator.registerMigration("v26") { db in
+            try db.alter(table: "member") { $0.add(column: "doNotDisturbUntil", .double) }
+        }
         return migrator
     }
 

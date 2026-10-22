@@ -40,4 +40,62 @@ struct StorePresenceTests {
         ])
         #expect(try store.members().first?.presence == .inactive)
     }
+
+    // MARK: - Do not disturb's end
+
+    /// A value that is not a whole millisecond, so the round trip shows the
+    /// column keeps what the poll said rather than something near it.
+    private let end = Date(timeIntervalSince1970: 1_790_000_000.123456)
+
+    @Test func aDoNotDisturbEndIsStoredWithItsPresence() throws {
+        let store = try store()
+        try store.apply([
+            .upsertMembers([Member(id: alice, kind: .human, displayName: "Alice")]),
+            .setPresence(member: alice, presence: .doNotDisturb, doNotDisturbUntil: end)
+        ])
+        let member = try #require(try store.members().first)
+        #expect(member.presence == .doNotDisturb)
+        let stored = try #require(member.doNotDisturbUntil)
+        #expect(abs(stored.timeIntervalSince(end)) < 0.000_001)
+    }
+
+    /// Leaving Do not disturb takes the old end with it: the end is written
+    /// with every presence, including one that has none.
+    @Test func aPresenceWithoutAnEndClearsTheOldOne() throws {
+        let store = try store()
+        try store.apply([
+            .upsertMembers([Member(id: alice, kind: .human, displayName: "Alice")]),
+            .setPresence(member: alice, presence: .doNotDisturb, doNotDisturbUntil: end),
+            .setPresence(member: alice, presence: .active)
+        ])
+        let member = try #require(try store.members().first)
+        #expect(member.presence == .active)
+        #expect(member.doNotDisturbUntil == nil)
+    }
+
+    /// A name lookup carries neither, so both are kept, together.
+    @Test func aSnapshotWithNoPresenceKeepsTheEndToo() throws {
+        let store = try store()
+        try store.apply([
+            .upsertMembers([Member(id: alice, kind: .human, displayName: "Alice")]),
+            .setPresence(member: alice, presence: .doNotDisturb, doNotDisturbUntil: end),
+            .upsertMembers([Member(id: alice, kind: .human, displayName: "Alice Liddell")])
+        ])
+        let member = try #require(try store.members().first)
+        #expect(member.presence == .doNotDisturb)
+        #expect(member.doNotDisturbUntil != nil)
+    }
+
+    /// A claim about now, so a fresh process starts without it.
+    @Test func startupClearsTheEndWithThePresence() throws {
+        let store = try store()
+        try store.apply([
+            .upsertMembers([Member(id: alice, kind: .human, displayName: "Alice")]),
+            .setPresence(member: alice, presence: .doNotDisturb, doNotDisturbUntil: end),
+            .clearEphemeralState
+        ])
+        let member = try #require(try store.members().first)
+        #expect(member.presence == nil)
+        #expect(member.doNotDisturbUntil == nil)
+    }
 }

@@ -211,6 +211,21 @@ struct ReducerTests {
             == [.setPresence(member: member, presence: .doNotDisturb), .setLastError(nil)])
     }
 
+    /// The Do not disturb end lands in the same write as the presence, so a
+    /// later presence without one clears it.
+    @Test func aDoNotDisturbEndLandsWithItsPresence() {
+        let end = Date(timeIntervalSince1970: 1_790_000_000)
+        #expect(SyncReducer.reduce(.presenceChanged(
+            member: member,
+            presence: .doNotDisturb,
+            doNotDisturbUntil: end
+        ))
+        .writes == [
+            .setPresence(member: member, presence: .doNotDisturb, doNotDisturbUntil: end),
+            .setLastError(nil)
+        ])
+    }
+
     // MARK: - Messages
 
     @Test func aReceivedMessageIsAnUpsertAndMarksUnread() {

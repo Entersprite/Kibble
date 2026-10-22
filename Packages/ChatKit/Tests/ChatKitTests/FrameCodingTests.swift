@@ -63,6 +63,18 @@ struct FrameCodingTests {
         )
     }
 
+    /// Do not disturb with its end. Without one (`event-presenceChanged`) the
+    /// key is omitted, which is also the frame an older peer sends.
+    @Test("a presence with a Do not disturb end matches its golden file")
+    func presenceWithEnd() throws {
+        try expectWireStable(
+            ChatEvent.presenceChanged(
+                member: Fixture.humanID, presence: .doNotDisturb, doNotDisturbUntil: Fixture.readAt
+            ),
+            golden: "event-presenceChanged-until"
+        )
+    }
+
     /// A withdrawn schedule is the same case with its payload omitted.
     @Test("a cleared calendar matches its golden file")
     func clearedCalendar() throws {

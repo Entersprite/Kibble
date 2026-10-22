@@ -1,10 +1,31 @@
 import ChatAPI
+import ChatService
 import ChatServiceStorage
 import Foundation
 import LocalBridgeBackend
 
 extension LaunchProbes {
     static func synchronizationProbe() async -> String {
+        await accountProbe(named: "sync-probe.txt", title: "Kibble recovery probe") { store, account in
+            await ProviderRecoveryProbeReport.run(store: store, expectedSelfID: account.selfID)
+        }
+    }
+
+    /// `--probe=preview`: unjoined spaces' history and other people's Do not
+    /// disturb end, read for every enabled account (`PreviewProbeReport`).
+    static func previewProbe() async -> String {
+        await accountProbe(named: "preview-probe.txt", title: "Kibble preview probe") { store, account in
+            await PreviewProbeReport.run(store: store, expectedSelfID: account.selfID)
+        }
+    }
+
+    /// Runs `probe` with each enabled account's committed credentials, read
+    /// from the registry without migrating or recovering it.
+    private static func accountProbe(
+        named name: String,
+        title: String,
+        _ probe: (KeychainCredentialStore, AccountRecord) async -> String
+    ) async -> String {
         do {
             let directory = try SystemLaunchServices.supportDirectory().appendingPathComponent("Accounts")
             let info = try ServiceCodec.decode(ServiceInfo.self, from: Data(
@@ -17,23 +38,20 @@ extension LaunchProbes {
                 storage: KeychainSecretStorage(service: KeychainCredentialStore.defaultService),
                 instanceID: info.instanceID
             )
-            var lines = ["Kibble recovery probe; enabled accounts=\(accounts.count)"]
+            var lines = ["\(title); enabled accounts=\(accounts.count)"]
             for (index, account) in accounts.enumerated() {
                 lines.append("account index \(index):")
                 let store = try await custody.credentialStore(for: account)
-                await lines.append(ProviderRecoveryProbeReport.run(
-                    store: store,
-                    expectedSelfID: account.selfID
-                ))
+                await lines.append(probe(store, account))
             }
             let report = lines.joined(separator: "\n")
-            _ = write(report, to: "sync-probe.txt")
+            _ = write(report, to: name)
             return report
         } catch {
             let failure = error as NSError
-            let report = "Recovery probe could not read account context: "
+            let report = "\(title) could not read account context: "
                 + "\(failure.domain) code=\(failure.code)."
-            _ = write(report, to: "sync-probe.txt")
+            _ = write(report, to: name)
             return report
         }
     }

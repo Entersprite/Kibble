@@ -126,13 +126,13 @@ public extension ChatStore {
     /// store has never named is invented as a nameless row.
     private static func performMemberWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
-        case let .setPresence(member, presence):
+        case let .setPresence(member, presence, doNotDisturbUntil):
             // An UPDATE rather than an upsert: presence for someone the store
             // has never heard of must not invent a member with no name, which
             // renders as a blank row.
             try db.execute(
-                sql: "UPDATE member SET presence = ? WHERE id = ?",
-                arguments: [Wire.string(presence), member.rawValue]
+                sql: "UPDATE member SET presence = ?, doNotDisturbUntil = ? WHERE id = ?",
+                arguments: [Wire.string(presence), doNotDisturbUntil.map(StoredDate.value), member.rawValue]
             )
         case let .setStatus(member, status):
             // An UPDATE, for `.setPresence`'s reason.
@@ -163,6 +163,28 @@ public extension ChatStore {
         }
     }
 
+    /// The `lastReadAt` rule, for presence, status and calendar: a snapshot
+    /// that carries none - every `get_members` answer - says nothing about
+    /// them, so what `.setPresence` and `.setStatus` recorded is carried
+    /// forward rather than overwritten with NULL. Only `clearEphemeralState`,
+    /// and a `.setStatus(nil)`, clear them. Presence and its Do not disturb
+    /// end are one claim, carried together.
+    private static func carryForwardClaims(into row: inout MemberRow, in db: Database) throws {
+        guard row.presence == nil || row.status == nil || row.calendar == nil,
+              let stored = try Row.fetchOne(
+                  db,
+                  sql: "SELECT presence, doNotDisturbUntil, status, calendar FROM member WHERE id = ?",
+                  arguments: [row.id]
+              )
+        else { return }
+        if row.presence == nil {
+            row.presence = stored["presence"]
+            row.doNotDisturbUntil = stored["doNotDisturbUntil"]
+        }
+        row.status = row.status ?? stored["status"]
+        row.calendar = row.calendar ?? stored["calendar"]
+    }
+
     private static func performConversationWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case let .classifyConversation(row):
@@ -188,22 +210,7 @@ public extension ChatStore {
         case let .upsertMembers(members):
             for member in members {
                 var row = try MemberRow(member)
-                // The `lastReadAt` rule, for presence, status and calendar: a snapshot
-                // that carries none - every `get_members` answer - says
-                // nothing about them, so what `.setPresence` and `.setStatus`
-                // recorded is carried forward rather than overwritten with
-                // NULL. Only `clearEphemeralState`, and a `.setStatus(nil)`,
-                // clear them.
-                if row.presence == nil || row.status == nil || row.calendar == nil,
-                   let stored = try Row.fetchOne(
-                       db,
-                       sql: "SELECT presence, status, calendar FROM member WHERE id = ?",
-                       arguments: [row.id]
-                   ) {
-                    row.presence = row.presence ?? stored["presence"]
-                    row.status = row.status ?? stored["status"]
-                    row.calendar = row.calendar ?? stored["calendar"]
-                }
+                try carryForwardClaims(into: &row, in: db)
                 try row.upsert(db)
             }
         case let .setMembership(conversation, members):
@@ -296,27 +303,7 @@ public extension ChatStore {
         case let .setMentionBackfill(status):
             try setMentionBackfill(status, in: db)
         case .clearEphemeralState:
-            try db.execute(sql: "DELETE FROM resourceSync")
-            try db.execute(sql: "DELETE FROM activityTyping")
-            try db.execute(sql: "DELETE FROM receiptAvailability")
-            try db.execute(sql: "DELETE FROM readReceipt")
-            try db.execute(sql: "DELETE FROM typing")
-            try db.execute(sql: "UPDATE member SET presence = NULL, status = NULL, calendar = NULL")
-            // The connection state, the last error, your availability and the
-            // Mentions backfill's status are claims about now too. A fresh process that has not
-            // connected must not inherit "connected" from whatever the last
-            // one wrote, and has not started a backfill run.
-            //
-            // localMemberID is deliberately untouched: unlike the columns
-            // above, who the local user is stays true across a relaunch.
-            try db.execute(
-                sql: """
-                UPDATE syncState SET connectionState = ?, lastError = NULL, availability = NULL,
-                    mentionBackfillRunning = 0, mentionBackfillFailed = 0, meetingMetadataLoading = 0
-                WHERE id = 1
-                """,
-                arguments: [Wire.json(ConnectionState.idle)]
-            )
+            try clearEphemeralState(in: db)
         default:
             break
         }
@@ -347,5 +334,32 @@ public extension ChatStore {
         try database.erase()
         try Schema.migrator.migrate(database)
         decodedTranscriptCache.removeAll()
+    }
+
+    /// What a fresh process must not inherit: every claim about now.
+    private static func clearEphemeralState(in db: Database) throws {
+        try db.execute(sql: "DELETE FROM resourceSync")
+        try db.execute(sql: "DELETE FROM activityTyping")
+        try db.execute(sql: "DELETE FROM receiptAvailability")
+        try db.execute(sql: "DELETE FROM readReceipt")
+        try db.execute(sql: "DELETE FROM typing")
+        try db.execute(sql: """
+        UPDATE member SET presence = NULL, doNotDisturbUntil = NULL, status = NULL, calendar = NULL
+        """)
+        // The connection state, the last error, your availability and the
+        // Mentions backfill's status are claims about now too. A fresh process that has not
+        // connected must not inherit "connected" from whatever the last
+        // one wrote, and has not started a backfill run.
+        //
+        // localMemberID is deliberately untouched: unlike the columns
+        // above, who the local user is stays true across a relaunch.
+        try db.execute(
+            sql: """
+            UPDATE syncState SET connectionState = ?, lastError = NULL, availability = NULL,
+                mentionBackfillRunning = 0, mentionBackfillFailed = 0, meetingMetadataLoading = 0
+            WHERE id = 1
+            """,
+            arguments: [Wire.json(ConnectionState.idle)]
+        )
     }
 }
