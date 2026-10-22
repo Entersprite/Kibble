@@ -8,8 +8,9 @@ enum TranscriptLayout {
 }
 
 /// What the floating Jump to Latest does, pure so each case is a test. It
-/// shows while the newest loaded message's end is out of view, or while the
-/// newest messages are not loaded at all - and then only when the host's
+/// shows while the transcript is not following the newest loaded message
+/// (`TranscriptFollow`), or while the newest messages are not loaded at all -
+/// and then only when the host's
 /// latest jump can fetch them (`newerMessagesAreLatestJump`). A window
 /// trimmed below by paging up has no such jump: one more page down is not
 /// the latest, so the button stays hidden rather than promise it.
@@ -30,12 +31,12 @@ enum TranscriptLatestJump {
         var isEmpty = false
     }
 
-    static func action(nearBottom: Bool, _ context: Context) -> Action? {
+    static func action(following: Bool, _ context: Context) -> Action? {
         guard !context.isEmpty, !context.loading else { return nil }
         if context.hasNewer {
             return context.latestJump && context.canLoadNewer ? .load : nil
         }
-        return nearBottom ? nil : .scroll
+        return following ? nil : .scroll
     }
 }
 
@@ -53,36 +54,38 @@ extension TranscriptLatestJump.Context {
 /// foot, just above the composer and the typing row, in the transcript's own
 /// bottom inset and never the toolbar's band (`CLAUDE.md`).
 struct TranscriptJumpOverlay: ViewModifier {
-    @Binding var nearBottom: Bool
+    /// Between the button and what is below it.
+    static let gap: CGFloat = 8
+
+    let follow: TranscriptFollow
     @Binding var unseen: Bool
     let context: TranscriptLatestJump.Context
     let perform: (TranscriptLatestJump.Action) -> Void
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            JumpToLatestButton(nearBottom: $nearBottom, unseen: $unseen, context: context, perform: perform)
-                .padding(.bottom, 8)
+            JumpToLatestButton(follow: follow, unseen: $unseen, context: context, perform: perform)
+                .padding(.bottom, Self.gap)
         }
     }
 }
 
-/// A Liquid Glass capsule saying Jump to Newest while the newest end is out
-/// of view: a control floating over content, which is what glass is for.
-/// When someone's message arrives meanwhile, it turns blue and says New
-/// Messages, so the person knows there is something new without being moved
-/// from what they are reading. Seeing the newest end again, by this button or
-/// by scrolling, puts it back.
+/// A Liquid Glass capsule saying Jump to Newest while the person reads back
+/// through the transcript: a control floating over content, which is what
+/// glass is for. When someone's message arrives meanwhile, it turns blue and
+/// says New Messages, so the person knows there is something new without
+/// being moved from what they are reading. Following the newest again, by
+/// this button or by scrolling to the end, puts it back.
 ///
 /// Always in the view tree and faded rather than inserted, so showing it
-/// moves nothing. It reads `nearBottom` itself, through the binding, so only
-/// it redraws as the newest end comes and goes. Read in `MessageList`'s body,
-/// the same state redrew the whole transcript in the middle of placing a
-/// search's target, and the placement was lost (measured in the hosted
-/// transcript tests).
+/// moves nothing. It reads `TranscriptFollow` itself, so only it redraws as
+/// following starts and stops. Scroll state read in `MessageList`'s body
+/// redrew the whole transcript in the middle of placing a search's target,
+/// and the placement was lost (measured in the hosted transcript tests).
 struct JumpToLatestButton: View {
     static let symbol = "arrow.down"
 
-    @Binding var nearBottom: Bool
+    let follow: TranscriptFollow
     @Binding var unseen: Bool
     let context: TranscriptLatestJump.Context
     let perform: (TranscriptLatestJump.Action) -> Void
@@ -93,7 +96,7 @@ struct JumpToLatestButton: View {
     }
 
     var body: some View {
-        let action = TranscriptLatestJump.action(nearBottom: nearBottom, context)
+        let action = TranscriptLatestJump.action(following: follow.isFollowing, context)
         Group {
             if unseen {
                 button(action).buttonStyle(.glassProminent).tint(.blue)
@@ -108,8 +111,8 @@ struct JumpToLatestButton: View {
         .accessibilityHidden(action == nil)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: action)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: unseen)
-        .onChange(of: nearBottom) { _, atBottom in
-            if atBottom {
+        .onChange(of: follow.isFollowing) { _, following in
+            if following {
                 unseen = false
             }
         }

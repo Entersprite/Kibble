@@ -42,16 +42,14 @@ public struct MessageList: View {
     @State private var honoured: TranscriptScroll.Request?
     @State var hasPlacedMessages = false
     @State var readingAnchor = TranscriptReadingAnchor()
-    @State var nearBottom = true
+    /// Following the newest message, or reading back (`TranscriptFollow`).
+    @State var follow = TranscriptFollow()
     @State var paging = TranscriptPaging()
     @State private var lastOlderBoundary: Message.ID?
     @State private var lastNewerBoundary: Message.ID?
     @State var latestJumpRequested = false
     /// The messages on screen, kept unobserved: read only when leaving.
     @State private var seen = TranscriptSeen()
-    /// The newest message as of the latest render, kept unobserved: read by
-    /// the newest row when it leaves (`TranscriptEndTracking`).
-    @State private var newest = TranscriptNewest()
     /// Someone else's message arrived while the newest end was out of view,
     /// so the jump button says New Messages until the end is seen again.
     @State var unseenArrivals = false
@@ -116,7 +114,6 @@ public struct MessageList: View {
             messages: state.messages, occurrences: state.meetingSeries?.occurrences ?? []
         )
         let placements = TranscriptGrouping.placements(messages: state.messages, dividers: dividers)
-        let newestID = newest.track(state.messages)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -149,9 +146,6 @@ public struct MessageList: View {
                         }
                         .id(message.id)
                         .modifier(TranscriptAnchorTracking(id: message.id, anchor: readingAnchor))
-                        .modifier(TranscriptEndTracking(
-                            id: message.id, drawnNewest: newestID, newest: newest, nearBottom: $nearBottom
-                        ) { followGrowth(proxy) })
                     }
                     if state.hasNewerMessages, let loadNewerMessages {
                         Button(state.newerMessagesAreLatestJump ? "Jump to Newest" : "Load Newer Messages") {
@@ -167,18 +161,21 @@ public struct MessageList: View {
                         .disabled(state.isLoadingOlderMessages || state.isLoadingNewerMessages)
                         .frame(maxWidth: .infinity)
                     }
+                    // The bottom margin, after the stack's spacing.
+                    TranscriptEndMarker(height: 10)
                 }
                 .scrollTargetLayout()
                 #if os(macOS)
                     .background { TranscriptScrollBridge(anchor: readingAnchor) }
                 #endif
                     .padding(.horizontal, TranscriptLayout.horizontalPadding)
-                    .padding(.vertical, 12)
+                    .padding(.top, 12)
                     // Every link under the transcript opens through one rule (links spec §7.1).
                     .environment(\.openURL, LinkPolicy.openURLAction)
             }
+            .modifier(TranscriptFollowing(follow: follow, proxy: proxy, conditions: followConditions))
             .modifier(TranscriptJumpOverlay(
-                nearBottom: $nearBottom,
+                follow: follow,
                 unseen: $unseenArrivals,
                 context: TranscriptLatestJump.Context(state, canLoadNewer: loadNewerMessages != nil)
             ) { jumpToLatest($0, proxy) })
@@ -202,6 +199,12 @@ public struct MessageList: View {
             )
             .onChange(of: state.messages.last?.id) { old, new in
                 noteArrival(from: old, to: new)
+                // Appending a tall row can revise the lazy stack's estimates
+                // above the viewport too. Keep the same visible row and its
+                // offset while the person reads back, as for an older page.
+                if hasPlacedMessages, !follow.isFollowing, old != nil, old != new {
+                    _ = readingAnchor.restore(in: state.messages)
+                }
             }
             .onScrollTargetVisibilityChange(idType: Message.ID.self, threshold: 0.01) { ids in
                 seen.ids = ids
@@ -214,7 +217,7 @@ public struct MessageList: View {
                     _ = readingAnchor.restore(in: state.messages)
                 }
             }
-            .task(id: state.messages.first?.id) {
+            .task(id: TranscriptScroll.Trigger(state)) {
                 guard let id = readingAnchor.restoringID else { return }
                 await Task.yield()
                 guard !Task.isCancelled, readingAnchor.restoringID == id else { return }
@@ -250,26 +253,26 @@ public struct MessageList: View {
                     messages: state.messages, target: state.scrollTarget,
                     generation: state.searchOpenGeneration, honoured: honoured,
                     followNewest: !hasPlacedMessages || (
-                        nearBottom && !state.hasNewerMessages && readingAnchor.restoringID == nil
+                        follow.isFollowing && !state.hasNewerMessages && readingAnchor.restoringID == nil
                     )
                 ) {
                 case let .message(id)?:
                     paging.hasUserIntent = false
-                    nearBottom = false
+                    follow.detach()
                     readingAnchor.cancel()
                     latestJumpRequested = false
                     honoured = TranscriptScroll.Request(id: id, generation: state.searchOpenGeneration)
                     hasPlacedMessages = true
                     proxy.scrollTo(id, anchor: .center)
-                case let .newest(id)?:
+                case .newest?:
                     paging.hasUserIntent = false
                     latestJumpRequested = false
-                    // The first delivery is placed immediately; later arrivals
-                    // follow only while the person is reading the latest edge.
-                    if hasPlacedMessages {
-                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) }
-                    } else {
-                        proxy.scrollTo(id, anchor: .bottom)
+                    // The first delivery is placed here. Later arrivals grow
+                    // the content, and while following, the end is kept at
+                    // the bottom then (`TranscriptFollowing`).
+                    if !hasPlacedMessages {
+                        follow.follow()
+                        proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
                         hasPlacedMessages = true
                     }
                 case nil:
@@ -277,7 +280,7 @@ public struct MessageList: View {
                 }
             }
             .onDisappear {
-                let top = nearBottom && !state.hasNewerMessages ? nil : seen.top(in: state.messages)
+                let top = follow.isFollowing && !state.hasNewerMessages ? nil : seen.top(in: state.messages)
                 resume?.leave(.init(message: top, honoured: honoured))
                 paging.hasUserIntent = false
                 readingAnchor.cancel()
@@ -303,10 +306,13 @@ public struct MessageList: View {
     private func jumpToLatest(_ action: TranscriptLatestJump.Action, _ proxy: ScrollViewProxy) {
         switch action {
         case .scroll:
-            guard let newest = state.messages.last?.id else { return }
+            guard !state.messages.isEmpty else { return }
             paging.hasUserIntent = false
             readingAnchor.cancel()
-            withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(newest, anchor: .bottom) }
+            // At once: a long animated scroll through rows not yet measured
+            // lands short of the end.
+            follow.follow()
+            proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
         case .load:
             guard let loadNewerMessages else { return }
             latestJumpRequested = true
@@ -329,9 +335,17 @@ public struct MessageList: View {
             return false
         }
         hasPlacedMessages = true
-        nearBottom = false
+        follow.detach()
         proxy.scrollTo(id, anchor: .top)
         return true
+    }
+
+    /// What `TranscriptFollowing` reads when the geometry changes.
+    private func followConditions() -> TranscriptFollowing.Conditions {
+        TranscriptFollowing.Conditions(
+            canFollow: !state.hasNewerMessages,
+            settled: hasPlacedMessages && readingAnchor.restoringID == nil && !latestJumpRequested
+        )
     }
 
     func pageIfNeeded(_ page: TranscriptPaging.Page?) {

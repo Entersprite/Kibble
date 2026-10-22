@@ -6,24 +6,24 @@ import SwiftUI
 import Testing
 @testable import DesignSystem
 
-/// The floating jump to the newest, unseen arrivals, tapbacks, the rotors,
-/// following a growing last row and the text bubble's widest.
+/// The floating jump to the newest, unseen arrivals, tapbacks, the rotors
+/// and the text bubble's widest.
 @MainActor
 struct TranscriptControlsTests {
     @Test func jumpToLatestShowsOnlyWhereItCanGoSomewhere() {
         typealias Jump = TranscriptLatestJump
         func action(
-            nearBottom: Bool = false, hasNewer: Bool = false, latestJump: Bool = false,
+            following: Bool = false, hasNewer: Bool = false, latestJump: Bool = false,
             canLoadNewer: Bool = true, loading: Bool = false, isEmpty: Bool = false
         ) -> Jump.Action? {
-            Jump.action(nearBottom: nearBottom, Jump.Context(
+            Jump.action(following: following, Jump.Context(
                 hasNewer: hasNewer, latestJump: latestJump, canLoadNewer: canLoadNewer, loading: loading,
                 isEmpty: isEmpty
             ))
         }
-        #expect(action(nearBottom: true) == nil)
+        #expect(action(following: true) == nil)
         #expect(action() == .scroll)
-        #expect(action(nearBottom: true, hasNewer: true, latestJump: true) == .load)
+        #expect(action(following: true, hasNewer: true, latestJump: true) == .load)
         #expect(action(hasNewer: true, latestJump: true, canLoadNewer: false) == nil)
         // A window trimmed below by paging has no latest jump to offer.
         #expect(action(hasNewer: true, latestJump: false) == nil)
@@ -85,16 +85,6 @@ struct TranscriptControlsTests {
         #expect(seven.fittingSize.width > five.fittingSize.width)
         #expect(seven.fittingSize.width < five.fittingSize.width + 40)
         #expect(five.fittingSize.height == ReactionTapbacks.height)
-    }
-
-    @Test func followingNeedsGrowthSeenFromTheBottom() {
-        typealias End = TranscriptEndTracking.End
-        let follows = TranscriptEndTracking.followsGrowth
-        #expect(follows(End(height: 40, nearBottom: true), End(height: 180, nearBottom: false)))
-        #expect(follows(End(height: 40, nearBottom: true), End(height: 60, nearBottom: true)))
-        #expect(!follows(End(height: 40, nearBottom: false), End(height: 180, nearBottom: false)))
-        #expect(!follows(End(height: 40, nearBottom: true), End(height: 40.4, nearBottom: true)))
-        #expect(!follows(End(height: 60, nearBottom: true), End(height: 40, nearBottom: true)))
     }
 
     @Test func theWidestBubbleIsThreeQuartersOfTheColumnUpTo560() {

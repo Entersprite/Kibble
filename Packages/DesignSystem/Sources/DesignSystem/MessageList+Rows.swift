@@ -55,22 +55,13 @@ extension MessageList {
         if fromPage {
             newerPageFrom = nil
         }
-        let following = nearBottom && !state.hasNewerMessages
+        let following = follow.isFollowing && !state.hasNewerMessages
         if TranscriptArrival.isUnseen(
             from: old, to: new, messages: state.messages, me: state.me,
             expected: following || fromPage || latestJumpRequested
         ) {
             unseenArrivals = true
         }
-    }
-
-    /// The last row grew while its end was in view: keep that end in view,
-    /// unless an older page's anchor is being restored, newer messages are
-    /// still to come, or a jump is under way.
-    func followGrowth(_ proxy: ScrollViewProxy) {
-        guard hasPlacedMessages, !state.hasNewerMessages, readingAnchor.restoringID == nil,
-              !latestJumpRequested, let newest = state.messages.last?.id else { return }
-        proxy.scrollTo(newest, anchor: .bottom)
     }
 }
 

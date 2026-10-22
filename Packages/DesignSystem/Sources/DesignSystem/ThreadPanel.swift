@@ -5,11 +5,11 @@ import SwiftUI
 /// (`TranscriptScroll`): a reply it was opened at, once, else the newest.
 enum ThreadPanelScroll {
     static func destination(
-        panel: ThreadPanelState, honored: TranscriptScroll.Request?
+        panel: ThreadPanelState, honored: TranscriptScroll.Request?, followNewest: Bool = true
     ) -> TranscriptScroll.Destination? {
         TranscriptScroll.destination(
             messages: panel.messages, target: panel.scrollTarget, generation: panel.scrollGeneration,
-            honoured: honored
+            honoured: honored, followNewest: followNewest
         )
     }
 }
@@ -85,6 +85,12 @@ struct ThreadPanel: View {
     /// it left the band empty above it (session 63).
     var body: some View {
         ThreadPanelList(panel: panel, state: state, actions: actions, own: own)
+            // Each thread opens at its newest reply, or the one it was opened
+            // at, whatever the panel was reading before.
+            .id(AccountScoped(
+                account: state.accountID,
+                value: ThreadListItem.Key(conversation: panel.thread.conversationID, thread: panel.thread.id)
+            ))
             .safeAreaBar(edge: .top, spacing: 0) {
                 ColumnTitle(title: "Thread", subtitle: panel.conversationTitle)
                     .padding(.leading, ColumnTitle.inset)
@@ -210,7 +216,9 @@ struct ThreadCloseButton: View {
     }
 }
 
-/// The panel's messages, as plain stacks in a scroll view.
+/// The panel's messages, as plain stacks in a scroll view. It follows the
+/// newest reply as the transcript does (`TranscriptFollow`), with the same
+/// jump back to it.
 struct ThreadPanelList: View {
     let panel: ThreadPanelState
     let state: ChatSceneState
@@ -218,6 +226,10 @@ struct ThreadPanelList: View {
     let own: (Message) -> OwnMessageHandlers?
     /// The reply this panel last scrolled to, so it is honored once.
     @State private var honored: TranscriptScroll.Request?
+    @State private var follow = TranscriptFollow()
+    @State private var placed = false
+    /// Someone else's reply arrived while reading back (`TranscriptArrival`).
+    @State private var unseen = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -230,11 +242,23 @@ struct ThreadPanelList: View {
                     ForEach(panel.replies, id: \.id) { reply in
                         bubble(reply)
                     }
+                    // The bottom margin, after the stack's spacing.
+                    TranscriptEndMarker(height: 8)
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.top, 10)
                 .environment(\.openURL, LinkPolicy.openURLAction)
             }
+            .modifier(TranscriptFollowing(follow: follow, proxy: proxy) {
+                TranscriptFollowing.Conditions(settled: placed)
+            })
+            .modifier(TranscriptJumpOverlay(
+                follow: follow, unseen: $unseen,
+                context: TranscriptLatestJump.Context(isEmpty: panel.messages.isEmpty)
+            ) { _ in
+                follow.follow()
+                proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
+            })
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if state.capabilities.receivesTypingState {
                     HStack {
@@ -247,13 +271,26 @@ struct ThreadPanelList: View {
                     .padding(.horizontal, 12)
                 }
             }
+            .onChange(of: panel.messages.last?.id) { old, new in
+                if TranscriptArrival.isUnseen(
+                    from: old, to: new, messages: panel.messages, me: state.me, expected: follow.isFollowing
+                ) {
+                    unseen = true
+                }
+            }
             .onChange(of: TranscriptScroll.Trigger(panel), initial: true) {
-                switch ThreadPanelScroll.destination(panel: panel, honored: honored) {
+                // After the first placement, arrivals follow through the
+                // geometry while following (`TranscriptFollowing`).
+                switch ThreadPanelScroll.destination(panel: panel, honored: honored, followNewest: !placed) {
                 case let .message(id)?:
                     honored = TranscriptScroll.Request(id: id, generation: panel.scrollGeneration)
+                    follow.detach()
+                    placed = true
                     proxy.scrollTo(id, anchor: .center)
-                case let .newest(id)?:
-                    proxy.scrollTo(id, anchor: .bottom)
+                case .newest?:
+                    follow.follow()
+                    placed = true
+                    proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
                 case nil:
                     break
                 }

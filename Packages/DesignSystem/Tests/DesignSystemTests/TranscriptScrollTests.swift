@@ -123,19 +123,6 @@ struct TranscriptScrollTests {
         #expect(paging.update(visibleIDs: visible(0 ..< 3), messages: rows) == nil)
     }
 
-    @Test func theBottomOfATallRowMustBeVisibleBeforeArrivalsFollow() {
-        #expect(!TranscriptEndTracking.isNearBottom(
-            rowHeight: 2000, viewport: CGRect(x: 0, y: 0, width: 600, height: 500)
-        ))
-        #expect(TranscriptEndTracking.isNearBottom(
-            rowHeight: 2000, viewport: CGRect(x: 0, y: 1500, width: 600, height: 500)
-        ))
-        #expect(!TranscriptEndTracking.isNearBottom(
-            rowHeight: 100, viewport: CGRect(x: 0, y: 200, width: 600, height: 500)
-        ))
-        #expect(!TranscriptEndTracking.isNearBottom(rowHeight: 100, viewport: nil))
-    }
-
     @Test func completingALatestJumpChangesTheTriggerEvenWhenNewestAndTargetStayTheSame() {
         var state = ChatSceneState(
             messages: messages, hasNewerMessages: true, newerMessagesAreLatestJump: true,
