@@ -43,6 +43,7 @@
         func makeNSView(context: Context) -> BubbleTextView {
             let view = BubbleTextView.make()
             view.delegate = context.coordinator
+            view.showsTextCursor = !context.environment.coveredByPanel
             view.insets = insets
             view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
             view.show(context.coordinator.textCache.attributed(
@@ -61,6 +62,7 @@
                 own: own,
                 open: open
             )
+            view.showsTextCursor = !context.environment.coveredByPanel
             view.insets = insets
             view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
             view.show(context.coordinator.textCache.attributed(
@@ -148,7 +150,7 @@
     /// A read-only, selectable, transparent text view that sizes itself to its
     /// text, with asymmetric insets. `textContainerInset` is symmetric, and the
     /// "edited" label needs a zero bottom, so the origin is overridden instead.
-    final class BubbleTextView: NSTextView {
+    final class BubbleTextView: HostedTextView {
         var insets = NSEdgeInsets() {
             didSet {
                 // Every SwiftUI update sets this; only a change relays out.

@@ -106,7 +106,7 @@
     /// The composer's text view: what it accepts from a drag and a paste,
     /// the format keys it answers, and the Spelling and Grammar choices it
     /// remembers.
-    final class ComposerNSTextView: NSTextView {
+    final class ComposerNSTextView: HostedTextView {
         /// Set while the composer can stage files (`ComposerPaste`).
         var paste: ComposerPaste?
         /// Set where the conversation can be formatted: Cmd-B, Cmd-I, Cmd-U

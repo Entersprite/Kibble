@@ -58,6 +58,7 @@
             scroll.textView.delegate = context.coordinator
             Self.describe(scroll.textView, placeholder: placeholder)
             connect(scroll.textView, to: context.coordinator)
+            Self.cover(scroll.textView, context.environment.coveredByPanel)
             context.coordinator.show(draft, in: scroll.textView)
             return scroll
         }
@@ -75,6 +76,11 @@
                 : nil
         }
 
+        /// No text cursor over the field while a panel covers it (`HostedTextView`).
+        static func cover(_ view: NSTextView, _ covered: Bool) {
+            (view as? HostedTextView)?.showsTextCursor = !covered
+        }
+
         /// The label and placeholder VoiceOver reads, which the `TextField`
         /// this replaced carried itself (review finding 9).
         static func describe(_ view: NSTextView, placeholder: String) {
@@ -87,6 +93,7 @@
             coordinator.parent = self
             Self.describe(scroll.textView, placeholder: placeholder)
             connect(scroll.textView, to: coordinator)
+            Self.cover(scroll.textView, context.environment.coveredByPanel)
             coordinator.show(draft, in: scroll.textView)
             // Both after this update, because both write the draft's binding,
             // which an update must not; and the field takes focus first, since

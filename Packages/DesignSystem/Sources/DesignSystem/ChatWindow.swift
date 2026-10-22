@@ -174,6 +174,9 @@ public struct ChatWindow: View {
             ForwardMessageSheet(message: selection.message, state: state, send: actions.forwardMessage)
                 .id(AccountScoped(account: state.accountID, value: selection.id))
         }
+        // The search panel dims and takes every click in the window, so no
+        // text cursor shows through it.
+        .coveredByPanel(state.search.isShown && actions.search != nil)
         .overlay { searchOverlay }
         .modifier(ConversationPanelPresentation(state: state, actions: actions))
         .environment(\.sceneImageLoader, actions.imageLoader)

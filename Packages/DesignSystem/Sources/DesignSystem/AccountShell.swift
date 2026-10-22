@@ -30,6 +30,9 @@ public struct AccountShell<Content: View>: View {
     public var body: some View {
         content
             .environment(\.accountFooter, geometry)
+            // The open panel takes every click in the window, so no text
+            // cursor shows through it.
+            .coveredByPanel(isPanelOpen)
             .overlay {
                 AccountFooterOverlay(state: state, actions: actions, geometry: geometry, isOpen: $isPanelOpen)
             }
