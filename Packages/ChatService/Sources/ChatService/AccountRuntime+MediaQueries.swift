@@ -15,13 +15,13 @@ extension AccountRuntime {
     }
 
     func mediaQuery<Value: Sendable>(
-        epoch: UUID, fetch: @Sendable () async throws -> Value,
+        epoch: UUID, urgency: WorkUrgency? = nil, fetch: @Sendable () async throws -> Value,
         remember: @Sendable (any ServiceMediaCatalog, Value, Date) throws -> Void
     ) async throws -> Value {
         for _ in 0 ..< 3 {
             try checkEpoch(epoch)
             let version = mediaFactsVersion
-            let value = try await withProviderWork(epoch: epoch, fetch)
+            let value = try await withProviderWork(epoch: epoch, urgency: urgency, fetch)
             try checkEpoch(epoch)
             guard version == mediaFactsVersion else { continue }
             if let catalog = storage as? any ServiceMediaCatalog {

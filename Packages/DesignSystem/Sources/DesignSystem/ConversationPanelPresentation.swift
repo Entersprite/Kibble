@@ -46,6 +46,7 @@ struct ConversationPanelPresentation: ViewModifier {
             ConversationPanelSheet(
                 state: state,
                 browser: browser,
+                media: actions,
                 openNotifications: actions.showNotificationSettings.map { show in
                     { id in
                         afterDismiss = { show(id) }
@@ -62,6 +63,7 @@ struct ConversationPanelPresentation: ViewModifier {
 struct ConversationPanelSheet: View {
     let state: ChatSceneState
     let browser: ConversationBrowserActions
+    var media: ChatSceneActions?
     let openNotifications: ((Conversation.ID) -> Void)?
 
     var body: some View {
@@ -70,12 +72,23 @@ struct ConversationPanelSheet: View {
                 ConversationCreationSheet(kind: kind, state: state, actions: browser)
                     .id(kind)
             } else if let details = state.browser.details {
-                ConversationManagementSheet(
-                    details: details,
-                    state: state,
-                    actions: browser,
-                    openNotifications: openNotifications
-                )
+                Group {
+                    if details.membership != .joined, details.conversation.kind == .space {
+                        ConversationPreviewSheet(
+                            details: details,
+                            state: state,
+                            actions: browser,
+                            media: media
+                        )
+                    } else {
+                        ConversationManagementSheet(
+                            details: details,
+                            state: state,
+                            actions: browser,
+                            openNotifications: openNotifications
+                        )
+                    }
+                }
                 .id(details.conversation.id)
             } else {
                 ConversationLoadingSheet(state: state, actions: browser)

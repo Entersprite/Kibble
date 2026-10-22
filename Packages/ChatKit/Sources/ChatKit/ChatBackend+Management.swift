@@ -26,4 +26,8 @@ public extension ChatBackend {
     func browseSpaces(_: SpaceDirectoryQuery, after _: String?) async throws -> SpaceDirectoryPage {
         throw ChatError.unsupported(capability: "canBrowseSpaces")
     }
+
+    func conversationPreview(_: Conversation.ID) async throws -> ConversationPreview {
+        throw ChatError.unsupported(capability: "canPreviewConversations")
+    }
 }

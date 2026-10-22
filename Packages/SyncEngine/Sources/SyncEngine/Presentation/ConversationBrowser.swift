@@ -34,6 +34,7 @@ public final class ConversationBrowser {
     @ObservationIgnored var queryTask: Task<Void, Never>?
     @ObservationIgnored var peopleTask: Task<Void, Never>?
     @ObservationIgnored var detailsTask: Task<Void, Never>?
+    @ObservationIgnored let previewState = ConversationPreviewModel()
     @ObservationIgnored var writeTask: Task<Void, Never>?
     @ObservationIgnored var generation = 0
     @ObservationIgnored var stopped = false
@@ -168,6 +169,7 @@ public final class ConversationBrowser {
         guard !isSubmitting else { return }
         detailsTask?.cancel()
         peopleTask?.cancel()
+        forgetPreview()
         isSearchingPeople = false
         details = nil
         panelTarget = nil
@@ -183,6 +185,7 @@ public final class ConversationBrowser {
         guard !isSubmitting else { return }
         detailsTask?.cancel()
         peopleTask?.cancel()
+        forgetPreview()
         isSearchingPeople = false
         panelTarget = nil
         needsReconciliation = false
@@ -250,6 +253,9 @@ public final class ConversationBrowser {
 
     public func openDetails(_ id: Conversation.ID, more: Bool = false) {
         detailsTask?.cancel()
+        if !more {
+            forgetPreview()
+        }
         panelTarget = id
         needsReconciliation = true
         panelError = nil
@@ -258,6 +264,7 @@ public final class ConversationBrowser {
         if !more {
             if details?.conversation.id != id {
                 details = nil
+                forgetPreview()
             }
             participants = []; participantCursor = nil
         }
@@ -268,7 +275,13 @@ public final class ConversationBrowser {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 details = detail
                 needsReconciliation = false
-                guard detail.membership == .joined else { return }
+                guard detail.membership == .joined else {
+                    if !more {
+                        loadPreview(id)
+                    }
+                    return
+                }
+                forgetPreview()
                 let page = try await engine.loadParticipants(in: id, after: cursor)
                 guard !Task.isCancelled, !stopped, self.generation == generation else { return }
                 let existing = Set(participants.map(\.id))
@@ -290,12 +303,15 @@ public final class ConversationBrowser {
     public func showPreview(_ preview: ConversationDetails) {
         openDetails(preview.conversation.id)
     }
+}
 
+extension ConversationBrowser {
     func stop() {
         stopped = true
         generation += 1
         queryTask?.cancel(); peopleTask?.cancel(); detailsTask?.cancel(); writeTask?.cancel()
         queryTask = nil; detailsTask = nil; writeTask = nil
+        forgetPreview()
         directorySnapshots = [:]
         uncertainCreationKind = nil; panelTarget = nil; pickerPeople = []; page = nil; lastPage =
             nil; details = nil; creationKind = nil
@@ -306,15 +322,13 @@ public final class ConversationBrowser {
         isLoading = false; isSubmitting = false
     }
 
-    private static func message(_ error: any Error) -> String {
+    static func message(_ error: any Error) -> String {
         if let error = error as? ChatError {
             return error.localizedDescription
         }
         return "The operation could not be completed. Please reload and try again."
     }
-}
 
-extension ConversationBrowser {
     public func mutate(_ mutation: ConversationMutation) {
         guard let details, !isSubmitting, !stopped, !needsReconciliation else { return }
         isSubmitting = true
@@ -348,7 +362,7 @@ extension ConversationBrowser {
             panelError = "The change could not be confirmed. Reload before trying again."
             return
         }
-        if mutation == .leave || mutation == .deleteSpace || mutation == .declineInvitation {
+        if [.leave, .deleteSpace, .declineInvitation, .block].contains(mutation) {
             closePanel()
         } else if details?.conversation.id == id {
             if let updated = result.details {
@@ -365,15 +379,4 @@ extension ConversationBrowser {
             search(query, scope: scope)
         }
     }
-}
-
-struct ConversationDirectorySnapshot {
-    var query: String
-    var scope: SpaceDirectoryScope
-    var organization: SpaceDirectoryOrganization
-    var people: [Member]
-    var spaces: [ConversationDetails]
-    var cursor: String?
-    var error: String?
-    var wasLoading: Bool
 }

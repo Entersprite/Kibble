@@ -209,7 +209,7 @@ extension FakeBackend {
             ),
             description: spam ? "An invitation marked as spam." : "You have been invited to join.",
             access: .restricted, membership: .invited,
-            allowedActions: ["acceptInvitation", "declineInvitation"]
+            allowedActions: ["acceptInvitation", "declineInvitation", "block"]
         )
         managedDetails[id] = details
         return world.conversation(id) == nil && !details.allowedActions.isEmpty ? [details] : []

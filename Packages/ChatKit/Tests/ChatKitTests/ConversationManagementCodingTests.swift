@@ -3,6 +3,39 @@ import Testing
 @testable import ChatKit
 
 struct ConversationManagementCodingTests {
+    /// Block is a plain action with its own discriminator; a reader that
+    /// predates it keeps the payload as `.unknown`.
+    @Test func blockRoundTripsAsItsOwnAction() throws {
+        let encoded = try JSONEncoder().encode(ConversationMutation.block)
+        #expect(try JSONDecoder().decode(JSONValue.self, from: encoded)
+            == JSONDecoder().decode(JSONValue.self, from: Data(#"{"type":"block"}"#.utf8)))
+        #expect(try JSONDecoder().decode(ConversationMutation.self, from: encoded) == .block)
+        #expect(ConversationMutation.block.action == "block")
+    }
+
+    /// Absent lists are empty, so an answer that names no senders, or an
+    /// older one, still decodes.
+    @Test func previewsRoundTripAndDefaultToEmpty() throws {
+        let message = Message(
+            id: .init("m1"), conversationID: .init("space"), threadID: .init("t1"),
+            sender: .init("u-1"), text: "Hello", createdAt: Date(timeIntervalSince1970: 1_790_000_000)
+        )
+        let preview = ConversationPreview(
+            messages: [message], members: [Member(id: .init("u-1"), kind: .human, displayName: "Ada")]
+        )
+        #expect(try JSONDecoder().decode(ConversationPreview.self, from: JSONEncoder().encode(preview))
+            == preview)
+        #expect(try JSONDecoder()
+            .decode(ConversationPreview.self, from: Data("{}".utf8)) == ConversationPreview())
+    }
+
+    /// Advertised by name, so an older peer that never says it is assumed
+    /// unable to preview.
+    @Test func previewCapabilityIsAnExtendedFlag() {
+        #expect(!Capabilities().canPreviewConversations)
+        #expect(Capabilities(extendedFlags: ["conversationPreview"]).canPreviewConversations)
+    }
+
     @Test func directoryQueriesDefaultToUnjoinedAndKeepOlderQueriesCompatible() throws {
         #expect(SpaceDirectoryQuery().scope == .discover)
         let old = try JSONDecoder().decode(

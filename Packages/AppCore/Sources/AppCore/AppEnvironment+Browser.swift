@@ -27,6 +27,9 @@ extension AppEnvironment {
         state.panelError = browser.panelError
         state.isSubmitting = browser.isSubmitting
         state.notice = browser.notice
+        state.preview = browser.preview
+        state.isLoadingPreview = browser.isLoadingPreview
+        state.previewError = browser.previewError
         return state
     }
 

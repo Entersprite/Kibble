@@ -36,6 +36,9 @@ extension AccountRuntime {
             }
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
+        case GetConversationPreview.operation:
+            let payload = try request.decodePayload(GetConversationPreview.self)
+            return try await previewResult(payload, backend: backend, epoch: epoch)
         case LoadThread.operation:
             let payload = try request.decodePayload(LoadThread.self)
             let value = try await fetchMessages(
@@ -46,6 +49,23 @@ extension AccountRuntime {
             return try ServiceCodec.value(value)
         default: return try await dispatchDetailActions(request, backend: backend, epoch: epoch)
         }
+    }
+
+    private func previewResult(
+        _ payload: GetConversationPreview, backend: any ChatBackend, epoch: UUID
+    ) async throws -> JSONValue {
+        let value = try await mediaQuery(epoch: epoch, urgency: WorkUrgency(interactive: true)) {
+            let preview = try await backend.conversationPreview(payload.conversationID)
+            guard preview.messages.allSatisfy({ $0.conversationID == payload.conversationID }) else {
+                throw ServiceFailure.invalidRequest
+            }
+            return preview
+        } remember: { catalog, value, date in
+            try catalog.rememberQueryMembers(value.members, at: date)
+            try catalog.rememberQueryMedia(value.messages, at: date)
+        }
+        try checkEpoch(epoch)
+        return try ServiceCodec.value(value)
     }
 
     private func dispatchDetailActions(

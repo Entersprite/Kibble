@@ -3,6 +3,29 @@ import Testing
 @testable import FixtureBackend
 
 struct ConversationManagementTests {
+    @Test func previewIsDeterministicAndDoesNotJoinAndAnInvitationCanBeBlocked() async throws {
+        let backend = FakeBackend()
+        try await backend.connect()
+        let contract: any ChatBackend = backend
+        let before = try await contract.loadConversations()
+        let invitations = try await contract.browseSpaces(.init(scope: .invitations), after: nil)
+        let invited = try #require(invitations.spaces.first)
+        let preview = try await contract.conversationPreview(invited.conversation.id)
+        #expect(!preview.messages.isEmpty)
+        #expect(try await contract.conversationPreview(invited.conversation.id) == preview)
+        #expect(try await contract.loadConversations() == before)
+        #expect(invited.allowedActions.contains("block"))
+        let result = try await contract.mutateConversation(
+            .block, in: invited.conversation.id, operationID: "block-invitation", expectedRevision: nil
+        )
+        #expect(result.isConfirmed)
+        #expect(result.details?.allowedActions.isEmpty == true)
+        let after = try await contract.browseSpaces(.init(scope: .invitations), after: nil)
+        #expect(!after.spaces.contains { $0.conversation.id == invited.conversation.id })
+        #expect(try await contract.loadConversations() == before)
+        await backend.disconnect()
+    }
+
     @Test func membershipAndOrganizationFiltersAreIndependentAndSpamIsSeparate() async throws {
         let backend = FakeBackend()
         try await backend.connect()

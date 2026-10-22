@@ -41,9 +41,7 @@ public extension LocalBridgeBackend {
            ConversationAction.leave.isAvailable(for: conversation.kind) {
             actions.insert("leave")
         }
-        if state == .invited {
-            actions.formUnion(["acceptInvitation", "declineInvitation"])
-        }
+        actions.formUnion(Self.invitationActions(state: state, kind: conversation.kind))
         if discoverableManagementSpaces.contains(id), state != .joined, state != .invited,
            state != .requested {
             actions.insert("requestJoin")
@@ -102,6 +100,15 @@ public extension LocalBridgeBackend {
 }
 
 extension LocalBridgeBackend {
+    private static func invitationActions(state: ParticipantState, kind: Conversation.Kind) -> Set<String> {
+        guard state == .invited else { return [] }
+        var actions: Set = ["acceptInvitation", "declineInvitation"]
+        if kind == .space {
+            actions.insert("block")
+        }
+        return actions
+    }
+
     func checkManagementGeneration(_ generation: Int) throws {
         try Task.checkCancellation()
         guard isConnected, directoryGeneration == generation else { throw CancellationError() }

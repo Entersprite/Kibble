@@ -39,6 +39,18 @@ public extension SyncEngine {
         return details
     }
 
+    /// An unjoined conversation's recent messages. Returned, never stored:
+    /// a preview does not become a transcript or a joined row.
+    func loadConversationPreview(_ id: Conversation.ID) async throws -> ConversationPreview {
+        let version = managementScope
+        let preview = try await backend.conversationPreview(id)
+        try checkManagementScope(version)
+        guard preview.messages.allSatisfy({ $0.conversationID == id }) else {
+            throw ChatError.decoding("The preview belongs to another conversation.")
+        }
+        return preview
+    }
+
     func loadParticipants(
         in id: Conversation.ID,
         after cursor: String?

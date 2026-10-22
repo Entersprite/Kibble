@@ -23,6 +23,10 @@ public struct ConversationBrowserScene: Sendable, Equatable {
     public var panelError: String?
     public var isSubmitting = false
     public var notice: String?
+    /// An unjoined conversation's recent messages, for its open panel.
+    public var preview: ConversationPreview?
+    public var isLoadingPreview = false
+    public var previewError: String?
 
     public init() {}
 }

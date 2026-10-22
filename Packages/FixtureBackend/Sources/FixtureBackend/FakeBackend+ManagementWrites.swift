@@ -15,7 +15,7 @@ extension FakeBackend {
             failed = addManagedPeople(ids, participants: &participants)
         case .removePerson, .setRole:
             try changeManagedParticipant(mutation, participants: &participants)
-        case .join, .acceptInvitation, .requestJoin, .declineInvitation:
+        case .join, .acceptInvitation, .requestJoin, .declineInvitation, .block:
             setManagedMembership(mutation, details: &details, participants: &participants)
         case let .approveRequest(id):
             try approveManagedRequest(id, participants: &participants)

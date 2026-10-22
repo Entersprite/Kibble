@@ -6,6 +6,8 @@ public enum ConversationMutation: Hashable, Sendable, Codable {
     case removePerson(Member.ID)
     case setRole(Member.ID, ConversationRole)
     case join, requestJoin, acceptInvitation, declineInvitation
+    /// Blocks a space the account has been invited to and has not joined.
+    case block
     case approveRequest(Member.ID), rejectRequest(Member.ID)
     case leave
     case deleteSpace
@@ -21,6 +23,7 @@ public enum ConversationMutation: Hashable, Sendable, Codable {
         case .requestJoin: "requestJoin"
         case .acceptInvitation: "acceptInvitation"
         case .declineInvitation: "declineInvitation"
+        case .block: "block"
         case .approveRequest: "approveRequest"
         case .rejectRequest: "rejectRequest"
         case .leave: "leave"
@@ -61,7 +64,7 @@ public enum ConversationMutation: Hashable, Sendable, Codable {
 
     private static let simpleActions: [String: Self] = [
         "leave": .leave, "join": .join, "requestJoin": .requestJoin, "acceptInvitation": .acceptInvitation,
-        "declineInvitation": .declineInvitation, "deleteSpace": .deleteSpace
+        "declineInvitation": .declineInvitation, "deleteSpace": .deleteSpace, "block": .block
     ]
 
     public func encode(to encoder: any Encoder) throws {

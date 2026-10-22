@@ -104,6 +104,38 @@
                 name: "management-preview",
                 size: NSSize(width: 520, height: 580)
             )
+            try await renderLoadedPreview(state, people: people)
+        }
+
+        private func renderLoadedPreview(_ initial: ChatSceneState, people: [Member]) async throws {
+            var state = initial
+            state.browser.details?.allowedActions = ["acceptInvitation", "block"]
+            state.browser.details?.membership = .invited
+            let room = try #require(state.browser.details?.conversation.id)
+            state.browser.preview = ConversationPreview(
+                messages: people.prefix(3).enumerated().map { index, person in
+                    Message(
+                        id: .init("preview-\(index)"),
+                        conversationID: room,
+                        threadID: .init("topic-\(index)"),
+                        sender: person.id,
+                        text: [
+                            "Welcome to the space!",
+                            "The weekly notes are ready to read.",
+                            "Thanks, I’ll take a look."
+                        ][index],
+                        createdAt: Date(timeIntervalSince1970: Double(index) * 3600)
+                    )
+                },
+                members: people
+            )
+            for dark in [false, true] {
+                try await render(
+                    ConversationPanelSheet(state: state, browser: actions, openNotifications: nil),
+                    dark: dark, name: "loaded-space-preview-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 560, height: 560)
+                )
+            }
         }
 
         @Test func sidebarSettingsAndSpacesDirectoryRender() async throws {

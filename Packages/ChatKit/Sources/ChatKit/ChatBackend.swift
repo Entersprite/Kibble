@@ -183,6 +183,10 @@ public protocol ChatBackend: Sendable {
     func participants(in conversation: Conversation.ID, after cursor: String?) async throws
         -> ConversationParticipantPage
     func browseSpaces(_ query: SpaceDirectoryQuery, after cursor: String?) async throws -> SpaceDirectoryPage
+    /// Recent messages of a conversation the account has not joined, for its
+    /// preview. **A request**: the person waits for it, and nothing in it is
+    /// stored. Gated by `Capabilities.canPreviewConversations`.
+    func conversationPreview(_ conversation: Conversation.ID) async throws -> ConversationPreview
 
     /// Whether `member` is in `conversation` now. A requirement for the same
     /// reason.

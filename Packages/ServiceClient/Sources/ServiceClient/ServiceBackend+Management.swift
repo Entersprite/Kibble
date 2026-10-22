@@ -46,4 +46,8 @@ public extension ServiceBackend {
     ) async throws -> SpaceDirectoryPage {
         try await call(BrowseSpaces(query: query, cursor: cursor))
     }
+
+    func conversationPreview(_ conversation: Conversation.ID) async throws -> ConversationPreview {
+        try await call(GetConversationPreview(conversationID: conversation))
+    }
 }

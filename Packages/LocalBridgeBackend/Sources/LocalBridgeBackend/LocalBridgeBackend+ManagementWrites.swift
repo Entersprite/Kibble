@@ -75,8 +75,7 @@ extension LocalBridgeBackend {
         let mutation = context.mutation
         let operationID = context.operationID
         var after: ConversationDetails
-        if context.mutation == .leave || context.mutation == .declineInvitation || context
-            .mutation == .deleteSpace {
+        if [.leave, .declineInvitation, .deleteSpace, .block].contains(context.mutation) {
             after = before; after.membership = .unknown; after.allowedActions = []
         } else {
             after = try await conversationDetails(id)
@@ -125,6 +124,8 @@ extension LocalBridgeBackend {
             try await performConversationAction(.leave, in: context.before.conversation.id)
         case .declineInvitation:
             try await removeManagementPerson(context.me, group: group, client: client)
+        case .block:
+            try await blockManagementSpace(context.before, group: group, client: client)
         case let .removePerson(person), let .rejectRequest(person), let .approveRequest(person), let .setRole(
             person,
             _
@@ -271,6 +272,26 @@ extension LocalBridgeBackend {
             throw ChatError.unknown("This member is no longer available. Reload the people list.")
         }
         return target
+    }
+
+    /// `block_entity` for the space itself, the request the conversation
+    /// menu's Block sends for a joined space. A space the account has not
+    /// joined is not in the world, so this works from its group alone. That
+    /// Google accepts it and confirms it this way for an invited space is
+    /// `[Verify]`.
+    private func blockManagementSpace(
+        _ before: ConversationDetails,
+        group: GroupId,
+        client: ProtoAPIClient
+    ) async throws {
+        guard before.conversation.kind == .space, before.allowedActions.contains("block") else {
+            throw ChatError.unsupported(capability: "block")
+        }
+        let response = try await client.call(
+            .blockEntity,
+            ConversationActionRequests.block(group: group, user: nil)
+        )
+        guard response.hasUserRevision || response.hasReadState else { throw unconfirmedManagement() }
     }
 
     func unconfirmedManagement() -> ChatError {

@@ -38,6 +38,16 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
     private(set) var receivePresence: Set<Member.ID> = []
     private(set) var receiveConversations: Set<Conversation.ID> = []
     var searchMembers: [Member] = []
+    var preview = ConversationPreview()
+
+    func setPreview(_ value: ConversationPreview) {
+        preview = value
+    }
+
+    func conversationPreview(_: Conversation.ID) -> ConversationPreview {
+        preview
+    }
+
     var holdSearch = false
     private(set) var searchHeld = false
     private var searchWaiter: CheckedContinuation<Void, Never>?

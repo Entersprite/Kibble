@@ -22,7 +22,8 @@ extension AccountRuntime {
              SearchPeople.operation, SearchMessages.operation, LoadFollowedThreads.operation:
             return try await dispatchQueries(request, backend: backend, epoch: epoch)
         case GetConversationDetails.operation, GetParticipants.operation, BrowseSpaces.operation,
-             GetMembership.operation, LoadThread.operation, SetNotificationSetting.operation,
+             GetConversationPreview.operation, GetMembership.operation, LoadThread.operation,
+             SetNotificationSetting.operation,
              SetThreadFollowed.operation:
             return try await dispatchDetails(request, backend: backend, epoch: epoch)
         case OpenDirectConversation.operation, CreateConversation.operation, MutateConversation.operation,
