@@ -53,6 +53,8 @@ public extension AppEnvironment {
             hasNewerMessages: model.hasNewerMessages,
             newerMessagesAreLatestJump: model.newerMessagesAreLatestJump,
             isLoadingNewerMessages: model.isLoadingNewerMessages,
+            isLoadingMessages: model.isLoadingLatestMessages,
+            unconfirmedMessages: model.unconfirmedMessageIDs,
             typing: model.typing,
             activity: model.activity, pendingMessages: model.pendingMessageIDs,
             connection: model.connectionState,

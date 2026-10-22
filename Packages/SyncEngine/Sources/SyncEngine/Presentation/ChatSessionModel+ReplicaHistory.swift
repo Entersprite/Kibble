@@ -28,7 +28,8 @@ extension ChatSessionModel {
             .latest(min(500, max(100, messages.count)))
         }
         resetTranscript()
-        observeTranscript(in: selected, request: request)
+        // The saved rows stay on screen until the refreshed page confirms them.
+        observeTranscript(in: selected, request: request, includingUnconfirmed: true)
         refreshLatestTranscript(in: selected)
         if let thread {
             closeThread()

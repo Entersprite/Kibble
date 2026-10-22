@@ -288,11 +288,11 @@ public struct MessageList: View {
         }
         .overlay {
             if state.messages.isEmpty {
-                ContentUnavailableView(
-                    "No messages",
-                    systemImage: "text.bubble",
-                    description: Text("History loads when you open a conversation.")
-                )
+                if state.isLoadingMessages {
+                    TranscriptLoading()
+                } else {
+                    ContentUnavailableView("No messages", systemImage: "text.bubble")
+                }
             }
         }
     }

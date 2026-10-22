@@ -62,14 +62,8 @@ extension ChatSessionModel {
         selectedMeetingSeries = series.id
         meetingWork.included = [opening]
         messages = []
-        observeTranscript(in: series.latest.id, request: .latest(100))
-        historyTask = Task { [weak self, engine] in
-            let page = await engine.requestMoreMessages(in: opening, verifyCachedRoots: true)
-            guard !Task.isCancelled, let self, selectedMeetingSeries == series.id else { return }
-            if opening == selected, let page {
-                latestTranscriptPageLoaded(page, in: opening)
-            }
-        }
+        observeTranscript(in: series.latest.id, request: .latest(100), includingUnconfirmed: true)
+        loadLatestPage(in: opening, series: series.id)
     }
 
     func reconcileMeetingSelection() {

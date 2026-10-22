@@ -81,6 +81,18 @@
             #expect(Self.titles(menu) == ["Delete…", "-", "Copy"])
         }
 
+        /// A saved row not yet confirmed may since have been edited or deleted
+        /// elsewhere: neither is offered on it until it is confirmed.
+        @Test func anUnconfirmedMessageOffersNeitherEditNorDelete() {
+            var handlers = Self.handlers(Calls())
+            handlers.unconfirmed = [Self.message().id]
+            let menu = NativeOwnMessageMenu.insert(
+                handlers.items(for: Self.message()),
+                into: Self.nativeMenu()
+            )
+            #expect(Self.titles(menu) == ["Copy"])
+        }
+
         /// The full native menu: reactions, then Edit…/Delete…, then the text's.
         @Test func theReactionsStayFirst() {
             let reactions = ReactionActions { _, _, _ in }

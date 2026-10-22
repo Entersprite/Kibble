@@ -99,8 +99,11 @@ public final class ChatSessionModel {
     public internal(set) var newerMessagesAreLatestJump = false
     public internal(set) var isLoadingOlderMessages = false
     public internal(set) var isLoadingNewerMessages = false
+    public internal(set) var isLoadingLatestMessages = false // the open chat's newest page, +Transcript.swift
+    public internal(set) var unconfirmedMessageIDs: Set<Message.ID> = [] // saved, not yet confirmed
     var transcriptIncludesLatest = true
     @ObservationIgnored var transcriptWork = TranscriptWork()
+    @ObservationIgnored var ownStatusWork = OwnStatusWork()
     public internal(set) var threads = ThreadSessionState() // the panel and the list, +Threads.swift
 
     /// Whether the app is frontmost. Fed by the app shell; `true` by default
@@ -351,7 +354,7 @@ public final class ChatSessionModel {
         }
         conversationWatchers = []
         resetTranscript()
-        observeTranscript(in: id, request: .latest(100))
+        observeTranscript(in: id, request: .latest(100), includingUnconfirmed: true)
         selectionMoved(to: id)
 
         // Not `try?`. A dead channel, a rejected `/api/` call or a timeout
@@ -365,14 +368,7 @@ public final class ChatSessionModel {
         // watchers just above - a history fetch for a conversation nobody is
         // looking at anymore is not worth keeping, and `historyTask` is the
         // one this session's own `stop()` needs to find later.
-        historyTask?.cancel()
-        historyTask = Task { [weak self, engine] in
-            let page = await engine.requestMoreMessages(in: id, verifyCachedRoots: true)
-            guard !Task.isCancelled else { return }
-            if let page {
-                self?.latestTranscriptPageLoaded(page, in: id)
-            }
-        }
+        loadLatestPage(in: id)
         // Untracked: a late one reaches a backend that drops it once
         // disconnected (`LocalBridgeBackend.watchPresence`).
         Task { [engine] in await engine.watchPresence(in: id) }

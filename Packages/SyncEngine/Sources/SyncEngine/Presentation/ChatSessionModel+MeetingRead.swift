@@ -4,6 +4,9 @@ import Foundation
 
 extension ChatSessionModel {
     func markSelectedReadIfNeeded() {
+        // A row from the saved copy may since have been edited, deleted or
+        // read elsewhere; nothing is marked read until the newest page confirms.
+        guard unconfirmedMessageIDs.isEmpty else { return }
         if selectedMeetingSeries != nil {
             markVisibleMeetingMessagesRead()
         } else {
@@ -14,7 +17,8 @@ extension ChatSessionModel {
     /// Grouping never turns opening one series into a bulk read operation.
     /// Each mark covers only server messages actually reported by the viewport.
     func markVisibleMeetingMessagesRead() {
-        guard isActive, capabilities.canMarkRead, let series = meetingSeries else { return }
+        guard isActive, capabilities.canMarkRead, unconfirmedMessageIDs.isEmpty,
+              let series = meetingSeries else { return }
         let allowed = Set(series.occurrences.map(\.id))
         let viewed = messages.filter {
             allowed.contains($0.conversationID) && meetingWork.visible.contains($0.id) &&

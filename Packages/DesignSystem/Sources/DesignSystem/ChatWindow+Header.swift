@@ -101,6 +101,10 @@ extension ChatWindow {
         // no count worth showing.
         guard state.browser.page == nil, !state.showingMentions, !state.threads.showingList,
               let conversation = state.selectedConversation else { return "" }
+        // The saved copy is on screen and its newest page is on the way.
+        if state.isLoadingMessages, !state.unconfirmedMessages.isEmpty {
+            return "Updating…"
+        }
         // A DM has no count to show, so its subtitle is the other person's
         // presence and status - `Display` decides whether there is either.
         if conversation.kind == .directMessage {

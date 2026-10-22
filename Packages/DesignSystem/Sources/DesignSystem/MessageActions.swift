@@ -32,14 +32,18 @@ struct OwnMessageHandlers {
     var hasReplies: (Message) -> Bool = { _ in false }
     var quote: ((Message) -> Void)?
     var forward: ((Message) -> Void)?
+    /// Saved rows not yet confirmed: they may since have been edited or
+    /// deleted elsewhere, so neither is offered on them until they are.
+    var unconfirmed: Set<Message.ID> = []
 
     /// `nil` when the message offers nothing.
     func items(for message: Message) -> OwnMessageMenuItems? {
+        let confirmed = !unconfirmed.contains(message.id)
         let edit = edit.flatMap { edit in
-            OwnMessageRule.canEdit(message, me: me) ? { edit(message) } : nil
+            confirmed && OwnMessageRule.canEdit(message, me: me) ? { edit(message) } : nil
         }
         let delete = delete.flatMap { delete in
-            OwnMessageRule.canDelete(message, me: me) ? { delete(message) } : nil
+            confirmed && OwnMessageRule.canDelete(message, me: me) ? { delete(message) } : nil
         }
         let addressable = OwnMessageRule.isAddressable(message)
         let reply = replyInThread.flatMap { reply in

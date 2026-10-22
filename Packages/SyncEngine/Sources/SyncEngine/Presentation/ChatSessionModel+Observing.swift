@@ -61,15 +61,29 @@ extension ChatSessionModel {
     /// that can change a name, so it is the only thing that re-reads them.
     func watchDirectory() {
         watch(store.observeMembers()) { [weak self] in
-            self?.directory = Dictionary(uniqueKeysWithValues: $0.map { ($0.id, $0) })
+            guard let self else { return }
+            var members = Dictionary(uniqueKeysWithValues: $0.map { ($0.id, $0) })
+            observeOwnStatus(in: &members)
+            directory = members
         }
     }
 
     /// Who the local user is, and their own availability (set-your-status
-    /// spec §4): both session values about you, observed together.
+    /// spec §4): both session values about you, observed together. A choice
+    /// still in flight is drawn over each (`ChatSessionModel+Status.swift`).
     func watchSelf() {
-        watch(store.observeMe()) { [weak self] in self?.me = $0 }
-        watch(store.observeAvailability()) { [weak self] in self?.availability = $0 }
+        watch(store.observeMe()) { [weak self] in
+            // Only a new identity rebases: the directory row it starts from
+            // is the store's, since nothing was drawn over it yet.
+            guard let self, me != $0 else { return }
+            me = $0
+            ownStatusWork.status.rebase(observed: $0.flatMap { directory[$0]?.status })
+        }
+        watch(store.observeAvailability()) { [weak self] in
+            guard let self else { return }
+            ownStatusWork.availability.observe($0)
+            availability = ownStatusWork.availability.shown
+        }
     }
 
     /// `store.observeConversations()`'s handler, moved here from `start()` so

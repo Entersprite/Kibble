@@ -38,6 +38,11 @@ public struct ChatSceneState: Sendable, Equatable {
     public var newerMessagesAreLatestJump: Bool
     public var hasNewerMessages: Bool
     public var isLoadingNewerMessages: Bool
+    /// The open chat's newest page is on its way: an empty transcript is
+    /// loading, not empty.
+    public var isLoadingMessages: Bool
+    /// Rows shown from the saved copy that the service has not confirmed yet.
+    public var unconfirmedMessages: Set<Message.ID>
     public var activity: ConversationActivity
     public var pendingMessages: Set<Message.ID>
     public var typing: [Member.ID]
@@ -144,6 +149,7 @@ public struct ChatSceneState: Sendable, Equatable {
         hasNewerMessages: Bool = false,
         newerMessagesAreLatestJump: Bool = false,
         isLoadingNewerMessages: Bool = false,
+        isLoadingMessages: Bool = false, unconfirmedMessages: Set<Message.ID> = [],
         typing: [Member.ID] = [],
         activity: ConversationActivity = ConversationActivity(), pendingMessages: Set<Message.ID> = [],
         connection: ConnectionState = .idle,
@@ -184,6 +190,8 @@ public struct ChatSceneState: Sendable, Equatable {
         self.hasNewerMessages = hasNewerMessages
         self.newerMessagesAreLatestJump = newerMessagesAreLatestJump
         self.isLoadingNewerMessages = isLoadingNewerMessages
+        self.isLoadingMessages = isLoadingMessages
+        self.unconfirmedMessages = unconfirmedMessages
         self.typing = typing
         self.activity = activity
         self.pendingMessages = pendingMessages

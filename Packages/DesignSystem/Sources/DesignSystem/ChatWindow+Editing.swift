@@ -48,7 +48,8 @@ extension ChatWindow {
             hasReplies: { ThreadsPresentation.hasReplies(summaries[$0.threadID]) },
             forward: actions.forwardMessage == nil ? nil : { [pending = $pendingForward] in
                 pending.wrappedValue = ForwardMessageSelection(message: $0)
-            }
+            },
+            unconfirmed: state.unconfirmedMessages
         )
     }
 
