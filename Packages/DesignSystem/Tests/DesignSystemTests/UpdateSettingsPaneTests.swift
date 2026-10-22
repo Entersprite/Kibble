@@ -14,6 +14,7 @@ struct UpdateSettingsPaneTests {
             isEnabled: isEnabled,
             canCheck: true,
             lastChecked: lastChecked,
+            checksAtLaunch: true,
             automaticallyChecks: automaticallyChecks,
             frequency: .daily,
             automaticallyInstalls: false,

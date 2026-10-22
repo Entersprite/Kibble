@@ -28,6 +28,8 @@ public struct UpdateSettingsState: Equatable, Sendable {
     /// already checking.
     public var canCheck: Bool
     public var lastChecked: Date?
+    /// One quiet check each time Kibble starts, apart from the schedule.
+    public var checksAtLaunch: Bool
     public var automaticallyChecks: Bool
     public var frequency: UpdateFrequency
     public var automaticallyInstalls: Bool
@@ -39,6 +41,7 @@ public struct UpdateSettingsState: Equatable, Sendable {
         isEnabled: Bool,
         canCheck: Bool,
         lastChecked: Date?,
+        checksAtLaunch: Bool,
         automaticallyChecks: Bool,
         frequency: UpdateFrequency,
         automaticallyInstalls: Bool,
@@ -48,6 +51,7 @@ public struct UpdateSettingsState: Equatable, Sendable {
         self.isEnabled = isEnabled
         self.canCheck = canCheck
         self.lastChecked = lastChecked
+        self.checksAtLaunch = checksAtLaunch
         self.automaticallyChecks = automaticallyChecks
         self.frequency = frequency
         self.automaticallyInstalls = automaticallyInstalls
@@ -72,17 +76,20 @@ public struct UpdateSettingsState: Equatable, Sendable {
 @MainActor
 public struct UpdateSettingsActions {
     public var checkNow: () -> Void
+    public var setChecksAtLaunch: (Bool) -> Void
     public var setAutomaticallyChecks: (Bool) -> Void
     public var setFrequency: (UpdateFrequency) -> Void
     public var setAutomaticallyInstalls: (Bool) -> Void
 
     public init(
         checkNow: @escaping () -> Void,
+        setChecksAtLaunch: @escaping (Bool) -> Void,
         setAutomaticallyChecks: @escaping (Bool) -> Void,
         setFrequency: @escaping (UpdateFrequency) -> Void,
         setAutomaticallyInstalls: @escaping (Bool) -> Void
     ) {
         self.checkNow = checkNow
+        self.setChecksAtLaunch = setChecksAtLaunch
         self.setAutomaticallyChecks = setAutomaticallyChecks
         self.setFrequency = setFrequency
         self.setAutomaticallyInstalls = setAutomaticallyInstalls
@@ -120,6 +127,11 @@ public struct UpdateSettingsPane: View {
                 }
             }
             Section {
+                Toggle("Check for updates at launch", isOn: Binding(
+                    get: { state.checksAtLaunch },
+                    set: { actions.setChecksAtLaunch($0) }
+                ))
+                .disabled(!state.isEnabled)
                 Toggle("Check for updates automatically", isOn: Binding(
                     get: { state.automaticallyChecks },
                     set: { actions.setAutomaticallyChecks($0) }
