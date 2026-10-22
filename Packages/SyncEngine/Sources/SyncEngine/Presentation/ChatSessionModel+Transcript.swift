@@ -13,6 +13,8 @@ final class TranscriptWork {
     var cachedNewer = false
     var isTargeted = false
     var latestPageNewestID: Message.ID?
+    /// The open chat's newest page has landed since it was selected.
+    var latestPageLoaded = false
     /// The window being observed also reads saved, unconfirmed rows.
     var includesUnconfirmed = false
     /// Which newest-page fetch owns `isLoadingLatestMessages`.
@@ -104,6 +106,7 @@ extension ChatSessionModel {
         transcriptWork.cachedNewer = false
         transcriptWork.isTargeted = false
         transcriptWork.latestPageNewestID = nil
+        transcriptWork.latestPageLoaded = false
         hasOlderMessages = false
         hasNewerMessages = false
         newerMessagesAreLatestJump = false
@@ -240,6 +243,7 @@ extension ChatSessionModel {
 
     func latestTranscriptPageLoaded(_ page: [Message], in conversation: Conversation.ID) {
         guard selected == conversation else { return }
+        transcriptWork.latestPageLoaded = true
         transcriptWork.latestPageNewestID = page.filter { !$0.isReply }.max {
             $0.createdAt == $1.createdAt ? $0.id.rawValue < $1.id.rawValue : $0.createdAt < $1.createdAt
         }?.id
@@ -255,6 +259,7 @@ extension ChatSessionModel {
                 )
             }
         }
+        markSelectedReadIfHeadIsHidden()
     }
 
     func refreshLatestTranscript(in conversation: Conversation.ID) {

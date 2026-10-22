@@ -95,6 +95,7 @@ extension ChatSessionModel {
         let panelWasShown = isThreadPanelShown
         let selectionWasListed = self.conversations.contains { $0.id == selected }
         let previousMark = self.conversations.first { $0.id == selected }?.markedUnreadAt
+        let previousHead = self.conversations.first { $0.id == selected }?.latestMainMessageAt
         reconcileSearchVisibility(previous: self.conversations, current: conversations)
         self.conversations = conversations
         if selectedMeetingSeries != nil, let selected,
@@ -107,8 +108,13 @@ extension ChatSessionModel {
             clearSelection()
         }
         markReadTrace?.conversationsChanged(conversations)
-        if let selected, conversations.first(where: { $0.id == selected })?.markedUnreadAt != previousMark {
+        let row = conversations.first { $0.id == selected }
+        if selected != nil, row?.markedUnreadAt != previousMark {
             markSelectedReadIfNeeded()
+        } else if row?.latestMainMessageAt != previousHead {
+            // A directory load can move the head past a transcript that has
+            // nothing new to deliver.
+            markSelectedReadIfHeadIsHidden()
         }
         // The world load that turns replies on draws a panel held until now:
         // the thread it shows is marked read then (session 58).

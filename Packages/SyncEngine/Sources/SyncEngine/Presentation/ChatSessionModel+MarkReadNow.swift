@@ -36,7 +36,8 @@ extension ChatSessionModel {
     /// - **The newest *server* message the store holds**, never a `local/`
     ///   optimistic row, recomputed after the wait - read from the store
     ///   rather than `messages`, which only ever holds the *selected*
-    ///   conversation.
+    ///   conversation - or the conversation's newest main message when no
+    ///   stored message is that new.
     /// - **The same watermark and the same per-conversation in-flight guard**
     ///   (`published`, `markTasks`, `markGeneration`), so a banner click and
     ///   an automatic mark for the same conversation cannot both submit.
@@ -92,6 +93,12 @@ extension ChatSessionModel {
             await engine.requestMoreMessages(in: conversation, verifyCachedRoots: true)
             guard !Task.isCancelled else { return }
             newest = newestServerMessage(in: conversation)
+        }
+        // Read means read through the conversation's newest main message,
+        // including one no stored message is as new as: a mark short of it
+        // would never clear the dot (`Conversation.markReadPosition(through:)`).
+        if let row = conversations.first(where: { $0.id == conversation }) {
+            newest = row.markReadPosition(through: newest)
         }
         guard let newest else { return }
         // A stale history page must not move Google's read position backward.

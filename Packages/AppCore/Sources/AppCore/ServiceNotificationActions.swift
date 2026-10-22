@@ -60,7 +60,8 @@ public final class ServiceNotificationActions {
                 revision: scope.revision
             )
             try Task.checkCancellation()
-            guard let position = page.messages.filter({ !$0.isReply && !$0.isDeleted }).map(\.createdAt).max()
+            let newest = page.messages.filter { !$0.isReply && !$0.isDeleted }.map(\.createdAt).max()
+            guard let position = try await markReadPosition(through: newest, in: conversation, scope: scope)
             else { return }
             _ = try await client.call(
                 SendCommand(operationID: .init(ClientOperationID.make()), command: .markRead(
@@ -72,6 +73,21 @@ public final class ServiceNotificationActions {
         case let .mute(conversation): try await mute(conversation, scope: scope)
         case .open, .openMessage: break
         }
+    }
+
+    /// Read means read through the conversation's newest main message, which
+    /// the page may not hold (`Conversation.markReadPosition(through:)`). A
+    /// directory a few minutes old is enough: a head older than the page's
+    /// newest message changes nothing. Without one, the page's newest is
+    /// marked, as before.
+    private func markReadPosition(
+        through newest: Date?, in id: Conversation.ID, scope: AccountNotificationScope
+    ) async throws -> Date? {
+        let conversations = try? await client.call(
+            LoadConversations(maximumAge: 300), account: scope.account, revision: scope.revision
+        )
+        try Task.checkCancellation()
+        return conversations?.first { $0.id == id }?.markReadPosition(through: newest) ?? newest
     }
 
     private func waitForAccount(_ scope: AccountNotificationScope) async throws {

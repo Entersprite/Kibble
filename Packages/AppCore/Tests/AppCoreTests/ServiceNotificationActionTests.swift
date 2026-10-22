@@ -26,9 +26,27 @@ struct ServiceNotificationActionTests {
             conversationID: .init("same"), upTo: Date(timeIntervalSince1970: 10)
         ))
         let headers = await transport.scopedHeaders
-        #expect(headers.count == 2)
+        #expect(headers.count == 3)
         #expect(headers.allSatisfy { $0.accountID == scope.account && $0.accountRevision == scope.revision })
         #expect(failures == 0)
+        await actions.stop()
+    }
+
+    /// Unread for a newest main message no page holds: a mark at the page's
+    /// newest was accepted, and the next directory load said unread again.
+    @Test func backgroundReadCoversTheConversationsNewestMainMessage() async throws {
+        let head = Date(timeIntervalSince1970: 50)
+        let transport = NotificationActionTransport(conversations: [Conversation(
+            id: .init("same"), kind: .space, hasUnread: true,
+            readPosition: Date(timeIntervalSince1970: 10), latestMainMessageAt: head
+        )])
+        let actions = ServiceNotificationActions(
+            service: scope.service, client: AccountClient(transport: transport), device: "native"
+        )
+        #expect(actions.handle(.init(scope: scope, response: .markRead(.init("same")))))
+        try await wait { await transport.commands.count == 1 }
+        #expect(await transport.commands.first == .markRead(conversationID: .init("same"), upTo: head))
+        #expect(await transport.directoryReads == [300])
         await actions.stop()
     }
 
@@ -87,8 +105,11 @@ private actor NotificationActionTransport: ServiceTransport {
     private(set) var policyReads = 0
     private var conflict = true
     private(set) var policy: AccountPolicy
+    private let conversations: [Conversation]
+    private(set) var directoryReads: [TimeInterval?] = []
 
-    init() {
+    init(conversations: [Conversation] = []) {
+        self.conversations = conversations
         var settings = NotificationSettings()
         var rule = NotificationRule(showsPreview: false, sharesTyping: false, readReceipts: false)
         rule.unrecognisedFields["future"] = .string("retained")
@@ -116,6 +137,9 @@ private actor NotificationActionTransport: ServiceTransport {
                 message(conversation, at: 40, deleted: true)
             ]
             value = try ServiceCodec.value(MessagePage(messages: messages, nextCursor: nil, isComplete: true))
+        case LoadConversations.operation:
+            try directoryReads.append(request.decodePayload(LoadConversations.self).maximumAge)
+            value = try ServiceCodec.value(conversations)
         case SendCommand.operation:
             let payload = try request.decodePayload(SendCommand.self)
             commands.append(payload.command)

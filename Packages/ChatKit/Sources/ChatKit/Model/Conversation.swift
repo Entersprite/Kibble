@@ -155,6 +155,24 @@ public struct Conversation: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Marking read
+
+public extension Conversation {
+    /// Where a mark of the whole conversation reads up to: `newest`, the
+    /// newest message a client holds, or `latestMainMessageAt` when that is
+    /// later. `nil` when neither is known.
+    ///
+    /// A backend's `hasUnread` compares its own newest main message with
+    /// `readPosition`, and nothing guarantees a client holds that message
+    /// among the conversation's top-level ones. A mark short of it is
+    /// accepted, and the next directory load says unread again, however
+    /// often the conversation is opened or marked.
+    func markReadPosition(through newest: Date?) -> Date? {
+        guard let latestMainMessageAt else { return newest }
+        return newest.map { max($0, latestMainMessageAt) } ?? latestMainMessageAt
+    }
+}
+
 // MARK: - Identifier
 
 public extension Conversation {

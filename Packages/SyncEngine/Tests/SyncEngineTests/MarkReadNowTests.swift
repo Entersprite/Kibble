@@ -113,6 +113,23 @@ struct MarkReadNowTests {
         #expect(model.published[dm] == read)
     }
 
+    /// Unread for a newest main message the newest page does not bring:
+    /// everything stored is at or behind the read position. The mark was
+    /// skipped as already read and the dot never cleared; it names the
+    /// conversation's newest main message instead.
+    @Test(arguments: [MarkReadOrigin.notification, .conversationList])
+    func aMarkCoversANewestMainMessageNoStoredMessageReaches(from origin: MarkReadOrigin) async throws {
+        let (model, _, backend) = try await harness()
+        let head = newest.addingTimeInterval(60)
+        model.conversations = [Conversation(
+            id: dm, kind: .space, hasUnread: true, readPosition: newest, latestMainMessageAt: head
+        )]
+        model.markRead(dm, from: origin)
+        #expect(await eventually { await backend.markReadCount == 1 })
+        #expect(await backend.commands.last == .markRead(conversationID: dm, upTo: head))
+        #expect(await backend.loadMessagesCount == 1)
+    }
+
     /// Nothing stored and the fetch fails: nothing to name, so nothing is
     /// published - and the in-flight guard is released, so a later mark can.
     @Test func aSidebarMarkWithNothingStoredWhoseFetchFailsPublishesNothing() async throws {

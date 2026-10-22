@@ -108,10 +108,7 @@ extension ChatSessionModel {
         // read position. Filtered on the **id** prefix, not `localID` - the
         // server echoes `localID` back onto the real message, which does have
         // a genuine server position and must still count.
-        guard let newest = messages
-            .filter({ !$0.id.rawValue.hasPrefix("local/") })
-            .map(\.createdAt).max()
-        else {
+        guard let newest = newestTranscriptPosition(in: selected) else {
             traceTrigger(.noServerMessages)
             return
         }
@@ -218,9 +215,7 @@ extension ChatSessionModel {
         }
         var position: Date
         if selected == conversation, transcriptIncludesLatest {
-            let recomputed = messages
-                .filter { !$0.id.rawValue.hasPrefix("local/") }
-                .map(\.createdAt).max()
+            let recomputed = newestTranscriptPosition(in: conversation)
             position = max(scheduledAt, recomputed ?? scheduledAt)
         } else {
             position = scheduledAt
@@ -322,7 +317,10 @@ extension ChatSessionModel {
     /// a published mark writes none of its own (`SyncEngine.submit`) - so one
     /// at or after `position` already covers it. It reads the position, never
     /// `hasUnread`: a conversation unread for messages the transcript does
-    /// not hold yet must not be marked back to an older one. A conversation
+    /// not hold yet must not be marked back to an older one. One unread only
+    /// for a newest main message the transcript never shows is not skipped:
+    /// once the newest page has landed, `position` covers that message
+    /// (`newestTranscriptPosition(in:)`). A conversation
     /// marked unread by moving its position back is still marked on view, since
     /// its newest message is then after the position. The store keeps no other
     /// conversation-level mark: `GroupReadState.mark_as_unread_timestamp_usec`
@@ -346,6 +344,29 @@ extension ChatSessionModel {
         }
         traceTrigger(.alreadyReadOnServer, for: conversation, publishing: position)
         return true
+    }
+
+    /// The position the open transcript marks: its newest server message,
+    /// or the conversation's newest main message when that is later and the
+    /// newest page has landed (`Conversation.markReadPosition(through:)`).
+    /// A head that page did not bring is one this transcript never shows;
+    /// before it lands, the head may just not have arrived, and covering it
+    /// would read messages nobody has seen.
+    func newestTranscriptPosition(in conversation: Conversation.ID) -> Date? {
+        let shown = messages.filter { !$0.id.rawValue.hasPrefix("local/") }.map(\.createdAt).max()
+        guard transcriptWork.latestPageLoaded,
+              let row = conversations.first(where: { $0.id == conversation }) else { return shown }
+        return row.markReadPosition(through: shown)
+    }
+
+    /// Re-runs the trigger when the open conversation's newest main message
+    /// is one its transcript does not show. Nothing the transcript observes
+    /// changes for such a message, so no delivery would.
+    func markSelectedReadIfHeadIsHidden() {
+        guard let selected, selectedMeetingSeries == nil, transcriptIncludesLatest else { return }
+        let shown = messages.filter { !$0.id.rawValue.hasPrefix("local/") }.map(\.createdAt).max()
+        guard newestTranscriptPosition(in: selected) != shown else { return }
+        markSelectedReadIfNeeded()
     }
 
     /// Clears `markTasks[conversation]`, but only if `markGeneration` still
