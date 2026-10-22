@@ -141,11 +141,12 @@ struct UpdateSettingsModelTests {
         let fake = FakeUpdater()
         let model = UpdateSettingsModel(updater: fake, defaults: store, version: "1")
         model.start()
-        fake.personSetsAutomaticInstallInUpdateWindow(true)
         #expect(model.state.automaticallyInstalls == true)
+        fake.personSetsAutomaticInstallInUpdateWindow(false)
+        #expect(model.state.automaticallyInstalls == false)
         let next = FakeUpdater()
         UpdateSettingsModel(updater: next, defaults: store, version: "1").start()
-        #expect(next.settingsAtStart?.installs == true)
+        #expect(next.settingsAtStart?.installs == false)
     }
 
     /// The model's own push of `false`, with no automatic check left, is not
