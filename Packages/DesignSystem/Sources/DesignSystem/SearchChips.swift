@@ -273,7 +273,10 @@ struct SearchFilterRow: View {
         }
     }
 
-    /// The order, not a filter: borderless, at the row's trailing edge.
+    /// The order, not a filter: plain words and a chevron at the row's
+    /// trailing edge. The chevron is part of the label, with the system's
+    /// indicator hidden, so it shows wherever the words do: on the glass
+    /// panel a borderless menu showed the words alone.
     private var sortMenu: some View {
         Menu {
             Picker("Sort", selection: Binding(
@@ -286,11 +289,19 @@ struct SearchFilterRow: View {
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
-            Text(query.order == .newest ? "Most Recent" : "Most Relevant")
+            HStack(spacing: 3) {
+                Text(query.order == .newest ? "Most Recent" : "Most Relevant")
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .contentShape(.rect)
         }
         .menuStyle(.button)
-        .buttonStyle(.borderless)
-        .controlSize(.small)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
     }
 }
