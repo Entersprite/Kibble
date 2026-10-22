@@ -13,9 +13,16 @@ public struct NotificationSettings: Hashable, Sendable {
 
     public var schemaVersion: Int
     public var records: [SettingsRecord]
+    /// Read-only inherited defaults supplied by the canonical policy owner.
+    public var sharedDefaults: NotificationRule?
 
-    public init(records: [SettingsRecord] = [], schemaVersion: Int = currentSchemaVersion) {
+    public init(
+        records: [SettingsRecord] = [],
+        schemaVersion: Int = currentSchemaVersion,
+        sharedDefaults: NotificationRule? = nil
+    ) {
         self.records = records
+        self.sharedDefaults = sharedDefaults
         self.schemaVersion = schemaVersion
     }
 }
@@ -69,7 +76,7 @@ public extension NotificationSettings {
     }
 
     var resolvedGlobal: ResolvedRule {
-        NotificationRule.resolve(rule(for: .global).map { [$0] } ?? [])
+        NotificationRule.resolve((rule(for: .global).map { [$0] } ?? []) + sharedChain)
     }
 
     /// What a section resolves to, its own record included.
@@ -89,12 +96,16 @@ public extension NotificationSettings {
         conversations.count { $0.hasUnread && resolve(for: $0).countsInBadge }
     }
 
+    private var sharedChain: [NotificationRule] {
+        sharedDefaults.map { [$0] } ?? []
+    }
+
     private func chain(forSection section: SectionKey) -> [NotificationRule] {
         (rule(for: .section(section)).map { [$0] } ?? []) + chain(belowSection: section)
     }
 
     private func chain(belowSection section: SectionKey) -> [NotificationRule] {
         let preset = section == .meetChats ? [NotificationRule.meetChatsPreset] : []
-        return preset + (rule(for: .global).map { [$0] } ?? [])
+        return preset + (rule(for: .global).map { [$0] } ?? []) + sharedChain
     }
 }

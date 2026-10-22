@@ -6,7 +6,7 @@ import GRDB
 
 public extension SQLiteAccountRegistry {
     func policy(for account: AccountRecord) throws -> AccountPolicy {
-        try database.read { db in try Self.policy(for: account, in: db) }
+        try database.read { db in try Self.composedPolicy(for: account, in: db) }
     }
 
     func setPolicy(
@@ -16,15 +16,18 @@ public extension SQLiteAccountRegistry {
     ) throws -> AccountPolicy {
         guard settings.schemaVersion == NotificationSettings.currentSchemaVersion
         else { throw ServiceFailure.unsupportedOperation }
+        var settings = settings
+        settings.sharedDefaults = nil
         let bytes = try ServiceCodec.encode(settings)
         guard bytes.count <= 1024 * 1024
         else { throw ServiceFailure.frameTooLarge }
         guard Set(settings.records.map(\.scope)).count == settings.records.count
         else { throw ServiceFailure.invalidRequest }
         return try database.write { db in
-            let previous = try Self.policy(for: account, in: db)
-            guard previous.revision == expectedRevision,
-                  let revision = Int64(previous.revision) else { throw ServiceFailure.revisionConflict }
+            let previous = try Self.composedPolicy(for: account, in: db)
+            guard previous.revision == expectedRevision else { throw ServiceFailure.revisionConflict }
+            let own = try Self.policy(for: account, in: db)
+            guard let revision = Int64(own.revision) else { throw ServiceFailure.revisionConflict }
             guard revision < Int64.max else { throw ServiceFailure.overloaded }
             let next = revision + 1
             try db.execute(sql: """
@@ -37,7 +40,7 @@ public extension SQLiteAccountRegistry {
                 next,
                 bytes
             ])
-            return AccountPolicy(revision: String(next), settings: settings)
+            return try Self.composedPolicy(for: account, in: db)
         }
     }
 
@@ -48,6 +51,15 @@ public extension SQLiteAccountRegistry {
                 arguments: [account.principalID.rawValue, account.selfID.rawValue]
             )
         }
+    }
+
+    private static func composedPolicy(for account: AccountRecord, in db: Database) throws -> AccountPolicy {
+        let own = try policy(for: account, in: db)
+        let defaults = try defaultPolicy(for: account.principalID, in: db)
+        var settings = own.settings
+        settings.sharedDefaults = defaults.settings.rule(for: .global)
+        let revision = defaults.revision == "0" ? own.revision : own.revision + ":" + defaults.revision
+        return AccountPolicy(revision: revision, settings: settings)
     }
 
     private static func policy(for account: AccountRecord, in db: Database) throws -> AccountPolicy {

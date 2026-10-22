@@ -173,6 +173,7 @@ public enum SectionKey: Codable, Hashable, Sendable {
 /// inherit from the next level down, field by field (spec §2.1).
 public struct NotificationRule: Hashable, Sendable {
     public var delivery: Delivery?
+    public var sound: NotificationSound?
     public var showsPreview: Bool?
     public var showsUnread: Bool?
     public var countsInBadge: Bool?
@@ -189,6 +190,7 @@ public struct NotificationRule: Hashable, Sendable {
 
     public init(
         delivery: Delivery? = nil,
+        sound: NotificationSound? = nil,
         showsPreview: Bool? = nil,
         showsUnread: Bool? = nil,
         countsInBadge: Bool? = nil,
@@ -197,6 +199,7 @@ public struct NotificationRule: Hashable, Sendable {
         notifyAbout: NotifyAbout? = nil
     ) {
         self.delivery = delivery
+        self.sound = sound
         self.showsPreview = showsPreview
         self.showsUnread = showsUnread
         self.countsInBadge = countsInBadge
@@ -207,13 +210,14 @@ public struct NotificationRule: Hashable, Sendable {
 
     /// Nothing overridden - what Reset to Defaults and Unmute leave behind.
     public var isEmpty: Bool {
-        delivery == nil && showsPreview == nil && showsUnread == nil
+        delivery == nil && sound == nil && showsPreview == nil && showsUnread == nil
             && countsInBadge == nil && sharesTyping == nil && readReceipts == nil && notifyAbout == nil
     }
 }
 
 extension NotificationRule: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
+        case sound = "notificationSound"
         case delivery, showsPreview, showsUnread, countsInBadge, sharesTyping, readReceipts, notifyAbout
     }
 
@@ -236,6 +240,7 @@ extension NotificationRule: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
             delivery: container.decodeIfPresent(Delivery.self, forKey: .delivery),
+            sound: container.decodeIfPresent(NotificationSound.self, forKey: .sound),
             showsPreview: container.decodeIfPresent(Bool.self, forKey: .showsPreview),
             showsUnread: container.decodeIfPresent(Bool.self, forKey: .showsUnread),
             countsInBadge: container.decodeIfPresent(Bool.self, forKey: .countsInBadge),
@@ -253,6 +258,7 @@ extension NotificationRule: Codable {
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(delivery, forKey: .delivery)
+        try container.encodeIfPresent(sound, forKey: .sound)
         try container.encodeIfPresent(showsPreview, forKey: .showsPreview)
         try container.encodeIfPresent(showsUnread, forKey: .showsUnread)
         try container.encodeIfPresent(countsInBadge, forKey: .countsInBadge)
@@ -270,6 +276,7 @@ extension NotificationRule: Codable {
 /// ever see. `delivery` is never `.unknown`: resolution skips those.
 public struct ResolvedRule: Hashable, Sendable {
     public var delivery: Delivery
+    public var sound: NotificationSound
     public var showsPreview: Bool
     public var showsUnread: Bool
     public var countsInBadge: Bool
@@ -289,7 +296,8 @@ public struct ResolvedRule: Hashable, Sendable {
         delivery: Delivery, showsPreview: Bool, showsUnread: Bool,
         countsInBadge: Bool, readReceipts: Bool, notifyAbout: NotifyAbout = .allMessages,
         sharesTyping: Bool = false,
-        audibleDelivery: Delivery = .bannerAndSound
+        audibleDelivery: Delivery = .bannerAndSound,
+        sound: NotificationSound = .kibble
     ) {
         self.delivery = delivery
         self.showsPreview = showsPreview
@@ -299,6 +307,7 @@ public struct ResolvedRule: Hashable, Sendable {
         self.readReceipts = readReceipts
         self.notifyAbout = notifyAbout
         self.audibleDelivery = audibleDelivery
+        self.sound = sound
     }
 
     /// What applies when nobody has said otherwise (spec §2.4).
@@ -355,7 +364,8 @@ public extension NotificationRule {
             readReceipts: chain.lazy.compactMap(\.readReceipts).first ?? fallback.readReceipts,
             notifyAbout: chain.lazy.compactMap(\.notifyAbout).first(where: \.isKnown) ?? fallback.notifyAbout,
             sharesTyping: chain.lazy.compactMap(\.sharesTyping).first ?? fallback.sharesTyping,
-            audibleDelivery: audible
+            audibleDelivery: audible,
+            sound: chain.lazy.compactMap(\.sound).first ?? fallback.sound
         )
     }
 

@@ -19,7 +19,7 @@ enum MessageNotificationSound {
     }
 
     /// Both URLs are host-owned; tests supply an isolated Library directory.
-    static func install(source: URL, library: URL) throws {
+    static func install(source: URL, library: URL, filename: String = filename) throws {
         let sounds = library.appendingPathComponent("Sounds", isDirectory: true)
         let destination = sounds.appendingPathComponent(filename)
         let data = try Data(contentsOf: source)

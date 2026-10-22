@@ -168,8 +168,9 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     }
 
     private func route(_ request: ServiceRequest, context: ServiceSessionContext) async throws -> JSONValue {
-        if request.operation == GetServiceInfo.operation {
-            return try serviceInfo(request)
+        if [GetServiceInfo.operation, GetDefaultPolicy.operation, SetDefaultPolicy.operation]
+            .contains(request.operation) {
+            return try await metadata(request, context: context)
         }
         if request.operation == ListAccounts.operation {
             _ = try request.decodePayload(ListAccounts.self)

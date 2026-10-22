@@ -21,14 +21,14 @@ public final class SystemAccountHost {
     /// account signed in. Nothing was installed; the account still waits.
     public internal(set) var refusedSignIn: String?
     var service: ChatService?
-    private var registry: SQLiteAccountRegistry?
+    var registry: SQLiteAccountRegistry?
     private let providers = FixtureAccountProviders()
     public let usesGoogleAccounts: Bool
     let callBindings = NativeAccountCallBindings()
     var diagnostics: DiagnosticReportStore?
     var custody: LocalAccountCustody?
     var context: ServiceSessionContext?
-    private var deviceID = ServiceDeviceID("fixture-device")
+    var deviceID = ServiceDeviceID("fixture-device")
     private var active = false
     private var open = false
     private var minimized = false
@@ -42,6 +42,9 @@ public final class SystemAccountHost {
     private var notificationRouter: AccountNotificationRouter?
     private var notificationActions: ServiceNotificationActions?
     var clients: ServiceAccountSessionHost?
+    public internal(set) var defaultPolicy: DefaultPolicyModel?
+    public internal(set) var globalSidebar = SidebarPreferences()
+    public internal(set) var isDeletingUserData = false
     public private(set) var deviceNotificationPause: DeviceNotificationPause?
 
     public init(
@@ -70,6 +73,7 @@ public final class SystemAccountHost {
     }
 
     public func start() async {
+        guard !isDeletingUserData else { return }
         if let startupTask {
             await startupTask.value; return
         }
@@ -90,11 +94,7 @@ public final class SystemAccountHost {
         defer { starting = false }
         var acquired: (any ServiceOwnershipLease)?
         do {
-            let directory = try requestedDirectory ?? SystemLaunchServices.supportDirectory()
-                .appendingPathComponent(
-                    usesGoogleAccounts ? "Accounts" : "MultiAccountFixture",
-                    isDirectory: true
-                )
+            let directory = try serviceDirectory()
             let ownership = try FileServiceOwnership(file: directory.appendingPathComponent("service.lock"))
             let lease = try ownership.acquire()
             acquired = lease
@@ -123,6 +123,7 @@ public final class SystemAccountHost {
             workspace.setDeviceActive(deviceActive)
             self.workspace = workspace
             workspace.start()
+            await loadDefaults(service: service)
             error = nil
         } catch {
             guard generation == self.generation else { acquired?.release(); return }
@@ -134,7 +135,24 @@ public final class SystemAccountHost {
         }
     }
 
+    private func serviceDirectory() throws -> URL {
+        let directory = try requestedDirectory ?? SystemLaunchServices.supportDirectory()
+            .appendingPathComponent(
+                usesGoogleAccounts ? "Accounts" : "MultiAccountFixture",
+                isDirectory: true
+            )
+        if UserDataErasure(directory: directory.deletingLastPathComponent()).isPending {
+            throw ServiceFailure.accountCleanupPending
+        }
+        return directory
+    }
+
     private func reportStartFailure() {
+        if let root = requestedDirectory?.deletingLastPathComponent()
+            ?? (try? SystemLaunchServices.supportDirectory()), UserDataErasure(directory: root).isPending {
+            error = "User data deletion is unfinished. Open Settings and delete all user data again."
+            return
+        }
         error = usesGoogleAccounts
             ? "Accounts could not start. Your login and data are preserved. "
             + "Check the network and Keychain, then retry."
@@ -241,6 +259,7 @@ public final class SystemAccountHost {
 
 public extension SystemAccountHost {
     func addAccount() async {
+        guard !isDeletingUserData else { return }
         if usesGoogleAccounts {
             await beginSignIn()
             return
@@ -257,12 +276,14 @@ public extension SystemAccountHost {
     }
 
     func setEnabled(_ enabled: Bool, account id: String) async {
+        guard !isDeletingUserData else { return }
         do {
             try await workspace?.setEnabled(enabled, account: ConnectedAccountID(id))
         } catch { self.error = "The account could not change state. Try again." }
     }
 
     func retryAccount(_ id: String) async {
+        guard !isDeletingUserData else { return }
         if usesGoogleAccounts,
            workspace?.accounts.first(where: { $0.id.rawValue == id })?.authenticationState == "required" {
             await beginSignIn(replacing: ConnectedAccountID(id))
@@ -336,6 +357,8 @@ public extension SystemAccountHost {
 
     func stop() async {
         generation = UUID()
+        await defaultPolicy?.stop()
+        defaultPolicy = nil
         startupTask?.cancel()
         await startupTask?.value
         startupTask = nil
@@ -357,24 +380,8 @@ public extension SystemAccountHost {
         context = nil
     }
 
-    private var principalID: ServicePrincipalID {
+    var principalID: ServicePrincipalID {
         ServicePrincipalID(usesGoogleAccounts ? "local-owner" : "fixture-owner")
-    }
-
-    private func seed(_ registry: SQLiteAccountRegistry, directory: URL) throws {
-        let marker = directory.appendingPathComponent("fixture.seeded")
-        guard !FileManager.default.fileExists(atPath: marker.path) else { return }
-        if try registry.accounts().isEmpty {
-            for (id, identity, label) in [
-                ("personal", Acme.alex, "Personal demo"), ("studio", Acme.maya, "Studio demo")
-            ] {
-                try registry.save(AccountRecord(
-                    id: ConnectedAccountID(id), principalID: ServicePrincipalID("fixture-owner"),
-                    selfID: identity, label: label, credentialGeneration: "fixture"
-                ))
-            }
-        }
-        try Data().write(to: marker, options: .atomic)
     }
 }
 

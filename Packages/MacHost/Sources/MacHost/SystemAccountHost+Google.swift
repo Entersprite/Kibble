@@ -31,7 +31,8 @@ extension SystemAccountHost {
     }
 
     func beginSignIn(replacing account: ConnectedAccountID? = nil) async {
-        guard usesGoogleAccounts, let workspace, let service, let custody, let context else { return }
+        guard !isDeletingUserData, usesGoogleAccounts, let workspace, let service, let custody,
+              let context else { return }
         if let captureWindow {
             captureWindow.show(); return
         }

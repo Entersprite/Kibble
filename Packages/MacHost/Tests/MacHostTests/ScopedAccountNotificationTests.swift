@@ -181,6 +181,44 @@ struct ScopedAccountNotificationTests {
             .accountScope(in: [UserNotificationDelivery.accountScopeKey: Data("broken".utf8)]) == nil)
     }
 
+    @Test func sharedSoundCrossesTheSerializedServiceAndPreservesAnAccountOverride() async throws {
+        let center = NativeAccountNotificationFixture()
+        let host = SystemAccountFixtureHost(
+            directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            notifications: center
+        )
+        await host.start()
+        let workspace = try #require(host.workspace)
+        try await ready(workspace)
+        let first = try #require(workspace.accounts.first)
+        let second = try #require(workspace.accounts.last)
+        let firstEnvironment = try #require(workspace.environment(for: first.id))
+        firstEnvironment.settings.update(.init(sound: .kibble), for: .global)
+        try await ready(workspace)
+        let defaults = try #require(host.defaultPolicy)
+        defaults.update(.init(sound: .system))
+        try await wait {
+            workspace.accounts.allSatisfy {
+                let environment = workspace.environment(for: $0.id)
+                return environment?.isPolicyReady == true && environment?.settings.settings.sharedDefaults?
+                    .sound == .system
+            }
+        }
+        await host.simulateMessage(first.id.rawValue, text: "Account override")
+        await host.simulateMessage(second.id.rawValue, text: "Shared sound")
+        try await wait { await center.posted.count == 2 }
+        let delivered = await center.posted
+        #expect(delivered.first { $0.scope.account == first.id }?.message.sound == .kibble)
+        #expect(delivered.first { $0.scope.account == second.id }?.message.sound == .system)
+        defaults.update(.init())
+        try await wait {
+            workspace.environment(for: second.id)?.isPolicyReady == true &&
+                workspace.environment(for: second.id)?.settings.settings.resolvedGlobal.sound == .kibble
+        }
+        #expect(firstEnvironment.settings.rule(for: .global).sound == .kibble)
+        await host.stop()
+    }
+
     private func ready(_ workspace: AccountWorkspace) async throws {
         try await wait {
             workspace.accounts.count == 2 && workspace.accounts.allSatisfy {

@@ -135,3 +135,30 @@ extension PersonalPreferencesTests {
         await next.signOut()
     }
 }
+
+extension PersonalPreferencesTests {
+    @Test func globalSidebarDefaultsRemainLiveBesideAnAccountFieldOverride() async throws {
+        let preferences = try defaults()
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services, preferences: preferences)
+        await environment.start()
+        await identify(alice, in: environment, services: services)
+        var local = environment.sidebarPreferences
+        var space = try #require(local.orderedSections.first { $0.id == "space" })
+        space.maximumItems = 25
+        local.update(space)
+        environment.updateSidebar(local)
+        let shared = SidebarPreferences(sections: [.init(id: "space", isVisible: false, maximumItems: 40)])
+        AppEnvironment.setGlobalSidebar(shared, in: preferences)
+        environment.refreshPersonalPreferences()
+        let result = try #require(environment.sidebarPreferences.orderedSections.first { $0.id == "space" })
+        #expect(result.maximumItems == 25)
+        #expect(!result.isVisible)
+        environment.resetSidebar()
+        let reset = try #require(environment.sidebarPreferences.orderedSections.first { $0.id == "space" })
+        #expect(reset.maximumItems == 40)
+        #expect(!reset.isVisible)
+        #expect(environment.skinTone == .none)
+        await environment.signOut()
+    }
+}

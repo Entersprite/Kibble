@@ -10,6 +10,7 @@ import MetricKit
 public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @unchecked Sendable {
     private let directory: URL?
     private let lock = NSLock()
+    private var suspended = false
     private let maxReports = 20
     private var reports: [SanitizedDiagnostic] = []
     private var conversationActions: [ConversationActionRecord] = []
@@ -49,7 +50,22 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         }
     }
 
+    func clearAndSuspend() {
+        lock.lock()
+        suspended = true
+        reports = []
+        conversationActions = []
+        readStateFailures = []
+        historyResponses = []
+        memorySamples = []
+        lock.unlock()
+        MXMetricManager.shared.remove(self)
+    }
+
     public func start() {
+        lock.lock()
+        suspended = false
+        lock.unlock()
         MXMetricManager.shared.add(self)
     }
 
@@ -81,6 +97,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         }
         guard !incoming.isEmpty else { return }
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         reports = Array((reports + incoming).suffix(maxReports))
         if let directory, let data = try? JSONEncoder().encode(reports) {
             try? data.write(to: directory.appendingPathComponent("diagnostics.json"), options: .atomic)
@@ -91,6 +108,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
     public func recordConversationAction(_ observation: ConversationActionObservation) {
         let record = ConversationActionRecord(recordedAt: Date(), request: observation)
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         conversationActions = Array((conversationActions + [record]).suffix(50))
         if let directory, let data = try? JSONEncoder().encode(conversationActions) {
             try? data.write(
@@ -108,6 +126,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
             requestMinusWorldHeadSeconds: failure.requestMinusWorldHeadSeconds
         )
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         readStateFailures = Array((readStateFailures + [record]).suffix(50))
         if let directory, let data = try? JSONEncoder().encode(readStateFailures) {
             try? data.write(
@@ -127,6 +146,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
             worldHeadAgeSeconds: response.worldHeadAgeSeconds
         )
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         historyResponses = Array((historyResponses + [record]).suffix(50))
         if let directory, let data = try? JSONEncoder().encode(historyResponses) {
             try? data.write(
@@ -139,6 +159,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
     public func sampleMemory() {
         guard let bytes = MemoryFootprint.currentBytes() else { return }
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         memorySamples = Array((memorySamples + [MemorySample(recordedAt: Date(), footprintBytes: bytes)])
             .suffix(240))
         if let directory, let data = try? JSONEncoder().encode(memorySamples) {

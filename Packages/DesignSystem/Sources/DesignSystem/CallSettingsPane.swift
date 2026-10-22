@@ -73,15 +73,25 @@ public struct CallSettingsActions {
 /// window does when a call ends, and call sign-in. Device-local, since it
 /// depends on this Mac's permissions.
 public struct CallSettingsPane: View {
+    private let reset: (() -> Void)?
+    private let resetMessage: String
     private let state: CallSettingsState
     private let actions: CallSettingsActions
     private let setUpCalls: (() -> Void)?
 
     /// `setUpCalls` is offered only while the host can repair call sign-in.
-    public init(state: CallSettingsState, actions: CallSettingsActions, setUpCalls: (() -> Void)? = nil) {
+    public init(
+        state: CallSettingsState,
+        actions: CallSettingsActions,
+        setUpCalls: (() -> Void)? = nil,
+        reset: (() -> Void)? = nil,
+        resetMessage: String = "Reset these settings to their defaults? This cannot be undone."
+    ) {
         self.state = state
         self.actions = actions
         self.setUpCalls = setUpCalls
+        self.reset = reset
+        self.resetMessage = resetMessage
     }
 
     public var body: some View {
@@ -130,6 +140,11 @@ public struct CallSettingsPane: View {
                     Button("Set Up Calls…", action: setUpCalls)
                 } footer: {
                     Text("Sign in for calls again while keeping Chat signed in.")
+                }
+            }
+            if let reset {
+                Section {
+                    SettingsResetButton(message: resetMessage, action: reset)
                 }
             }
         }

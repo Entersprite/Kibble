@@ -80,6 +80,17 @@ struct KeychainSecretStorage: SecretStorage {
         try delete(account: account, useDataProtection: false)
     }
 
+    /// Deletes only this app's exact credential service, including abandoned
+    /// account generations and staged sign-ins that have no registry row.
+    func deleteAll() throws {
+        var query = Self.baseQuery(service: service, account: "")
+        query.removeValue(forKey: kSecAttrAccount as String)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw SecretStorageUnavailable(status: Int(status))
+        }
+    }
+
     // MARK: - The same three operations, naming which keychain
 
     /// Not part of `SecretStorage`: only code that already holds a concrete

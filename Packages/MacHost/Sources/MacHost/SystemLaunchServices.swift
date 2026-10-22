@@ -317,7 +317,7 @@ public final class SystemLaunchServices: LaunchServices {
     /// `Application Support/Kibble` inside the sandbox container. Until
     /// session 53 it was `GChat`, in the `com.entersprite.gchat` container;
     /// `scripts/migrate-container.sh` copies an install's data across.
-    public static func supportDirectory() throws -> URL {
+    public nonisolated static func supportDirectory() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,

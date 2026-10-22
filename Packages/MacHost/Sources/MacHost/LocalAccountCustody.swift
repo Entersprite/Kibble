@@ -11,6 +11,7 @@ public actor LocalAccountCustody: AccountLinkCustody {
     private let namespace: String
     private var stores: [String: KeychainCredentialStore] = [:]
     private var retiredKeys: Set<String> = []
+    private var isRetired = false
     private var candidates: [AccountLinkID: VerifiedProviderSession] = [:]
 
     public init(storage: any SecretStorage, instanceID: ServiceInstanceID) throws {
@@ -24,6 +25,7 @@ public actor LocalAccountCustody: AccountLinkCustody {
 
     public func verify(_ link: AccountLinkRecord) async throws -> VerifiedLinkIdentity {
         let candidate = try await staging(link).verify()
+        guard !isRetired else { throw SessionCustodyError.sessionChanged }
         candidates[link.id] = candidate
         return VerifiedLinkIdentity(selfID: candidate.selfID, label: "Google account")
     }
@@ -76,6 +78,27 @@ public actor LocalAccountCustody: AccountLinkCustody {
         try await generationStore(account: account, generation: generation).installedIdentity()
     }
 
+    /// Fences every retained capture before whole-installation erasure. New
+    /// handles on this retired custody object are refused too.
+    public func retireAll() async throws {
+        isRetired = true
+        candidates = [:]
+        let retained = stores
+        var failure: (any Error)?
+        for (key, store) in retained {
+            retiredKeys.insert(key)
+            do { try await store.retire() } catch {
+                if failure == nil {
+                    failure = error
+                }
+            }
+            stores[key] = nil
+        }
+        if let failure {
+            throw failure
+        }
+    }
+
     private func staging(_ link: AccountLinkRecord) throws -> KeychainCredentialStore {
         try store(key: stagingKey(link), generation: nil)
     }
@@ -96,6 +119,7 @@ public actor LocalAccountCustody: AccountLinkCustody {
     }
 
     private func store(key: String, generation: String?) throws -> KeychainCredentialStore {
+        guard !isRetired else { throw SessionCustodyError.sessionChanged }
         guard !retiredKeys.contains(key) else { throw SessionCustodyError.sessionChanged }
         if let existing = stores[key] {
             return existing

@@ -75,6 +75,28 @@ public final class CallSettingsModel {
         )
     }
 
+    public func reset() {
+        if let customFile {
+            try? FileManager.default.removeItem(at: customFile)
+        }
+        for key in [
+            Self.panelKey,
+            Self.ringKey,
+            Self.closeKey,
+            Self.ringtoneKey,
+            Self.ringtoneNameKey,
+            Self.ringtoneFileKey
+        ] {
+            defaults.removeObject(forKey: key)
+        }
+        showsPanel = true
+        rings = true
+        closesFinishedCalls = true
+        ringtone = .kibble
+        customRingtoneName = nil
+        ringtoneNotice = nil
+    }
+
     /// What a call rings with: the chosen file while Kibble's copy is there,
     /// otherwise Kibble's own.
     var ringtoneURL: URL? {

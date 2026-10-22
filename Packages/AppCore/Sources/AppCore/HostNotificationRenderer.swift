@@ -14,7 +14,8 @@ public enum HostNotificationRenderer {
                 uniquingKeysWith: { _, latest in latest }
             ),
             me: post.me, presentation: .init(
-                isPassive: post.isPassive, playsSound: post.playsSound, showsPreview: post.showsPreview
+                isPassive: post.isPassive, playsSound: post.playsSound, showsPreview: post.showsPreview,
+                sound: post.sound ?? .kibble
             ), offersMarkRead: post.offersMarkRead
         )
         if let accountLabel {

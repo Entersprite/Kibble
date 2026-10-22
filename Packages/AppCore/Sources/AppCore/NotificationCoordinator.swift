@@ -284,7 +284,7 @@ final class NotificationCoordinator {
             isPassive: presentation.isPassive,
             playsSound: presentation.playsSound,
             offersMarkRead: offersMarkRead,
-            isReply: message.isReply
+            isReply: message.isReply, sound: presentation.sound
         )
     }
 

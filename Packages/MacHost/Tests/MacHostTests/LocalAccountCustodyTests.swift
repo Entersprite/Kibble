@@ -84,6 +84,23 @@ struct LocalAccountCustodyTests {
         #expect(secrets.count == 2)
     }
 
+    @Test func wholeInstallationRetirementFencesEveryRetainedCaptureAndFutureHandle() async throws {
+        let secrets = Secrets()
+        let custody = try LocalAccountCustody(storage: secrets, instanceID: .init("installation"))
+        let first = try await custody.captureStore(for: link("one"))
+        let second = try await custody.captureStore(for: link("two"))
+        #expect(try await capture().save(to: first))
+        #expect(try await capture().save(to: second))
+        try await custody.retireAll()
+        #expect(secrets.isEmpty)
+        await #expect(throws: SessionCustodyError.sessionChanged) { try await capture().save(to: first) }
+        await #expect(throws: SessionCustodyError.sessionChanged) { try await capture().save(to: second) }
+        await #expect(throws: SessionCustodyError.sessionChanged) {
+            try await custody.captureStore(for: link("new"))
+        }
+        #expect(secrets.isEmpty)
+    }
+
     @Test func aMissingCommittedCredentialRequestsAccountAuthentication() async throws {
         let custody = try LocalAccountCustody(storage: Secrets(), instanceID: .init("installation"))
         let account = AccountRecord(

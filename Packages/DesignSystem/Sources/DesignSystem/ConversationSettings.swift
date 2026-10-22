@@ -62,18 +62,12 @@ public struct ConversationNotificationSheet: View {
     }
 }
 
-/// The pages Settings › Notifications drills into besides a section.
-enum NotificationSettingsPage: Hashable {
-    /// Every conversation with its own settings.
-    case conversations
-}
-
-/// Every conversation with its own settings, with Reset, drilling in to the
-/// same editor (spec §4). A level down from Settings › Notifications, whose
-/// navigation stack owns the destinations.
+/// Every conversation with its own settings, drilling in to the same editor.
+/// The Notifications pane owns navigation independently of the Settings tabs.
 struct ConversationRuleList: View {
     let state: NotificationSettingsState
-    let actions: NotificationSettingsActions
+    let focus: FocusState<NotificationSettingsFocus?>.Binding
+    let open: (Conversation.ID) -> Void
 
     /// Split from the `Text` call so the line stays under lint's 110-column
     /// limit rather than disabling the rule.
@@ -88,25 +82,19 @@ struct ConversationRuleList: View {
             } else {
                 Section {
                     ForEach(state.conversations) { conversation in
-                        HStack {
-                            NavigationLink(value: conversation.id) {
-                                LabeledContent(conversation.title) {
-                                    Text(RuleSummary.describe(
-                                        rule: conversation.rule, resolved: conversation.resolved
-                                    ))
-                                }
-                            }
-                            Button("Reset") {
-                                actions.updateConversation(conversation.id, NotificationRule())
-                            }
-                        }
+                        NotificationPageLink(
+                            title: conversation.title,
+                            summary: RuleSummary.describe(
+                                rule: conversation.rule, resolved: conversation.resolved
+                            )
+                        ) { open(conversation.id) }
+                            .focused(focus, equals: .link(.conversation(conversation.id)))
                     }
                 }
             }
         }
         .formStyle(.grouped)
         .disabled(!state.isAvailable)
-        .navigationTitle("Conversations")
     }
 
     /// The Notifications pane's row value: how many conversations have their own settings.
@@ -129,7 +117,7 @@ struct ConversationRuleDestination: View {
                 title: conversation.title, rule: conversation.rule,
                 inherited: conversation.inherited,
                 update: { actions.updateConversation(id, $0) }
-            )
+            ).form
         } else {
             ContentUnavailableView(
                 "Back to Defaults",

@@ -154,7 +154,7 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, A
             content.subtitle = subtitle
         }
         content.body = notification.body
-        content.sound = Self.messageSound(playsSound: notification.playsSound)
+        content.sound = Self.messageSound(playsSound: notification.playsSound, sound: notification.sound)
         content.interruptionLevel = notification.isPassive ? .passive : .active
         // Groups a conversation's notifications together, and is what
         // `withdraw` filters on.
@@ -226,8 +226,10 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, A
         notification.offersMarkRead ? categoryID : withoutMarkReadCategoryID
     }
 
-    static func messageSound(playsSound: Bool) -> UNNotificationSound? {
-        playsSound ? MessageNotificationSound.sound : nil
+    static func messageSound(
+        playsSound: Bool, sound: NotificationSound = .kibble
+    ) -> UNNotificationSound? {
+        playsSound ? NotificationSoundLibrary.systemSound(sound) : nil
     }
 
     static func micros(_ date: Date) -> Int64 {

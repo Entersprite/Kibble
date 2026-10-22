@@ -6,12 +6,21 @@ import SwiftUI
 /// group per shown section for how it sorts and how much of it shows.
 /// Favorites is not in the order: it always comes first and is never hidden.
 public struct SidebarSettingsPane: View {
+    private let reset: (() -> Void)?
+    private let resetMessage: String
     let preferences: SidebarPreferences
     let update: (SidebarPreferences) -> Void
 
-    public init(preferences: SidebarPreferences, update: @escaping (SidebarPreferences) -> Void) {
+    public init(
+        preferences: SidebarPreferences,
+        update: @escaping (SidebarPreferences) -> Void,
+        reset: (() -> Void)? = nil,
+        resetMessage: String = "Reset these settings to their defaults? This cannot be undone."
+    ) {
         self.preferences = preferences
         self.update = update
+        self.reset = reset
+        self.resetMessage = resetMessage
     }
 
     private var sections: [SidebarSectionPreference] {
@@ -57,6 +66,11 @@ public struct SidebarSettingsPane: View {
                             }
                         }
                     }
+                }
+            }
+            if let reset {
+                Section {
+                    SettingsResetButton(message: resetMessage, action: reset)
                 }
             }
         }

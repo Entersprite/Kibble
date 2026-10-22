@@ -14,7 +14,7 @@ import Foundation
 /// or not.
 @MainActor
 public final class MacAppDelegate: NSObject, NSApplicationDelegate {
-    private let legacyEnvironment: AppEnvironment
+    let legacyEnvironment: AppEnvironment
     public let accountHost: SystemAccountHost?
     public var environment: AppEnvironment {
         accountHost?.workspace?.selectedEnvironment ?? legacyEnvironment
@@ -72,6 +72,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     var callResponseTask: Task<Void, Never>?
     var callWindowHost: AudioCallWindowHost?
     var terminationRequested = false
+    var deletingUserData = false
     /// Filters the minimise observers to the main window, which the shell's
     /// `reportsMainWindow(to:)` names.
     let mainWindowMinimising: MainWindowMinimising
@@ -160,13 +161,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         startMemoryMonitoring()
         let environment = legacyEnvironment
         let fixture = accountHost
-        Task {
-            if let fixture {
-                await fixture.start()
-            } else {
-                await environment.start()
-            }
-        }
+        startSession()
 
         // Read once so a launch that is already frontmost says so; every
         // later value is a real transition (`AppActivityMonitor`'s doc).
@@ -210,7 +205,28 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func startAccountCalls() {
+    private func startSession() {
+        let environment = legacyEnvironment
+        let fixture = accountHost
+        Task {
+            if let directory = try? SystemLaunchServices.supportDirectory(),
+               UserDataErasure(directory: directory).isPending {
+                do {
+                    try await self.deleteAllUserData()
+                } catch {
+                    fixture?.error = "User data deletion is unfinished. Open Settings and try again."
+                }
+                return
+            }
+            if let fixture {
+                await fixture.start()
+            } else {
+                await environment.start()
+            }
+        }
+    }
+
+    func startAccountCalls() {
         if let host = accountHost, host.usesGoogleAccounts {
             accountCalls = NativeAccountCallCoordinator(
                 host: host, settings: callSettings, notifications: notifications

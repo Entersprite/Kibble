@@ -144,6 +144,16 @@ public final class UpdateSettingsModel {
         }
     }
 
+    public func reset() {
+        for key in [Self.frequencyKey, Self.installKey, Self.launchKey, Self.legacyAutomaticKey] {
+            defaults.removeObject(forKey: key)
+        }
+        checksAtLaunch = true
+        frequency = .daily
+        automaticallyInstalls = true
+        apply()
+    }
+
     public func checkNow() {
         guard canCheck else { return }
         updater?.checkNow()

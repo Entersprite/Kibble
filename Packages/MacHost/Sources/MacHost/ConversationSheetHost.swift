@@ -39,6 +39,7 @@ public struct ConversationSheetHost: View {
             state: environment.conversationRuleState(for: id),
             update: { environment.settings.update($0, for: .conversation(id)) }
         )
+        .environment(\.notificationSoundActions, NotificationSoundLibrary.actions)
         .onChange(of: environment.canEditNotificationRules) { _, canEdit in
             if !canEdit {
                 dismiss()

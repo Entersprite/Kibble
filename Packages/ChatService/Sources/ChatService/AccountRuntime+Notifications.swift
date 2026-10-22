@@ -89,7 +89,8 @@ extension AccountRuntime {
             accountLabel: record.label, isPassive: presentation.isPassive,
             playsSound: presentation.playsSound,
             showsPreview: presentation.showsPreview,
-            offersMarkRead: capabilities.canMarkRead && rule.readReceipts && !message.isReply
+            offersMarkRead: capabilities.canMarkRead && rule.readReceipts && !message.isReply,
+            sound: presentation.sound
         )), id: id)
     }
 

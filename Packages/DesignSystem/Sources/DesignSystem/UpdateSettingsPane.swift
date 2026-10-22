@@ -105,12 +105,21 @@ public struct UpdateSettingsActions {
 /// waiting for a restart, and how Kibble checks on its own. The update window
 /// itself is the updater's, not this pane's.
 public struct UpdateSettingsPane: View {
+    private let reset: (() -> Void)?
+    private let resetMessage: String
     private let state: UpdateSettingsState
     private let actions: UpdateSettingsActions
 
-    public init(state: UpdateSettingsState, actions: UpdateSettingsActions) {
+    public init(
+        state: UpdateSettingsState,
+        actions: UpdateSettingsActions,
+        reset: (() -> Void)? = nil,
+        resetMessage: String = "Reset these settings to their defaults? This cannot be undone."
+    ) {
         self.state = state
         self.actions = actions
+        self.reset = reset
+        self.resetMessage = resetMessage
     }
 
     public var body: some View {
@@ -161,6 +170,11 @@ public struct UpdateSettingsPane: View {
                 .disabled(!state.offersAutomaticInstall)
             } footer: {
                 Text("Downloaded updates install when you quit Kibble, or right away with Restart to Update.")
+            }
+            if let reset {
+                Section {
+                    SettingsResetButton(message: resetMessage, action: reset)
+                }
             }
         }
         .formStyle(.grouped)

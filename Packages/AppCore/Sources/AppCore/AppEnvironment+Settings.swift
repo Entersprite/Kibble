@@ -60,7 +60,7 @@ public extension AppEnvironment {
             inherited[section] = current.inherited(bySection: section)
             resolved[section] = current.resolvedSection(section)
         }
-        return NotificationSettingsState(
+        var state = NotificationSettingsState(
             isAvailable: settings.account != nil && (policyStatus?.canEdit ?? (policyReplica == nil)),
             globalRule: current.rule(for: .global) ?? NotificationRule(),
             global: current.resolvedGlobal,
@@ -71,10 +71,13 @@ public extension AppEnvironment {
             pauseStatus: pauseStatus,
             conversations: current.customizedConversations.map(conversationRuleState(for:))
         )
+        state.inheritedGlobal = NotificationRule.resolve(current.sharedDefaults.map { [$0] } ?? [])
+        return state
     }
 
     func notificationSettingsActions(openSystemSettings: (() -> Void)?) -> NotificationSettingsActions {
         NotificationSettingsActions(
+            reset: { [weak self] in self?.settings.resetAll() },
             updateGlobal: { [weak self] in self?.settings.update($0, for: .global) },
             updateSection: { [weak self] section, rule in
                 self?.settings.update(rule, for: .section(section))

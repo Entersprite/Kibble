@@ -15,6 +15,8 @@ struct KibbleSettings: View {
     @State private var account: String?
     @State private var signingOutAccount: String?
     @State private var removingAccount: String?
+    @State private var deletingData = false
+    @State private var deletionError: String?
 
     private var host: SystemAccountHost? {
         appDelegate.accountHost
@@ -22,59 +24,60 @@ struct KibbleSettings: View {
 
     var body: some View {
         TabView(selection: selection) {
-            if let host, let workspace = host.workspace {
+            if let host {
                 Tab("Accounts", systemImage: "person.2", value: SettingsPane.accounts) {
                     AccountsSettingsPane(
-                        state: workspace.accountPanelState(scene: nil), actions: accountActions(host)
+                        state: host.workspace?.accountPanelState(scene: nil) ?? AccountPanelState(
+                            accounts: [],
+                            selectedID: nil,
+                            scene: nil
+                        ),
+                        actions: accountActions(host),
+                        reset: deleteAllData,
+                        resetMessage: Self.deletionMessage
                     )
                     .frame(width: 560, height: 420)
                 }
             }
             Tab("Notifications", systemImage: "bell.badge", value: SettingsPane.notifications) {
-                scoped {
+                scoped(showsHeader: false) {
                     NotificationSettingsPane(
                         state: notificationState,
-                        actions: environment.notificationSettingsActions(
-                            openSystemSettings: { SystemNotificationSettings.open() }
-                        )
+                        actions: notificationActions
                     )
                     .frame(width: 560, height: 540)
                 }
             }
             Tab("Calls", systemImage: "phone", value: SettingsPane.calls) {
-                SettingsAppWide(isShared: isShared) {
-                    CallSettingsPane(
-                        state: appDelegate.callSettings.state,
-                        actions: appDelegate.callSettings.actions,
-                        setUpCalls: appDelegate.canSetUpCalls ? { appDelegate.setUpCalls() } : nil
-                    )
-                    .frame(width: 560, height: 500)
-                }
+                CallSettingsPane(
+                    state: appDelegate.callSettings.state,
+                    actions: appDelegate.callSettings.actions,
+                    setUpCalls: appDelegate.canSetUpCalls ? { appDelegate.setUpCalls() } : nil,
+                    reset: { appDelegate.callSettings.reset() }
+                )
+                .frame(width: 560, height: 500)
                 .onAppear { appDelegate.callSettings.refreshFocusAccess() }
             }
             Tab("Sidebar", systemImage: "sidebar.left", value: SettingsPane.sidebar) {
                 scoped {
-                    SidebarSettingsPane(
-                        preferences: environment.sidebarPreferences,
-                        update: { [environment] in environment.updateSidebar($0) }
-                    )
-                    .frame(width: 560, height: 540)
+                    sidebarPane
+                        .frame(width: 560, height: 540)
                 }
             }
             Tab("Downloads", systemImage: "arrow.down.circle", value: SettingsPane.downloads) {
-                SettingsAppWide(isShared: isShared) {
-                    DownloadSettingsPane(
-                        state: appDelegate.environment.downloadSettingsState,
-                        actions: appDelegate.environment.downloadSettingsActions
-                    )
-                    .frame(width: 560, height: 220)
-                }
+                DownloadSettingsPane(
+                    state: appDelegate.environment.downloadSettingsState,
+                    actions: appDelegate.environment.downloadSettingsActions,
+                    reset: appDelegate.environment.downloadSettingsActions.useDefault
+                )
+                .frame(width: 560, height: 220)
             }
             Tab("Updates", systemImage: "arrow.triangle.2.circlepath", value: SettingsPane.updates) {
-                SettingsAppWide(isShared: isShared) {
-                    UpdateSettingsPane(state: appDelegate.updates.state, actions: appDelegate.updates.actions)
-                        .frame(width: 560, height: 420)
-                }
+                UpdateSettingsPane(
+                    state: appDelegate.updates.state, actions: appDelegate.updates.actions,
+                    reset: { appDelegate.updates.reset() }
+                )
+                .frame(width: 560, height: 420)
             }
             // Under the account host, Accounts lists every account with its
             // own Sign Out…, and Export Diagnostics… is in the Help menu.
@@ -88,7 +91,26 @@ struct KibbleSettings: View {
             }
         }
         // Pinned once, when Settings opens: the account the main window showed then.
-        .onAppear { account = host?.workspace?.selectedID?.rawValue }
+        .onAppear {
+            account = host?.workspace?.selectedID?.rawValue
+            Task { await host?.defaultPolicy?.load() }
+        }
+        .environment(\.notificationSoundActions, NotificationSoundLibrary.actions)
+        .disabled(deletingData)
+        .overlay {
+            if deletingData {
+                ProgressView("Deleting User Data…").padding()
+            }
+        }
+        .alert("Couldn’t Delete All User Data", isPresented: Binding(
+            get: { deletionError != nil }, set: {
+                if !$0 {
+                    deletionError = nil
+                }
+            }
+        )) {
+            Button("OK") { deletionError = nil }
+        } message: { Text(deletionError ?? "") }
         .accountConfirmations(signingOut: $signingOutAccount, removing: $removingAccount, host: host)
     }
 
@@ -105,7 +127,7 @@ struct KibbleSettings: View {
     /// The tabs `body` draws, in the same conditions.
     private var shownPanes: [SettingsPane] {
         var panes: [SettingsPane] = [.notifications, .calls, .sidebar, .downloads, .updates]
-        if host?.workspace != nil {
+        if host != nil {
             panes.append(.accounts)
         }
         if host == nil {
@@ -114,7 +136,7 @@ struct KibbleSettings: View {
         return panes
     }
 
-    /// Several accounts are connected, so the app-wide panes say they apply to all.
+    /// Whether the shared notification pause covers multiple connected accounts.
     private var isShared: Bool {
         (host?.workspace?.accounts.count ?? 0) > 1
     }
@@ -122,7 +144,14 @@ struct KibbleSettings: View {
     /// The pinned account's rules, and whether the Mac-wide pause beside them
     /// covers other accounts too.
     private var notificationState: NotificationSettingsState {
-        var state = environment.notificationSettingsState
+        var state: NotificationSettingsState
+        if account == nil, let host {
+            state = host.defaultPolicy?.settingsState(devicePause: host.deviceNotificationPause)
+                ?? NotificationSettingsState()
+            state.editsSharedDefaults = true
+        } else {
+            state = environment.notificationSettingsState
+        }
         state.pauseIsShared = isShared
         return state
     }
@@ -135,16 +164,65 @@ struct KibbleSettings: View {
         return pinned
     }
 
-    private func scoped(@ViewBuilder _ content: () -> some View) -> some View {
+    private func scoped(showsHeader: Bool = true, @ViewBuilder _ content: () -> some View) -> some View {
         let workspace = host?.workspace
         let labels = workspace?.accountLabels ?? [:]
         let choices = (workspace?.accounts ?? []).map { summary in
             SettingsAccountChoice(id: summary.id.rawValue, label: labels[summary.id] ?? summary.label)
         }
-        let available = workspace == nil || workspace?.accounts.first(where: { $0.id.rawValue == account })
+        let available = workspace == nil || account == nil || workspace?.accounts
+            .first(where: { $0.id.rawValue == account })
             .map { workspace?.environment(for: $0.id) != nil } == true
-        return SettingsAccountScope(choices: choices, selection: $account, isAvailable: available) {
+        return SettingsAccountScope(
+            choices: choices, selection: $account, isAvailable: available, showsHeader: showsHeader
+        ) {
             content()
+        }
+    }
+
+    private var notificationActions: NotificationSettingsActions {
+        if account == nil, let model = host?.defaultPolicy {
+            return model.settingsActions(
+                openSystemSettings: { SystemNotificationSettings.open() },
+                devicePause: host?.deviceNotificationPause
+            )
+        }
+        return environment
+            .notificationSettingsActions(openSystemSettings: { SystemNotificationSettings.open() })
+    }
+
+    @ViewBuilder private var sidebarPane: some View {
+        if account == nil, let host {
+            SidebarSettingsPane(
+                preferences: host.globalSidebar, update: { host.updateGlobalSidebar($0) },
+                reset: { host.updateGlobalSidebar(nil) },
+                resetMessage: "Reset global sidebar defaults? Account overrides are kept. "
+                    + "This cannot be undone."
+            )
+        } else {
+            SidebarSettingsPane(
+                preferences: environment.sidebarPreferences,
+                update: { [environment] in environment.updateSidebar($0) },
+                reset: { [environment] in environment.resetSidebar() },
+                resetMessage: "Reset sidebar settings for this account? This cannot be undone."
+            )
+        }
+    }
+
+    private static let deletionMessage = "Delete all accounts, logins, settings, messages, drafts, "
+        + "and other data stored by Kibble? Files saved outside Kibble are kept. This cannot be undone."
+
+    private func deleteAllData() {
+        guard !deletingData else { return }
+        deletingData = true
+        Task {
+            do {
+                try await appDelegate.deleteAllUserData()
+                account = nil
+            } catch {
+                deletionError = "Some Kibble data could not be removed. Try again to finish deleting it."
+            }
+            deletingData = false
         }
     }
 

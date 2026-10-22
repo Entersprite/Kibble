@@ -39,16 +39,19 @@ public struct HostNotificationPost: Codable, Hashable, Sendable {
     public let accountLabel: String
     public let isPassive: Bool
     public let playsSound: Bool
+    public var sound: NotificationSound?
     public let showsPreview: Bool
     public let offersMarkRead: Bool
 
     public init(
         message: Message, conversation: Conversation, members: [Member], me: Member.ID, accountLabel: String,
-        isPassive: Bool, playsSound: Bool, showsPreview: Bool, offersMarkRead: Bool
+        isPassive: Bool, playsSound: Bool, showsPreview: Bool, offersMarkRead: Bool,
+        sound: NotificationSound? = nil
     ) {
         self.message = message; self.conversation = conversation; self.members = members; self.me = me
         self.accountLabel = accountLabel; self.isPassive = isPassive; self.playsSound = playsSound
         self.showsPreview = showsPreview; self.offersMarkRead = offersMarkRead
+        self.sound = sound
     }
 }
 

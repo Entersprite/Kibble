@@ -3,6 +3,13 @@ import ChatKit
 import Foundation
 
 extension ChatService {
+    func metadata(_ request: ServiceRequest, context: ServiceSessionContext) async throws -> JSONValue {
+        if request.operation == GetServiceInfo.operation {
+            return try serviceInfo(request)
+        }
+        return try await defaultPolicy(request, context: context)
+    }
+
     func serviceInfo(_ request: ServiceRequest) throws -> JSONValue {
         _ = try request.decodePayload(GetServiceInfo.self)
         return try ServiceCodec.value(ServiceInfo(instanceID: instanceID))
@@ -30,7 +37,7 @@ extension ChatService {
         return try ServiceCodec.value(policy)
     }
 
-    private func policyRevisionChanged(_ revision: String, account: ConnectedAccountID) {
+    func policyRevisionChanged(_ revision: String, account: ConnectedAccountID) {
         guard policyRevisions[account] != revision else { return }
         policyRevisions[account] = revision
         accountStateChanged()
@@ -52,5 +59,27 @@ extension ChatService {
             return try await runtime.handle(request)
         }
         return try readDisabledAccount(request, account: record.id)
+    }
+}
+
+extension ChatService {
+    func defaultPolicy(_ request: ServiceRequest, context: ServiceSessionContext) async throws -> JSONValue {
+        guard context.hasAllAccountAccess else { throw ServiceFailure.notAuthorized }
+        guard let store = policies as? any DefaultPolicyStore
+        else { throw ServiceFailure.unsupportedOperation }
+        if request.operation == GetDefaultPolicy.operation {
+            _ = try request.decodePayload(GetDefaultPolicy.self)
+            return try ServiceCodec.value(store.defaultPolicy(for: context.principalID))
+        }
+        let payload = try request.decodePayload(SetDefaultPolicy.self)
+        let result = try store.setDefaultPolicy(
+            payload.rule, for: context.principalID, expectedRevision: payload.expectedRevision
+        )
+        for record in records.values where record.principalID == context.principalID {
+            let policy = try policies.policy(for: record)
+            policyRevisionChanged(policy.revision, account: record.id)
+            try await runtimes[record.id]?.clientPolicyChanged()
+        }
+        return try ServiceCodec.value(result)
     }
 }

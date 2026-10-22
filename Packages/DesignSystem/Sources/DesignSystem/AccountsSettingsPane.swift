@@ -5,12 +5,21 @@ import SwiftUI
 /// be done to it, and Add Account. The order, which the account panel and
 /// ⌃⌘1…9 follow, changes with each row's arrows (`SettingsOrder`).
 public struct AccountsSettingsPane: View {
+    private let reset: (() -> Void)?
+    private let resetMessage: String
     private let state: AccountPanelState
     private let actions: AccountPanelActions
 
-    public init(state: AccountPanelState, actions: AccountPanelActions) {
+    public init(
+        state: AccountPanelState,
+        actions: AccountPanelActions,
+        reset: (() -> Void)? = nil,
+        resetMessage: String = "Reset these settings to their defaults? This cannot be undone."
+    ) {
         self.state = state
         self.actions = actions
+        self.reset = reset
+        self.resetMessage = resetMessage
     }
 
     public var body: some View {
@@ -31,6 +40,14 @@ public struct AccountsSettingsPane: View {
             if let add = actions.add {
                 Section {
                     Button("Add Account…", action: add)
+                }
+            }
+            if let reset {
+                Section {
+                    SettingsResetButton(
+                        title: "Delete All User Data…", message: resetMessage,
+                        isDeletion: true, action: reset
+                    )
                 }
             }
         }

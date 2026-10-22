@@ -19,6 +19,7 @@ extension AppEnvironment {
 public extension AppEnvironment {
     func updateSidebar(_ value: SidebarPreferences) {
         guard settings.account != nil else { return }
+        saveSidebarOverrides(before: sidebarPreferences, after: value)
         sidebarPreferences = value
         sidebarPreferences.sections = value.displaySections
         savePersonalPreferences()

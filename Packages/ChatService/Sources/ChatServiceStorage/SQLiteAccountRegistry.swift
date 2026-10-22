@@ -5,7 +5,7 @@ import Foundation
 import GRDB
 
 public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStore, AccountLinkHistoryStore,
-    AccountPolicyForgetting, Sendable {
+    AccountPolicyForgetting, DefaultPolicyStore, Sendable {
     let database: DatabaseQueue
     let linkRetention: AccountRetentionLimits
     let retentionClock: @Sendable () -> Date
@@ -52,6 +52,13 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
                 table.primaryKey(["principal", "identity"])
             }
         }
+        migrations.registerMigration("accountRegistry7DefaultPolicy") { db in
+            try db.create(table: "defaultPolicy") { table in
+                table.column("principal", .text).primaryKey()
+                table.column("revision", .integer).notNull()
+                table.column("settings", .blob).notNull()
+            }
+        }
         Self.addLifecycleMigration(to: &migrations)
         Self.addLinkHistoryMigration(to: &migrations)
         try migrations.migrate(database)
@@ -62,6 +69,12 @@ public final class SQLiteAccountRegistry: AccountLinkRegistry, AccountPolicyStor
             try Data.fetchAll(db, sql: "SELECT record FROM connectedAccount ORDER BY id")
                 .map { try ServiceCodec.decode(AccountRecord.self, from: $0) }
         }
+    }
+
+    /// The native owner closes the retired service's connection before whole
+    /// installation erasure, even if an obsolete client still retains its facade.
+    public func close() throws {
+        try database.close()
     }
 
     public func save(_ account: AccountRecord) throws {

@@ -40,7 +40,12 @@ extension AppEnvironment {
         collapsedSections = Set(saved[Self.sectionsField] as? [String] ?? [])
         sidebarPreferences = (saved["sidebar"] as? Data).flatMap {
             try? JSONDecoder().decode(SidebarPreferences.self, from: $0)
-        } ?? .init()
+        } ?? Self.globalSidebar(in: preferences)
+        if let bytes = saved["sidebarOverrides"] as? Data,
+           let overrides = try? JSONDecoder().decode(SidebarOverrides.self, from: bytes),
+           let resolved = try? overrides.apply(to: Self.globalSidebar(in: preferences)) {
+            sidebarPreferences.sections = resolved.sections
+        }
     }
 
     /// Forgets the local choices kept for `identity` under `namespace`, for an
@@ -57,7 +62,73 @@ extension AppEnvironment {
         var saved = preferences.dictionary(forKey: key) ?? [:]
         saved[Self.toneField] = skinTone.rawValue
         saved[Self.sectionsField] = collapsedSections.sorted()
-        saved["sidebar"] = try? JSONEncoder().encode(sidebarPreferences)
+        preferences.set(saved, forKey: key)
+    }
+}
+
+public extension AppEnvironment {
+    static func globalSidebar(in preferences: UserDefaults) -> SidebarPreferences {
+        (preferences.data(forKey: "sidebarDefaults.v1")).flatMap {
+            try? JSONDecoder().decode(SidebarPreferences.self, from: $0)
+        } ?? .init()
+    }
+
+    static func setGlobalSidebar(_ value: SidebarPreferences?, in preferences: UserDefaults) {
+        if var value {
+            value.favoriteConversations = []
+            value.favoriteMeetings = []
+            preferences.set(try? JSONEncoder().encode(value), forKey: "sidebarDefaults.v1")
+        } else {
+            preferences.removeObject(forKey: "sidebarDefaults.v1")
+        }
+    }
+
+    func refreshPersonalPreferences() {
+        let identity = settings.account
+        guard let identity else { return }
+        // switchAccount's identity guard also owns notification policy loading.
+        // Reload only local sidebar values here.
+        let key = Self.accountPreferencesPrefix + preferenceNamespace + identity.rawValue
+        let saved = preferences.dictionary(forKey: key) ?? [:]
+        if let data = saved["sidebarOverrides"] as? Data,
+           let overrides = try? JSONDecoder().decode(SidebarOverrides.self, from: data),
+           let resolved = try? overrides.apply(to: Self.globalSidebar(in: preferences)) {
+            sidebarPreferences.sections = resolved.sections
+        } else if saved["sidebar"] == nil {
+            sidebarPreferences.sections = Self.globalSidebar(in: preferences).sections
+        }
+    }
+
+    func resetSidebar() {
+        guard let identity = settings.account else { return }
+        let key = Self.accountPreferencesPrefix + preferenceNamespace + identity.rawValue
+        var saved = preferences.dictionary(forKey: key) ?? [:]
+        saved.removeValue(forKey: "sidebar")
+        saved.removeValue(forKey: "sidebarOverrides")
+        saved.removeValue(forKey: Self.sectionsField)
+        preferences.set(saved, forKey: key)
+        sidebarPreferences = Self.globalSidebar(in: preferences)
+        collapsedSections = []
+    }
+
+    func saveSidebarOverrides(before: SidebarPreferences, after: SidebarPreferences) {
+        guard let identity = settings.account else { return }
+        let key = Self.accountPreferencesPrefix + preferenceNamespace + identity.rawValue
+        var saved = preferences.dictionary(forKey: key) ?? [:]
+        var overrides: SidebarOverrides
+        if let data = saved["sidebarOverrides"] as? Data,
+           let kept = try? JSONDecoder().decode(SidebarOverrides.self, from: data) {
+            overrides = kept
+        } else {
+            overrides = SidebarOverrides()
+            // Existing full documents are explicit choices. Preserve them on upgrade.
+            if saved["sidebar"] != nil {
+                try? overrides.record(before: .init(), after: before)
+            }
+        }
+        try? overrides.record(before: before, after: after)
+        saved["sidebarOverrides"] = try? JSONEncoder().encode(overrides)
+        saved["sidebar"] = try? JSONEncoder().encode(after)
         preferences.set(saved, forKey: key)
     }
 }

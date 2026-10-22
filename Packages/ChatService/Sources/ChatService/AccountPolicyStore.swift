@@ -33,3 +33,11 @@ struct UnavailableAccountPolicyStore: AccountPolicyStore {
         throw ServiceFailure.unsupportedOperation
     }
 }
+
+/// Optional principal-wide policy support. Only overall defaults are shared.
+public protocol DefaultPolicyStore: Sendable {
+    func defaultPolicy(for principal: ServicePrincipalID) throws -> AccountPolicy
+    func setDefaultPolicy(
+        _ rule: NotificationRule, for principal: ServicePrincipalID, expectedRevision: String
+    ) throws -> AccountPolicy
+}

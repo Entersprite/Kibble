@@ -22,11 +22,15 @@ public enum NotificationPolicy {
         /// `UNNotificationInterruptionLevel.passive`.
         public var isPassive: Bool
         public var playsSound: Bool
+        public var sound: NotificationSound
         public var showsPreview: Bool
 
-        public init(isPassive: Bool, playsSound: Bool, showsPreview: Bool) {
+        public init(
+            isPassive: Bool, playsSound: Bool, showsPreview: Bool, sound: NotificationSound = .kibble
+        ) {
             self.isPassive = isPassive
             self.playsSound = playsSound
+            self.sound = sound
             self.showsPreview = showsPreview
         }
     }
@@ -187,15 +191,35 @@ public enum NotificationPolicy {
             // Unreachable: `decide(_:)` returns `.suppress(.off)` before
             // reaching this call. Kept so this switch stays exhaustive over
             // `Delivery`.
-            Presentation(isPassive: true, playsSound: false, showsPreview: rule.showsPreview)
+            Presentation(
+                isPassive: true,
+                playsSound: false,
+                showsPreview: rule.showsPreview,
+                sound: rule.sound
+            )
         case .notificationCenter:
-            Presentation(isPassive: true, playsSound: false, showsPreview: rule.showsPreview)
+            Presentation(
+                isPassive: true,
+                playsSound: false,
+                showsPreview: rule.showsPreview,
+                sound: rule.sound
+            )
         case .banner:
-            Presentation(isPassive: false, playsSound: false, showsPreview: rule.showsPreview)
+            Presentation(
+                isPassive: false,
+                playsSound: false,
+                showsPreview: rule.showsPreview,
+                sound: rule.sound
+            )
         case .bannerAndSound, .unknown:
             // Resolution never yields `.unknown`; were it ever to, the
             // built-in default is the answer rather than a guess.
-            Presentation(isPassive: false, playsSound: true, showsPreview: rule.showsPreview)
+            Presentation(
+                isPassive: false,
+                playsSound: true,
+                showsPreview: rule.showsPreview,
+                sound: rule.sound
+            )
         }
     }
 }

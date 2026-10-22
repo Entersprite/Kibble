@@ -71,12 +71,21 @@ public struct DownloadSettingsActions {
 /// the bookmark are the host's; this draws values and hands back two
 /// callbacks.
 public struct DownloadSettingsPane: View {
+    private let reset: (() -> Void)?
+    private let resetMessage: String
     private let state: DownloadSettingsState
     private let actions: DownloadSettingsActions
 
-    public init(state: DownloadSettingsState, actions: DownloadSettingsActions) {
+    public init(
+        state: DownloadSettingsState,
+        actions: DownloadSettingsActions,
+        reset: (() -> Void)? = nil,
+        resetMessage: String = "Reset these settings to their defaults? This cannot be undone."
+    ) {
         self.state = state
         self.actions = actions
+        self.reset = reset
+        self.resetMessage = resetMessage
     }
 
     public var body: some View {
@@ -99,6 +108,11 @@ public struct DownloadSettingsPane: View {
             } footer: {
                 if let notice = state.notice {
                     Text(notice)
+                }
+            }
+            if let reset {
+                Section {
+                    SettingsResetButton(message: resetMessage, action: reset)
                 }
             }
         }

@@ -19,33 +19,28 @@ public struct SettingsAccountScope<Content: View>: View {
     @Binding private var selection: String?
     /// `false` while the chosen account is not running: its settings wait for it.
     private let isAvailable: Bool
+    private let showsHeader: Bool
     private let content: Content
 
     public init(
         choices: [SettingsAccountChoice], selection: Binding<String?>, isAvailable: Bool,
+        showsHeader: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.choices = choices
         _selection = selection
         self.isAvailable = isAvailable
+        self.showsHeader = showsHeader
         self.content = content()
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            if choices.count > 1 {
-                Picker("Account", selection: $selection) {
-                    ForEach(choices) { choice in
-                        Text(choice.label).tag(Optional(choice.id))
-                    }
-                }
-                .pickerStyle(.menu)
-                .fixedSize()
-                .padding(.top, 16)
-                .padding(.bottom, 4)
+            if showsHeader || !isAvailable {
+                SettingsScopeHeader {}
             }
             if isAvailable {
-                content
+                content.id(selection)
             } else {
                 ContentUnavailableView {
                     Label("Not Connected", systemImage: "person.crop.circle.badge.exclamationmark")
@@ -55,6 +50,9 @@ public struct SettingsAccountScope<Content: View>: View {
                 .frame(width: 560, height: 300)
             }
         }
+        .environment(\.settingsAccountScope, SettingsAccountScopeState(
+            choices: choices, selection: $selection
+        ))
     }
 
     private var label: String {
@@ -62,27 +60,62 @@ public struct SettingsAccountScope<Content: View>: View {
     }
 }
 
-/// An app-wide pane while several accounts are connected: it says that what
-/// it changes applies to every account, beside the panes that edit one.
-public struct SettingsAppWide<Content: View>: View {
-    private let isShared: Bool
-    private let content: Content
+struct SettingsAccountScopeState {
+    let choices: [SettingsAccountChoice]
+    let selection: Binding<String?>
+}
 
-    public init(isShared: Bool, @ViewBuilder content: () -> Content) {
-        self.isShared = isShared
-        self.content = content()
+extension EnvironmentValues {
+    @Entry var settingsAccountScope: SettingsAccountScopeState?
+}
+
+/// Navigation and account scope share the same row above the form.
+struct SettingsScopeHeader<Leading: View, Trailing: View>: View {
+    @Environment(\.settingsAccountScope) private var scope
+    private let showsNavigation: Bool
+    private let leading: Leading
+    private let trailing: Trailing
+
+    init(
+        showsNavigation: Bool = false,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.showsNavigation = showsNavigation
+        self.leading = leading()
+        self.trailing = trailing()
     }
 
-    public var body: some View {
-        VStack(spacing: 0) {
-            if isShared {
-                Label("These settings apply to every account.", systemImage: "person.2")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 16)
-                    .padding(.bottom, 4)
+    var body: some View {
+        if showsNavigation || scope?.choices.isEmpty == false {
+            HStack(spacing: 12) {
+                leading
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                if let scope, !scope.choices.isEmpty {
+                    Picker("Account", selection: scope.selection) {
+                        Text("Global").tag(String?.none)
+                        Divider()
+                        ForEach(scope.choices) { choice in
+                            Text(choice.label).tag(Optional(choice.id))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .layoutPriority(1)
+                }
+                trailing
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)
             }
-            content
+            .frame(height: 28)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
+    }
+}
+
+extension SettingsScopeHeader where Trailing == EmptyView {
+    init(@ViewBuilder leading: () -> Leading) {
+        self.init(leading: leading, trailing: { EmptyView() })
     }
 }
