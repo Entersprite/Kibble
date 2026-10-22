@@ -47,10 +47,12 @@ public struct LoginWebViewConfiguration: Sendable {
     /// unsupported-browser page (`findings.md` §15).
     public static let chat = LoginWebViewConfiguration(
         userAgent: LocalBridgeBackend.captureUserAgent,
+        // The host root can send signed-out browsers to Workspace marketing.
+        // Enter the app route so Google opens sign-in instead.
         // Force-unwrapped: a malformed literal here is a programmer error that
         // must not be recoverable, and it is covered by every test that uses
         // `.chat`.
-        startURL: URL(string: "https://chat.google.com/")!
+        startURL: URL(string: "https://chat.google.com/app/")!
     )
 
     public static let calls = LoginWebViewConfiguration(

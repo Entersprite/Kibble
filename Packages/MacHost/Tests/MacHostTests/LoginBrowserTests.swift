@@ -83,6 +83,9 @@ struct LoginBrowserTests {
     @Test func theCaptureBrowserOpensChat() {
         let browser = LoginBrowser(capturing: captureModel(), pageHost: { _ in })
         #expect(browser.start == LoginWebViewConfiguration.chat.startURL)
+        #expect(browser.start?.scheme == "https")
+        #expect(browser.start?.host() == "chat.google.com")
+        #expect(browser.start?.path() == "/app/")
         #expect(!browser.traces)
     }
 
