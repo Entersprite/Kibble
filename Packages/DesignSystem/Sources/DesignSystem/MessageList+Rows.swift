@@ -4,6 +4,14 @@ import SwiftUI
 /// `MessageList`'s rows, older paging near the top, and what it notes about
 /// arrivals. Its own file so `MessageList.swift` stays under `file_length`.
 extension MessageList {
+    /// What `TranscriptFollowing` reads when the geometry changes.
+    func followConditions() -> TranscriptFollowing.Conditions {
+        TranscriptFollowing.Conditions(
+            canFollow: !state.hasNewerMessages,
+            settled: hasPlacedMessages && readingAnchor.restoringID == nil && !latestJumpRequested
+        )
+    }
+
     /// One message's bubble, where `TranscriptGrouping` placed it.
     func bubble(
         _ message: Message, placement: TranscriptRowPlacement, marker: ReadReceiptMarker?

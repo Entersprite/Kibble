@@ -254,6 +254,13 @@ struct ThreadPanelList: View {
             .modifier(TranscriptFollowing(follow: follow, proxy: proxy) {
                 TranscriptFollowing.Conditions(settled: placed)
             })
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                TranscriptTypingRow(
+                    state: state, follow: follow,
+                    jumpContext: TranscriptLatestJump.Context(isEmpty: panel.messages.isEmpty),
+                    thread: panel.thread.id
+                )
+            }
             .modifier(TranscriptJumpOverlay(
                 follow: follow, unseen: $unseen,
                 context: TranscriptLatestJump.Context(isEmpty: panel.messages.isEmpty)
@@ -261,18 +268,6 @@ struct ThreadPanelList: View {
                 follow.follow()
                 proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
             })
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if state.capabilities.receivesTypingState {
-                    HStack {
-                        let typists = ActivityPresentation.typists(state, thread: panel.thread.id)
-                        if !typists.isEmpty {
-                            TypingIndicator(members: typists, directory: state.directory, namesVisible: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
-                    .padding(.horizontal, 12)
-                }
-            }
             .onChange(of: panel.messages.last?.id) { old, new in
                 if TranscriptArrival.isUnseen(
                     from: old, to: new, messages: panel.messages, me: state.me, expected: follow.isFollowing

@@ -152,17 +152,30 @@
             /// The floating jump, while it shows: hidden from accessibility
             /// otherwise.
             var jump: NSObject? {
+                labelled(JumpToLatestButton.title(unseen: false)) ??
+                    labelled(JumpToLatestButton.title(unseen: true))
+            }
+
+            func labelled(_ wanted: String) -> NSObject? {
                 func find(_ element: Any) -> NSObject? {
                     guard let element = element as? NSObject else { return nil }
                     let label = Self.value("accessibilityLabel", on: element) as? String ?? ""
-                    if label == JumpToLatestButton.title(unseen: false)
-                        || label == JumpToLatestButton.title(unseen: true) {
+                    if label == wanted {
                         return element
                     }
                     return (Self.value("accessibilityChildren", on: element) as? [Any] ?? [])
                         .lazy.compactMap(find).first
                 }
                 return find(host)
+            }
+
+            func accessibilityFrame(_ node: NSObject) -> CGRect? {
+                let selector = NSSelectorFromString("accessibilityFrame")
+                guard node.responds(to: selector) else { return nil }
+                let frame = unsafeBitCast(
+                    node.method(for: selector), to: (@convention(c) (AnyObject, Selector) -> CGRect).self
+                )
+                return frame(node, selector)
             }
 
             private static func value(_ name: String, on node: NSObject) -> AnyObject? {

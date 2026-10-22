@@ -72,6 +72,10 @@
                     receivesReadReceipts: true
                 )
             )
+            // A requested history row enters reading mode. Moving the clip
+            // view programmatically does not represent a person's scroll;
+            // while following, such a movement is corrected back to the end.
+            state.scrollTarget = Message.ID("message-10")
             let host = NSHostingView(rootView: MessageList(state: state).frame(width: 400, height: 300))
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
@@ -83,8 +87,6 @@
             host.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
             let scroll = try #require(findScroll(in: host))
-            scroll.contentView.scroll(to: NSPoint(x: 0, y: 120))
-            scroll.reflectScrolledClipView(scroll.contentView)
             let origin = scroll.contentView.bounds.origin.y
             let viewport = scroll.contentView.bounds.height
             state.activity.typing = [TypingUpdate(

@@ -133,24 +133,32 @@ struct JumpToLatestButton: View {
 
 /// Who is typing, at the transcript's foot: a fixed 36-point row wherever
 /// the backend reports typing, so the indicator coming and going moves
-/// nothing.
+/// nothing. The jump uses that same space while reading back; suppress the
+/// typing presentation only while the jump actually shows.
 struct TranscriptTypingRow: View {
     let state: ChatSceneState
+    let follow: TranscriptFollow
+    let jumpContext: TranscriptLatestJump.Context
+    var thread: MessageThread.ID?
 
     var body: some View {
         if state.capabilities.receivesTypingState {
+            let hidden = TranscriptLatestJump.action(following: follow.isFollowing, jumpContext) != nil
             HStack {
-                let typists = ActivityPresentation.typists(state)
+                let typists = ActivityPresentation.typists(state, thread: thread)
                 if !typists.isEmpty {
                     TypingIndicator(
                         members: typists,
                         directory: state.directory,
-                        namesVisible: state.selectedConversation?.kind != .directMessage
+                        namesVisible: thread != nil || state.selectedConversation?.kind != .directMessage
                     )
                 }
             }
+            .opacity(hidden ? 0 : 1)
+            .accessibilityHidden(hidden)
             .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
-            .padding(.leading, 50).padding(.trailing, 16)
+            .padding(.leading, thread == nil ? 50 : 12)
+            .padding(.trailing, thread == nil ? 16 : 12)
         }
     }
 }

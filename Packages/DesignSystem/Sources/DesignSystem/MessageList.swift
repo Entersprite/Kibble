@@ -176,12 +176,19 @@ public struct MessageList: View {
                     )
             }
             .modifier(TranscriptFollowing(follow: follow, proxy: proxy, conditions: followConditions))
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                TranscriptTypingRow(
+                    state: state, follow: follow,
+                    jumpContext: TranscriptLatestJump.Context(state, canLoadNewer: loadNewerMessages != nil)
+                )
+            }
+            // Outside the typing inset: the jump sits just above the
+            // composer, using the typing row's reserved space.
             .modifier(TranscriptJumpOverlay(
                 follow: follow,
                 unseen: $unseenArrivals,
                 context: TranscriptLatestJump.Context(state, canLoadNewer: loadNewerMessages != nil)
             ) { jumpToLatest($0, proxy) })
-            .safeAreaInset(edge: .bottom, spacing: 0) { TranscriptTypingRow(state: state) }
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting || phase == .decelerating {
@@ -340,14 +347,6 @@ public struct MessageList: View {
         follow.detach()
         proxy.scrollTo(id, anchor: .top)
         return true
-    }
-
-    /// What `TranscriptFollowing` reads when the geometry changes.
-    private func followConditions() -> TranscriptFollowing.Conditions {
-        TranscriptFollowing.Conditions(
-            canFollow: !state.hasNewerMessages,
-            settled: hasPlacedMessages && readingAnchor.restoringID == nil && !latestJumpRequested
-        )
     }
 
     func pageIfNeeded(_ page: TranscriptPaging.Page?) {
