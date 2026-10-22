@@ -147,7 +147,7 @@ extension ChatSessionModel {
     /// `open(conversation:message:)`'s rule, from what the engine read: a
     /// root is scrolled to; a reply opens its thread at itself, and the
     /// transcript scrolls to the thread's first message, when it is stored.
-    private func land(on target: HistoryTarget) {
+    func land(on target: HistoryTarget) {
         let message = target.message
         guard message.isReply else {
             scrollTarget = message.id

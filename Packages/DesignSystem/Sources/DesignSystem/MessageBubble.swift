@@ -205,6 +205,7 @@ struct MessageBubble: View {
             // reply's own side of the column.
             BubbleWidthLimit(reserve: MessageBubbleLayout.reserve(isMine: isMine)) {
                 MessageQuotePreview(quote: quote, directory: state.directory, me: state.me)
+                    .modifier(MessageReferenceAction(source: quote))
             }
         }
         // Pictures above the words, as Messages draws them, and files last;

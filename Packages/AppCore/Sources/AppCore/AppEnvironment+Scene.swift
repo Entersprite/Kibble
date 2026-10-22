@@ -279,6 +279,12 @@ public extension AppEnvironment {
             preserveComposerDraft(draft, at: address)
         }
         actions.checkMessageDelivery = { [weak self] in self?.runningModel?.checkMessageDelivery($0) }
+        if let model = runningModel {
+            actions.openMessageReference = { [weak self, weak model] address in
+                guard let model, self?.runningModel === model else { return }
+                model.openReferencedMessage(address)
+            }
+        }
         if let model = runningModel, model.capabilities.canForwardMessages {
             actions.forwardMessage = { [weak self, weak model] id, destination, comment in
                 guard let self, let model, runningModel === model else { return false }

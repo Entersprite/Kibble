@@ -28,6 +28,7 @@ public extension ChatSessionModel {
         store.releaseDecodedTranscripts()
         directorySearch.reset()
         searchWork.reset()
+        referenceWork.reset()
         search = SearchSessionState()
         // Same reasoning as `historyTask` just above: a mark in flight for an
         // account this call is signing out of must not be left to answer

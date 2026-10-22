@@ -1,7 +1,7 @@
 import ChatKit
 import SwiftUI
 
-/// A received snapshot, with no actions against its source conversation.
+/// A received snapshot. Opening its original requires the client's access check.
 /// Its text, files, pictures and link cards carry the row's menu
 /// (`MessageMenuContext`), so a right-click anywhere on the card offers the
 /// row's reactions and items, acting on the row's message.
@@ -65,6 +65,7 @@ struct ForwardedMessageCard: View {
         .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).stroke(.quaternary))
         .containerShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
         .accessibilityElement(children: .contain)
+        .modifier(MessageReferenceAction(source: forwarded.source))
     }
 
     @ViewBuilder private var snapshot: some View {

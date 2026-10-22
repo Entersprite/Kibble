@@ -192,6 +192,7 @@ public struct ChatWindow: View {
         .environment(\.sceneImageLoader, actions.imageLoader)
         .environment(\.openEmbeddedMedia, actions.openEmbeddedMedia)
         .environment(\.invokeCardAction, actions.invokeCardAction)
+        .environment(\.openMessageReference, actions.openMessageReference)
     }
 
     /// The bar's content: the field, or why there isn't one.

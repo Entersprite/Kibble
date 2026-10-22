@@ -298,6 +298,7 @@ public final class ChatSessionModel {
     /// writes it.
     var actedOnConnection: ConnectionState?
     var messageDeliveryWork = MessageDeliveryWork()
+    var referenceWork = MessageReferenceWork()
 
     public init(
         store: ChatStore, engine: SyncEngine, me: Member.ID? = nil,

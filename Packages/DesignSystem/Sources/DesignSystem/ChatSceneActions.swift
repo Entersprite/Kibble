@@ -5,6 +5,7 @@ import Foundation
 /// wire them to anything, including nothing.
 @MainActor
 public struct ChatSceneActions {
+    public var openMessageReference: ((MessageAddress) -> Void)?
     public var forwardMessage: (@MainActor (Message.ID, Conversation.ID, String) async -> Bool)?
     public var invokeCardAction: AppCardActionHandler?
     public var openEmbeddedMedia: (@MainActor @Sendable (URL) -> Void)?
