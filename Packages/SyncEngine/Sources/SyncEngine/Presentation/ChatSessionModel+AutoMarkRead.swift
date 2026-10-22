@@ -100,6 +100,7 @@ extension ChatSessionModel {
         guard let selected else { traceTrigger(.nothingSelected); return }
         guard transcriptIncludesLatest, !unreadHolds.contains(selected),
               conversationActionTasks[selected] == nil else { return }
+        verifyHiddenTranscriptHeadIfNeeded(in: selected)
         // `max` rather than `messages.last`, so the trigger does not depend on
         // the observation's ordering. Excludes this file's own `local/`-
         // prefixed optimistic rows (see `send(_:)`): they carry `Date()`, not
@@ -344,29 +345,6 @@ extension ChatSessionModel {
         }
         traceTrigger(.alreadyReadOnServer, for: conversation, publishing: position)
         return true
-    }
-
-    /// The position the open transcript marks: its newest server message,
-    /// or the conversation's newest main message when that is later and the
-    /// newest page has landed (`Conversation.markReadPosition(through:)`).
-    /// A head that page did not bring is one this transcript never shows;
-    /// before it lands, the head may just not have arrived, and covering it
-    /// would read messages nobody has seen.
-    func newestTranscriptPosition(in conversation: Conversation.ID) -> Date? {
-        let shown = messages.filter { !$0.id.rawValue.hasPrefix("local/") }.map(\.createdAt).max()
-        guard transcriptWork.latestPageLoaded,
-              let row = conversations.first(where: { $0.id == conversation }) else { return shown }
-        return row.markReadPosition(through: shown)
-    }
-
-    /// Re-runs the trigger when the open conversation's newest main message
-    /// is one its transcript does not show. Nothing the transcript observes
-    /// changes for such a message, so no delivery would.
-    func markSelectedReadIfHeadIsHidden() {
-        guard let selected, selectedMeetingSeries == nil, transcriptIncludesLatest else { return }
-        let shown = messages.filter { !$0.id.rawValue.hasPrefix("local/") }.map(\.createdAt).max()
-        guard newestTranscriptPosition(in: selected) != shown else { return }
-        markSelectedReadIfNeeded()
     }
 
     /// Clears `markTasks[conversation]`, but only if `markGeneration` still

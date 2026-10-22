@@ -15,6 +15,8 @@ final class TranscriptWork {
     var latestPageNewestID: Message.ID?
     /// The open chat's newest page has landed since it was selected.
     var latestPageLoaded = false
+    /// The directory head known before the newest-page request began.
+    var verifiedLatestHead: Date?
     /// The window being observed also reads saved, unconfirmed rows.
     var includesUnconfirmed = false
     /// Which newest-page fetch owns `isLoadingLatestMessages`.
@@ -107,6 +109,7 @@ extension ChatSessionModel {
         transcriptWork.isTargeted = false
         transcriptWork.latestPageNewestID = nil
         transcriptWork.latestPageLoaded = false
+        transcriptWork.verifiedLatestHead = nil
         hasOlderMessages = false
         hasNewerMessages = false
         newerMessagesAreLatestJump = false
@@ -123,6 +126,7 @@ extension ChatSessionModel {
         historyTask?.cancel()
         transcriptWork.latestLoad += 1
         let load = transcriptWork.latestLoad
+        let head = conversations.first { $0.id == id }?.latestMainMessageAt
         isLoadingLatestMessages = true
         historyTask = Task { [weak self, engine] in
             let page = await engine.requestMoreMessages(in: id, verifyCachedRoots: true)
@@ -136,7 +140,7 @@ extension ChatSessionModel {
             // A failed page leaves the saved copy up, still unconfirmed.
             guard let page else { return }
             if id == shown {
-                latestTranscriptPageLoaded(page, in: id)
+                latestTranscriptPageLoaded(page, in: id, verifying: head)
             }
             // A meeting series is observed through its latest occurrence,
             // whichever occurrence was opened.
@@ -241,9 +245,14 @@ extension ChatSessionModel {
         return messages.contains { $0.id == newest }
     }
 
-    func latestTranscriptPageLoaded(_ page: [Message], in conversation: Conversation.ID) {
+    func latestTranscriptPageLoaded(
+        _ page: [Message],
+        in conversation: Conversation.ID,
+        verifying head: Date?
+    ) {
         guard selected == conversation else { return }
         transcriptWork.latestPageLoaded = true
+        transcriptWork.verifiedLatestHead = head
         transcriptWork.latestPageNewestID = page.filter { !$0.isReply }.max {
             $0.createdAt == $1.createdAt ? $0.id.rawValue < $1.id.rawValue : $0.createdAt < $1.createdAt
         }?.id
@@ -265,6 +274,7 @@ extension ChatSessionModel {
     func refreshLatestTranscript(in conversation: Conversation.ID) {
         historyTask?.cancel()
         let generation = transcriptWork.generation
+        let head = conversations.first { $0.id == conversation }?.latestMainMessageAt
         transcriptWork.pageTask = Task { @MainActor [weak self, engine] in
             let page = await engine.requestMoreMessages(in: conversation, verifyCachedRoots: true)
             guard !Task.isCancelled, let self, selected == conversation,
@@ -274,7 +284,7 @@ extension ChatSessionModel {
                 isLoadingNewerMessages = false
                 return
             }
-            latestTranscriptPageLoaded(page, in: conversation)
+            latestTranscriptPageLoaded(page, in: conversation, verifying: head)
             scrollTarget = nil
             observeTranscript(in: conversation, request: .latest(100))
         }
