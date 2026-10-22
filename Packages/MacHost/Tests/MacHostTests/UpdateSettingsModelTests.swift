@@ -33,7 +33,7 @@ struct UpdateSettingsModelTests {
     /// Whatever the updater's own keys held, the model's win.
     @Test func startOverwritesWhateverTheUpdaterHeld() throws {
         let store = try defaults()
-        store.set(UpdateFrequency.atLaunch.rawValue, forKey: UpdateSettingsModel.frequencyKey)
+        store.set(UpdateFrequency.weekly.rawValue, forKey: UpdateSettingsModel.frequencyKey)
         let fake = FakeUpdater()
         fake.automaticallyChecks = false
         fake.checkInterval = 3600
@@ -44,60 +44,37 @@ struct UpdateSettingsModelTests {
         #expect(fake.settingsAtStart?.installs == false)
     }
 
-    /// *At Launch* keeps the scheduler on, weekly, because Sparkle downloads
-    /// nothing from a background check while its scheduler is off: the weekly
-    /// check is the backstop.
     @Test("Frequency maps to the scheduler", arguments: [
-        (UpdateFrequency.hourly, 3600.0),
-        (.daily, 86400.0),
-        (.atLaunch, 604_800.0)
+        (UpdateFrequency.hourly, true, 3600.0),
+        (.daily, true, 86400.0),
+        (.weekly, true, 604_800.0),
+        // Never leaves the interval alone: Sparkle reads 0 as checks off.
+        (.never, false, 1234.0)
     ])
-    func frequencyMapping(_ frequency: UpdateFrequency, _ interval: Double) throws {
+    func frequencyMapping(_ frequency: UpdateFrequency, _ scheduled: Bool, _ interval: Double) throws {
         let store = try defaults()
         store.set(frequency.rawValue, forKey: UpdateSettingsModel.frequencyKey)
         let fake = FakeUpdater()
+        fake.checkInterval = 1234
         UpdateSettingsModel(updater: fake, defaults: store, version: "1").start()
-        #expect(fake.automaticallyChecks == true)
+        #expect(fake.automaticallyChecks == scheduled)
         #expect(fake.checkInterval == interval)
     }
 
     @Test("The launch check follows its own setting, whatever the schedule", arguments: [
-        (true, true, 1),
-        (true, false, 1),
-        (false, true, 0),
-        (false, false, 0)
+        (true, UpdateFrequency.daily, 1),
+        (true, .never, 1),
+        (false, .daily, 0),
+        (false, .never, 0)
     ])
-    func launchCheck(_ atLaunch: Bool, _ automatic: Bool, _ checks: Int) throws {
+    func launchCheck(_ atLaunch: Bool, _ frequency: UpdateFrequency, _ checks: Int) throws {
         let store = try defaults()
         store.set(atLaunch, forKey: UpdateSettingsModel.launchKey)
-        store.set(automatic, forKey: UpdateSettingsModel.automaticKey)
+        store.set(frequency.rawValue, forKey: UpdateSettingsModel.frequencyKey)
         let fake = FakeUpdater()
         UpdateSettingsModel(updater: fake, defaults: store, version: "1").start()
         #expect(fake.backgroundChecks == checks)
-        #expect(fake.automaticallyChecks == automatic)
-    }
-
-    /// Automatic checks turned off before the launch check existed: no check
-    /// the person did not start, and nothing installed.
-    @Test func automaticChecksTurnedOffEarlierMakeNoLaunchCheckAndInstallNothing() throws {
-        let store = try defaults()
-        store.set(UpdateFrequency.atLaunch.rawValue, forKey: UpdateSettingsModel.frequencyKey)
-        store.set(false, forKey: UpdateSettingsModel.automaticKey)
-        store.set(true, forKey: UpdateSettingsModel.installKey)
-        let fake = FakeUpdater()
-        let model = UpdateSettingsModel(updater: fake, defaults: store, version: "1")
-        model.start()
-        #expect(model.state.checksAtLaunch == false)
-        #expect(fake.backgroundChecks == 0)
-        #expect(fake.automaticallyChecks == false)
-        #expect(fake.automaticallyInstalls == false)
-    }
-
-    @Test func automaticChecksLeftOnEarlierKeepTheLaunchCheckOn() throws {
-        let store = try defaults()
-        store.set(true, forKey: UpdateSettingsModel.automaticKey)
-        let model = UpdateSettingsModel(updater: FakeUpdater(), defaults: store, version: "1")
-        #expect(model.state.checksAtLaunch == true)
+        #expect(fake.automaticallyChecks == (frequency != .never))
     }
 
     @Test func turningTheLaunchCheckOnMidSessionChecksNothingNow() throws {
@@ -107,23 +84,32 @@ struct UpdateSettingsModelTests {
         let model = UpdateSettingsModel(updater: fake, defaults: store, version: "1")
         model.start()
         model.setChecksAtLaunch(true)
-        model.setFrequency(.atLaunch)
-        #expect(fake.checkInterval == 604_800)
         #expect(fake.backgroundChecks == 0)
         #expect(model.state.checksAtLaunch == true)
     }
 
-    @Test func automaticInstallReachesTheUpdaterOnlyWhileCheckingAutomatically() throws {
+    @Test func choosingAFrequencyMidSessionReachesTheScheduler() throws {
+        let fake = FakeUpdater()
+        let model = try UpdateSettingsModel(updater: fake, defaults: defaults(), version: "1")
+        model.start()
+        model.setFrequency(.never)
+        #expect(fake.automaticallyChecks == false)
+        model.setFrequency(.weekly)
+        #expect(fake.automaticallyChecks == true)
+        #expect(fake.checkInterval == 604_800)
+        #expect(fake.backgroundChecks == 1) // the launch check only
+    }
+
+    @Test func automaticInstallReachesTheUpdaterOnlyWhileTheSchedulerRuns() throws {
         let fake = FakeUpdater()
         let model = try UpdateSettingsModel(updater: fake, defaults: defaults(), version: "1")
         model.start()
         model.setAutomaticallyInstalls(true)
         #expect(fake.automaticallyInstalls == true)
-        model.setAutomaticallyChecks(false)
+        model.setFrequency(.never)
         #expect(fake.automaticallyInstalls == false)
-        #expect(fake.automaticallyChecks == false)
         #expect(model.state.automaticallyInstalls == true) // the person's choice is kept
-        model.setAutomaticallyChecks(true)
+        model.setFrequency(.daily)
         #expect(fake.automaticallyInstalls == true)
     }
 
@@ -141,14 +127,14 @@ struct UpdateSettingsModelTests {
         #expect(next.settingsAtStart?.installs == true)
     }
 
-    /// The model's own push of `false` while automatic checks are off is not
-    /// the person turning automatic install off.
+    /// The model's own push of `false` under Never is not the person turning
+    /// automatic install off.
     @Test func theModelsOwnPushIsNotMistakenForThePersonsChoice() throws {
         let fake = FakeUpdater()
         let model = try UpdateSettingsModel(updater: fake, defaults: defaults(), version: "1")
         model.start()
         model.setAutomaticallyInstalls(true)
-        model.setAutomaticallyChecks(false)
+        model.setFrequency(.never)
         fake.onChange?()
         #expect(model.state.automaticallyInstalls == true)
     }
@@ -156,15 +142,13 @@ struct UpdateSettingsModelTests {
     @Test func choicesPersistAcrossInstances() throws {
         let store = try defaults()
         let first = UpdateSettingsModel(updater: FakeUpdater(), defaults: store, version: "1")
-        first.setFrequency(.hourly)
+        first.setFrequency(.never)
         first.setAutomaticallyInstalls(true)
-        first.setAutomaticallyChecks(false)
-        first.setChecksAtLaunch(true)
+        first.setChecksAtLaunch(false)
         let second = UpdateSettingsModel(updater: FakeUpdater(), defaults: store, version: "1")
-        #expect(second.state.checksAtLaunch == true)
-        #expect(second.state.frequency == .hourly)
+        #expect(second.state.checksAtLaunch == false)
+        #expect(second.state.frequency == .never)
         #expect(second.state.automaticallyInstalls == true)
-        #expect(second.state.automaticallyChecks == false)
     }
 
     @Test func aFinishedCheckUpdatesTheLastCheckedDate() throws {

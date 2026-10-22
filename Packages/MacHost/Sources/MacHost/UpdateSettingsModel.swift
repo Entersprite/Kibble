@@ -4,23 +4,26 @@ import Observation
 
 /// Settings › Updates, and every decision behind it.
 ///
-/// **The model is the source of truth for the four settings**, under its own
+/// **The model is the source of truth for the three settings**, under its own
 /// keys, and pushes what they mean into the updater. Sparkle keeps settings
 /// under its own keys too, but a check at launch is not one of its settings,
 /// so its keys cannot hold the person's choice. They are derived state,
 /// overwritten at every `start()`.
+///
+/// **Choices stored by earlier versions are moved once, in `init`**
+/// (`migrate`): an explicit choice always wins over a new default.
 @MainActor
 @Observable
 public final class UpdateSettingsModel {
-    static let automaticKey = "updatesCheckAutomatically"
     static let frequencyKey = "updatesFrequency"
     static let installKey = "updatesInstallAutomatically"
     static let launchKey = "updatesCheckAtLaunch"
-
-    /// *At Launch* keeps the scheduler on, weekly. Measured: with Sparkle's
-    /// scheduler off, a background check fetches the feed and downloads
-    /// nothing, so automatic install would never happen.
-    static let atLaunchBackstop: TimeInterval = 604_800
+    /// Earlier versions' "Check for updates automatically", now Never or not;
+    /// read only by `migrate`.
+    static let legacyAutomaticKey = "updatesCheckAutomatically"
+    /// Earlier versions' *At Launch*, which kept a weekly scheduler under the
+    /// launch check; read only by `migrate`.
+    static let legacyAtLaunch = "atLaunch"
 
     /// One quiet check right after the updater starts, whatever the periodic
     /// schedule says, so each launch looks for the newest release. On by
@@ -31,10 +34,12 @@ public final class UpdateSettingsModel {
     /// with the scheduler off the check still runs and nothing is scheduled
     /// after it (`SPUUpdater.m`, Sparkle 2.10).
     public private(set) var checksAtLaunch: Bool
-    public private(set) var automaticallyChecks: Bool
+    /// Sparkle's scheduler: off for Never, otherwise on at the interval.
     public private(set) var frequency: UpdateFrequency
-    /// The person's choice, kept while automatic checks are off; the updater
-    /// only sees it while they are on.
+    /// The person's choice, kept under Never; the updater only sees it while
+    /// its scheduler runs. Measured: with Sparkle's scheduler off, a
+    /// background check fetches the feed and downloads nothing, so automatic
+    /// install would never happen.
     public private(set) var automaticallyInstalls: Bool
     public private(set) var canCheck = false
     public private(set) var lastChecked: Date?
@@ -53,11 +58,8 @@ public final class UpdateSettingsModel {
         self.updater = updater
         self.defaults = defaults
         self.version = version
-        let storedAutomatic = defaults.object(forKey: Self.automaticKey) as? Bool
-        automaticallyChecks = storedAutomatic ?? true
-        // Someone who turned automatic checks off before the launch check
-        // existed asked for no checks they did not start themselves.
-        checksAtLaunch = defaults.object(forKey: Self.launchKey) as? Bool ?? (storedAutomatic != false)
+        Self.migrate(defaults)
+        checksAtLaunch = defaults.object(forKey: Self.launchKey) as? Bool ?? true
         frequency = defaults.string(forKey: Self.frequencyKey)
             .flatMap(UpdateFrequency.init(rawValue:)) ?? .daily
         automaticallyInstalls = defaults.object(forKey: Self.installKey) as? Bool ?? false
@@ -68,6 +70,29 @@ public final class UpdateSettingsModel {
     /// substitution always produces a string, so only the string counts.
     public nonisolated static func isEnabled(infoValue: Any?) -> Bool {
         (infoValue as? String) == "YES"
+    }
+
+    /// Moves earlier versions' choices into today's vocabulary, so every
+    /// later read is plain, and leaves anything already stored as it is:
+    /// - automatic checks turned off become Never, with the launch check off
+    ///   unless it was chosen since: that person asked for no check they did
+    ///   not start themselves;
+    /// - *At Launch* becomes Every Week, its old weekly backstop, and the
+    ///   launch check, on by default, carries on its check at launch;
+    /// - Every Hour and Every Day stay.
+    static func migrate(_ defaults: UserDefaults) {
+        if let automatic = defaults.object(forKey: legacyAutomaticKey) as? Bool {
+            if !automatic {
+                defaults.set(UpdateFrequency.never.rawValue, forKey: frequencyKey)
+                if defaults.object(forKey: launchKey) == nil {
+                    defaults.set(false, forKey: launchKey)
+                }
+            }
+            defaults.removeObject(forKey: legacyAutomaticKey)
+        }
+        if defaults.string(forKey: frequencyKey) == legacyAtLaunch {
+            defaults.set(UpdateFrequency.weekly.rawValue, forKey: frequencyKey)
+        }
     }
 
     /// Once, at launch. Settings first, so the scheduler starts on the right
@@ -103,14 +128,8 @@ public final class UpdateSettingsModel {
         defaults.set(isOn, forKey: Self.launchKey)
     }
 
-    public func setAutomaticallyChecks(_ isOn: Bool) {
-        automaticallyChecks = isOn
-        defaults.set(isOn, forKey: Self.automaticKey)
-        apply()
-    }
-
-    /// Choosing *At Launch* checks nothing now: the next check is the launch
-    /// check, if it is on, or the weekly backstop.
+    /// Sparkle restarts its schedule from the last check, so an interval that
+    /// has already passed since then checks within moments.
     public func setFrequency(_ frequency: UpdateFrequency) {
         self.frequency = frequency
         defaults.set(frequency.rawValue, forKey: Self.frequencyKey)
@@ -130,7 +149,6 @@ public final class UpdateSettingsModel {
             canCheck: canCheck,
             lastChecked: lastChecked,
             checksAtLaunch: checksAtLaunch,
-            automaticallyChecks: automaticallyChecks,
             frequency: frequency,
             automaticallyInstalls: automaticallyInstalls,
             notice: notice
@@ -141,7 +159,6 @@ public final class UpdateSettingsModel {
         UpdateSettingsActions(
             checkNow: { [weak self] in self?.checkNow() },
             setChecksAtLaunch: { [weak self] in self?.setChecksAtLaunch($0) },
-            setAutomaticallyChecks: { [weak self] in self?.setAutomaticallyChecks($0) },
             setFrequency: { [weak self] in self?.setFrequency($0) },
             setAutomaticallyInstalls: { [weak self] in self?.setAutomaticallyInstalls($0) }
         )
@@ -149,22 +166,31 @@ public final class UpdateSettingsModel {
 
     private func apply() {
         guard let updater else { return }
-        updater.automaticallyChecks = automaticallyChecks
-        updater.checkInterval = switch frequency {
-        case .hourly: 3600
-        case .daily: 86400
-        case .atLaunch: Self.atLaunchBackstop
+        updater.automaticallyChecks = frequency != .never
+        // Under Never the interval is left as it was: Sparkle reads an
+        // interval of 0 as automatic checks off, from its oldest settings.
+        if let interval = Self.interval(frequency) {
+            updater.checkInterval = interval
         }
-        let installs = automaticallyChecks && automaticallyInstalls
+        let installs = frequency != .never && automaticallyInstalls
         updater.automaticallyInstalls = installs
         pushedInstalls = installs
+    }
+
+    static func interval(_ frequency: UpdateFrequency) -> TimeInterval? {
+        switch frequency {
+        case .never: nil
+        case .hourly: 3600
+        case .daily: 86400
+        case .weekly: 604_800
+        }
     }
 
     /// Also adopts a change to automatic install that the model did not make:
     /// Sparkle's update window has its own "Automatically download and install
     /// updates" checkbox, which writes the setting directly. Without this the
     /// pane would show the old choice and the next `start()` would undo the
-    /// person's (final review, session 49).
+    /// person's.
     private func refresh() {
         guard let updater else { return }
         canCheck = notice == nil && updater.canCheck

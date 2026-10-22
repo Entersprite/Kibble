@@ -1,18 +1,21 @@
 import Foundation
 import SwiftUI
 
-/// How often Kibble checks for an update on its own.
+/// How often Kibble checks for an update on its own, apart from the check
+/// at launch.
 public enum UpdateFrequency: String, CaseIterable, Sendable {
-    case atLaunch
+    case never
     case hourly
     case daily
+    case weekly
 
     /// Menu items, so in title case.
     var title: String {
         switch self {
-        case .atLaunch: "At Launch"
+        case .never: "Never"
         case .hourly: "Every Hour"
         case .daily: "Every Day"
+        case .weekly: "Every Week"
         }
     }
 }
@@ -30,7 +33,6 @@ public struct UpdateSettingsState: Equatable, Sendable {
     public var lastChecked: Date?
     /// One quiet check each time Kibble starts, apart from the schedule.
     public var checksAtLaunch: Bool
-    public var automaticallyChecks: Bool
     public var frequency: UpdateFrequency
     public var automaticallyInstalls: Bool
     /// A one-line diagnostic, e.g. an updater that could not start.
@@ -42,7 +44,6 @@ public struct UpdateSettingsState: Equatable, Sendable {
         canCheck: Bool,
         lastChecked: Date?,
         checksAtLaunch: Bool,
-        automaticallyChecks: Bool,
         frequency: UpdateFrequency,
         automaticallyInstalls: Bool,
         notice: String? = nil
@@ -52,7 +53,6 @@ public struct UpdateSettingsState: Equatable, Sendable {
         self.canCheck = canCheck
         self.lastChecked = lastChecked
         self.checksAtLaunch = checksAtLaunch
-        self.automaticallyChecks = automaticallyChecks
         self.frequency = frequency
         self.automaticallyInstalls = automaticallyInstalls
         self.notice = notice
@@ -62,10 +62,10 @@ public struct UpdateSettingsState: Equatable, Sendable {
         lastChecked.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never"
     }
 
-    /// The frequency and automatic install only mean something while
-    /// Kibble checks on its own.
-    var offersAutomaticOptions: Bool {
-        isEnabled && automaticallyChecks
+    /// Automatic install only means something while Kibble checks on its
+    /// own schedule; the choice is kept under Never.
+    var offersAutomaticInstall: Bool {
+        isEnabled && frequency != .never
     }
 
     var shownNotice: String? {
@@ -77,20 +77,17 @@ public struct UpdateSettingsState: Equatable, Sendable {
 public struct UpdateSettingsActions {
     public var checkNow: () -> Void
     public var setChecksAtLaunch: (Bool) -> Void
-    public var setAutomaticallyChecks: (Bool) -> Void
     public var setFrequency: (UpdateFrequency) -> Void
     public var setAutomaticallyInstalls: (Bool) -> Void
 
     public init(
         checkNow: @escaping () -> Void,
         setChecksAtLaunch: @escaping (Bool) -> Void,
-        setAutomaticallyChecks: @escaping (Bool) -> Void,
         setFrequency: @escaping (UpdateFrequency) -> Void,
         setAutomaticallyInstalls: @escaping (Bool) -> Void
     ) {
         self.checkNow = checkNow
         self.setChecksAtLaunch = setChecksAtLaunch
-        self.setAutomaticallyChecks = setAutomaticallyChecks
         self.setFrequency = setFrequency
         self.setAutomaticallyInstalls = setAutomaticallyInstalls
     }
@@ -132,23 +129,18 @@ public struct UpdateSettingsPane: View {
                     set: { actions.setChecksAtLaunch($0) }
                 ))
                 .disabled(!state.isEnabled)
-                Toggle("Check for updates automatically", isOn: Binding(
-                    get: { state.automaticallyChecks },
-                    set: { actions.setAutomaticallyChecks($0) }
-                ))
-                .disabled(!state.isEnabled)
-                Picker("Check", selection: Binding(
+                Picker("Check automatically", selection: Binding(
                     get: { state.frequency },
                     set: { actions.setFrequency($0) }
                 )) {
                     ForEach(UpdateFrequency.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                .disabled(!state.offersAutomaticOptions)
+                .disabled(!state.isEnabled)
                 Toggle("Download and install automatically", isOn: Binding(
                     get: { state.automaticallyInstalls },
                     set: { actions.setAutomaticallyInstalls($0) }
                 ))
-                .disabled(!state.offersAutomaticOptions)
+                .disabled(!state.offersAutomaticInstall)
             } footer: {
                 Text("An update downloaded automatically is installed when you quit Kibble.")
             }

@@ -6,7 +6,7 @@ struct UpdateSettingsPaneTests {
     private func state(
         isEnabled: Bool = true,
         lastChecked: Date? = nil,
-        automaticallyChecks: Bool = true,
+        frequency: UpdateFrequency = .daily,
         notice: String? = nil
     ) -> UpdateSettingsState {
         UpdateSettingsState(
@@ -15,8 +15,7 @@ struct UpdateSettingsPaneTests {
             canCheck: true,
             lastChecked: lastChecked,
             checksAtLaunch: true,
-            automaticallyChecks: automaticallyChecks,
-            frequency: .daily,
+            frequency: frequency,
             automaticallyInstalls: false,
             notice: notice
         )
@@ -34,15 +33,15 @@ struct UpdateSettingsPaneTests {
         ))
     }
 
-    @Test("Frequency and automatic install follow the automatic-check toggle", arguments: [
-        (true, true, true),
-        (true, false, false),
-        (false, true, false),
-        (false, false, false)
+    @Test("Automatic install is offered while the schedule runs", arguments: [
+        (true, UpdateFrequency.daily, true),
+        (true, .weekly, true),
+        (true, .never, false),
+        (false, .daily, false),
+        (false, .never, false)
     ])
-    func automaticOptions(_ isEnabled: Bool, _ automaticallyChecks: Bool, _ offered: Bool) {
-        #expect(state(isEnabled: isEnabled, automaticallyChecks: automaticallyChecks)
-            .offersAutomaticOptions == offered)
+    func automaticInstall(_ isEnabled: Bool, _ frequency: UpdateFrequency, _ offered: Bool) {
+        #expect(state(isEnabled: isEnabled, frequency: frequency).offersAutomaticInstall == offered)
     }
 
     @Test func aDevelopmentBuildSaysUpdatesAreOffWhateverElseItCarries() {
@@ -57,6 +56,6 @@ struct UpdateSettingsPaneTests {
     }
 
     @Test func frequencyTitles() {
-        #expect(UpdateFrequency.allCases.map(\.title) == ["At Launch", "Every Hour", "Every Day"])
+        #expect(UpdateFrequency.allCases.map(\.title) == ["Never", "Every Hour", "Every Day", "Every Week"])
     }
 }
