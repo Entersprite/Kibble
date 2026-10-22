@@ -56,8 +56,7 @@ actor AccountRuntime {
     var historyVersions: [Conversation.ID: UUID] = [:]
     var worldRefresh: Task<Void, Never>?
     var worldRefreshRequested = false
-    var historyRefresh: Task<Void, Never>?
-    var pendingHistory: Set<Conversation.ID> = []
+    var historyRefresh = HistoryRefreshLanes()
     var backfill: Task<Void, Never>?
     var backfillRequested = false
     var backfillReplayRequested = false
@@ -97,7 +96,9 @@ actor AccountRuntime {
         callReservations: CallDeviceReservations = CallDeviceReservations(),
         providerStarts: AccountWorkAdmission = AccountWorkAdmission(limit: 4),
         providerStops: AccountWorkAdmission = AccountWorkAdmission(limit: 8),
-        providerWork: AccountWorkAdmission = AccountWorkAdmission(limit: 16, perOwnerLimit: 4),
+        providerWork: AccountWorkAdmission = AccountWorkAdmission(
+            limit: 16, perOwnerLimit: 4, interactiveReserve: 1
+        ),
         callCleanupAdmission: AccountWorkAdmission = AccountWorkAdmission(limit: 8),
         transferStorage: (any ServiceTransferStorage)? = nil,
         transferLimits: ServiceTransferLimits = ServiceTransferLimits(),
@@ -277,8 +278,8 @@ actor AccountRuntime {
         epoch = UUID()
         startup?.cancel()
         consumer?.cancel()
-        let effects = [worldRefresh, historyRefresh, backfill, notificationJob, profileRefresh]
-            .compactMap(\.self) + cancelClientInterestJobs() + reads.workers
+        let effects = [worldRefresh, backfill, notificationJob, profileRefresh]
+            .compactMap(\.self) + historyRefresh.workers + cancelClientInterestJobs() + reads.workers
         for task in effects {
             task.cancel()
         }
@@ -296,8 +297,8 @@ actor AccountRuntime {
         await withdrawHostNotifications()
         notificationJob = nil
         calls = [:]; callStops = []
-        worldRefresh = nil; historyRefresh = nil; backfill = nil; profileRefresh = nil; pendingSelf = nil
-        pendingHistory.removeAll(); backfillHeads.removeAll(); historyVersions.removeAll()
+        worldRefresh = nil; historyRefresh = HistoryRefreshLanes(); backfill = nil; profileRefresh = nil
+        pendingSelf = nil; backfillHeads.removeAll(); historyVersions.removeAll()
         clientInterests.removeAll(); subscriberAttachments.removeAll()
         interestSweep = nil; interestPublisher = nil; interestFault = nil; typingRefreshRequested.removeAll()
         reads = AccountReadState()

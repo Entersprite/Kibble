@@ -93,6 +93,16 @@ public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
         try projection.conversation(id)
     }
 
+    /// Whatever the history confidence of the row: which conversation holds a
+    /// message never changes.
+    public func conversationID(containing message: Message.ID) throws -> Conversation.ID? {
+        try database.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT conversationID FROM message WHERE id = ?", arguments: [message.rawValue]
+            )
+        }.map { Conversation.ID($0) }
+    }
+
     public func append(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
         let bytes = try ServiceCodec.encode(event)
         guard bytes.count <= 2 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }

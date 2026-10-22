@@ -22,6 +22,7 @@ struct AccountReadState {
     var directoryCompletedAt: Date?
     var providerDirectoryBaseline: [Conversation]?
     var histories: [HistoryReadKey: SharedAccountRead<MessagePage>] = [:]
+    var historyUrgency: [Conversation.ID: HeldHistoryUrgency] = [:]
     var followed: SharedAccountRead<[Message]>?
     var followedVersion: FollowedReadVersion?
     var followedJobs: [UUID: SharedAccountRead<[Message]>] = [:]
@@ -72,8 +73,28 @@ extension AccountRuntime {
         return result
     }
 
+    /// A history page from the provider, shared with an identical read already
+    /// out. `interactive` means a person is waiting for it: the read, or the
+    /// queued read it joins, goes ahead of background provider work.
     func fetchMessages(
         in conversation: Conversation.ID, before: Message.ID?, thread: MessageThread.ID? = nil,
+        backend: any ChatBackend, epoch: UUID, interactive: Bool = false
+    ) async throws -> MessagePage {
+        try checkEpoch(epoch)
+        guard interactive else {
+            return try await sharedHistory(
+                in: conversation, before: before, thread: thread, backend: backend, epoch: epoch
+            )
+        }
+        return try await awaitingHistory(of: conversation) {
+            try await sharedHistory(
+                in: conversation, before: before, thread: thread, backend: backend, epoch: epoch
+            )
+        }
+    }
+
+    private func sharedHistory(
+        in conversation: Conversation.ID, before: Message.ID?, thread: MessageThread.ID?,
         backend: any ChatBackend, epoch: UUID
     ) async throws -> MessagePage {
         try checkEpoch(epoch)

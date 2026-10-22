@@ -3,6 +3,34 @@ import ChatKit
 import ChatRules
 import Foundation
 
+/// Conversations waiting to be fetched again. Chats a client is viewing have
+/// their own lane, fetched as work a person waits for, so they never queue
+/// behind the background refetch of other conversations.
+struct HistoryRefreshLanes {
+    struct Lane {
+        var pending: Set<Conversation.ID> = []
+        var worker: Task<Void, Never>?
+    }
+
+    private var background = Lane()
+    private var viewed = Lane()
+
+    var workers: [Task<Void, Never>] {
+        [background.worker, viewed.worker].compactMap(\.self)
+    }
+
+    subscript(viewed isViewed: Bool) -> Lane {
+        get { isViewed ? viewed : background }
+        set {
+            if isViewed {
+                viewed = newValue
+            } else {
+                background = newValue
+            }
+        }
+    }
+}
+
 extension AccountRuntime {
     func scheduleEffects(for event: ChatEvent) async {
         if let member = ownMember(in: event) {
@@ -12,8 +40,13 @@ extension AccountRuntime {
         for effect in SyncReducer.reduce(event).effects {
             switch effect {
             case .reloadConversations:
-                backfillHeads.removeAll()
+                // A provider that owns checkpoints repairs a gap itself: its
+                // recovery replays what changed and withdraws confidence where
+                // it cannot, which clears those refill heads. Without
+                // checkpoints the gap is the only repair signal, so every
+                // recent conversation is fetched again.
                 if checkpointedBackend == nil {
+                    backfillHeads.removeAll()
                     requestWorldRefresh()
                 }
             case let .reloadMessages(id): await scheduleHistoryRefresh(id)
@@ -25,7 +58,11 @@ extension AccountRuntime {
     private func scheduleContinuityEffects(for event: ChatEvent) {
         switch event {
         case .conversationsChanged: requestBackfill()
-        case .historyInvalidated: requestBackfill(replay: true)
+        case .historyInvalidated:
+            // The canonical copy no longer confirms any saved row, so a re-send
+            // would verify nothing: the refill fetches every recent conversation.
+            backfillHeads.removeAll()
+            requestBackfill()
         case let .conversationHistoryInvalidated(ids): refreshInvalidatedHistory(ids)
         case .connectionStateChanged(.connected):
             if checkpointedBackend == nil {
@@ -46,21 +83,22 @@ extension AccountRuntime {
         let viewed = aggregateClientInterests().conversations
         for id in ids {
             backfillHeads[id] = nil
-            if viewed.contains(id), pendingHistory.count < 1024 {
-                pendingHistory.insert(id)
+            if viewed.contains(id), historyRefresh[viewed: true].pending.count < 1024 {
+                historyRefresh[viewed: true].pending.insert(id)
             }
         }
-        requestHistoryRefresh()
+        requestHistoryRefresh(viewed: true)
         requestBackfill()
     }
 
     private func scheduleHistoryRefresh(_ id: Conversation.ID) async {
-        guard pendingHistory.count < 1024 else {
+        let viewed = aggregateClientInterests().conversations.contains(id)
+        guard historyRefresh[viewed: viewed].pending.count < 1024 else {
             await quarantine(.storage)
             return
         }
-        pendingHistory.insert(id)
-        requestHistoryRefresh()
+        historyRefresh[viewed: viewed].pending.insert(id)
+        requestHistoryRefresh(viewed: viewed)
     }
 
     func requestWorldRefresh() {
@@ -116,16 +154,18 @@ extension AccountRuntime {
         }
     }
 
-    private func requestHistoryRefresh() {
-        guard historyRefresh == nil, !stopped else { return }
-        historyRefresh = Task {
-            defer { historyRefresh = nil }
-            while let id = pendingHistory.first, !stopped, !Task.isCancelled {
-                pendingHistory.remove(id)
+    private func requestHistoryRefresh(viewed: Bool) {
+        guard historyRefresh[viewed: viewed].worker == nil, !stopped else { return }
+        historyRefresh[viewed: viewed].worker = Task {
+            defer { historyRefresh[viewed: viewed].worker = nil }
+            while let id = historyRefresh[viewed: viewed].pending.first, !stopped, !Task.isCancelled {
+                historyRefresh[viewed: viewed].pending.remove(id)
                 guard let backend else { return }
                 let epoch = currentEpoch
                 await reconcileBackground(resource: .history, conversation: id) {
-                    _ = try await fetchMessages(in: id, before: nil, backend: backend, epoch: epoch)
+                    _ = try await fetchMessages(
+                        in: id, before: nil, backend: backend, epoch: epoch, interactive: viewed
+                    )
                 }
             }
         }

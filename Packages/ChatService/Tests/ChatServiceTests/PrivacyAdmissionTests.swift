@@ -15,8 +15,10 @@ struct PrivacyAdmissionTests {
         _ = try await harness.call(LoadConversations())
         let budget = await harness.service.providerWork
         let permits = (0 ..< 16).map { _ in UUID() }
+        // Interactive permits can fill the whole budget, interactive reserve included.
+        let urgency = WorkUrgency(interactive: true)
         for permit in permits {
-            try await budget.acquire(permit)
+            try await budget.acquire(permit, urgency: urgency)
         }
         let command = SendCommand(operationID: .init(ClientOperationID.make()), command: .markRead(
             conversationID: conversation, upTo: date

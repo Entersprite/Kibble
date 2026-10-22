@@ -24,10 +24,15 @@ extension AccountRuntime {
             reads.directoryCompletedAt = nil
             historyWorldVersion = UUID()
         case let .reactionChanged(id, _):
-            // Reaction events carry only a message ID; fence all in-flight
-            // history rather than guessing its conversation from ID syntax.
-            _ = id
-            historyWorldVersion = UUID()
+            // Reaction events carry only a message ID. Fence the conversation
+            // the canonical store holds it in; a message it does not hold yet
+            // may be in any read, so fence all in-flight history rather than
+            // guessing its conversation from ID syntax.
+            if let conversation = try? storage.conversationID(containing: id) {
+                invalidate(conversation)
+            } else {
+                historyWorldVersion = UUID()
+            }
         default: break
         }
     }
@@ -79,7 +84,7 @@ extension AccountRuntime {
         try checkEpoch(epoch)
         let version = historyVersions[conversation]
         let world = historyWorldVersion
-        let snapshot: ThreadMessagesSnapshot = try await withProviderWork(epoch: epoch) {
+        let snapshot: ThreadMessagesSnapshot = try await withHistoryWork(in: conversation, epoch: epoch) {
             if let thread {
                 return try await backend.loadThreadSnapshot(thread, in: conversation)
             }

@@ -27,7 +27,7 @@ extension AccountRuntime {
             let payload = try request.decodePayload(LoadMessages.self)
             let value = try await fetchMessages(
                 in: payload.conversationID, before: payload.cursor.map { Message.ID($0) },
-                backend: backend, epoch: epoch
+                backend: backend, epoch: epoch, interactive: true
             )
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)

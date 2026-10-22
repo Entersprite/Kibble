@@ -64,6 +64,9 @@ public protocol ServiceAccountStorage: Sendable {
     ) throws -> ServiceEventPage
     func conversations() throws -> [Conversation]
     func conversation(_ id: Conversation.ID) throws -> Conversation?
+    /// The conversation a stored message belongs to, or nil when this store
+    /// does not hold that message. A store that cannot look it up answers nil.
+    func conversationID(containing message: Message.ID) throws -> Conversation.ID?
     func checkpoint() throws -> ServiceCursor
     func recentHistory(in conversation: Conversation.ID, limit: Int) throws -> [Message]
     func operation(_ id: ServiceOperationID) throws -> ServiceOperation?
@@ -114,5 +117,9 @@ public extension ServiceAccountStorage {
         after cursor: ServiceCursor?, limit: Int, includingHistory: Set<Conversation.ID>
     ) throws -> ServiceEventPage {
         try readEvents(after: cursor, limit: limit)
+    }
+
+    func conversationID(containing _: Message.ID) throws -> Conversation.ID? {
+        nil
     }
 }

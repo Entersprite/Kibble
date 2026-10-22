@@ -61,7 +61,8 @@ public actor ChatService: ServiceEventEndpoint, ServiceAccountStateEndpoint {
     ) {
         callCleanupAdmission = AccountWorkAdmission(limit: maximumConcurrentCallStops)
         providerWork = AccountWorkAdmission(
-            limit: maximumConcurrentProviderWork, perOwnerLimit: maximumProviderWorkPerAccount
+            limit: maximumConcurrentProviderWork, perOwnerLimit: maximumProviderWorkPerAccount,
+            interactiveReserve: 1
         )
         providerStarts = AccountWorkAdmission(limit: maximumConcurrentProviderStarts)
         providerStops = AccountWorkAdmission(limit: maximumConcurrentProviderStops)

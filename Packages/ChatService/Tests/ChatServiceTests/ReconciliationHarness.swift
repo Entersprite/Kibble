@@ -31,6 +31,9 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
     private var worldFailures = 0
     private var worldFailure = ServiceFailure.overloaded
     private(set) var historyReads = 0
+    private(set) var threadReads = 0
+    private(set) var historyReadsByConversation: [Conversation.ID: Int] = [:]
+    private var conversationHistories: [Conversation.ID: [Message]] = [:]
     private(set) var sentCommands: [ChatCommand] = []
     private(set) var receivePresence: Set<Member.ID> = []
     private(set) var receiveConversations: Set<Conversation.ID> = []
@@ -132,6 +135,12 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
         history = messages
     }
 
+    /// Answers reads of `conversation` with these messages instead of the
+    /// shared history, so several conversations can each load their own.
+    func setHistory(_ messages: [Message], in conversation: Conversation.ID) {
+        conversationHistories[conversation] = messages
+    }
+
     func releaseHistoryQuery(_ read: Int) {
         historyWaiters.removeValue(forKey: read)?.resume()
     }
@@ -151,6 +160,12 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
 
     func addConversation(_ id: Conversation.ID) {
         rows.append(Conversation(id: id, kind: .space, title: id.rawValue))
+        sink.yield(.conversationsChanged(rows))
+    }
+
+    /// Recently active conversations, which the background refill fetches.
+    func addRecentConversations(_ ids: [Conversation.ID]) {
+        rows += ids.map { Conversation(id: $0, kind: .space, title: $0.rawValue, lastActivity: Self.date) }
         sink.yield(.conversationsChanged(rows))
     }
 
@@ -195,8 +210,10 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
 
     func loadMessages(in conversation: Conversation.ID, before: Message.ID?) async -> [Message] {
         historyReads += 1
+        historyReadsByConversation[conversation, default: 0] += 1
         let read = historyReads
-        let captured = history
+        let captured = conversationHistories[conversation]
+            ?? history.filter { $0.conversationID == conversation }
         if holdEveryHistory {
             await withCheckedContinuation { historyWaiters[read] = $0 }
         } else if holdHistory {
@@ -204,6 +221,11 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
             await withCheckedContinuation { historyWaiter = $0 }
         }
         return captured
+    }
+
+    func loadThread(_ thread: MessageThread.ID, in conversation: Conversation.ID) -> [Message] {
+        threadReads += 1
+        return history.filter { $0.conversationID == conversation && $0.threadID == thread }
     }
 
     func setNotificationSetting(_ level: NotificationLevel, for conversation: Conversation.ID) {}
