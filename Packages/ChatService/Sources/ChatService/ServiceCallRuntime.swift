@@ -17,6 +17,7 @@ actor ServiceCallRuntime {
     var stopped = false
     var recoveryPaused = false
     var recoveryBarrier: CallRecoveryBarrier?
+    private var directoryRecipients: [AudioCallRecipient]?
     private var reader: Task<Void, Never>?
     var listener: Task<Void, Never>?
     private var stopping: Task<Void, Never>?
@@ -51,6 +52,7 @@ actor ServiceCallRuntime {
 
     func startListener() {
         guard listener == nil, !stopped else { return }
+        directoryRecipients = nil
         if !state.isListenerStarting {
             state.isListenerStarting = true
             publish()
@@ -61,6 +63,12 @@ actor ServiceCallRuntime {
             } catch { await self?.listenerFailed() }
             await self?.listenerFinished()
         }
+    }
+
+    func updateRecipients(_ recipients: [AudioCallRecipient]) async {
+        guard !stopped, directoryRecipients != recipients else { return }
+        directoryRecipients = recipients
+        await source.updateRecipients(recipients)
     }
 
     private func listenerFinished() {

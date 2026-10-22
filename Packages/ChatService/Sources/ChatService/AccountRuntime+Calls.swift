@@ -81,6 +81,7 @@ extension AccountRuntime {
                 return
             }
         }
+        requestCallDirectoryRefresh()
     }
 
     func stopCalls() -> [Task<Void, Never>] {
@@ -106,6 +107,9 @@ extension AccountRuntime {
                 try await validateCallRecipient(control.recipient, backend: backend, epoch: epoch)
             }
             result = try await calls.control(control, session: context.sessionID)
+            if control.action == "restart" {
+                requestCallDirectoryRefresh()
+            }
         default: throw ServiceFailure.unsupportedOperation
         }
         try checkEpoch(epoch)

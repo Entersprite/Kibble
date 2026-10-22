@@ -23,14 +23,23 @@ public final class ServiceAudioCallService: AudioCallService {
 
     public func startListening() async throws {
         let epoch = generation
-        let initial = try await read(after: nil, wait: 0)
-        try check(epoch)
-        try receive(initial)
+        do {
+            let initial = try await read(after: nil, wait: 0)
+            try check(epoch)
+            try receive(initial)
+        } catch {
+            try check(epoch)
+            reportConnectionFailure()
+        }
         guard observer == nil else { return }
         observer = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, generation == epoch else { return }
                 do {
+                    if projection.isConnectionUnavailable {
+                        try await Task.sleep(for: .seconds(1))
+                        try check(epoch)
+                    }
                     let next = try await read(
                         after: projection.version, wait: projection.isConnectionUnavailable ? 0 : 20000
                     )
@@ -38,10 +47,7 @@ public final class ServiceAudioCallService: AudioCallService {
                     try receive(next)
                 } catch {
                     guard !Task.isCancelled, generation == epoch else { return }
-                    for event in projection.connectionFailed() {
-                        sink.yield(event)
-                    }
-                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    reportConnectionFailure()
                 }
             }
         }
@@ -123,6 +129,12 @@ public final class ServiceAudioCallService: AudioCallService {
         let events = try projection.accept(state)
         sourceID = projection.currentState?.sourceID
         for event in events {
+            sink.yield(event)
+        }
+    }
+
+    private func reportConnectionFailure() {
+        for event in projection.connectionFailed() {
             sink.yield(event)
         }
     }

@@ -23,6 +23,14 @@ struct ServiceCallStateProjection {
         let admission = try admit(state)
         guard admission.accepted else { return restoreConnection(after: []) }
         var events = admission.events
+        // Reads carry complete state. An end and the following ring can occur
+        // between reads, so retire the superseded presentation before the new one.
+        if var call = previous?.call, !call.phase.isTerminal, call.id != state.call?.id {
+            call.phase = .ended
+            call.failureMessage = nil
+            call.endReason = nil
+            events.append(.snapshot(call))
+        }
         if previous?.recipients != state.recipients {
             events.append(.recipientsChanged(state.recipients))
         }

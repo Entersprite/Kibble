@@ -76,6 +76,8 @@ actor AccountRuntime {
     var notificationDirty = false
     let callReservations: CallDeviceReservations
     var calls: [ServiceDeviceID: ServiceCallRuntime] = [:]
+    var callDirectoryRefresh: Task<Void, Never>?
+    var callDirectoryDirty = false
     var callStops: [Task<Void, Never>] = []
     var callWorldVersion = UUID()
     var callFactsVersions: [Conversation.ID: UUID] = [:]
@@ -197,6 +199,7 @@ actor AccountRuntime {
     func appendAndPublish(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
         invalidateCallFacts(for: event)
         let cursor = try storage.append(event, live: live)
+        callDirectoryChanged(by: event)
         if !SyncReducer.reduce(event).effects.isEmpty {
             notificationsChanged()
         }
@@ -278,7 +281,7 @@ actor AccountRuntime {
         epoch = UUID()
         startup?.cancel()
         consumer?.cancel()
-        let effects = [worldRefresh, backfill, notificationJob, profileRefresh]
+        let effects = [worldRefresh, backfill, notificationJob, profileRefresh, callDirectoryRefresh]
             .compactMap(\.self) + historyRefresh.workers + cancelClientInterestJobs() + reads.workers
         for task in effects {
             task.cancel()
@@ -296,7 +299,7 @@ actor AccountRuntime {
         await drainRequests(pending, binaries: binaries, expiry: expiry, effects: effects + callCleanup)
         await withdrawHostNotifications()
         notificationJob = nil
-        calls = [:]; callStops = []
+        calls = [:]; callStops = []; callDirectoryRefresh = nil; callDirectoryDirty = false
         worldRefresh = nil; historyRefresh = HistoryRefreshLanes(); backfill = nil; profileRefresh = nil
         pendingSelf = nil; backfillHeads.removeAll(); historyVersions.removeAll()
         clientInterests.removeAll(); subscriberAttachments.removeAll()

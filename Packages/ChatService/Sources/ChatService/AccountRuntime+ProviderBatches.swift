@@ -102,6 +102,7 @@ extension AccountRuntime {
     }
 
     private func providerEventCommitted(_ event: ChatEvent) {
+        callDirectoryChanged(by: event)
         invalidateMediaQueries(for: event)
         if !SyncReducer.reduce(event).effects.isEmpty {
             notificationsChanged()
