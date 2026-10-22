@@ -2,8 +2,7 @@ import ChatKit
 import Testing
 @testable import DesignSystem
 
-/// The composer's Return, made testable (mention non-members spec §2,
-/// review focus 3 and 4).
+/// The composer's Return is serialized while checking non-member mentions.
 struct ComposerSendGateTests {
     @Test func aSecondReturnWhileTheFirstIsCheckingIsIgnored() {
         var gate = ComposerSendGate()
@@ -22,7 +21,7 @@ struct ComposerSendGateTests {
         #expect(!ComposerSendGate.clears(draft: ComposedMessage(text: "hi @Jane and more"), sent: sent))
     }
 
-    /// Review finding 1: the confirmation sends the message with modes set,
+    /// The confirmation sends the message with modes set,
     /// while the draft's own mentions are plain. It is still the same draft,
     /// and must be cleared.
     @Test func aConfirmedSendClearsTheDraftItCameFrom() {

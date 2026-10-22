@@ -14,7 +14,7 @@ extension Composer {
     /// Without a way to ask who is outside, sends at once. With one, asks;
     /// anyone outside brings up the confirmation (mention non-members spec
     /// §2). One Return at a time, and the draft cleared only if it still says
-    /// what was sent (review focus 3 and 4).
+    /// what was sent.
     func submit() {
         switch ComposerEditKeys.submitAction(draft: draft, canSend: canSubmit) {
         case .nothing:
