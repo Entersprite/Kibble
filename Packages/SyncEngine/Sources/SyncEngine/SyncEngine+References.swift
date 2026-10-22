@@ -26,7 +26,7 @@ public extension SyncEngine {
         guard try store.conversation(conversation) != nil else { return nil }
         if let stored = try store.message(id), stored.conversationID == conversation,
            thread == nil || stored.threadID == thread {
-            return stored
+            return stored.isDeleted ? nil : stored
         }
         guard let thread, !thread.rawValue.isEmpty, capabilities.supportsThreads else { return nil }
         try Task.checkCancellation()
@@ -34,7 +34,7 @@ public extension SyncEngine {
         try Task.checkCancellation()
         guard try store.conversation(conversation) != nil else { return nil }
         return try store.message(id).flatMap {
-            $0.conversationID == conversation && $0.threadID == thread ? $0 : nil
+            $0.conversationID == conversation && $0.threadID == thread && !$0.isDeleted ? $0 : nil
         }
     }
 }
