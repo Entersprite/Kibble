@@ -7,14 +7,18 @@ import SwiftUI
 public enum LinkPolicy {
     static let schemes: Set = ["http", "https", "mailto"]
 
-    public static func canOpen(_ url: URL) -> Bool {
+    public static func canOpen(_ url: URL, blocking hosts: Set<String> = []) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return false }
-        return schemes.contains(scheme)
+        return schemes.contains(scheme) && !hosts.contains(url.host()?.lowercased() ?? "")
     }
 
     /// Installed over the transcript, so every SwiftUI link and every
     /// `openURL` call under it passes the same rule.
     @MainActor public static let openURLAction = OpenURLAction { url in
         canOpen(url) ? .systemAction : .discarded
+    }
+
+    @MainActor public static func openURLAction(blocking hosts: Set<String>) -> OpenURLAction {
+        OpenURLAction { url in canOpen(url, blocking: hosts) ? .systemAction : .discarded }
     }
 }

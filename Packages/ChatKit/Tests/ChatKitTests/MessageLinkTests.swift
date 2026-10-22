@@ -37,4 +37,14 @@ struct MessageLinkTests {
         let encoded = try Wire.json(MessageLink(url: Self.specs))
         #expect(encoded == #"{"url":"https://acme.example/specs"}"#)
     }
+
+    @Test func anInternalAddressRoundTripsAndOlderLinksRemainUnaddressed() throws {
+        let link = MessageLink(url: Self.specs, messageAddress: MessageAddress(
+            conversation: Conversation.ID("conversation"), thread: MessageThread.ID("thread"),
+            message: Message.ID("message")
+        ))
+        try expectWireStable(link, golden: "message-reference-link")
+        let old = try Wire.decode(MessageLink.self, from: #"{"url":"https://acme.example/specs"}"#)
+        #expect(old.messageAddress == nil)
+    }
 }

@@ -6,6 +6,7 @@ import Foundation
 @MainActor
 public struct ChatSceneActions {
     public var openMessageReference: ((MessageAddress) -> Void)?
+    public var loadMessageReference: MessageReferenceLoader?
     public var forwardMessage: (@MainActor (Message.ID, Conversation.ID, String) async -> Bool)?
     public var invokeCardAction: AppCardActionHandler?
     public var openEmbeddedMedia: (@MainActor @Sendable (URL) -> Void)?

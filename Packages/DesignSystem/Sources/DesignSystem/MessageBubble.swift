@@ -43,10 +43,7 @@ struct MessageBubble: View {
     /// The transcript's, which `MessageList` sets to `LinkPolicy.openURLAction`.
     @Environment(\.openURL) private var openURL
     @Environment(\.invokeCardAction) private var invokeCardAction
-
-    private var parts: AttachmentLayout.Parts {
-        AttachmentLayout.parts(of: message, canLoadImages: loadAttachment != nil)
-    }
+    @Environment(\.internalLinkHosts) var internalLinkHosts
 
     private var ownItems: OwnMessageMenuItems? {
         state.canUseProviderActions ? own?.items(for: message) : nil
@@ -208,6 +205,7 @@ struct MessageBubble: View {
                     .modifier(MessageReferenceAction(source: quote))
             }
         }
+        linkQuotes
         // Pictures above the words, as Messages draws them, and files last;
         // an image-only message has no empty bubble.
         if let loadAttachment {
@@ -219,7 +217,7 @@ struct MessageBubble: View {
                 )
             }
         }
-        if parts.showsText {
+        if parts.showsText, showsLinkedText {
             bubble
         }
         ForEach(parts.files, id: \.id) {
@@ -334,13 +332,13 @@ struct MessageBubble: View {
                         bottom: message.editedAt == nil ? 7 : 0,
                         right: 12
                     ),
-                    message: message,
+                    message: linkPresentation.message,
                     actions: availableReactions,
                     me: state.me,
                     onMore: { picking = true },
                     own: ownItems,
                     inOwnBubble: isMine,
-                    open: { openURL($0) }
+                    open: { openURL($0) }, menuMessage: message
                 )
                 if message.editedAt != nil {
                     editedLabel
@@ -353,7 +351,8 @@ struct MessageBubble: View {
         private var textBubble: some View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(MentionHighlight.attributed(
-                    message.text, mentions: message.mentions, links: message.links, me: state.me,
+                    linkPresentation.message.text, mentions: linkPresentation.message.mentions,
+                    links: linkPresentation.message.links, me: state.me,
                     inOwnBubble: isMine
                 ))
                 .textSelection(.enabled)

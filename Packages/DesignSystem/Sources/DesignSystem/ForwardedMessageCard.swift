@@ -24,6 +24,12 @@ struct ForwardedMessageCard: View {
     var quickLook: ((Attachment) -> Void)?
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.openMessageReference) private var openReference
+    @Environment(\.internalLinkHosts) private var internalLinkHosts
+
+    private var linkPresentation: MessageLinkPresentation {
+        MessageLinkPresentation(forwarded.message, internalHosts: internalLinkHosts)
+    }
 
     private var senderDirectory: [Member.ID: Member] {
         var result = directory
@@ -40,7 +46,7 @@ struct ForwardedMessageCard: View {
     }
 
     private var parts: AttachmentLayout.Parts {
-        AttachmentLayout.parts(of: forwarded.message, canLoadImages: loadAttachment != nil)
+        AttachmentLayout.parts(of: linkPresentation.message, canLoadImages: loadAttachment != nil)
     }
 
     var body: some View {
@@ -54,6 +60,7 @@ struct ForwardedMessageCard: View {
                     .font(.callout.weight(.semibold))
                     .lineLimit(2)
             }
+            .modifier(MessageReferenceAction(source: forwarded.source))
             if forwarded.source.isDeleted {
                 placeholder("Message deleted")
             } else {
@@ -65,20 +72,23 @@ struct ForwardedMessageCard: View {
         .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).stroke(.quaternary))
         .containerShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
         .accessibilityElement(children: .contain)
-        .modifier(MessageReferenceAction(source: forwarded.source))
     }
 
     @ViewBuilder private var snapshot: some View {
-        if !forwarded.source.text.isEmpty {
+        ForEach(linkPresentation.references, id: \.url) { link in
+            MessageLinkQuote(link: link, me: me)
+        }
+        if !linkPresentation.message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             #if os(macOS)
                 MessageTextView(
                     insets: .init(top: 0, left: 0, bottom: 0, right: 0),
-                    message: forwarded.message, actions: menu?.reactions, me: me,
+                    message: linkPresentation.message, actions: menu?.reactions, me: me,
                     onMore: menu?.onMore, own: menu?.own,
-                    open: { openURL($0) }, menuMessage: menu?.message
+                    open: { openURL($0) }, menuMessage: menu?.message, openReference: openOriginal
                 )
             #else
-                Text(forwarded.source.text).textSelection(.enabled)
+                Text(linkPresentation.message.text).textSelection(.enabled)
+                    .modifier(MessageReferenceAction(source: forwarded.source))
             #endif
         }
         if let loadAttachment {
@@ -117,6 +127,12 @@ struct ForwardedMessageCard: View {
 
     private func placeholder(_ text: String) -> some View {
         Text(text).font(.callout.italic()).foregroundStyle(.secondary)
+            .modifier(MessageReferenceAction(source: forwarded.source))
+    }
+
+    private var openOriginal: (() -> Void)? {
+        guard let address = MessageAddress(forwarded.source), let openReference else { return nil }
+        return { openReference(address) }
     }
 }
 

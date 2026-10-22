@@ -247,7 +247,9 @@ struct ThreadPanelList: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
-                .environment(\.openURL, LinkPolicy.openURLAction)
+                .environment(
+                    \.openURL, LinkPolicy.openURLAction(blocking: state.capabilities.internalLinkHosts)
+                )
             }
             .modifier(TranscriptFollowing(follow: follow, proxy: proxy) {
                 TranscriptFollowing.Conditions(settled: placed)

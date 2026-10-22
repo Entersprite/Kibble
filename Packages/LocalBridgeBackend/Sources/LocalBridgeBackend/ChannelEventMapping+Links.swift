@@ -18,7 +18,7 @@ extension ChannelEventMapping {
     ///   entirely, since it then has nothing left to show or click.
     static func links(_ annotations: [GChatBridgeCore.Annotation], text: String) -> [MessageLink] {
         let units = text.utf16.count
-        return annotations.compactMap { annotation in
+        let mapped: [MessageLink] = annotations.compactMap { annotation in
             guard case let .urlMetadata(metadata)? = annotation.metadata,
                   let url = webURL(metadata.url.url)
             else { return nil }
@@ -37,6 +37,7 @@ extension ChannelEventMapping {
                 preview: hidden ? nil : preview(metadata)
             )
         }
+        return MessageLinkAddressMapping.addingAddresses(to: mapped, in: text)
     }
 
     static func webURL(_ raw: String) -> URL? {

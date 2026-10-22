@@ -19,12 +19,19 @@ public struct MessageLink: Codable, Hashable, Sendable {
 
     /// `nil`: no card, because Google sent none or the sender hid it.
     public var preview: LinkPreview?
+    /// An internal source identified by the provider. A URL and address grant
+    /// no access; the client must resolve it in the current account.
+    public var messageAddress: MessageAddress?
 
-    public init(url: URL, start: Int? = nil, length: Int? = nil, preview: LinkPreview? = nil) {
+    public init(
+        url: URL, start: Int? = nil, length: Int? = nil, preview: LinkPreview? = nil,
+        messageAddress: MessageAddress? = nil
+    ) {
         self.url = url
         self.start = start
         self.length = length
         self.preview = preview
+        self.messageAddress = messageAddress
     }
 }
 

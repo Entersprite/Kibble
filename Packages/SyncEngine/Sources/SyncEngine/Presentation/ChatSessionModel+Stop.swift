@@ -26,10 +26,7 @@ public extension ChatSessionModel {
         isLoadingMeetingMetadata = false
         meetingWork.reset()
         store.releaseDecodedTranscripts()
-        directorySearch.reset()
-        searchWork.reset()
-        referenceWork.reset()
-        search = SearchSessionState()
+        stopSearchAndReferences()
         // Same reasoning as `historyTask` just above: a mark in flight for an
         // account this call is signing out of must not be left to answer
         // into an erased store.
@@ -67,5 +64,12 @@ public extension ChatSessionModel {
         published = [:]
         failed = nil
         await engine.stop()
+    }
+
+    private func stopSearchAndReferences() {
+        directorySearch.reset()
+        searchWork.reset()
+        referenceWork.reset()
+        search = SearchSessionState()
     }
 }

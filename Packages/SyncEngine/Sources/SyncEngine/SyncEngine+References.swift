@@ -3,6 +3,16 @@ import ChatPersistence
 import Foundation
 
 public extension SyncEngine {
+    func referencedMessagePreview(_ address: MessageAddress) async throws
+        -> (quote: MessageQuote, author: Member?)? {
+        guard let id = address.message,
+              let message = try await referencedMessage(id, thread: address.thread, in: address.conversation)
+        else { return nil }
+        try Task.checkCancellation()
+        let author = try store.members(identifiedBy: [message.sender]).first
+        return (MessageQuote(message: message), author)
+    }
+
     /// The message a quote, a forward or a link points at: the stored copy,
     /// or else the one its thread's listing brings, for a backend with
     /// threads. `nil` when neither holds it in that conversation.

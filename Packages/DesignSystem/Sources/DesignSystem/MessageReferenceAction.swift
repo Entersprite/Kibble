@@ -1,8 +1,17 @@
 import ChatKit
 import SwiftUI
 
+public typealias MessageReferenceLoader = @MainActor (MessageAddress) async -> (
+    quote: MessageQuote,
+    author: Member?
+)?
+
 extension EnvironmentValues {
     @Entry var openMessageReference: ((MessageAddress) -> Void)?
+    @Entry var loadMessageReference: MessageReferenceLoader?
+    @Entry var internalLinkHosts: Set<String> = []
+    @Entry var messageReferenceDirectory: [Member.ID: Member] = [:]
+    @Entry var messageReferenceScope: String?
 }
 
 /// The original is resolved by the account's client, never by a source snapshot.

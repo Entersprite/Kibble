@@ -171,7 +171,9 @@ public struct MessageList: View {
                     .padding(.horizontal, TranscriptLayout.horizontalPadding)
                     .padding(.top, 12)
                     // Every link under the transcript opens through one rule (links spec §7.1).
-                    .environment(\.openURL, LinkPolicy.openURLAction)
+                    .environment(
+                        \.openURL, LinkPolicy.openURLAction(blocking: state.capabilities.internalLinkHosts)
+                    )
             }
             .modifier(TranscriptFollowing(follow: follow, proxy: proxy, conditions: followConditions))
             .modifier(TranscriptJumpOverlay(

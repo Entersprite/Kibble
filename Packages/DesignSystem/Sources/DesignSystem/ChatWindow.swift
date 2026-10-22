@@ -193,6 +193,10 @@ public struct ChatWindow: View {
         .environment(\.openEmbeddedMedia, actions.openEmbeddedMedia)
         .environment(\.invokeCardAction, actions.invokeCardAction)
         .environment(\.openMessageReference, actions.openMessageReference)
+        .environment(\.loadMessageReference, actions.loadMessageReference)
+        .environment(\.internalLinkHosts, state.capabilities.internalLinkHosts)
+        .environment(\.messageReferenceDirectory, state.directory)
+        .environment(\.messageReferenceScope, state.accountID)
     }
 
     /// The bar's content: the field, or why there isn't one.

@@ -29,6 +29,8 @@
         /// the one whose text this shows: forwarded text acts on the row that
         /// carries it, never on its source.
         var menuMessage: Message?
+        /// A plain single click on a forward's unselected text opens its original.
+        var openReference: (() -> Void)?
 
         func makeCoordinator() -> Coordinator {
             Coordinator(
@@ -45,6 +47,7 @@
             view.delegate = context.coordinator
             view.showsTextCursor = !context.environment.coveredByPanel
             view.insets = insets
+            view.openReference = openReference
             view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
             view.show(context.coordinator.textCache.attributed(
                 message: message,
@@ -64,6 +67,7 @@
             )
             view.showsTextCursor = !context.environment.coveredByPanel
             view.insets = insets
+            view.openReference = openReference
             view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
             view.show(context.coordinator.textCache.attributed(
                 message: message,
@@ -151,6 +155,27 @@
     /// text, with asymmetric insets. `textContainerInset` is symmetric, and the
     /// "edited" label needs a zero bottom, so the origin is overridden instead.
     final class BubbleTextView: HostedTextView {
+        var openReference: (() -> Void)?
+
+        override func mouseDown(with event: NSEvent) {
+            super.mouseDown(with: event)
+            guard openReference != nil,
+                  event.modifierFlags.isDisjoint(with: [.command, .control, .option, .shift])
+            else { return }
+            let point = convert(event.locationInWindow, from: nil)
+            openReferenceAfterClick(at: characterIndexForInsertion(at: point), count: event.clickCount)
+        }
+
+        /// Preserve drag/multiple-click selection and a nested URL's own action.
+        func openReferenceAfterClick(at index: Int, count: Int) {
+            guard count == 1, selectedRange().length == 0, let openReference else { return }
+            if let storage = textStorage, index >= 0, index < storage.length,
+               storage.attribute(.link, at: index, effectiveRange: nil) != nil {
+                return
+            }
+            openReference()
+        }
+
         var insets = NSEdgeInsets() {
             didSet {
                 // Every SwiftUI update sets this; only a change relays out.

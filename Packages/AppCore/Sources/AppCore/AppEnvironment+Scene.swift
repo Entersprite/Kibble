@@ -284,6 +284,12 @@ public extension AppEnvironment {
                 guard let model, self?.runningModel === model else { return }
                 model.openReferencedMessage(address)
             }
+            actions.loadMessageReference = { [weak self, weak model] address in
+                guard let model, self?.runningModel === model else { return nil }
+                let preview = await model.messageReferencePreview(address)
+                guard !Task.isCancelled, self?.runningModel === model else { return nil }
+                return preview
+            }
         }
         if let model = runningModel, model.capabilities.canForwardMessages {
             actions.forwardMessage = { [weak self, weak model] id, destination, comment in

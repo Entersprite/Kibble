@@ -81,6 +81,9 @@ public struct Capabilities: Codable, Hashable, Sendable {
     /// The filters `searchMessages` honors. A chip is drawn only for these.
     /// Encoded sorted, for the same reason as `extendedFlags`.
     public var messageSearchFilters: Set<MessageSearchFilter>
+    /// Exact provider hosts reserved for internal navigation. Clients never
+    /// hand these URLs to a browser, including older unaddressed stored links.
+    public var internalLinkHosts: Set<String>
 
     /// The escape hatch. A newer backend can advertise a capability this build
     /// has no property for, and a newer client can look for it by name without
@@ -125,6 +128,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         canFetchRemoteImages: Bool = false,
         canSearchMessages: Bool = false,
         messageSearchFilters: Set<MessageSearchFilter> = [],
+        internalLinkHosts: Set<String> = [],
         extendedFlags: Set<String> = []
     ) {
         self.canSendMessages = canSendMessages
@@ -162,6 +166,7 @@ public struct Capabilities: Codable, Hashable, Sendable {
         self.canFetchRemoteImages = canFetchRemoteImages
         self.canSearchMessages = canSearchMessages
         self.messageSearchFilters = messageSearchFilters
+        self.internalLinkHosts = internalLinkHosts
         self.extendedFlags = extendedFlags
     }
 }
@@ -205,6 +210,7 @@ public extension Capabilities {
         case canFetchRemoteImages
         case canSearchMessages
         case messageSearchFilters
+        case internalLinkHosts
         case extendedFlags
     }
 
@@ -255,6 +261,8 @@ public extension Capabilities {
                 (container.decodeIfPresent([String].self, forKey: .messageSearchFilters) ?? [])
                     .map(MessageSearchFilter.init(wire:))
             ),
+            internalLinkHosts: Set(container
+                .decodeIfPresent([String].self, forKey: .internalLinkHosts) ?? []),
             extendedFlags: Set(
                 container.decodeIfPresent([String].self, forKey: .extendedFlags) ?? []
             )
@@ -308,6 +316,9 @@ public extension Capabilities {
         try container.encode(canFetchRemoteImages, forKey: .canFetchRemoteImages)
         try container.encode(canSearchMessages, forKey: .canSearchMessages)
         try container.encode(messageSearchFilters.map(\.wire).sorted(), forKey: .messageSearchFilters)
+        if !internalLinkHosts.isEmpty {
+            try container.encode(internalLinkHosts.sorted(), forKey: .internalLinkHosts)
+        }
         try container.encode(extendedFlags.sorted(), forKey: .extendedFlags)
     }
 
