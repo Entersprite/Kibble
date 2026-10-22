@@ -37,7 +37,10 @@ struct MessageRowState: Equatable {
         thread = showsThread ? scene.threads.summaries[message.threadID] : nil
         let repliers = Array((thread?.recentRepliers ?? []).prefix(3))
         let originalSender = message.forwardedSnapshot.map { [$0.source.sender] } ?? []
-        directory = RowDirectory.avatars([message.sender] + repliers + originalSender, in: scene.directory)
+        let quotedSender = message.content?.quote.map { [$0.sender] } ?? []
+        directory = RowDirectory.avatars(
+            [message.sender] + repliers + originalSender + quotedSender, in: scene.directory
+        )
         let availableDownloads = downloads ?? scene.downloads
         let attachments = message.attachments + (message.forwardedSnapshot?.attachments ?? [])
         self.downloads = attachments.reduce(into: [:]) { result, attachment in

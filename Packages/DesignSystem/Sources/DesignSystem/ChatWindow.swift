@@ -221,6 +221,7 @@ public struct ChatWindow: View {
                 quoteRequest: transcriptQuote?.quote.conversation == conversation.id ? transcriptQuote : nil,
                 onQuoteAdopted: { transcriptQuote = nil },
                 quoteDirectory: state.directory,
+                quoteMe: state.me,
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without

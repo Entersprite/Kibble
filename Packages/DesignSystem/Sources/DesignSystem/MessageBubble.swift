@@ -201,7 +201,11 @@ struct MessageBubble: View {
             )
         }
         if let quote = message.content?.quote {
-            MessageQuotePreview(quote: quote, directory: state.directory)
+            // As wide as its words, up to a text bubble's widest, on the
+            // reply's own side of the column.
+            BubbleWidthLimit(reserve: MessageBubbleLayout.reserve(isMine: isMine)) {
+                MessageQuotePreview(quote: quote, directory: state.directory, me: state.me)
+            }
         }
         // Pictures above the words, as Messages draws them, and files last;
         // an image-only message has no empty bubble.

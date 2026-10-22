@@ -127,6 +127,21 @@ struct ForwardedMessageMappingTests {
         #expect(quoted.sender == Member.ID("source-sender"))
     }
 
+    /// A quote names its author only by id, so the author is looked up
+    /// beside the sender, as a forward's source author is.
+    @Test func quotedAndForwardedAuthorsAreLookedUp() throws {
+        let forward = try #require(ChannelEventMapping.domainMessage(message()))
+        #expect(LocalBridgeBackend.memberIDs(in: .messageReceived(forward)) == [
+            Member.ID("forwarder"), Member.ID("source-sender")
+        ])
+        var wire = message(type: 1, text: "Quoted")
+        wire.replyTo.id.parentID.topicID.groupID = wire.id.parentID.topicID.groupID
+        let quoted = try #require(ChannelEventMapping.domainMessage(wire))
+        #expect(LocalBridgeBackend.referencedMembers(of: quoted) == [
+            Member.ID("forwarder"), Member.ID("source-sender")
+        ])
+    }
+
     @Test func quoteAndUnknownReferencesAreNeverMisclassifiedAsForwards() throws {
         for type in [0, 1, 3, 99] {
             var wire = message(type: type, text: "Quoted body")

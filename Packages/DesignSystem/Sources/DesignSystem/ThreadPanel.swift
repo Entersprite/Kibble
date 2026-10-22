@@ -140,6 +140,7 @@ struct ThreadPanel: View {
                 quoteRequest: quoteRequest,
                 onQuoteAdopted: onQuoteAdopted,
                 quoteDirectory: state.directory,
+                quoteMe: state.me,
                 // The thread open at call time, not captured as `sendHere` is: safe only
                 // while these mentions have no `nonMembers`, so nothing is awaited first.
                 send: threads.sendReply

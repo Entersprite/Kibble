@@ -51,7 +51,12 @@ struct ForwardMessageSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             SheetHeader(title: "Forward Message")
             VStack(alignment: .leading, spacing: 12) {
-                MessageQuotePreview(quote: preview, directory: state.directory)
+                MessageQuotePreview(
+                    quote: preview,
+                    directory: state.directory,
+                    me: state.me,
+                    fillsWidth: true
+                )
                 TextField("Find a conversation", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .focused($focus, equals: .search)

@@ -74,7 +74,7 @@ public extension LocalBridgeBackend {
         // sender up. `resolveUnknownMembers` already no-ops once `apiClient`
         // is `nil`, which is what makes this safe to call even when
         // `disconnect()` ran while the request above was in flight.
-        resolveUnknownMembers(hits.map(\.sender))
+        resolveUnknownMembers(hits.flatMap(Self.referencedMembers(of:)))
         let next = mapped.next.map { token in
             SearchCursorCoding.encode(
                 SearchCursorPayload(

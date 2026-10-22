@@ -193,7 +193,7 @@ extension LocalBridgeBackend {
     static func memberIDs(in event: ChatEvent) -> [ChatKit.Member.ID] {
         switch event {
         case let .messageReceived(message), let .messageUpdated(message):
-            [message.sender]
+            referencedMembers(of: message)
         case let .scopedTypingChanged(update):
             [update.member]
         case let .readReceiptsChanged(update):
@@ -203,6 +203,13 @@ extension LocalBridgeBackend {
         default:
             []
         }
+    }
+
+    /// Whose name a message shows: its sender, and the authors of what it
+    /// quotes or forwards, which a quote names only by id.
+    static func referencedMembers(of message: ChatKit.Message) -> [ChatKit.Member.ID] {
+        [message.sender]
+            + [message.content?.quote?.sender, message.content?.forwarded?.source.sender].compactMap(\.self)
     }
 
     /// One `get_members` request over `ids` - the shape §22 observed working.

@@ -51,7 +51,7 @@ public extension LocalBridgeBackend {
             .sorted { $0.createdAt < $1.createdAt }
         let messages = retainingUnclearedHistory(mapped, in: conversation)
         if generation == directoryGeneration {
-            resolveUnknownMembers(messages.map(\.sender))
+            resolveUnknownMembers(messages.flatMap(Self.referencedMembers(of:)))
         }
         if let followed = await followed, generation == directoryGeneration {
             emit(target.event(.followed(followed)))
@@ -123,7 +123,7 @@ public extension LocalBridgeBackend {
         }
         if generation == directoryGeneration {
             events.forEach(emit)
-            resolveUnknownMembers(messages.map(\.sender))
+            resolveUnknownMembers(messages.flatMap(Self.referencedMembers(of:)))
         }
         return messages.filter { message in
             guard let cutoff = historyCutoffs[message.conversationID] else { return true }

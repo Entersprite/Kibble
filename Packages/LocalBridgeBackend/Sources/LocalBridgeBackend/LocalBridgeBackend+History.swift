@@ -112,7 +112,7 @@ public extension LocalBridgeBackend {
             // Resolve only senders in messages the caller will store. An
             // anchored backward page may have returned newer messages that
             // its strict older-than filter deliberately leaves out.
-            resolveUnknownMembers(page.map(\.sender))
+            resolveUnknownMembers(page.flatMap(Self.referencedMembers(of:)))
             return page
         } catch {
             if error is CancellationError || error is ChatError {

@@ -21,6 +21,8 @@ public struct Composer: View {
     let quoteRequest: ComposerQuoteRequest?
     let onQuoteAdopted: (() -> Void)?
     let quoteDirectory: [Member.ID: Member]
+    /// Who "You" is in the reply's quote, for a directory with no name for you.
+    let quoteMe: Member.ID?
     let send: (ComposedMessage) -> Void
     let preserveDraft: ((ComposerDraft) -> Void)?
 
@@ -79,12 +81,14 @@ public struct Composer: View {
         quoteRequest: ComposerQuoteRequest? = nil,
         onQuoteAdopted: (() -> Void)? = nil,
         quoteDirectory: [Member.ID: Member] = [:],
+        quoteMe: Member.ID? = nil,
         send: @escaping (ComposedMessage) -> Void
     ) {
         self.allowsFormatting = allowsFormatting
         self.quoteRequest = quoteRequest
         self.onQuoteAdopted = onQuoteAdopted
         self.quoteDirectory = quoteDirectory
+        self.quoteMe = quoteMe
         self.activity = activity
         self.placeholder = placeholder
         self.restoring = restoring
@@ -226,7 +230,9 @@ public struct Composer: View {
                 ComposerAttachmentStrip(attachments: attachments) { attachmentActions?.remove($0) }
             }
             if let quote = draft.quote, draft.editing == nil {
-                MessageQuotePreview(quote: quote, directory: quoteDirectory, cancel: { draft.setQuote(nil) })
+                MessageQuotePreview(
+                    quote: quote, directory: quoteDirectory, me: quoteMe, cancel: { draft.setQuote(nil) }
+                )
             }
             field
         }
