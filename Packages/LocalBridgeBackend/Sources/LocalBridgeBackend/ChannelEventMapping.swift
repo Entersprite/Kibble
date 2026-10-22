@@ -179,7 +179,7 @@ public enum ChannelEventMapping {
             links: MessageEmbedMapping.links(
                 message.annotations, alongside: links(message.annotations, text: message.textBody)
             ),
-            cards: CardMapping.cards(message.attachments, group: message.id.parentID.topicID.groupID),
+            cards: CardMapping.cards(message.attachments),
             isReply: ThreadMapping.isReply(message),
             callStatus: CallMessageMapping.status(in: message.annotations),
             content: MessageContentMapping.content(message)

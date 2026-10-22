@@ -3,15 +3,14 @@ import Foundation
 import GChatBridgeCore
 
 /// Provider cards rendered as semantic content. Form-free callbacks are mapped
-/// separately; cards requiring unsupported inputs retain a web handoff.
+/// separately; a card's unsupported inputs are left out.
 enum CardMapping {
-    static func cards(_ attachments: [GChatBridgeCore.Attachment], group: GroupId? = nil) -> [AppCard] {
+    static func cards(_ attachments: [GChatBridgeCore.Attachment]) -> [AppCard] {
         attachments.compactMap { attachment in
             guard attachment.hasCardAddOnData else { return nil }
             var mapped = card(attachment.cardAddOnData)
-            let interaction = CardInteractionMapping.map(attachment, group: group)
-            mapped.actions = interaction.actions.isEmpty ? nil : interaction.actions
-            mapped.interactionFallback = interaction.fallback
+            let actions = CardInteractionMapping.actions(attachment)
+            mapped.actions = actions.isEmpty ? nil : actions
             return mapped
         }
     }

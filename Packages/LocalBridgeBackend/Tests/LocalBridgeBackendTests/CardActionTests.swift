@@ -86,8 +86,7 @@ struct CardActionTests {
         forgedButton.textButton.onClick.action.encryptedAction = "forged"
         forged.cardAddOnData.sections[0].widgets[0].buttons[0] = forgedButton
         request
-            .action = try #require(CardMapping.cards([forged], group: source.id.parentID.topicID.groupID)
-                .first?.actions?.first)
+            .action = try #require(CardMapping.cards([forged]).first?.actions?.first)
         await #expect(throws: ChatError.self) { _ = try await backend.invokeCardAction(request) }
         #expect(await transport.submitted.count == 1)
         request.action = action

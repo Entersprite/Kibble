@@ -56,11 +56,7 @@
                         actions: [AppCardAction(
                             id: "example",
                             label: "Acknowledge"
-                        )],
-                        interactionFallback: LinkButton(
-                            label: "Open in Google Chat",
-                            url: URL(string: "https://example.test")!
-                        )
+                        )]
                     ),
                     load: nil,
                     perform: { _ in AppCardActionResult() }

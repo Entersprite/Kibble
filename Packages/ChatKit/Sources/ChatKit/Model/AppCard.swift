@@ -1,27 +1,25 @@
 import Foundation
 
-/// Semantic app-card content, optional provider-issued actions and a web handoff.
-/// Empty cards retain an explicit unavailable presentation.
+/// Semantic app-card content and optional provider-issued actions. A card
+/// never sends the person to the provider's own client: what cannot be done
+/// here is left out. Empty cards retain an explicit unavailable presentation.
 public struct AppCard: Codable, Hashable, Sendable {
     public var header: Header?
     public var sections: [Section]
     public var actions: [AppCardAction]?
-    public var interactionFallback: LinkButton?
 
     public init(
         header: Header? = nil,
         sections: [Section] = [],
-        actions: [AppCardAction]? = nil,
-        interactionFallback: LinkButton? = nil
+        actions: [AppCardAction]? = nil
     ) {
         self.header = header
         self.sections = sections
         self.actions = actions
-        self.interactionFallback = interactionFallback
     }
 
     public var isEmpty: Bool {
-        header == nil && sections.isEmpty && actions?.isEmpty != false && interactionFallback == nil
+        header == nil && sections.isEmpty && actions?.isEmpty != false
     }
 
     public struct Header: Hashable, Sendable {

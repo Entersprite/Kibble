@@ -17,8 +17,14 @@ struct AppCardView: View {
     let load: ((URL) async throws -> Data)?
     var perform: (@MainActor (AppCardAction) async throws -> AppCardActionResult)?
 
+    /// Only actions this window can send: a card is never given a way out
+    /// to the provider's own client instead.
+    private var showsControls: Bool {
+        card.actions?.isEmpty == false && perform != nil
+    }
+
     var body: some View {
-        if card.isEmpty {
+        if card.header == nil, card.sections.isEmpty, !showsControls {
             Text("This app message can't be shown here.")
                 .font(.callout.italic())
                 .foregroundStyle(.secondary)
@@ -36,7 +42,7 @@ struct AppCardView: View {
                     }
                     CardSectionView(section: section, load: load).padding(12)
                 }
-                if card.actions?.isEmpty == false || card.interactionFallback != nil {
+                if showsControls {
                     Divider()
                     AppCardControls(card: card, perform: perform).id(card).padding(12)
                 }

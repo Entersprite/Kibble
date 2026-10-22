@@ -54,9 +54,6 @@ struct AppCardControls: View {
                     Link("Set up app", destination: url)
                 }
             }
-            if let link = card.interactionFallback {
-                Link(link.label, destination: link.url).font(.callout)
-            }
         }
     }
 

@@ -61,6 +61,16 @@ struct AppCardTests {
         #expect(!header.circularImage)
     }
 
+    /// Cards saved by an earlier build carry a link to the provider's own
+    /// client under `interactionFallback`. They still decode, without it.
+    @Test func aSavedCardWithTheRemovedWebLinkStillDecodes() throws {
+        let link = #"{"label":"Open","url":"https://chat.example/room/x"}"#
+        let json = #"{"interactionFallback":"# + link + #","sections":[]}"#
+        let card = try Wire.decode(AppCard.self, from: json)
+        #expect(card == AppCard())
+        #expect(try !Wire.json(card).contains("interactionFallback"))
+    }
+
     @Test func noCardsOmitsTheKeyAndAnEmptyCardIsEmpty() throws {
         let plain = Message(
             id: Fixture.messageID, conversationID: Fixture.spaceID, threadID: Fixture.threadID,

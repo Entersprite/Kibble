@@ -10,12 +10,11 @@ enum CardInteractionMapping {
         let action: Data
     }
 
-    struct Mapping {
-        var actions: [AppCardAction] = []
-        var fallback: LinkButton?
-    }
-
-    static func map(_ attachment: GChatBridgeCore.Attachment, group: GroupId?) -> Mapping {
+    /// The card's form-free callbacks as native actions. A card that needs a
+    /// form, a dialog or another interaction this client cannot complete
+    /// gets none, so nothing incomplete is ever submitted; it is never sent
+    /// to the web client instead.
+    static func actions(_ attachment: GChatBridgeCore.Attachment) -> [AppCardAction] {
         let card = attachment.cardAddOnData
         let bot = attachment.hasAppID ? attachment.appID : attachment.appUser.userID
         var collector = Collector()
@@ -26,20 +25,16 @@ enum CardInteractionMapping {
             where !value.disabled {
             collector.click(value.onClick, label: RichTextMapping.text(value.text)?.plainText ?? "App action")
         }
-        let callbacks = collector.callbacks
-        let needsWeb = collector.needsWeb
-        let fallback = (needsWeb || !callbacks.isEmpty) ? webLink(group) : nil
-        guard !needsWeb, !bot.id.isEmpty, let botData = try? bot.serializedData() else {
-            return Mapping(fallback: fallback)
+        guard !collector.unsupported, !bot.id.isEmpty, let botData = try? bot.serializedData() else {
+            return []
         }
-        let actions = callbacks.prefix(64).compactMap { label, action -> AppCardAction? in
+        return collector.callbacks.prefix(64).compactMap { label, action -> AppCardAction? in
             guard !action.actionMethodName.isEmpty || !action.encryptedAction.isEmpty,
                   let bytes = try? action.serializedData(), bytes.count <= 32768,
                   let token = encodedToken(Token(bot: botData, action: bytes))
             else { return nil }
             return AppCardAction(id: token.base64EncodedString(), label: String(label.prefix(200)))
         }
-        return Mapping(actions: actions, fallback: fallback)
     }
 
     private static func encodedToken(_ token: Token) -> Data? {
@@ -50,19 +45,19 @@ enum CardInteractionMapping {
 
     private struct Collector {
         var callbacks: [(String, JAddOnsFormAction)] = []
-        var needsWeb = false
+        var unsupported = false
 
         mutating func click(_ value: JAddOnsOnClick, label: String) {
             guard case let .action(action)? = value.dataCase else {
                 switch value.dataCase {
-                case .openLinkAction?, .pushCard?: needsWeb = true
-                default: needsWeb = needsWeb || !value.unknownFields.data.isEmpty
+                case .openLinkAction?, .pushCard?: unsupported = true
+                default: unsupported = unsupported || !value.unknownFields.data.isEmpty
                 }
                 return
             }
             if !action.unknownFields.data.isEmpty || action.interaction != 0
                 || !action.requiredWidgetIds.isEmpty || action.allWidgetsAreRequired {
-                needsWeb = true
+                unsupported = true
             }
             callbacks.append((label, action))
         }
@@ -81,14 +76,14 @@ enum CardInteractionMapping {
         mutating func widget(_ widget: JAddOnsWidget) {
             widget.buttons.forEach { button($0) }
             switch widget.data {
-            case .textField?, .selectionControl?, .menu?, .dateTimePicker?: needsWeb = true
+            case .textField?, .selectionControl?, .menu?, .dateTimePicker?: unsupported = true
             case let .keyValue(row)?:
                 click(row.onClick, label: RichTextMapping.text(row.content)?.plainText ?? "App action")
                 if case let .button(value)? = row.control {
                     button(value)
                 }
                 if case .switchWidget? = row.control {
-                    needsWeb = true
+                    unsupported = true
                 }
             case let .textKeyValue(row)?:
                 click(row.onClick, label: RichTextMapping.text(row.text)?.plainText ?? "App action")
@@ -99,21 +94,5 @@ enum CardInteractionMapping {
             default: break
             }
         }
-    }
-
-    private static func webLink(_ group: GroupId?) -> LinkButton? {
-        guard let group else { return nil }
-        let path: String
-        let identifier: String
-        switch group.id {
-        case let .spaceID(value)?: path = "room"; identifier = value.spaceID
-        case let .dmID(value)?: path = "dm"; identifier = value.dmID
-        default: return nil
-        }
-        guard !identifier.isEmpty, identifier.utf8.allSatisfy({
-            (65 ... 90).contains($0) || (97 ... 122).contains($0) || (48 ... 57)
-                .contains($0) || $0 == 45 || $0 == 95
-        }), let url = URL(string: "https://chat.google.com/\(path)/\(identifier)") else { return nil }
-        return LinkButton(label: "Open in Google Chat", url: url)
     }
 }

@@ -25,12 +25,23 @@ struct CardInteractionMappingTests {
         return value
     }
 
+    /// No card links to the web client: what this client cannot do is left
+    /// out, never handed to Google Chat in a browser.
+    private func expectNoWebClientLink(_ card: AppCard, sourceLocation: SourceLocation = #_sourceLocation) {
+        let urls = card.sections.flatMap(\.widgets).flatMap { widget -> [URL] in
+            switch widget {
+            case let .buttons(buttons): buttons.map(\.url)
+            case let .decorated(row): row.button.map { [$0.url] } ?? []
+            default: []
+            }
+        }
+        #expect(!urls.contains { $0.host() == "chat.google.com" }, "\(urls)", sourceLocation: sourceLocation)
+    }
+
     @Test(arguments: ["Linear", "GitHub", "Google Drive", "Sentry"])
     func formFreeCallbacksKeepTheCompleteProviderIssuedAction(_ app: String) throws {
         let source = attachment(app)
-        var group = GroupId()
-        group.spaceID.spaceID = "example"
-        let mapped = try #require(CardMapping.cards([source], group: group).first)
+        let mapped = try #require(CardMapping.cards([source]).first)
         let action = try #require(mapped.actions?.first)
         #expect(action.label == "Acknowledge")
         let data = try #require(Data(base64Encoded: action.id))
@@ -38,27 +49,26 @@ struct CardInteractionMappingTests {
         #expect(try UserId(serializedBytes: token.bot) == source.appID)
         let decoded = try JAddOnsFormAction(serializedBytes: token.action)
         #expect(decoded == source.cardAddOnData.sections[0].widgets[0].buttons[0].textButton.onClick.action)
-        #expect(mapped.interactionFallback?.url.absoluteString == "https://chat.google.com/room/example")
+        expectNoWebClientLink(mapped)
     }
 
     @Test func formsDialogsAndDisabledButtonsNeverSendAnIncompleteNativeAction() throws {
         var source = attachment("Example app")
-        var group = GroupId()
-        group.dmID.dmID = "example"
         source.cardAddOnData.sections[0].widgets[0].buttons[0].textButton.disabled = true
-        #expect(CardMapping.cards([source], group: group).first?.actions == nil)
+        #expect(CardMapping.cards([source]).first?.actions == nil)
         source.cardAddOnData.sections[0].widgets[0].buttons[0].textButton.disabled = false
         source.cardAddOnData.sections[0].widgets[0].buttons[0].textButton.onClick.action.interaction = 1
-        let dialog = try #require(CardMapping.cards([source], group: group).first)
+        let dialog = try #require(CardMapping.cards([source]).first)
         #expect(dialog.actions == nil)
-        #expect(dialog.interactionFallback?.url.absoluteString == "https://chat.google.com/dm/example")
+        expectNoWebClientLink(dialog)
         source.cardAddOnData.sections[0].widgets[0].buttons[0].textButton.onClick.action.interaction = 0
         var input = JAddOnsWidget()
         input.textField.name = "summary"
         source.cardAddOnData.sections[0].widgets.append(input)
-        let form = try #require(CardMapping.cards([source], group: group).first)
+        let form = try #require(CardMapping.cards([source]).first)
         #expect(form.actions == nil)
-        #expect(form.interactionFallback != nil)
+        expectNoWebClientLink(form)
+        // Its header still shows; only the form is left out.
         #expect(!form.isEmpty)
     }
 }
