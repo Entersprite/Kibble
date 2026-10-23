@@ -52,5 +52,73 @@
                 }
             }
         }
+
+        /// Convert to Space over a group chat's Info, with LocalBridge's
+        /// consequences (one confirmed line, the rest unknown, acknowledgement
+        /// required): loaded in both appearances, then loading, a failed read,
+        /// and a refused Convert being checked.
+        @Test func convertToSpaceRendersLocalBridgeConsequences() async throws {
+            let group = ConversationDetails(
+                conversation: Conversation(
+                    id: .init("lunch"), kind: .groupDirectMessage, title: "Lunch Crew", memberCount: 4
+                ),
+                membership: .joined,
+                allowedActions: ["details", "rename", "convertToSpace", "leave"],
+                fieldLimits: ["name": 128]
+            )
+            let localBridge = ConversionConsequences(
+                items: [ConversionConsequence(topic: .sameConversation, outcome: .kept)]
+                    + [
+                        ConversionTopic.membership,
+                        .messages,
+                        .history,
+                        .invitations,
+                        .integrations,
+                        .externalPeople,
+                        .undo
+                    ]
+                    .map { ConversionConsequence(topic: $0, outcome: .unknown) },
+                requiresHistoryAcknowledgement: true
+            )
+            let media = ReactionActions(toggle: { _, _, _ in })
+            var state = ChatSceneState()
+            state.browser.panelTarget = group.conversation.id
+            state.browser.details = group
+            state.browser.conversion = localBridge
+            let size = NSSize(width: 460, height: 400)
+            for dark in [false, true] {
+                try await render(
+                    ConvertToSpaceSheet(details: group, state: state, actions: actions, reactions: media),
+                    dark: dark, name: "convert-to-space-\(dark ? "dark" : "light")", size: size
+                )
+            }
+            try await renderConversionStates(group, state, reactions: media, size: size)
+        }
+
+        /// Loading, a failed read with Try Again, and the details read again after a Convert.
+        private func renderConversionStates(
+            _ group: ConversationDetails, _ state: ChatSceneState, reactions media: ReactionActions,
+            size: NSSize
+        ) async throws {
+            var loading = state
+            loading.browser.conversion = nil
+            loading.browser.isLoadingConversion = true
+            try await render(
+                ConvertToSpaceSheet(details: group, state: loading, actions: actions, reactions: nil),
+                dark: false, name: "convert-to-space-loading", size: size
+            )
+            loading.browser.isLoadingConversion = false
+            loading.browser.conversionError = "The conversion details couldn’t be loaded."
+            try await render(
+                ConvertToSpaceSheet(details: group, state: loading, actions: actions, reactions: nil),
+                dark: true, name: "convert-to-space-load-failed", size: size
+            )
+            var checking = state
+            checking.browser.needsReconciliation = true
+            try await render(
+                ConvertToSpaceSheet(details: group, state: checking, actions: actions, reactions: media),
+                dark: false, name: "convert-to-space-checking", size: size
+            )
+        }
     }
 #endif

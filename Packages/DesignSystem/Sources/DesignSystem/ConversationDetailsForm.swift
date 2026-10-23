@@ -21,8 +21,7 @@ struct ConversationDetailsForm: View {
     @State private var draft: DetailsDraft
     @State private var pickingEmoji = false
     @State private var pending: ConversationMutation?
-    /// Seam: Convert to Space… presents `ConvertToSpaceSeam` until the
-    /// conversion sheet replaces it.
+    /// Convert to Space… presents `ConvertToSpaceSheet` over the Info sheet.
     @State private var converting = false
 
     init(
@@ -65,7 +64,9 @@ struct ConversationDetailsForm: View {
             ),
             details: details, state: state, actions: actions, report: $report
         )
-        .sheet(isPresented: $converting) { ConvertToSpaceSeam() }
+        .sheet(isPresented: $converting) {
+            ConvertToSpaceSheet(details: details, state: state, actions: actions, reactions: reactions)
+        }
         .alert(
             pending
                 .map { ConversationDetailsText.confirmationTitle($0, details: details, state: state) } ?? "",
@@ -176,12 +177,7 @@ struct ConversationDetailsForm: View {
     /// "n / limit" in UTF-16 units, red past the server's limit. No limit, no counter.
     @ViewBuilder private func counter(_ text: String, _ field: DetailsDraft.Field) -> some View {
         if let limit = draft.limit(field.rawValue) {
-            let length = DetailsDraft.length(text)
-            Text("\(length.formatted()) / \(limit.formatted())")
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(length > limit ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
-                .accessibilityLabel("\(length) of \(limit) characters")
+            LengthCounter(length: DetailsDraft.length(text), limit: limit)
         }
     }
 
@@ -283,20 +279,16 @@ struct ConversationDetailsForm: View {
     }
 }
 
-/// Seam: stands in for the Convert to Space sheet, which replaces it.
-struct ConvertToSpaceSeam: View {
-    @Environment(\.dismiss) private var dismiss
+/// "n / limit" in UTF-16 units, as the server counts, red past its limit.
+struct LengthCounter: View {
+    let length: Int
+    let limit: Int
 
     var body: some View {
-        Form {
-            Label("Convert to Space", systemImage: "arrow.up.forward.square")
-        }
-        .formStyle(.grouped)
-        .frame(width: 360, height: 140)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
-        }
+        Text("\(length.formatted()) / \(limit.formatted())")
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(length > limit ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+            .accessibilityLabel("\(length) of \(limit) characters")
     }
 }
