@@ -96,18 +96,7 @@ public extension FakeBackend {
         after cursor: String?
     ) async throws -> ConversationParticipantPage {
         let details = try await conversationDetails(id)
-        var rows = managedParticipants[id] ?? world.members(in: details.conversation).map {
-            ConversationParticipant(
-                member: $0,
-                role: $0.id == world.me ? .owner : .member,
-                state: .joined,
-                allowedActions: $0.id == world.me ? [] : [
-                    "removePerson",
-                    "setRole"
-                ],
-                allowedRoles: $0.id == world.me ? [] : [.member, .manager, .owner]
-            )
-        }
+        var rows = managedParticipants[id] ?? initialParticipants(in: details.conversation)
         rows = refreshedManagedParticipants(rows)
         let offset = try managementOffset(cursor, key: "members:\(id.rawValue)")
         let end = min(rows.count, offset + min(max(1, pageSize), max(0, rows.count - offset)))
@@ -164,15 +153,7 @@ public extension FakeBackend {
         guard expectedRevision == nil || details.revision == expectedRevision else {
             throw ChatError.unknown("This conversation changed. Reload it before saving.")
         }
-        var rows = managedParticipants[id] ?? world.members(in: details.conversation).map {
-            ConversationParticipant(
-                member: $0,
-                role: $0.id == world.me ? .owner : .member,
-                state: .joined,
-                allowedActions: $0.id == world.me ? [] : ["removePerson", "setRole"],
-                allowedRoles: $0.id == world.me ? [] : [.member, .manager, .owner]
-            )
-        }
+        var rows = managedParticipants[id] ?? initialParticipants(in: details.conversation)
         rows = refreshedManagedParticipants(rows)
         let failed = try applyManagement(mutation, details: &details, participants: &rows)
         details.revision = nextIdentifier("revision")

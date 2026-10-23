@@ -175,3 +175,32 @@ extension ConversationManagementTests {
         #expect(!joined.spaces.contains { $0.conversation.id == space.conversation.id })
     }
 }
+
+extension ConversationManagementTests {
+    /// The demo world's price-engine shows every People state; approving the
+    /// request makes a member, and cancelling the invitation removes it.
+    @Test func priceEngineSeedsEachPeopleState() async throws {
+        let backend = FakeBackend(world: .acme, directory: FixtureWorld.acmeDirectory)
+        try await backend.connect()
+        let space = Acme.priceEngine
+        let rows = try await backend.participants(in: space, after: nil).participants
+        let invited = FixtureWorld.acmeDirectory[1].id
+        let requesting = FixtureWorld.acmeDirectory[2].id
+        #expect(rows.first { $0.id == Acme.alex }?.role == .owner)
+        #expect(rows.first { $0.id == Acme.maya }?.role == .manager)
+        #expect(rows.first { $0.id == Acme.priya }?.isExternal == true)
+        #expect(rows.first { $0.id == invited }?.state == .invited)
+        #expect(rows.first { $0.id == requesting }?.state == .requested)
+        let approved = try await backend.mutateConversation(
+            .approveRequest(requesting), in: space, operationID: "approve", expectedRevision: nil
+        )
+        #expect(approved.details?.conversation.members.contains(requesting) == true)
+        let cancelled = try await backend.mutateConversation(
+            .removePerson(invited), in: space, operationID: "cancel", expectedRevision: nil
+        )
+        #expect(cancelled.details?.conversation.members.contains(invited) == false)
+        let after = try await backend.participants(in: space, after: nil).participants
+        #expect(!after.contains { $0.id == invited })
+        #expect(after.first { $0.id == requesting }?.state == .joined)
+    }
+}

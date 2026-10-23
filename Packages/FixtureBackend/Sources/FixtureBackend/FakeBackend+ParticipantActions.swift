@@ -1,6 +1,41 @@
 import ChatKit
 
 extension FakeBackend {
+    /// A conversation's participants before any write: its members, with the
+    /// viewer as owner. The demo world's price-engine also has a manager, a
+    /// person from outside the organization, an open invitation and a join
+    /// request, so the app's People list shows each of those states.
+    func initialParticipants(in conversation: Conversation) -> [ConversationParticipant] {
+        var rows = world.members(in: conversation).map {
+            ConversationParticipant(
+                member: $0,
+                role: $0.id == world.me ? .owner : .member,
+                state: .joined,
+                allowedActions: $0.id == world.me ? [] : ["removePerson", "setRole"],
+                allowedRoles: $0.id == world.me ? [] : [.member, .manager, .owner]
+            )
+        }
+        guard conversation.id == Acme.priceEngine else { return rows }
+        for index in rows.indices {
+            if rows[index].id == Acme.maya {
+                rows[index].role = .manager
+            }
+            if rows[index].id == Acme.priya {
+                rows[index].isExternal = true
+            }
+        }
+        let invited = FixtureWorld.acmeDirectory[1]
+        let requesting = FixtureWorld.acmeDirectory[2]
+        rows.append(ConversationParticipant(
+            member: invited, role: .member, state: .invited, allowedActions: ["removePerson"]
+        ))
+        rows.append(ConversationParticipant(
+            member: requesting, role: .member, state: .requested,
+            allowedActions: ["approveRequest", "rejectRequest"]
+        ))
+        return rows
+    }
+
     func refreshedManagedParticipants(_ values: [ConversationParticipant]) -> [ConversationParticipant] {
         var rows = values
         let viewerIsOwner = rows.contains { $0.id == world.me && $0.role == .owner && $0.state == .joined }
