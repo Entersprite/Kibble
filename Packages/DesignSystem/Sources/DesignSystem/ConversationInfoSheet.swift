@@ -311,7 +311,9 @@ struct ConversationInfoSheet: View {
             }
         } else {
             ToolbarItem(placement: .confirmationAction) {
+                // The model refuses to close while a write is on its way.
                 Button("Done") { go(.close) }
+                    .disabled(state.browser.isSubmitting)
             }
         }
     }
