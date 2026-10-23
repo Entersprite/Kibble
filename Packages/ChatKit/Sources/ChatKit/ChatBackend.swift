@@ -191,6 +191,7 @@ public protocol ChatBackend: Sendable {
     func openAppConversation(_ app: Member.ID, from conversation: Conversation.ID) async throws
         -> Conversation
     func conversationEmail(_ conversation: Conversation.ID) async throws -> ConversationEmail
+    func conversionConsequences(_ conversation: Conversation.ID) async throws -> ConversionConsequences
     func searchConversationApps(_ query: String, in conversation: Conversation.ID) async throws
         -> [ConversationApp]
     func conversationIntegrations(_ conversation: Conversation.ID) async throws -> ConversationIntegrations

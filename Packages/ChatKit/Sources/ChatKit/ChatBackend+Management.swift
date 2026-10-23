@@ -5,6 +5,10 @@ public extension ChatBackend {
         throw ChatError.unsupported(capability: "conversationEmail")
     }
 
+    func conversionConsequences(_: Conversation.ID) async throws -> ConversionConsequences {
+        throw ChatError.unsupported(capability: "conversionConsequences")
+    }
+
     func openAppConversation(_: Member.ID, from _: Conversation.ID) async throws -> Conversation {
         throw ChatError.unsupported(capability: "conversationApps")
     }
