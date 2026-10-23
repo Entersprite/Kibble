@@ -316,11 +316,11 @@ struct ConversationPeopleTable: View {
             }
             Spacer(minLength: 8)
             if state.browser.hasMoreParticipants {
-                let loading = state.browser.isLoadingParticipants || state.browser.isLoadingAllParticipants
+                let available = PeopleListStatus.canLoadMore(state.browser)
                 Button("Load More") { actions.details(details.conversation.id, true) }
-                    .disabled(loading)
+                    .disabled(!available)
                 Button("Load All", action: actions.loadAllParticipants)
-                    .disabled(loading || state.browser.isSubmitting)
+                    .disabled(!available)
             }
         }
         .controlSize(.small)

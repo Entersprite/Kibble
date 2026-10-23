@@ -47,7 +47,11 @@ private struct InfoDraftReporting: ViewModifier {
         content
             .onChange(of: details) { _, details in
                 // A reload keeps what was chosen; the saved answer starts over.
-                seam.update(details, saves.isAnswer(submitting: state.browser.isSubmitting))
+                let browser = state.browser
+                seam.update(
+                    details,
+                    saves.isAnswer(submitting: browser.isSubmitting, error: browser.panelError)
+                )
             }
             .onChange(of: state.browser.isSubmitting) { _, submitting in
                 saves.submittingChanged(submitting)

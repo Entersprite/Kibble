@@ -240,4 +240,11 @@ enum PeopleListStatus: Equatable {
         }
         return .ready
     }
+
+    /// Whether Load More and Load All are offered: there is more, and no
+    /// page, all pages or write is on its way.
+    static func canLoadMore(_ browser: ConversationBrowserScene) -> Bool {
+        browser.hasMoreParticipants && !browser.isLoadingParticipants
+            && !browser.isLoadingAllParticipants && !browser.isSubmitting
+    }
 }

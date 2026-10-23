@@ -46,7 +46,8 @@ struct InfoSaveTracker: Equatable {
 
     /// Whether `details` changing now is this Save's answer. Never while the
     /// model is still submitting: a reload landing mid-write is just a reload.
-    func isAnswer(submitting: Bool) -> Bool {
-        !submitting && (phase == .submitting || phase == .landing)
+    /// Nor after a refusal (`error`): a reload in that turn keeps the typing.
+    func isAnswer(submitting: Bool, error: String?) -> Bool {
+        !submitting && error == nil && (phase == .submitting || phase == .landing)
     }
 }

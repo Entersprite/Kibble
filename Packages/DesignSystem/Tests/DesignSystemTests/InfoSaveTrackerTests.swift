@@ -25,13 +25,13 @@ struct InfoSaveTrackerTests {
         var draft = DetailsDraft(details())
         draft.description = "typed"
         saves.saveRequested()
-        #expect(!saves.isAnswer(submitting: false))
+        #expect(!saves.isAnswer(submitting: false, error: nil))
         saves.saveMustHaveStarted()
         #expect(saves.phase == .idle)
 
         var reloaded = details()
         reloaded.guidelines = "Changed elsewhere."
-        draft = draft.updated(to: reloaded, isAnswer: saves.isAnswer(submitting: false))
+        draft = draft.updated(to: reloaded, isAnswer: saves.isAnswer(submitting: false, error: nil))
         #expect(draft.description == "typed")
         #expect(draft.isDirty)
     }
@@ -47,7 +47,7 @@ struct InfoSaveTrackerTests {
 
         // The answer, in the same turn submitting ends; the server tidied the text.
         let answer = details(description: "typed")
-        draft = draft.updated(to: answer, isAnswer: saves.isAnswer(submitting: false))
+        draft = draft.updated(to: answer, isAnswer: saves.isAnswer(submitting: false, error: nil))
         saves.submittingChanged(false)
         saves.landed()
         #expect(!draft.isDirty)
@@ -61,7 +61,7 @@ struct InfoSaveTrackerTests {
         other.submittingChanged(true)
         other.submittingChanged(false)
         #expect(other.phase == .landing)
-        second = second.updated(to: answer, isAnswer: other.isAnswer(submitting: false))
+        second = second.updated(to: answer, isAnswer: other.isAnswer(submitting: false, error: nil))
         other.landed()
         #expect(!second.isDirty)
     }
@@ -79,7 +79,25 @@ struct InfoSaveTrackerTests {
             saves.landed()
             #expect(saves.phase == .idle)
         }
-        draft = draft.updated(to: details(), isAnswer: saves.isAnswer(submitting: false))
+        draft = draft.updated(to: details(), isAnswer: saves.isAnswer(submitting: false, error: nil))
+        #expect(draft.description == "typed")
+        #expect(draft.isDirty)
+    }
+
+    /// A refused Save with a reload landing in the same turn: the reload is
+    /// not the answer, and the typing stays for another try.
+    @Test func aFailedSaveWithASameTurnReloadKeepsTheTyping() {
+        var saves = InfoSaveTracker()
+        var draft = DetailsDraft(details())
+        draft.description = "typed"
+        saves.saveRequested()
+        saves.submittingChanged(true)
+        saves.submittingChanged(false)
+        #expect(saves.phase == .landing)
+        let error = "The change failed."
+        #expect(!saves.isAnswer(submitting: false, error: error))
+        draft = draft.updated(to: details(), isAnswer: saves.isAnswer(submitting: false, error: error))
+        saves.landed()
         #expect(draft.description == "typed")
         #expect(draft.isDirty)
     }
@@ -89,8 +107,8 @@ struct InfoSaveTrackerTests {
         var saves = InfoSaveTracker()
         saves.saveRequested()
         saves.submittingChanged(true)
-        #expect(!saves.isAnswer(submitting: true))
-        #expect(saves.isAnswer(submitting: false))
+        #expect(!saves.isAnswer(submitting: true, error: nil))
+        #expect(saves.isAnswer(submitting: false, error: nil))
     }
 
     /// Another write's submission (Leave…, say) doesn't arm the tracker.
@@ -99,6 +117,6 @@ struct InfoSaveTrackerTests {
         saves.submittingChanged(true)
         saves.submittingChanged(false)
         #expect(saves.phase == .idle)
-        #expect(!saves.isAnswer(submitting: false))
+        #expect(!saves.isAnswer(submitting: false, error: nil))
     }
 }
