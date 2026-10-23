@@ -28,6 +28,20 @@ public struct ConversationBrowserScene: Sendable, Equatable {
     public var preview: ConversationPreview?
     public var isLoadingPreview = false
     public var previewError: String?
+    public var integrations: ConversationIntegrations?
+    public var isLoadingIntegrations = false
+    public var integrationsError: String?
+    public var appResults: [ConversationApp] = []
+    public var isSearchingApps = false
+    public var email: ConversationEmail?
+    public var isLoadingEmail = false
+    public var emailError: String?
+    public var conversion: ConversionConsequences?
+    public var isLoadingConversion = false
+    public var conversionError: String?
+    public var isLoadingAllParticipants = false
+    /// The open panel's change on its way; nil for any other panel.
+    public var pendingMutation: ConversationMutation?
 
     public init() {}
 }
@@ -46,6 +60,14 @@ public struct ConversationBrowserActions {
     public var details: (Conversation.ID, Bool) -> Void
     public var preview: (ConversationDetails) -> Void
     public var mutate: (ConversationMutation) -> Void
+    public var loadIntegrations: () -> Void
+    public var searchApps: (String) -> Void
+    public var openApp: (Member.ID) -> Void
+    /// Delivers the webhook's URL to the caller only; it is never kept in scene state.
+    public var webhookURL: (String, @escaping @MainActor (Result<URL, ChatError>) -> Void) -> Void
+    public var loadEmail: () -> Void
+    public var loadConversion: () -> Void
+    public var loadAllParticipants: () -> Void
 
     public init(
         show: @escaping (String) -> Void,
@@ -59,8 +81,19 @@ public struct ConversationBrowserActions {
         details: @escaping (Conversation.ID, Bool) -> Void,
         preview: @escaping (ConversationDetails) -> Void,
         mutate: @escaping (ConversationMutation) -> Void,
-        setSpaceOrganization: @escaping (SpaceDirectoryOrganization) -> Void = { _ in }
+        setSpaceOrganization: @escaping (SpaceDirectoryOrganization) -> Void = { _ in },
+        loadIntegrations: @escaping () -> Void = {},
+        searchApps: @escaping (String) -> Void = { _ in },
+        openApp: @escaping (Member.ID) -> Void = { _ in },
+        webhookURL: @escaping (String, @escaping @MainActor (Result<URL, ChatError>) -> Void) -> Void =
+            { _, _ in },
+        loadEmail: @escaping () -> Void = {},
+        loadConversion: @escaping () -> Void = {},
+        loadAllParticipants: @escaping () -> Void = {}
     ) {
+        self.loadIntegrations = loadIntegrations; self.searchApps = searchApps; self.openApp = openApp
+        self.webhookURL = webhookURL; self.loadEmail = loadEmail; self.loadConversion = loadConversion
+        self.loadAllParticipants = loadAllParticipants
         self.reviewCreation = reviewCreation; self
             .searchPeople = searchPeople; self.show = show; self.back = back; self.search = search
         self.beginCreation = beginCreation; self.create = create; self.closePanel = closePanel

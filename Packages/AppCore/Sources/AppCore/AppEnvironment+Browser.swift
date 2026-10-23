@@ -4,7 +4,10 @@ import SyncEngine
 
 extension AppEnvironment {
     func browserScene(_ model: ChatSessionModel) -> ConversationBrowserScene {
-        let browser = model.browser
+        Self.browserScene(model.browser)
+    }
+
+    static func browserScene(_ browser: ConversationBrowser) -> ConversationBrowserScene {
         var state = ConversationBrowserScene()
         state.page = browser.page
         state.lastPage = browser.lastPage
@@ -31,6 +34,19 @@ extension AppEnvironment {
         state.preview = browser.preview
         state.isLoadingPreview = browser.isLoadingPreview
         state.previewError = browser.previewError
+        state.integrations = browser.integrations
+        state.isLoadingIntegrations = browser.isLoadingIntegrations
+        state.integrationsError = browser.integrationsError
+        state.appResults = browser.appResults
+        state.isSearchingApps = browser.isSearchingApps
+        state.email = browser.email
+        state.isLoadingEmail = browser.isLoadingEmail
+        state.emailError = browser.emailError
+        state.conversion = browser.conversion
+        state.isLoadingConversion = browser.isLoadingConversion
+        state.conversionError = browser.conversionError
+        state.isLoadingAllParticipants = browser.isLoadingAllParticipants
+        state.pendingMutation = browser.pendingMutation
         return state
     }
 
@@ -67,7 +83,17 @@ extension AppEnvironment {
             setSpaceOrganization: { [weak model] in
                 guard let model else { return }
                 model.browser.search(model.browser.query, organization: $0)
-            }
+            },
+            loadIntegrations: { [weak model] in model?.browser.loadIntegrations() },
+            searchApps: { [weak model] in model?.browser.searchApps($0) },
+            openApp: { [weak model] in model?.browser.openApp($0) },
+            webhookURL: { [weak model] id, done in
+                guard let model else { return }
+                model.browser.webhookURL(id, done)
+            },
+            loadEmail: { [weak model] in model?.browser.loadEmail() },
+            loadConversion: { [weak model] in model?.browser.loadConversion() },
+            loadAllParticipants: { [weak model] in model?.browser.loadAllParticipants() }
         )
     }
 }
