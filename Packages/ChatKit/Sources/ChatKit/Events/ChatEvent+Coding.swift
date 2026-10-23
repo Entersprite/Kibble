@@ -12,6 +12,7 @@ import Foundation
 extension ChatEvent {
     enum CodingKeys: String, CodingKey {
         case activity
+        case pins
         case type
         case state
         case conversations
@@ -60,6 +61,8 @@ extension ChatEvent {
         case conversationUnreadMarkChanged
         case messageReceived
         case messageUpdated
+        case messagePinsChanged
+        case messagePinsLoaded
         case historyLoaded
         case mentionBackfillChanged
         case messageDeleted

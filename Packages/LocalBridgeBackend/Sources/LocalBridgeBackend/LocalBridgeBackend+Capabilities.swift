@@ -62,7 +62,8 @@ public extension LocalBridgeBackend {
             ], internalLinkHosts: ["chat.google.com"], extendedFlags: [
                 "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
                 "conversationPreview", "customEmojiMessages", "customEmojiStatus",
-                "callDiscovery", "conversationWebhooks", "conversationApps", "conversationEmail"
+                "callDiscovery", "conversationWebhooks", "conversationApps", "conversationEmail",
+                "messagePins"
             ]
         )
     }

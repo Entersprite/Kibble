@@ -27,9 +27,14 @@ public actor ServiceBackend: ProjectedChatBackend {
     var uploadTasks: [UUID: Task<Attachment, any Error>] = [:]
     var mediaTasks: [UUID: Task<Data, any Error>] = [:]
     let transferQueue = TransferWorkQueue()
+    let diagnostics: ServiceClientDiagnostics
     private var acknowledgement: PendingAcknowledgement?
 
-    public init(account: AccountSummary, transport: any ServiceEventTransport) {
+    public init(
+        account: AccountSummary, transport: any ServiceEventTransport,
+        diagnostics: ServiceClientDiagnostics = .init()
+    ) {
+        self.diagnostics = diagnostics
         accountID = account.id
         accountRevision = account.revision
         self.transport = transport

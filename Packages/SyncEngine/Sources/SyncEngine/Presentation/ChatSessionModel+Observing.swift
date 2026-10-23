@@ -149,6 +149,7 @@ extension ChatSessionModel {
     /// "switching conversation closes the panel").
     func selectionMoved(to id: Conversation.ID) {
         watchConversationActivity()
+        watchPins(in: id)
         stopTyping()
         activity = ConversationActivity()
         closeThread()

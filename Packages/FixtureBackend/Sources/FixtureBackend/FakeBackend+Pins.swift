@@ -18,13 +18,14 @@ public extension FakeBackend {
         _ = try await pinnedMessages(in: address.conversation)
         guard let id = address.message, let message = world.message(id),
               message.conversationID == address.conversation, message.threadID == address.thread,
-              !message.isDeleted, message.callStatus == nil else {
+              !message.isDeleted, message.callStatus == nil, message.activity == nil else {
             throw ChatError.decoding("This message cannot be pinned.")
         }
         world.pinnedMessageIDs.removeAll { $0 == id }
         if pinned {
             world.pinnedMessageIDs.insert(id, at: 0)
         }
+        emit(.messagePinsChanged(address.conversation))
         return try await pinnedMessages(in: address.conversation)
     }
 }

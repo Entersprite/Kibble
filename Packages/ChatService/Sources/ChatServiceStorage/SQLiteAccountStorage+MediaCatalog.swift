@@ -8,11 +8,17 @@ extension SQLiteAccountStorage: ServiceMediaCatalog {
     static let mediaVisibility = """
     FROM serviceMediaReference AS media
     LEFT JOIN conversation ON conversation.id = media.conversationID
-    LEFT JOIN message ON message.id = media.messageID
+    LEFT JOIN message ON message.id = COALESCE(media.messageID,
+        CASE WHEN media.originKind = 'pinMessage' THEN media.originID END)
     LEFT JOIN member ON member.id = media.memberID
     LEFT JOIN conversationActionState AS action ON action.id = media.conversationID
     WHERE media.expiresAt > ? AND (
         (media.originKind = 'member' AND (media.memberID IS NULL OR member.id IS NOT NULL))
+        OR (media.originKind = 'pinMessage'
+            AND conversation.id IS NOT NULL AND COALESCE(action.isRemoved, 0) = 0
+            AND (message.id IS NULL OR
+                (message.conversationID = media.conversationID AND message.isDeleted = 0))
+            AND (action.historyClearedBefore IS NULL OR media.createdAt > action.historyClearedBefore))
         OR (media.originKind IN ('message', 'conversation')
             AND (conversation.id IS NOT NULL OR media.canonical = 0)
             AND COALESCE(action.isRemoved, 0) = 0

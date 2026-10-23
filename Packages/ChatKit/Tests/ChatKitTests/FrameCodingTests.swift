@@ -152,6 +152,8 @@ struct FrameCodingTests {
             "historyLoaded",
             "mentionBackfillChanged",
             "messageUpdated",
+            "messagePinsChanged",
+            "messagePinsLoaded",
             "messageDeleted",
             "reactionChanged",
             "scopedTypingChanged",

@@ -5,6 +5,13 @@ extension ChatEvent {
         _ tag: String, from container: KeyedDecodingContainer<CodingKeys>
     ) throws -> ChatEvent? {
         switch tag {
+        case Tag.messagePinsLoaded.rawValue:
+            try .messagePinsLoaded(
+                conversationID: container.decode(Conversation.ID.self, forKey: .conversationID),
+                pins: container.decode(PinnedMessages.self, forKey: .pins)
+            )
+        case Tag.messagePinsChanged.rawValue:
+            try .messagePinsChanged(container.decode(Conversation.ID.self, forKey: .conversationID))
         case Tag.historyInvalidated.rawValue:
             try container.decodeIfPresent([Conversation.ID].self, forKey: .conversationIDs)
                 .map(ChatEvent.conversationHistoryInvalidated) ?? .historyInvalidated
@@ -18,6 +25,13 @@ extension ChatEvent {
 
     func encodeSynchronizationEvent(into container: inout KeyedEncodingContainer<CodingKeys>) throws -> Bool {
         switch self {
+        case let .messagePinsLoaded(conversation, pins):
+            try container.encode(Tag.messagePinsLoaded.rawValue, forKey: .type)
+            try container.encode(conversation, forKey: .conversationID)
+            try container.encode(pins, forKey: .pins)
+        case let .messagePinsChanged(conversation):
+            try container.encode(Tag.messagePinsChanged.rawValue, forKey: .type)
+            try container.encode(conversation, forKey: .conversationID)
         case .historyInvalidated:
             try container.encode(Tag.historyInvalidated.rawValue, forKey: .type)
         case let .conversationHistoryInvalidated(ids):

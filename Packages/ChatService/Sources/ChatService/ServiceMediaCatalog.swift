@@ -54,6 +54,7 @@ public enum ProviderMediaSource: Hashable, Sendable {
 
 public enum IssuedMediaOrigin: Hashable, Sendable {
     case message(Conversation.ID, Message.ID)
+    case pinnedMessage(Conversation.ID, Message.ID)
     case member(Member.ID)
     case conversation(Conversation.ID)
 }
@@ -76,4 +77,9 @@ public protocol ServiceMediaCatalog: Sendable {
     func rememberQueryMedia(_ messages: [Message], at: Date) throws
     func rememberQueryConversations(_ conversations: [Conversation], at: Date) throws
     func rememberQueryMembers(_ members: [Member], at: Date) throws
+}
+
+/// Fresh pin responses can issue different media tokens from transcript history.
+public protocol ServicePinnedMediaCatalog: ServiceMediaCatalog {
+    func rememberPinnedMedia(_ messages: [Message], in conversation: Conversation.ID, at: Date) throws
 }

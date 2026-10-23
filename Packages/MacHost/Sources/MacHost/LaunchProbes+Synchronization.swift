@@ -3,8 +3,23 @@ import ChatService
 import ChatServiceStorage
 import Foundation
 import LocalBridgeBackend
+import OSLog
 
 extension LaunchProbes {
+    static func messagePinProbe() async -> String {
+        let result = await accountProbe(
+            named: "pins-probe.txt",
+            title: "Kibble pins read probe"
+        ) { store, account in
+            await MessagePinProbeReport.run(store: store, expectedSelfID: account.selfID)
+        }
+        let logger = Logger(subsystem: "com.entersprite.kibble", category: "pins-probe")
+        for line in result.components(separatedBy: "\n") {
+            logger.notice("\(line, privacy: .public)")
+        }
+        return result
+    }
+
     static func synchronizationProbe() async -> String {
         await accountProbe(named: "sync-probe.txt", title: "Kibble recovery probe") { store, account in
             await ProviderRecoveryProbeReport.run(store: store, expectedSelfID: account.selfID)

@@ -1557,14 +1557,45 @@ message ListMessagesRequest {
 	optional int32 page_size = 2;
 	//optional ReferenceRevision not_older_than = ?;
 	//optional bool is_search = ?;
-	//optional Filter filter = ?;
+    optional MessageFilter filter = 4;
+}
+
+// Message labels are shared pin membership; label type2 is the Board pin.
+message MessageLabel {
+    optional int32 label_type = 1;
+    optional int64 create_time = 3;
+}
+message MessageFilter {
+    repeated MessageLabel labels = 8;
+    optional int64 label_time_anchor = 9;
+}
+message ApplyMessageLabelRequest {
+    optional MessageId message_id = 1;
+    optional MessageLabel label = 2;
+    optional RequestHeader request_header = 100;
+}
+message ApplyMessageLabelResponse {}
+message RemoveMessageLabelRequest {
+    optional MessageId message_id = 1;
+    optional MessageLabel label = 2;
+    optional RequestHeader request_header = 100;
+}
+message RemoveMessageLabelResponse {}
+message GetMessageRequest {
+    optional MessageId message_id = 1;
+    optional RequestHeader request_header = 100;
+}
+message GetMessageResponse { optional Message message = 1; }
+message MessageLabelChangedEvent {
+    optional MessageId message_id = 1;
+    optional MessageLabel label = 3;
 }
 
 message ListMessagesResponse {
 	repeated Message messages = 1;
 	optional ReadRevision group_revision = 2;
-	//optional bool contains_first_message = 3;
-	//optional bool contains_last_message = 4;
+	optional bool contains_first_message = 3;
+	optional bool contains_last_message = 4;
 }
 
 // The thread calls (threads spec §3): in no reference. Read out of Chat on the
@@ -2019,6 +2050,9 @@ message Event {
 		USER_OWNERSHIP_UPDATED = 46;
 		SHARED_DRIVE_CREATE_SCHEDULED = 47;
 		SHARED_DRIVE_UPDATED = 48;
+        MESSAGE_LABEL_APPLIED = 68;
+        MESSAGE_LABEL_REMOVED = 69;
+        MESSAGE_LABEL_UPDATED = 85;
 		MESSAGE_PERSONAL_LABEL_UPDATED = 49;
 		USER_QUOTA_EXCEEDED = 50;
 	}
@@ -2065,6 +2099,7 @@ message Event {
 			//SharedDriveCreateScheduledEvent shared_drive_create_scheduled_event = 41;
 			//SharedDriveUpdatedEvent shared_drive_updated_event = 42;
 			//MessagePersonalLabelUpdatedEvent message_personal_label_updated = 43;
+            MessageLabelChangedEvent message_label_changed = 56;
 			// Push 53, from the bundle (findings.md §64.4) [Verify].
 			GroupUnreadThreadStateUpdatedEvent group_unread_thread_state_updated_event = 46;
 			// Push 82, measured (findings.md §63.10).
@@ -2161,6 +2196,12 @@ message RoomUpdatedMetadata {
 	}
 	optional GroupDetailsUpdatedMetadata group_details_metadata = 7;
 	optional User initiator = 4;
+
+	message BoardActionMetadata {
+		optional int32 action = 1;
+		optional int32 target_type = 2;
+	}
+	optional BoardActionMetadata board_action = 9;
 }
 
 //ComGoogleRtcMeetingsV1DialInNumberClass

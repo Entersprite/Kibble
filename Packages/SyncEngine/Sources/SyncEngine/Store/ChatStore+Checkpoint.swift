@@ -22,6 +22,7 @@ public extension ChatStore {
                 events.append(.selfIdentified(member))
             }
             var budget = 2 * 1024 * 1024
+            try Self.appendPinSnapshots(db, to: &events, budget: &budget, preferred: includingHistory)
             let visible = try Set(Self.fetchStoredConversations(db).map(\.id))
             for id in includingHistory.intersection(visible).sorted(by: { $0.rawValue < $1.rawValue }) {
                 let rows = try MessageRow.currentHistory.filter(Column("conversationID") == id.rawValue)

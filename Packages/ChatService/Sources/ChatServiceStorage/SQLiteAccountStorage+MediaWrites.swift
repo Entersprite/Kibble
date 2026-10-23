@@ -24,16 +24,25 @@ extension SQLiteAccountStorage {
     static func updateMediaCatalog(_ event: ChatEvent, db: Database) throws {
         switch event {
         case let .statusChanged(member, _): try indexProfileMedia(member.rawValue, member: true, db: db)
-        case let .messageReceived(message), let .messageUpdated(message):
+        case let .messageUpdated(message):
+            try db.execute(
+                sql: "DELETE FROM serviceMediaReference WHERE originKind = 'pinMessage' AND originID = ?",
+                arguments: [message.id.rawValue]
+            )
+            try indexStoredMedia(message.id.rawValue, db: db)
+        case let .messageReceived(message):
             try indexStoredMedia(message.id.rawValue, db: db)
         case let .historyLoaded(update):
             for id in Set(update.messages.map(\.id.rawValue)) {
                 try indexStoredMedia(id, db: db)
             }
-        case let .messageDeleted(id, _), let .reactionChanged(id, _): try indexStoredMedia(
-                id.rawValue,
-                db: db
+        case let .messageDeleted(id, _):
+            try db.execute(
+                sql: "DELETE FROM serviceMediaReference WHERE originKind = 'pinMessage' AND originID = ?",
+                arguments: [id.rawValue]
             )
+            try indexStoredMedia(id.rawValue, db: db)
+        case let .reactionChanged(id, _): try indexStoredMedia(id.rawValue, db: db)
         default: try updateProfileMedia(event, db: db)
         }
         try trimMediaCatalog(db)
@@ -53,7 +62,8 @@ extension SQLiteAccountStorage {
             )
         case let .conversationsChanged(rows):
             try db.execute(sql: """
-            DELETE FROM serviceMediaReference WHERE originKind IN ('message', 'conversation') AND NOT EXISTS (
+            DELETE FROM serviceMediaReference
+            WHERE originKind IN ('message', 'pinMessage', 'conversation') AND NOT EXISTS (
                 SELECT 1 FROM conversation WHERE conversation.id = serviceMediaReference.conversationID
             )
             """)
@@ -201,6 +211,10 @@ extension SQLiteAccountStorage {
                 messageID: id.rawValue,
                 memberID: nil
             )
+        case let .pinnedMessage(conversation, id): MediaOriginFields(
+                kind: "pinMessage", id: id.rawValue, conversation: conversation.rawValue,
+                messageID: nil, memberID: nil
+            )
         case let .member(id): MediaOriginFields(
                 kind: "member",
                 id: id.rawValue,
@@ -221,6 +235,7 @@ extension SQLiteAccountStorage {
     static func mediaOrigin(_ row: Row) throws -> IssuedMediaOrigin {
         switch row["originKind"] as String {
         case "message": .message(.init(row["conversationID"]), .init(row["originID"]))
+        case "pinMessage": .pinnedMessage(.init(row["conversationID"]), .init(row["originID"]))
         case "member": .member(.init(row["originID"]))
         case "conversation": .conversation(.init(row["originID"]))
         default: throw ServiceFailure.invalidResponse

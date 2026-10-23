@@ -8,6 +8,7 @@ final class TranscriptWork {
     var watcher: Task<Void, Never>?
     var pageTask: Task<Void, Never>?
     var generation = 0
+    var selectionGeneration = 0
     var serverExhausted = false
     var cachedOlder = false
     var cachedNewer = false
@@ -97,7 +98,14 @@ public extension ChatSessionModel {
 }
 
 extension ChatSessionModel {
+    func observeScrollTarget() {
+        isLoadingScrollTarget = scrollTarget != nil
+        guard let scrollTarget, let selected else { return }
+        observeTranscript(in: selected, request: .around(scrollTarget, 100))
+    }
+
     func resetTranscript() {
+        transcriptWork.selectionGeneration += 1
         transcriptWork.generation += 1
         transcriptWork.watcher?.cancel()
         transcriptWork.watcher = nil
@@ -189,41 +197,51 @@ extension ChatSessionModel {
         )
         transcriptWork.watcher = observe(observation) { [weak self] window in
             guard let self, selected == conversation, transcriptWork.generation == generation else { return }
-            messages = window.messages
-            noteCustomEmoji(in: window.messages)
-            unconfirmedMessageIDs = window.unconfirmed
-            transcriptWork.cachedOlder = window.hasOlder
-            // Older pages are verified against the server from the oldest row
-            // shown, which must itself be confirmed first.
-            let olderExists = window.hasOlder || hasOlderMeetingOccurrences ||
-                (!transcriptWork.serverExhausted && !messages.isEmpty &&
-                    !meetingWork.exhausted.contains(messages.first?.conversationID ?? conversation))
-            hasOlderMessages = window.unconfirmed.isEmpty && olderExists
-            transcriptWork.cachedNewer = window.hasNewer
-            let awaitingTail = selectedMeetingSeries == nil
-                ? transcriptWork.isTargeted && !targetContainsConfirmedTail
-                : meetingWork.included.last != selected
-            hasNewerMessages = window.hasNewer || awaitingTail
-            newerMessagesAreLatestJump = transcriptWork.isTargeted && hasNewerMessages
-            transcriptIncludesLatest = !window.hasNewer && !awaitingTail
-            if transcriptWork.pageTask == nil {
-                isLoadingOlderMessages = false
-                isLoadingNewerMessages = false
-            }
-            // Once the window reaches the tail, keep observing newest messages
-            // so incoming events and optimistic sends remain visible.
-            if transcriptIncludesLatest, transcriptWork.pageTask == nil, let first = messages.first {
-                switch request {
-                case .latest, .tail: break
-                default:
-                    observeTranscript(
-                        in: conversation,
-                        request: .tail(TranscriptCursor(first), max(100, messages.count))
-                    )
-                }
-            }
-            markSelectedReadIfNeeded()
+            adoptTranscriptWindow(window, in: conversation, request: request)
         }
+    }
+
+    private func adoptTranscriptWindow(
+        _ window: TranscriptWindow, in conversation: Conversation.ID, request: TranscriptWindowRequest
+    ) {
+        messages = window.messages
+        if case let .around(target, _) = request, scrollTarget == target,
+           window.messages.contains(where: { $0.id == target }) {
+            isLoadingScrollTarget = false
+        }
+        noteCustomEmoji(in: window.messages)
+        unconfirmedMessageIDs = window.unconfirmed
+        transcriptWork.cachedOlder = window.hasOlder
+        // Older pages are verified against the server from the oldest row
+        // shown, which must itself be confirmed first.
+        let olderExists = window.hasOlder || hasOlderMeetingOccurrences ||
+            (!transcriptWork.serverExhausted && !messages.isEmpty &&
+                !meetingWork.exhausted.contains(messages.first?.conversationID ?? conversation))
+        hasOlderMessages = window.unconfirmed.isEmpty && olderExists
+        transcriptWork.cachedNewer = window.hasNewer
+        let awaitingTail = selectedMeetingSeries == nil
+            ? transcriptWork.isTargeted && !targetContainsConfirmedTail
+            : meetingWork.included.last != selected
+        hasNewerMessages = window.hasNewer || awaitingTail
+        newerMessagesAreLatestJump = transcriptWork.isTargeted && hasNewerMessages
+        transcriptIncludesLatest = !window.hasNewer && !awaitingTail
+        if transcriptWork.pageTask == nil {
+            isLoadingOlderMessages = false
+            isLoadingNewerMessages = false
+        }
+        // Once the window reaches the tail, keep observing newest messages
+        // so incoming events and optimistic sends remain visible.
+        if transcriptIncludesLatest, transcriptWork.pageTask == nil, let first = messages.first {
+            switch request {
+            case .latest, .tail: break
+            default:
+                observeTranscript(
+                    in: conversation,
+                    request: .tail(TranscriptCursor(first), max(100, messages.count))
+                )
+            }
+        }
+        markSelectedReadIfNeeded()
     }
 }
 

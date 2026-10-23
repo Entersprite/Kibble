@@ -87,7 +87,12 @@ extension ServiceBackend {
         } }
         mediaTasks[id] = job
         defer { mediaTasks[id] = nil }
-        return try await withTaskCancellationHandler { try await job.value } onCancel: { job.cancel() }
+        do {
+            return try await withTaskCancellationHandler { try await job.value } onCancel: { job.cancel() }
+        } catch {
+            diagnostics.record(.mediaReadFailed(failure: Self.pinFailureKind(error)))
+            throw error
+        }
     }
 
     func checkMediaGeneration(_ generation: UUID) throws {

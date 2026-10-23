@@ -3,7 +3,7 @@ import SwiftUI
 
 extension MessageBubble {
     var availableReactions: ReactionActions? {
-        state.canUseProviderActions ? reactions : nil
+        state.canUseProviderActions && message.activity == nil ? reactions : nil
     }
 
     var inlineEmojiLoadKey: CustomEmojiLoadingKey {

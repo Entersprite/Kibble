@@ -7,8 +7,9 @@ extension MessageList {
     /// What `TranscriptFollowing` reads when the geometry changes.
     func followConditions() -> TranscriptFollowing.Conditions {
         TranscriptFollowing.Conditions(
-            canFollow: !state.hasNewerMessages,
+            canFollow: !state.hasNewerMessages && !hasPendingScrollTarget,
             settled: hasPlacedMessages && readingAnchor.restoringID == nil && !latestJumpRequested
+                && targetPlacement == nil
         )
     }
 

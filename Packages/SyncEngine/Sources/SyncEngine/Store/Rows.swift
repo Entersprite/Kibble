@@ -184,6 +184,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     var callStatus: String?
     var callMetadata: String?
     var content: String?
+    var activity: String?
 
     package init(_ message: Message) throws {
         id = message.id.rawValue
@@ -204,6 +205,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         callStatus = try message.isDeleted ? nil : message.callStatus.map { try Wire.string($0) }
         callMetadata = try message.isDeleted ? nil : message.callMetadata.map { try Wire.json($0) }
         content = try message.content.map { try Wire.json($0) }
+        activity = try message.isDeleted ? nil : message.activity.map { try Wire.string($0) }
     }
 
     var message: Message {
@@ -226,7 +228,8 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
                 isReply: isReply,
                 callStatus: callStatus.map { try Wire.fromString(MessageCallStatus.self, $0) },
                 callMetadata: callMetadata.map { try Wire.value(MessageCallMetadata.self, from: $0) },
-                content: content.map { try Wire.value(MessageContent.self, from: $0) }
+                content: content.map { try Wire.value(MessageContent.self, from: $0) },
+                activity: activity.map { try Wire.fromString(MessageActivity.self, $0) }
             )
         }
     }

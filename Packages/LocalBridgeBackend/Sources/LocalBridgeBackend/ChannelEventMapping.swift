@@ -59,7 +59,7 @@ public enum ChannelEventMapping {
         case .blockStateChanged, .userRemovedFromGroup, .membershipChanged:
             .gap(scope: .everything, reason: "Conversation state changed on the service.")
         default:
-            ActivityMapping.event(body) ?? threadEvent(in: body) ?? routed(body)
+            ActivityMapping.event(body) ?? threadEvent(in: body) ?? pinEvent(in: body) ?? routed(body)
         }
     }
 
@@ -151,11 +151,12 @@ public enum ChannelEventMapping {
         guard let conversationID = conversationID(message.id.parentID.topicID.groupID) else {
             return nil
         }
+        let activity = MessageActivityMapping.pin(in: message.annotations)
         return ChatKit.Message(
             id: ChatKit.Message.ID(identifier),
             conversationID: conversationID,
             threadID: MessageThread.ID(message.id.parentID.topicID.topicID),
-            sender: Member.ID(message.creator.userID.id),
+            sender: activity?.sender ?? Member.ID(message.creator.userID.id),
             text: message.textBody,
             // Microseconds since the epoch, and they arrive as a *string*:
             // pblite sends 64-bit values that way because a 16-digit number does
@@ -183,7 +184,8 @@ public enum ChannelEventMapping {
             isReply: ThreadMapping.isReply(message),
             callStatus: CallMessageMapping.status(in: message.annotations),
             callMetadata: CallMessageMapping.metadata(in: message.annotations),
-            content: MessageContentMapping.content(message)
+            content: MessageContentMapping.content(message),
+            activity: activity?.activity
         )
     }
 

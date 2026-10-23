@@ -39,6 +39,7 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
     private(set) var receiveConversations: Set<Conversation.ID> = []
     var searchMembers: [Member] = []
     var preview = ConversationPreview()
+    var pinQuery: (@Sendable () async throws -> PinnedMessages)?
     var integrations = ConversationIntegrations()
     var appSearchReads = 0
     var emailReads = 0
@@ -104,7 +105,7 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
         backfill: Bool = false,
         holdHistory: Bool = false,
         checkpointing: Bool = false,
-        webhooks: Bool = false, integrationsFlags: Set<String> = []
+        webhooks: Bool = false, integrationsFlags: Set<String> = [], pins: Bool = false
     ) {
         self.checkpointing = checkpointing
         (providerEventBatches, providerBatchSink) = AsyncStream
@@ -112,6 +113,7 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
         capabilities = Capabilities(
             needsMentionBackfill: backfill,
             extendedFlags: integrationsFlags.union(webhooks ? ["conversationWebhooks"] : [])
+                .union(pins ? ["messagePins"] : [])
         )
         self.holdHistory = holdHistory
         rows = [Conversation(id: Self.conversation, kind: .space, title: "Original", lastActivity: Self.date)]
@@ -309,7 +311,7 @@ struct ReconciliationHarness {
     static func make(
         backfill: Bool = false, holdHistory: Bool = false, policies: (any AccountPolicyStore)? = nil,
         reservations: OperationReservationCounter? = nil, checkpointing: Bool = false, webhooks: Bool = false,
-        integrationsFlags: Set<String> = []
+        integrationsFlags: Set<String> = [], pins: Bool = false
     ) async throws -> Self {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -319,7 +321,7 @@ struct ReconciliationHarness {
         let backend = ReconciliationBackend(
             backfill: backfill,
             holdHistory: holdHistory,
-            checkpointing: checkpointing, webhooks: webhooks, integrationsFlags: integrationsFlags
+            checkpointing: checkpointing, webhooks: webhooks, integrationsFlags: integrationsFlags, pins: pins
         )
         var storage: any ServiceStorageFactory = SQLiteServiceStorageFactory(directory: folder)
         if let reservations {

@@ -39,6 +39,9 @@ extension ChatStore {
         switch write {
         case .invalidateReplicaHistory: try invalidateReplicaHistory(in: db)
         case let .invalidateConversationHistory(ids): try invalidateConversationHistory(ids, in: db)
+        case let .invalidateMessagePins(conversation): try invalidateMessagePins(conversation, in: db)
+        case let .replaceMessagePins(conversation, pins):
+            try replaceMessagePins(pins, in: conversation, db: db)
         default: break
         }
     }

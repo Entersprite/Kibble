@@ -76,6 +76,11 @@ actor Providers: AccountProviderFactory {
         guard let backend = backends[account] else { throw ServiceFailure.accountNotFound }
         try await backend.apply(.gap(scope: .conversation(Conversation.ID("same")), reason: "fixture gap"))
     }
+
+    func setPinned(_ pinned: Bool, account: ConnectedAccountID, address: MessageAddress) async throws {
+        guard let backend = backends[account] else { throw ServiceFailure.accountNotFound }
+        _ = try await backend.setMessagePinned(pinned, at: address)
+    }
 }
 
 struct ClientHarness {

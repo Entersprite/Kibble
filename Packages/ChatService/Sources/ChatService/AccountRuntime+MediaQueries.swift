@@ -4,8 +4,12 @@ import Foundation
 
 extension AccountRuntime {
     func invalidateMediaQueries(for event: ChatEvent) {
+        for id in Array(pinQueries.keys) {
+            pinQueries[id]?.observe(event)
+        }
         switch event {
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged, .historyLoaded,
+             .messagePinsChanged,
              .membersResolved, .selfIdentified, .conversationsChanged, .conversationUpdated,
              .conversationClassified, .historyInvalidated, .conversationHistoryInvalidated,
              .conversationRemoved, .gap:
@@ -15,7 +19,8 @@ extension AccountRuntime {
     }
 
     func mediaQuery<Value: Sendable>(
-        epoch: UUID, urgency: WorkUrgency? = nil, fetch: @Sendable () async throws -> Value,
+        epoch: UUID, urgency: WorkUrgency? = nil,
+        fetch: @Sendable () async throws -> Value,
         remember: @Sendable (any ServiceMediaCatalog, Value, Date) throws -> Void
     ) async throws -> Value {
         for _ in 0 ..< 3 {

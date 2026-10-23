@@ -82,6 +82,11 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// change them.
     case messageUpdated(Message)
 
+    /// Invalidates the queried collection; it does not invent pin membership.
+    case messagePinsChanged(Conversation.ID)
+    /// A confirmed collection, independent of transcript history coverage.
+    case messagePinsLoaded(conversationID: Conversation.ID, pins: PinnedMessages)
+
     /// Authoritative fetched history; never a fresh-arrival announcement.
     case historyLoaded(MessageHistoryUpdate)
     case mentionBackfillChanged(MentionBackfillStatus)

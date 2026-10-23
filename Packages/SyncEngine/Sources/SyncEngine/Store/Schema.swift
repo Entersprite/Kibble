@@ -96,6 +96,8 @@ enum Schema {
             WHERE callStatus IS NOT NULL AND isDeleted = 0
             """)
         }
+        migrator.registerMigration("v28", migrate: addMessagePins)
+        migrator.registerMigration("v29", migrate: cacheMessagePins)
         return migrator
     }
 

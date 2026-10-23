@@ -92,15 +92,11 @@ public final class ChatSessionModel {
     /// The message `open(conversation:message:)` asked the transcript to
     /// scroll to, until the next selection. `internal(set)` for `+Mentions.swift`.
     public internal(set) var scrollTarget: Message.ID? {
-        didSet {
-            if let scrollTarget, let selected {
-                observeTranscript(
-                    in: selected,
-                    request: .around(scrollTarget, 100)
-                )
-            }
-        }
+        didSet { observeScrollTarget() }
     }
+
+    /// The target's own observed window must arrive before the view places it.
+    public internal(set) var isLoadingScrollTarget = false
 
     public internal(set) var hasOlderMessages = false
     public internal(set) var hasNewerMessages = false
@@ -351,7 +347,7 @@ public final class ChatSessionModel {
         }
         selected = id
         resetPins()
-        refreshPins()
+        isLoadingPins = capabilities.canReadMessagePins
         showingMentions = false
         scrollTarget = nil
         markReadTrace?.selectionChanged(to: id, in: conversations)

@@ -58,7 +58,7 @@ struct MessageBubble: View {
         availableReactions != nil && !message.isDeleted
     }
 
-    var body: some View {
+    var ordinaryRow: some View {
         // On the message's own foot, never the column's: the reactions,
         // delivery label, receipts and thread mark under it do not move the
         // picture.

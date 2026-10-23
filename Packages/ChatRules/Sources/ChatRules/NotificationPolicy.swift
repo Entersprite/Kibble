@@ -49,6 +49,7 @@ public enum NotificationPolicy {
         case ownMessage
         /// A call-history entry. Live calls have a separate alert/ringtone path.
         case callActivity
+        case conversationActivity
         /// Nothing has said who the local user is yet, so an own message cannot
         /// be told from anyone else's. Seconds at launch; guessing wrong would
         /// notify someone of their own message.
@@ -141,6 +142,9 @@ public enum NotificationPolicy {
     }
 
     public static func decide(_ arrival: Arrival) -> Decision {
+        if arrival.message.activity != nil {
+            return .suppress(.conversationActivity)
+        }
         if arrival.message.callStatus != nil {
             return .suppress(.callActivity)
         }

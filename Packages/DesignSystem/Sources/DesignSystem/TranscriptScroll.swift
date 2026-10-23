@@ -28,7 +28,8 @@ enum TranscriptScroll {
             newest = state.messages.last?.id
             target = state.scrollTarget
             generation = state.searchOpenGeneration
-            targetLoaded = state.scrollTarget.map { id in state.messages.contains { $0.id == id } } ?? false
+            targetLoaded = !state.isLoadingScrollTarget &&
+                (state.scrollTarget.map { id in state.messages.contains { $0.id == id } } ?? false)
             loadingNewer = state.isLoadingNewerMessages
             latestJump = state.newerMessagesAreLatestJump
         }
@@ -51,10 +52,10 @@ enum TranscriptScroll {
 
     static func destination(
         messages: [Message], target: Message.ID?, generation: Int = 0, honoured: Request?,
-        followNewest: Bool = true
+        followNewest: Bool = true, targetReady: Bool = true
     ) -> Destination? {
-        if let target, Request(id: target, generation: generation) != honoured,
-           messages.contains(where: { $0.id == target }) {
+        if let target, Request(id: target, generation: generation) != honoured {
+            guard targetReady, messages.contains(where: { $0.id == target }) else { return nil }
             return .message(target)
         }
         return followNewest ? messages.last.map { .newest($0.id) } : nil

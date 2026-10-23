@@ -93,6 +93,7 @@ public extension AppEnvironment {
             }.map(\.id))
         )
         state.pins = model.pins
+        state.isLoadingScrollTarget = model.isLoadingScrollTarget
         state.pinsError = model.pinsError
         state.isLoadingPins = model.isLoadingPins
         state.resourceSyncStatuses = model.resourceSyncStatuses

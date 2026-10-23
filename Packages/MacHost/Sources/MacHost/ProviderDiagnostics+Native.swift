@@ -9,6 +9,7 @@ extension ProviderDiagnostics {
     ///         'subsystem == "com.entersprite.kibble" && category == "people"'
     static var native: ProviderDiagnostics {
         let log = Logger(subsystem: "com.entersprite.kibble", category: "MeetingMetadata")
+        let pins = Logger(subsystem: "com.entersprite.kibble", category: "pins")
         let people = Logger(subsystem: "com.entersprite.kibble", category: "people")
         return ProviderDiagnostics { event in
             switch event {
@@ -27,6 +28,8 @@ extension ProviderDiagnostics {
             case let .peopleSearchFailed(status):
                 let code = status.map(String.init) ?? "none"
                 people.notice("People search failed: status=\(code, privacy: .public)")
+            case let .messagePinsFailed(failure):
+                pins.error("Pin refresh failed: kind=\(failure, privacy: .public)")
             case let .peopleListFailed(step, failure):
                 people.error(
                     """

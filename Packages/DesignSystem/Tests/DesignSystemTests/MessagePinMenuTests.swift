@@ -23,6 +23,9 @@ struct MessagePinMenuTests {
         handlers.unconfirmed = [message.id]
         #expect(handlers.items(for: message) == nil)
         handlers.unconfirmed = []
+        message.activity = .pinnedMessage
+        #expect(handlers.items(for: message) == nil)
+        message.activity = nil
         message.isDeleted = true
         #expect(handlers.items(for: message) == nil)
     }

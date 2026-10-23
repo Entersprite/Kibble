@@ -33,20 +33,23 @@ public struct MessageList: View {
     /// `ownMessages(_:)`: the handlers are the window's, and internal.
     var own: OwnMessageHandlers?
     /// Where this account's transcript was when it last left the screen.
-    private var resume: TranscriptResume?
+    var resume: TranscriptResume?
 
     /// The last target this list scrolled to, so that it is honoured once.
     /// `@State` is enough: opening a mention always passes through the
     /// Mentions pane, which removes this view, so a fresh list has honoured
     /// nothing.
-    @State private var honoured: TranscriptScroll.Request?
+    @State var honoured: TranscriptScroll.Request?
+    /// Suppresses automatic following until a target placement yields to the person.
+    @State var targetPlacement: TranscriptScroll.Request?
+    @State var targetWindowBounds: [Message.ID?]?
     @State var hasPlacedMessages = false
     @State var readingAnchor = TranscriptReadingAnchor()
     /// Following the newest message, or reading back (`TranscriptFollow`).
     @State var follow = TranscriptFollow()
     @State var paging = TranscriptPaging()
-    @State private var lastOlderBoundary: Message.ID?
-    @State private var lastNewerBoundary: Message.ID?
+    @State var lastOlderBoundary: Message.ID?
+    @State var lastNewerBoundary: Message.ID?
     @State var latestJumpRequested = false
     /// The messages on screen, kept unobserved: read only when leaving.
     @State private var seen = TranscriptSeen()
@@ -195,6 +198,12 @@ public struct MessageList: View {
                     paging.hasUserIntent = true
                 }
                 if phase == .interacting {
+                    if targetPlacement != nil {
+                        targetPlacement = nil
+                    }
+                    if targetWindowBounds != nil {
+                        targetWindowBounds = nil
+                    }
                     readingAnchor.cancel()
                 }
             }
@@ -211,7 +220,8 @@ public struct MessageList: View {
                 // Appending a tall row can revise the lazy stack's estimates
                 // above the viewport too. Keep the same visible row and its
                 // offset while the person reads back, as for an older page.
-                if hasPlacedMessages, !follow.isFollowing, old != nil, old != new {
+                if preservesReadingPosition, hasPlacedMessages, !follow.isFollowing, old != nil, old != new {
+                    targetWindowBounds = nil
                     _ = readingAnchor.restore(in: state.messages)
                 }
             }
@@ -222,7 +232,9 @@ public struct MessageList: View {
             }
             .onChange(of: state.messages.first?.id) { previous, current in
                 paging.hasUserIntent = false
-                if !latestJumpRequested, hasPlacedMessages, previous != nil, current != nil {
+                if preservesReadingPosition, !latestJumpRequested, hasPlacedMessages, previous != nil,
+                   current != nil {
+                    targetWindowBounds = nil
                     _ = readingAnchor.restore(in: state.messages)
                 }
             }
@@ -249,8 +261,18 @@ public struct MessageList: View {
                 }
             }
             .onChange(of: TranscriptScroll.Trigger(state), initial: true) {
+                if state.scrollTarget == nil, targetPlacement != nil {
+                    targetPlacement = nil
+                }
                 if resumeIfReturning(proxy) {
                     return
+                }
+                if hasPendingScrollTarget {
+                    if targetPlacement != nil {
+                        targetPlacement = nil
+                    }
+                    follow.detach()
+                    readingAnchor.cancel()
                 }
                 let jumpFinished = latestJumpRequested && !state.isLoadingNewerMessages
                     && !state.newerMessagesAreLatestJump && !state.hasNewerMessages
@@ -263,7 +285,7 @@ public struct MessageList: View {
                     generation: state.searchOpenGeneration, honoured: honoured,
                     followNewest: !hasPlacedMessages || (
                         follow.isFollowing && !state.hasNewerMessages && readingAnchor.restoringID == nil
-                    )
+                    ), targetReady: !state.isLoadingScrollTarget
                 ) {
                 case let .message(id)?:
                     paging.hasUserIntent = false
@@ -271,8 +293,9 @@ public struct MessageList: View {
                     readingAnchor.cancel()
                     latestJumpRequested = false
                     honoured = TranscriptScroll.Request(id: id, generation: state.searchOpenGeneration)
+                    targetWindowBounds = [state.messages.first?.id, state.messages.last?.id]
+                    targetPlacement = honoured
                     hasPlacedMessages = true
-                    proxy.scrollTo(id, anchor: .center)
                 case .newest?:
                     paging.hasUserIntent = false
                     latestJumpRequested = false
@@ -288,7 +311,19 @@ public struct MessageList: View {
                     break
                 }
             }
+            .task(id: targetPlacement) {
+                guard let request = targetPlacement else { return }
+                await Task.yield()
+                guard !Task.isCancelled, targetPlacement == request else { return }
+                proxy.scrollTo(request.id, anchor: .center)
+                if request.id == state.messages.last?.id, !state.hasNewerMessages {
+                    targetPlacement = nil
+                    follow.follow()
+                    proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
+                }
+            }
             .onDisappear {
+                targetPlacement = nil
                 let top = follow.isFollowing && !state.hasNewerMessages ? nil : seen.top(in: state.messages)
                 resume?.leave(.init(message: top, honoured: honoured))
                 paging.hasUserIntent = false
@@ -306,69 +341,6 @@ public struct MessageList: View {
                     ContentUnavailableView("No messages", systemImage: "text.bubble")
                 }
             }
-        }
-    }
-
-    /// The floating button: to the end of what is loaded, or through the
-    /// same latest jump as the list's own button when the newest messages
-    /// are not loaded.
-    private func jumpToLatest(_ action: TranscriptLatestJump.Action, _ proxy: ScrollViewProxy) {
-        switch action {
-        case .scroll:
-            guard !state.messages.isEmpty else { return }
-            paging.hasUserIntent = false
-            readingAnchor.cancel()
-            // At once: a long animated scroll through rows not yet measured
-            // lands short of the end.
-            follow.follow()
-            proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
-        case .load:
-            guard let loadNewerMessages else { return }
-            latestJumpRequested = true
-            readingAnchor.cancel()
-            loadNewerMessages()
-        }
-    }
-
-    /// A list made for an account coming back puts the transcript where it
-    /// was, and does not honour again what it honoured then. A message asked
-    /// for since (a search or a mention) wins.
-    private func resumeIfReturning(_ proxy: ScrollViewProxy) -> Bool {
-        guard !hasPlacedMessages, let saved = resume?.saved else { return false }
-        if honoured == nil {
-            honoured = saved.honoured
-        }
-        guard let id = saved.message, state.messages.contains(where: { $0.id == id }) else { return false }
-        if let target = state.scrollTarget,
-           TranscriptScroll.Request(id: target, generation: state.searchOpenGeneration) != honoured {
-            return false
-        }
-        hasPlacedMessages = true
-        follow.detach()
-        proxy.scrollTo(id, anchor: .top)
-        return true
-    }
-
-    func pageIfNeeded(_ page: TranscriptPaging.Page?) {
-        switch page {
-        case .older:
-            guard state.hasOlderMessages, !state.isLoadingOlderMessages, !state.isLoadingNewerMessages,
-                  let boundary = state.messages.first?.id, boundary != lastOlderBoundary,
-                  let loadOlderMessages else { return }
-            lastOlderBoundary = boundary
-            readingAnchor.capture()
-            loadOlderMessages()
-        case .newer:
-            guard !state.newerMessagesAreLatestJump,
-                  state.hasNewerMessages, !state.isLoadingNewerMessages, !state.isLoadingOlderMessages,
-                  let boundary = state.messages.last?.id, boundary != lastNewerBoundary,
-                  let loadNewerMessages else { return }
-            lastNewerBoundary = boundary
-            readingAnchor.capture()
-            newerPageFrom = boundary
-            loadNewerMessages()
-        case nil:
-            break
         }
     }
 }

@@ -8,6 +8,9 @@ import Foundation
 /// the same one. A `StoreWrite` says *what the store must become*, never how a
 /// particular schema gets there.
 public enum StoreWrite: Sendable, Equatable {
+    /// A query-cache invalidation, independent of transcript history confidence.
+    case invalidateMessagePins(Conversation.ID)
+    case replaceMessagePins(conversation: Conversation.ID, pins: PinnedMessages)
     /// Retains cached rows but requires fresh history before exposing them.
     case invalidateReplicaHistory
     /// The same, for these conversations' rows only.

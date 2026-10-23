@@ -5,7 +5,12 @@ public extension ChatSessionModel {
     func refreshPins() {
         guard capabilities.canReadMessagePins, let conversation = selected,
               pinWork.mutation == nil else { return }
-        pinWork.read?.cancel()
+        guard case .connected = connectionState else { return }
+        guard pinWork.read == nil else {
+            pinWork.needsRefresh = true
+            return
+        }
+        pinWork.needsRefresh = false
         let token = UUID()
         pinWork.token = token
         isLoadingPins = true
@@ -14,13 +19,19 @@ public extension ChatSessionModel {
                 let value = try await engine.pinnedMessages(in: conversation)
                 guard !Task.isCancelled, let self, pinWork.token == token,
                       selected == conversation else { return }
+                pinWork.hasFreshPins = true
                 pins = value
                 pinsError = nil
                 isLoadingPins = false
                 pinWork.read = nil
+                if pinWork.needsRefresh {
+                    refreshPins()
+                }
             } catch {
                 guard !Task.isCancelled, let self, pinWork.token == token,
                       selected == conversation else { return }
+                pinWork.hasFreshPins = false
+                pins.canModify = false
                 pinsError = "Could not refresh pinned messages."
                 isLoadingPins = false
                 pinWork.read = nil
@@ -32,6 +43,7 @@ public extension ChatSessionModel {
         guard capabilities.canReadMessagePins, pins.canModify, selected == message.conversationID,
               pinWork.mutation == nil else { return }
         pinWork.read?.cancel()
+        pinWork.read = nil
         let token = UUID()
         pinWork.token = token
         let previous = pins
@@ -51,6 +63,9 @@ public extension ChatSessionModel {
                 pins = value
                 isLoadingPins = false
                 pinWork.mutation = nil
+                if pinWork.needsRefresh {
+                    refreshPins()
+                }
             } catch {
                 guard !Task.isCancelled, let self, pinWork.token == token,
                       selected == message.conversationID else { return }
@@ -67,6 +82,24 @@ public extension ChatSessionModel {
 }
 
 extension ChatSessionModel {
+    func watchPins(in conversation: Conversation.ID) {
+        guard capabilities.canReadMessagePins else { return }
+        conversationWatchers.append(observe(store.observeMessagePins(in: conversation)) { [weak self] saved in
+            guard let self, selected == conversation else { return }
+            if pinWork.mutation == nil, var cached = saved.pins {
+                cached.canModify = pinWork.hasFreshPins && pins.canModify
+                pins = cached
+            }
+            guard pinWork.revision != saved.revision else { return }
+            pinWork.revision = saved.revision
+            if pinWork.mutation != nil {
+                pinWork.needsRefresh = true
+            } else {
+                refreshPins()
+            }
+        })
+    }
+
     func resetPins() {
         pinWork.read?.cancel()
         pinWork.mutation?.cancel()
@@ -78,6 +111,9 @@ extension ChatSessionModel {
 }
 
 struct MessagePinWork {
+    var revision: Int64?
+    var hasFreshPins = false
+    var needsRefresh = false
     var token = UUID()
     var read: Task<Void, Never>?
     var mutation: Task<Void, Never>?

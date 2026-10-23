@@ -7,15 +7,49 @@ extension AccountRuntime {
         in conversation: Conversation.ID, backend: any ChatBackend, epoch: UUID
     ) async throws -> JSONValue {
         guard capabilities.canReadMessagePins else { throw ServiceFailure.unsupportedOperation }
-        let value = try await mediaQuery(epoch: epoch, urgency: WorkUrgency(interactive: true)) {
-            let value = try await backend.pinnedMessages(in: conversation)
+        let id = UUID()
+        defer { pinQueries[id] = nil }
+        for _ in 0 ..< 3 {
+            try checkEpoch(epoch)
+            pinQueries[id] = try PendingPinRead(
+                conversation: conversation,
+                baseline: storage.conversation(conversation)
+            )
+            let value = try await withProviderWork(epoch: epoch, urgency: WorkUrgency(interactive: true)) {
+                try await backend.pinnedMessages(in: conversation)
+            }
+            try checkEpoch(epoch)
             try Self.validatePins(value, in: conversation)
-            return value
-        } remember: { catalog, value, date in
-            try catalog.rememberQueryMembers(value.members, at: date)
-            try catalog.rememberQueryMedia(value.messages, at: date)
+            guard pinQueries[id]?.accepts(value) == true else { continue }
+            do {
+                return try commitPinRead(value, in: conversation)
+            } catch {
+                await quarantine(.storage)
+                throw error
+            }
         }
-        try checkEpoch(epoch)
+        throw ServiceFailure.overloaded
+    }
+
+    private func commitPinRead(
+        _ value: PinnedMessages,
+        in conversation: Conversation.ID
+    ) throws -> JSONValue {
+        if let catalog = storage as? any ServiceMediaCatalog {
+            let date = transferNow()
+            try catalog.rememberQueryMembers(value.members, at: date)
+            if let pins = catalog as? any ServicePinnedMediaCatalog {
+                try pins.rememberPinnedMedia(value.messages, in: conversation, at: date)
+            } else {
+                try catalog.rememberQueryMedia(value.messages, at: date)
+            }
+            mediaFactsVersion = UUID()
+        }
+        var saved = value
+        saved.canModify = false
+        if try (storage as? any ServiceMessagePinStorage)?.cachedMessagePins(in: conversation) != saved {
+            try appendAndPublish(.messagePinsLoaded(conversationID: conversation, pins: value), live: false)
+        }
         return try ServiceCodec.value(value)
     }
 

@@ -68,6 +68,7 @@ enum TranscriptGrouping {
         return message.sender == previous.sender
             && message.conversationID == previous.conversationID
             && message.callStatus == nil && previous.callStatus == nil
+            && message.activity == nil && previous.activity == nil
             && gap >= 0 && gap < window
     }
 }

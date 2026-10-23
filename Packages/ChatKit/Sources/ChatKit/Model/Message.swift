@@ -58,6 +58,7 @@ public struct Message: Codable, Hashable, Sendable {
     public var callStatus: MessageCallStatus?
     public var callMetadata: MessageCallMetadata?
     public var content: MessageContent?
+    public var activity: MessageActivity?
 
     public init(
         id: ID,
@@ -77,7 +78,8 @@ public struct Message: Codable, Hashable, Sendable {
         isReply: Bool = false,
         callStatus: MessageCallStatus? = nil,
         callMetadata: MessageCallMetadata? = nil,
-        content: MessageContent? = nil
+        content: MessageContent? = nil,
+        activity: MessageActivity? = nil
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -97,6 +99,7 @@ public struct Message: Codable, Hashable, Sendable {
         self.callStatus = callStatus
         self.callMetadata = callMetadata?.isEmpty == true ? nil : callMetadata
         self.content = content?.isEmpty == true ? nil : content
+        self.activity = activity
     }
 }
 
@@ -167,6 +170,7 @@ public extension Message {
         case callStatus
         case callMetadata
         case content
+        case activity
     }
 
     init(from decoder: any Decoder) throws {
@@ -191,7 +195,8 @@ public extension Message {
             isReply: container.decodeIfPresent(Bool.self, forKey: .isReply) ?? false,
             callStatus: container.decodeIfPresent(MessageCallStatus.self, forKey: .callStatus),
             callMetadata: container.decodeIfPresent(MessageCallMetadata.self, forKey: .callMetadata),
-            content: container.decodeIfPresent(MessageContent.self, forKey: .content)
+            content: container.decodeIfPresent(MessageContent.self, forKey: .content),
+            activity: container.decodeIfPresent(MessageActivity.self, forKey: .activity)
         )
     }
 
@@ -211,6 +216,7 @@ public extension Message {
         try container.encodeIfPresent(callStatus, forKey: .callStatus)
         try container.encodeIfPresent(callMetadata, forKey: .callMetadata)
         try container.encodeIfPresent(content, forKey: .content)
+        try container.encodeIfPresent(activity, forKey: .activity)
         if !mentions.isEmpty {
             try container.encode(mentions, forKey: .mentions)
         }

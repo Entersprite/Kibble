@@ -106,6 +106,7 @@ public struct ChatSceneState: Sendable, Equatable {
 
     /// The message the transcript scrolls to once, after a mention is opened.
     public var scrollTarget: Message.ID?
+    public var isLoadingScrollTarget = false
 
     /// Each file attachment's download, keyed by `Attachment.id`. An absent
     /// key is `.idle` - see `AttachmentDownloadState`.

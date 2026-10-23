@@ -8,6 +8,9 @@ public extension SyncEngine {
         let value = try await backend.pinnedMessages(in: conversation)
         try Task.checkCancellation()
         guard generation == managementGeneration else { throw CancellationError() }
+        if !(backend is any ProjectedChatBackend) {
+            try store.apply([.replaceMessagePins(conversation: conversation, pins: value)])
+        }
         return value
     }
 

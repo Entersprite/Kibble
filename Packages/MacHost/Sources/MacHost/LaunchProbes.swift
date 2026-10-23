@@ -34,6 +34,7 @@ enum LaunchProbes {
     /// What each launch probe runs. The native call trial has its own window.
     private static let reports: [MacLaunchProbe: @MainActor () async -> String] = [
         .synchronization: { await synchronizationProbe() }, .preview: { await previewProbe() },
+        .messagePins: { await messagePinProbe() },
         .keychain: { await keychainCheck() }, .api: { await apiProbe() },
         .punctual: { await punctualProbe() }, .upload: { await uploadProbe() },
         .people: { await peopleProbe() }, .organization: { await organizationProbe() },

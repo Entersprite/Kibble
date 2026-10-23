@@ -11,7 +11,7 @@ enum OwnMessageRule {
     /// Not deleted and not still sending: a message a menu item can act on,
     /// anyone's. The thread items ask this too (threads spec §5).
     static func isAddressable(_ message: Message) -> Bool {
-        !message.isDeleted && !message.id.rawValue.hasPrefix("local/")
+        !message.isDeleted && message.activity == nil && !message.id.rawValue.hasPrefix("local/")
     }
 
     /// A `nil` me matches no sender, so nothing is mine before the account

@@ -237,6 +237,10 @@ extension Fixture {
             "event-mentionBackfillChanged",
             .mentionBackfillChanged(MentionBackfillStatus(running: true, failedConversations: 2))
         ),
+        Sample("event-messagePinsChanged", .messagePinsChanged(spaceID)),
+        Sample("event-messagePinsLoaded", .messagePinsLoaded(
+            conversationID: spaceID, pins: PinnedMessages()
+        )),
         Sample("event-messageUpdated", .messageUpdated(message)),
         Sample("event-messageDeleted", .messageDeleted(id: messageID, in: spaceID)),
         Sample("event-reactionChanged", .reactionChanged(messageID: messageID, reactions: [reaction])),

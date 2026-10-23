@@ -7,6 +7,7 @@ enum MacLaunchProbe: Sendable, Hashable {
     case api
     case synchronization
     case preview
+    case messagePins
     case punctual
     case upload
     case people
@@ -22,6 +23,7 @@ enum MacLaunchProbe: Sendable, Hashable {
     private static var flags: [(flag: String, probe: Self)] {
         var flags: [(flag: String, probe: Self)] = [
             ("--probe=sync", .synchronization), ("--probe=preview", .preview),
+            ("--probe=pins", .messagePins),
             ("--probe=keychain", .keychain),
             (
                 "--probe=api",

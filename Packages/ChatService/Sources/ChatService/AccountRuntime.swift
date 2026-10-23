@@ -49,6 +49,8 @@ actor AccountRuntime {
     var backend: (any ChatBackend)?
     var now: @Sendable () -> Date = { Date() }
     var mediaFactsVersion = UUID()
+    /// Provider changes, distinct from references issued by concurrent queries.
+    var pinQueries: [UUID: PendingPinRead] = [:]
     var resourceSync: [ResourceSyncAddress: ResourceSyncStatus] = [:]
     var reads = AccountReadState()
     var worldVersion = UUID()

@@ -56,15 +56,15 @@ public extension ChatSessionModel {
         }
         let conversation = address.conversation
         let origin = selected
-        let originGeneration = transcriptWork.generation
+        let originGeneration = transcriptWork.selectionGeneration
         let limit = searchWork.historyPageLimit
         referenceWork.openTask = Task { @MainActor [weak self, engine] in
             let found = try? await engine.referencedMessage(id, thread: address.thread, in: conversation)
             guard !Task.isCancelled, let self, let found, selected == origin,
-                  transcriptWork.generation == originGeneration else { return }
+                  transcriptWork.selectionGeneration == originGeneration else { return }
             let target = try? await engine.loadHistory(in: conversation, until: found, pageLimit: limit)
             guard !Task.isCancelled, selected == origin,
-                  transcriptWork.generation == originGeneration,
+                  transcriptWork.selectionGeneration == originGeneration,
                   conversations.contains(where: { $0.id == conversation }), let target else { return }
             if selected != conversation || selectedMeetingSeries != nil {
                 select(conversation)

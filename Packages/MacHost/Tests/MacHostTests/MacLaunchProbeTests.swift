@@ -5,6 +5,7 @@ struct MacLaunchProbeTests {
     @Test func reportProbesAreSelectedByName() {
         let cases: [(String, MacLaunchProbe)] = [
             ("keychain", .keychain), ("api", .api), ("punctual", .punctual),
+            ("pins", .messagePins),
             ("upload", .upload), ("people", .people), ("edit", .edit),
             ("search", .search), ("spaces", .spaces), ("meet-resolve", .meetResolve)
         ]

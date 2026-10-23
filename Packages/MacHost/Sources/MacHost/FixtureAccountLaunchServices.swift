@@ -67,7 +67,7 @@ final class ServiceAccountLaunchServices: LaunchServices {
         } else {
             { Date() }
         }
-        let backend = ServiceBackend(account: account, transport: transport)
+        let backend = ServiceBackend(account: account, transport: transport, diagnostics: .native)
         self.backend = backend
         return try SessionSelection(
             backend: backend, me: account.selfID,

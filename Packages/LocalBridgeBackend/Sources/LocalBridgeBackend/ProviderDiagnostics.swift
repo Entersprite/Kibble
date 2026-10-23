@@ -15,6 +15,7 @@ public enum ProviderDiagnostic: Sendable, Hashable {
     /// A conversation's people list failed at `step` (`listMembers`,
     /// `getMembers` or `permissions`); `failure` names its kind only.
     case peopleListFailed(step: String, failure: String)
+    case messagePinsFailed(failure: String)
     /// A people page answered: its membership rows, how many became
     /// participants, and why the others could not.
     case peopleListRows(total: Int, mapped: Int, withoutUser: Int, outsideGroup: Int)

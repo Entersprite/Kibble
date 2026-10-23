@@ -29,9 +29,22 @@ struct TranscriptScrollTests {
         ) == .newest(Message.ID("m:3")))
     }
 
-    @Test func aTargetNotLoadedYetShowsTheNewestUntilItArrives() {
+    @Test func aTargetNotLoadedYetKeepsTheViewportUntilItArrives() {
         #expect(TranscriptScroll.destination(messages: messages, target: Message.ID("m:9"), honoured: nil)
-            == .newest(Message.ID("m:3")))
+            == nil)
+    }
+
+    @Test func anAlreadyVisibleTargetWaitsForItsOwnHistoryWindow() {
+        #expect(TranscriptScroll.destination(
+            messages: messages, target: .init("m:1"), honoured: nil, targetReady: false
+        ) == nil)
+        var state = ChatSceneState(messages: messages, scrollTarget: .init("m:1"))
+        state.isLoadingScrollTarget = true
+        let pending = TranscriptScroll.Trigger(state)
+        #expect(!pending.targetLoaded)
+        state.isLoadingScrollTarget = false
+        #expect(TranscriptScroll.Trigger(state).targetLoaded)
+        #expect(TranscriptScroll.Trigger(state) != pending)
     }
 
     @Test func noTargetIsTheNewestAndNoMessagesIsNothing() {

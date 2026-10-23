@@ -22,6 +22,8 @@ public enum SyncReducer {
     /// someone decides what it means for the store.
     public static func reduce(_ event: ChatEvent) -> Reduction {
         switch event {
+        case .messagePinsLoaded, .messagePinsChanged:
+            reducePinEvent(event)
         case .historyInvalidated, .conversationHistoryInvalidated, .historyLoaded, .mentionBackfillChanged:
             reduceHistoryEvent(event)
         case .scopedTypingChanged, .readReceiptsChanged:
@@ -41,6 +43,16 @@ public enum SyncReducer {
             supersedingStaleError(reduceSessionEvent(event))
         case .resourceSyncChanged, .connectionStateChanged, .backendError, .gap, .unknown:
             reduceSessionEvent(event)
+        }
+    }
+
+    private static func reducePinEvent(_ event: ChatEvent) -> Reduction {
+        switch event {
+        case let .messagePinsLoaded(id, pins):
+            Reduction(writes: [.replaceMessagePins(conversation: id, pins: pins)])
+        case let .messagePinsChanged(id):
+            Reduction(writes: [.invalidateMessagePins(id)])
+        default: Reduction()
         }
     }
 
@@ -135,14 +147,23 @@ public enum SyncReducer {
             // not raise the dot again. And a reply never does (`unreadMark(for:)`).
             // A push keeps stored reactions (`StoreWrite.upsertMessageKeepingReactions`).
             Reduction(
-                writes: [.upsertMessageKeepingReactions(message)] + unreadMark(for: message),
+                writes: [.upsertMessageKeepingReactions(message)] + unreadMark(for: message)
+                    +
+                    (message
+                        .activity == .pinnedMessage ? [.invalidateMessagePins(message.conversationID)] : []),
                 effects: [.announceArrival(message)]
             )
         case let .messageUpdated(message):
             // A push keeps stored reactions (`StoreWrite.upsertMessageKeepingReactions`).
-            Reduction(writes: [.upsertMessageKeepingReactions(message)])
+            Reduction(writes: [
+                .upsertMessageKeepingReactions(message),
+                .invalidateMessagePins(message.conversationID)
+            ])
         case let .messageDeleted(id, conversationID):
-            Reduction(writes: [.markMessageDeleted(id: id, in: conversationID)])
+            Reduction(writes: [
+                .markMessageDeleted(id: id, in: conversationID),
+                .invalidateMessagePins(conversationID)
+            ])
         case let .reactionChanged(messageID, reactions):
             Reduction(writes: [.setReactions(messageID: messageID, reactions: reactions)])
         default:
