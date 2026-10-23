@@ -56,6 +56,8 @@ struct ConversationInfoSheet: View {
         actions: ConversationBrowserActions,
         media: ChatSceneActions?,
         openNotifications: ((Conversation.ID) -> Void)?,
+        // The section it opens on: People, except in renders of another section.
+        section: InfoSection = .people,
         draft: InfoSectionDraft? = nil
     ) {
         self.details = details
@@ -63,6 +65,7 @@ struct ConversationInfoSheet: View {
         self.actions = actions
         self.media = media
         self.openNotifications = openNotifications
+        _selection = State(initialValue: section)
         // A draft already reported when the sheet opens; tests start dirty with it.
         _draft = State(initialValue: draft)
         _drafts = State(initialValue: InfoDraftState(dirtySection: draft?.section))
@@ -193,6 +196,13 @@ struct ConversationInfoSheet: View {
         switch shown {
         case .people:
             ConversationPeopleTable(details: details, state: state, actions: actions)
+        case .details:
+            ConversationDetailsForm(
+                details: details, state: state, actions: actions, reactions: media?.reactions,
+                openNotifications: openNotifications, report: draftBinding
+            )
+            // The draft belongs to one account's conversation; two accounts can share a space.
+            .id(AccountScoped(account: state.accountID, value: details.conversation.id))
         default:
             InfoSectionPlaceholder(section: shown)
         }
