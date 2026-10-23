@@ -7,7 +7,7 @@
 
     @MainActor @Suite(.serialized)
     struct ConversationPanelsHostedTests {
-        private var actions: ConversationBrowserActions {
+        var actions: ConversationBrowserActions {
             ConversationBrowserActions(
                 show: { _ in },
                 back: {},
@@ -277,7 +277,7 @@
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews(in:))
         }
 
-        private func render(
+        func render(
             _ view: some View,
             dark: Bool,
             name: String,

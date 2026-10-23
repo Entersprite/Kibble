@@ -205,8 +205,11 @@ enum DirectoryMenuSymbols {
     static let approve = "checkmark.circle"
     static let reject = "xmark.circle"
     static let remove = "person.badge.minus"
+    static let copy = "doc.on.doc"
+    static let block = "hand.raised"
+    static let unblock = "hand.raised.slash"
 
-    static let all = [message, open, preview, details, setRole, approve, reject, remove]
+    static let all = [message, open, preview, details, setRole, approve, reject, remove, copy, block, unblock]
 }
 
 /// The directory lists' shared measures: roomier than a sidebar, like the

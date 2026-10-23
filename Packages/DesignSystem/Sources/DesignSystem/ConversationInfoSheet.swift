@@ -187,9 +187,15 @@ struct ConversationInfoSheet: View {
     }
 
     /// Each section's view. Placeholders until their own views replace them;
-    /// a section with a draft gets `draftBinding`.
-    private var section: some View {
-        InfoSectionPlaceholder(section: shown)
+    /// a section with a draft gets `draftBinding`. People has no draft: its
+    /// changes apply at once.
+    @ViewBuilder private var section: some View {
+        switch shown {
+        case .people:
+            ConversationPeopleTable(details: details, state: state, actions: actions)
+        default:
+            InfoSectionPlaceholder(section: shown)
+        }
     }
 
     /// What a section reports its draft through (see `InfoSectionDraft`).

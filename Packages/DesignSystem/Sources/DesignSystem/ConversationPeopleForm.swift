@@ -48,25 +48,7 @@ struct ConversationPeopleForm: View {
     }
 
     private var adding: some View {
-        Section {
-            ForEach(addCandidates, id: \.id) { person in
-                PersonRow(person: person) {
-                    Button("Add") { actions.mutate(.addPeople([person.id])) }
-                        .controlSize(.small)
-                        .disabled(isBusy)
-                }
-            }
-            if addCandidates.isEmpty, !state.browser.isSearchingPeople {
-                Text("No one else matches “\(query)”.").foregroundStyle(.secondary)
-            }
-        } header: {
-            HStack(spacing: 6) {
-                Text("Add People")
-                if state.browser.isSearchingPeople {
-                    ProgressView().controlSize(.mini)
-                }
-            }
-        }
+        AddPeopleResults(query: query, state: state, actions: actions)
     }
 
     private var members: some View {
@@ -173,35 +155,10 @@ struct ConversationPeopleForm: View {
         }
     }
 
-    private var addCandidates: [Member] {
-        PeopleDirectoryProjection.candidates(
-            in: state,
-            query: query,
-            found: state.browser.pickerPeople,
-            excluding: Set(state.browser.participants.map(\.id))
-        )
-    }
-
     private var filteredParticipants: [ConversationParticipant] {
         state.browser.participants.filter {
             query.isEmpty || ($0.member.displayName ?? "").localizedCaseInsensitiveContains(query)
                 || ($0.member.email ?? "").localizedCaseInsensitiveContains(query)
         }
-    }
-}
-
-/// What the People tab shows above its rows. People already shown stay shown:
-/// a failed later page is the About tab's error, not a reason to hide them.
-enum PeopleListStatus: Equatable {
-    case loading, failed(String), ready
-
-    static func of(_ browser: ConversationBrowserScene) -> Self {
-        if browser.isLoadingParticipants {
-            return .loading
-        }
-        if browser.participants.isEmpty, let error = browser.panelError {
-            return .failed(error)
-        }
-        return .ready
     }
 }
