@@ -84,9 +84,21 @@ struct SettingsDraft: Equatable {
     }
 
     /// Whether Save turns join requests off because Open is chosen: they were
-    /// on, and Open doesn't take them. The form says so in place of the switch.
+    /// on, Open doesn't take them, and this person can turn them off. The
+    /// form says so in place of the switch.
     var turnsRequestsOff: Bool {
-        isOpen && originalRequestToJoin == true
+        isOpen && originalRequestToJoin == true && canChangeRequestToJoin
+    }
+
+    /// Whether Open can be chosen: not while requests to join are on and
+    /// this person can't turn them off, because the server refuses Open then.
+    var isOpenAvailable: Bool {
+        requestToJoin != true || canChangeRequestToJoin
+    }
+
+    /// Whether an access mode can be chosen now.
+    func isAvailable(_ mode: ConversationAccess) -> Bool {
+        mode != .open || isOpenAvailable
     }
 
     /// The audiences a rule's menu offers, narrowest first: those the server
@@ -152,7 +164,7 @@ struct SettingsDraft: Equatable {
     /// The changed, changeable values; nil when there is nothing to send.
     func patch() -> ConversationSettingsPatch? {
         var patch = ConversationSettingsPatch()
-        if canChangeAccess, access != originalAccess, Self.accessModes.contains(access) {
+        if canChangeAccess, access != originalAccess, Self.accessModes.contains(access), isAvailable(access) {
             patch.access = access
         }
         if canChangeRequestToJoin, let request = effectiveRequestToJoin, request != originalRequestToJoin {
@@ -189,7 +201,8 @@ struct SettingsDraft: Equatable {
     func rebased(access newAccess: ConversationAccess, settings: ConversationSettings) -> SettingsDraft {
         var next = SettingsDraft(access: newAccess, settings: settings)
         // A choice carries over only where the reloaded settings still let it change.
-        if access != originalAccess, next.canChangeAccess, Self.accessModes.contains(access) {
+        if access != originalAccess, next.canChangeAccess, Self.accessModes.contains(access),
+           next.isAvailable(access) {
             next.access = access
         }
         if requestToJoin != originalRequestToJoin, next.canChangeRequestToJoin {
@@ -200,6 +213,12 @@ struct SettingsDraft: Equatable {
                   let reloaded = next.permissions.first(where: { $0.id == permission.id }),
                   !next.isLocked(reloaded), reloaded.allowedAudiences.contains(audience) else { continue }
             next.audiences[permission.id] = audience
+        }
+        // A carried member list narrower than its managers would be refused.
+        if let view = Self.rank(next.audiences[Self.viewMembers]),
+           let manage = Self.rank(next.audiences[Self.manageMembers]), view < manage {
+            next.audiences[Self.viewMembers] = next.permissions
+                .first { $0.id == Self.viewMembers }?.audience
         }
         return next
     }

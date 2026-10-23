@@ -183,4 +183,40 @@ struct SettingsDraftTests {
         #expect(next.audiences["manageWebhooks"] == .owners)
         #expect(next.patch() == ConversationSettingsPatch(permissions: ["manageWebhooks": .owners]))
     }
+
+    @Test func openIsUnavailableWhileRequestsCantBeTurnedOff() {
+        var fixed = settings(requestToJoin: true)
+        fixed.canChangeRequestToJoin = false
+        var draft = SettingsDraft(access: .discoverable, settings: fixed)
+        #expect(!draft.isOpenAvailable)
+        #expect(!draft.isAvailable(.open))
+        #expect(draft.isAvailable(.restricted))
+        draft.access = .open
+        // Save can't turn requests off, so it promises nothing and sends nothing.
+        #expect(!draft.turnsRequestsOff)
+        #expect(draft.patch() == nil)
+        // Requests changeable: Open is offered and Save says it turns them off.
+        var free = SettingsDraft(access: .discoverable, settings: settings(requestToJoin: true))
+        #expect(free.isOpenAvailable)
+        free.access = .open
+        #expect(free.turnsRequestsOff)
+    }
+
+    @Test func rebasingDropsOpenAndANarrowerMemberListTheReloadRefuses() {
+        var draft = SettingsDraft(access: .discoverable, settings: settings(requestToJoin: false))
+        draft.access = .open
+        var requests = settings(requestToJoin: true)
+        requests.canChangeRequestToJoin = false
+        #expect(draft.updated(access: .discoverable, settings: requests, isAnswer: false)
+            .access == .discoverable)
+
+        var narrow = SettingsDraft(
+            access: .restricted, settings: settings(override: ["manageMembers": .owners])
+        )
+        narrow.setAudience(.managers, for: "viewMembers")
+        let wider = settings(override: ["manageMembers": .members])
+        let next = narrow.updated(access: .restricted, settings: wider, isAnswer: false)
+        #expect(next.audiences["viewMembers"] == .members)
+        #expect(next.patch() == nil)
+    }
 }

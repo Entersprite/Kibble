@@ -66,13 +66,22 @@ struct ConversationSettingsForm: View {
     private var access: some View {
         Section("Who Can Find and Join") {
             if draft.canChangeAccess {
-                Picker("Access", selection: $draft.access) {
+                // An unavailable mode is refused even where a disabled option still reacts.
+                Picker("Access", selection: Binding(get: { draft.access }, set: { mode in
+                    if draft.isAvailable(mode) {
+                        draft.access = mode
+                    }
+                })) {
                     ForEach(SettingsDraft.accessModes, id: \.self) { mode in
-                        accessLabel(mode).tag(mode)
+                        accessLabel(mode).tag(mode).disabled(!draft.isAvailable(mode))
                     }
                 }
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
+                if !draft.isOpenAvailable {
+                    Text("Open isn’t available while requests to join are on.")
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 LabeledContent("Access") {
                     Text(PermissionText.access(draft.access))

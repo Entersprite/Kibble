@@ -103,5 +103,24 @@
                 )
             }
         }
+
+        /// Requests on and unchangeable: Open is offered disabled, with a line why.
+        @Test func infoSettingsRendersOpenUnavailable() async throws {
+            let settings = ConversationSettings(
+                permissions: [], requestToJoin: true, canChangeAccess: true, canChangeRequestToJoin: false
+            )
+            let details = space(settings, access: .discoverable)
+            var state = ChatSceneState()
+            state.browser.panelTarget = details.conversation.id
+            state.browser.details = details
+            try await render(
+                ConversationInfoSheet(
+                    details: details, state: state, actions: actions, media: nil,
+                    openNotifications: nil, section: .settings
+                ),
+                dark: false, name: "info-settings-open-unavailable-760-light",
+                size: NSSize(width: 760, height: 560)
+            )
+        }
     }
 #endif
