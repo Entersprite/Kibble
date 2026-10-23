@@ -189,9 +189,8 @@ struct ConversationInfoSheet: View {
         .listStyle(.sidebar)
     }
 
-    /// Each section's view. Placeholders until their own views replace them;
-    /// a section with a draft gets `draftBinding`. People has no draft: its
-    /// changes apply at once.
+    /// Each section's view. A section with a draft gets `draftBinding`.
+    /// People and Integrations have none: their changes apply at once.
     @ViewBuilder private var section: some View {
         switch shown {
         case .people:
@@ -206,8 +205,10 @@ struct ConversationInfoSheet: View {
         case .settings:
             ConversationSettingsForm(details: details, state: state, actions: actions, report: draftBinding)
                 .id(AccountScoped(account: state.accountID, value: details.conversation.id))
-        default:
-            InfoSectionPlaceholder(section: shown)
+        case .integrations:
+            // No draft: each change is sent on its own.
+            ConversationIntegrationsForm(details: details, state: state, actions: actions)
+                .id(AccountScoped(account: state.accountID, value: details.conversation.id))
         }
     }
 
@@ -326,20 +327,5 @@ struct ConversationInfoSheet: View {
             // The model refuses while a write is in flight; the sheet then stays as it was.
             actions.closePanel()
         }
-    }
-}
-
-/// Stands in for a section until its own view replaces it: People, Details,
-/// Settings and Integrations each arrive in a later change.
-struct InfoSectionPlaceholder: View {
-    let section: InfoSection
-
-    var body: some View {
-        Form {
-            Section {
-                Label(section.title, systemImage: section.systemImage)
-            }
-        }
-        .formStyle(.grouped)
     }
 }

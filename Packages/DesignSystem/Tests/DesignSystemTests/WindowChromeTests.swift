@@ -19,7 +19,8 @@
         /// An SF Symbol name is an unchecked string: a wrong one renders as
         /// empty space (`CLAUDE.md`).
         @Test func everyDirectoryMenuSymbolExists() {
-            for name in DirectoryMenuSymbols.all + ["exclamationmark.triangle.fill"] {
+            for name in DirectoryMenuSymbols.all + IntegrationSymbols
+                .all + ["exclamationmark.triangle.fill"] {
                 #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")
             }
             #expect(Set(DirectoryMenuSymbols.all).count == DirectoryMenuSymbols.all.count)
