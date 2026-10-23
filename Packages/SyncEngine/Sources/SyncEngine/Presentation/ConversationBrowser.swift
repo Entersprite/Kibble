@@ -213,6 +213,10 @@ public final class ConversationBrowser {
                 creationKind = nil
                 notice = result.failedMembers.isEmpty ? nil
                     : "Created, but \(result.failedMembers.count) people could not be added."
+                if panelTarget != nil {
+                    // Opened from Info: the new conversation shows, not the sheet over it.
+                    closePanel()
+                }
                 onOpen?(result.conversation.id)
                 if !result.failedMembers.isEmpty {
                     openDetails(result.conversation.id)

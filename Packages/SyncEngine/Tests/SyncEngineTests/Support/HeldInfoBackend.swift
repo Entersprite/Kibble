@@ -20,6 +20,10 @@ actor HeldInfoBackend: ChatBackend {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var failingMutations = false
     private var failingLaterPages = false
+    private var failingMutationNumber: Int?
+    private(set) var mutationCount = 0
+    /// Details reads the client asked for: one per panel reload.
+    private(set) var detailsReads = 0
 
     var isHolding: Bool {
         !waiters.isEmpty
@@ -43,6 +47,11 @@ actor HeldInfoBackend: ChatBackend {
 
     func failMutations() {
         failingMutations = true
+    }
+
+    /// Fails only the `number`th mutation from now, counting from 1.
+    func failMutation(number: Int) {
+        failingMutationNumber = mutationCount + number
     }
 
     /// Fails every participant page after the first.
@@ -80,7 +89,8 @@ actor HeldInfoBackend: ChatBackend {
     }
 
     func conversationDetails(_ id: Conversation.ID) async throws -> ConversationDetails {
-        try await inner.conversationDetails(id)
+        detailsReads += 1
+        return try await inner.conversationDetails(id)
     }
 
     func participants(in id: Conversation.ID, after cursor: String?) async throws
@@ -101,7 +111,8 @@ actor HeldInfoBackend: ChatBackend {
         expectedRevision: String?
     ) async throws -> ConversationMutationResult {
         await wait(for: .mutation)
-        if failingMutations {
+        mutationCount += 1
+        if failingMutations || mutationCount == failingMutationNumber {
             throw ChatError.server(status: 500, message: "The change failed.")
         }
         return try await inner.mutateConversation(

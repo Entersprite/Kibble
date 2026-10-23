@@ -60,6 +60,8 @@ public struct ConversationBrowserActions {
     public var details: (Conversation.ID, Bool) -> Void
     public var preview: (ConversationDetails) -> Void
     public var mutate: (ConversationMutation) -> Void
+    /// Several people's changes as one submission, sent one after another.
+    public var mutateEach: ([ConversationMutation]) -> Void
     public var loadIntegrations: () -> Void
     public var searchApps: (String) -> Void
     public var openApp: (Member.ID) -> Void
@@ -89,8 +91,10 @@ public struct ConversationBrowserActions {
             { _, _ in },
         loadEmail: @escaping () -> Void = {},
         loadConversion: @escaping () -> Void = {},
-        loadAllParticipants: @escaping () -> Void = {}
+        loadAllParticipants: @escaping () -> Void = {},
+        mutateEach: @escaping ([ConversationMutation]) -> Void = { _ in }
     ) {
+        self.mutateEach = mutateEach
         self.loadIntegrations = loadIntegrations; self.searchApps = searchApps; self.openApp = openApp
         self.webhookURL = webhookURL; self.loadEmail = loadEmail; self.loadConversion = loadConversion
         self.loadAllParticipants = loadAllParticipants

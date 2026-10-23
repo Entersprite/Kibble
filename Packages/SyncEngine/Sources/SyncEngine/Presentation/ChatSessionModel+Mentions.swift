@@ -94,4 +94,12 @@ public extension ChatSessionModel {
         browser.onOpen = { [weak self] in self?.select($0) }
         browser.beginCreation(kind)
     }
+
+    /// Opens a conversation's Info from the window. A conversation it opens
+    /// (a person's direct message, an app's chat) closes Info and is
+    /// selected, as one opened from the directory is.
+    func openConversationDetails(_ id: Conversation.ID, more: Bool = false) {
+        browser.onOpen = { [weak self] in self?.select($0) }
+        browser.openDetails(id, more: more)
+    }
 }

@@ -35,6 +35,83 @@ public extension ConversationBrowser {
         }
     }
 
+    /// Several people's changes as one submission, sent one after another:
+    /// the panel takes one write at a time. Each write carries the revision
+    /// the last one confirmed. The first refusal or unconfirmed answer stops
+    /// the rest, and the panel says how many went through. One reload
+    /// follows, for the same conversation only.
+    func mutateEach(_ mutations: [ConversationMutation]) {
+        guard mutations.count > 1 else {
+            mutations.first.map(mutate)
+            return
+        }
+        guard let details, let id = panelTarget, details.conversation.id == id, !isSubmitting,
+              !isLoadingAllParticipants, !stopped, !needsReconciliation else { return }
+        isSubmitting = true
+        pendingChange = (id, mutations[0])
+        panelError = nil
+        let generation = generation
+        writeTask = Task { [weak self, engine] in
+            var batch = BatchOutcome(revision: details.revision)
+            for mutation in mutations {
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation,
+                      panelTarget == id else { break }
+                if batch.revisionLost {
+                    batch.failure = .noRevision
+                    break
+                }
+                pendingChange = (id, mutation)
+                do {
+                    let result = try await engine.mutateConversation(
+                        mutation, in: id, operationID: ClientOperationID.make(),
+                        expectedRevision: batch.revision
+                    )
+                    guard batch.record(result, of: mutation) else { break }
+                } catch {
+                    batch.failure = .refused(Self.message(error))
+                    break
+                }
+            }
+            guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
+            isSubmitting = false
+            pendingChange = nil
+            finish(batch, of: mutations, in: id)
+        }
+    }
+
+    private func finish(_ batch: BatchOutcome, of mutations: [ConversationMutation], in id: Conversation.ID) {
+        guard let last = batch.last else {
+            // Nothing went through: as a single change's failure.
+            switch batch.failure {
+            case let .refused(message):
+                needsReconciliation = true
+                panelError = message
+            case .unconfirmed, .noRevision, nil:
+                needsReconciliation = true
+                panelError = "The change could not be confirmed. Reload before trying again."
+            }
+            return
+        }
+        applyManagementResult(last.result, mutation: last.mutation, in: id)
+        guard panelTarget == id, let failure = batch.failure else { return }
+        let reason = switch failure {
+        case let .refused(message): message
+        case .unconfirmed: "The next change could not be confirmed. Reload before trying again."
+        case .noRevision: "Reload to change the rest."
+        }
+        panelError = "\(Self.progress(batch.changed, of: mutations.count, mutations[0])) \(reason)"
+    }
+
+    /// "Changed 1 of 3 people.", or the words for removals and approvals.
+    static func progress(_ done: Int, of total: Int, _ mutation: ConversationMutation) -> String {
+        switch mutation {
+        case .removePerson: "Removed \(done) of \(total) people."
+        case .approveRequest: "Approved \(done) of \(total) requests."
+        case .rejectRequest: "Declined \(done) of \(total) requests."
+        default: "Changed \(done) of \(total) people."
+        }
+    }
+
     private func applyManagementResult(
         _ result: ConversationMutationResult,
         mutation: ConversationMutation,
@@ -62,5 +139,39 @@ public extension ConversationBrowser {
         if page == "space" || page == "spaceSpam" {
             search(query, scope: scope)
         }
+    }
+}
+
+/// How a batch of people's changes went.
+struct BatchOutcome {
+    enum Failure: Equatable {
+        case refused(String), unconfirmed, noRevision
+    }
+
+    var revision: String?
+    var changed = 0
+    var last: (result: ConversationMutationResult, mutation: ConversationMutation)?
+    var failure: Failure?
+    private(set) var revisionLost = false
+    private var failedMembers: [Member.ID] = []
+
+    /// Records an answer; returns whether the next change may follow.
+    mutating func record(_ result: ConversationMutationResult, of mutation: ConversationMutation) -> Bool {
+        guard result.isConfirmed else {
+            failure = .unconfirmed
+            return false
+        }
+        changed += 1
+        failedMembers += result.failedMembers
+        var merged = result
+        merged.failedMembers = failedMembers
+        last = (merged, mutation)
+        if let next = result.details?.revision {
+            revision = next
+        } else if revision != nil {
+            // The next write would have nothing current to check against.
+            revisionLost = true
+        }
+        return true
     }
 }

@@ -77,7 +77,7 @@ extension AppEnvironment {
             beginCreation: { [weak model] in model?.beginConversationCreation($0) },
             create: { [weak model] in model?.browser.create($0) },
             closePanel: { [weak model] in model?.browser.closePanel() },
-            details: { [weak model] in model?.browser.openDetails($0, more: $1) },
+            details: { [weak model] in model?.openConversationDetails($0, more: $1) },
             preview: { [weak model] in model?.browser.showPreview($0) },
             mutate: { [weak model] in model?.browser.mutate($0) },
             setSpaceOrganization: { [weak model] in
@@ -93,7 +93,8 @@ extension AppEnvironment {
             },
             loadEmail: { [weak model] in model?.browser.loadEmail() },
             loadConversion: { [weak model] in model?.browser.loadConversion() },
-            loadAllParticipants: { [weak model] in model?.browser.loadAllParticipants() }
+            loadAllParticipants: { [weak model] in model?.browser.loadAllParticipants() },
+            mutateEach: { [weak model] in model?.browser.mutateEach($0) }
         )
     }
 }
