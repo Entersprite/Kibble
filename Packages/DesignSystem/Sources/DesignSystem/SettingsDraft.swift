@@ -260,13 +260,14 @@ enum PermissionText {
         }
     }
 
-    /// One line on who outside the space can find and join it in each mode.
+    /// One line on who can find and join the space in each mode. Finding
+    /// reaches its default audience, not necessarily the whole organization.
     static func accessExplanation(_ access: ConversationAccess) -> String? {
         switch access.type {
-        case ConversationAccess.restricted.type: "People in your organization can’t find it or join it."
+        case ConversationAccess.restricted.type: "Only people who are added can find and join it."
         case ConversationAccess.discoverable.type:
-            "People in your organization can find it but can’t join it."
-        case ConversationAccess.open.type: "People in your organization can find it and join it."
+            "People in its default audience can find it. To take part, they need to be added or ask to join."
+        case ConversationAccess.open.type: "People in its default audience can find it and join."
         default: nil
         }
     }

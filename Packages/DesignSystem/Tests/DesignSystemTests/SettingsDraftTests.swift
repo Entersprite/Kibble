@@ -103,6 +103,17 @@ struct SettingsDraftTests {
 
     // MARK: Beyond the brief
 
+    /// Each mode says only what it promises: finding comes from the default
+    /// audience, and joining a Discoverable space needs an add or a request.
+    @Test func accessExplanationsClaimOnlyWhatEachModeAllows() {
+        let explain = PermissionText.accessExplanation
+        #expect(explain(.restricted) == "Only people who are added can find and join it.")
+        #expect(explain(.discoverable) ==
+            "People in its default audience can find it. To take part, they need to be added or ask to join.")
+        #expect(explain(.open) == "People in its default audience can find it and join.")
+        #expect(explain(ConversationAccess("future")) == nil)
+    }
+
     @Test func openingASpaceTurnsJoinRequestsOff() {
         var draft = SettingsDraft(access: .discoverable, settings: settings(requestToJoin: true))
         #expect(!draft.turnsRequestsOff)
