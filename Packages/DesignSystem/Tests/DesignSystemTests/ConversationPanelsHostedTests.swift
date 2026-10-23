@@ -49,18 +49,25 @@
             state.browser.creationKind = nil
             state.browser.panelTarget = .init("space")
             state.browser.details = ConversationDetails(
-                conversation: Conversation(id: .init("space"), kind: .space, title: "Design Team"),
+                conversation: Conversation(
+                    id: .init("space"), kind: .space, title: "Design Team", memberCount: 8
+                ),
                 description: "Product ideas and weekly reviews", membership: .joined,
-                allowedActions: ["identity", "rename", "description", "leave", "deleteSpace", "addPeople"]
+                allowedActions: ["identity", "rename", "description", "leave", "deleteSpace", "addPeople"],
+                settings: ConversationSettings()
             )
+            state.capabilities = Capabilities(extendedFlags: ["conversationApps"])
+            state.browser.isLoadingParticipants = true
             for dark in [false, true] {
                 try await render(
                     ConversationPanelSheet(state: state, browser: actions, openNotifications: { _ in }),
                     dark: dark,
-                    name: "management-\(dark ? "dark" : "light")",
-                    size: NSSize(width: 520, height: 580)
+                    name: "info-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 760, height: 560)
                 )
             }
+            state.capabilities = Capabilities()
+            state.browser.isLoadingParticipants = false
             try await renderPeopleAndPreview(state, people: people)
         }
 

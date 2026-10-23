@@ -67,34 +67,35 @@ struct ConversationPanelSheet: View {
     let openNotifications: ((Conversation.ID) -> Void)?
 
     var body: some View {
-        Group {
-            if let kind = state.browser.creationKind {
-                ConversationCreationSheet(kind: kind, state: state, actions: browser)
-                    .id(kind)
-            } else if let details = state.browser.details {
-                Group {
-                    if details.membership != .joined, details.conversation.kind == .space {
-                        ConversationPreviewSheet(
-                            details: details,
-                            state: state,
-                            actions: browser,
-                            media: media
-                        )
-                    } else {
-                        ConversationManagementSheet(
-                            details: details,
-                            state: state,
-                            actions: browser,
-                            openNotifications: openNotifications
-                        )
-                    }
-                }
+        if let kind = state.browser.creationKind {
+            ConversationCreationSheet(kind: kind, state: state, actions: browser)
+                .id(kind)
+                .interactiveDismissDisabled(state.browser.isSubmitting)
+        } else if let details = state.browser.details {
+            if details.membership != .joined, details.conversation.kind == .space {
+                ConversationPreviewSheet(
+                    details: details,
+                    state: state,
+                    actions: browser,
+                    media: media
+                )
                 .id(details.conversation.id)
+                .interactiveDismissDisabled(state.browser.isSubmitting)
             } else {
-                ConversationLoadingSheet(state: state, actions: browser)
+                // Info also holds dismissal while a section has unsaved edits.
+                ConversationInfoSheet(
+                    details: details,
+                    state: state,
+                    actions: browser,
+                    media: media,
+                    openNotifications: openNotifications
+                )
+                .id(details.conversation.id)
             }
+        } else {
+            ConversationLoadingSheet(state: state, actions: browser)
+                .interactiveDismissDisabled(state.browser.isSubmitting)
         }
-        .interactiveDismissDisabled(state.browser.isSubmitting)
     }
 }
 

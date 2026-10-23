@@ -1,0 +1,86 @@
+import ChatKit
+import Foundation
+
+/// One page of the Conversation Info sheet, in sidebar order.
+enum InfoSection: Hashable, CaseIterable {
+    case people, details, settings, integrations
+
+    var title: String {
+        switch self {
+        case .people: "People"
+        case .details: "Details"
+        case .settings: "Settings"
+        case .integrations: "Integrations"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .people: "person.2"
+        case .details: "info.circle"
+        case .settings: "gearshape"
+        case .integrations: "puzzlepiece.extension"
+        }
+    }
+}
+
+/// Which sections a conversation has. A section it doesn't have is absent,
+/// never shown disabled. Kind and advertised capability are separate gates;
+/// what the server allows is checked again by each section's controls.
+enum ConversationInfoSections {
+    /// - Parameter hasParticipants: whether a participant list is on its way or
+    ///   loaded. Meet chats and app conversations list People only then.
+    static func available(
+        for details: ConversationDetails,
+        capabilities: Capabilities,
+        hasParticipants: Bool = true
+    ) -> [InfoSection] {
+        let integrations = capabilities.canManageConversationApps
+            || capabilities.canManageConversationWebhooks
+        var sections: [InfoSection]
+        switch details.conversation.kind {
+        case .space:
+            sections = [.people, .details]
+            if details.settings != nil {
+                sections.append(.settings)
+            }
+        case .groupDirectMessage:
+            sections = [.people, .details]
+        case .directMessage:
+            sections = [.people]
+        default:
+            sections = hasParticipants ? [.people, .details] : [.details]
+        }
+        if integrations {
+            sections.append(.integrations)
+        }
+        return sections
+    }
+}
+
+/// The sheet's one-draft rule: only the current section can hold unsaved
+/// edits, and leaving it (another section, or closing) asks first.
+struct InfoDraftState: Equatable {
+    var dirtySection: InfoSection?
+
+    enum Request: Equatable {
+        case switchTo(InfoSection)
+        case close
+    }
+
+    /// Whether `request` can go ahead now or must ask Save / Don't Save /
+    /// Cancel. Asking changes nothing: the draft stays until its section
+    /// saves or reverts it.
+    mutating func request(_ request: Request) -> Decision {
+        guard let dirtySection else { return .proceed(request) }
+        if case let .switchTo(section) = request, section == dirtySection {
+            return .proceed(request)
+        }
+        return .askToSave(request)
+    }
+}
+
+enum Decision: Equatable {
+    case proceed(InfoDraftState.Request)
+    case askToSave(InfoDraftState.Request)
+}
