@@ -81,8 +81,11 @@ struct ConversationSettingsForm: View {
                     PermissionText.accessExplanation(draft.access) ?? "This setting can’t be changed here."
                 )
             }
-            // Open offers no requests to join.
-            if draft.requestToJoin != nil, !draft.isOpen {
+            // Open offers no requests to join; say so when Save turns them off.
+            if draft.turnsRequestsOff {
+                Text("Open spaces don’t take requests to join. Saving turns requests off.")
+                    .foregroundStyle(.secondary)
+            } else if draft.requestToJoin != nil, !draft.isOpen {
                 Toggle("Allow requests to join", isOn: Binding(
                     get: { draft.requestToJoin ?? false },
                     set: { draft.requestToJoin = $0 }
@@ -139,12 +142,18 @@ struct ConversationSettingsForm: View {
             }
             .help("This rule can’t be changed here.")
         } else {
-            Picker(label, selection: Binding(
+            Picker(selection: Binding(
                 get: { draft.audiences[permission.id] ?? permission.audience },
                 set: { draft.setAudience($0, for: permission.id) }
             )) {
                 ForEach(choices, id: \.self) { audience in
                     Text(PermissionText.audience(audience)).tag(audience)
+                }
+            } label: {
+                Text(label)
+                if permission.id == "viewMembers", draft.isMemberListHeldByManageMembers {
+                    Text("To limit this further, first change who can add and remove people.")
+                        .foregroundStyle(.secondary)
                 }
             }
             .pickerStyle(.menu)

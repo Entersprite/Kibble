@@ -51,16 +51,38 @@ struct SettingsDraftTests {
     @Test func manageMembersCannotExceedViewMembers() {
         var draft = SettingsDraft(access: .restricted, settings: settings())
         #expect(draft.choices(for: "manageMembers") == [.owners, .managers, .members])
+        // Both are All Members: the member list can't go narrower than its managers.
+        #expect(draft.choices(for: "viewMembers") == [.members, .organization])
+        #expect(draft.isMemberListHeldByManageMembers)
+        draft.setAudience(.managers, for: "manageMembers")
+        #expect(draft.choices(for: "viewMembers") == [.managers, .members, .organization])
         draft.setAudience(.managers, for: "viewMembers")
         #expect(!draft.choices(for: "manageMembers").contains(.members))
         #expect(draft.choices(for: "manageMembers") == [.owners, .managers])
-        // Narrowing who can see the list narrows who can manage it with it.
-        #expect(draft.audiences["manageMembers"] == .managers)
-        #expect(draft.patch()?.permissions == ["viewMembers": .managers, "manageMembers": .managers])
-        // Widening "see" leaves "manage" as it is.
+        #expect(draft.patch()?.permissions == ["manageMembers": .managers, "viewMembers": .managers])
+    }
+
+    @Test func changingOneRuleNeverChangesAnother() {
+        var draft = SettingsDraft(access: .restricted, settings: settings())
         draft.setAudience(.organization, for: "viewMembers")
-        #expect(draft.choices(for: "manageMembers") == [.owners, .managers, .members])
-        #expect(draft.audiences["manageMembers"] == .managers)
+        #expect(draft.audiences["manageMembers"] == .members)
+        #expect(draft.patch()?.permissions == ["viewMembers": .organization])
+        // Narrowing back below its managers isn't offered, so nothing else moves.
+        #expect(!draft.choices(for: "viewMembers").contains(.managers))
+        let readOnly = SettingsDraft(
+            access: .restricted, settings: settings(override: ["manageMembers": .managers])
+        )
+        #expect(readOnly.choices(for: "viewMembers") == [.managers, .members, .organization])
+        #expect(readOnly.isMemberListHeldByManageMembers)
+    }
+
+    @Test func aRuleTheServerReportsInconsistentlyIsText() {
+        // Managers wider than the member list: no menu can show the value.
+        let current = settings(override: ["viewMembers": .managers])
+        let draft = SettingsDraft(access: .restricted, settings: current)
+        #expect(!draft.choices(for: "manageMembers").contains(.members))
+        #expect(draft.isReadOnly(current.permissions[1]))
+        #expect(draft.patch() == nil)
     }
 
     @Test func changingAccessAloneSendsOnlyAccess() {
@@ -83,11 +105,19 @@ struct SettingsDraftTests {
 
     @Test func openingASpaceTurnsJoinRequestsOff() {
         var draft = SettingsDraft(access: .discoverable, settings: settings(requestToJoin: true))
+        #expect(!draft.turnsRequestsOff)
         draft.access = .open
         // Open doesn't offer requests, and the server refuses Open with them on.
+        #expect(draft.turnsRequestsOff)
         #expect(draft.patch() == ConversationSettingsPatch(access: .open, requestToJoin: false))
         draft.access = .discoverable
+        #expect(!draft.turnsRequestsOff)
         #expect(draft.patch() == nil)
+        // Requests already off: nothing to say, nothing extra sent.
+        var off = SettingsDraft(access: .discoverable, settings: settings(requestToJoin: false))
+        off.access = .open
+        #expect(!off.turnsRequestsOff)
+        #expect(off.patch() == ConversationSettingsPatch(access: .open))
     }
 
     @Test func onlyChangeableValuesAreSent() {
@@ -111,8 +141,12 @@ struct SettingsDraftTests {
     }
 
     @Test func choicesOfferOnlyWhatTheServerAllows() {
-        let draft = SettingsDraft(access: .restricted, settings: settings())
+        let draft = SettingsDraft(
+            access: .restricted,
+            settings: settings(override: ["manageMembers": .owners])
+        )
         #expect(draft.choices(for: "viewMembers") == [.owners, .managers, .members, .organization])
+        #expect(!draft.isMemberListHeldByManageMembers)
         #expect(!draft.choices(for: "modifyDetails").contains(.organization))
         #expect(draft.choices(for: "future").isEmpty)
     }
@@ -130,5 +164,23 @@ struct SettingsDraftTests {
         let answer = settings(override: ["manageApps": .owners])
         #expect(!draft.updated(access: .restricted, settings: answer, isAnswer: false).isDirty)
         #expect(!draft.updated(access: .restricted, settings: settings(), isAnswer: true).isDirty)
+    }
+
+    @Test func rebasingDropsChoicesTheReloadNoLongerAllows() {
+        var draft = SettingsDraft(access: .restricted, settings: settings())
+        draft.access = .open
+        draft.requestToJoin = true
+        draft.audiences["manageApps"] = .owners
+        draft.audiences["manageWebhooks"] = .owners
+        var locked = settings()
+        locked.canChangeAccess = false
+        locked.canChangeRequestToJoin = false
+        locked.permissions[5].isEditable = false
+        let next = draft.updated(access: .discoverable, settings: locked, isAnswer: false)
+        #expect(next.access == .discoverable)
+        #expect(next.requestToJoin == false)
+        #expect(next.audiences["manageApps"] == .members)
+        #expect(next.audiences["manageWebhooks"] == .owners)
+        #expect(next.patch() == ConversationSettingsPatch(permissions: ["manageWebhooks": .owners]))
     }
 }

@@ -83,43 +83,70 @@ struct SettingsDraft: Equatable {
         isOpen ? requestToJoin.map { _ in false } : requestToJoin
     }
 
+    /// Whether Save turns join requests off because Open is chosen: they were
+    /// on, and Open doesn't take them. The form says so in place of the switch.
+    var turnsRequestsOff: Bool {
+        isOpen && originalRequestToJoin == true
+    }
+
     /// The audiences a rule's menu offers, narrowest first: those the server
-    /// allows for it, and for adding and removing people none wider than the
-    /// draft's member-list audience.
+    /// allows for it, never letting who can add and remove people be wider
+    /// than who can see the member list. Each side is limited by the other's
+    /// draft value, so neither change rewrites the other rule; without a
+    /// known value on the other side there is nothing safe to offer.
     func choices(for permissionID: String) -> [PermissionAudience] {
-        guard let permission = permissions.first(where: { $0.id == permissionID }) else { return [] }
-        var choices = Self.audienceOrder.filter(permission.allowedAudiences.contains)
-        if permissionID == Self.manageMembers {
-            let widest = Self.rank(audiences[Self.viewMembers]) ?? -1
-            choices = choices.filter { (Self.rank($0) ?? .max) <= widest }
+        let choices = allowedChoices(for: permissionID)
+        switch permissionID {
+        case Self.manageMembers:
+            guard let widest = Self.rank(audiences[Self.viewMembers]) else { return [] }
+            return choices.filter { (Self.rank($0) ?? .max) <= widest }
+        case Self.viewMembers:
+            guard let narrowest = Self.rank(audiences[Self.manageMembers]) else { return [] }
+            return choices.filter { (Self.rank($0) ?? -1) >= narrowest }
+        default:
+            return choices
         }
-        return choices
+    }
+
+    /// The known audiences the server offers for a rule, narrowest first.
+    private func allowedChoices(for permissionID: String) -> [PermissionAudience] {
+        guard let permission = permissions.first(where: { $0.id == permissionID }) else { return [] }
+        return Self.audienceOrder.filter(permission.allowedAudiences.contains)
+    }
+
+    /// Whether the member list offers fewer audiences than the server allows
+    /// because of who can add and remove people: it can't go narrower first.
+    var isMemberListHeldByManageMembers: Bool {
+        let offered = choices(for: Self.viewMembers)
+        return !offered.isEmpty && offered.count < allowedChoices(for: Self.viewMembers).count
     }
 
     /// Whether a rule shows as text: the server doesn't let it change, it is
-    /// a custom rule, or its audience isn't one the server offers for it.
+    /// a custom rule, its audience isn't one the server offers for it, or its
+    /// current value isn't among its choices (the server's own values break
+    /// the member-list rule, or the other side's value is unknown).
     func isReadOnly(_ permission: ConversationPermission) -> Bool {
-        let audience = Self.standard(permission.audience, among: Self.audienceOrder)
-        let allowed = permission.allowedAudiences.map { Self.standard($0, among: Self.audienceOrder) }
-        guard permission.isEditable, Self.rank(audience) != nil, allowed.contains(audience) else {
+        if isLocked(permission) {
             return true
         }
-        // Without a known member-list audience there is nothing to keep it under.
-        return permission.id == Self.manageMembers && Self.rank(audiences[Self.viewMembers]) == nil
+        let current = audiences[permission.id] ?? Self.standard(
+            permission.audience,
+            among: Self.audienceOrder
+        )
+        return !choices(for: permission.id).contains(current)
     }
 
-    /// Chooses a rule's audience. Narrowing who can see the member list
-    /// narrows who can add and remove people with it, where it was wider.
+    /// Read-only whatever the draft holds: not editable, a custom rule, or
+    /// an audience the server doesn't offer for it.
+    private func isLocked(_ permission: ConversationPermission) -> Bool {
+        let audience = Self.standard(permission.audience, among: Self.audienceOrder)
+        let allowed = permission.allowedAudiences.map { Self.standard($0, among: Self.audienceOrder) }
+        return !permission.isEditable || Self.rank(audience) == nil || !allowed.contains(audience)
+    }
+
+    /// Chooses a rule's audience. It never changes another rule.
     mutating func setAudience(_ audience: PermissionAudience, for permissionID: String) {
         audiences[permissionID] = audience
-        guard permissionID == Self.viewMembers,
-              let manage = permissions.first(where: { $0.id == Self.manageMembers }),
-              !isReadOnly(manage) else { return }
-        let choices = choices(for: Self.manageMembers)
-        if let current = audiences[Self.manageMembers], !choices.contains(current),
-           let widest = choices.last {
-            audiences[Self.manageMembers] = widest
-        }
     }
 
     /// The changed, changeable values; nil when there is nothing to send.
@@ -161,16 +188,18 @@ struct SettingsDraft: Equatable {
     /// answer, the choices match it and the draft is clean.
     func rebased(access newAccess: ConversationAccess, settings: ConversationSettings) -> SettingsDraft {
         var next = SettingsDraft(access: newAccess, settings: settings)
-        if access != originalAccess {
+        // A choice carries over only where the reloaded settings still let it change.
+        if access != originalAccess, next.canChangeAccess, Self.accessModes.contains(access) {
             next.access = access
         }
-        if requestToJoin != originalRequestToJoin {
+        if requestToJoin != originalRequestToJoin, next.canChangeRequestToJoin {
             next.requestToJoin = requestToJoin
         }
         for permission in permissions {
-            if let audience = audiences[permission.id], audience != permission.audience {
-                next.audiences[permission.id] = audience
-            }
+            guard let audience = audiences[permission.id], audience != permission.audience,
+                  let reloaded = next.permissions.first(where: { $0.id == permission.id }),
+                  !next.isLocked(reloaded), reloaded.allowedAudiences.contains(audience) else { continue }
+            next.audiences[permission.id] = audience
         }
         return next
     }
