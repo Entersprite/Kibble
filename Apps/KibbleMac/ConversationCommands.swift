@@ -29,6 +29,11 @@ struct ConversationCommands: Commands {
                 ForEach(section) { entry in
                     ConversationMenuItem(entry: entry, actions: actions)
                 }
+                // Beside Show Details, where the backend reads pins; the
+                // window's pin row enables it (`PinnedMessagesMenuItem`).
+                if index == 0, actions.refreshPins != nil {
+                    PinnedMessagesMenuItem()
+                }
             }
         }
     }

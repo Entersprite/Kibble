@@ -118,11 +118,6 @@ struct MessageBubble: View {
             if !continuesGroup {
                 header.accessibilityHidden(true)
             }
-            if state.isPinned {
-                Label("Pinned", systemImage: "pin.fill")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.orange)
-            }
             // The message itself, apart from its name and the marks under
             // it: the reactions hang from its corner, and the picture lines up
             // with its foot.
@@ -135,10 +130,7 @@ struct MessageBubble: View {
                     messageContent
                 }
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(.yellow.opacity(state.isPinned ? 0.5 : 0), lineWidth: 1)
-            }
+            .overlay(alignment: isMine ? .leading : .trailing) { pinGlyph }
             .overlay(alignment: isMine ? .topLeading : .topTrailing) { tapbacks }
             .alignmentGuide(.messageBottom) { $0[.bottom] }
             // Room for the reactions above the message, so they never cover
@@ -313,6 +305,10 @@ struct MessageBubble: View {
                     .background(isMine ? AnyShapeStyle(MessageBubbleLayout.ownFill) : AnyShapeStyle(.quinary))
                     .foregroundStyle(isMine ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                     .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(PinStyle.outline.opacity(state.isPinned ? 1 : 0), lineWidth: 1)
+                    }
             }
         }
     }

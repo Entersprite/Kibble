@@ -30,8 +30,16 @@ struct MessageActivityRow: View {
         }
     }
 
+    /// The pin for a pin, and a neutral mark for activity this build cannot name.
+    var symbol: String {
+        switch activity {
+        case .pinnedMessage, .pinnedResource: PinStyle.symbol
+        case .unknown: "info.circle"
+        }
+    }
+
     var body: some View {
-        Label(title, systemImage: "pin.fill")
+        Label(title, systemImage: symbol)
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(.vertical, 8)

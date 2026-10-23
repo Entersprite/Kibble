@@ -14,6 +14,8 @@ enum MessageMenuSymbols {
     static let edit = "pencil"
     static let delete = "trash"
     static let moreEmoji = EmojiPickerModel.addSymbol
+    static let pin = "pin"
+    static let unpin = "pin.slash"
 
     // What the attachment menus add for the file or picture under the pointer.
     static let quickLook = "eye"
@@ -25,7 +27,8 @@ enum MessageMenuSymbols {
     static let copyImage = "doc.on.doc"
 
     static let all = [
-        quoteReply, forward, replyInThread, markUnread, openLink, copyLink, edit, delete, moreEmoji,
+        quoteReply, forward, replyInThread, markUnread, openLink, copyLink, edit, delete, moreEmoji, pin,
+        unpin,
         quickLook, open, showInFinder, download, cancelDownload, saveAs, copyImage
     ]
 }
@@ -63,7 +66,9 @@ struct MessageMenuTable {
             Self.entry("Forward…", MessageMenuSymbols.forward, own?.forward),
             Self.entry("Reply in Thread", MessageMenuSymbols.replyInThread, own?.replyInThread),
             Self.entry("Mark as Unread", MessageMenuSymbols.markUnread, own?.markUnread),
-            Self.entry(own?.isPinned == true ? "Unpin for Everyone" : "Pin for Everyone", "pin", own?.pin)
+            own?.isPinned == true
+                ? Self.entry("Unpin for Everyone", MessageMenuSymbols.unpin, own?.pin)
+                : Self.entry("Pin for Everyone", MessageMenuSymbols.pin, own?.pin)
         ].compactMap(\.self)
         editing = [
             own?.edit.map { MessageMenuEntry(title: "Edit…", symbol: MessageMenuSymbols.edit, run: $0) },

@@ -153,10 +153,7 @@ public struct ChatWindow: View {
                                 .background(alignment: .bottom) { ComposerScrim() }
                             }
                             .modifier(FileDropTarget(stage: dropStage))
-                            .overlay(alignment: .top) {
-                                PinnedMessageBubbles(state: state, actions: actions)
-                                    .id(AccountScoped(account: state.accountID, value: state.selected))
-                            }
+                            .modifier(PinnedMessageBubbles(state: state, actions: actions))
                         } else if let unavailable {
                             AccountUnavailableView(unavailable: unavailable)
                         } else {

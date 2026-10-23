@@ -1,17 +1,35 @@
 import ChatKit
 import SwiftUI
 
-/// Shared pins remain within reach while the transcript scrolls underneath.
-/// Expansion changes only this presentation; navigation is an explicit action.
-struct PinnedMessageBubbles: View {
+/// Shared pins stay within reach while the transcript scrolls underneath.
+///
+/// One row of previews sits in a bar at the transcript's top, so the scroll
+/// edge softens behind it and a jump to a message lands below it rather than
+/// under it. The previews that do not fit are disclosed below the row, over
+/// the transcript. A preview opens its message in a popover; navigation is
+/// an explicit action there. Conversation › Show Pinned Messages puts the
+/// keyboard on the row: the arrows move one highlight, Return chooses and
+/// Escape leaves, as in a menu.
+struct PinnedMessageBubbles: ViewModifier {
     let state: ChatSceneState
     let actions: ChatSceneActions
     @State private var expanded: Message.ID?
     @State private var showingMore = false
-    @ScaledMetric(relativeTo: .callout) private var pinWidth = 88
+    /// How many previews the row shows: reported by the arrangement that fit.
+    @State private var visibleCount = 0
+    @State private var highlight: PinRowTarget?
+    /// The row takes the keyboard only when asked, so a click on a preview
+    /// never takes it from the composer.
+    @State private var keyboard = false
+    @State private var keyboardRequest = 0
+    @FocusState private var focused: Bool
+    @ScaledMetric(relativeTo: .callout) private var controlWidth = 88
     @ScaledMetric(relativeTo: .callout) private var minimumPreviewWidth = 180
+    /// A disclosed row: the capsule's line and padding, and the list's spacing.
+    @ScaledMetric(relativeTo: .callout) private var listRowHeight = 36
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Newest first, as the provider's order breaks ties; deleted ones never show.
     private var messages: [Message] {
         state.pins.messages.enumerated().filter { !$0.element.isDeleted }.sorted {
             if $0.element.createdAt == $1.element.createdAt {
@@ -21,245 +39,317 @@ struct PinnedMessageBubbles: View {
         }.map(\.element)
     }
 
-    var body: some View {
-        if state.capabilities.canReadMessagePins {
-            GeometryReader { geometry in
-                ZStack(alignment: .top) {
-                    if expanded != nil || showingMore {
-                        Color.clear.contentShape(Rectangle()).onTapGesture { collapse() }
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        if !messages.isEmpty {
-                            pinCollection(
-                                width: max(0, geometry.size.width - 24),
-                                height: max(100, min(380, geometry.size.height - 24))
-                            )
-                        }
-                        if let error = state.pinsError {
-                            HStack {
-                                Label(error, systemImage: "exclamationmark.circle")
-                                    .font(.caption)
-                                Button("Retry") { actions.refreshPins?() }
-                            }
-                            .padding(10)
-                            .glassEffect(.regular, in: .rect(cornerRadius: 14))
-                        }
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var isShown: Bool {
+        state.capabilities.canReadMessagePins
+    }
+
+    func body(content: Content) -> some View {
+        let pins = isShown ? messages : []
+        let navigation = navigation(pins)
+        content
+            .overlay(alignment: .top) { overflow(pins) }
+            .safeAreaBar(edge: .top, spacing: 0) { bar(pins, navigation: navigation) }
+            .focusedSceneValue(\.pinnedMessages, PinnedMessagesCommand(
+                scope: AccountScoped(account: state.accountID, value: state.selected),
+                isAvailable: !pins.isEmpty
+            ) { keyboardRequest += 1 })
+            .onChange(of: keyboardRequest) {
+                if keyboard {
+                    focused = true
+                    highlight = navigation.first
+                } else {
+                    keyboard = true
                 }
             }
-            .onExitCommand { collapse() }
-            .onChange(of: messages.map(\.id)) { _, ids in
+            .onChange(of: keyboard) { _, on in
+                focused = on
+                highlight = on ? navigation.first : nil
+            }
+            .onChange(of: focused) { _, on in
+                // A popover takes the window's keys while it is open.
+                if !on, expanded == nil {
+                    keyboard = false
+                }
+            }
+            .onChange(of: AccountScoped(account: state.accountID, value: state.selected)) {
+                expanded = nil
+                showingMore = false
+                keyboard = false
+            }
+            .onChange(of: pins.map(\.id)) { _, ids in
                 if let expanded, !ids.contains(expanded) {
                     self.expanded = nil
+                }
+                if ids.count <= visibleCount {
+                    showingMore = false
+                }
+            }
+    }
+
+    // MARK: The row
+
+    @ViewBuilder
+    private func bar(_ pins: [Message], navigation: PinRowNavigation) -> some View {
+        if isShown, !pins.isEmpty || state.pinsError != nil {
+            GlassEffectContainer(spacing: 8) {
+                // The most previews that fit beside the controls, never a
+                // second line: each preview asks for its minimum width.
+                ViewThatFits(in: .horizontal) {
+                    ForEach(Self.arrangements(of: pins.count), id: \.self) { row(pins, visible: $0) }
+                }
+            }
+            .onPreferenceChange(PinRowVisibleCount.self) { visibleCount = $0 }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .focusable(keyboard)
+            .focused($focused)
+            .focusEffectDisabled()
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Pinned Messages")
+            .onMoveCommand { direction in
+                switch direction {
+                case .left, .up: highlight = navigation.move(from: highlight, forward: false)
+                case .right, .down: highlight = navigation.move(from: highlight, forward: true)
+                @unknown default: break
+                }
+            }
+            .onKeyPress(phases: .down) { press in
+                guard press.key == .return || press.key == .space else { return .ignored }
+                if let highlight {
+                    choose(highlight)
+                }
+                return .handled
+            }
+            .onExitCommand {
+                if showingMore {
+                    showingMore = false
+                } else {
+                    focused = false
                 }
             }
         }
     }
 
-    private func pinCollection(width: CGFloat, height: CGFloat) -> some View {
-        let allFit = CGFloat(messages.count) * (minimumPreviewWidth + 8) - 8 <= width
-        let count = allFit ? messages.count : max(1, Int((width - pinWidth) / (minimumPreviewWidth + 8)))
-        let visible = Array(messages.prefix(count))
-        let remaining = Array(messages.dropFirst(count))
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                ForEach(visible, id: \.id) { message in compact(message) }
-                if !remaining.isEmpty {
-                    disclosure(hiddenCount: remaining.count)
-                }
+    /// The preview counts to try, most first: every pin down to one, at most
+    /// twelve wide; with no pins, the row of controls alone.
+    static func arrangements(of count: Int) -> [Int] {
+        count == 0 ? [0] : Array((1 ... min(count, 12)).reversed())
+    }
+
+    private func row(_ pins: [Message], visible count: Int) -> some View {
+        HStack(spacing: 8) {
+            ForEach(pins.prefix(count), id: \.id) { message in
+                preview(message, inList: false)
+                    .frame(
+                        minWidth: minimumPreviewWidth,
+                        idealWidth: minimumPreviewWidth,
+                        maxWidth: .infinity
+                    )
             }
-            if showingMore, !remaining.isEmpty {
-                ScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach(remaining, id: \.id) { message in compact(message) }
-                    }
-                    .padding(2)
-                }
-                .frame(height: min(CGFloat(remaining.count) * 38, height - 42))
-                .padding(.trailing, pinWidth + 8)
+            if pins.count > count {
+                disclosure(hiddenCount: pins.count - count)
             }
-            if let message = messages.first(where: { $0.id == expanded }) {
-                ContentSizedPinPreview(
-                    maximumWidth: min(600, width),
-                    maximumHeight: height
-                ) {
-                    expandedMessage(message)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
+            if let error = state.pinsError {
+                retry(error)
             }
         }
-        .frame(width: width, alignment: .leading)
-        .onChange(of: remaining.isEmpty) { _, empty in
-            if empty {
-                showingMore = false
-            }
-        }
-        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: expanded)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: showingMore)
+        .preference(key: PinRowVisibleCount.self, value: count)
     }
 
     private func disclosure(hiddenCount: Int) -> some View {
         Button {
-            expanded = nil
-            showingMore.toggle()
+            choose(.more)
         } label: {
             HStack(spacing: 6) {
-                Label("\(hiddenCount)", systemImage: "pin.fill")
+                Label {
+                    Text("\(hiddenCount)")
+                } icon: {
+                    if state.isLoadingPins {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: PinStyle.symbol)
+                    }
+                }
                 Image(systemName: showingMore ? "chevron.up" : "chevron.down").font(.caption2)
             }
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(PinGlassButtonStyle())
-        .frame(width: pinWidth)
+        .buttonStyle(PinGlassButtonStyle(highlighted: highlight == .more))
+        .frame(width: controlWidth)
+        .onHover { hover(.more, inside: $0) }
         .accessibilityLabel("Pinned messages, \(hiddenCount) hidden")
+        .accessibilityValue(showingMore ? "Shown" : "")
         .accessibilityIdentifier("pins-menu")
-        .help("Show remaining pinned messages")
+        .help(showingMore ? "Hide remaining pinned messages" : "Show remaining pinned messages")
     }
 
-    private func compact(_ message: Message) -> some View {
+    /// A failed refresh, in the row rather than beside it; the cached pins
+    /// stay, and a failure is never shown as an empty board.
+    private func retry(_ error: String) -> some View {
         Button {
-            expanded = expanded == message.id ? nil : message.id
-            showingMore = false
+            choose(.retry)
         } label: {
-            HStack(spacing: 7) {
-                Text(preview(message)).lineLimit(1).truncationMode(.tail)
-                Image(systemName: "chevron.down").font(.caption2)
-            }
-            .font(.callout)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Label("Retry", systemImage: "exclamationmark.triangle")
         }
-        .buttonStyle(PinGlassButtonStyle())
-        .frame(maxWidth: .infinity)
-        .accessibilityLabel("Pinned message: \(preview(message))")
-        .accessibilityHint("Expand to read the full message")
+        .buttonStyle(PinGlassButtonStyle(highlighted: highlight == .retry))
+        .fixedSize()
+        .disabled(actions.refreshPins == nil || state.isLoadingPins)
+        .onHover { hover(.retry, inside: $0) }
+        .help(error)
+        .accessibilityLabel("Retry Pinned Messages")
+        .accessibilityValue(error)
+        .accessibilityIdentifier("pins-retry")
+    }
+
+    private func preview(_ message: Message, inList: Bool) -> some View {
+        let target = PinRowTarget.message(message.id)
+        return Button {
+            choose(target, inList: inList)
+        } label: {
+            Text(PinnedPreviewSpeech.preview(of: message))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(PinGlassButtonStyle(highlighted: highlight == target, inPanel: inList))
+        .onHover { hover(target, inside: $0) }
+        .popover(isPresented: presented(message.id), arrowEdge: .bottom) { popover(message) }
+        .accessibilityLabel(PinnedPreviewSpeech.label(for: message, directory: directory, me: state.me))
+        .accessibilityHint("Shows the full message")
         .accessibilityIdentifier("pin-\(message.id.rawValue)")
     }
 
-    func expandedMessage(_ message: Message) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Pinned Message", systemImage: "pin.fill").font(.callout.weight(.semibold))
-                Spacer()
-                Button(action: collapse) {
-                    Label("Collapse Message", systemImage: "xmark")
+    // MARK: The disclosed previews
+
+    @ViewBuilder
+    private func overflow(_ pins: [Message]) -> some View {
+        let hidden = Array(pins.dropFirst(visibleCount))
+        ZStack(alignment: .top) {
+            // A click outside the disclosed list closes it, as a menu's does.
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { showingMore = false }
+                .allowsHitTesting(showingMore)
+            // One glass panel that grows with its rows, as a menu does: separate
+            // capsules left the transcript readable between them, and it read
+            // through as clutter (owner, session366).
+            if showingMore, !hidden.isEmpty {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(hidden, id: \.id) { preview($0, inList: true) }
+                    }
+                    .padding(6)
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("collapse-pin")
+                .frame(height: min(CGFloat(hidden.count) * listRowHeight + 12, 300))
+                .scrollBounceBehavior(.basedOnSize)
+                .glassEffect(PinStyle.panelGlass, in: .rect(cornerRadius: 18))
+                .padding(.horizontal, 12)
+                .transition(.opacity)
             }
-            ViewThatFits(in: .vertical) {
-                expandedContent(message).fixedSize(horizontal: false, vertical: true)
-                ScrollView { expandedContent(message) }
-            }
-            HStack {
-                if actions.openMessageReference != nil {
-                    Button("Go to Message", systemImage: "arrow.up.forward") { navigate(to: message) }
-                        .accessibilityIdentifier("go-to-pinned-message")
-                }
-                Spacer()
-                if state.pins.canModify, let setPinned = actions.setMessagePinned {
-                    Button("Unpin", systemImage: "pin.slash") { setPinned(false, message) }
-                        .disabled(state.isLoadingPins)
-                }
-            }
-            .buttonStyle(.bordered)
         }
-        .padding(14)
-        .glassEffect(.regular.tint(.yellow.opacity(0.18)), in: .rect(cornerRadius: 22))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("expanded-pin-preview")
+        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: showingMore)
     }
 
-    @ViewBuilder private func expandedContent(_ message: Message) -> some View {
-        if actions.openMessageReference != nil {
-            Button { navigate(to: message) } label: {
-                previewBubble(message)
-                    .contentShape(Rectangle())
+    // MARK: Choosing
+
+    private func navigation(_ pins: [Message]) -> PinRowNavigation {
+        let count = min(visibleCount, pins.count)
+        var row = pins.prefix(count).map { PinRowTarget.message($0.id) }
+        if pins.count > count {
+            row.append(.more)
+        }
+        if state.pinsError != nil {
+            row.append(.retry)
+        }
+        let list = showingMore ? pins.dropFirst(count).map { PinRowTarget.message($0.id) } : []
+        return PinRowNavigation(row: row, list: list)
+    }
+
+    /// What a click and Return do alike. A preview in the row closes the
+    /// disclosed list; one in the list keeps it, so its popover keeps its anchor.
+    private func choose(_ target: PinRowTarget, inList: Bool? = nil) {
+        switch target {
+        case let .message(id):
+            if inList == false || (inList == nil && !isDisclosed(id)) {
+                showingMore = false
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Go to pinned message: \(preview(message))")
-            .accessibilityIdentifier("pinned-message-content")
-        } else {
-            previewBubble(message)
+            expanded = expanded == id ? nil : id
+        case .more:
+            expanded = nil
+            showingMore.toggle()
+        case .retry:
+            actions.refreshPins?()
         }
     }
 
-    private func previewBubble(_ message: Message) -> some View {
-        MessageBubble(
-            message: message, state: MessageRowState(message: message, scene: previewState),
-            loadAttachment: actions.loadAttachment, openAttachment: actions.openAttachment,
-            loadRemoteImage: actions.loadRemoteImage, attachmentFiles: actions.attachmentFiles,
-            openReference: actions.openMessageReference.map { _ in { navigate(to: message) } }
+    private func isDisclosed(_ id: Message.ID) -> Bool {
+        showingMore && messages.dropFirst(visibleCount).contains { $0.id == id }
+    }
+
+    /// The pointer moves the same highlight the arrows do, so there is never a second one.
+    private func hover(_ target: PinRowTarget, inside: Bool) {
+        if inside {
+            highlight = target
+        } else if highlight == target, !keyboard {
+            highlight = nil
+        }
+    }
+
+    private func presented(_ id: Message.ID) -> Binding<Bool> {
+        Binding {
+            expanded == id
+        } set: { shown in
+            if !shown, expanded == id {
+                expanded = nil
+            }
+        }
+    }
+
+    private func popover(_ message: Message) -> some View {
+        PinnedMessagePopover(
+            message: message,
+            state: previewState,
+            actions: actions,
+            navigate: actions.openMessageReference.map { _ in { navigate(to: message) } },
+            unpin: state.pins.canModify ? actions.setMessagePinned.map { setPinned in
+                {
+                    expanded = nil
+                    setPinned(false, message)
+                }
+            } : nil,
+            isBusy: state.isLoadingPins
         )
-        .padding(.horizontal, 4)
     }
 
+    /// The window's directory with the pins' members added: a pin can come
+    /// from someone no longer in it.
+    private var directory: [Member.ID: Member] {
+        state.directory.merging(state.pins.members.map { ($0.id, $0) }) { known, _ in known }
+    }
+
+    /// The window's state with the pins' members known, for names in the
+    /// popover, and no pins, so the copy draws no glyph or outline.
     private var previewState: ChatSceneState {
         var value = state
-        for member in state.pins.members where value.directory[member.id] == nil {
-            value.directory[member.id] = member
-        }
+        value.directory = directory
+        value.pins.messages = []
         return value
     }
 
-    private func preview(_ message: Message) -> String {
-        if !message.text.isEmpty {
-            return message.text.replacingOccurrences(of: "\n", with: " ")
-        }
-        if let name = message.attachments.first?.name {
-            return name
-        }
-        return message.cards.first?.header?.title.plainText ?? "Pinned message"
-    }
-
     private func navigate(to message: Message) {
-        collapse()
+        expanded = nil
+        showingMore = false
         actions.openMessageReference?(MessageAddress(
             conversation: message.conversationID, thread: message.threadID, message: message.id
         ))
     }
-
-    private func collapse() {
-        expanded = nil
-        showingMore = false
-    }
 }
 
-private struct PinGlassButtonStyle: ButtonStyle {
-    @ScaledMetric(relativeTo: .callout) private var lineHeight = 18
+/// How many previews the arrangement `ViewThatFits` chose shows.
+private struct PinRowVisibleCount: PreferenceKey {
+    static let defaultValue = 0
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.callout)
-            .frame(height: lineHeight)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .foregroundStyle(.primary)
-            .opacity(configuration.isPressed ? 0.7 : 1)
-            .glassEffect(.regular.tint(.yellow.opacity(0.28)).interactive(), in: .capsule)
-    }
-}
-
-/// Uses the message's ideal size, then re-proposes bounded space so long content scrolls.
-struct ContentSizedPinPreview: Layout {
-    var maximumWidth: CGFloat
-    var maximumHeight: CGFloat
-
-    func sizeThatFits(proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
-        guard let content = subviews.first else { return .zero }
-        let width = min(maximumWidth, content.sizeThatFits(.unspecified).width)
-        let natural = content.sizeThatFits(ProposedViewSize(width: width, height: nil))
-        return CGSize(width: width, height: min(natural.height, maximumHeight))
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal _: ProposedViewSize,
-        subviews: Subviews,
-        cache _: inout ()
-    ) {
-        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+    static func reduce(value: inout Int, nextValue: () -> Int) {
+        value = max(value, nextValue())
     }
 }
