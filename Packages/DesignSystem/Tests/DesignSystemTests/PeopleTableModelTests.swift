@@ -116,8 +116,8 @@ struct PeopleTableModelTests {
 
     @Test func invitedPeopleGetCancelInvitationNotRoles() {
         let invited = person(
-            "invited", state: .invited,
-            actions: ["setRole", "removePerson"], roles: [.member, .manager]
+            "invited", email: "i@example.test", state: .invited,
+            actions: ["setRole", "removePerson", "blockPerson"], roles: [.member, .manager]
         )
         let model = PeopleTableModel(participants: [invited], hasMore: false, memberCount: 0)
         #expect(model.commands(for: [invited.id]) == [.cancelInvitation])
@@ -171,27 +171,38 @@ struct PeopleTableModelTests {
         #expect(!PeopleEmailCopy.canCopyLoaded(browser))
     }
 
-    @Test func aBatchSendsOneChangeAtATimeAndStopsOnFailure() {
-        var queue = PeopleMutationQueue()
-        let first = ConversationMutation.removePerson(.init("a"))
-        let second = ConversationMutation.removePerson(.init("b"))
-        #expect(queue.start([first, second]) == first)
-        queue.submissionStarted()
-        #expect(queue.submissionEnded(failed: false) == second)
-        queue.submissionStarted()
-        #expect(queue.submissionEnded(failed: false) == nil)
-        #expect(queue.start([first, second]) == first)
-        queue.submissionStarted()
-        #expect(queue.submissionEnded(failed: true) == nil)
-        #expect(queue.isEmpty)
+    @Test func countTextDoesNotCallAListCompleteAfterAnError() {
+        // A repeated page clears the cursor and sets the panel's error.
+        let partial = PeopleTableModel(
+            participants: members(14), hasMore: false, memberCount: 20, isComplete: false
+        )
+        #expect(partial.countText(scope: .members, shown: 14) == "14 members loaded")
+        #expect(partial.countText(scope: .members, shown: 3) == "Showing 3 of 14 loaded")
     }
 
-    @Test func aBatchTheModelRefusedIsDropped() {
-        var queue = PeopleMutationQueue()
-        _ = queue.start([.approveRequest(.init("a")), .approveRequest(.init("b"))])
-        queue.submissionMustHaveStarted()
-        #expect(queue.isEmpty)
-        // A later, unrelated write ending must not send the dropped rest.
-        #expect(queue.submissionEnded(failed: false) == nil)
+    @Test func aRepeatedPageIsNotACompleteList() {
+        var browser = ConversationBrowserScene()
+        browser.hasMoreParticipants = false
+        browser.panelError = "The service repeated a page. Reload to see more people."
+        #expect(!PeopleEmailCopy.canCopyLoaded(browser))
+        #expect(PeopleEmailCopy.step(started: false, browser: browser) == .awaitStart)
+        #expect(PeopleEmailCopy.step(started: true, browser: browser) == .fail)
+    }
+
+    @Test func aCopyWaitingOnPagesCopiesOnlyACompleteList() {
+        var browser = ConversationBrowserScene()
+        browser.hasMoreParticipants = true
+        #expect(PeopleEmailCopy.step(started: false, browser: browser) == .awaitStart)
+        browser.isLoadingAllParticipants = true
+        #expect(PeopleEmailCopy.step(started: false, browser: browser) == .loading)
+        // Finished, even before the view saw it start: copy.
+        browser.isLoadingAllParticipants = false
+        browser.hasMoreParticipants = false
+        #expect(PeopleEmailCopy.step(started: false, browser: browser) == .copy)
+        #expect(PeopleEmailCopy.step(started: true, browser: browser) == .copy)
+        // Stopped with pages left: fail.
+        browser.hasMoreParticipants = true
+        browser.panelError = "Not everyone could be loaded. Try again."
+        #expect(PeopleEmailCopy.step(started: true, browser: browser) == .fail)
     }
 }

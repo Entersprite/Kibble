@@ -106,21 +106,13 @@ extension ConversationPeopleTable {
 
     // MARK: Sending
 
-    /// Sends one change, or several one at a time.
+    /// Sends one change, or several people's as one submission: the model
+    /// sends them one after another and reloads once.
     func send(_ mutations: [ConversationMutation]) {
-        if let next = queue.start(mutations) {
-            actions.mutate(next)
-        }
-    }
-
-    func submissionChanged(_ submitting: Bool) {
-        if submitting {
-            queue.submissionStarted()
-            return
-        }
-        let failed = state.browser.panelError != nil || state.browser.needsReconciliation
-        if let next = queue.submissionEnded(failed: failed) {
-            actions.mutate(next)
+        if mutations.count > 1 {
+            actions.mutateEach(mutations)
+        } else if let mutation = mutations.first {
+            actions.mutate(mutation)
         }
     }
 
@@ -128,7 +120,6 @@ extension ConversationPeopleTable {
     func forget() {
         selection = []
         confirming = nil
-        queue = PeopleMutationQueue()
         copyWhenLoaded = nil
         copyReport = nil
         query = ""
@@ -145,7 +136,12 @@ extension ConversationPeopleTable {
         }
         copyReport = nil
         guard state.browser.hasMoreParticipants else {
-            copy(shownScope)
+            // No page left, but a repeated or failed page can still leave it partial.
+            if PeopleEmailCopy.canCopyLoaded(state.browser) {
+                copy(shownScope)
+            } else {
+                copyReport = PeopleEmailCopy.failure
+            }
             return
         }
         copyLoadStarted = state.browser.isLoadingAllParticipants
@@ -153,17 +149,45 @@ extension ConversationPeopleTable {
         actions.loadAllParticipants()
     }
 
-    func loadingAllChanged(_ loading: Bool) {
+    /// What a waiting copy watches. Any change restarts `advanceCopy` with
+    /// the current values.
+    struct CopyWatch: Equatable {
+        var scope: PeopleScope?
+        var loading: Bool
+        var hasMore: Bool
+        var error: String?
+        var loaded: Int
+    }
+
+    var copyWatch: CopyWatch {
+        let browser = state.browser
+        return CopyWatch(
+            scope: copyWhenLoaded, loading: browser.isLoadingAllParticipants,
+            hasMore: browser.hasMoreParticipants, error: browser.panelError,
+            loaded: browser.participants.count
+        )
+    }
+
+    /// Moves a waiting copy on: copies once the list is complete, fails when
+    /// loading ends short of it, and fails when loading never starts.
+    func advanceCopy() async {
         guard let scope = copyWhenLoaded else { return }
-        if loading {
+        switch PeopleEmailCopy.step(started: copyLoadStarted, browser: state.browser) {
+        case .loading:
             copyLoadStarted = true
-            return
-        }
-        copyWhenLoaded = nil
-        if PeopleEmailCopy.canCopyLoaded(state.browser) {
+        case .copy:
+            copyWhenLoaded = nil
             copy(scope)
-        } else {
+        case .fail:
+            copyWhenLoaded = nil
             copyReport = PeopleEmailCopy.failure
+        case .awaitStart:
+            // A change to what this watches cancels the wait and looks again.
+            try? await Task.sleep(for: .milliseconds(500))
+            if !Task.isCancelled, copyWhenLoaded != nil {
+                copyWhenLoaded = nil
+                copyReport = PeopleEmailCopy.failure
+            }
         }
     }
 

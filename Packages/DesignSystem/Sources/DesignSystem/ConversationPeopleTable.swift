@@ -25,13 +25,13 @@ struct ConversationPeopleTable: View {
     @State var copyWhenLoaded: PeopleScope?
     @State var copyLoadStarted = false
     @State var copyReport: String?
-    @State var queue = PeopleMutationQueue()
 
     var model: PeopleTableModel {
         PeopleTableModel(
             participants: state.browser.participants,
             hasMore: state.browser.hasMoreParticipants,
             memberCount: details.conversation.memberCount,
+            isComplete: state.browser.panelError == nil,
             canMessage: state.capabilities.canOpenDirectConversations,
             me: state.me
         )
@@ -49,19 +49,14 @@ struct ConversationPeopleTable: View {
     var isBusy: Bool {
         let browser = state.browser
         return browser.isSubmitting || browser.needsReconciliation || browser.isLoadingAllParticipants
-            || !queue.isEmpty
     }
 
     var body: some View {
         let shown = rows
         VStack(spacing: 0) {
-            ViewThatFits(in: .horizontal) {
-                bar(.full)
-                bar(.compact)
-                bar(.narrow)
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
+            bar
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
             if let copyReport {
                 Label(copyReport, systemImage: "info.circle")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -92,25 +87,7 @@ struct ConversationPeopleTable: View {
         .onChange(of: shownScope) { selection = [] }
         .onChange(of: query) { selection.formIntersection(rows.map(\.id)) }
         .onChange(of: state.accountID) { forget() }
-        .onChange(of: state.browser.isSubmitting) { _, submitting in submissionChanged(submitting) }
-        .onChange(of: state.browser.isLoadingAllParticipants) { _, loading in loadingAllChanged(loading) }
-        .task(id: queue.sent) {
-            // A write the model refused never starts submitting; drop the rest.
-            guard !queue.isEmpty else { return }
-            try? await Task.sleep(for: .milliseconds(500))
-            if !Task.isCancelled {
-                queue.submissionMustHaveStarted()
-            }
-        }
-        .task(id: copyWhenLoaded) {
-            // Loading every page was refused: say so rather than wait forever.
-            guard copyWhenLoaded != nil else { return }
-            try? await Task.sleep(for: .milliseconds(500))
-            if !Task.isCancelled, copyWhenLoaded != nil, !copyLoadStarted {
-                copyWhenLoaded = nil
-                copyReport = PeopleEmailCopy.failure
-            }
-        }
+        .task(id: copyWatch) { await advanceCopy() }
     }
 
     // MARK: Bar
@@ -120,13 +97,26 @@ struct ConversationPeopleTable: View {
     /// turns the scope switcher into a pop-up button.
     enum BarFit { case full, compact, narrow }
 
-    private func bar(_ fit: BarFit) -> some View {
-        let compact = fit != .full
-        return HStack(spacing: 8) {
+    /// One search field, so resizing never takes its focus; only the
+    /// controls after it change with the width.
+    private var bar: some View {
+        HStack(spacing: 8) {
             TextField("Search People", text: $query, prompt: Text("Search"))
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
-                .frame(minWidth: compact ? 90 : 140, maxWidth: .infinity)
+                .frame(minWidth: 140, maxWidth: .infinity)
+            ViewThatFits(in: .horizontal) {
+                barControls(.full)
+                barControls(.compact)
+                barControls(.narrow)
+            }
+            .layoutPriority(1)
+        }
+    }
+
+    private func barControls(_ fit: BarFit) -> some View {
+        let compact = fit != .full
+        return HStack(spacing: 8) {
             if model.scopes.count > 1 {
                 if fit == .narrow {
                     scopePicker.pickerStyle(.menu).fixedSize()

@@ -38,6 +38,9 @@ struct PeopleTableModel {
     let participants: [ConversationParticipant]
     let hasMore: Bool
     let memberCount: Int?
+    /// False when loading stopped with an error, such as a repeated page:
+    /// the loaded list may be partial even with no page left to ask for.
+    var isComplete = true
     /// Whether the window can open a direct message (`canOpenDirectConversations`).
     var canMessage = false
     var me: Member.ID?
@@ -46,9 +49,11 @@ struct PeopleTableModel {
         participants: [ConversationParticipant],
         hasMore: Bool,
         memberCount: Int?,
+        isComplete: Bool = true,
         canMessage: Bool = false,
         me: Member.ID? = nil
     ) {
+        self.isComplete = isComplete
         // Apps are not people; they live in Integrations.
         self.participants = participants.filter { $0.member.kind != .app }
         self.hasMore = hasMore
@@ -80,13 +85,13 @@ struct PeopleTableModel {
     /// never a total that only counts the loaded pages as if it were all.
     func countText(scope: PeopleScope, shown: Int) -> String {
         let loaded = loaded(scope).count
-        guard hasMore else {
+        guard hasMore || !isComplete else {
             return shown == loaded ? scope.count(loaded) : "Showing \(shown) of \(loaded)"
         }
         if shown < loaded {
             return "Showing \(shown) of \(loaded) loaded"
         }
-        if scope == .members, let memberCount, memberCount > loaded {
+        if hasMore, scope == .members, let memberCount, memberCount > loaded {
             return "\(loaded) of \(memberCount) members loaded"
         }
         return "\(scope.count(loaded)) loaded"
@@ -128,6 +133,10 @@ struct PeopleTableModel {
     /// from the role label.
     private func commands(of participant: ConversationParticipant, single: Bool) -> [PersonCommand] {
         let scope = PeopleScope.of(participant)
+        if scope == .invited {
+            // An invitation offers only its cancellation.
+            return participant.allowedActions.contains("removePerson") ? [.cancelInvitation] : []
+        }
         var commands: [PersonCommand] = []
         if single, canMessage, participant.state == .joined, participant.member.kind == .human,
            participant.id != me {
@@ -145,10 +154,8 @@ struct PeopleTableModel {
         ]
         commands += granted.filter { participant.allowedActions.contains($0.0) }.map(\.1)
         if participant.allowedActions.contains("removePerson") {
-            switch scope {
-            case .members: commands.append(.remove)
-            case .invited: commands.append(.cancelInvitation)
-            case .requests: break
+            if scope == .members {
+                commands.append(.remove)
             }
         }
         return commands
@@ -186,6 +193,28 @@ enum PeopleEmailCopy {
         !browser.hasMoreParticipants && browser.panelError == nil
     }
 
+    /// What a copy waiting on every page does now.
+    enum Step: Equatable {
+        /// Pages are loading: note that loading started, and keep waiting.
+        case loading
+        /// The list is complete: copy it.
+        case copy
+        /// Loading ended without a complete list: copy nothing and say so.
+        case fail
+        /// Loading hasn't started yet: give it a moment, then fail.
+        case awaitStart
+    }
+
+    static func step(started: Bool, browser: ConversationBrowserScene) -> Step {
+        if browser.isLoadingAllParticipants {
+            return .loading
+        }
+        if canCopyLoaded(browser) {
+            return .copy
+        }
+        return started ? .fail : .awaitStart
+    }
+
     static func report(copied: Int, missing: Int) -> String {
         var report = copied == 1 ? "Copied 1 email." : "Copied \(copied) emails."
         if missing == 1 {
@@ -194,55 +223,6 @@ enum PeopleEmailCopy {
             report += " \(missing) people have no email address."
         }
         return report
-    }
-}
-
-/// Changes for several selected people, sent one at a time: the model takes
-/// one write at once and drops another sent beside it without a word. A
-/// failure stops the rest, and so does a write the model never started.
-struct PeopleMutationQueue: Equatable {
-    private var rest: [ConversationMutation] = []
-    private var awaitingStart = false
-    /// Changes each time one is sent, for a check that it started.
-    private(set) var sent = 0
-
-    var isEmpty: Bool {
-        rest.isEmpty && !awaitingStart
-    }
-
-    /// Starts a batch, replacing any rest of an earlier one. Returns what to send now.
-    mutating func start(_ mutations: [ConversationMutation]) -> ConversationMutation? {
-        rest = Array(mutations.dropFirst())
-        guard let first = mutations.first else { return nil }
-        return send(first)
-    }
-
-    mutating func submissionStarted() {
-        awaitingStart = false
-    }
-
-    /// A write ended. Returns the next to send, or nil when done or failed.
-    mutating func submissionEnded(failed: Bool) -> ConversationMutation? {
-        awaitingStart = false
-        guard !failed, !rest.isEmpty else {
-            rest = []
-            return nil
-        }
-        return send(rest.removeFirst())
-    }
-
-    /// A moment after sending: a write the model refused never started.
-    mutating func submissionMustHaveStarted() {
-        if awaitingStart {
-            awaitingStart = false
-            rest = []
-        }
-    }
-
-    private mutating func send(_ mutation: ConversationMutation) -> ConversationMutation {
-        awaitingStart = true
-        sent += 1
-        return mutation
     }
 }
 
