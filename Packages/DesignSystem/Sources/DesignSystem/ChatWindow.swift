@@ -34,6 +34,10 @@ public struct ChatWindow: View {
     @State var threadTools: CGFloat = 0
     /// Where each account's transcript was, so switching back returns there.
     @State private var transcriptPositions = TranscriptPositions()
+    /// Each account's Back and Forward, for as long as the window lives
+    /// (`ChatWindow+Navigation.swift`).
+    @State var navigationHistories: [String: NavigationHistory] = [:]
+    @State var navigationStepper = NavigationStepper()
 
     public init(state: ChatSceneState, actions: ChatSceneActions, unavailable: AccountUnavailable? = nil) {
         self.state = state
@@ -60,7 +64,15 @@ public struct ChatWindow: View {
                 )
                 .toolbar(removing: .sidebarToggle)
                 .toolbar {
+                    ToolbarSpacer(.flexible, placement: .primaryAction)
+                    NavigationTools(
+                        canGoBack: navigationHistory.canGoBack,
+                        canGoForward: navigationHistory.canGoForward,
+                        step: step
+                    )
                     if let browser = actions.browser {
+                        // Its own capsule, apart from Back and Forward.
+                        ToolbarSpacer(.fixed, placement: .primaryAction)
                         ConversationSidebarTools(capabilities: state.capabilities, actions: browser)
                     }
                 }
@@ -179,12 +191,13 @@ public struct ChatWindow: View {
             pendingForward = nil
             forgetPanelEdit()
         }
+        .modifier(navigationRecording)
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
         .sheet(item: $pendingForward) { selection in
             ForwardMessageSheet(message: selection.message, state: state, send: actions.forwardMessage)
                 .id(AccountScoped(account: state.accountID, value: selection.id))
         }
-        // The search panel dims and takes every click in the window, so no
+        // The search panel takes every click in the window, so no
         // text cursor shows through it.
         .coveredByPanel(state.search.isShown && actions.search != nil)
         .overlay { searchOverlay }

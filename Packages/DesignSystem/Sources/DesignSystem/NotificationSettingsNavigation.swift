@@ -64,23 +64,9 @@ struct NotificationSettingsBackAction: Equatable {
     }
 }
 
+/// View › Back takes it while the pane is in front (`NavigationCommands`).
 extension FocusedValues {
     @Entry var notificationSettingsBack: NotificationSettingsBackAction?
-}
-
-/// The native menu bar owns the shortcut; hidden parent pages register none.
-public struct NotificationSettingsCommands: Commands {
-    @FocusedValue(\.notificationSettingsBack) private var back
-
-    public init() {}
-
-    public var body: some Commands {
-        CommandGroup(after: .toolbar) {
-            Button("Back", systemImage: "chevron.left") { back?.perform() }
-                .keyboardShortcut("[", modifiers: .command)
-                .disabled(back == nil)
-        }
-    }
 }
 
 struct NotificationPageLink: View {

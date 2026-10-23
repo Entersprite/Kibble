@@ -46,7 +46,18 @@ enum FavoriteMenu {
         return ("Add to Favorites", "star")
     }
 
-    static let symbols = ["star", "star.slash"]
+    /// The header's star: an outline to add, filled while it is a favorite,
+    /// as a toggle shows its state rather than the menu's next action.
+    static func headerItem(
+        for target: SidebarSelection, in preferences: SidebarPreferences
+    ) -> (title: String, symbol: String) {
+        if contains(target, in: preferences) {
+            return ("Remove from Favorites", "star.fill")
+        }
+        return ("Add to Favorites", "star")
+    }
+
+    static let symbols = ["star", "star.slash", "star.fill"]
 }
 
 struct FavoriteMenuButton: View {

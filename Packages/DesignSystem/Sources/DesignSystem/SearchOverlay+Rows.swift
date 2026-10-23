@@ -140,14 +140,18 @@ extension SearchOverlay {
     }
 }
 
-/// The panel's size in the window (the mockup's): at most 680 pt wide and
-/// 560 tall, with 40 pt each side and 60 below kept clear.
+/// The panel's size in the window: at most 760 pt wide and 560 tall, with
+/// 40 pt each side and 60 below kept clear. The mockup's 680 left every
+/// filter chip and the sort menu 15 pt short, so the sort menu scrolled out of
+/// sight; 760 holds them all with room for a chip naming its choice
+/// (`SearchOverlayTests`).
 enum SearchOverlayLayout {
     static let topInset: CGFloat = 24
     static let panelShape = RoundedRectangle(cornerRadius: 22)
+    static let maximumWidth: CGFloat = 760
 
     static func panelWidth(for width: CGFloat) -> CGFloat {
-        max(0, min(680, width - 80))
+        max(0, min(maximumWidth, width - 80))
     }
 
     static func panelMaxHeight(for height: CGFloat) -> CGFloat {

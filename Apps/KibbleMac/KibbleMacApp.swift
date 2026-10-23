@@ -109,7 +109,7 @@ struct KibbleMacApp: App {
             }
             NewConversationCommands(environment: environment)
             FindCommands(environment: environment)
-            NotificationSettingsCommands()
+            NavigationCommands()
             // Draws, while the main window is not in front, the items the
             // selected account's window would offer; the window itself
             // publishes what is enabled (`MainWindowCommands`).

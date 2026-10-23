@@ -57,12 +57,16 @@ public struct SearchOverlay: View {
     public var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                // Not under the toolbar's band, which takes no clicks.
-                Color.black.opacity(0.18)
+                // A click outside the panel closes it, but nothing dims the
+                // window, as Spotlight dims nothing. A dim stopped at the
+                // toolbar's band and drew a lighter strip across the top; it
+                // cannot reach into the band, which takes no clicks and whose
+                // buttons draw above it.
+                Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { actions.hide() }
                     // Escape closes the panel too, so VoiceOver has no use
-                    // for the dimmed window behind it.
+                    // for the window behind it.
                     .accessibilityHidden(true)
                 panel
                     .frame(width: SearchOverlayLayout.panelWidth(for: geo.size.width))

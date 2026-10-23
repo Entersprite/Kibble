@@ -29,6 +29,10 @@ public enum MenuBarShortcuts {
     /// Accounts › Show Account Panel, beside the accounts' Control-Command digits.
     public static let accountPanel = KeyboardShortcut("0", modifiers: [.control, .command])
 
+    /// View › Back and Forward, the keys Safari, Finder and Slack step with.
+    public static let back = KeyboardShortcut("[")
+    public static let forward = KeyboardShortcut("]")
+
     /// Conversation › Next and Previous Conversation: Control-Tab and
     /// Control-Shift-Tab, the keys that step through tabs and conversations.
     public static let nextConversation = KeyboardShortcut(.tab, modifiers: .control)
@@ -60,7 +64,7 @@ public enum MenuBarShortcuts {
     public static var all: [KeyboardShortcut] {
         [
             search, nextResult, previousResult, newMessage, newGroupChat, mainWindow, accountPanel,
-            nextConversation, previousConversation, markAsRead, muteCall
+            back, forward, nextConversation, previousConversation, markAsRead, muteCall
         ]
             + (0 ..< 9).compactMap(account) + (0 ..< 9).compactMap(conversation)
             + ComposerFormat.keyed.compactMap(\.shortcut)

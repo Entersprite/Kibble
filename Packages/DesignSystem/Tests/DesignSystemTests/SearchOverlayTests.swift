@@ -165,8 +165,28 @@ struct SearchOverlayTests {
 
     // MARK: Layout
 
-    @Test func thePanelIsAtMost680Wide() {
-        #expect(SearchOverlayLayout.panelWidth(for: 1100) == 680)
+    @Test func thePanelIsAtMost760Wide() {
+        #expect(SearchOverlayLayout.panelWidth(for: 1100) == 760)
+    }
+
+    /// Every chip and the sort menu fit the widest panel without scrolling,
+    /// measured hosted (CLAUDE.md: `NSHostingView` runs headless), and with
+    /// room to spare for a chip that names its choice.
+    @Test func theWidestPanelHoldsEveryFilterAndTheSortMenu() {
+        let filters: Set<MessageSearchFilter> = [
+            .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
+        ]
+        for order in [MessageSearchOrder.relevance, .newest] {
+            var query = MessageSearchQuery(text: "plan")
+            query.order = order
+            let row = SearchFilterRow(
+                query: query, filters: filters, people: [], conversations: [], directory: [:], me: nil,
+                setQuery: { _ in }
+            )
+            let needed = NSHostingView(rootView: row.fixedSize()).fittingSize.width
+            #expect(needed > 600)
+            #expect(needed + 60 <= SearchOverlayLayout.maximumWidth)
+        }
     }
 
     @Test func aNarrowWindowKeeps40PointsEachSide() {

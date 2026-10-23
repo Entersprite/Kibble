@@ -36,7 +36,8 @@ extension ChatWindow {
     /// section (session 65, `ThreadColumnBridge`). Details and the calls never
     /// share the band, since Details leaves out a DM and only a DM has calls.
     /// Call and Video Call are neighbors with no spacer between them, so they
-    /// share one glass capsule, as a pair of related actions does.
+    /// share one glass capsule, as a pair of related actions does. The
+    /// Favorites star follows in a capsule of its own.
     @ToolbarContentBuilder var conversationToolbar: some ToolbarContent {
         ToolbarSpacer(.flexible)
         if showsDetailsButton, let conversation = state.selectedConversation, let browser = actions.browser {
@@ -58,6 +59,27 @@ extension ChatWindow {
                 Button("Video Call", systemImage: "video") { videoCall(videoCallConversation) }
                     .help("Start video call")
             })
+        }
+        if let favoriteTarget, let update = actions.updateSidebar {
+            // Its own capsule, last: a preference, not one of the actions.
+            ToolbarSpacer(.fixed)
+            ToolbarItem(placement: .primaryAction) {
+                let item = FavoriteMenu.headerItem(for: favoriteTarget, in: state.sidebarPreferences)
+                Button(item.title, systemImage: item.symbol) {
+                    update(FavoriteMenu.toggling(favoriteTarget, in: state.sidebarPreferences))
+                }
+                .help(item.title)
+            }
+        }
+    }
+
+    /// What the header's star adds to or removes from Favorites: the open
+    /// conversation or meeting, never a list or a directory page.
+    var favoriteTarget: SidebarSelection? {
+        guard state.browser.page == nil, state.selectedConversation != nil else { return nil }
+        switch state.sidebarSelection {
+        case let selection? where selection != .mentions && selection != .threads: return selection
+        default: return nil
         }
     }
 

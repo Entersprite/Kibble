@@ -314,12 +314,12 @@ struct ConversationDirectoryView: View {
 
 /// The sidebar's + button: every way to start a conversation this backend
 /// offers. Each item opens a sheet that asks for more, hence the ellipses.
+/// The window puts it at the trailing edge, after Back and Forward.
 struct ConversationSidebarTools: ToolbarContent {
     let capabilities: Capabilities
     let actions: ConversationBrowserActions
 
     var body: some ToolbarContent {
-        ToolbarSpacer(.flexible, placement: .primaryAction)
         ToolbarItem(id: "sidebar.create", placement: .primaryAction) {
             Menu {
                 if capabilities.canOpenDirectConversations {

@@ -89,7 +89,20 @@ struct SearchFilterRow: View {
     @State private var olderPick: DatePick?
     @State private var newerPick: DatePick?
 
+    /// The sort menu sits outside the chips' scroll view, so long chip labels
+    /// in a narrow window scroll under it rather than pushing it out of sight.
     var body: some View {
+        HStack(spacing: 8) {
+            chips
+            if filters.contains(.newestFirst) {
+                sortMenu
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 12)
+    }
+
+    private var chips: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
                 if filters.contains(.from) {
@@ -117,15 +130,9 @@ struct SearchFilterRow: View {
                     .toggleStyle(.button)
                     .chip(active: query.mentionsMe)
                 }
-                Spacer(minLength: 8)
-                if filters.contains(.newestFirst) {
-                    sortMenu
-                }
             }
         }
         .scrollIndicators(.hidden)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 12)
     }
 
     private func change(_ edit: (inout MessageSearchQuery) -> Void) {

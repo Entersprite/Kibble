@@ -8,7 +8,7 @@ import Testing
 struct MenuBarShortcutsTests {
     @Test func noTwoOfKibblesCommandsShareAShortcut() {
         let all = MenuBarShortcuts.all
-        #expect(all.count == 33)
+        #expect(all.count == 35)
         #expect(Set(all).count == all.count)
     }
 
