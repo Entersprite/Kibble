@@ -19,8 +19,8 @@ struct ConversationDetailsForm: View {
     @Binding var report: InfoSectionDraft?
 
     @State private var draft: DetailsDraft
-    /// Save was sent: the next `details` is its answer, so the draft starts over from it.
-    @State private var saving = false
+    /// Whether the `details` arriving now answer this form's Save.
+    @State private var saves = InfoSaveTracker()
     @State private var pickingEmoji = false
     @State private var pending: ConversationMutation?
     /// Seam: Convert to Space… presents `ConvertToSpaceSeam` until the
@@ -59,14 +59,27 @@ struct ConversationDetailsForm: View {
         }
         .formStyle(.grouped)
         .onChange(of: details) { _, details in
-            // A reload keeps what was typed; the saved answer starts over, so
-            // a value the server tidied up doesn't stay an edit.
-            draft = saving ? DetailsDraft(details) : draft.rebased(onto: details)
-            saving = false
+            // A reload keeps what was typed; the saved answer starts over.
+            draft = draft.updated(
+                to: details, isAnswer: saves.isAnswer(submitting: state.browser.isSubmitting)
+            )
         }
-        .onChange(of: state.browser.panelError) { _, error in
-            if error != nil {
-                saving = false
+        .onChange(of: state.browser.isSubmitting) { _, submitting in
+            saves.submittingChanged(submitting)
+        }
+        .task(id: saves.phase) {
+            switch saves.phase {
+            case .requested:
+                // A write the model dropped never starts submitting.
+                try? await Task.sleep(for: .milliseconds(500))
+                if !Task.isCancelled {
+                    saves.saveMustHaveStarted()
+                }
+            case .landing:
+                // Runs after the turn submitting ended in, and its `details`, were applied.
+                saves.landed()
+            default:
+                break
             }
         }
         .onChange(of: reportKey, initial: true) { publish() }
@@ -182,7 +195,7 @@ struct ConversationDetailsForm: View {
     @ViewBuilder private func counter(_ text: String, _ field: DetailsDraft.Field) -> some View {
         if let limit = draft.limit(field.rawValue) {
             let length = DetailsDraft.length(text)
-            Text("\(length) / \(limit.formatted())")
+            Text("\(length.formatted()) / \(limit.formatted())")
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(length > limit ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
@@ -246,12 +259,13 @@ struct ConversationDetailsForm: View {
     // MARK: Below the fields
 
     @ViewBuilder private var notifications: some View {
-        if let openNotifications {
+        if let openNotifications, details.membership == .joined {
             Section {
                 LabeledContent("Notifications and Privacy") {
-                    // Opening them closes Info, which would drop the draft unasked.
+                    // Opening them closes Info, which would drop the draft unasked,
+                    // and Info can't close while a write is in flight.
                     Button("Customize…") { openNotifications(details.conversation.id) }
-                        .disabled(draft.isDirty)
+                        .disabled(draft.isDirty || state.browser.isSubmitting)
                         .help(
                             draft.isDirty
                                 ? "Save or revert your changes first."
@@ -320,7 +334,7 @@ struct ConversationDetailsForm: View {
             save: {
                 // The model drops a write while reconciling, loading or submitting.
                 guard !blocked, draft.isValid, let patch = draft.patch() else { return }
-                saving = true
+                saves.saveRequested()
                 actions.mutate(.details(patch))
             },
             revert: { draft = DetailsDraft(details) }

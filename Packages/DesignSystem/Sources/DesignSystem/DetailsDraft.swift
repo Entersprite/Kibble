@@ -124,6 +124,12 @@ struct DetailsDraft: Equatable {
         return patch == ConversationDetailsPatch() ? nil : patch
     }
 
+    /// The draft once `details` changes: from scratch when it is the saved
+    /// answer (so a value the server tidied up doesn't stay an edit), else rebased.
+    func updated(to details: ConversationDetails, isAnswer: Bool) -> DetailsDraft {
+        isAnswer ? DetailsDraft(details) : rebased(onto: details)
+    }
+
     /// This draft over `details` read again: what the person changed stays,
     /// everything else takes the new values. When the reload is the saved
     /// answer, the edits match it and the draft is clean.
