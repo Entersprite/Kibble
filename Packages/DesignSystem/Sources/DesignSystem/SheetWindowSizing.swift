@@ -105,14 +105,12 @@ extension View {
             let target = Self.clamp(ideal, minimum, limit(for: window)) + chrome
             window.styleMask.insert(.resizable)
             let current = window.contentRect(forFrameRect: window.frame).size
-            if abs(current.width - target.width) > 0.5 || abs(current.height - target.height) > 0.5 {
-                // Keep the sheet hanging from the same edge, centered as before.
-                let size = window.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
-                let frame = NSRect(
-                    x: window.frame.midX - size.width / 2, y: window.frame.maxY - size.height,
-                    width: size.width, height: size.height
-                )
-                window.setFrame(frame, display: true, animate: true)
+            // A sheet on its way out, or not yet shown, keeps its size.
+            let shown = window.isVisible && window.sheetParent?.attachedSheet === window
+            if shown, abs(current.width - target.width) > 0.5 || abs(current.height - target.height) > 0.5 {
+                // AppKit places a resized sheet on its parent itself. Setting
+                // its frame instead makes AppKit move the parent window.
+                window.setContentSize(target)
             }
             // SwiftUI resets the minimum whenever it updates the window, even
             // mid-resize, so it is held here. Only the person's own resize is
@@ -153,7 +151,9 @@ extension View {
             guard Self.owners.object(forKey: sheet) === self else { return }
             Self.owners.removeObject(forKey: sheet)
             if let original {
-                sheet.styleMask = original.mask
+                if !original.mask.contains(.resizable) {
+                    sheet.styleMask.remove(.resizable)
+                }
                 sheet.contentMinSize = original.minimum
             }
         }
@@ -170,12 +170,24 @@ extension View {
             )
         }
 
-        /// The largest content the screen can show, or a sane bound without one.
+        /// The largest content the screen can show below the top of the
+        /// parent's content area, where a sheet taller than its parent hangs,
+        /// so the sheet's own buttons stay above the Dock. A sheet on no
+        /// screen gets the main screen's size, or a sane bound without one.
         private func limit(for window: NSWindow) -> CGSize {
-            guard let screen = window.screen ?? window.sheetParent?.screen ?? NSScreen.main else {
-                return CGSize(width: 1600, height: 1200)
+            let parent = window.sheetParent
+            let top = parent.map { $0.convertToScreen($0.contentLayoutRect).maxY } ?? window.frame.maxY
+            let anchor = NSPoint(x: window.frame.midX, y: top - 1)
+            guard let screen = NSScreen.screens.first(where: { $0.frame.contains(anchor) }) else {
+                let size = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1600, height: 1200)
+                return size - chrome
             }
-            return screen.visibleFrame.size - chrome
+            let visible = screen.visibleFrame
+            let below = NSRect(
+                x: 0, y: 0, width: visible.width,
+                height: max(min(top, visible.maxY) - visible.minY, 0)
+            )
+            return window.contentRect(forFrameRect: below).size - chrome
         }
 
         private static func clamp(_ size: CGSize, _ minimum: CGSize, _ maximum: CGSize) -> CGSize {
