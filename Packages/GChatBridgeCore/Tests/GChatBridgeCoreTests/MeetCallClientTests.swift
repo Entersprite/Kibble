@@ -3,6 +3,35 @@ import Testing
 @testable import GChatBridgeCore
 
 struct MeetCallClientTests {
+    @Test func existingResolutionUsesOnlyTheExactReferenceAndFreshTokenWithoutAnInvitation() async throws {
+        let transport = FakeHTTPTransport(responses: [HTTPResponse(
+            status: 200, headers: HTTPHeaders([("x-goog-meeting-token", "existing-token")]),
+            body: resolvedBody()
+        )])
+        let call = try await makeClient(transport: transport).resolveExisting(code: "existing-reference")
+        #expect(call.token == "existing-token")
+        #expect(call.incomingInvitation == nil)
+        let requests = await transport.sent
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request.url.path.hasSuffix("MeetingSpaceService/ResolveMeetingSpace"))
+        #expect(request.body == MeetProto.string(1, "existing-reference"))
+        #expect(Data(base64Encoded: request.headers["X-Goog-Meeting-Identifier"] ?? "")
+            == MeetProto.number(1, 2) + MeetProto.string(2, "existing-reference"))
+        #expect(!call.resolvesIncomingReference("existing-reference"))
+    }
+
+    @Test func existingResolutionDoesNotFallBackWhenAdmissionIsRefused() async throws {
+        let transport = FakeHTTPTransport(responses: [HTTPResponse(
+            status: 403, headers: HTTPHeaders([]), body: Data()
+        )])
+        let client = try makeClient(transport: transport)
+        await #expect(throws: MeetCallClientError.self) {
+            try await client.resolveExisting(code: "existing-reference")
+        }
+        #expect(await transport.sent.count == 1)
+    }
+
     @Test func resolveOnlyGetsASpaceAndInviteUsesItsToken() async throws {
         let transport = FakeHTTPTransport(responses: [
             HTTPResponse(

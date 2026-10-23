@@ -8,10 +8,12 @@ public protocol CallMediaEngine: AnyObject, Sendable {
     var supportsStreamControl: Bool { get }
     var supportsVideo: Bool { get }
     var supportsScreenSharing: Bool { get }
+    var sendsPresentationAudio: Bool { get }
     func configureScreenSharing(
         start: (@Sendable (any CallMediaEngine) async throws -> Void)?,
         stop: (@Sendable () async -> Bool)?
     )
+    func showRemoteVideos(_ slots: [CallRemoteVideoSlot])
     func showRemotePresentation(_ visible: Bool)
     func renewVideoOffer() async throws -> CallAudioOffer
     func applyVideoAnswer(_ sdp: String) async throws
@@ -47,6 +49,10 @@ public enum CallMediaEvent: Sendable {
 }
 
 public extension CallMediaEngine {
+    var sendsPresentationAudio: Bool {
+        false
+    }
+
     var supportsScreenSharing: Bool {
         false
     }
@@ -55,6 +61,11 @@ public extension CallMediaEngine {
         start: (@Sendable (any CallMediaEngine) async throws -> Void)?,
         stop: (@Sendable () async -> Bool)?
     ) {}
+    func showRemoteVideos(_ slots: [CallRemoteVideoSlot]) {
+        showRemotePresentation(slots.first.map(\.isPresentation) ?? false)
+        showRemoteVideo(slots.first?.isVisible ?? false)
+    }
+
     func showRemotePresentation(_: Bool) {}
 
     var supportsVideo: Bool {
@@ -121,4 +132,25 @@ public struct CallAudioOffer: Sendable {
 public enum CallMediaError: Error, Sendable, Equatable {
     case microphoneDenied, busy, closed, negotiationFailed, connectionFailed, timedOut
     case outgoingAudioUnconfirmed, signalingTimedOut
+}
+
+/// Local receive-transceiver index; provider stream/device identifiers stay in
+/// the signaling owner. The host retains independent tracks for simultaneous media.
+public struct CallRemoteVideoSlot: Sendable, Equatable {
+    public let index: Int
+    public let isPresentation: Bool
+    public let isVisible: Bool
+    public let participantID: UUID?
+    public let displayName: String?
+
+    public init(
+        index: Int, isPresentation: Bool, isVisible: Bool, participantID: UUID? = nil,
+        displayName: String? = nil
+    ) {
+        self.index = index
+        self.isPresentation = isPresentation
+        self.isVisible = isVisible
+        self.participantID = participantID
+        self.displayName = displayName
+    }
 }

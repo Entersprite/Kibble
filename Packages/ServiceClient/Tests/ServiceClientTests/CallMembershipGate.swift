@@ -48,6 +48,13 @@ actor CallMembershipGate: ChatBackend {
         return result
     }
 
+    func conversationDetails(_ id: Conversation.ID) async throws -> ConversationDetails {
+        let result = try await inner.conversationDetails(id)
+        held = true
+        await withCheckedContinuation { waiter = $0 }
+        return result
+    }
+
     func release() {
         waiter?.resume(); waiter = nil
     }

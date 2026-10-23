@@ -17,19 +17,39 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
     public var recipients: [AudioCallRecipient]
     public var call: AudioCallSnapshot?
     public var lastEvent: AudioCallEvent?
+    /// Nil for older peers/sources without explicit existing-call admission.
+    public var supportsExistingJoin: Bool?
+    public var supportsConversationCalls: Bool?
+    public var conversationCall: ConversationCallSnapshot?
+    public var participants: [CallParticipantDevice]?
+
+    public var currentCallID: UUID? {
+        conversationCall?.id ?? call?.id
+    }
+
+    public var currentPhase: AudioCallPhase? {
+        conversationCall?.phase ?? call?.phase
+    }
 
     public init(
         version: String, isListening: Bool = false, isListenerStarting: Bool = false,
         recipients: [AudioCallRecipient] = [],
-        call: AudioCallSnapshot? = nil, lastEvent: AudioCallEvent? = nil
+        call: AudioCallSnapshot? = nil, lastEvent: AudioCallEvent? = nil,
+        supportsExistingJoin: Bool? = nil, supportsConversationCalls: Bool? = nil,
+        conversationCall: ConversationCallSnapshot? = nil, participants: [CallParticipantDevice]? = nil
     ) {
         self.version = version; self.isListening = isListening; self.recipients = recipients
         self.isListenerStarting = isListenerStarting
         self.call = call; self.lastEvent = lastEvent
+        self.supportsExistingJoin = supportsExistingJoin
+        self.supportsConversationCalls = supportsConversationCalls
+        self.conversationCall = conversationCall
+        self.participants = participants
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, isListening, isListenerStarting, recipients, call, lastEvent
+        case version, isListening, isListenerStarting, recipients, call, lastEvent, supportsExistingJoin
+        case supportsConversationCalls, conversationCall, participants
     }
 
     public init(from decoder: any Decoder) throws {
@@ -40,7 +60,17 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
             isListenerStarting: container.decodeIfPresent(Bool.self, forKey: .isListenerStarting) ?? false,
             recipients: container.decode([AudioCallRecipient].self, forKey: .recipients),
             call: container.decodeIfPresent(AudioCallSnapshot.self, forKey: .call),
-            lastEvent: container.decodeIfPresent(AudioCallEvent.self, forKey: .lastEvent)
+            lastEvent: container.decodeIfPresent(AudioCallEvent.self, forKey: .lastEvent),
+            supportsExistingJoin: container.decodeIfPresent(Bool.self, forKey: .supportsExistingJoin),
+            supportsConversationCalls: container.decodeIfPresent(
+                Bool.self,
+                forKey: .supportsConversationCalls
+            ),
+            conversationCall: container.decodeIfPresent(
+                ConversationCallSnapshot.self,
+                forKey: .conversationCall
+            ),
+            participants: container.decodeIfPresent([CallParticipantDevice].self, forKey: .participants)
         )
     }
 }
@@ -76,5 +106,23 @@ public struct ControlCall: ServiceRequestPayload {
     ) {
         self.sourceID = sourceID
         self.action = action; self.callID = callID; self.recipient = recipient; self.muted = muted
+    }
+}
+
+/// Uses the same ephemeral session, source fence and device reservation as DM calls.
+public struct ControlConversationCall: ServiceRequestPayload {
+    public typealias Response = ServiceCallState
+    public static let operation = "controlConversationCall"
+    public static let requiresAccount = true
+    public let action: String
+    public let conversationID: Conversation.ID
+    public let callID: UUID
+    public let sourceID: UUID
+
+    public init(action: String, conversationID: Conversation.ID, callID: UUID, sourceID: UUID) {
+        self.action = action
+        self.conversationID = conversationID
+        self.callID = callID
+        self.sourceID = sourceID
     }
 }

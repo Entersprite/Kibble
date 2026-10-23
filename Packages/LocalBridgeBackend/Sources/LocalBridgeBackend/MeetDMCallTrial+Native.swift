@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 
@@ -6,19 +7,21 @@ public extension MeetDMCallTrial {
         preparedID: UUID, media: any CallMediaEngine,
         scope: UUID = UUID(),
         receive: (@Sendable (MeetNativeCallState) async -> Void)? = nil,
-        remoteMuted: (@Sendable (Bool?) async -> Void)? = nil
+        remoteMuted: (@Sendable (Bool?) async -> Void)? = nil,
+        participants: (@Sendable ([CallParticipantDevice]?) async -> Void)? = nil
     ) async throws {
         guard let call = prepared, call.ticket == preparedID, native == nil else {
             await media.close()
             throw MeetDMCallTrialError.callNotPrepared
         }
         let session = NativeMeetCallSession(
-            client: call.client, call: call.call, media: media,
+            client: call.client, call: call.call, media: media, staysWhenAlone: call.isConversationCall,
             validateAccount: { [weak self] in
                 guard let self else { throw MeetDMCallTrialError.superseded }
                 try await validateNative(call.context.stored, generation: call.generation)
             }
         )
+        await session.setParticipantHandler(participants)
         native = session
         nativeScope = scope
         cleanupScope = scope

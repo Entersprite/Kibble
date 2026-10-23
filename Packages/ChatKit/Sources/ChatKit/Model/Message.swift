@@ -56,6 +56,7 @@ public struct Message: Codable, Hashable, Sendable {
 
     /// Present for structured call history; text alone never determines this.
     public var callStatus: MessageCallStatus?
+    public var callMetadata: MessageCallMetadata?
     public var content: MessageContent?
 
     public init(
@@ -75,6 +76,7 @@ public struct Message: Codable, Hashable, Sendable {
         cards: [AppCard] = [],
         isReply: Bool = false,
         callStatus: MessageCallStatus? = nil,
+        callMetadata: MessageCallMetadata? = nil,
         content: MessageContent? = nil
     ) {
         self.id = id
@@ -93,6 +95,7 @@ public struct Message: Codable, Hashable, Sendable {
         self.cards = cards
         self.isReply = isReply
         self.callStatus = callStatus
+        self.callMetadata = callMetadata?.isEmpty == true ? nil : callMetadata
         self.content = content?.isEmpty == true ? nil : content
     }
 }
@@ -162,6 +165,7 @@ public extension Message {
         case cards
         case isReply
         case callStatus
+        case callMetadata
         case content
     }
 
@@ -186,6 +190,7 @@ public extension Message {
             cards: container.decodeIfPresent([AppCard].self, forKey: .cards) ?? [],
             isReply: container.decodeIfPresent(Bool.self, forKey: .isReply) ?? false,
             callStatus: container.decodeIfPresent(MessageCallStatus.self, forKey: .callStatus),
+            callMetadata: container.decodeIfPresent(MessageCallMetadata.self, forKey: .callMetadata),
             content: container.decodeIfPresent(MessageContent.self, forKey: .content)
         )
     }
@@ -204,6 +209,7 @@ public extension Message {
         try container.encode(attachments, forKey: .attachments)
         try container.encodeIfPresent(localID, forKey: .localID)
         try container.encodeIfPresent(callStatus, forKey: .callStatus)
+        try container.encodeIfPresent(callMetadata, forKey: .callMetadata)
         try container.encodeIfPresent(content, forKey: .content)
         if !mentions.isEmpty {
             try container.encode(mentions, forKey: .mentions)

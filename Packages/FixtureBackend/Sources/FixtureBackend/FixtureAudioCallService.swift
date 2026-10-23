@@ -3,15 +3,87 @@ import Foundation
 
 /// Deterministic audio state without microphone, network, provider code or timers.
 @MainActor
-public final class FixtureAudioCallService: AudioCallQuiescing {
+public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCallService,
+    ConversationAudioCallService {
     public let events: AsyncStream<AudioCallEvent>
     public private(set) var currentCall: AudioCallSnapshot?
     public private(set) var recipients: [AudioCallRecipient]
+    public private(set) var currentConversationCall: ConversationCallSnapshot?
+    private let conversationTargets: Set<Conversation.ID>
     private let continuation: AsyncStream<AudioCallEvent>.Continuation
     private var listening = false
     private var sequence: UInt64 = 0
+    private var existingCalls: Set<Conversation.ID> = []
+
+    public var canJoinExistingCalls: Bool {
+        true
+    }
+
+    public func setExistingCallAvailable(_ available: Bool, in id: Conversation.ID) {
+        if available {
+            existingCalls.insert(id)
+        } else {
+            existingCalls.remove(id)
+        }
+    }
+
+    public func joinExisting(to recipient: AudioCallRecipient, callID: UUID) async throws {
+        guard listening, recipients.contains(recipient), currentCall?.phase.isTerminal != false,
+              currentConversationCall?.phase.isTerminal != false else {
+            throw ChatError.unsupported(capability: "joinExistingAudioCall")
+        }
+        guard existingCalls.contains(recipient.conversationID) else {
+            publish(AudioCallSnapshot(
+                id: callID, recipient: recipient, direction: .outgoing, phase: .failed,
+                failureMessage: "This call is no longer available."
+            ))
+            throw ChatError.unknown("This call is no longer available.")
+        }
+        publish(AudioCallSnapshot(id: callID, recipient: recipient, direction: .outgoing, phase: .connecting))
+        setPhase(.connected, callID: callID)
+    }
+
+    public var canCallConversations: Bool {
+        true
+    }
+
+    public func startConversationCall(to target: ConversationCallTarget, callID: UUID) async throws {
+        try beginConversation(target, callID: callID, joining: false)
+    }
+
+    public func joinConversationCall(to target: ConversationCallTarget, callID: UUID) async throws {
+        try beginConversation(target, callID: callID, joining: true)
+    }
+
+    private func beginConversation(_ target: ConversationCallTarget, callID: UUID, joining: Bool) throws {
+        guard listening, conversationTargets.contains(target.conversationID),
+              currentCall?.phase.isTerminal != false,
+              currentConversationCall?.phase.isTerminal != false else {
+            throw ChatError.unsupported(capability: "conversationCalls")
+        }
+        currentCall = nil
+        var call = ConversationCallSnapshot(id: callID, target: target, phase: .connecting)
+        if joining, !existingCalls.contains(target.conversationID) {
+            call.phase = .failed
+            call.failureMessage = "This call is no longer available."
+            publishConversation(call)
+            throw ChatError.unknown("This call is no longer available.")
+        }
+        publishConversation(call)
+        existingCalls.insert(target.conversationID)
+        call.phase = .connected
+        publishConversation(call)
+    }
+
+    private func publishConversation(_ call: ConversationCallSnapshot) {
+        currentConversationCall = call
+        continuation.yield(.conversationSnapshot(call))
+    }
 
     public init(world: FixtureWorld = .acme) {
+        conversationTargets = Set(world.conversations.filter {
+            [.space, .groupDirectMessage].contains($0.kind) && $0.members.contains(world.me)
+        }.map(\.id))
         recipients = world.conversations.compactMap { conversation in
             let other = conversation.members.filter { $0 != world.me }
             guard conversation.kind == .directMessage, other.count == 1,
@@ -39,7 +111,8 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
     }
 
     public func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {
-        guard listening, recipients.contains(recipient), currentCall?.phase.isTerminal != false else {
+        guard listening, recipients.contains(recipient), currentCall?.phase.isTerminal != false,
+              currentConversationCall?.phase.isTerminal != false else {
             throw ChatError.unsupported(capability: "audioCall")
         }
         publish(AudioCallSnapshot(id: callID, recipient: recipient, direction: .outgoing, phase: .ringing))
@@ -58,13 +131,30 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
     }
 
     public func hangUp(callID: UUID) async throws {
+        if var call = currentConversationCall, call.id == callID {
+            call.phase = .ended
+            call.endReason = .localEnded
+            publishConversation(call)
+            return
+        }
         setPhase(.ended, callID: callID, endReason: .localEnded)
     }
 
     public func setMuted(_ muted: Bool, callID: UUID) async throws {
+        if var call = currentConversationCall, call.id == callID, !call.phase.isTerminal {
+            call.isMuted = muted
+            publishConversation(call)
+            return
+        }
         guard var call = currentCall, call.id == callID, !call.phase.isTerminal else { return }
         call.isMuted = muted
         publish(call)
+    }
+
+    public func setParticipantDevices(_ participants: [CallParticipantDevice]?, callID: UUID) {
+        let current = currentConversationCall?.id ?? currentCall?.id
+        guard current == callID, participants?.count ?? 0 <= 256 else { return }
+        continuation.yield(.participantsChanged(callID: callID, participants: participants))
     }
 
     public func beginStopping() {
@@ -74,6 +164,7 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
     public func stop() async {
         listening = false
         currentCall = nil
+        currentConversationCall = nil
         continuation.yield(.recipientsChanged([]))
     }
 
@@ -86,7 +177,8 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
     @discardableResult
     public func receiveIncoming(from recipient: AudioCallRecipient) -> UUID? {
         guard listening, recipients.contains(recipient),
-              currentCall?.phase.isTerminal != false else { return nil }
+              currentCall?.phase.isTerminal != false,
+              currentConversationCall?.phase.isTerminal != false else { return nil }
         sequence += 1
         let bytes = (0 ..< 8).reversed().map { UInt8(truncatingIfNeeded: sequence >> ($0 * 8)) }
         let id = UUID(uuid: (
@@ -121,6 +213,7 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
     }
 
     private func publish(_ call: AudioCallSnapshot) {
+        currentConversationCall = nil
         currentCall = call
         continuation.yield(.snapshot(call))
     }

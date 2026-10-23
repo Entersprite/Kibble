@@ -41,6 +41,20 @@ actor ServiceCallRuntime {
         guard reader == nil, !stopped else { return }
         let events = await source.events
         guard !stopped else { return }
+        let joining = source as? any ExistingAudioCallService
+        let canJoin = await joining?.canJoinExistingCalls == true
+        guard !stopped else { return }
+        if canJoin {
+            state.supportsExistingJoin = true
+            publish()
+        }
+        let conversations = source as? any ConversationAudioCallService
+        let canCall = await conversations?.canCallConversations == true
+        guard !stopped else { return }
+        if canCall {
+            state.supportsConversationCalls = true
+            publish()
+        }
         reader = Task { [weak self] in
             for await event in events {
                 guard !Task.isCancelled else { return }
@@ -141,20 +155,32 @@ actor ServiceCallRuntime {
             return
         }
         guard !recoveryPaused else { return }
+        guard await applyCallEvent(event) else { return }
+        guard !stopped else { return }
+        state.lastEvent = event
+        publish()
+    }
+
+    private func applyCallEvent(_ event: AudioCallEvent) async -> Bool {
         switch event {
         case let .recipientsChanged(recipients):
-            guard recipients.count <= 4096 else { listenerFailed(); return }
+            guard recipients.count <= 4096 else { listenerFailed(); return false }
             state.recipients = recipients
         case let .listenerChanged(listening):
             state.isListening = listening
             state.isListenerStarting = false
         case let .snapshot(snapshot):
-            guard await receiveSnapshot(snapshot) else { return }
+            return await receiveSnapshot(snapshot)
+        case let .conversationSnapshot(snapshot):
+            return await receiveConversationSnapshot(snapshot)
+        case let .participantsChanged(id, participants):
+            guard state.currentCallID == id, state.currentPhase?.isTerminal == false,
+                  participants?.count ?? 0 <= 256,
+                  Set(participants?.map(\.id) ?? []).count == (participants?.count ?? 0) else { return false }
+            state.participants = participants
         case .unknown, .listenerBarrier: break
         }
-        guard !stopped else { return }
-        state.lastEvent = event
-        publish()
+        return true
     }
 
     private func receiveSnapshot(_ snapshot: AudioCallSnapshot) async -> Bool {
@@ -168,8 +194,8 @@ actor ServiceCallRuntime {
         if let reserved, snapshot.id != reserved {
             return false
         }
-        if let current = state.call, current.id != snapshot.id {
-            guard current.phase.isTerminal, snapshot.phase == .incoming,
+        if let current = state.currentCallID, current != snapshot.id {
+            guard state.currentPhase?.isTerminal != false, snapshot.phase == .incoming,
                   !used.contains(snapshot.id) else { return false }
         }
         if snapshot.phase == .ended || snapshot.phase == .failed || snapshot.phase == .declined {
@@ -180,7 +206,28 @@ actor ServiceCallRuntime {
             await releaseReservation()
         }
         guard !stopped else { return false }
+        state.conversationCall = nil
+        if state.call?.id != snapshot.id || snapshot.phase.isTerminal {
+            state.participants = nil
+        }
         state.call = snapshot
+        return true
+    }
+
+    private func receiveConversationSnapshot(_ snapshot: ConversationCallSnapshot) async -> Bool {
+        // Group calls are explicit outgoing controls; unsolicited group snapshots
+        // cannot acquire a device or replace a DM invitation.
+        guard state.conversationCall?.id == snapshot.id,
+              reserved == snapshot.id || snapshot.phase.isTerminal else { return false }
+        if [.ended, .failed, .declined].contains(snapshot.phase) {
+            await releaseReservation()
+        }
+        guard !stopped else { return false }
+        state.call = nil
+        if snapshot.phase.isTerminal {
+            state.participants = nil
+        }
+        state.conversationCall = snapshot
         return true
     }
 

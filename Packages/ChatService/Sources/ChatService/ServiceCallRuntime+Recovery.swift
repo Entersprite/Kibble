@@ -10,7 +10,7 @@ struct CallRecoveryBarrier {
 
 extension ServiceCallRuntime {
     func pauseListener(_ request: ControlCall) async throws {
-        guard request.callID == nil, reserved == nil, state.call?.phase.isTerminal != false else {
+        guard request.callID == nil, reserved == nil, state.currentPhase?.isTerminal != false else {
             throw ServiceFailure.deviceBusy
         }
         if recoveryPaused, recoveryBarrier == nil {

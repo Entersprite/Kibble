@@ -7,6 +7,7 @@ import GChatBridgeCore
 /// the same period searches for audio alone, so a voice call still has it.
 extension NativeMeetCallSession {
     func recordRemoteAudio(_ reply: Data, context: MeetVideoStreamWire.Context, requestID: UInt64) async {
+        await recordParticipantAudio(reply, context: context, requestID: requestID)
         // A malformed or ambiguous reply is unknown, never muted.
         let muted = try? MeetVideoStreamWire.remoteAudioMuted(
             from: reply,

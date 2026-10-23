@@ -7,7 +7,11 @@ import LocalBridgeBackend
 @MainActor
 final class NativeCallVideo: CallCameraRouting {
     let track: LKRTCVideoTrack
-    let receiver: LKRTCRtpTransceiver
+    let receivers: [LKRTCRtpTransceiver]
+    var receiver: LKRTCRtpTransceiver {
+        receivers[0]
+    }
+
     let capturer: LKRTCCameraVideoCapturer
     let source: LKRTCVideoSource
     private let factory: LKRTCPeerConnectionFactory
@@ -26,17 +30,25 @@ final class NativeCallVideo: CallCameraRouting {
         sending.streamIds = [UUID().uuidString]
         let receiving = LKRTCRtpTransceiverInit()
         receiving.direction = .recvOnly
-        guard let sender = peer.addTransceiver(with: track, init: sending),
-              let receiver = peer.addTransceiver(of: .video, init: receiving)
+        guard let sender = peer.addTransceiver(with: track, init: sending)
         else { throw CallMediaError.negotiationFailed }
-        self.receiver = receiver
+        var receivers: [LKRTCRtpTransceiver] = []
+        for _ in 0 ..< (presentation ? 1 : 8) {
+            guard let receiver = peer.addTransceiver(of: .video, init: receiving) else {
+                throw CallMediaError.negotiationFailed
+            }
+            receivers.append(receiver)
+        }
+        self.receivers = receivers
         let codecs = factory.rtpReceiverCapabilities(forKind: kLKRTCMediaStreamTrackKindVideo).codecs.filter {
             ["video/vp8", "video/rtx"].contains($0.mimeType.lowercased())
         }
         guard codecs.contains(where: { $0.mimeType.lowercased() == "video/vp8" })
         else { throw CallMediaError.negotiationFailed }
         try sender.setCodecPreferences(codecs, error: ())
-        try receiver.setCodecPreferences(codecs, error: ())
+        for receiver in receivers {
+            try receiver.setCodecPreferences(codecs, error: ())
+        }
     }
 
     func devices() -> [CallCameraDevice] {
@@ -108,7 +120,9 @@ final class NativeCallVideo: CallCameraRouting {
         closed = true
         announcement = nil
         suppress()
-        receiver.receiver.track?.isEnabled = false
+        for receiver in receivers {
+            receiver.receiver.track?.isEnabled = false
+        }
         capturer.stopCapture()
     }
 

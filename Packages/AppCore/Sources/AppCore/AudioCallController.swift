@@ -221,7 +221,7 @@ public final class AudioCallController {
         case let .listenerChanged(isListening):
             listenerFailure = isListening ? nil : "Incoming calls are unavailable."
         case let .snapshot(snapshot): receiveSnapshot(snapshot)
-        case .unknown, .listenerBarrier: break
+        case .unknown, .listenerBarrier, .conversationSnapshot, .participantsChanged: break
         }
     }
 

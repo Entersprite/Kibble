@@ -103,13 +103,36 @@ extension AccountRuntime {
         case ControlCall.operation:
             let control = try request.decodePayload(ControlCall.self)
             try await calls.validateSource(control)
-            if control.action == "start" {
+            if control.action == "start" || control.action == "join" {
                 try await validateCallRecipient(control.recipient, backend: backend, epoch: epoch)
             }
             result = try await calls.control(control, session: context.sessionID)
             if control.action == "restart" {
                 requestCallDirectoryRefresh()
             }
+        case ControlConversationCall.operation:
+            let control = try request.decodePayload(ControlConversationCall.self)
+            try await calls.validateConversationSource(control)
+            guard let conversation = try storage.conversation(control.conversationID),
+                  [.space, .groupDirectMessage].contains(conversation.kind) else {
+                throw ServiceFailure.invalidRequest
+            }
+            let version = callFactsVersions[conversation.id]
+            let world = callWorldVersion
+            let details = try await withProviderWork(epoch: epoch) {
+                try await backend.conversationDetails(conversation.id)
+            }
+            try checkEpoch(epoch)
+            guard version == callFactsVersions[conversation.id], world == callWorldVersion else {
+                throw ServiceFailure.overloaded
+            }
+            guard details.conversation.id == conversation.id,
+                  details.conversation.kind == conversation.kind,
+                  details.membership == .joined else { throw ServiceFailure.notAuthorized }
+            let target = ConversationCallTarget(
+                conversationID: conversation.id, displayName: details.conversation.title ?? "Group call"
+            )
+            result = try await calls.controlConversation(control, target: target, session: context.sessionID)
         default: throw ServiceFailure.unsupportedOperation
         }
         try checkEpoch(epoch)

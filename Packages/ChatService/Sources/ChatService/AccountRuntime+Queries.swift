@@ -9,6 +9,8 @@ extension AccountRuntime {
         epoch: UUID
     ) async throws -> JSONValue {
         switch request.operation {
+        case ReadCallHistory.operation:
+            return try readCallHistory(request, epoch: epoch)
         case GetCapabilities.operation:
             _ = try request.decodePayload(GetCapabilities.self)
             let value = capabilities
@@ -54,7 +56,38 @@ extension AccountRuntime {
             let value = try await fetchFollowedThreads(backend: backend, epoch: epoch)
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
-        default: throw ServiceFailure.unsupportedOperation
+        default: return try await getCallAvailability(request, backend: backend, epoch: epoch)
+        }
+    }
+
+    private func getCallAvailability(
+        _ request: ServiceRequest, backend: any ChatBackend, epoch: UUID
+    ) async throws -> JSONValue {
+        guard request.operation == GetCallAvailability.operation else {
+            throw ServiceFailure.unsupportedOperation
+        }
+        let payload = try request.decodePayload(GetCallAvailability.self)
+        guard backend.capabilities.canDiscoverCalls, let calls = backend as? any CallDiscoveryBackend else {
+            throw ServiceFailure.unsupportedOperation
+        }
+        let value = try await withProviderWork(epoch: epoch, urgency: WorkUrgency(interactive: true)) {
+            try await calls.callAvailability(in: payload.conversationID)
+        }
+        try checkEpoch(epoch)
+        guard value.conversationID == payload.conversationID else { throw ServiceFailure.invalidRequest }
+        return try ServiceCodec.value(value)
+    }
+
+    private func readCallHistory(_ request: ServiceRequest, epoch: UUID) throws -> JSONValue {
+        let payload = try request.decodePayload(ReadCallHistory.self)
+        guard let history = storage as? any ServiceCallHistoryStorage else {
+            throw ServiceFailure.unsupportedOperation
+        }
+        try checkEpoch(epoch)
+        do {
+            return try ServiceCodec.value(history.callHistory(payload.query))
+        } catch is CallHistoryError {
+            throw ServiceFailure.invalidRequest
         }
     }
 }

@@ -20,6 +20,7 @@ struct ServiceCallStateProjection {
     }
 
     mutating func accept(_ state: ServiceCallState) throws -> [AudioCallEvent] {
+        guard state.call == nil || state.conversationCall == nil else { throw ServiceFailure.invalidResponse }
         let admission = try admit(state)
         guard admission.accepted else { return restoreConnection(after: []) }
         var events = admission.events
@@ -31,6 +32,16 @@ struct ServiceCallStateProjection {
             call.endReason = nil
             events.append(.snapshot(call))
         }
+        if var call = previous?.conversationCall, !call.phase.isTerminal,
+           call.id != state.conversationCall?.id {
+            call.phase = .ended
+            call.failureMessage = nil
+            call.endReason = nil
+            events.append(.conversationSnapshot(call))
+        }
+        if let call = state.conversationCall, previous?.conversationCall != call {
+            events.append(.conversationSnapshot(call))
+        }
         if previous?.recipients != state.recipients {
             events.append(.recipientsChanged(state.recipients))
         }
@@ -40,6 +51,10 @@ struct ServiceCallStateProjection {
         }
         if let call = state.call, previous?.call != call {
             events.append(.snapshot(call))
+        }
+        if let id = state.currentCallID, state.currentPhase?.isTerminal == false,
+           previous?.participants != state.participants {
+            events.append(.participantsChanged(callID: id, participants: state.participants))
         }
         if case .unknown = state.lastEvent, let event = state.lastEvent {
             events.append(event)
@@ -87,6 +102,11 @@ struct ServiceCallStateProjection {
         if var call = previous.call, !call.phase.isTerminal {
             call.phase = .failed; call.failureMessage = "The call connection ended."
             return (true, [.snapshot(call)])
+        }
+        if var call = previous.conversationCall, !call.phase.isTerminal {
+            call.phase = .failed
+            call.failureMessage = "The call connection ended."
+            return (true, [.conversationSnapshot(call)])
         }
         return (true, [])
     }

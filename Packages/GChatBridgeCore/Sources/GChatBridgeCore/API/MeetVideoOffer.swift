@@ -1,11 +1,12 @@
 import Foundation
 
-/// Bundled native audio, a single VP8 camera sender and a dedicated video
+/// Bundled native audio, a VP8 camera sender and bounded independent video
 /// receiver. Credentials remain scoped to the existing audio transport.
 public struct MeetVideoOffer: Sendable {
     public let audio: MeetAudioOffer
     public let source: MeetVideoSource
     public let clientConfiguration: Data
+    public let receivingCapacity: Int
     let session: [String]
     let sections: [[String]]
     let video: [String]
@@ -25,8 +26,10 @@ public struct MeetVideoOffer: Sendable {
         mids = layout.mids
         let videos = sections.filter { $0[0].hasPrefix("m=video ") }
         video = videos[0]
-        guard video.contains("a=sendrecv"), videos[1].contains("a=recvonly"),
-              !videos[1].contains(where: { $0.hasPrefix("a=ssrc:") }) else {
+        receivingCapacity = videos.count - 1
+        guard video.contains("a=sendrecv"), videos.dropFirst().allSatisfy({
+            $0.contains("a=recvonly") && !$0.contains(where: { $0.hasPrefix("a=ssrc:") })
+        }) else {
             throw MeetCallWire.WireError.malformedResponse
         }
         let audioSections = sections.filter { !$0[0].hasPrefix("m=video ") }
@@ -51,8 +54,9 @@ public struct MeetVideoOffer: Sendable {
             }
         }
         source = try Self.sender(video)
-        codecs = try Self.videoCodecs(video)
-        guard try Self.videoCodecs(videos[1]) == codecs else {
+        let offeredCodecs = try Self.videoCodecs(video)
+        codecs = offeredCodecs
+        guard try videos.dropFirst().allSatisfy({ try Self.videoCodecs($0) == offeredCodecs }) else {
             throw MeetCallWire.WireError.malformedResponse
         }
         clientConfiguration = audio.clientConfiguration + Self.configuration(video: video, codecs: codecs)
@@ -69,19 +73,20 @@ public struct MeetVideoOffer: Sendable {
               !sdp.contains("\0") else { throw MeetCallWire.WireError.malformedResponse }
         let all = sdp.components(separatedBy: .newlines).filter { !$0.isEmpty }
         let starts = all.indices.filter { all[$0].hasPrefix("m=") }
-        guard starts.count == 4,
+        guard (4 ... 11).contains(starts.count),
               let first = starts.first else { throw MeetCallWire.WireError.malformedResponse }
         let session = Array(all[..<first])
         let sections = starts.enumerated().map { index, start in
             Array(all[start ..< (index + 1 < starts.count ? starts[index + 1] : all.count)])
         }
         guard sections[0][0].hasPrefix("m=audio "),
-              sections.filter({ $0[0].hasPrefix("m=video ") }).count == 2,
+              (2 ... 9).contains(sections.filter { $0[0].hasPrefix("m=video ") }.count),
+              sections.filter({ $0[0].hasPrefix("m=audio ") }).count == 1,
               sections.filter({ $0[0].hasPrefix("m=application ") }).count == 1 else {
             throw MeetCallWire.WireError.malformedResponse
         }
         let mids = try sections.map { try MeetAudioOffer.single("a=mid:", $0) }
-        guard Set(mids).count == 4, mids.allSatisfy(MeetAudioOffer.atom),
+        guard Set(mids).count == sections.count, mids.allSatisfy(MeetAudioOffer.atom),
               try MeetAudioOffer.single("a=group:BUNDLE ", session).split(separator: " ")
               .map(String.init) == mids else {
             throw MeetCallWire.WireError.malformedResponse

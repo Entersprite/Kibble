@@ -32,6 +32,16 @@ public enum MeetCallWire {
         return body
     }
 
+    /// Quiet Chat huddle creation: no invitees, non-directed dialing behavior.
+    public static func resolveConversation(groupID: String) throws -> Data {
+        guard validIdentifier(groupID) else { throw WireError.invalidIdentifier }
+        var body = Data()
+        appendVarint(0, field: 1, to: &body)
+        appendVarint(2, field: 2, to: &body)
+        appendString(groupID, field: 7, to: &body)
+        return body
+    }
+
     /// Meet's receiver hih/Xnf flow resolves the offered meeting code at
     /// field 1. It does not resolve/create the Chat DM's outgoing call space.
     public static func resolveOffered(code: String) throws -> Data {

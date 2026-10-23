@@ -36,6 +36,30 @@ struct MeetVideoNegotiationTests {
         #expect(answer.contains("a=msid:kibble-remote video"))
     }
 
+    @Test func independentCameraAndPresentationReceiversKeepTheirOwnMidsAndTrackIdentities() throws {
+        let receiver = Self.receiver.map { $0 == "a=mid:2" ? "a=mid:4" : $0 }
+        let sdp = (Self.session + ["a=group:BUNDLE 0 1 2 4 3"] + Self.audio + Self.video
+            + Self.receiver + receiver + Self.data).joined(separator: "\r\n") + "\r\n"
+        let offer = try MeetVideoOffer(sdp: sdp)
+        #expect(offer.receivingCapacity == 2)
+        let camera = try MeetVideoSource(primary: 3001, retransmission: 3002)
+        let screen = try MeetVideoSource(primary: 4001, retransmission: 4002)
+        let answer = try offer.answer(serverConfiguration: Self.server, receivingSources: [camera, screen])
+        let cameraStart = try #require(answer.range(of: "a=mid:2"))
+        let screenStart = try #require(answer.range(of: "a=mid:4"))
+        let cameraSection = answer[cameraStart.lowerBound ..< screenStart.lowerBound]
+        #expect(cameraSection.contains("a=ssrc-group:FID 3001 3002"))
+        #expect(!cameraSection.contains("4001"))
+        #expect(answer[screenStart.lowerBound...].contains("a=ssrc-group:FID 4001 4002"))
+        #expect(answer.contains("a=msid:kibble-remote-2 video-2"))
+        #expect(throws: (any Error).self) {
+            try offer.answer(serverConfiguration: Self.server, receivingSources: [camera, camera])
+        }
+        #expect(throws: (any Error).self) {
+            try offer.answer(serverConfiguration: Self.server, receivingSources: [camera, screen, nil])
+        }
+    }
+
     @Test func unsafeUnsupportedAndAmbiguousOffersAreRejected() {
         for value in [
             Self.offer.replacingOccurrences(of: "a=mid:2", with: "a=mid:1"),

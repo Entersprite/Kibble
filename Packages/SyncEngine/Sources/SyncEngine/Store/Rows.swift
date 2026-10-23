@@ -182,6 +182,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     /// `Message.isReply`. The transcript is `isReply = 0` (threads spec §4.1).
     var isReply: Bool
     var callStatus: String?
+    var callMetadata: String?
     var content: String?
 
     package init(_ message: Message) throws {
@@ -200,7 +201,8 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         links = try Wire.json(message.links)
         cards = try Wire.json(message.cards)
         isReply = message.isReply
-        callStatus = try message.callStatus.map { try Wire.string($0) }
+        callStatus = try message.isDeleted ? nil : message.callStatus.map { try Wire.string($0) }
+        callMetadata = try message.isDeleted ? nil : message.callMetadata.map { try Wire.json($0) }
         content = try message.content.map { try Wire.json($0) }
     }
 
@@ -223,6 +225,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
                 cards: Wire.value([AppCard].self, from: cards),
                 isReply: isReply,
                 callStatus: callStatus.map { try Wire.fromString(MessageCallStatus.self, $0) },
+                callMetadata: callMetadata.map { try Wire.value(MessageCallMetadata.self, from: $0) },
                 content: content.map { try Wire.value(MessageContent.self, from: $0) }
             )
         }

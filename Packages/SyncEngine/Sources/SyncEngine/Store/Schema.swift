@@ -89,6 +89,13 @@ enum Schema {
         migrator.registerMigration("v26") { db in
             try db.alter(table: "member") { $0.add(column: "doNotDisturbUntil", .double) }
         }
+        migrator.registerMigration("v27") { db in
+            try db.alter(table: "message") { $0.add(column: "callMetadata", .text) }
+            try db.execute(sql: """
+            CREATE INDEX messageCallHistory ON message(createdAt DESC, id DESC)
+            WHERE callStatus IS NOT NULL AND isDeleted = 0
+            """)
+        }
         return migrator
     }
 

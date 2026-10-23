@@ -59,6 +59,7 @@ public actor FakeBackend {
     var nextDirectConversationNumber = 0
     var managedDetails: [Conversation.ID: ConversationDetails] = [:]
     var managedParticipants: [Conversation.ID: [ConversationParticipant]] = [:]
+    var callAvailability: [Conversation.ID: ConversationCallAvailability] = [:]
     var completedMutations: [String: FixtureManagementOperation] = [:]
     var world: FixtureWorld
 

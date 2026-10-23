@@ -1,6 +1,7 @@
 import DesignSystem
 import Foundation
 @preconcurrency import LiveKitWebRTC
+import LocalBridgeBackend
 import Observation
 
 @MainActor
@@ -10,8 +11,16 @@ protocol CallScreenShareRouting: AnyObject {
     /// `nil` before capture starts and from the moment it is suppressed.
     var preview: LKRTCVideoTrack? { get }
     func start() async throws -> Bool
+    func start(sharingAudio: Bool) async throws -> Bool
     func suppress()
     func stop() async -> Bool
+}
+
+extension CallScreenShareRouting {
+    func start(sharingAudio: Bool) async throws -> Bool {
+        guard !sharingAudio else { throw CallMediaError.negotiationFailed }
+        return try await start()
+    }
 }
 
 /// One explicit share operation per native call. Cancellation suppresses frames
@@ -51,7 +60,7 @@ final class CallScreenShareController {
         route = nil; state = nil; preview = nil
     }
 
-    func toggle() {
+    func toggle(sharingAudio: Bool = false) {
         guard let phase = state?.phase else { return }
         if phase != .idle {
             stop(); return
@@ -61,7 +70,7 @@ final class CallScreenShareController {
         state = CallScreenShareState(phase: .preparing)
         operation = Task { [weak self] in
             do {
-                let started = try await route.start()
+                let started = try await route.start(sharingAudio: sharingAudio)
                 try Task.checkCancellation()
                 guard let self, self.scope == scope else { route.suppress(); return }
                 state?.phase = started ? .sharing : .idle

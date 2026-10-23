@@ -18,6 +18,7 @@ enum NativeMeetFixture {
 
     static func session(
         _ transport: any HTTPTransport, media: any CallMediaEngine,
+        staysWhenAlone: Bool = false,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         validate: @escaping @Sendable () async throws -> Void = {}
     ) async throws -> NativeMeetCallSession {
@@ -36,7 +37,7 @@ enum NativeMeetFixture {
         return NativeMeetCallSession(
             client: client,
             call: call,
-            media: media,
+            media: media, staysWhenAlone: staysWhenAlone,
             validateAccount: validate,
             now: now
         )

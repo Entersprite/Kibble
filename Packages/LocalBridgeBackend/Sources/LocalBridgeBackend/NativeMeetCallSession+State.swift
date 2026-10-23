@@ -150,6 +150,8 @@ extension NativeMeetCallSession {
             return
         }
         guard own.joinState == 1 else { await publish(.stateUnavailable); return }
+        await reconcileParticipants(devices, local: local)
+        guard !closed else { return }
         verifiedDeviceVersion = devices.version
         let others = devices.values.filter { $0.name != local && !$0.isDeleted && !$0.isPresentation }
         if others.isEmpty {
@@ -160,6 +162,8 @@ extension NativeMeetCallSession {
             peerJoined = true
             ringingDeadline = nil
             await device.completeInvitation()
+            await publish(.active)
+        } else if staysWhenAlone {
             await publish(.active)
         } else if peerJoined {
             // A full snapshot is authoritative. A delta or failed request
@@ -175,9 +179,17 @@ extension NativeMeetCallSession {
         guard next != state else { return }
         state = next
         switch next {
-        case .ready, .ringing, .active: stableState = next
+        case .stateUnavailable, .reconnecting, .ended, .endedUnconfirmed:
+            await publishParticipantsUnavailable()
         default: break
         }
+        switch next {
+        case .ready, .ringing, .active:
+            stableState = next
+            await publishParticipants()
+        default: break
+        }
+        guard state == next else { return }
         lines.append("Native call state: " + next.message)
         if lines.count > 256 {
             lines.removeFirst(lines.count - 256)

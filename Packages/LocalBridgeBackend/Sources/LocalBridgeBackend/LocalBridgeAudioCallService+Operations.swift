@@ -12,6 +12,7 @@ public extension LocalBridgeAudioCallService {
         let current = AudioCallSnapshot(
             id: callID, recipient: recipient, direction: .outgoing, phase: .connecting
         )
+        conversationSnapshot = nil
         snapshot = current
         continuation.yield(.snapshot(current))
         let scope = callScope
@@ -60,6 +61,10 @@ public extension LocalBridgeAudioCallService {
     }
 
     func hangUp(callID: UUID) async throws {
+        if conversationSnapshot?.id == callID {
+            try await hangUpConversation(callID: callID)
+            return
+        }
         guard let current = snapshot, current.id == callID, !isStopping else { return }
         if current.phase == .incoming {
             try await decline(callID: callID); return
@@ -103,14 +108,14 @@ public extension LocalBridgeAudioCallService {
         do {
             try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         } catch {
-            guard snapshot?.id == id, callScope == scope, !isStopping else { throw CancellationError() }
+            guard currentCallID == id, callScope == scope, !isStopping else { throw CancellationError() }
             // Failed invitation/setup must release both local audio and the
             // registered device before another call is permitted.
             media?.setMuted(true)
             await trial.endNativeCall()
             let cleanup = await trial.cleanupOutcome(for: scope)
             media = nil
-            guard snapshot?.id == id, callScope == scope, !isStopping else { throw CancellationError() }
+            guard currentCallID == id, callScope == scope, !isStopping else { throw CancellationError() }
             if let handle = incomingHandle {
                 await incoming?.dismiss(handle)
             }
@@ -119,6 +124,10 @@ public extension LocalBridgeAudioCallService {
                 .joined(separator: " ")
             if let current = snapshot {
                 publish(phase: .failed, snapshot: current, failure: message)
+            } else if var current = conversationSnapshot {
+                current.phase = .failed
+                current.failureMessage = message
+                publishConversation(current)
             }
             throw ChatError.transport(message)
         }
@@ -138,6 +147,9 @@ public extension LocalBridgeAudioCallService {
             },
             remoteMuted: { [weak self] muted in
                 await self?.receiveRemoteMuted(muted, id: id, scope: scope)
+            },
+            participants: { [weak self] participants in
+                await self?.receiveParticipants(participants, id: id, scope: scope)
             }
         )
         try checkCall(id, scope: scope)

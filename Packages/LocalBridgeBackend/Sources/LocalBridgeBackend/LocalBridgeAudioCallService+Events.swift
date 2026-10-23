@@ -19,6 +19,7 @@ extension LocalBridgeAudioCallService {
             let next = AudioCallSnapshot(
                 id: UUID(), recipient: Self.recipient(person), direction: .incoming, phase: .incoming
             )
+            conversationSnapshot = nil
             snapshot = next
             continuation.yield(.snapshot(next))
         case .cleared, .remoteEnded:
@@ -34,6 +35,10 @@ extension LocalBridgeAudioCallService {
     }
 
     func receiveNative(_ state: MeetNativeCallState, id: UUID, scope: UUID) {
+        if conversationSnapshot?.id == id {
+            receiveConversationNative(state, id: id, scope: scope)
+            return
+        }
         guard let current = snapshot, current.id == id, callScope == scope, !isStopping else { return }
         switch state {
         case .ready: break
@@ -49,6 +54,11 @@ extension LocalBridgeAudioCallService {
         case let .endedUnconfirmed(reason, cleanup):
             receiveEnd(reason, cleanup: cleanup, current: current)
         }
+    }
+
+    func receiveParticipants(_ participants: [CallParticipantDevice]?, id: UUID, scope: UUID) {
+        guard currentCallID == id, callScope == scope, !isStopping else { return }
+        continuation.yield(.participantsChanged(callID: id, participants: participants))
     }
 
     /// The other person's microphone, as the native session last read it.
@@ -84,6 +94,10 @@ extension LocalBridgeAudioCallService {
     }
 
     public func setMuted(_ muted: Bool, callID: UUID) async throws {
+        if conversationSnapshot?.id == callID {
+            try await setConversationMuted(muted, callID: callID)
+            return
+        }
         guard let current = snapshot, current.id == callID,
               current.phase == .connected || current.phase == .ringing,
               let media, !isStopping else { throw CancellationError() }

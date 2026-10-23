@@ -14,15 +14,21 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
 
     var peer: LKRTCPeerConnection?
     let isPresentation: Bool
+    let presentationDevice: NativePresentationAudioDevice?
+    private let sharesSystemAudio: Bool
+    var presentationAudio: NativePresentationAudioDevice? {
+        sharesSystemAudio ? presentationDevice : nil
+    }
+
     var screenRoute: NativeCallScreenSharing?
     var screenScope: UUID?
     var presentationEnded: (() -> Void)?
-    private var audioDevices: CallAudioDeviceController?
-    private var audioRoute: NativeCallAudioRouting?
-    private var audioRouteScope: UUID?
-    private var audio: LKRTCAudioTrack?
-    private var audioSender: LKRTCRtpSender?
-    private var bootstrapChannel: LKRTCDataChannel?
+    var audioDevices: CallAudioDeviceController?
+    var audioRoute: NativeCallAudioRouting?
+    var audioRouteScope: UUID?
+    var audio: LKRTCAudioTrack?
+    var audioSender: LKRTCRtpSender?
+    var bootstrapChannel: LKRTCDataChannel?
     var controlChannel: LKRTCDataChannel?
     var expectedControlChannel: String?
     var generation = UUID()
@@ -34,13 +40,13 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     var videoScope: UUID?
     var isNegotiating = false
     private var connectionState: LKRTCPeerConnectionState = .new
-    private var muted = false
+    var muted = false
     var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
     private var recoveryMonitor: CallMediaRecoveryMonitor?
     private let microphoneAccess: @MainActor @Sendable () async -> Bool
 
     public init(
-        presentation: Bool = false,
+        presentation: Bool = false, sharingSystemAudio: Bool = false,
         audioDevices: CallAudioDeviceController? = nil,
         videoController: CallVideoController? = nil,
         microphoneAccess: @escaping @MainActor @Sendable () async -> Bool = {
@@ -48,11 +54,17 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         }
     ) {
         isPresentation = presentation
-        muted = presentation
+        presentationDevice = presentation ? NativePresentationAudioDevice() : nil
+        sharesSystemAudio = presentation && sharingSystemAudio
+        muted = presentation && !sharingSystemAudio
         self.audioDevices = audioDevices
         self.videoController = videoController
         self.microphoneAccess = microphoneAccess
         super.init()
+    }
+
+    public var sendsPresentationAudio: Bool {
+        presentationAudio != nil
     }
 
     public var isConnected: Bool {
@@ -180,6 +192,7 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         let ended = presentationEnded
         presentationEnded = nil
         ended?()
+        presentationDevice?.suppress()
         screenRoute?.suppress()
         if let screenScope {
             videoController?.screenSharing.clear(ifCurrent: screenScope)
@@ -225,72 +238,6 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     func check(_ expected: UUID) throws {
         try Task.checkCancellation()
         guard generation == expected else { throw CallMediaError.closed }
-    }
-
-    private static func audioCryptoOptions() -> LKRTCCryptoOptions {
-        LKRTCCryptoOptions(
-            srtpEnableGcmCryptoSuites: true, srtpPreferGcmCryptoSuites: true,
-            srtpEnableAes128Sha1_32CryptoCipher: false, srtpEnableAes128Sha1_80CryptoCipher: true,
-            srtpEnableEncryptedRtpHeaderExtensions: false, sframeRequireFrameEncryption: false
-        )
-    }
-
-    private func preparePeer(
-        serverControlChannel: String?
-    ) throws -> (LKRTCPeerConnection, LKRTCMediaConstraints) {
-        let factory = LKRTCPeerConnectionFactory(
-            audioDeviceModuleType: .platformDefault, bypassVoiceProcessing: false,
-            encoderFactory: supportsVideo ? LKRTCDefaultVideoEncoderFactory() : nil,
-            decoderFactory: supportsVideo ? LKRTCDefaultVideoDecoderFactory() : nil,
-            audioProcessingModule: nil
-        )
-        if !isPresentation {
-            let route = NativeCallAudioRouting(factory: factory)
-            audioRoute = route
-            audioRouteScope = audioDevices?.install(route)
-        }
-        let configuration = LKRTCConfiguration()
-        configuration.sdpSemantics = .unifiedPlan
-        configuration.bundlePolicy = .maxBundle
-        configuration.rtcpMuxPolicy = .require
-        configuration.cryptoOptions = Self.audioCryptoOptions()
-        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        guard let connection = factory.peerConnection(
-            with: configuration, constraints: constraints, delegate: self
-        ) else { throw CallMediaError.negotiationFailed }
-        peer = connection
-        expectedControlChannel = serverControlChannel
-        if isPresentation {
-            let receiving = LKRTCRtpTransceiverInit()
-            receiving.direction = .recvOnly
-            guard connection.addTransceiver(of: .audio, init: receiving) != nil else {
-                throw CallMediaError.negotiationFailed
-            }
-        } else {
-            let track = factory.audioTrack(withTrackId: UUID().uuidString)
-            track.isEnabled = !muted
-            audio = track
-            guard let sender = connection.add(track, streamIds: [UUID().uuidString]) else {
-                throw CallMediaError.negotiationFailed
-            }
-            audioSender = sender
-        }
-        try Self.configureAudioCodecs(connection, factory: factory)
-        try prepareVideo(factory: factory, peer: connection)
-        if serverControlChannel != nil {
-            // The browser also creates an ignored channel before its
-            // initial offer, enabling the bundled SCTP m-line. The real
-            // push channel arrives later from the server via DCEP.
-            let channelConfig = LKRTCDataChannelConfiguration()
-            channelConfig.isOrdered = true
-            channelConfig.isNegotiated = false
-            guard let channel = connection.dataChannel(forLabel: "ignored", configuration: channelConfig)
-            else {
-                throw CallMediaError.negotiationFailed
-            }
-            bootstrapChannel = channel
-        }
-        return (connection, constraints)
     }
 
     func setDescription(_ sdp: String, local: Bool, connection: LKRTCPeerConnection) async throws {

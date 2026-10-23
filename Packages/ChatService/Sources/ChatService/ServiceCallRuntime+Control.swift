@@ -6,10 +6,10 @@ extension ServiceCallRuntime {
     func control(_ request: ControlCall, session: ClientSessionID) async throws -> ServiceCallState {
         try checkActive()
         try validateSource(request)
-        guard request.recipient == nil || request.action == "start",
+        guard request.recipient == nil || ["start", "join"].contains(request.action),
               request.muted == nil || request.action == "mute" else { throw ServiceFailure.invalidRequest }
         switch request.action {
-        case "start", "accept", "decline", "restart", "pause":
+        case "start", "join", "accept", "decline", "restart", "pause":
             guard !controlling else { throw ServiceFailure.deviceBusy }
             controlling = true
             defer { controlling = false }
@@ -32,7 +32,8 @@ extension ServiceCallRuntime {
     }
 
     func validateSource(_ request: ControlCall) throws {
-        guard ["start", "accept", "decline", "restart", "pause", "hangUp", "mute"].contains(request.action)
+        guard ["start", "join", "accept", "decline", "restart", "pause", "hangUp", "mute"]
+            .contains(request.action)
         else {
             throw ServiceFailure.unsupportedOperation
         }
@@ -50,7 +51,7 @@ extension ServiceCallRuntime {
         }
         guard let id = request.callID else { throw ServiceFailure.invalidRequest }
         switch request.action {
-        case "start":
+        case "start", "join":
             try await startOutgoing(request, id: id, session: session)
         case "accept": try await acceptIncoming(id: id, session: session)
         case "decline":
@@ -80,7 +81,7 @@ extension ServiceCallRuntime {
     }
 
     private func restart(_ request: ControlCall) async throws {
-        guard request.callID == nil, reserved == nil, state.call?.phase.isTerminal != false else {
+        guard request.callID == nil, reserved == nil, state.currentPhase?.isTerminal != false else {
             throw ServiceFailure.deviceBusy
         }
         if !recoveryPaused {
@@ -94,7 +95,11 @@ extension ServiceCallRuntime {
     }
 
     private func startOutgoing(_ request: ControlCall, id: UUID, session: ClientSessionID) async throws {
-        guard state.call?.phase.isTerminal != false, reserved == nil,
+        if request.action == "join",
+           state.supportsExistingJoin != true || !(source is any ExistingAudioCallService) {
+            throw ServiceFailure.unsupportedOperation
+        }
+        guard state.currentPhase?.isTerminal != false, reserved == nil,
               !recoveryPaused,
               let hint = request.recipient,
               let recipient = state.recipients.first(where: {
@@ -103,17 +108,26 @@ extension ServiceCallRuntime {
         guard !used.contains(id) else { throw ServiceFailure.operationConflict }
         guard used.count < 1024 else { throw ServiceFailure.overloaded }
         try await reserve(id, session: session)
-        guard state.call?.phase.isTerminal != false else {
+        guard state.currentPhase?.isTerminal != false else {
             await releaseReservation()
             throw ServiceFailure.deviceBusy
         }
         used.insert(id)
+        state.participants = nil
+        state.conversationCall = nil
         state.call = .init(id: id, recipient: recipient, direction: .outgoing, phase: .connecting)
         publish()
-        try await source.startOutgoing(to: recipient, callID: id)
+        if request.action == "join" {
+            guard let joining = source as? any ExistingAudioCallService else {
+                throw ServiceFailure.unsupportedOperation
+            }
+            try await joining.joinExisting(to: recipient, callID: id)
+        } else {
+            try await source.startOutgoing(to: recipient, callID: id)
+        }
     }
 
-    private func reserve(_ id: UUID, session: ClientSessionID) async throws {
+    func reserve(_ id: UUID, session: ClientSessionID) async throws {
         try await reservations.acquire(device, owner: .init(runtime: identity, call: id))
         do {
             try checkActive()

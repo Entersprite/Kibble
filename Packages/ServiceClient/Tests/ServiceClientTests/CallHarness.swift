@@ -27,7 +27,9 @@ actor CallProviders: AccountProviderFactory {
                     account.selfID,
                     .init("peer")
                 ]
-            )], messages: [], startedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            ), Conversation(id: .init("group"), kind: .groupDirectMessage, title: "Test group", members: [
+                account.selfID, .init("peer"), .init("third")
+            ])], messages: [], startedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
         let calls = await MainActor.run {
             [

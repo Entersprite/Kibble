@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 
@@ -6,6 +7,7 @@ import GChatBridgeCore
 actor NativeMeetCallSession {
     let client: MeetCallClient
     let device: MeetDeviceSession
+    let staysWhenAlone: Bool
     let media: any CallMediaEngine
     let now: @Sendable () -> ContinuousClock.Instant
     let validateAccount: @Sendable () async throws -> Void
@@ -27,6 +29,12 @@ actor NativeMeetCallSession {
     var verifiedAloneDeviceVersion: UInt64?
     var invitationVersion: UInt64?
     var outgoingInvitationStatus: UInt64?
+    var participantLocalDevice: String?
+    var participantMutes: [String: Bool] = [:]
+    var publishedParticipants: [CallParticipantDevice]?
+    var participantHandles: [String: UUID] = [:]
+    var participantDevices: [String: MeetDeviceWire.Device] = [:]
+    var receiveParticipants: (@Sendable ([CallParticipantDevice]?) async -> Void)?
     var peerJoined = false
     var localObserved = false
     var invitationSeen = false
@@ -47,6 +55,9 @@ actor NativeMeetCallSession {
     var videoContext: MeetVideoStreamWire.Context?
     var videoConfiguration: Data?
     var receivingVideo: MeetVideoStreamWire.Downstream?
+    var receivingVideos: [MeetVideoStreamWire.Downstream?] = []
+    var viewedVideos: [MeetVideoStreamWire.Downstream] = []
+    var receivingVideoCapacity = 1
     var videoPoll: Task<Void, Never>?
     var cameraMuted = true
     var viewedVideo: MeetVideoStreamWire.Downstream?
@@ -60,19 +71,16 @@ actor NativeMeetCallSession {
 
     init(
         client: MeetCallClient, call: MeetResolvedCall, media: any CallMediaEngine,
+        staysWhenAlone: Bool = false,
         validateAccount: @escaping @Sendable () async throws -> Void,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
     ) {
         self.client = client
         device = MeetDeviceSession(client: client, call: call)
         self.media = media
+        self.staysWhenAlone = staysWhenAlone
         self.validateAccount = validateAccount
         self.now = now
-    }
-
-    func takeReport() -> [String] {
-        defer { lines.removeAll() }
-        return lines
     }
 
     func connect() async throws {
@@ -156,6 +164,8 @@ actor NativeMeetCallSession {
         videoSource = nil
         videoConfiguration = nil
         receivingVideo = nil
+        receivingVideos = []
+        viewedVideos = []
         viewedVideo = nil
         mediaSessionName = ""
         await stopPresentation()
@@ -237,6 +247,8 @@ actor NativeMeetCallSession {
         videoSource = nil
         videoConfiguration = nil
         receivingVideo = nil
+        receivingVideos = []
+        viewedVideos = []
         viewedVideo = nil
         mediaSessionName = ""
         await cleanup()

@@ -3,6 +3,17 @@ import Testing
 @testable import GChatBridgeCore
 
 struct MeetCallWireTests {
+    @Test func quietConversationResolveIsDistinctFromDirectedDMResolution() throws {
+        let body = try MeetCallWire.resolveConversation(groupID: "synthetic-group")
+        #expect(ProtoFieldScan.varintValues(ofField: 1, in: body) == [0])
+        #expect(ProtoFieldScan.varintValues(ofField: 2, in: body) == [2])
+        #expect(ProtoFieldScan.payloads(ofField: 7, in: body) == [Data("synthetic-group".utf8)])
+        #expect(try body != (MeetCallWire.resolve(dmID: "synthetic-group")))
+        #expect(throws: MeetCallWire.WireError.invalidIdentifier) {
+            try MeetCallWire.resolveConversation(groupID: "space/prefixed")
+        }
+    }
+
     @Test func resolveRequestHasTheCapturedFieldOrderAndValues() throws {
         let body = try MeetCallWire.resolve(dmID: "dm_123")
         #expect(body == Data([0x08, 0x02, 0x10, 0x01, 0x3A, 0x06]) + Data("dm_123".utf8))

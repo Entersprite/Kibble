@@ -1052,10 +1052,17 @@ message GroupId {
 }
 
 // The meeting integration envelope shared by Group29 and WorldItemLite17.
-// Only the calendar payload used by meeting chats is described here.
+// Call availability and calendar payloads are independent of transcript cards.
 message SpaceIntegrationPayload {
 	optional int32 type = 1;
+	optional CallSpaceIntegrationPayload call_integration_payload = 105;
 	optional MeetingChatIntegration meeting_chat = 107;
+}
+
+message CallSpaceIntegrationPayload {
+	optional CallMetadata call_metadata = 1;
+	optional int32 call_status = 2;
+	optional ComGoogleProtobufTimestamp participant_list_revision_timestamp = 3;
 }
 
 message MeetingChatIntegration {
@@ -2268,9 +2275,23 @@ message MeetingSpace {
 }
 
 // Call history annotations. Raw enum values preserve future statuses.
+message CallMeetMetadata {
+    optional string meeting_code = 1;
+    optional string meeting_url = 2;
+    optional int32 meeting_type = 3;
+    optional string conference_name = 4;
+}
+
+message CallMetadata {
+    optional CallMeetMetadata meet_metadata = 1;
+}
+
 message CallAnnotationData {
+    optional CallMetadata call_metadata = 1;
     // 0 unspecified, 1 started, 2 missed, 3 ended.
     optional int32 call_status = 2;
+    optional ComGoogleProtobufTimestamp call_ended_timestamp = 3;
+    optional ComGoogleProtobufTimestamp participant_list_revision_timestamp = 4;
 }
 
 message GsuiteIntegrationMetadata {

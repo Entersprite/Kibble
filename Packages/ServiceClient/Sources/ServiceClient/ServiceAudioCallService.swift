@@ -4,7 +4,7 @@ import Foundation
 
 /// A device-scoped API facade. Stopping this observer does not stop service media.
 @MainActor
-public final class ServiceAudioCallService: AudioCallService {
+public final class ServiceAudioCallService: ExistingAudioCallService, ConversationAudioCallService {
     public let events: AsyncStream<AudioCallEvent>
     private let sink: AsyncStream<AudioCallEvent>.Continuation
     private let client: AccountClient
@@ -58,6 +58,45 @@ public final class ServiceAudioCallService: AudioCallService {
 
     public func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {
         try await control(.init(action: "start", callID: callID, recipient: recipient))
+    }
+
+    public var canJoinExistingCalls: Bool {
+        !projection.isConnectionUnavailable && projection.currentState?.supportsExistingJoin == true
+    }
+
+    public func joinExisting(to recipient: AudioCallRecipient, callID: UUID) async throws {
+        try await control(.init(action: "join", callID: callID, recipient: recipient))
+    }
+
+    public var canCallConversations: Bool {
+        !projection.isConnectionUnavailable && projection.currentState?.supportsConversationCalls == true
+    }
+
+    public func startConversationCall(to target: ConversationCallTarget, callID: UUID) async throws {
+        try await controlConversation("start", target: target, id: callID)
+    }
+
+    public func joinConversationCall(to target: ConversationCallTarget, callID: UUID) async throws {
+        try await controlConversation("join", target: target, id: callID)
+    }
+
+    private func controlConversation(
+        _ action: String,
+        target: ConversationCallTarget,
+        id: UUID
+    ) async throws {
+        let epoch = generation
+        if sourceID == nil {
+            try await receive(read(after: nil, wait: 0))
+        }
+        try check(epoch)
+        guard let sourceID else { throw ServiceFailure.staleCallSource }
+        let request = ControlConversationCall(
+            action: action, conversationID: target.conversationID, callID: id, sourceID: sourceID
+        )
+        let result = try await client.call(request, account: account, revision: revision)
+        try check(epoch)
+        try receive(result)
     }
 
     public func accept(callID: UUID) async throws {

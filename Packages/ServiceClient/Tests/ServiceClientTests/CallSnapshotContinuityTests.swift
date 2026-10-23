@@ -40,6 +40,39 @@ struct CallSnapshotContinuityTests {
         #expect(snapshots.first?.phase.isTerminal == true)
     }
 
+    @Test func aGroupPresentationRetiresBeforeTheNextDMAndNewEpochFailureIsExplicit() throws {
+        var projection = ServiceCallStateProjection()
+        let source = UUID().uuidString
+        let group = ConversationCallSnapshot(
+            id: UUID(), target: .init(conversationID: .init("group"), displayName: "Group"), phase: .connected
+        )
+        let person = CallParticipantDevice(id: UUID(), displayName: "Test person")
+        _ = try projection.accept(.init(
+            version: source + ":1",
+            conversationCall: group,
+            participants: [person]
+        ))
+        let next = call(phase: .incoming)
+        let events = try projection.accept(.init(version: source + ":4", call: next))
+        #expect(events.contains {
+            if case let .conversationSnapshot(value) = $0 {
+                value.id == group.id && value.phase == .ended
+            } else {
+                false
+            }
+        })
+        #expect(events.contains(.snapshot(next)))
+        _ = try projection.accept(.init(version: source + ":5", conversationCall: group))
+        let replaced = try projection.accept(.init(version: UUID().uuidString + ":1"))
+        #expect(replaced.contains {
+            if case let .conversationSnapshot(value) = $0 {
+                value.id == group.id && value.phase == .failed
+            } else {
+                false
+            }
+        })
+    }
+
     private func call(phase: AudioCallPhase) -> AudioCallSnapshot {
         .init(id: UUID(), recipient: .init(
             conversationID: .init("conversation"), memberID: .init("peer"), displayName: "Peer"

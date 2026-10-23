@@ -10,7 +10,7 @@ extension AccountRuntime {
         epoch: UUID
     ) async throws -> JSONValue {
         switch request.operation {
-        case ReadCallState.operation, ControlCall.operation:
+        case ReadCallState.operation, ControlCall.operation, ControlConversationCall.operation:
             guard let context else { throw ServiceFailure.notAuthorized }
             return try await dispatchCalls(request, context: context, backend: backend, epoch: epoch)
         case BeginDownloadTransfer.operation, GetDownloadTransfer.operation:
@@ -19,7 +19,8 @@ extension AccountRuntime {
              FinalizeUploadTransfer.operation, CancelTransfer.operation:
             return try await dispatchUpload(request, backend: backend, context: context, epoch: epoch)
         case GetCapabilities.operation, LoadConversations.operation, LoadMessages.operation,
-             SearchPeople.operation, SearchMessages.operation, LoadFollowedThreads.operation:
+             SearchPeople.operation, SearchMessages.operation, LoadFollowedThreads.operation,
+             ReadCallHistory.operation, GetCallAvailability.operation:
             return try await dispatchQueries(request, backend: backend, epoch: epoch)
         case GetConversationDetails.operation, GetParticipants.operation, BrowseSpaces.operation,
              GetConversationPreview.operation, GetMembership.operation, LoadThread.operation,
@@ -35,6 +36,14 @@ extension AccountRuntime {
 
     func installedCapabilities(from backend: any ChatBackend) -> Capabilities {
         var capabilities = backend.capabilities
+        if !(backend is any CallDiscoveryBackend) {
+            capabilities.extendedFlags.remove("callDiscovery")
+        }
+        if storage is any ServiceCallHistoryStorage {
+            capabilities.extendedFlags.insert("callHistory")
+        } else {
+            capabilities.extendedFlags.remove("callHistory")
+        }
         if !(backend is any BoundedMediaBackend) || !(transferStorage is any ServiceDownloadStorage) ||
             !(storage is any ServiceMediaCatalog) {
             capabilities.canFetchAttachments = false

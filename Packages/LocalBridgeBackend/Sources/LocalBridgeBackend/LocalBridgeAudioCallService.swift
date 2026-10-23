@@ -12,6 +12,11 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
     var people: [UUID: MeetDMCallPerson] = [:]
     var incoming: MeetIncomingDMCalls?
     var snapshot: AudioCallSnapshot?
+    var conversationSnapshot: ConversationCallSnapshot?
+    var currentCallID: UUID? {
+        conversationSnapshot?.id ?? snapshot?.id
+    }
+
     var incomingHandle: UUID?
     var media: (any CallMediaEngine)?
     var loading: Task<Void, any Error>?
@@ -156,7 +161,12 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
         if let snapshot {
             publish(phase: .ended, snapshot: snapshot)
         }
+        if var call = conversationSnapshot {
+            call.phase = .ended
+            publishConversation(call)
+        }
         snapshot = nil
+        conversationSnapshot = nil
         continuation.yield(.recipientsChanged([]))
     }
 
@@ -167,7 +177,7 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
 
     func checkCall(_ id: UUID, scope: UUID) throws {
         try Task.checkCancellation()
-        guard snapshot?.id == id, callScope == scope, !isStopping else { throw CancellationError() }
+        guard currentCallID == id, callScope == scope, !isStopping else { throw CancellationError() }
     }
 
     static func recipient(_ person: MeetDMCallPerson) -> AudioCallRecipient {
@@ -190,6 +200,9 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
     }
 
     var hasCall: Bool {
+        if let call = conversationSnapshot {
+            return !call.phase.isTerminal
+        }
         guard let snapshot else { return false }
         switch snapshot.phase {
         case .ended, .failed, .declined: return false

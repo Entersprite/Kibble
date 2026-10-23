@@ -5,7 +5,7 @@ public extension LocalBridgeAudioCallService {
     /// Owner-requested diagnostics for exactly the current call. The host's
     /// media report contains fixed aggregate labels, never signaling data.
     func diagnosticReport(callID: UUID) async -> String? {
-        guard snapshot?.id == callID, !isStopping, !Task.isCancelled else { return nil }
+        guard currentCallID == callID, !isStopping, !Task.isCancelled else { return nil }
         let session = sessionScope
         let call = callScope
         let engine = media
@@ -14,12 +14,14 @@ public extension LocalBridgeAudioCallService {
               let native else { return nil }
         let audio = await engine?.diagnosticReport() ?? []
         guard diagnosticMatches(callID, session: session, call: call, engine: engine),
-              let current = snapshot else { return nil }
+              let phase = conversationSnapshot?.phase ?? snapshot?.phase,
+              let muted = conversationSnapshot?.isMuted ?? snapshot?.isMuted else { return nil }
+        let direction = snapshot?.direction ?? .outgoing
         let header = [
             "Kibble audio call diagnostics",
-            "Call phase: \(Self.diagnosticPhase(current.phase))",
-            "Call direction: \(Self.diagnosticDirection(current.direction))",
-            "Call mute requested: \(current.isMuted)",
+            "Call phase: \(Self.diagnosticPhase(phase))",
+            "Call direction: \(Self.diagnosticDirection(direction))",
+            "Call mute requested: \(muted)",
             "Native microphone muted: \(engine.map { String($0.isMicrophoneMuted) } ?? "unavailable")"
         ]
         return (header + [native] + audio).joined(separator: "\n")
@@ -30,7 +32,7 @@ private extension LocalBridgeAudioCallService {
     func diagnosticMatches(
         _ id: UUID, session: UUID, call: UUID, engine: (any CallMediaEngine)?
     ) -> Bool {
-        !Task.isCancelled && !isStopping && snapshot?.id == id
+        !Task.isCancelled && !isStopping && currentCallID == id
             && sessionScope == session && callScope == call && media === engine
     }
 

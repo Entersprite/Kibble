@@ -8,7 +8,8 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct CallControlTests {
-    @Test func membershipChangingWhileAdmissionIsHeldCannotDispatchAStaleInvitation() async throws {
+    @Test(arguments: ["start", "join"])
+    func membershipChangingWhileAdmissionIsHeldCannotDispatchAStaleInvitation(action: String) async throws {
         let harness = try await CallHarness.make(heldMembership: true)
         let account = harness.accounts[0]
         let recipient = try #require(try await harness.read(account).recipients.first)
@@ -17,7 +18,7 @@ struct CallControlTests {
         let command = Task {
             try await harness.client().call(
                 ControlCall(
-                    action: "start",
+                    action: action,
                     callID: UUID(),
                     recipient: recipient,
                     sourceID: harness.read(account, device: "one").sourceID

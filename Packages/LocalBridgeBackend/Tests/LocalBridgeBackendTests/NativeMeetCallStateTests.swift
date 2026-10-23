@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 import Synchronization
@@ -25,6 +26,24 @@ struct NativeMeetCallStateTests {
         let report = await session.takeReport().joined(separator: "\n")
         #expect(!report.contains("spaces/demo"))
         #expect(!report.contains("40;left"))
+    }
+
+    @Test func aGroupStaysConnectedAloneButStillEndsWhenItsOwnDeviceIsRemoved() async throws {
+        let replies = Array(NativeMeetFixture.responses().prefix(4)) + [
+            snapshot(1, []), snapshot(2, [("peer", 1)]), snapshot(3, []), snapshot(4, [], localState: 7)
+        ] + Array(NativeMeetFixture.responses().suffix(1))
+        let transport = ScriptedTransport(replies)
+        let media = NativeFakeMedia()
+        let session = try await NativeMeetFixture.session(transport, media: media, staysWhenAlone: true)
+        try await session.connect()
+        for _ in 0 ..< 3 {
+            await session.refreshState()
+            #expect(await session.state == .active)
+            #expect(!media.calls.contains("close"))
+        }
+        await session.refreshState()
+        #expect(await session.state == .ended(.deviceEnded))
+        #expect(media.calls.filter { $0 == "close" }.count == 1)
     }
 
     @Test func staleOrUnmodifiedCollectionsAndCheckFailuresCannotInventRemoteHangup() async throws {
@@ -236,6 +255,35 @@ struct NativeMeetCallStateTests {
         #expect(await setup.session.state == .ended(.remoteEnded))
     }
 
+    @Test func rosterUsesLocalHandlesAndScreenParentageAndDropsUnavailableState() async throws {
+        let own = NativeMeetFixture.string(1, "spaces/demo/devices/one") + NativeMeetFixture.number(4, 1)
+        let peer = NativeMeetFixture.string(1, "spaces/demo/devices/peer") + NativeMeetFixture.number(4, 1)
+            + NativeMeetFixture.string(2, "Test person")
+        let screen = NativeMeetFixture.string(1, "spaces/demo/devices/screen") + NativeMeetFixture.number(
+            4,
+            1
+        )
+            + NativeMeetFixture.string(21, "spaces/demo/devices/peer") + NativeMeetFixture.number(25, 2)
+        let full = NativeMeetFixture.bytes(1, NativeMeetFixture.number(1, 1))
+            + [own, peer, screen].reduce(Data()) { $0 + NativeMeetFixture.bytes(2, $1) }
+        let setup = try await setup([
+            NativeMeetFixture.ok(NativeMeetFixture.bytes(2, NativeMeetFixture.bytes(2, full))),
+            .success(HTTPResponse(status: 503, headers: HTTPHeaders([]), body: Data()))
+        ])
+        let mailbox = ParticipantMailbox()
+        await setup.session.setParticipantHandler { await mailbox.record($0) }
+        try await setup.session.connect()
+        await setup.session.refreshState()
+        let people = try #require(await mailbox.current)
+        #expect(people.count == 3)
+        let person = try #require(people.first { $0.displayName == "Test person" })
+        #expect(people.first { $0.isPresentation }?.parentID == person.id)
+        #expect(people.filter(\.isLocal).count == 1)
+        await setup.session.refreshState()
+        #expect(await mailbox.current == nil)
+        await setup.session.close()
+    }
+
     private struct Setup {
         let session: NativeMeetCallSession
         let transport: ScriptedTransport
@@ -301,5 +349,46 @@ private final class CallTestClock: Sendable {
 
     func advance(_ duration: Duration) {
         instant.withLock { $0 = $0.advanced(by: duration) }
+    }
+}
+
+private actor ParticipantMailbox {
+    var current: [CallParticipantDevice]?
+    func record(_ value: [CallParticipantDevice]?) {
+        current = value
+    }
+}
+
+private actor NativeStateMailbox {
+    var values: [MeetNativeCallState] = []
+    func record(_ value: MeetNativeCallState) {
+        values.append(value)
+    }
+}
+
+extension NativeMeetCallStateTests {
+    @Test func closingFromARosterRecoveryCallbackCannotPublishActiveAfterTermination() async throws {
+        let setup = try await setup([
+            snapshot(1, [("peer", 1)]),
+            .success(HTTPResponse(status: 503, headers: HTTPHeaders([]), body: Data())),
+            snapshot(1, [("peer", 1)])
+        ])
+        let session = setup.session
+        let states = NativeStateMailbox()
+        try await session.connect()
+        await session.startMonitoring { await states.record($0) }
+        let monitor = await session.monitor
+        monitor?.cancel(); await monitor?.value
+        await session.refreshState()
+        await session.refreshState()
+        #expect(await session.state == .stateUnavailable)
+        await session.setParticipantHandler { [weak session] value in
+            if value != nil {
+                await session?.close()
+            }
+        }
+        await session.refreshState()
+        #expect(await states.values.last == .ended(.localEnded))
+        #expect(await session.state == .ended(.localEnded))
     }
 }

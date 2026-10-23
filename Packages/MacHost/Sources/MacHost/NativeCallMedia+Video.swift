@@ -24,6 +24,21 @@ public extension NativeCallMedia {
         }
     }
 
+    func showRemoteVideos(_ slots: [CallRemoteVideoSlot]) {
+        guard let videoScope, let video else { return }
+        let tracks: [CallRemoteVideoTrack] = slots.compactMap { slot in
+            guard video.receivers.indices.contains(slot.index),
+                  let track = video.receivers[slot.index].receiver.track as? LKRTCVideoTrack
+            else { return nil }
+            return CallRemoteVideoTrack(
+                index: slot.index, track: track, isPresentation: slot.isPresentation,
+                isVisible: slot.isVisible,
+                participantID: slot.participantID, displayName: slot.displayName
+            )
+        }
+        videoController?.showRemotes(tracks, ifCurrent: videoScope)
+    }
+
     func showRemotePresentation(_ visible: Bool) {
         guard let videoScope else { return }
         videoController?.showPresentation(visible, ifCurrent: videoScope)

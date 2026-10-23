@@ -31,13 +31,17 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
     }
 
     func start() async throws -> Bool {
+        try await start(sharingAudio: false)
+    }
+
+    func start(sharingAudio: Bool) async throws -> Bool {
         guard child == nil, stream == nil, selection == nil else { throw CallMediaError.busy }
         cleanupConfirmed = true
         let revision = revision
         guard let selected = try await pick() else { return false }
         let filter = await Self.excludingCallSurfaces(selected.filter)
         try check(revision)
-        let child = NativeCallMedia(presentation: true)
+        let child = NativeCallMedia(presentation: true, sharingSystemAudio: sharingAudio)
         self.child = child
         child.presentationEnded = { [weak self, weak child] in
             guard let self, let child, self.child === child else { return }
@@ -47,14 +51,19 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         try await startPresenter(child)
         try check(revision)
         guard let video = child.video else { throw CallMediaError.negotiationFailed }
-        let configuration = Self.configuration(filter)
-        let output = NativeScreenOutput(source: video.source)
+        let configuration = Self.configuration(filter, sharingAudio: sharingAudio)
+        let output = NativeScreenOutput(source: video.source, audio: child.presentationAudio)
         self.output = output
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         self.stream = stream
         try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: DispatchQueue(
             label: "com.entersprite.kibble.presentation-frames", qos: .userInitiated
         ))
+        if sharingAudio {
+            try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: DispatchQueue(
+                label: "com.entersprite.kibble.presentation-audio", qos: .userInitiated
+            ))
+        }
         try await stream.startCapture()
         try check(revision)
         output.enable()
@@ -68,6 +77,7 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         preview = nil
         output?.disable()
         child?.video?.suppress()
+        child?.presentationAudio?.suppress()
         if let selection {
             self.selection = nil
             selection.resume(returning: nil)
@@ -91,9 +101,8 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         return cleanupConfirmed
     }
 
-    /// A whole display is shared without Kibble's call window and incoming
-    /// panel, so neither the preview nor the other person sees the call
-    /// window inside itself. Only when Screen Recording access is already
+    /// A whole display is shared without any Kibble window, including windows
+    /// opened after capture starts. Only when Screen Recording access is already
     /// granted: a filter built here is not covered by the picker's one-time
     /// consent, and a permission prompt mid-call is worse than the mirror.
     private static func excludingCallSurfaces(_ filter: SCContentFilter) async -> SCContentFilter {
@@ -101,9 +110,12 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
               let display = filter.includedDisplays.first,
               let own = try? await SCShareableContent.currentProcess
         else { return filter }
-        let surfaces = own.windows.filter { CallSurface.contains(windowNumber: Int($0.windowID)) }
-        guard !surfaces.isEmpty else { return filter }
-        return SCContentFilter(display: display, excludingWindows: surfaces)
+        let applications = own.applications
+            .filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+        guard !applications.isEmpty else { return filter }
+        // Excluding the application also covers windows opened after sharing
+        // starts, including the main chat/settings window and share preview.
+        return SCContentFilter(display: display, excludingApplications: applications, exceptingWindows: [])
     }
 
     private func check(_ expected: Int) throws {
@@ -116,6 +128,9 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         var configuration = SCContentSharingPickerConfiguration()
         configuration.allowedPickerModes = [.singleWindow, .singleDisplay]
         configuration.allowsChangingSelectedContent = false
+        if let bundle = Bundle.main.bundleIdentifier {
+            configuration.excludedBundleIDs = [bundle]
+        }
         picker.defaultConfiguration = configuration
         picker.maximumStreamCount = 1
         let revision = revision
@@ -155,7 +170,10 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         SCContentSharingPicker.shared.isActive = false
     }
 
-    private static func configuration(_ filter: SCContentFilter) -> SCStreamConfiguration {
+    private static func configuration(
+        _ filter: SCContentFilter,
+        sharingAudio: Bool
+    ) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
         let size = filter.contentRect.size
         let ratio = size.width > 0 && size.height > 0 ? size.width / size.height : 16.0 / 9.0
@@ -167,7 +185,10 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         configuration.queueDepth = 3
         configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         configuration.showsCursor = true
-        configuration.capturesAudio = false
+        configuration.capturesAudio = sharingAudio
+        configuration.excludesCurrentProcessAudio = true
+        configuration.sampleRate = 48000
+        configuration.channelCount = 2
         configuration.captureMicrophone = false
         return configuration
     }
@@ -189,20 +210,24 @@ extension NativeCallScreenSharing: SCStreamDelegate {
 private final class NativeScreenOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let source: LKRTCVideoSource
     private let capturer: LKRTCVideoCapturer
+    private let audio: NativePresentationAudioDevice?
     private let lock = NSLock()
     private var enabled = false
 
-    init(source: LKRTCVideoSource) {
+    init(source: LKRTCVideoSource, audio: NativePresentationAudioDevice?) {
+        self.audio = audio
         self.source = source
         capturer = LKRTCVideoCapturer(delegate: source)
     }
 
     func enable() {
         lock.lock(); enabled = true; lock.unlock()
+        audio?.enable()
     }
 
     func disable() {
         lock.lock(); enabled = false; lock.unlock()
+        audio?.suppress()
     }
 
     func stream(
@@ -210,6 +235,10 @@ private final class NativeScreenOutput: NSObject, SCStreamOutput, @unchecked Sen
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of outputType: SCStreamOutputType
     ) {
+        if outputType == .audio {
+            audio?.receive(sampleBuffer)
+            return
+        }
         guard outputType == .screen, sampleBuffer.isValid,
               let attachments = CMSampleBufferGetSampleAttachmentsArray(
                   sampleBuffer,

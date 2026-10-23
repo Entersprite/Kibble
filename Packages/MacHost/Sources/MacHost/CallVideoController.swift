@@ -17,6 +17,7 @@ public final class CallVideoController {
     var localTrack: LKRTCVideoTrack?
     var remoteTrack: LKRTCVideoTrack?
     var remoteVisible = false
+    var remoteVideos: [CallRemoteVideoTrack] = []
     var remotePresentation = false
     let screenSharing = CallScreenShareController()
     private var route: (any CallCameraRouting)?
@@ -75,6 +76,7 @@ public final class CallVideoController {
         refresh?.cancel(); refresh = nil
         route?.suppress()
         route = nil
+        remoteVideos = []
         localTrack = nil; remoteTrack = nil; remoteVisible = false; remotePresentation = false; camera = nil
     }
 
@@ -82,6 +84,16 @@ public final class CallVideoController {
         guard expected == scope else { return }
         remoteTrack = track
         remoteVisible = visible
+    }
+
+    func showRemotes(_ tracks: [CallRemoteVideoTrack], ifCurrent expected: UUID) {
+        guard expected == scope else { return }
+        remoteVideos = tracks
+        let preferred = tracks.first(where: { $0.isVisible && $0.isPresentation })
+            ?? tracks.first(where: { $0.isVisible })
+        remoteTrack = preferred?.track
+        remoteVisible = preferred != nil
+        remotePresentation = preferred?.isPresentation ?? false
     }
 
     func showPresentation(_ visible: Bool, ifCurrent expected: UUID) {
@@ -172,4 +184,14 @@ protocol CallCameraRouting: AnyObject {
     func suppress()
     func send(_ enabled: Bool)
     func announce(_ enabled: Bool) async throws
+}
+
+@MainActor
+struct CallRemoteVideoTrack {
+    let index: Int
+    let track: LKRTCVideoTrack
+    let isPresentation: Bool
+    let isVisible: Bool
+    let participantID: UUID?
+    let displayName: String?
 }

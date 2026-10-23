@@ -9,6 +9,7 @@ public enum MeetDeviceWire {
         public let isDeleted: Bool
         public let primaryDevice: String?
         public let captureType: UInt64
+        public let displayName: String?
 
         public var isPresentation: Bool {
             primaryDevice != nil || [2, 3, 4, 5].contains(captureType)
@@ -19,10 +20,11 @@ public enum MeetDeviceWire {
             joinState: UInt64,
             isDeleted: Bool,
             primaryDevice: String? = nil,
-            captureType: UInt64 = 0
+            captureType: UInt64 = 0, displayName: String? = nil
         ) {
             self.name = name; self.joinState = joinState; self.isDeleted = isDeleted
             self.primaryDevice = primaryDevice; self.captureType = captureType
+            self.displayName = displayName
         }
     }
 
@@ -121,12 +123,20 @@ public enum MeetDeviceWire {
             primary = nil
         }
         let capture = try fields.contains(where: { $0.number == 25 }) ? MeetProto.value(25, data) : 0
+        let displayName: String?
+        if fields.contains(where: { $0.number == 2 }) {
+            let text = try MeetProto.text(2, data)
+            guard text.utf8.count <= 1024 else { throw MeetCallWire.WireError.malformedResponse }
+            displayName = text.isEmpty ? nil : text
+        } else {
+            displayName = nil
+        }
         return Device(
             name: name,
             joinState: state,
             isDeleted: deleted,
             primaryDevice: primary,
-            captureType: capture
+            captureType: capture, displayName: displayName
         )
     }
 
@@ -142,7 +152,7 @@ public enum MeetDeviceWire {
         String(name.dropFirst("mediasessions/".count))
     }
 
-    private static func validDevice(_ value: String) -> Bool {
+    static func validDevice(_ value: String) -> Bool {
         let parts = value.components(separatedBy: "/devices/")
         return parts.count == 2 && validSpace(parts[0]) && identifier(parts[1])
     }

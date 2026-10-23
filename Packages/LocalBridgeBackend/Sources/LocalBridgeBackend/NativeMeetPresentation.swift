@@ -62,6 +62,9 @@ actor NativeMeetPresentation {
         stage = .join
         try await device.join()
         try await check()
+        if await media.sendsPresentationAudio {
+            try await registerAudio(offer.audio, session: session.name)
+        }
         try await registerVideo(offer, session: session.name)
         await media.setEventHandler { [weak self] event in
             switch event {
@@ -71,6 +74,23 @@ actor NativeMeetPresentation {
         }
         try await check()
         stage = .ready
+    }
+
+    private func registerAudio(_ offer: MeetAudioOffer, session: String) async throws {
+        guard let conference = await device.conferenceID else { throw CallMediaError.negotiationFailed }
+        let source = try offer.audioSource()
+        let stream = try MeetAudioStreamWire.Stream(
+            mediaSession: session, conferenceID: conference, streamID: "audio"
+        )
+        requestID += 1
+        let request = try MeetAudioStreamWire.register(
+            stream: stream, ssrc: source.ssrc, muted: false,
+            requestID: requestID, requestHeader: client.streamControlHeader()
+        )
+        let reply = try await exchange(request)
+        try MeetAudioStreamWire.confirmRegistration(
+            from: reply, stream: stream, ssrc: source.ssrc, muted: false, requestID: requestID
+        )
     }
 
     private func registerVideo(_ offer: MeetVideoOffer, session: String) async throws {

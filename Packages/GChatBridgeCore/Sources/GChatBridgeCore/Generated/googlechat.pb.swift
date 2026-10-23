@@ -6133,36 +6133,85 @@ public nonisolated struct GroupId: Sendable {
 }
 
 /// The meeting integration envelope shared by Group29 and WorldItemLite17.
-/// Only the calendar payload used by meeting chats is described here.
-public nonisolated struct SpaceIntegrationPayload: Sendable {
+/// Call availability and calendar payloads are independent of transcript cards.
+public nonisolated struct SpaceIntegrationPayload: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var type: Int32 {
-    get {_type ?? 0}
-    set {_type = newValue}
+    get {_storage._type ?? 0}
+    set {_uniqueStorage()._type = newValue}
   }
   /// Returns true if `type` has been explicitly set.
-  public var hasType: Bool {self._type != nil}
+  public var hasType: Bool {_storage._type != nil}
   /// Clears the value of `type`. Subsequent reads from it will return its default value.
-  public mutating func clearType() {self._type = nil}
+  public mutating func clearType() {_uniqueStorage()._type = nil}
+
+  public var callIntegrationPayload: CallSpaceIntegrationPayload {
+    get {_storage._callIntegrationPayload ?? CallSpaceIntegrationPayload()}
+    set {_uniqueStorage()._callIntegrationPayload = newValue}
+  }
+  /// Returns true if `callIntegrationPayload` has been explicitly set.
+  public var hasCallIntegrationPayload: Bool {_storage._callIntegrationPayload != nil}
+  /// Clears the value of `callIntegrationPayload`. Subsequent reads from it will return its default value.
+  public mutating func clearCallIntegrationPayload() {_uniqueStorage()._callIntegrationPayload = nil}
 
   public var meetingChat: MeetingChatIntegration {
-    get {_meetingChat ?? MeetingChatIntegration()}
-    set {_meetingChat = newValue}
+    get {_storage._meetingChat ?? MeetingChatIntegration()}
+    set {_uniqueStorage()._meetingChat = newValue}
   }
   /// Returns true if `meetingChat` has been explicitly set.
-  public var hasMeetingChat: Bool {self._meetingChat != nil}
+  public var hasMeetingChat: Bool {_storage._meetingChat != nil}
   /// Clears the value of `meetingChat`. Subsequent reads from it will return its default value.
-  public mutating func clearMeetingChat() {self._meetingChat = nil}
+  public mutating func clearMeetingChat() {_uniqueStorage()._meetingChat = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _type: Int32? = nil
-  fileprivate var _meetingChat: MeetingChatIntegration? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+public nonisolated struct CallSpaceIntegrationPayload: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var callMetadata: CallMetadata {
+    get {_callMetadata ?? CallMetadata()}
+    set {_callMetadata = newValue}
+  }
+  /// Returns true if `callMetadata` has been explicitly set.
+  public var hasCallMetadata: Bool {self._callMetadata != nil}
+  /// Clears the value of `callMetadata`. Subsequent reads from it will return its default value.
+  public mutating func clearCallMetadata() {self._callMetadata = nil}
+
+  public var callStatus: Int32 {
+    get {_callStatus ?? 0}
+    set {_callStatus = newValue}
+  }
+  /// Returns true if `callStatus` has been explicitly set.
+  public var hasCallStatus: Bool {self._callStatus != nil}
+  /// Clears the value of `callStatus`. Subsequent reads from it will return its default value.
+  public mutating func clearCallStatus() {self._callStatus = nil}
+
+  public var participantListRevisionTimestamp: ComGoogleProtobufTimestamp {
+    get {_participantListRevisionTimestamp ?? ComGoogleProtobufTimestamp()}
+    set {_participantListRevisionTimestamp = newValue}
+  }
+  /// Returns true if `participantListRevisionTimestamp` has been explicitly set.
+  public var hasParticipantListRevisionTimestamp: Bool {self._participantListRevisionTimestamp != nil}
+  /// Clears the value of `participantListRevisionTimestamp`. Subsequent reads from it will return its default value.
+  public mutating func clearParticipantListRevisionTimestamp() {self._participantListRevisionTimestamp = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _callMetadata: CallMetadata? = nil
+  fileprivate var _callStatus: Int32? = nil
+  fileprivate var _participantListRevisionTimestamp: ComGoogleProtobufTimestamp? = nil
 }
 
 public nonisolated struct MeetingChatIntegration: Sendable {
@@ -11836,10 +11885,91 @@ public nonisolated struct MeetingSpace: @unchecked Sendable {
 }
 
 /// Call history annotations. Raw enum values preserve future statuses.
+public nonisolated struct CallMeetMetadata: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var meetingCode: String {
+    get {_meetingCode ?? String()}
+    set {_meetingCode = newValue}
+  }
+  /// Returns true if `meetingCode` has been explicitly set.
+  public var hasMeetingCode: Bool {self._meetingCode != nil}
+  /// Clears the value of `meetingCode`. Subsequent reads from it will return its default value.
+  public mutating func clearMeetingCode() {self._meetingCode = nil}
+
+  public var meetingURL: String {
+    get {_meetingURL ?? String()}
+    set {_meetingURL = newValue}
+  }
+  /// Returns true if `meetingURL` has been explicitly set.
+  public var hasMeetingURL: Bool {self._meetingURL != nil}
+  /// Clears the value of `meetingURL`. Subsequent reads from it will return its default value.
+  public mutating func clearMeetingURL() {self._meetingURL = nil}
+
+  public var meetingType: Int32 {
+    get {_meetingType ?? 0}
+    set {_meetingType = newValue}
+  }
+  /// Returns true if `meetingType` has been explicitly set.
+  public var hasMeetingType: Bool {self._meetingType != nil}
+  /// Clears the value of `meetingType`. Subsequent reads from it will return its default value.
+  public mutating func clearMeetingType() {self._meetingType = nil}
+
+  public var conferenceName: String {
+    get {_conferenceName ?? String()}
+    set {_conferenceName = newValue}
+  }
+  /// Returns true if `conferenceName` has been explicitly set.
+  public var hasConferenceName: Bool {self._conferenceName != nil}
+  /// Clears the value of `conferenceName`. Subsequent reads from it will return its default value.
+  public mutating func clearConferenceName() {self._conferenceName = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _meetingCode: String? = nil
+  fileprivate var _meetingURL: String? = nil
+  fileprivate var _meetingType: Int32? = nil
+  fileprivate var _conferenceName: String? = nil
+}
+
+public nonisolated struct CallMetadata: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var meetMetadata: CallMeetMetadata {
+    get {_meetMetadata ?? CallMeetMetadata()}
+    set {_meetMetadata = newValue}
+  }
+  /// Returns true if `meetMetadata` has been explicitly set.
+  public var hasMeetMetadata: Bool {self._meetMetadata != nil}
+  /// Clears the value of `meetMetadata`. Subsequent reads from it will return its default value.
+  public mutating func clearMeetMetadata() {self._meetMetadata = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _meetMetadata: CallMeetMetadata? = nil
+}
+
 public nonisolated struct CallAnnotationData: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
+
+  public var callMetadata: CallMetadata {
+    get {_callMetadata ?? CallMetadata()}
+    set {_callMetadata = newValue}
+  }
+  /// Returns true if `callMetadata` has been explicitly set.
+  public var hasCallMetadata: Bool {self._callMetadata != nil}
+  /// Clears the value of `callMetadata`. Subsequent reads from it will return its default value.
+  public mutating func clearCallMetadata() {self._callMetadata = nil}
 
   /// 0 unspecified, 1 started, 2 missed, 3 ended.
   public var callStatus: Int32 {
@@ -11851,11 +11981,32 @@ public nonisolated struct CallAnnotationData: Sendable {
   /// Clears the value of `callStatus`. Subsequent reads from it will return its default value.
   public mutating func clearCallStatus() {self._callStatus = nil}
 
+  public var callEndedTimestamp: ComGoogleProtobufTimestamp {
+    get {_callEndedTimestamp ?? ComGoogleProtobufTimestamp()}
+    set {_callEndedTimestamp = newValue}
+  }
+  /// Returns true if `callEndedTimestamp` has been explicitly set.
+  public var hasCallEndedTimestamp: Bool {self._callEndedTimestamp != nil}
+  /// Clears the value of `callEndedTimestamp`. Subsequent reads from it will return its default value.
+  public mutating func clearCallEndedTimestamp() {self._callEndedTimestamp = nil}
+
+  public var participantListRevisionTimestamp: ComGoogleProtobufTimestamp {
+    get {_participantListRevisionTimestamp ?? ComGoogleProtobufTimestamp()}
+    set {_participantListRevisionTimestamp = newValue}
+  }
+  /// Returns true if `participantListRevisionTimestamp` has been explicitly set.
+  public var hasParticipantListRevisionTimestamp: Bool {self._participantListRevisionTimestamp != nil}
+  /// Clears the value of `participantListRevisionTimestamp`. Subsequent reads from it will return its default value.
+  public mutating func clearParticipantListRevisionTimestamp() {self._participantListRevisionTimestamp = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
+  fileprivate var _callMetadata: CallMetadata? = nil
   fileprivate var _callStatus: Int32? = nil
+  fileprivate var _callEndedTimestamp: ComGoogleProtobufTimestamp? = nil
+  fileprivate var _participantListRevisionTimestamp: ComGoogleProtobufTimestamp? = nil
 }
 
 public nonisolated struct GsuiteIntegrationMetadata: Sendable {
@@ -22564,7 +22715,91 @@ nonisolated extension GroupId: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
 
 nonisolated extension SpaceIntegrationPayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "SpaceIntegrationPayload"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{4}j\u{1}meeting_chat\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{4}h\u{1}call_integration_payload\0\u{4}\u{2}meeting_chat\0")
+
+  fileprivate class _StorageClass {
+    var _type: Int32? = nil
+    var _callIntegrationPayload: CallSpaceIntegrationPayload? = nil
+    var _meetingChat: MeetingChatIntegration? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _type = source._type
+      _callIntegrationPayload = source._callIntegrationPayload
+      _meetingChat = source._meetingChat
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularInt32Field(value: &_storage._type) }()
+        case 105: try { try decoder.decodeSingularMessageField(value: &_storage._callIntegrationPayload) }()
+        case 107: try { try decoder.decodeSingularMessageField(value: &_storage._meetingChat) }()
+        default: break
+        }
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._type {
+        try visitor.visitSingularInt32Field(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._callIntegrationPayload {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 105)
+      } }()
+      try { if let v = _storage._meetingChat {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 107)
+      } }()
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: SpaceIntegrationPayload, rhs: SpaceIntegrationPayload) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._type != rhs_storage._type {return false}
+        if _storage._callIntegrationPayload != rhs_storage._callIntegrationPayload {return false}
+        if _storage._meetingChat != rhs_storage._meetingChat {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension CallSpaceIntegrationPayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "CallSpaceIntegrationPayload"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}call_metadata\0\u{3}call_status\0\u{3}participant_list_revision_timestamp\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -22572,8 +22807,9 @@ nonisolated extension SpaceIntegrationPayload: SwiftProtobuf.Message, SwiftProto
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularInt32Field(value: &self._type) }()
-      case 107: try { try decoder.decodeSingularMessageField(value: &self._meetingChat) }()
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._callMetadata) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self._callStatus) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._participantListRevisionTimestamp) }()
       default: break
       }
     }
@@ -22584,18 +22820,22 @@ nonisolated extension SpaceIntegrationPayload: SwiftProtobuf.Message, SwiftProto
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._type {
-      try visitor.visitSingularInt32Field(value: v, fieldNumber: 1)
+    try { if let v = self._callMetadata {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
     } }()
-    try { if let v = self._meetingChat {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 107)
+    try { if let v = self._callStatus {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._participantListRevisionTimestamp {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: SpaceIntegrationPayload, rhs: SpaceIntegrationPayload) -> Bool {
-    if lhs._type != rhs._type {return false}
-    if lhs._meetingChat != rhs._meetingChat {return false}
+  public static func ==(lhs: CallSpaceIntegrationPayload, rhs: CallSpaceIntegrationPayload) -> Bool {
+    if lhs._callMetadata != rhs._callMetadata {return false}
+    if lhs._callStatus != rhs._callStatus {return false}
+    if lhs._participantListRevisionTimestamp != rhs._participantListRevisionTimestamp {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -29173,9 +29413,9 @@ nonisolated extension MeetingSpace.Settings: SwiftProtobuf.Message, SwiftProtobu
   }
 }
 
-nonisolated extension CallAnnotationData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = "CallAnnotationData"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{2}call_status\0")
+nonisolated extension CallMeetMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "CallMeetMetadata"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}meeting_code\0\u{3}meeting_url\0\u{3}meeting_type\0\u{3}conference_name\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -29183,7 +29423,10 @@ nonisolated extension CallAnnotationData: SwiftProtobuf.Message, SwiftProtobuf._
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 2: try { try decoder.decodeSingularInt32Field(value: &self._callStatus) }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self._meetingCode) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._meetingURL) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self._meetingType) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self._conferenceName) }()
       default: break
       }
     }
@@ -29194,14 +29437,109 @@ nonisolated extension CallAnnotationData: SwiftProtobuf.Message, SwiftProtobuf._
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._meetingCode {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._meetingURL {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._meetingType {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._conferenceName {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 4)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: CallMeetMetadata, rhs: CallMeetMetadata) -> Bool {
+    if lhs._meetingCode != rhs._meetingCode {return false}
+    if lhs._meetingURL != rhs._meetingURL {return false}
+    if lhs._meetingType != rhs._meetingType {return false}
+    if lhs._conferenceName != rhs._conferenceName {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension CallMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "CallMetadata"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}meet_metadata\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._meetMetadata) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._meetMetadata {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: CallMetadata, rhs: CallMetadata) -> Bool {
+    if lhs._meetMetadata != rhs._meetMetadata {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension CallAnnotationData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "CallAnnotationData"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}call_metadata\0\u{3}call_status\0\u{3}call_ended_timestamp\0\u{3}participant_list_revision_timestamp\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._callMetadata) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self._callStatus) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._callEndedTimestamp) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._participantListRevisionTimestamp) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._callMetadata {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
     try { if let v = self._callStatus {
       try visitor.visitSingularInt32Field(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._callEndedTimestamp {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._participantListRevisionTimestamp {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: CallAnnotationData, rhs: CallAnnotationData) -> Bool {
+    if lhs._callMetadata != rhs._callMetadata {return false}
     if lhs._callStatus != rhs._callStatus {return false}
+    if lhs._callEndedTimestamp != rhs._callEndedTimestamp {return false}
+    if lhs._participantListRevisionTimestamp != rhs._participantListRevisionTimestamp {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

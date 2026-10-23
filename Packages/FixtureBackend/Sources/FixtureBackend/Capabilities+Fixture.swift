@@ -42,7 +42,7 @@ public extension Capabilities {
             .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
         ], extendedFlags: [
             "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
-            "conversationPreview", "customEmojiMessages", "customEmojiStatus"
+            "conversationPreview", "customEmojiMessages", "customEmojiStatus", "callHistory", "callDiscovery"
         ]
     )
 }

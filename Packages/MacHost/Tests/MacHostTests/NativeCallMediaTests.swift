@@ -5,6 +5,19 @@ import Testing
 
 @MainActor
 struct NativeCallMediaTests {
+    @Test func presentationAudioUsesAnIndependentSenderWithoutRequestingMicrophoneAccess() async throws {
+        let media = NativeCallMedia(presentation: true, sharingSystemAudio: true, microphoneAccess: { false })
+        let offer = try await media.makeAudioOffer(serverControlChannel: "collections")
+        #expect(media.sendsPresentationAudio)
+        #expect(!media.isMicrophoneMuted)
+        #expect(offer.sdp.contains("a=ssrc:"))
+        #expect(offer.sdp.components(separatedBy: "m=audio ").count == 2)
+        #expect(media.presentationAudio?.deviceInputSampleRate == 48000)
+        #expect(media.presentationAudio?.inputNumberOfChannels == 2)
+        media.close()
+        #expect(!media.isConnected)
+    }
+
     @Test func deniedMicrophoneDoesNotPrepareAPeerAndCanBeTriedAgain() async {
         let media = NativeCallMedia(microphoneAccess: { false })
         for _ in 0 ..< 2 {
