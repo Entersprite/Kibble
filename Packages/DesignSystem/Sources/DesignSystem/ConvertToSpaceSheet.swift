@@ -1,50 +1,6 @@
 import ChatKit
 import SwiftUI
 
-/// What Convert to Space sends: a name, an optional single emoji, and the
-/// history acknowledgement. The name's length is counted in UTF-16 units
-/// against the server's limit, without the spaces around it, which aren't sent.
-struct ConversionDraft: Equatable {
-    var name: String
-    /// One character, or nil (or "") for the default icon.
-    var emoji: String?
-    var acknowledged = false
-
-    init(name: String) {
-        self.name = name
-    }
-
-    var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func isNameValid(limit: Int?) -> Bool {
-        let name = trimmedName
-        return !name.isEmpty && (limit.map { DetailsDraft.length(name) <= $0 } ?? true)
-    }
-
-    /// Whether Convert can be offered: the consequences have arrived, the
-    /// name is valid, and the acknowledgement is ticked if they require it.
-    func isReady(limit: Int?, conversion: ConversionConsequences?) -> Bool {
-        guard let conversion else { return false }
-        return isNameValid(limit: limit) && (acknowledged || !conversion.requiresHistoryAcknowledgement)
-    }
-
-    /// Takes a picked emoji only if it is the one character the server accepts.
-    mutating func choose(_ emoji: String?) {
-        guard let emoji, emoji.count == 1 else { return }
-        self.emoji = emoji
-    }
-
-    var mutation: ConversationMutation {
-        .convertToSpace(
-            name: trimmedName,
-            emoji: emoji.flatMap { $0.isEmpty ? nil : $0 },
-            acknowledgingHistoryChange: true
-        )
-    }
-}
-
 /// Convert “<title>” to a Space, a sheet over the Info sheet: an emoji tile
 /// and a name, what the server says converting does, and the history
 /// acknowledgement when it requires one. Cancel and Convert.
@@ -54,6 +10,7 @@ struct ConversionDraft: Equatable {
 /// shows the space only once the details read back say so. A refusal or an
 /// unconfirmed answer stays here with what was typed, and the details are
 /// read again before Convert is offered another time: never a blind retry.
+/// If a read takes the permission away, the sheet says so and keeps Cancel.
 struct ConvertToSpaceSheet: View {
     let details: ConversationDetails
     let state: ChatSceneState
@@ -73,6 +30,8 @@ struct ConvertToSpaceSheet: View {
     /// Why the last Convert didn't go through. Kept here: reading the
     /// details again, to check the result, clears the browser's copy.
     @State private var failure: String?
+    /// This sheet asked for the details again, and they haven't landed.
+    @State private var checked = false
 
     init(
         details: ConversationDetails,
@@ -91,8 +50,21 @@ struct ConvertToSpaceSheet: View {
         state.browser
     }
 
+    /// The open panel's details for this conversation, as last read.
+    private var current: ConversationDetails? {
+        guard let current = browser.details,
+              current.conversation.id == details.conversation.id else { return nil }
+        return current
+    }
+
     private var limit: Int? {
-        details.fieldLimits["name"]
+        (current ?? details).fieldLimits["name"]
+    }
+
+    /// Still a group chat, but the details no longer allow converting it.
+    private var noLongerAllowed: Bool {
+        guard let current else { return false }
+        return current.conversation.kind == .groupDirectMessage && !ConversionDraft.allows(current)
     }
 
     /// `mutate` drops a write while one is on its way or the details need reloading.
@@ -101,29 +73,40 @@ struct ConvertToSpaceSheet: View {
     }
 
     private var canConvert: Bool {
-        draft.isReady(limit: limit, conversion: browser.conversion) && !sent && !busy
-    }
-
-    /// The details are being read again and nothing has failed since.
-    private var checking: Bool {
-        browser.needsReconciliation && browser.panelError == nil
+        draft.isReady(
+            details: current, conversion: browser.conversion, isLoadingConversion: browser.isLoadingConversion
+        ) && !sent && !busy
     }
 
     var body: some View {
         Form {
-            identity.disabled(sent)
-            consequences
-            if browser.conversion?.requiresHistoryAcknowledgement == true {
+            if noLongerAllowed {
                 Section {
-                    Toggle(
-                        "I understand the conversation history setting will change",
-                        isOn: $draft.acknowledged
-                    )
-                    .toggleStyle(.checkbox)
+                    if let failure {
+                        SheetErrorRow(message: failure)
+                    }
+                    Text("You can no longer convert this conversation.")
                 }
-                .disabled(sent)
+            } else {
+                identity.disabled(sent)
+                consequences
+                if browser.conversion?.requiresHistoryAcknowledgement == true {
+                    Section {
+                        Toggle(
+                            "I understand conversation history settings may change.",
+                            isOn: $draft.acknowledged
+                        )
+                        .toggleStyle(.checkbox)
+                    }
+                    .disabled(sent)
+                }
+                ConversionOutcomeSection(
+                    failure: failure,
+                    reconciling: checked && browser.needsReconciliation && !browser.isSubmitting && !sent,
+                    readError: browser.panelError,
+                    reload: check
+                )
             }
-            outcome
         }
         .formStyle(.grouped)
         .safeAreaBar(edge: .top) {
@@ -150,6 +133,11 @@ struct ConvertToSpaceSheet: View {
                 finish(latest.error)
             }
         }
+        .onChange(of: browser.needsReconciliation) { _, reconciling in
+            if !reconciling {
+                checked = false
+            }
+        }
         .onChange(of: convertedKind) { _, kind in
             // Details read back as something else: it converted, even if the answer was uncertain.
             if let kind, kind != .groupDirectMessage {
@@ -164,9 +152,7 @@ struct ConvertToSpaceSheet: View {
 
     /// The kind the open panel's details give this conversation now.
     private var convertedKind: Conversation.Kind? {
-        guard let current = browser.details,
-              current.conversation.id == details.conversation.id else { return nil }
-        return current.conversation.kind
+        current?.conversation.kind
     }
 
     // MARK: Name and emoji
@@ -244,10 +230,11 @@ struct ConvertToSpaceSheet: View {
 
     // MARK: What converting does
 
-    /// The confirmed lines, then what can't be confirmed; while they load,
-    /// a small progress indicator, and a failed read can be tried again.
+    /// The confirmed lines, then what can't be confirmed; while they load
+    /// (or load again after a failed Convert), a small progress indicator,
+    /// and a failed read can be tried again.
     @ViewBuilder private var consequences: some View {
-        if let conversion = browser.conversion {
+        if !browser.isLoadingConversion, let conversion = browser.conversion {
             let lines = Self.lines(conversion.items)
             let summary = ConversionText.unknownSummary(conversion.items)
             if !lines.isEmpty || summary != nil {
@@ -258,7 +245,7 @@ struct ConvertToSpaceSheet: View {
                     }
                 }
             }
-        } else if let error = browser.conversionError {
+        } else if !browser.isLoadingConversion, let error = browser.conversionError {
             Section {
                 SheetErrorRow(message: error)
                 Button("Try Again") { actions.loadConversion() }
@@ -280,32 +267,6 @@ struct ConvertToSpaceSheet: View {
     }
 
     // MARK: How Convert went
-
-    /// A refusal or an unconfirmed answer, then the details being read
-    /// again; a failed read offers Reload Details, a read and never the write.
-    @ViewBuilder private var outcome: some View {
-        let reconciling = browser.needsReconciliation && !browser.isSubmitting && !sent
-        if failure != nil || reconciling {
-            Section {
-                if let failure {
-                    SheetErrorRow(message: failure)
-                }
-                if reconciling {
-                    if checking {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text("Checking the result…").foregroundStyle(.secondary)
-                        }
-                    } else {
-                        if let error = browser.panelError, error != failure {
-                            SheetErrorRow(message: error)
-                        }
-                        Button("Reload Details") { check() }
-                    }
-                }
-            }
-        }
-    }
 
     /// The model's side of a send: whether it is on its way, and any refusal.
     private struct Answer: Equatable {
@@ -338,9 +299,12 @@ struct ConvertToSpaceSheet: View {
         }
     }
 
-    /// Reads the open conversation's details again: a read, never the write.
+    /// Reads the open conversation's details and what converting does
+    /// again: reads, never the write. Convert waits for both.
     private func check() {
+        checked = true
         actions.details(browser.panelTarget ?? details.conversation.id, false)
+        actions.loadConversion()
     }
 
     @ToolbarContentBuilder private var buttons: some ToolbarContent {
@@ -353,9 +317,47 @@ struct ConvertToSpaceSheet: View {
                 ProgressView().controlSize(.small)
             }
         }
-        ToolbarItem(placement: .confirmationAction) {
-            Button("Convert", action: convert)
-                .disabled(!canConvert)
+        if !noLongerAllowed {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Convert", action: convert)
+                    .disabled(!canConvert)
+            }
+        }
+    }
+}
+
+/// How this sheet's own Convert went: the refusal or unconfirmed answer,
+/// then the details being read again ("Checking the result…"). If that read
+/// fails, its error and Reload Details, a read and never the write. A reload
+/// the sheet didn't ask for gets no words here; Convert is simply disabled.
+struct ConversionOutcomeSection: View {
+    let failure: String?
+    /// The sheet's own read of the details is still unsettled.
+    let reconciling: Bool
+    /// The browser's error, set again if that read failed.
+    let readError: String?
+    let reload: () -> Void
+
+    var body: some View {
+        if failure != nil || reconciling {
+            Section {
+                if let failure {
+                    SheetErrorRow(message: failure)
+                }
+                if reconciling {
+                    if let readError {
+                        if readError != failure {
+                            SheetErrorRow(message: readError)
+                        }
+                        Button("Reload Details", action: reload)
+                    } else {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Checking the result…").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
         }
     }
 }

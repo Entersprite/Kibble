@@ -140,16 +140,58 @@ struct ConversionDraftTests {
         #expect(draft.emoji == "👍🏽", "A custom emoji has no character to send.")
     }
 
+    private func group(allowing actions: Set<String> = ["details", "rename", "convertToSpace"])
+        -> ConversationDetails {
+        ConversationDetails(
+            conversation: Conversation(id: .init("lunch"), kind: .groupDirectMessage, title: "Lunch Crew"),
+            membership: .joined,
+            allowedActions: actions,
+            fieldLimits: ["name": 128]
+        )
+    }
+
     @Test func acknowledgementIsNeededOnlyWhenRequired() {
         var draft = ConversionDraft(name: "Launch Team")
+        let details = group()
         let required = ConversionConsequences(requiresHistoryAcknowledgement: true)
         let notRequired = ConversionConsequences(requiresHistoryAcknowledgement: false)
-        #expect(!draft.isReady(limit: 128, conversion: required))
-        #expect(draft.isReady(limit: 128, conversion: notRequired))
-        #expect(!draft.isReady(limit: 128, conversion: nil), "Not before the consequences arrive.")
+        #expect(!draft.isReady(details: details, conversion: required))
+        #expect(draft.isReady(details: details, conversion: notRequired))
+        #expect(!draft.isReady(details: details, conversion: nil), "Not before the consequences arrive.")
         draft.acknowledged = true
-        #expect(draft.isReady(limit: 128, conversion: required))
+        #expect(draft.isReady(details: details, conversion: required))
         draft.name = ""
-        #expect(!draft.isReady(limit: 128, conversion: required))
+        #expect(!draft.isReady(details: details, conversion: required))
+    }
+
+    @Test func usesTheCurrentDetailsNameLimit() {
+        let draft = ConversionDraft(name: String(repeating: "a", count: 20))
+        let ready = ConversionConsequences(requiresHistoryAcknowledgement: false)
+        var details = group()
+        #expect(draft.isReady(details: details, conversion: ready))
+        details.fieldLimits["name"] = 10
+        #expect(!draft.isReady(details: details, conversion: ready))
+    }
+
+    @Test func detailsWithoutPermissionAfterAReloadAreNotReady() {
+        var draft = ConversionDraft(name: "Launch Team")
+        draft.acknowledged = true
+        let ready = ConversionConsequences(requiresHistoryAcknowledgement: true)
+        #expect(draft.isReady(details: group(), conversion: ready))
+        let reloaded = group(allowing: ["details", "rename"])
+        #expect(!ConversionDraft.allows(reloaded))
+        #expect(!draft.isReady(details: reloaded, conversion: ready), "The read took the permission away.")
+        var space = group()
+        space.conversation.kind = .space
+        #expect(!draft.isReady(details: space, conversion: ready), "Already a space: nothing to convert.")
+        #expect(!draft.isReady(details: nil, conversion: ready), "No current details, no Convert.")
+    }
+
+    @Test func notWhileTheConsequencesAreReadAgain() {
+        var draft = ConversionDraft(name: "Launch Team")
+        draft.acknowledged = true
+        let ready = ConversionConsequences(requiresHistoryAcknowledgement: true)
+        #expect(!draft.isReady(details: group(), conversion: ready, isLoadingConversion: true))
+        #expect(draft.isReady(details: group(), conversion: ready, isLoadingConversion: false))
     }
 }

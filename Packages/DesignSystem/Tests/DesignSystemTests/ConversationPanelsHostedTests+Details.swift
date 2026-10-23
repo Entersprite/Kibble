@@ -113,12 +113,41 @@
                 ConvertToSpaceSheet(details: group, state: loading, actions: actions, reactions: nil),
                 dark: true, name: "convert-to-space-load-failed", size: size
             )
-            var checking = state
-            checking.browser.needsReconciliation = true
+            // Reloading for some other reason: Convert is disabled, with no words.
+            var reconciling = state
+            reconciling.browser.needsReconciliation = true
             try await render(
-                ConvertToSpaceSheet(details: group, state: checking, actions: actions, reactions: media),
-                dark: false, name: "convert-to-space-checking", size: size
+                ConvertToSpaceSheet(details: group, state: reconciling, actions: actions, reactions: media),
+                dark: false, name: "convert-to-space-reconciling", size: size
             )
+            var revoked = state
+            revoked.browser.details?.allowedActions = ["details", "rename", "leave"]
+            try await render(
+                ConvertToSpaceSheet(details: group, state: revoked, actions: actions, reactions: media),
+                dark: true, name: "convert-to-space-no-longer-allowed", size: size
+            )
+            try await renderConversionOutcomes()
+        }
+
+        /// The sheet's own refused Convert being checked, and that check failing.
+        private func renderConversionOutcomes() async throws {
+            let refusal = "You can’t convert this conversation right now."
+            for (name, readError) in [("checking", nil), (
+                "check-failed",
+                "The details couldn’t be loaded."
+            )] {
+                try await render(
+                    Form {
+                        ConversionOutcomeSection(
+                            failure: refusal, reconciling: true, readError: readError, reload: {}
+                        )
+                    }
+                    .formStyle(.grouped),
+                    dark: name == "check-failed",
+                    name: "convert-to-space-\(name)",
+                    size: NSSize(width: 460, height: 200)
+                )
+            }
         }
     }
 #endif
