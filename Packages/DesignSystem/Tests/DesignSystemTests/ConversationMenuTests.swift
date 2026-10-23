@@ -96,6 +96,30 @@ struct ConversationMenuTests {
         }
     }
 
+    @MainActor
+    @Test func infoLeadsTheMenuWhereTheHostCanShowIt() {
+        var offers = all
+        offers.info = true
+        var capabilities = Capabilities()
+        capabilities.canReadConversationDetails = true
+        let state = ChatSceneState(capabilities: capabilities, callableConversations: [id])
+        for kind in [Conversation.Kind.space, .directMessage] {
+            let conversation = Conversation(id: id, kind: kind, hasUnread: true)
+            #expect(ConversationMenu.items(for: conversation, state: state, offers: offers).first == .info)
+        }
+        let dm = Conversation(id: id, kind: .directMessage)
+        #expect(!ConversationMenu.items(for: dm, state: state, offers: all).contains(.info))
+        #expect(ConversationMenu.Item.info.title == "Info…")
+        #expect(Offers(ChatSceneActions()).info == false)
+        var browser = ChatSceneActions()
+        browser.browser = ConversationBrowserActions(
+            show: { _ in }, back: {}, search: { _, _, _ in }, reviewCreation: {}, searchPeople: { _ in },
+            beginCreation: { _ in }, create: { _ in }, closePanel: {}, details: { _, _ in },
+            preview: { _ in }, mutate: { _ in }
+        )
+        #expect(Offers(browser).info)
+    }
+
     private func meeting(_ id: String, start: Double, unread: Bool = false) -> Conversation {
         Conversation(
             id: .init(id), kind: .meetChat, title: "Planning", hasUnread: unread,

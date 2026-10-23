@@ -8,7 +8,7 @@ import Testing
 struct MenuBarShortcutsTests {
     @Test func noTwoOfKibblesCommandsShareAShortcut() {
         let all = MenuBarShortcuts.all
-        #expect(all.count == 35)
+        #expect(all.count == 36)
         #expect(Set(all).count == all.count)
     }
 
@@ -27,6 +27,12 @@ struct MenuBarShortcutsTests {
         #expect(MenuBarShortcuts.all.filter { $0 == MenuBarShortcuts.muteCall }.count == 1)
         #expect(MenuBarShortcuts.mainWindow != MenuBarShortcuts.accountPanel)
         #expect(MenuBarShortcuts.markAsRead != ComposerFormat.underline.shortcut)
+    }
+
+    @Test func infoUsesOptionCommandIAndItalicKeepsCommandI() {
+        #expect(MenuBarShortcuts.conversationInfo == KeyboardShortcut("i", modifiers: [.command, .option]))
+        #expect(MenuBarShortcuts.all.filter { $0 == MenuBarShortcuts.conversationInfo }.count == 1)
+        #expect(ComposerFormat.italic.shortcut == KeyboardShortcut("i"))
     }
 
     @Test func theDigitsCoverOneToNineAndNothingElse() {

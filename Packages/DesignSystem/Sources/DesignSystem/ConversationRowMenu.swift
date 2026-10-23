@@ -24,6 +24,13 @@ struct ConversationRowMenu: View {
         ForEach(entries, id: \.self) { entry in
             let item = entry.item
             switch item {
+            case .info:
+                Button(item.title, systemImage: item.symbol) {
+                    entry.targets.forEach { actions.browser?.details($0, false) }
+                }
+                if entry != entries.last {
+                    Divider()
+                }
             case .call:
                 Button(item.title, systemImage: item.symbol) { entry.targets.forEach { actions.call?($0) } }
                 if entry != entries.last {

@@ -101,6 +101,7 @@ struct ConversationMenuBarTests {
             state(selected: deploys.id) { $0.browser.page = "space" },
             state(selected: deploys.id) { $0.capabilities = Capabilities() },
             state(selected: annDM.id),
+            state(selected: annDM.id) { $0.capabilities = Capabilities() },
             state(selected: annDM.id) { $0.callableConversations = [annDM.id] },
             state(selected: annDM.id) { $0.callableConversations = [annDM.id]; $0.showingMentions = true },
             state(selected: boDM.id) { $0.callableConversations = [annDM.id] }
@@ -110,6 +111,10 @@ struct ConversationMenuBarTests {
             let window = ChatWindow(state: state, actions: recorder.actions)
             let details = entry("details", in: menu)?.command
             #expect(details == (window.showsDetailsButton ? state.selected.map { .details($0) } : nil))
+            if let shown = entry("details", in: menu), shown.command != nil {
+                #expect(shown.title == "Conversation Info…")
+                #expect(shown.shortcut == MenuBarShortcuts.conversationInfo)
+            }
             let video = window.videoCallConversation.map { ConversationMenuBar.Command.videoCall($0) }
             #expect(entry("call", in: menu)?.command == window.callConversation.map { .call($0) })
             #expect(entry("videoCall", in: menu)?.command == video)

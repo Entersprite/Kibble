@@ -55,10 +55,10 @@ struct AudioCallHeaderTests {
     }
 
     @Test(arguments: [
-        (Conversation.Kind.directMessage, false), (.groupDirectMessage, true), (.appDirectMessage, true),
+        (Conversation.Kind.directMessage, true), (.groupDirectMessage, true), (.appDirectMessage, true),
         (.space, true)
     ])
-    func detailsAreOfferedForEverythingButAOneToOneDM(_ kind: Conversation.Kind, _ offered: Bool) {
+    func detailsAreOfferedForEveryKindOfConversation(_ kind: Conversation.Kind, _ offered: Bool) {
         var capabilities = Capabilities()
         capabilities.canReadConversationDetails = true
         var actions = ChatSceneActions(call: { _ in })

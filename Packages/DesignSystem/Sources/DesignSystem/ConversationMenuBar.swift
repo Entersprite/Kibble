@@ -109,8 +109,8 @@ public struct ConversationMenuBar: Equatable {
 }
 
 extension ConversationMenuBar {
-    /// Show Details, Call and Video Call, each where the toolbar draws its
-    /// button: details for a group or space while no directory page is open,
+    /// Conversation Info, Call and Video Call, each where the toolbar draws its
+    /// button: info for any conversation while no directory page is open,
     /// calls for a DM the call service can reach.
     @MainActor
     private static func conversationEntries(_ state: ChatSceneState?, actions: ChatSceneActions) -> [Entry] {
@@ -119,9 +119,10 @@ extension ConversationMenuBar {
         // A backend that cannot read details gets no item, where the window
         // can say so; without the window, its host's browser decides.
         if actions.browser != nil, state?.capabilities.canReadConversationDetails != false {
-            let shows = conversation.map { $0.kind != .directMessage } == true && state?.browser.page == nil
+            let shows = conversation != nil && state?.browser.page == nil
             entries.append(Entry(
-                id: "details", title: "Show Details", style: .button(symbol: "info.circle"), shortcut: nil,
+                id: "details", title: "Conversation Info…", style: .button(symbol: "info.circle"),
+                shortcut: MenuBarShortcuts.conversationInfo,
                 command: shows ? conversation.map { .details($0.id) } : nil
             ))
         }

@@ -251,7 +251,7 @@ struct ConversationDirectoryView: View {
                 }
                 if case let .conversation(conversation) = id,
                    state.capabilities.canReadConversationDetails, let browser = actions.browser {
-                    Button("Show Details…", systemImage: DirectoryMenuSymbols.details) {
+                    Button("Info…", systemImage: DirectoryMenuSymbols.details) {
                         browser.details(conversation, false)
                     }
                 }

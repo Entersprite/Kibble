@@ -7,6 +7,7 @@ import ChatKit
 /// nowhere else checks it. `ConversationList` draws exactly these items.
 enum ConversationMenu {
     enum Item: Hashable {
+        case info
         case call
         case markAsRead
         case action(ConversationAction)
@@ -23,6 +24,7 @@ enum ConversationMenu {
         var mute = false
         var unmute = false
         var notificationSettings = false
+        var info = false
         var conversationActions: Capabilities = .init()
     }
 
@@ -62,6 +64,9 @@ enum ConversationMenu {
         }
         if offers.call, conversation.kind == .directMessage, state.callableConversations.contains(id) {
             items.insert(.call, at: 0)
+        }
+        if offers.info, state.capabilities.canReadConversationDetails {
+            items.insert(.info, at: 0)
         }
         return items
     }
@@ -105,6 +110,7 @@ extension ConversationMenu {
 extension ConversationMenu.Item {
     var title: String {
         switch self {
+        case .info: "Info…"
         case .call: "Call"
         case .markAsRead: "Mark as Read"
         case let .action(action): action.menuTitle
@@ -118,6 +124,7 @@ extension ConversationMenu.Item {
     /// draws nothing.
     var symbol: String {
         switch self {
+        case .info: DirectoryMenuSymbols.details
         case .call: "phone"
         case .markAsRead: "envelope.open"
         case let .action(action): action.menuSymbol
@@ -176,6 +183,7 @@ extension ConversationMenu.Offers {
             mute: actions.mute != nil,
             unmute: actions.unmute != nil,
             notificationSettings: actions.showNotificationSettings != nil,
+            info: actions.browser != nil,
             conversationActions: actions.conversationActions?.capabilities ?? Capabilities()
         )
     }

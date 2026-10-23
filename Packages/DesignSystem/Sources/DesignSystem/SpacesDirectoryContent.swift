@@ -57,7 +57,7 @@ struct SpacesDirectoryContent: View {
                     )
                 }
                 if detail.membership == .joined, state.capabilities.canReadConversationDetails {
-                    Button("Show Details…", systemImage: DirectoryMenuSymbols.details) {
+                    Button("Info…", systemImage: DirectoryMenuSymbols.details) {
                         actions.browser?.details(detail.conversation.id, false)
                     }
                 }

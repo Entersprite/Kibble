@@ -11,7 +11,7 @@ import SwiftUI
 /// system's included (`MenuBarShortcutsTests`).
 ///
 /// An item with no convention to follow gets no shortcut rather than an
-/// invented one: Show Details, Call, Go to Mentions and the call's camera
+/// invented one: Call, Go to Mentions and the call's camera
 /// and sharing have none.
 public enum MenuBarShortcuts {
     /// Edit › Find › Search…, the key every Mac app finds with.
@@ -26,6 +26,9 @@ public enum MenuBarShortcuts {
 
     /// Window › Kibble, which brings the main window back after it was closed.
     public static let mainWindow = KeyboardShortcut("0")
+    /// Conversation › Conversation Info…. Italic keeps plain ⌘I in the composer.
+    public static let conversationInfo = KeyboardShortcut("i", modifiers: [.command, .option])
+
     /// Accounts › Show Account Panel, beside the accounts' Control-Command digits.
     public static let accountPanel = KeyboardShortcut("0", modifiers: [.control, .command])
 
@@ -64,7 +67,7 @@ public enum MenuBarShortcuts {
     public static var all: [KeyboardShortcut] {
         [
             search, nextResult, previousResult, newMessage, newGroupChat, mainWindow, accountPanel,
-            back, forward, nextConversation, previousConversation, markAsRead, muteCall
+            conversationInfo, back, forward, nextConversation, previousConversation, markAsRead, muteCall
         ]
             + (0 ..< 9).compactMap(account) + (0 ..< 9).compactMap(conversation)
             + ComposerFormat.keyed.compactMap(\.shortcut)

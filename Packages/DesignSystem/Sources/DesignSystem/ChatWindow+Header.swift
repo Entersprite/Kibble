@@ -6,11 +6,9 @@ import SwiftUI
 /// `ChatWindow.swift`, which sits at `file_length`; `headerClock` is not
 /// `private` for this file's sake.
 extension ChatWindow {
-    /// Not for a one-to-one DM: its details are only the person's name and the
-    /// notification settings its sidebar menu already offers.
+    /// Any conversation, a one-to-one DM included, while no directory page is open.
     var showsDetailsButton: Bool {
-        guard let conversation = state.selectedConversation else { return false }
-        return conversation.kind != .directMessage && state.browser.page == nil &&
+        state.selectedConversation != nil && state.browser.page == nil &&
             state.capabilities.canReadConversationDetails && actions.browser != nil
     }
 
@@ -39,13 +37,32 @@ extension ChatWindow {
     /// share one glass capsule, as a pair of related actions does. The
     /// Favorites star follows in a capsule of its own.
     @ToolbarContentBuilder var conversationToolbar: some ToolbarContent {
+        if showsDetailsButton, let conversation = state.selectedConversation, let browser = actions.browser {
+            // The title, as a plain button to Info. It keeps the title over its
+            // subtitle at the leading edge, as the system draws them, with no
+            // capsule behind it.
+            ToolbarItem(placement: .principal) {
+                Button { browser.details(conversation.id, false) } label: {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(title).font(.headline).lineLimit(1)
+                        if !subtitle.isEmpty {
+                            Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Conversation Info")
+                .help("Show Conversation Info")
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
         ToolbarSpacer(.flexible)
         if showsDetailsButton, let conversation = state.selectedConversation, let browser = actions.browser {
             ToolbarItem(placement: .primaryAction) {
                 let meeting = state.meetingSeries != nil
-                let title = meeting ? "Latest Meeting Details" : "Conversation Details"
+                let title = meeting ? "Latest Meeting Info" : "Conversation Info"
                 Button(title, systemImage: "info.circle") { browser.details(conversation.id, false) }
-                    .help(meeting ? "Show the latest meeting’s details" : "Show conversation details")
+                    .help(meeting ? "Show the latest meeting’s info" : "Show conversation info")
             }
         }
         if let callConversation, let call = actions.call {
