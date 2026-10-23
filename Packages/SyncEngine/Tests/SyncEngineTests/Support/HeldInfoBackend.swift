@@ -7,7 +7,7 @@ import Foundation
 /// before the panel moved on does.
 actor HeldInfoBackend: ChatBackend {
     enum Hold: Sendable {
-        case integrations, webhookURL, mutation
+        case integrations, webhookURL, mutation, laterPages
     }
 
     nonisolated let capabilities = Capabilities.fixture
@@ -85,6 +85,9 @@ actor HeldInfoBackend: ChatBackend {
 
     func participants(in id: Conversation.ID, after cursor: String?) async throws
         -> ConversationParticipantPage {
+        if cursor != nil {
+            await wait(for: .laterPages)
+        }
         if failingLaterPages, cursor != nil {
             throw ChatError.server(status: 500, message: "The page could not be loaded.")
         }

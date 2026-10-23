@@ -1,11 +1,18 @@
 import ChatKit
 
 /// The open panel's changes. Its own file for `ConversationBrowser.swift`'s length.
-extension ConversationBrowser {
-    public func mutate(_ mutation: ConversationMutation) {
-        guard let details, !isSubmitting, !stopped, !needsReconciliation else { return }
+public extension ConversationBrowser {
+    /// The open panel's change on its way, shown at once. Another panel's change is not shown here.
+    var pendingMutation: ConversationMutation? {
+        guard let pendingChange, pendingChange.conversation == panelTarget else { return nil }
+        return pendingChange.mutation
+    }
+
+    func mutate(_ mutation: ConversationMutation) {
+        guard let details, !isSubmitting, !isLoadingAllParticipants, !stopped, !needsReconciliation
+        else { return }
         isSubmitting = true
-        pendingMutation = mutation
+        pendingChange = (details.conversation.id, mutation)
         panelError = nil
         let generation = generation
         writeTask = Task { [weak self, engine] in
@@ -16,12 +23,12 @@ extension ConversationBrowser {
                 )
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 isSubmitting = false
-                pendingMutation = nil
+                pendingChange = nil
                 applyManagementResult(result, mutation: mutation, in: details.conversation.id)
             } catch {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 isSubmitting = false
-                pendingMutation = nil
+                pendingChange = nil
                 needsReconciliation = true
                 panelError = Self.message(error)
             }

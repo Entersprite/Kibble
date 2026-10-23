@@ -195,6 +195,82 @@ struct ConversationInfoBrowserTests {
 }
 
 extension ConversationInfoBrowserTests {
+    @Test func pagingAndMutationsExcludeEachOtherAndAReloadMidPagingIsFollowed() async throws {
+        let backend = HeldInfoBackend(world: Self.fivePeople, pageSize: 2)
+        let browser = try await openBrowser(backend, at: space)
+        await backend.hold(.mutation)
+        browser.mutate(.setRole(other, .manager))
+        browser.loadAllParticipants()
+        #expect(browser.infoTasks[.allParticipants] == nil)
+        #expect(!browser.isLoadingAllParticipants)
+        try await waitUntilHeld(backend)
+        await backend.release()
+        await browser.writeTask?.value
+        await browser.detailsTask?.value
+
+        await backend.hold(.laterPages)
+        browser.loadAllParticipants()
+        let paging = try #require(browser.infoTasks[.allParticipants])
+        try await waitUntilHeld(backend)
+        browser.mutate(.setRole(other, .member))
+        #expect(browser.pendingMutation == nil)
+        // What a confirmed mutation's `applyManagementResult` does to the list.
+        browser.openDetails(space)
+        await backend.release()
+        await paging.value
+        let quietlyPartial = !browser.isLoadingAllParticipants && browser.panelError == nil
+            && browser.participants.count < 5
+        #expect(!quietlyPartial)
+        #expect(!browser.isLoadingAllParticipants)
+        #expect(browser.participants.count == 5)
+        #expect(browser.participantCursor == nil)
+        #expect(browser.participants.first { $0.id == other }?.role == .manager)
+        browser.stop()
+    }
+
+    @Test func anUnrelatedConversationChangeDoesNotFailAnOpenRead() async throws {
+        let backend = HeldInfoBackend()
+        let browser = try await openBrowser(backend, at: space)
+        await backend.hold(.integrations)
+        browser.loadIntegrations()
+        let pending = try #require(browser.infoTasks[.integrations])
+        try await waitUntilHeld(backend)
+        await browser.engine.invalidateConversationSnapshot(.init("dm:1"))
+        await backend.release()
+        await pending.value
+        #expect(browser.integrations != nil)
+        #expect(browser.integrationsError == nil)
+        browser.stop()
+    }
+
+    @Test func aPendingMutationShowsOnlyOnItsOwnPanel() async throws {
+        let backend = HeldInfoBackend()
+        let browser = try await openBrowser(backend, at: space)
+        await backend.hold(.mutation)
+        browser.mutate(.setRole(other, .manager))
+        try await waitUntilHeld(backend)
+        browser.openDetails(.init("dm:1"))
+        #expect(browser.pendingMutation == nil)
+        browser.openDetails(space)
+        #expect(browser.pendingMutation == .setRole(other, .manager))
+        await backend.release()
+        await browser.writeTask?.value
+        #expect(browser.pendingMutation == nil)
+        browser.stop()
+    }
+
+    @Test func anUnconfirmedMutationClearsItsPendingState() async throws {
+        let backend = RecordingBackend()
+        let browser = try await openBrowser(backend, at: space)
+        await backend.leaveMutationsUnconfirmed(true)
+        browser.mutate(.setRole(other, .manager))
+        #expect(browser.pendingMutation == .setRole(other, .manager))
+        await browser.writeTask?.value
+        #expect(browser.pendingMutation == nil)
+        #expect(browser.panelError != nil)
+        browser.stop()
+    }
+
     static let fivePeople: FixtureWorld = {
         var world = FixtureWorld.minimal
         let extra = (1 ... 3).map {

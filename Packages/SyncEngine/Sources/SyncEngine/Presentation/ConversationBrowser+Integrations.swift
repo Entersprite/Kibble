@@ -130,24 +130,43 @@ public extension ConversationBrowser {
         )
     }
 
-    /// Pages the people list to its end with the panel's own paging. A failed
-    /// page stops here and leaves the rest to load later.
+    /// Pages the people list to its end with the panel's own paging. Never
+    /// runs beside a change. A failed page stops here, says so, and leaves
+    /// the rest to load later; it never ends quietly with a partial list.
     func loadAllParticipants() {
         guard let id = panelTarget, details?.conversation.id == id, details?.membership == .joined,
-              participantCursor != nil, !isLoadingAllParticipants, !stopped else { return }
+              participantCursor != nil, !isLoadingAllParticipants, !isSubmitting, !stopped else { return }
         isLoadingAllParticipants = true
         let generation = generation
         infoTasks[.allParticipants] = Task { [weak self] in
-            await self?.detailsTask?.value
+            _ = await self?.settleDetails()
             while let self, !Task.isCancelled, isCurrent(id, generation), let cursor = participantCursor {
                 openDetails(id, more: true)
-                await detailsTask?.value
-                if panelError != nil || participantCursor == cursor {
+                // A reload that replaced this page restarted the list: follow it and keep paging from its
+                // cursor.
+                let replaced = await settleDetails()
+                if panelError != nil || (!replaced && participantCursor == cursor) {
                     break
                 }
             }
             guard let self, !Task.isCancelled, isCurrent(id, generation) else { return }
+            if participantCursor != nil, panelError == nil {
+                panelError = "Not everyone could be loaded. Try again."
+            }
             isLoadingAllParticipants = false
+        }
+    }
+
+    /// Waits for the panel's details load, then for any load that replaced
+    /// it meanwhile. Returns whether one did.
+    private func settleDetails() async -> Bool {
+        var task = detailsTask
+        var replaced = false
+        while true {
+            await task?.value
+            guard detailsTask != task else { return replaced }
+            task = detailsTask
+            replaced = true
         }
     }
 

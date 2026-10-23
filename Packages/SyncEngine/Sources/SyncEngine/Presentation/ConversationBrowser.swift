@@ -43,8 +43,8 @@ public final class ConversationBrowser {
     public internal(set) var isLoadingConversion = false
     public internal(set) var conversionError: String?
     public internal(set) var isLoadingAllParticipants = false
-    /// The change on its way, shown at once; cleared when its answer or failure lands.
-    public internal(set) var pendingMutation: ConversationMutation?
+    /// The change on its way and its conversation; cleared when its answer or failure lands.
+    var pendingChange: (conversation: Conversation.ID, mutation: ConversationMutation)?
     @ObservationIgnored var infoTasks: [ConversationInfoRead: Task<Void, Never>] = [:]
     @ObservationIgnored var uncertainCreationKind: Conversation.Kind?
     @ObservationIgnored var onOpen: ((Conversation.ID) -> Void)?
@@ -344,7 +344,7 @@ extension ConversationBrowser {
         query = ""; error = nil; panelError = nil; notice = nil
         nextCursor = nil; participantCursor = nil; scope = .discover; organization = .all
         isSearchingPeople = false; needsReconciliation = false; isLoadingParticipants = false
-        isLoading = false; isSubmitting = false; pendingMutation = nil
+        isLoading = false; isSubmitting = false; pendingChange = nil
         forgetInfo()
     }
 
