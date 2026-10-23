@@ -51,4 +51,31 @@ struct ConversionBackendTests {
         let mapped = try #require(ManagementMapping.conversation(group, fallback: fallback))
         #expect(mapped.kind == .space && mapped.members == fallback.members && mapped.meeting == nil)
     }
+
+    @Test func consequencesReportOnlyConfirmedFactsForAnEligibleGroupChat() async throws {
+        let transport = try WebhookTransport()
+        await transport.enableConversion()
+        let backend = LocalBridgeBackend(cookies: SearchBackendSupport.cookies, transport: transport)
+        try await backend.connect(); try await SearchBackendSupport.waitForSelf(backend)
+        let result = try await backend.conversionConsequences(.init("space/a"))
+        let unknown: [ConversionTopic] = [
+            .membership, .messages, .history, .invitations, .integrations, .externalPeople, .undo
+        ]
+        let expected = [ConversionConsequence(topic: .sameConversation, outcome: .kept)]
+            + unknown.map { ConversionConsequence(topic: $0, outcome: .unknown) }
+        #expect(result.items == expected)
+        #expect(result.requiresHistoryAcknowledgement)
+        await backend.disconnect()
+    }
+
+    @Test func consequencesRefuseASpace() async throws {
+        let transport = try WebhookTransport()
+        let backend = LocalBridgeBackend(cookies: SearchBackendSupport.cookies, transport: transport)
+        try await backend.connect(); try await SearchBackendSupport.waitForSelf(backend)
+        #expect(try await backend.conversationDetails(.init("space/a")).conversation.kind == .space)
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.conversionConsequences(.init("space/a"))
+        }
+        await backend.disconnect()
+    }
 }

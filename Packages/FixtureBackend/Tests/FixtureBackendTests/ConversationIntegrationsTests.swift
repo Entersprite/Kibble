@@ -142,6 +142,26 @@ struct ConversationIntegrationsTests {
         await backend.disconnect()
     }
 
+    @Test func consequencesFollowFixtureConversion() async throws {
+        let backend = FakeBackend()
+        try await backend.connect()
+        let contract: any ChatBackend = backend
+        let people = FixtureWorld.acme.members.filter { $0.id != FixtureWorld.acme.me }.prefix(2).map(\.id)
+        let chat = try await contract.createConversation(.init(kind: .groupDirectMessage, members: people))
+            .conversation
+        let result = try await contract.conversionConsequences(chat.id)
+        let outcomes: [(ConversionTopic, ConversionOutcome)] = [
+            (.sameConversation, .kept), (.membership, .kept), (.messages, .kept), (.undo, .notReversible),
+            (.history, .unknown), (.invitations, .unknown), (.integrations, .unknown),
+            (.externalPeople, .unknown)
+        ]
+        #expect(Set(result.items) == Set(outcomes.map { ConversionConsequence(topic: $0.0, outcome: $0.1) }))
+        #expect(result.items.count == outcomes.count && result.requiresHistoryAcknowledgement)
+        let space = try await contract.createConversation(.init(kind: .space, name: "Builds")).conversation.id
+        await #expect(throws: ChatError.self) { _ = try await contract.conversionConsequences(space) }
+        await backend.disconnect()
+    }
+
     @Test func defaultOffCapabilitiesRefuseIntegrationsAndPartialFlagsExposeOnlySupportedSections(
     ) async throws {
         var flags = Capabilities.fixture
