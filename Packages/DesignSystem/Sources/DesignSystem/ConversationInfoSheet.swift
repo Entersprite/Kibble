@@ -11,6 +11,12 @@ import SwiftUI
 /// sidebar dot, swaps Done for Revert and Save, and asks before leaving.
 /// `save` is what Save sends, in the footer or in the leave alert: that one
 /// section's request and nothing else.
+///
+/// The sheet offers Save only while the draft is valid and the model can take
+/// a write: not while reconciling, loading every participant or submitting,
+/// because `mutate` drops a write then without a word. If a Save still never
+/// starts submitting, the sheet forgets the switch or close waiting on it, so
+/// `save` may simply return when the section has nothing to send.
 struct InfoSectionDraft {
     let section: InfoSection
     /// False while the draft can't be sent (an empty space name, a field over its limit).
@@ -43,21 +49,23 @@ struct ConversationInfoSheet: View {
     @State private var draft: InfoSectionDraft?
     /// The request the leave alert is asking about.
     @State private var asking: InfoDraftState.Request?
-    /// A request that goes ahead once the alert's Save has landed and the section is clean.
-    @State private var afterSave: InfoDraftState.Request?
 
     init(
         details: ConversationDetails,
         state: ChatSceneState,
         actions: ConversationBrowserActions,
         media: ChatSceneActions?,
-        openNotifications: ((Conversation.ID) -> Void)?
+        openNotifications: ((Conversation.ID) -> Void)?,
+        draft: InfoSectionDraft? = nil
     ) {
         self.details = details
         self.state = state
         self.actions = actions
         self.media = media
         self.openNotifications = openNotifications
+        // A draft already reported when the sheet opens; tests start dirty with it.
+        _draft = State(initialValue: draft)
+        _drafts = State(initialValue: InfoDraftState(dirtySection: draft?.section))
     }
 
     var body: some View {
@@ -87,16 +95,23 @@ struct ConversationInfoSheet: View {
         .toolbar { footer }
         .interactiveDismissDisabled(drafts.dirtySection != nil || state.browser.isSubmitting)
         .onExitCommand { go(.close) }
-        .onChange(of: drafts.dirtySection) { _, dirty in
-            if dirty == nil, let next = afterSave {
-                afterSave = nil
-                perform(next)
+        .onChange(of: state.browser.isSubmitting) { _, submitting in
+            if submitting {
+                drafts.submissionStarted()
+            }
+        }
+        .task(id: drafts.afterSave) {
+            // A refused write never starts submitting; stop waiting on it.
+            guard drafts.afterSave != nil else { return }
+            try? await Task.sleep(for: .milliseconds(500))
+            if !Task.isCancelled {
+                drafts.saveMustHaveStarted()
             }
         }
         .onChange(of: state.browser.panelError) { _, error in
             // The save the alert sent failed: stay, with the draft and the reason.
             if error != nil {
-                afterSave = nil
+                drafts.stopWaiting()
             }
         }
         .alert(
@@ -109,10 +124,10 @@ struct ConversationInfoSheet: View {
             presenting: asking
         ) { request in
             Button("Save") {
+                drafts.save(then: request)
                 draft?.save()
-                afterSave = request
             }
-            .disabled(draft?.isValid != true || state.browser.isSubmitting)
+            .disabled(!canSave)
             Button("Don’t Save", role: .destructive) {
                 draft?.revert()
                 perform(request)
@@ -184,7 +199,17 @@ struct ConversationInfoSheet: View {
 
     private func report(_ next: InfoSectionDraft?) {
         draft = next
-        drafts.dirtySection = next?.section
+        if let request = drafts.report(dirty: next?.section) {
+            perform(request)
+        }
+    }
+
+    /// Whether Save can start a write now. `mutate` returns without a word
+    /// while reconciling, loading every participant or submitting.
+    private var canSave: Bool {
+        let browser = state.browser
+        return draft?.isValid == true && !browser.needsReconciliation
+            && !browser.isLoadingAllParticipants && !browser.isSubmitting
     }
 
     // MARK: Header
@@ -222,8 +247,11 @@ struct ConversationInfoSheet: View {
 
     // MARK: Footer
 
-    /// The sheet's own placements: Return is Done or Save, Escape is Revert
-    /// while there is a draft, and the leading edge says why.
+    /// The sheet's own placements: Return is Done or Save, and the leading
+    /// edge says why. Escape always goes through `go(.close)`, which asks
+    /// first when there is a draft. Revert sits in the cancellation slot
+    /// beside Save but has its Escape removed: with it, Escape would discard
+    /// the draft without asking.
     @ToolbarContentBuilder private var footer: some ToolbarContent {
         if draft != nil || state.browser.isSubmitting {
             ToolbarItem(placement: .destructiveAction) {
@@ -238,16 +266,18 @@ struct ConversationInfoSheet: View {
             }
         }
         if let draft {
+            // Beside Save, but with no key: Escape stays with `go(.close)`.
             ToolbarItem(placement: .cancellationAction) {
                 Button("Revert") {
-                    afterSave = nil
+                    drafts.stopWaiting()
                     draft.revert()
                 }
+                .keyboardShortcut(nil)
                 .disabled(state.browser.isSubmitting)
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save", action: draft.save)
-                    .disabled(!draft.isValid || state.browser.isSubmitting)
+                    .disabled(!canSave)
             }
         } else {
             ToolbarItem(placement: .confirmationAction) {
@@ -259,7 +289,6 @@ struct ConversationInfoSheet: View {
     // MARK: Leaving a draft
 
     private func go(_ request: InfoDraftState.Request) {
-        afterSave = nil
         switch drafts.request(request) {
         case let .proceed(request): perform(request)
         case let .askToSave(request): asking = request

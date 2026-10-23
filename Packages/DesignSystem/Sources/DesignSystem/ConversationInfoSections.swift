@@ -62,21 +62,62 @@ enum ConversationInfoSections {
 /// edits, and leaving it (another section, or closing) asks first.
 struct InfoDraftState: Equatable {
     var dirtySection: InfoSection?
+    /// What goes ahead once the alert's Save has landed and the section is clean.
+    private(set) var afterSave: Request?
+    private var saveStarted = false
 
     enum Request: Equatable {
         case switchTo(InfoSection)
         case close
     }
 
+    init(dirtySection: InfoSection? = nil) {
+        self.dirtySection = dirtySection
+    }
+
     /// Whether `request` can go ahead now or must ask Save / Don't Save /
     /// Cancel. Asking changes nothing: the draft stays until its section
-    /// saves or reverts it.
+    /// saves or reverts it. A new request replaces one waiting on a save.
     mutating func request(_ request: Request) -> Decision {
+        afterSave = nil
         guard let dirtySection else { return .proceed(request) }
         if case let .switchTo(section) = request, section == dirtySection {
             return .proceed(request)
         }
         return .askToSave(request)
+    }
+
+    /// The alert's Save was sent; `request` waits for the section to be clean.
+    mutating func save(then request: Request) {
+        afterSave = request
+        saveStarted = false
+    }
+
+    /// The model started submitting.
+    mutating func submissionStarted() {
+        saveStarted = afterSave != nil
+    }
+
+    /// A moment after Save: a write the model refused never starts
+    /// submitting, so nothing may keep waiting on it.
+    mutating func saveMustHaveStarted() {
+        if !saveStarted {
+            afterSave = nil
+        }
+    }
+
+    /// The save failed or the draft was reverted: stay where the sheet is.
+    mutating func stopWaiting() {
+        afterSave = nil
+    }
+
+    /// Records the section's report. Returns the request to go ahead with
+    /// when a saved draft has become clean.
+    mutating func report(dirty section: InfoSection?) -> Request? {
+        dirtySection = section
+        guard section == nil, let next = afterSave else { return nil }
+        afterSave = nil
+        return next
     }
 }
 

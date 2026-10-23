@@ -107,4 +107,47 @@ struct ConversationInfoSectionsTests {
         var drafts = InfoDraftState(dirtySection: .settings)
         #expect(drafts.request(.switchTo(.settings)) == .proceed(.switchTo(.settings)))
     }
+
+    @Test func escapeAndDoneWithADraftAskFirst() {
+        // Escape, Done and closing all send `.close`; with a draft it asks.
+        var drafts = InfoDraftState(dirtySection: .people)
+        #expect(drafts.request(.close) == .askToSave(.close))
+    }
+
+    @Test func aSavedDraftGoesAheadOnceTheSectionIsClean() {
+        var drafts = InfoDraftState(dirtySection: .details)
+        drafts.save(then: .close)
+        drafts.submissionStarted()
+        #expect(drafts.report(dirty: .details) == nil)
+        #expect(drafts.report(dirty: nil) == .close)
+        #expect(drafts.afterSave == nil)
+    }
+
+    /// The model refuses a write while reconciling, loading every participant
+    /// or stopped, and never starts submitting. Nothing may wait on it.
+    @Test func aSaveThatNeverStartsForgetsWhatWasWaiting() {
+        var drafts = InfoDraftState(dirtySection: .details)
+        drafts.save(then: .switchTo(.people))
+        drafts.saveMustHaveStarted()
+        #expect(drafts.afterSave == nil)
+        #expect(drafts.report(dirty: nil) == nil)
+    }
+
+    @Test func aSaveInFlightKeepsWaitingAndAFailureForgets() {
+        var drafts = InfoDraftState(dirtySection: .details)
+        drafts.save(then: .close)
+        drafts.submissionStarted()
+        drafts.saveMustHaveStarted()
+        #expect(drafts.afterSave == .close)
+        drafts.stopWaiting()
+        #expect(drafts.afterSave == nil)
+        #expect(drafts.dirtySection == .details)
+    }
+
+    @Test func anotherRequestReplacesWhatWasWaiting() {
+        var drafts = InfoDraftState(dirtySection: .details)
+        drafts.save(then: .close)
+        _ = drafts.request(.switchTo(.people))
+        #expect(drafts.afterSave == nil)
+    }
 }
