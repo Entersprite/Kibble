@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Add People…, a small sheet over the Info sheet: a search of the
 /// directory and the people known here, each with an Add button. Each Add
-/// applies at once; Done closes.
+/// applies at once; Done closes, as do Cancel and Escape.
 struct AddPeopleSheet: View {
     let state: ChatSceneState
     let actions: ConversationBrowserActions
@@ -33,6 +33,9 @@ struct AddPeopleSheet: View {
         }
         .frame(minWidth: 380, idealWidth: 420, minHeight: 360, idealHeight: 440)
         .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+            }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
             }
