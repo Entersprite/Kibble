@@ -118,6 +118,10 @@ struct ConversationMenuTests {
             preview: { _ in }, mutate: { _ in }
         )
         #expect(Offers(browser).info)
+        // Not where the backend cannot read details.
+        let blind = ChatSceneState(callableConversations: [id])
+        let space = Conversation(id: id, kind: .space)
+        #expect(!ConversationMenu.items(for: space, state: blind, offers: offers).contains(.info))
     }
 
     private func meeting(_ id: String, start: Double, unread: Bool = false) -> Conversation {
@@ -134,6 +138,20 @@ struct ConversationMenuTests {
         -> [ConversationMenu.Entry] {
         let series = try #require(MeetingSeries.build(conversations).first)
         return ConversationMenu.entries(for: series, state: state, offers: all)
+    }
+
+    @Test func aSeriesOffersInfoForItsLatestOccurrence() throws {
+        let old = meeting("old", start: 100), latest = meeting("latest", start: 200)
+        let series = try #require(MeetingSeries.build([old, latest]).first)
+        var offers = all
+        offers.info = true
+        var capabilities = Capabilities()
+        capabilities.canReadConversationDetails = true
+        let readable = ChatSceneState(capabilities: capabilities)
+        let first = ConversationMenu.entries(for: series, state: readable, offers: offers).first
+        #expect(first == .init(item: .info, targets: [series.latest.id]))
+        let blind = ConversationMenu.entries(for: series, state: .init(), offers: offers)
+        #expect(!blind.contains { $0.item == .info })
     }
 
     @Test func aSeriesWithOneOccurrenceOffersThatChatsOwnMenu() throws {

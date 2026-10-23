@@ -74,7 +74,7 @@ struct ConversationMenuBarTests {
             ["next", "previous"],
             ["listed.0", "listed.1", "listed.2", "listed.3"]
         ])
-        // A backend that cannot read details gets no Show Details.
+        // A backend that cannot read details gets no Conversation Info.
         let noDetails = state { $0.capabilities = Capabilities() }
         #expect(!ids(ConversationMenuBar(state: noDetails, actions: recorder.actions)).contains("details"))
     }

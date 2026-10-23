@@ -7,7 +7,7 @@ import SwiftUI
 /// Pure, built from the window's own state and actions, so a test can read
 /// it. An item is drawn only where the host supplied its action (never a
 /// control the seam cannot honor) and is enabled only where the window
-/// offers the same thing now: Show Details and Call as the toolbar does,
+/// offers the same thing now: Conversation Info and Call as the toolbar does,
 /// Mark as Read, Mute and Notification Settings… as the sidebar row's menu
 /// does (`ConversationMenu`), Follow and Close as the thread column does.
 /// Built with no state, for when the main window is not in front, every

@@ -28,7 +28,8 @@ enum ConversationMenu {
         var conversationActions: Capabilities = .init()
     }
 
-    /// Call first, for a DM the header would offer it for. Then Mark as Read
+    /// Info leads, where the host can show it and the backend can read details.
+    /// Then Call, for a DM the header would offer it for. Then Mark as Read
     /// where it can publish, Mute or Unmute by the conversation's own record,
     /// then its editor - each only where the host offered it.
     ///
@@ -102,6 +103,9 @@ extension ConversationMenu {
             }
         } else if offers.mute {
             entries.append(Entry(item: .mute, targets: unmuted))
+        }
+        if offers.info, state.capabilities.canReadConversationDetails {
+            entries.insert(Entry(item: .info, targets: [series.latest.id]), at: 0)
         }
         return entries
     }

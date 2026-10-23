@@ -54,11 +54,8 @@ struct AudioCallHeaderTests {
         #expect(header(kind: kind).videoCallConversation == nil)
     }
 
-    @Test(arguments: [
-        (Conversation.Kind.directMessage, true), (.groupDirectMessage, true), (.appDirectMessage, true),
-        (.space, true)
-    ])
-    func detailsAreOfferedForEveryKindOfConversation(_ kind: Conversation.Kind, _ offered: Bool) {
+    @Test(arguments: [Conversation.Kind.directMessage, .groupDirectMessage, .appDirectMessage, .space])
+    func detailsAreOfferedForEveryKindOfConversation(_ kind: Conversation.Kind) {
         var capabilities = Capabilities()
         capabilities.canReadConversationDetails = true
         var actions = ChatSceneActions(call: { _ in })
@@ -74,7 +71,7 @@ struct AudioCallHeaderTests {
             ),
             actions: actions
         )
-        #expect(window.showsDetailsButton == offered)
+        #expect(window.showsDetailsButton)
     }
 
     @Test func listsHaveNoCallButtonEvenWithAStaleSelection() {

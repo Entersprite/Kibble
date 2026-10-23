@@ -31,31 +31,12 @@ extension ChatWindow {
     ///
     /// The flexible spacer draws nothing and is always there: it keeps the
     /// toolbar, so its band is 52 pt and two rows, and the thread's titlebar
-    /// section (session 65, `ThreadColumnBridge`). Details and the calls never
-    /// share the band, since Details leaves out a DM and only a DM has calls.
-    /// Call and Video Call are neighbors with no spacer between them, so they
+    /// section (session 65, `ThreadColumnBridge`). Info comes first, in a capsule
+    /// of its own: a fixed spacer keeps it out of the calls' capsule when a DM
+    /// shows both. Call and Video Call are neighbors with no spacer between them, so they
     /// share one glass capsule, as a pair of related actions does. The
     /// Favorites star follows in a capsule of its own.
     @ToolbarContentBuilder var conversationToolbar: some ToolbarContent {
-        if showsDetailsButton, let conversation = state.selectedConversation, let browser = actions.browser {
-            // The title, as a plain button to Info. It keeps the title over its
-            // subtitle at the leading edge, as the system draws them, with no
-            // capsule behind it.
-            ToolbarItem(placement: .principal) {
-                Button { browser.details(conversation.id, false) } label: {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(title).font(.headline).lineLimit(1)
-                        if !subtitle.isEmpty {
-                            Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Conversation Info")
-                .help("Show Conversation Info")
-            }
-            .sharedBackgroundVisibility(.hidden)
-        }
         ToolbarSpacer(.flexible)
         if showsDetailsButton, let conversation = state.selectedConversation, let browser = actions.browser {
             ToolbarItem(placement: .primaryAction) {
@@ -63,6 +44,9 @@ extension ChatWindow {
                 let title = meeting ? "Latest Meeting Info" : "Conversation Info"
                 Button(title, systemImage: "info.circle") { browser.details(conversation.id, false) }
                     .help(meeting ? "Show the latest meeting’s info" : "Show conversation info")
+            }
+            if callConversation != nil {
+                ToolbarSpacer(.fixed)
             }
         }
         if let callConversation, let call = actions.call {
