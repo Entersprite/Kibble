@@ -7,8 +7,8 @@ import Testing
 
 @MainActor
 struct AudioCallWindowHostTests {
-    private func call(phase: AudioCallPhase = .incoming) -> AudioCallSnapshot {
-        AudioCallSnapshot(
+    private func call(phase: AudioCallPhase = .incoming) -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(
             id: UUID(),
             recipient: AudioCallRecipient(
                 conversationID: Conversation.ID("dm-test"), memberID: Member.ID("peer"),
@@ -16,7 +16,7 @@ struct AudioCallWindowHostTests {
             ),
             direction: .incoming,
             phase: phase
-        )
+        ))
     }
 
     private let actions = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})

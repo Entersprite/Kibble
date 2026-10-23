@@ -11,15 +11,20 @@ struct CallMenuTests {
         conversationID: Conversation.ID("dm"), memberID: Member.ID("peer"), displayName: "Peer"
     )
 
-    private func call(_ phase: AudioCallPhase, muted: Bool = false) -> AudioCallSnapshot {
-        AudioCallSnapshot(id: id, recipient: recipient, direction: .outgoing, phase: phase, isMuted: muted)
+    private func call(_ phase: AudioCallPhase, muted: Bool = false) -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(
+            id: id, recipient: recipient, direction: .outgoing, phase: phase, isMuted: muted
+        ))
     }
 
     private func menu(
-        _ call: AudioCallSnapshot?, ending: Bool = false, camera: CallCameraState? = CallCameraState(),
-        sharing: CallScreenShareState? = CallScreenShareState(), video: Bool = true
+        _ call: AudioCallSession?, ending: Bool = false, camera: CallCameraState? = CallCameraState(),
+        sharing: CallScreenShareState? = CallScreenShareState(), video: Bool = true, sound: Bool = false
     ) -> CallMenu {
-        CallMenu(call: call, isEnding: ending, camera: camera, screenSharing: sharing, offersVideo: video)
+        CallMenu(
+            call: call, isEnding: ending, camera: camera, screenSharing: sharing, offersVideo: video,
+            offersSound: sound
+        )
     }
 
     private func enabled(_ menu: CallMenu) -> [CallMenu.Item] {

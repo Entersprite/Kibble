@@ -10,13 +10,33 @@ import SwiftUI
 enum CallVideoSurface {
     static func content(for controller: CallVideoController) -> CallVideoContent? {
         guard controller.camera != nil else { return nil }
-        let remote = controller.remoteVisible && controller.remoteTrack != nil
         let preview = controller.camera?.isOn == true && controller.localTrack != nil
         return CallVideoContent(
-            remote: remote ? AnyView(RemoteVideo(controller: controller)) : nil,
-            remoteIsScreen: controller.remotePresentation,
+            remotes: remotes(of: controller),
             preview: preview ? AnyView(LocalPreview(controller: controller)) : nil
         )
+    }
+
+    /// Every remote video showing now, one per receiving slot, in the
+    /// engine's order. An engine that reports no slots shows its one
+    /// preferred video, as before several could be received.
+    static func remotes(of controller: CallVideoController) -> [CallRemoteVideo] {
+        let visible = controller.remoteVideos.filter(\.isVisible)
+        guard !visible.isEmpty else {
+            guard controller.remoteVisible, controller.remoteTrack != nil else { return [] }
+            return [CallRemoteVideo(
+                id: 0, isScreen: controller.remotePresentation,
+                content: AnyView(RemoteVideo(controller: controller))
+            )]
+        }
+        return visible.map { video in
+            CallRemoteVideo(
+                id: video.index, participantID: video.participantID, label: video.displayName,
+                isScreen: video.isPresentation,
+                content: AnyView(NativeVideoView(track: video.track)
+                    .accessibilityLabel(video.isPresentation ? "Shared screen" : "Remote camera"))
+            )
+        }
     }
 
     /// What you are sharing, once capture has started.

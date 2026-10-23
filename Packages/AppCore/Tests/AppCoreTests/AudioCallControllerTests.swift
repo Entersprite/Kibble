@@ -384,4 +384,15 @@ final class RecordingAudioService: AudioCallService {
         latestSnapshot = snapshot
         continuation.yield(.snapshot(snapshot))
     }
+
+    /// The controller's view of a call to one person, sent back as the
+    /// provider's snapshot of it.
+    func emit(_ session: AudioCallSession) {
+        guard let recipient = session.recipient else { return }
+        emit(AudioCallSnapshot(
+            id: session.id, recipient: recipient, direction: session.direction, phase: session.phase,
+            isMuted: session.isMuted, failureMessage: session.failureMessage, endReason: session.endReason,
+            remoteMuted: session.remoteMuted
+        ))
+    }
 }

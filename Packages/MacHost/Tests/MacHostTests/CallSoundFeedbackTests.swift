@@ -5,10 +5,10 @@ import Testing
 
 @MainActor
 struct CallSoundFeedbackTests {
-    private func call(_ phase: AudioCallPhase = .connecting) -> AudioCallSnapshot {
-        AudioCallSnapshot(id: UUID(), recipient: .init(
+    private func call(_ phase: AudioCallPhase = .connecting) -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(id: UUID(), recipient: .init(
             conversationID: .init("dm"), memberID: .init("peer"), displayName: "Peer"
-        ), direction: .outgoing, phase: phase)
+        ), direction: .outgoing, phase: phase))
     }
 
     @Test func connectingPlaysOnceAndOnlyRingingLoopsBeforeTheJoinedCue() {
@@ -50,17 +50,17 @@ struct CallSoundFeedbackTests {
         }
     }
 
-    @Test func aSilentIncomingInvitationRemainsSilentWhenTheCallerCancels() {
+    @Test func aSilentIncomingInvitationRemainsSilentWhenTheCallerCancels() throws {
         for rings in [false, true] {
             let log = SoundLog()
             let feedback = log.feedback()
             var call = call(.incoming)
-            call = AudioCallSnapshot(
+            call = try AudioCallSession(AudioCallSnapshot(
                 id: call.id,
-                recipient: call.recipient,
+                recipient: #require(call.recipient),
                 direction: .incoming,
                 phase: .incoming
-            )
+            ))
             feedback.update(call: call, isEnding: false, incomingRings: rings)
             call.phase = .ended; call.endReason = .remoteEnded
             feedback.update(call: call, isEnding: false)

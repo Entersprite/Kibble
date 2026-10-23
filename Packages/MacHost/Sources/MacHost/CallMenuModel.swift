@@ -61,7 +61,8 @@ public final class CallMenuModel {
         let video = source.video
         return CallMenu(
             call: source.calls.call, isEnding: source.calls.isEnding, camera: video?.camera,
-            screenSharing: video?.screenSharing.state, offersVideo: video?.isAvailable == true
+            screenSharing: video?.screenSharing.state, offersVideo: video?.isAvailable == true,
+            offersSound: video?.screenSharing.offersSound == true
         )
     }
 
@@ -81,6 +82,14 @@ public final class CallMenuModel {
         perform { source, id in
             if MacAppDelegate.canUseVideo(in: id, calls: source.calls) {
                 source.video?.screenSharing.toggle()
+            }
+        }
+    }
+
+    public func shareScreenWithSound() {
+        perform { source, id in
+            if MacAppDelegate.canUseVideo(in: id, calls: source.calls) {
+                source.video?.screenSharing.toggle(sharingAudio: true)
             }
         }
     }

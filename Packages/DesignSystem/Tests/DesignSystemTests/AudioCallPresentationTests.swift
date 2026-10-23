@@ -73,14 +73,14 @@ struct AudioCallPresentationTests {
         #expect(AudioCallCopyState.unavailable.notice?.kind == .warning)
     }
 
-    private func snapshot(_ phase: AudioCallPhase) -> AudioCallSnapshot {
-        AudioCallSnapshot(
+    private func snapshot(_ phase: AudioCallPhase) -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(
             id: UUID(),
             recipient: AudioCallRecipient(
                 conversationID: Conversation.ID("presentation"), memberID: Member.ID("peer"),
                 displayName: "Maya"
             ),
             direction: .outgoing, phase: phase
-        )
+        ))
     }
 }

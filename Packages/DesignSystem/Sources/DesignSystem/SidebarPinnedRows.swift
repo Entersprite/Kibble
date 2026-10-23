@@ -51,11 +51,21 @@ struct ThreadsSidebarRow: View {
     }
 }
 
+/// The Calls row: retained call records. No badge, since a record says
+/// nothing about what is unread, and no context menu, like the Threads row.
+struct CallsSidebarRow: View {
+    var body: some View {
+        SidebarSymbolTitle(title: CallHistoryPresentation.title, symbol: CallHistoryPresentation.rowSymbol)
+            .padding(.vertical, 1)
+    }
+}
+
 /// A row above the conversations. These never scroll (the owner, session 69).
 enum PinnedRow: Hashable {
     case search
     case mentions
     case threads
+    case calls
 }
 
 /// The sidebar's two lists: the pinned rows, and the conversations below them.
@@ -87,6 +97,9 @@ enum SidebarPinned {
         if actions.threads != nil {
             rows.append(.threads)
         }
+        if actions.callHistory != nil {
+            rows.append(.calls)
+        }
         return rows
     }
 
@@ -95,6 +108,7 @@ enum SidebarPinned {
         switch state.sidebarSelection {
         case .mentions?: .mentions
         case .threads?: .threads
+        case .calls?: .calls
         case .conversation?, .meetingSeries?, nil: nil
         }
     }
@@ -118,6 +132,8 @@ enum SidebarPinned {
             actions.showMentions?()
         case .threads?:
             actions.threads?.showList()
+        case .calls?:
+            actions.callHistory?.show()
         case nil:
             break
         }
@@ -160,6 +176,9 @@ struct PinnedList: View {
                 case .threads:
                     ThreadsSidebarRow(unread: state.threads.unreadCount)
                         .tag(SidebarSelection.threads)
+                case .calls:
+                    CallsSidebarRow()
+                        .tag(SidebarSelection.calls)
                 }
             }
         }

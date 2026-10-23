@@ -19,6 +19,20 @@ final class NativeCallVideo: CallCameraRouting {
     var activeDevice = ""
     var announcement: (@Sendable (Bool) async throws -> Void)?
 
+    /// Remote videos a call can receive at once. A Debug build launched with
+    /// `--call-video-receivers=N` (1...8) uses N, to compare a live call's
+    /// media against the single-receiver layout earlier builds negotiated.
+    static var receivingSlots: Int {
+        #if DEBUG
+            let prefix = "--call-video-receivers="
+            if let value = CommandLine.arguments.last(where: { $0.hasPrefix(prefix) })
+                .flatMap({ Int($0.dropFirst(prefix.count)) }), (1 ... 8).contains(value) {
+                return value
+            }
+        #endif
+        return 8
+    }
+
     init(factory: LKRTCPeerConnectionFactory, peer: LKRTCPeerConnection, presentation: Bool = false) throws {
         self.factory = factory
         source = presentation ? factory.videoSource(forScreenCast: true) : factory.videoSource()
@@ -33,7 +47,7 @@ final class NativeCallVideo: CallCameraRouting {
         guard let sender = peer.addTransceiver(with: track, init: sending)
         else { throw CallMediaError.negotiationFailed }
         var receivers: [LKRTCRtpTransceiver] = []
-        for _ in 0 ..< (presentation ? 1 : 8) {
+        for _ in 0 ..< (presentation ? 1 : Self.receivingSlots) {
             guard let receiver = peer.addTransceiver(of: .video, init: receiving) else {
                 throw CallMediaError.negotiationFailed
             }

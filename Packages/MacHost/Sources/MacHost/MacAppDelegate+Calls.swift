@@ -140,6 +140,13 @@ public extension MacAppDelegate {
                 video.screenSharing.toggle()
             }
         }
+        if video.screenSharing.offersSound {
+            actions.shareScreenWithSound = {
+                if canUseVideo(in: id, calls: calls) {
+                    video.screenSharing.toggle(sharingAudio: true)
+                }
+            }
+        }
     }
 
     /// Whether the camera and sharing may change for call `id`: still that
@@ -218,9 +225,10 @@ public extension MacAppDelegate {
     }
 
     private func observeCallWindow() {
-        // Read outside the tracking scope: the directory changes with every
-        // presence update, which alone is no reason to rebuild the call window.
-        let person = callPerson()
+        // Read outside the tracking scope: the directory and the conversation
+        // list change with every presence update and message, which alone is
+        // no reason to rebuild the call window.
+        let (person, conversation) = Self.callPeople(in: environment)
         withObservationTracking {
             let alertsIncoming = updateCallAlert(person: person)
             callSounds.update(
@@ -231,28 +239,33 @@ public extension MacAppDelegate {
                 call: environment.calls.call,
                 windowRequests: environment.calls.windowRequests,
                 devices: callAudioDevices.devices, alertsIncoming: alertsIncoming, video: callVideo,
-                person: person
+                person: person, conversation: conversation, participants: environment.calls.participants
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.observeCallWindow() }
         }
     }
 
-    /// The other person's directory entry, for the call window's photo.
-    private func callPerson() -> Member? {
+    /// The other person's directory entry, for the call window's photo, or
+    /// the conversation a group or space call is in, for its picture.
+    internal static func callPeople(in environment: AppEnvironment) -> (Member?, Conversation?) {
         guard let call = environment.calls.call, case let .running(model) = environment.phase
-        else { return nil }
-        return model.directory[call.recipient.memberID]
+        else { return (nil, nil) }
+        if let recipient = call.recipient {
+            return (model.directory[recipient.memberID], nil)
+        }
+        return (nil, model.conversations.first { $0.id == call.conversationID })
     }
 
-    /// Calls the same person again from a finished call's window, offered only
-    /// while that conversation can still be called. Read only for a finished
-    /// call, so a live call's window does not follow the conversation list.
+    /// Calls the same person, or the same group or space, again from a
+    /// finished call's window, offered only while that conversation can still
+    /// be called. Read only for a finished call, so a live call's window does
+    /// not follow the conversation list.
     internal static func callBack(after id: UUID, environment: AppEnvironment) -> (() -> Void)? {
         let calls = environment.calls
         guard let call = calls.call, call.id == id, call.phase.isTerminal,
               case let .running(model) = environment.phase,
-              let conversation = model.conversations.first(where: { $0.id == call.recipient.conversationID }),
+              let conversation = model.conversations.first(where: { $0.id == call.conversationID }),
               calls.canCall(conversation: conversation, directory: model.directory, me: model.me)
         else { return nil }
         return {
@@ -269,7 +282,7 @@ public extension MacAppDelegate {
         var rule: ResolvedRule?
         if case let .running(model) = environment.phase,
            environment.settings.account != nil,
-           let id = environment.calls.call?.recipient.conversationID,
+           let id = environment.calls.call?.conversationID,
            let conversation = model.conversations.first(where: { $0.id == id }) {
             rule = environment.settings.resolved(for: conversation)
         }

@@ -60,6 +60,8 @@ extension ChatWindow {
                 actions.showMentions != nil
             case .threads:
                 actions.threads != nil
+            case .calls:
+                actions.callHistory != nil
             }
         }
     }
@@ -81,6 +83,7 @@ extension ChatWindow {
             case let .meetingSeries(id): actions.selectMeetingSeries?(id)
             case .mentions: actions.showMentions?()
             case .threads: actions.threads?.showList()
+            case .calls: actions.callHistory?.show()
             }
             if let thread {
                 actions.threads?.open(thread)

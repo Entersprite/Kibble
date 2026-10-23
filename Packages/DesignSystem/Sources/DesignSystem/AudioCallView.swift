@@ -11,6 +11,9 @@ public struct AudioCallActions {
     /// becomes End Call and Answer.
     public var endsOtherCall = false
     public var toggleScreenSharing: (() -> Void)?
+    /// Starts sharing the screen with the Mac's sound. **Optional**: only a
+    /// host that can send sound supplies it, and `nil` offers no such choice.
+    public var shareScreenWithSound: (() -> Void)?
     public var toggleCamera: (() -> Void)?
     public var selectCamera: ((String) -> Void)?
     public var selectMicrophone: ((String) -> Void)?
@@ -55,26 +58,6 @@ public struct AudioCallActions {
     }
 }
 
-/// Video renderers supplied by the host. The shared layout decides where each
-/// one goes; the platform media engine draws inside them.
-public struct CallVideoContent {
-    /// The other person's camera or shared screen, present only while showing.
-    public var remote: AnyView?
-    public var remoteIsScreen: Bool
-    /// Your own camera, present only while it is on.
-    public var preview: AnyView?
-
-    public init(remote: AnyView? = nil, remoteIsScreen: Bool = false, preview: AnyView? = nil) {
-        self.remote = remote
-        self.remoteIsScreen = remoteIsScreen
-        self.preview = preview
-    }
-
-    public var hasVideo: Bool {
-        remote != nil || preview != nil
-    }
-}
-
 /// When the call connected and when it finished. The host keeps these, so the
 /// duration survives the window's content being rebuilt.
 public struct CallTiming: Equatable, Sendable {
@@ -87,21 +70,27 @@ public struct CallTiming: Equatable, Sendable {
     }
 }
 
-/// The one window for incoming, outgoing and video calls.
+/// The one window for incoming, outgoing and video calls, with one person or
+/// in a group or space.
 ///
-/// A dark stage with the person in the middle and round glass controls
-/// floating at the bottom. Passing `video` switches to the stage a video call
-/// uses: the other person's video fills the window and your camera sits in a
-/// corner. The host decides when that happens and how big the window is.
-/// `screenPreview` is what you are sharing: it takes the person's place in
+/// A dark stage with the person, or the conversation, in the middle and round
+/// glass controls floating at the bottom. A conversation call lists who else
+/// is in it under its name, as the provider reports their devices. Passing
+/// `video` switches to the stage a video call uses: one video fills the
+/// window, several share it in a grid, and a shared screen fills it with
+/// every other video in a column beside it; your camera sits in a corner.
+/// The host decides when that happens and how big the window is.
+/// `screenPreview` is what you are sharing: it takes the picture's place in
 /// the audio layout and a corner tile in the video layout.
 ///
-/// The backdrop and the other person's video run under the transparent
-/// titlebar, to the window's edges; everything else keeps to the safe area.
+/// The backdrop and the main video run under the transparent titlebar, to
+/// the window's edges; everything else keeps to the safe area.
 public struct AudioCallView: View {
-    private let call: AudioCallSnapshot
+    private let call: AudioCallSession
     private let actions: AudioCallActions
     private let person: Member?
+    private let conversation: Conversation?
+    private let participants: [CallParticipantDevice]?
     private let timing: CallTiming
     private let devices: CallAudioDevices?
     private let screenSharing: CallScreenShareState?
@@ -111,11 +100,14 @@ public struct AudioCallView: View {
     @State private var copyState = AudioCallCopyState.idle
     @State private var requestedCall: UUID?
     @State private var copyRequest = 0
+    @State private var showsPeople = false
 
     public init(
-        call: AudioCallSnapshot,
+        call: AudioCallSession,
         actions: AudioCallActions,
         person: Member? = nil,
+        conversation: Conversation? = nil,
+        participants: [CallParticipantDevice]? = nil,
         timing: CallTiming = CallTiming(),
         devices: CallAudioDevices? = nil,
         camera: CallCameraState? = nil,
@@ -126,6 +118,8 @@ public struct AudioCallView: View {
         self.call = call
         self.actions = actions
         self.person = person
+        self.conversation = conversation
+        self.participants = participants
         self.timing = timing
         self.devices = devices
         self.camera = camera
@@ -137,20 +131,23 @@ public struct AudioCallView: View {
     public var body: some View {
         ZStack {
             CallBackdrop(photo: person?.avatarURL)
-            if let live = liveVideo, let remote = live.remote {
-                CallRemoteStage(content: remote, isScreen: live.remoteIsScreen)
+            if let live = liveVideo, !live.remotes.isEmpty {
+                CallVideoStage(
+                    videos: live.remotes, roster: roster, preview: isGrid ? live.preview : nil,
+                    trailingColumn: CallLayout.tile + 32
+                )
             }
             VStack(spacing: 0) {
                 Spacer(minLength: 12)
                 if let screen = liveScreen, video == nil {
-                    CallSharingHeader(call: call, timing: timing, content: screen, stop: stopSharing)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                } else if liveVideo?.remote == nil {
-                    CallPersonHeader(
-                        call: call, directory: directory, timing: timing,
-                        avatarSize: video == nil ? 104 : 128, accountLabel: actions.accountLabel
+                    CallSharingHeader(
+                        call: call, timing: timing, content: screen,
+                        sharesSound: screenSharing?.sharesSound == true, stop: stopSharing
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                } else if liveVideo?.remotes.isEmpty != false {
+                    header
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 Spacer(minLength: 20)
                 controls
@@ -164,22 +161,37 @@ public struct AudioCallView: View {
         }
         // The only text in the titlebar's band, so it alone reaches into it.
         .overlay(alignment: .top) {
-            if let live = liveVideo, live.remote != nil {
-                CallVideoTitle(call: call, timing: timing, isScreen: live.remoteIsScreen)
-                    .padding(.top, 9)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .ignoresSafeArea()
+            if let live = liveVideo, !live.remotes.isEmpty {
+                let main = CallStageLayout.main(of: live.remotes)
+                CallVideoTitle(
+                    call: call, timing: timing, isScreen: main?.isScreen == true,
+                    presenter: call.isConversationCall && main?.isScreen == true ? main?.label : nil
+                )
+                .padding(.top, 9)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .ignoresSafeArea()
             }
         }
         .overlay(alignment: .topTrailing) {
             VStack(alignment: .trailing, spacing: 10) {
-                if let preview = liveVideo?.preview {
+                if let preview = liveVideo?.preview, !isGrid {
                     CallSelfView(content: preview)
                         .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
                 }
                 if video != nil, let screen = liveScreen {
-                    CallSharingPreview(content: screen, width: 192, stop: stopSharing)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
+                    CallSharingPreview(
+                        content: screen, width: CallLayout.tile,
+                        sharesSound: screenSharing?.sharesSound == true,
+                        stop: stopSharing
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
+                }
+                let alongside = CallStageLayout.alongside(liveVideo?.remotes ?? [])
+                if !alongside.isEmpty {
+                    CallVideoFilmstrip(videos: alongside, roster: roster, width: CallLayout.tile)
+                        // Clear of the controls floating at the bottom.
+                        .padding(.bottom, 88)
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
             .padding(.top, CallLayout.titlebarGap)
@@ -207,6 +219,23 @@ public struct AudioCallView: View {
         .onChange(of: call.id) {
             requestedCall = nil
             copyState = .idle
+            showsPeople = false
+        }
+    }
+
+    /// The person's picture and name, or the conversation's and who is in it.
+    @ViewBuilder private var header: some View {
+        if let member = call.recipient?.memberID {
+            CallPersonHeader(
+                call: call, member: member, directory: directory(member), timing: timing,
+                avatarSize: video == nil ? 104 : 128, accountLabel: actions.accountLabel
+            )
+        } else {
+            CallConversationHeader(
+                call: call, conversation: conversation, roster: roster, timing: timing,
+                accountLabel: actions.accountLabel, avatarSize: video == nil ? 88 : 112,
+                showPeople: { showsPeople = true }
+            )
         }
     }
 
@@ -225,7 +254,8 @@ public struct AudioCallView: View {
                 ForEach(notices) { CallNoticeView(notice: $0) }
                 CallControlBar(
                     call: call, actions: actions, devices: devices, camera: camera,
-                    screenSharing: screenSharing, diagnostics: diagnostics
+                    screenSharing: screenSharing, diagnostics: diagnostics,
+                    roster: roster, showsPeople: $showsPeople
                 )
             }
         }
@@ -241,6 +271,20 @@ public struct AudioCallView: View {
         call.phase.isTerminal ? nil : screenPreview
     }
 
+    /// Several cameras share the stage, your own among them.
+    private var isGrid: Bool {
+        if case .grid = CallStageLayout.of(liveVideo?.remotes ?? []) {
+            return true
+        }
+        return false
+    }
+
+    /// Who else is in a conversation call; a call with one person shows the
+    /// person instead, with the mute the snapshot itself reports.
+    private var roster: [CallRosterEntry]? {
+        call.isConversationCall && !call.phase.isTerminal ? CallRoster.entries(participants) : nil
+    }
+
     /// The preview's own Stop Sharing, offered once sharing has started.
     private var stopSharing: (() -> Void)? {
         screenSharing?.phase == .sharing ? actions.toggleScreenSharing : nil
@@ -248,9 +292,8 @@ public struct AudioCallView: View {
 
     /// The directory `Avatar` reads: the person's own entry, or a stand-in
     /// built from the call's name so initials still show.
-    private var directory: [Member.ID: Member] {
-        let id = call.recipient.memberID
-        return [id: person ?? Member(id: id, kind: .human, displayName: call.recipient.displayName)]
+    private func directory(_ id: Member.ID) -> [Member.ID: Member] {
+        [id: person ?? Member(id: id, kind: .human, displayName: call.displayName)]
     }
 
     private var notices: [CallNotice] {
@@ -276,9 +319,10 @@ public struct AudioCallView: View {
         CallAnimationKey(
             phase: call.phase, isMuted: call.isMuted,
             remoteMuted: AudioCallPresentation.showsRemoteMuted(call),
-            remote: liveVideo?.remote != nil, preview: liveVideo?.preview != nil, screen: liveScreen != nil,
-            notices: notices.map(\.id), sharing: screenSharing?.phase,
-            camera: camera.map { [$0.isOn, $0.isUpdating] }
+            remotes: liveVideo?.remotes.map(\.id) ?? [], preview: liveVideo?.preview != nil,
+            screen: liveScreen != nil, notices: notices.map(\.id), sharing: screenSharing?.phase,
+            camera: camera.map { [$0.isOn, $0.isUpdating] },
+            roster: roster?.map { [$0.id.uuidString, String(describing: $0.microphoneMuted)] }
         )
     }
 
@@ -293,12 +337,13 @@ private struct CallAnimationKey: Equatable {
     let phase: AudioCallPhase
     let isMuted: Bool
     let remoteMuted: Bool
-    let remote: Bool
+    let remotes: [Int]
     let preview: Bool
     let screen: Bool
     let notices: [String]
     let sharing: CallScreenShareState.Phase?
     let camera: [Bool]?
+    let roster: [[String]]?
 }
 
 /// Sizes the call window's two layouts share with the host.
@@ -314,6 +359,8 @@ public enum CallLayout {
     /// a 32-point titlebar that is 46 points from the window's top; in full
     /// screen, where the titlebar is hidden, the content moves up.
     static let titlebarGap: CGFloat = 14
+    /// Your camera, your shared screen and the videos beside a shared screen.
+    static let tile: CGFloat = 192
     static let button: CGFloat = 46
     static let answerButton: CGFloat = 62
 }

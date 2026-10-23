@@ -7,13 +7,13 @@ import Testing
 
 @MainActor
 struct IncomingCallPanelTests {
-    private func incoming() -> AudioCallSnapshot {
-        AudioCallSnapshot(
+    private func incoming() -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(
             id: UUID(), recipient: AudioCallRecipient(
                 conversationID: Conversation.ID("dm:panel"), memberID: Member.ID("person:avery"),
                 displayName: "Avery"
             ), direction: .incoming, phase: .incoming
-        )
+        ))
     }
 
     private func rule(_ delivery: Delivery, preview: Bool = true) -> ResolvedRule {
@@ -27,7 +27,8 @@ struct IncomingCallPanelTests {
 
     @Test func aBannerBecomesThePanelAndRingsOnlyWithSound() throws {
         let call = incoming()
-        let person = Member(id: call.recipient.memberID, kind: .human, displayName: "Avery Stone")
+        let recipient = try #require(call.recipient)
+        let person = Member(id: recipient.memberID, kind: .human, displayName: "Avery Stone")
         var surface = panel
         surface.person = person
         let loud = IncomingCallRoute.make(
@@ -160,14 +161,14 @@ struct IncomingCallPanelTests {
         #expect(recorder.shown.map(\.callID) == [call.id, next.id])
     }
 
-    @Test func aLatePhotoUpdatesThePanelInPlace() {
+    @Test func aLatePhotoUpdatesThePanelInPlace() throws {
         let recorder = PanelRecorder()
         let alerts = recorder.alerts()
         let call = incoming()
         alerts.update(call: call, rule: rule(.banner), paused: false, surface: panel)
         var withPhoto = panel
-        withPhoto.person = Member(
-            id: call.recipient.memberID,
+        withPhoto.person = try Member(
+            id: #require(call.recipient).memberID,
             kind: .human,
             displayName: "Avery",
             avatarURL: URL(string: "https://example.com/avery.png")

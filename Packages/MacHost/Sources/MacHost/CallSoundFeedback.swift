@@ -49,7 +49,7 @@ final class CallSoundFeedback {
         self.setLoop = setLoop; self.play = play; stopPlayback = stop
     }
 
-    func update(call: AudioCallSnapshot?, isEnding: Bool, incomingRings: Bool = false) {
+    func update(call: AudioCallSession?, isEnding: Bool, incomingRings: Bool = false) {
         guard let call else { stop(); return }
         if callID != call.id {
             stop()
@@ -65,12 +65,16 @@ final class CallSoundFeedback {
         }
         if call.phase == .connected, !joined, !locallyEnded {
             joined = true
-            play([.personJoined])
+            // A group or space call this Mac starts connects with nobody else
+            // there yet, so only a join into others says someone is there.
+            if !call.isConversationCall || call.isJoining {
+                play([.personJoined])
+            }
         }
         reportEnd(call)
     }
 
-    private func updateConnectingCue(_ call: AudioCallSnapshot, isEnding: Bool) {
+    private func updateConnectingCue(_ call: AudioCallSession, isEnding: Bool) {
         if connectingCueActive, call.phase != .connecting || isEnding {
             stopPlayback()
             connectingCueActive = false
@@ -83,7 +87,7 @@ final class CallSoundFeedback {
         play([.connecting])
     }
 
-    private func recordEngagement(_ call: AudioCallSnapshot, incomingRings: Bool) {
+    private func recordEngagement(_ call: AudioCallSession, incomingRings: Bool) {
         if call.phase == .incoming {
             incomingWasAudible = incomingRings
         }
@@ -92,7 +96,7 @@ final class CallSoundFeedback {
         }
     }
 
-    private func reportEnd(_ call: AudioCallSnapshot) {
+    private func reportEnd(_ call: AudioCallSession) {
         guard call.phase.isTerminal, !locallyEnded, !reportedEnd else { return }
         // A muted or Focus-suppressed invitation must not make a sound when it ends.
         if call.direction == .incoming, !participating, !incomingWasAudible {
@@ -106,7 +110,7 @@ final class CallSoundFeedback {
         }
     }
 
-    private func loopSound(for call: AudioCallSnapshot, isEnding: Bool) -> AppSound? {
+    private func loopSound(for call: AudioCallSession, isEnding: Bool) -> AppSound? {
         guard !isEnding, !joined else { return nil }
         return switch call.phase {
         case .ringing where call.direction == .outgoing: .ringing

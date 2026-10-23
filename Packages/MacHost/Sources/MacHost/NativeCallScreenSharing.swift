@@ -30,6 +30,11 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         super.init()
     }
 
+    /// A presenter child can carry ScreenCaptureKit's system sound.
+    var canShareSound: Bool {
+        true
+    }
+
     func start() async throws -> Bool {
         try await start(sharingAudio: false)
     }

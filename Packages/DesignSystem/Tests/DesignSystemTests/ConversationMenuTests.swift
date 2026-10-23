@@ -76,7 +76,7 @@ struct ConversationMenuTests {
         #expect(Offers(ChatSceneActions(call: { _ in })) == Offers(call: true))
     }
 
-    @Test func callLeadsTheMenuOfADMTheHeaderWouldCall() {
+    @Test func callLeadsTheMenuOfAConversationTheHeaderWouldCall() {
         var offers = all
         offers.call = true
         let callable = ChatSceneState(callableConversations: [id])
@@ -90,9 +90,13 @@ struct ConversationMenuTests {
         // Not for a DM calls cannot reach, nor without the host's action.
         #expect(!ConversationMenu.items(for: dm, state: ChatSceneState(), offers: offers).contains(.call))
         #expect(!ConversationMenu.items(for: dm, state: callable, offers: all).contains(.call))
+        // A group or space the call service can call starts quietly from its
+        // row too; one it cannot call has no Call, whatever its kind.
         for kind in [Conversation.Kind.groupDirectMessage, .appDirectMessage, .space, .meetChat] {
             let other = Conversation(id: id, kind: kind)
-            #expect(!ConversationMenu.items(for: other, state: callable, offers: offers).contains(.call))
+            #expect(ConversationMenu.items(for: other, state: callable, offers: offers).first == .call)
+            #expect(!ConversationMenu.items(for: other, state: ChatSceneState(), offers: offers)
+                .contains(.call))
         }
     }
 

@@ -19,8 +19,10 @@ struct CallCameraRequestTests {
         let recipient = AudioCallRecipient(
             conversationID: conversation.id, memberID: peer.id, displayName: "Peer"
         )
-        func call(_ phase: AudioCallPhase, _ callID: UUID = id) -> AudioCallSnapshot {
-            AudioCallSnapshot(id: callID, recipient: recipient, direction: .outgoing, phase: phase)
+        func call(_ phase: AudioCallPhase, _ callID: UUID = id) -> AudioCallSession {
+            AudioCallSession(AudioCallSnapshot(
+                id: callID, recipient: recipient, direction: .outgoing, phase: phase
+            ))
         }
         let off = CallCameraState(devices: [])
         var on = off
@@ -30,7 +32,7 @@ struct CallCameraRequestTests {
         var problem = off
         problem.notice = "Video is unavailable for this call. Voice remains connected."
         func step(
-            _ snapshot: AudioCallSnapshot?, _ camera: CallCameraState?, ending: Bool = false
+            _ snapshot: AudioCallSession?, _ camera: CallCameraState?, ending: Bool = false
         ) -> CallCameraRequest.Step {
             CallCameraRequest.step(for: id, call: snapshot, isEnding: ending, camera: camera)
         }

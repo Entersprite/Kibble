@@ -10,6 +10,8 @@ protocol CallScreenShareRouting: AnyObject {
     /// The track being sent while sharing, which the call window previews;
     /// `nil` before capture starts and from the moment it is suppressed.
     var preview: LKRTCVideoTrack? { get }
+    /// Whether a share can carry the Mac's sound, so the window offers it.
+    var canShareSound: Bool { get }
     func start() async throws -> Bool
     func start(sharingAudio: Bool) async throws -> Bool
     func suppress()
@@ -17,6 +19,10 @@ protocol CallScreenShareRouting: AnyObject {
 }
 
 extension CallScreenShareRouting {
+    var canShareSound: Bool {
+        false
+    }
+
     func start(sharingAudio: Bool) async throws -> Bool {
         guard !sharingAudio else { throw CallMediaError.negotiationFailed }
         return try await start()
@@ -31,6 +37,8 @@ final class CallScreenShareController {
     private(set) var state: CallScreenShareState?
     /// What is being shared, for the call window's preview; only while sharing.
     private(set) var preview: LKRTCVideoTrack?
+    /// The route can share the Mac's sound; only an explicit choice does.
+    private(set) var offersSound = false
     private var route: (any CallScreenShareRouting)?
     private var scope = UUID()
     private var operation: Task<Void, Never>?
@@ -38,6 +46,7 @@ final class CallScreenShareController {
     func install(_ route: any CallScreenShareRouting) -> UUID {
         clear()
         self.route = route
+        offersSound = route.canShareSound
         state = CallScreenShareState()
         let scope = scope
         route.ended = { [weak self] in
@@ -57,17 +66,19 @@ final class CallScreenShareController {
             route.suppress()
             Task { _ = await previous?.result; _ = await route.stop() }
         }
-        route = nil; state = nil; preview = nil
+        route = nil; state = nil; preview = nil; offersSound = false
     }
 
+    /// Starts sharing, with the Mac's sound only when asked and offered, or
+    /// stops or cancels the share already under way.
     func toggle(sharingAudio: Bool = false) {
         guard let phase = state?.phase else { return }
         if phase != .idle {
             stop(); return
         }
-        guard let route, operation == nil else { return }
+        guard let route, operation == nil, !sharingAudio || offersSound else { return }
         let scope = scope
-        state = CallScreenShareState(phase: .preparing)
+        state = CallScreenShareState(phase: .preparing, sharesSound: sharingAudio)
         operation = Task { [weak self] in
             do {
                 let started = try await route.start(sharingAudio: sharingAudio)

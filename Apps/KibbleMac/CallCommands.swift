@@ -31,6 +31,7 @@ struct CallCommands: Commands {
         case .mute: model.toggleMute()
         case .camera: model.toggleCamera()
         case .shareScreen: model.toggleScreenSharing()
+        case .shareScreenWithSound: model.shareScreenWithSound()
         case .endCall: model.hangUp()
         }
     }
