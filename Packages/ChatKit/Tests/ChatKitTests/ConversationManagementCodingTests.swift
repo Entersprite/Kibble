@@ -3,6 +3,19 @@ import Testing
 @testable import ChatKit
 
 struct ConversationManagementCodingTests {
+    @Test func guidelinesClearHasAnExplicitWireValueAndOlderDetailsStillDecode() throws {
+        let value = ConversationMutation.guidelines("")
+        let expected = Data(#"{"type":"guidelines","guidelines":""}"#.utf8)
+        #expect(try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value))
+            == JSONDecoder().decode(JSONValue.self, from: expected))
+        #expect(try JSONDecoder().decode(ConversationMutation.self, from: expected) == value)
+        let details = ConversationDetails(conversation: .init(id: .init("chat"), kind: .space))
+        let encoded = try JSONEncoder().encode(details)
+        #expect(try JSONDecoder().decode(ConversationDetails.self, from: encoded).guidelines == nil)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["guidelines"] == nil)
+    }
+
     /// Block is a plain action with its own discriminator; a reader that
     /// predates it keeps the payload as `.unknown`.
     @Test func blockRoundTripsAsItsOwnAction() throws {

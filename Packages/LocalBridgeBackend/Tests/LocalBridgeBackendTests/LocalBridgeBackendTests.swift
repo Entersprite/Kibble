@@ -155,7 +155,8 @@ struct LocalBridgeBackendTests {
                 .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
             ], internalLinkHosts: ["chat.google.com"], extendedFlags: [
                 "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
-                "conversationPreview", "customEmojiMessages", "customEmojiStatus", "callDiscovery"
+                "conversationPreview", "customEmojiMessages", "customEmojiStatus",
+                "callDiscovery", "conversationWebhooks", "conversationApps", "conversationEmail"
             ]
         ))
     }

@@ -58,6 +58,9 @@ public actor FakeBackend {
     var blockedDirectMembers: Set<Member.ID> = []
     var nextDirectConversationNumber = 0
     var managedDetails: [Conversation.ID: ConversationDetails] = [:]
+    var managedEmails: [Conversation.ID: ConversationEmail] = [:]
+    var managedApps: [Conversation.ID: [ConversationApp]] = [:]
+    var managedWebhooks: [Conversation.ID: [ConversationWebhook]] = [:]
     var managedParticipants: [Conversation.ID: [ConversationParticipant]] = [:]
     var callAvailability: [Conversation.ID: ConversationCallAvailability] = [:]
     var completedMutations: [String: FixtureManagementOperation] = [:]

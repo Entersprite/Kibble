@@ -30,7 +30,11 @@ extension AccountRuntime {
              SetNotificationSetting.operation,
              SetThreadFollowed.operation:
             return try await dispatchDetails(request, backend: backend, epoch: epoch)
-        case OpenDirectConversation.operation, CreateConversation.operation, MutateConversation.operation,
+        case GetConversationEmail.operation, GetConversationIntegrations.operation,
+             GetWebhookDeliveryURL.operation, SearchConversationApps.operation:
+            return try await dispatchIntegrations(request, backend: backend, epoch: epoch)
+        case OpenConversationApp.operation, OpenDirectConversation.operation, CreateConversation.operation,
+             MutateConversation.operation,
              SendCommand.operation, SendHint.operation, InvokeCardAction.operation:
             return try await dispatchMutations(request, backend: backend, context: context, epoch: epoch)
         default: throw ServiceFailure.unsupportedOperation

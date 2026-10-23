@@ -8,7 +8,7 @@ import Testing
 private actor ManagementTransport: HTTPTransport {
     let base = ActionTransport(kind: .space)
     var name = "Design Team"
-    var grants: [Int32] = [6, 8, 54]
+    var grants: [Int32] = [6, 8, 14]
     private(set) var writes = 0
     private(set) var deletionRequests: [DeleteGroupV2Request] = []
     var rejectDeletion = false

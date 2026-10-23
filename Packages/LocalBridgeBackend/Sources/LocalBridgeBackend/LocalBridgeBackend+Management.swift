@@ -32,9 +32,30 @@ public extension LocalBridgeBackend {
         let capabilities = state == .joined
             ? try await managementPermissions(group, user: me.rawValue, generation: generation)
             : GroupScopedCapabilities()
-        var actions = ManagementMapping.actions(capabilities, joined: state == .joined)
+        var actions = ManagementMapping.actions(
+            capabilities, joined: state == .joined, kind: conversation.kind
+        )
+        actions = supplementedManagementActions(
+            actions, group: group, state: state, conversation: conversation, caps: capabilities
+        )
+        var details = ManagementMapping.details(
+            response,
+            conversation: conversation,
+            membership: state,
+            actions: actions
+        )
+        attachManagementSettings(response, caps: capabilities, to: &details)
+        return details
+    }
+
+    private func supplementedManagementActions(
+        _ supplied: Set<String>, group: GroupId, state: ParticipantState,
+        conversation: Conversation, caps: GroupScopedCapabilities
+    ) -> Set<String> {
+        var actions = supplied
+        let id = conversation.id
         if case .spaceID = group.id, state == .joined, conversation.kind == .space,
-           ManagementMapping.canDeleteSpace(capabilities) {
+           ManagementMapping.canDeleteSpace(caps) {
             actions.insert("deleteSpace")
         }
         if state == .joined,
@@ -46,12 +67,7 @@ public extension LocalBridgeBackend {
            state != .requested {
             actions.insert("requestJoin")
         }
-        return ManagementMapping.details(
-            response,
-            conversation: conversation,
-            membership: state,
-            actions: actions
-        )
+        return actions
     }
 
     func participants(
@@ -78,7 +94,11 @@ public extension LocalBridgeBackend {
                 MembersRequests.listMembers(group: group, pageToken: token)
             )
             try checkManagementGeneration(generation)
-            people = response.memberships.filter { !$0.id.memberID.userID.id.isEmpty }
+            guard response.memberships.allSatisfy({ ManagementMapping.belongs($0, to: group) }) else {
+                throw ChatError.decoding("The service returned another conversation's members.")
+            }
+            people = response.memberships
+                .filter { !$0.id.memberID.userID.id.isEmpty && $0.id.memberID.userID.type == .human }
             step = "getMembers"
             let byID = try await participantProfiles(
                 people.map { ChatKit.Member.ID($0.id.memberID.userID.id) },
@@ -86,15 +106,13 @@ public extension LocalBridgeBackend {
                 generation: generation
             )
             step = "permissions"
-            let caps = try await managementPermissions(group, user: me.rawValue, generation: generation)
-            let viewerIsOwner = people.contains {
-                $0.id.memberID.userID.id == me.rawValue && $0.membershipRole == .roleOwner
-            }
-            rows = people.compactMap {
-                ManagementMapping.participant(
-                    $0, group: group, me: me, people: byID, caps: caps, viewerIsOwner: viewerIsOwner
-                )
-            }
+            rows = try await managementParticipants(
+                people,
+                profiles: byID,
+                group: group,
+                me: me,
+                generation: generation
+            )
             recordPeoplePage(response, people: people, mapped: rows.count, group: group)
         } catch {
             diagnostics.record(.peopleListFailed(step: step, failure: ManagementFailureKind.of(error)))
@@ -114,6 +132,59 @@ public extension LocalBridgeBackend {
 }
 
 extension LocalBridgeBackend {
+    private func attachManagementSettings(
+        _ response: GetGroupResponse,
+        caps: GroupScopedCapabilities,
+        to details: inout ConversationDetails
+    ) {
+        if details.conversation.kind == .space {
+            let settings = SpaceSettingsMapping.settings(
+                response.group, caps: caps, defaultTargetAudiences: response.defaultTargetAudiences
+            )
+            details.settings = settings
+            details.access = SpaceSettingsMapping.access(
+                response.group,
+                defaultAudience: SpaceSettingsMapping
+                    .organizationAudience(response.defaultTargetAudiences)
+            )
+            if settings.canChangeAccess || settings.canChangeRequestToJoin
+                || settings.permissions.contains(where: \.isEditable) {
+                details.allowedActions.insert("settings")
+            }
+            if (caps.capabilities + caps.permissions.capabilities).contains(3) {
+                details.allowedActions.formUnion(["emoji", "details"])
+            }
+        }
+    }
+
+    private func managementParticipants(
+        _ people: [Membership],
+        profiles byID: ManagementProfiles,
+        group: GroupId,
+        me: ChatKit.Member.ID,
+        generation: Int
+    ) async throws -> [ConversationParticipant] {
+        let caps = try await managementPermissions(group, user: me.rawValue, generation: generation)
+        let viewerIsOwner = try await managementViewerIsOwner(
+            group: group, me: me, rows: people, generation: generation,
+            resolveWhenAbsent: ManagementMapping.grants(
+                caps,
+                2
+            )
+        )
+        let selfRoleChange = viewerIsOwner && people.contains { $0.id.memberID.userID.id == me.rawValue }
+            ? try await hasOtherManagementOwner(group: group, me: me, generation: generation) : false
+        return people.compactMap {
+            ManagementMapping.participant(
+                $0, group: group, me: me, people: byID.members, caps: caps, viewerIsOwner: viewerIsOwner,
+                selfRoleChange: selfRoleChange,
+                isExternal: byID.external[.init($0.id.memberID.userID.id)],
+                isBlocked: byID.blocked[.init($0.id.memberID.userID.id)],
+                canBlock: capabilities.canBlockConversations
+            )
+        }
+    }
+
     private static func invitationActions(state: ParticipantState, kind: Conversation.Kind) -> Set<String> {
         guard state == .invited else { return [] }
         var actions: Set = ["acceptInvitation", "declineInvitation"]
@@ -127,18 +198,37 @@ extension LocalBridgeBackend {
     /// against such events and would ask it again, forever. The page carries
     /// each profile, and the service records its media.
     private func participantProfiles(
-        _ ids: [ChatKit.Member.ID],
-        using apiClient: ProtoAPIClient,
-        generation: Int
-    ) async throws -> [ChatKit.Member.ID: ChatKit.Member] {
-        let profiles = ids.isEmpty ? GetMembersResponse() : try await apiClient.call(
-            .getMembers,
-            Self.getMembersRequest(ids)
+        _ ids: [ChatKit.Member.ID], using apiClient: ProtoAPIClient, generation: Int
+    ) async throws -> ManagementProfiles {
+        var wanted = ids
+        if let me = calendarPoll.me, !wanted.contains(me) {
+            wanted.append(me)
+        }
+        let profiles = wanted.isEmpty ? GetMembersResponse() : try await apiClient.call(
+            .getMembers, Self.getMembersRequest(wanted)
         )
         try checkManagementGeneration(generation)
         let members = MemberMapping.map(profiles).members
         remember(emailsOf: members)
-        return Dictionary(members.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var result = ManagementProfiles()
+        result.members = Dictionary(members.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let organization = profiles.members.first { $0.user.userID.id == calendarPoll.me?.rawValue }?
+            .user.organizationInfo.customerInfo.customerID.customerID
+        for row in profiles.members where !row.user.userID.id.isEmpty {
+            let id = ChatKit.Member.ID(row.user.userID.id)
+            if row.user.hasBlockRelationship {
+                result.blocked[id] = row.user.blockRelationship.isBlockedByRequester
+            }
+            if let organization, !organization.isEmpty {
+                let other = row.user.organizationInfo
+                if other.hasConsumerInfo {
+                    result.external[id] = true
+                } else if !other.customerInfo.customerID.customerID.isEmpty {
+                    result.external[id] = other.customerInfo.customerID.customerID != organization
+                }
+            }
+        }
+        return result
     }
 
     func checkManagementGeneration(_ generation: Int) throws {
@@ -223,4 +313,10 @@ struct ManagementCursor: Codable {
             cursor.key == key else { throw ChatError.decoding("This page belongs to a different search.") }
         return cursor.token
     }
+}
+
+private struct ManagementProfiles {
+    var members: [ChatKit.Member.ID: ChatKit.Member] = [:]
+    var blocked: [ChatKit.Member.ID: Bool] = [:]
+    var external: [ChatKit.Member.ID: Bool] = [:]
 }

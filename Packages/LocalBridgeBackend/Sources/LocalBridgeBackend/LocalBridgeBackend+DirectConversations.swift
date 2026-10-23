@@ -55,8 +55,8 @@ private extension LocalBridgeBackend {
 }
 
 extension LocalBridgeBackend {
-    private func restoreDirectConversation(
-        _ conversation: Conversation, group: GroupId, using client: ProtoAPIClient
+    func restoreDirectConversation(
+        _ conversation: Conversation, group: GroupId, using client: ProtoAPIClient, generation: Int? = nil
     ) async throws -> Conversation {
         let response = try await client.call(
             .hideGroup,
@@ -65,6 +65,9 @@ extension LocalBridgeBackend {
         try Task.checkCancellation()
         guard response.hasReadState || response.hasUserRevision else {
             throw ChatError.decoding("The service did not confirm opening the conversation.")
+        }
+        if let generation {
+            try checkManagementGeneration(generation)
         }
         hiddenConversations.remove(conversation.id)
         hiddenThrough[conversation.id] = nil

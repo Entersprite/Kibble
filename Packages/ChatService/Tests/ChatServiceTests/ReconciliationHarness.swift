@@ -39,6 +39,43 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
     private(set) var receiveConversations: Set<Conversation.ID> = []
     var searchMembers: [Member] = []
     var preview = ConversationPreview()
+    var integrations = ConversationIntegrations()
+    var appSearchReads = 0
+    var emailReads = 0
+    var appOpens = 0
+    var managementMutations: [ConversationMutation] = []
+    var deliveryURL = URL(string: "https://example.invalid/private-delivery-key")!
+    var holdDeliveryURL = false
+    private(set) var deliveryURLHeld = false
+    private var deliveryURLWaiter: CheckedContinuation<Void, Never>?
+    private(set) var integrationReads = 0
+    private(set) var deliveryURLReads = 0
+
+    func setIntegrations(_ value: ConversationIntegrations, holdURL: Bool = false) {
+        integrations = value
+        holdDeliveryURL = holdURL
+    }
+
+    func conversationIntegrations(_: Conversation.ID) -> ConversationIntegrations {
+        integrationReads += 1
+        return integrations
+    }
+
+    func webhookDeliveryURL(_: String, in _: Conversation.ID) async -> URL {
+        deliveryURLReads += 1
+        let value = deliveryURL
+        if holdDeliveryURL {
+            deliveryURLHeld = true
+            await withCheckedContinuation { deliveryURLWaiter = $0 }
+        }
+        return value
+    }
+
+    func releaseDeliveryURL() {
+        holdDeliveryURL = false
+        deliveryURLWaiter?.resume()
+        deliveryURLWaiter = nil
+    }
 
     func setPreview(_ value: ConversationPreview) {
         preview = value
@@ -63,11 +100,19 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
         sender: Member.ID("peer"), text: "Original", createdAt: date
     )
 
-    init(backfill: Bool = false, holdHistory: Bool = false, checkpointing: Bool = false) {
+    init(
+        backfill: Bool = false,
+        holdHistory: Bool = false,
+        checkpointing: Bool = false,
+        webhooks: Bool = false, integrationsFlags: Set<String> = []
+    ) {
         self.checkpointing = checkpointing
         (providerEventBatches, providerBatchSink) = AsyncStream
             .makeStream(bufferingPolicy: .bufferingOldest(128))
-        capabilities = Capabilities(needsMentionBackfill: backfill)
+        capabilities = Capabilities(
+            needsMentionBackfill: backfill,
+            extendedFlags: integrationsFlags.union(webhooks ? ["conversationWebhooks"] : [])
+        )
         self.holdHistory = holdHistory
         rows = [Conversation(id: Self.conversation, kind: .space, title: "Original", lastActivity: Self.date)]
         history = [Self.message]
@@ -263,7 +308,8 @@ struct ReconciliationHarness {
 
     static func make(
         backfill: Bool = false, holdHistory: Bool = false, policies: (any AccountPolicyStore)? = nil,
-        reservations: OperationReservationCounter? = nil, checkpointing: Bool = false
+        reservations: OperationReservationCounter? = nil, checkpointing: Bool = false, webhooks: Bool = false,
+        integrationsFlags: Set<String> = []
     ) async throws -> Self {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -273,7 +319,7 @@ struct ReconciliationHarness {
         let backend = ReconciliationBackend(
             backfill: backfill,
             holdHistory: holdHistory,
-            checkpointing: checkpointing
+            checkpointing: checkpointing, webhooks: webhooks, integrationsFlags: integrationsFlags
         )
         var storage: any ServiceStorageFactory = SQLiteServiceStorageFactory(directory: folder)
         if let reservations {

@@ -11,28 +11,35 @@ public struct ConversationParticipant: Codable, Hashable, Sendable, Identifiable
     /// Target-specific operations granted by the backend, independently of the role label.
     public var allowedActions: Set<String>
     public var allowedRoles: [ConversationRole]
+    public var isExternal: Bool?
+    public var isBlocked: Bool?
 
     public init(
         member: Member,
         role: ConversationRole = .unknown,
         state: ParticipantState = .unknown,
         allowedActions: Set<String> = [],
-        allowedRoles: [ConversationRole] = []
+        allowedRoles: [ConversationRole] = [],
+        isExternal: Bool? = nil, isBlocked: Bool? = nil
     ) {
         self.member = member
         self.role = role
         self.state = state
         self.allowedActions = allowedActions
         self.allowedRoles = allowedRoles
+        self.isExternal = isExternal; self.isBlocked = isBlocked
     }
 
-    private enum CodingKeys: String, CodingKey { case member, role, state, allowedActions, allowedRoles }
+    private enum CodingKeys: String,
+        CodingKey { case member, role, state, allowedActions, allowedRoles, isExternal, isBlocked }
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         member = try fields.decode(Member.self, forKey: .member)
         role = try fields.decodeIfPresent(ConversationRole.self, forKey: .role) ?? .unknown
         state = try fields.decodeIfPresent(ParticipantState.self, forKey: .state) ?? .unknown
         allowedActions = try fields.decodeIfPresent(Set<String>.self, forKey: .allowedActions) ?? []
+        isExternal = try fields.decodeIfPresent(Bool.self, forKey: .isExternal)
+        isBlocked = try fields.decodeIfPresent(Bool.self, forKey: .isBlocked)
         allowedRoles = try fields.decodeIfPresent([ConversationRole].self, forKey: .allowedRoles) ?? []
     }
 }
@@ -40,6 +47,8 @@ public struct ConversationParticipant: Codable, Hashable, Sendable, Identifiable
 public struct ConversationDetails: Codable, Hashable, Sendable {
     public var conversation: Conversation
     public var description: String?
+    public var guidelines: String?
+    public var settings: ConversationSettings?
     public var access: ConversationAccess
     public var membership: ParticipantState
     /// Only explicitly granted actions are offered. Missing permission never grants an edit.
@@ -47,6 +56,7 @@ public struct ConversationDetails: Codable, Hashable, Sendable {
     public var revision: String?
     public var previewMessages: [Message]
     public var linkedGroupCount: Int?
+    public var fieldLimits: [String: Int]
 
     public init(
         conversation: Conversation,
@@ -56,32 +66,41 @@ public struct ConversationDetails: Codable, Hashable, Sendable {
         allowedActions: Set<String> = [],
         revision: String? = nil,
         previewMessages: [Message] = [],
-        linkedGroupCount: Int? = nil
+        linkedGroupCount: Int? = nil,
+        guidelines: String? = nil,
+        settings: ConversationSettings? = nil,
+        fieldLimits: [String: Int] = [:]
     ) {
         self.conversation = conversation
         self.description = description
+        self.guidelines = guidelines
+        self.settings = settings
         self.access = access
         self.membership = membership
         self.allowedActions = allowedActions
         self.revision = revision
         self.previewMessages = previewMessages
         self.linkedGroupCount = linkedGroupCount
+        self.fieldLimits = fieldLimits
     }
 
     private enum CodingKeys: String, CodingKey {
         case conversation, description, access, membership, allowedActions, revision, previewMessages
-        case linkedGroupCount
+        case linkedGroupCount, guidelines, settings, fieldLimits
     }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         conversation = try fields.decode(Conversation.self, forKey: .conversation)
         description = try fields.decodeIfPresent(String.self, forKey: .description)
+        guidelines = try fields.decodeIfPresent(String.self, forKey: .guidelines)
+        settings = try fields.decodeIfPresent(ConversationSettings.self, forKey: .settings)
         access = try fields.decodeIfPresent(ConversationAccess.self, forKey: .access) ?? .unknown
         membership = try fields.decodeIfPresent(ParticipantState.self, forKey: .membership) ?? .unknown
         allowedActions = try fields.decodeIfPresent(Set<String>.self, forKey: .allowedActions) ?? []
         revision = try fields.decodeIfPresent(String.self, forKey: .revision)
         previewMessages = try fields.decodeIfPresent([Message].self, forKey: .previewMessages) ?? []
+        fieldLimits = try fields.decodeIfPresent([String: Int].self, forKey: .fieldLimits) ?? [:]
         linkedGroupCount = try fields.decodeIfPresent(Int.self, forKey: .linkedGroupCount)
     }
 }

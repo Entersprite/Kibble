@@ -23,15 +23,7 @@ extension AccountRuntime {
                 try await backend.createConversation(payload.draft)
             }
         case MutateConversation.operation:
-            let payload = try request.decodePayload(MutateConversation.self)
-            return try await performOperation(payload.operationID, request: request, epoch: epoch) {
-                try await backend.mutateConversation(
-                    payload.mutation,
-                    in: payload.conversationID,
-                    operationID: payload.operationID.rawValue,
-                    expectedRevision: payload.expectedRevision
-                )
-            }
+            return try await dispatchConversationMutation(request, backend: backend, epoch: epoch)
         case InvokeCardAction.operation:
             let payload = try request.decodePayload(InvokeCardAction.self)
             guard capabilities.canInvokeCardActions else { throw ServiceFailure.unsupportedOperation }
@@ -55,7 +47,52 @@ extension AccountRuntime {
             guard let operation = try storage.operation(payload.operationID)
             else { throw ServiceFailure.operationUnknown }
             return try ServiceCodec.value(operation)
-        default: throw ServiceFailure.unsupportedOperation
+        default: return try await dispatchAppOpening(request, backend: backend, epoch: epoch)
+        }
+    }
+
+    private func dispatchAppOpening(
+        _ request: ServiceRequest, backend: any ChatBackend, epoch: UUID
+    ) async throws -> JSONValue {
+        guard request.operation == OpenConversationApp.operation,
+              capabilities.canManageConversationApps else { throw ServiceFailure.unsupportedOperation }
+        let payload = try request.decodePayload(OpenConversationApp.self)
+        return try await performOperation(payload.operationID, request: request, epoch: epoch) {
+            try await backend.openAppConversation(payload.appID, from: payload.conversationID)
+        }
+    }
+
+    private func dispatchConversationMutation(
+        _ request: ServiceRequest,
+        backend: any ChatBackend,
+        epoch: UUID
+    ) async throws -> JSONValue {
+        let payload = try request.decodePayload(MutateConversation.self)
+        try authorizeManagementMutation(payload.mutation)
+        return try await performOperation(payload.operationID, request: request, epoch: epoch) {
+            try await backend.mutateConversation(
+                payload.mutation,
+                in: payload.conversationID,
+                operationID: payload.operationID.rawValue,
+                expectedRevision: payload.expectedRevision
+            )
+        }
+    }
+
+    private func authorizeManagementMutation(_ mutation: ConversationMutation) throws {
+        switch mutation {
+        case .setPersonBlocked:
+            guard capabilities.canBlockConversations else { throw ServiceFailure.unsupportedOperation }
+        case .generateEmail, .setEmailDelivery, .deleteEmail:
+            guard capabilities.canManageConversationEmail
+            else { throw ServiceFailure.unsupportedOperation }
+        case .addApp, .removeApp:
+            guard capabilities.canManageConversationApps
+            else { throw ServiceFailure.unsupportedOperation }
+        case .saveWebhook, .deleteWebhook:
+            guard capabilities.canManageConversationWebhooks
+            else { throw ServiceFailure.unsupportedOperation }
+        default: break
         }
     }
 }

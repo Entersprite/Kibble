@@ -188,6 +188,13 @@ public protocol ChatBackend: Sendable {
     ) async throws
         -> ConversationMutationResult
     func conversationDetails(_ conversation: Conversation.ID) async throws -> ConversationDetails
+    func openAppConversation(_ app: Member.ID, from conversation: Conversation.ID) async throws
+        -> Conversation
+    func conversationEmail(_ conversation: Conversation.ID) async throws -> ConversationEmail
+    func searchConversationApps(_ query: String, in conversation: Conversation.ID) async throws
+        -> [ConversationApp]
+    func conversationIntegrations(_ conversation: Conversation.ID) async throws -> ConversationIntegrations
+    func webhookDeliveryURL(_ webhookID: String, in conversation: Conversation.ID) async throws -> URL
     func participants(in conversation: Conversation.ID, after cursor: String?) async throws
         -> ConversationParticipantPage
     func browseSpaces(_ query: SpaceDirectoryQuery, after cursor: String?) async throws -> SpaceDirectoryPage

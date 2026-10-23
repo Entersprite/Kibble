@@ -34,7 +34,17 @@ public extension FakeBackend {
             conversation: conversation, description: draft.description, access: draft.access,
             membership: .joined,
             allowedActions: draft.kind == .space ? Self.ownerActions : Self.ownerActions
-                .subtracting(["deleteSpace"]), revision: nextIdentifier("revision")
+                .subtracting([
+                    "deleteSpace",
+                    "guidelines",
+                    "settings",
+                    "emoji",
+                    "generateEmail",
+                    "setEmailDelivery",
+                    "deleteEmail"
+                ]).union(["convertToSpace"]),
+            revision: nextIdentifier("revision"),
+            settings: draft.kind == .space ? Self.ownerSettings : nil, fieldLimits: Self.managementFieldLimits
         )
         emit(.conversationUpdated(conversation))
         emit(.membersResolved(accepted.compactMap { known[$0] }))
@@ -48,7 +58,7 @@ public extension FakeBackend {
         try requireConnected()
         try require(capabilities.canReadConversationDetails, "canReadConversationDetails")
         if let details = managedDetails[id] {
-            return details
+            return supportedManagedDetails(details)
         }
         guard let conversation = world.conversation(id) else {
             throw ChatError.unknown("This conversation is unavailable.")
@@ -56,12 +66,29 @@ public extension FakeBackend {
         let manageable = conversation.kind == .space || conversation.kind == .groupDirectMessage
         let details = ConversationDetails(
             conversation: conversation,
+            access: conversation.kind == .space ? .restricted : .unknown,
             membership: .joined,
             allowedActions: manageable ? Self.ownerActions
-                .subtracting(conversation.kind == .space ? [] : ["deleteSpace"]) : []
+                .subtracting(conversation.kind == .space ? [] : [
+                    "deleteSpace",
+                    "guidelines",
+                    "settings",
+                    "emoji",
+                    "generateEmail",
+                    "setEmailDelivery",
+                    "deleteEmail"
+                ]).union(conversation.kind == .groupDirectMessage ? ["convertToSpace"] : []) : [
+                    "addApp",
+                    "removeApp",
+                    "createWebhook",
+                    "editWebhook",
+                    "deleteWebhook"
+                ],
+            settings: conversation.kind == .space ? Self.ownerSettings : nil,
+            fieldLimits: Self.managementFieldLimits
         )
         managedDetails[id] = details
-        return details
+        return supportedManagedDetails(details)
     }
 
     func participants(
@@ -69,7 +96,7 @@ public extension FakeBackend {
         after cursor: String?
     ) async throws -> ConversationParticipantPage {
         let details = try await conversationDetails(id)
-        let rows = managedParticipants[id] ?? world.members(in: details.conversation).map {
+        var rows = managedParticipants[id] ?? world.members(in: details.conversation).map {
             ConversationParticipant(
                 member: $0,
                 role: $0.id == world.me ? .owner : .member,
@@ -81,6 +108,7 @@ public extension FakeBackend {
                 allowedRoles: $0.id == world.me ? [] : [.member, .manager, .owner]
             )
         }
+        rows = refreshedManagedParticipants(rows)
         let offset = try managementOffset(cursor, key: "members:\(id.rawValue)")
         let end = min(rows.count, offset + min(max(1, pageSize), max(0, rows.count - offset)))
         return ConversationParticipantPage(
@@ -145,10 +173,12 @@ public extension FakeBackend {
                 allowedRoles: $0.id == world.me ? [] : [.member, .manager, .owner]
             )
         }
+        rows = refreshedManagedParticipants(rows)
         let failed = try applyManagement(mutation, details: &details, participants: &rows)
         details.revision = nextIdentifier("revision")
-        managedDetails[id] = details
         managedParticipants[id] = rows
+        details = supportedManagedDetails(details)
+        managedDetails[id] = details
         if let index = world.conversations.firstIndex(where: { $0.id == id }) {
             world.conversations[index] = details.conversation
             emit(.conversationUpdated(details.conversation))
@@ -215,12 +245,38 @@ extension FakeBackend {
         return world.conversation(id) == nil && !details.allowedActions.isEmpty ? [details] : []
     }
 
+    static let managementFieldLimits = ["name": 128, "description": 150, "guidelines": 5000]
+
     static let ownerActions: Set<String> = [
-        "leave", "identity", "rename", "description", "addPeople", "removePerson", "setRole",
+        "blockPerson", "unblockPerson", "leave", "identity", "details", "rename", "description", "guidelines",
+        "addPeople", "removePerson", "setRole",
         "approveRequest",
         "rejectRequest",
-        "deleteSpace"
+        "generateEmail", "setEmailDelivery", "deleteEmail", "deleteSpace", "settings", "emoji",
+        "createWebhook",
+        "editWebhook", "deleteWebhook", "addApp", "removeApp"
     ]
+
+    static var ownerSettings: ConversationSettings {
+        ConversationSettings(
+            permissions: [
+                "viewMembers",
+                "manageMembers",
+                "modifyDetails",
+                "changeHistory",
+                "mentionAll",
+                "manageApps",
+                "manageWebhooks"
+            ].map {
+                ConversationPermission(
+                    id: $0, audience: .members, isEditable: true,
+                    allowedAudiences: $0 == "viewMembers"
+                        ? [.owners, .managers, .members, .organization] : [.owners, .managers, .members]
+                )
+            }, requestToJoin: false, externalMembersAllowed: false,
+            canChangeAccess: true, canChangeRequestToJoin: true
+        )
+    }
 
     private func requestableManagementSpaces() -> [ConversationDetails] {
         let id = Conversation.ID("fixture-requestable-space")

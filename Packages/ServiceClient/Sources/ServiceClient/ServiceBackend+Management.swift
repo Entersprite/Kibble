@@ -3,6 +3,35 @@ import ChatKit
 import Foundation
 
 public extension ServiceBackend {
+    func conversationEmail(_ conversation: Conversation.ID) async throws -> ConversationEmail {
+        try await call(GetConversationEmail(conversationID: conversation))
+    }
+
+    func openAppConversation(
+        _ app: Member.ID,
+        from conversation: Conversation.ID
+    ) async throws -> Conversation {
+        try await call(OpenConversationApp(
+            appID: app, conversationID: conversation,
+            operationID: ServiceOperationID(ClientOperationID.make())
+        ))
+    }
+
+    func searchConversationApps(
+        _ query: String,
+        in conversation: Conversation.ID
+    ) async throws -> [ConversationApp] {
+        try await call(SearchConversationApps(query: query, conversationID: conversation))
+    }
+
+    func conversationIntegrations(_ conversation: Conversation.ID) async throws -> ConversationIntegrations {
+        try await call(GetConversationIntegrations(conversationID: conversation))
+    }
+
+    func webhookDeliveryURL(_ webhookID: String, in conversation: Conversation.ID) async throws -> URL {
+        try await call(GetWebhookDeliveryURL(webhookID: webhookID, conversationID: conversation))
+    }
+
     func openDirectConversation(with member: Member.ID) async throws -> Conversation {
         try await call(OpenDirectConversation(
             memberID: member,

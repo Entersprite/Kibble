@@ -5,6 +5,23 @@ import Testing
 @testable import LocalBridgeBackend
 
 struct ManagementMappingTests {
+    @Test func invitationCanBeRemovedButDoesNotOfferJoinedRoleChanges() {
+        var group = GroupId(); group.spaceID.spaceID = "space"
+        var row = Membership()
+        row.id = ConversationManagementRequests.membershipID(group: group, user: "peer")
+        row.membershipState = .memberInvited; row.membershipRole = .roleMember
+        var caps = GroupScopedCapabilities(); caps.capabilities = [2, 4, 60]
+        let invited = ManagementMapping.participant(
+            row, group: group, me: .init("me"), people: [:], caps: caps
+        )
+        #expect(invited?.allowedActions == ["removePerson"])
+        #expect(invited?.allowedRoles.isEmpty == true)
+        caps.capabilities = []
+        #expect(ManagementMapping.participant(
+            row, group: group, me: .init("me"), people: [:], caps: caps
+        )?.allowedActions.isEmpty == true)
+    }
+
     @Test func deletionRequiresItsOwnPermissionAndHonorsExplicitRefusal() throws {
         var caps = GroupScopedCapabilities()
         #expect(!ManagementMapping.canDeleteSpace(caps))
@@ -29,9 +46,17 @@ struct ManagementMappingTests {
 
     @Test func explicitRefusalOverridesLegacyGrant() throws {
         var caps = GroupScopedCapabilities()
-        caps.capabilities = [54]
-        caps.permissions = try ManagementPermissions(serializedBytes: Data([0xB0, 0x03, 0x00]))
-        #expect(!ManagementMapping.grants(caps, 54))
+        caps.capabilities = [14]
+        caps.permissions = try ManagementPermissions(serializedBytes: Data([0x70, 0x00]))
+        #expect(!ManagementMapping.grants(caps, 14))
+        #expect(!ManagementMapping.actions(caps, joined: true).contains("addPeople"))
+    }
+
+    @Test func addPeopleUsesMemberManagementRatherThanHeaderCapability() throws {
+        var caps = GroupScopedCapabilities()
+        caps.permissions = try ManagementPermissions(serializedBytes: Data([0x70, 1, 0xB0, 3, 0]))
+        #expect(ManagementMapping.actions(caps, joined: true).contains("addPeople"))
+        caps.permissions = try ManagementPermissions(serializedBytes: Data([0x70, 0, 0xB0, 3, 1]))
         #expect(!ManagementMapping.actions(caps, joined: true).contains("addPeople"))
     }
 

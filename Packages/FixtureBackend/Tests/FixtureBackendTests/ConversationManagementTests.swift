@@ -3,6 +3,33 @@ import Testing
 @testable import FixtureBackend
 
 struct ConversationManagementTests {
+    @Test func guidelinesUseTheSharedContractWithoutReplacingTheDescription() async throws {
+        let backend = FakeBackend()
+        try await backend.connect()
+        let contract: any ChatBackend = backend
+        let created = try await contract.createConversation(.init(
+            kind: .space, name: "Planning", description: "Keep this description"
+        ))
+        let result = try await contract.mutateConversation(
+            .guidelines("Be kind"), in: created.conversation.id, operationID: "guidelines",
+            expectedRevision: nil
+        )
+        #expect(result.details?.guidelines == "Be kind")
+        #expect(result.details?.description == "Keep this description")
+        let cleared = try await contract.mutateConversation(
+            .guidelines(""), in: created.conversation.id, operationID: "clear-guidelines",
+            expectedRevision: result.details?.revision
+        )
+        #expect(cleared.details?.guidelines == "")
+        let replay = try await contract.mutateConversation(
+            .guidelines("Be kind"), in: created.conversation.id, operationID: "guidelines",
+            expectedRevision: nil
+        )
+        #expect(replay == result)
+        #expect(try await contract.conversationDetails(created.conversation.id).guidelines == "")
+        await backend.disconnect()
+    }
+
     @Test func previewIsDeterministicAndDoesNotJoinAndAnInvitationCanBeBlocked() async throws {
         let backend = FakeBackend()
         try await backend.connect()
