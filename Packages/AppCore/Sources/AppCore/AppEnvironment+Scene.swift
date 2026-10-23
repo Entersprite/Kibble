@@ -92,6 +92,9 @@ public extension AppEnvironment {
                 calls.canCall(conversation: $0, directory: model.directory, me: model.me)
             }.map(\.id))
         )
+        state.pins = model.pins
+        state.pinsError = model.pinsError
+        state.isLoadingPins = model.isLoadingPins
         state.resourceSyncStatuses = model.resourceSyncStatuses
         state.browser = browserScene(model)
         state.composerDrafts = composerDrafts
@@ -294,6 +297,16 @@ public extension AppEnvironment {
         }
         actions.checkMessageDelivery = { [weak self] in self?.runningModel?.checkMessageDelivery($0) }
         if let model = runningModel {
+            if model.capabilities.canReadMessagePins {
+                actions.setMessagePinned = { [weak self, weak model] pinned, message in
+                    guard let model, self?.runningModel === model else { return }
+                    model.setPinned(pinned, message: message)
+                }
+                actions.refreshPins = { [weak self, weak model] in
+                    guard let model, self?.runningModel === model else { return }
+                    model.refreshPins()
+                }
+            }
             actions.openMessageReference = { [weak self, weak model] address in
                 guard let model, self?.runningModel === model else { return }
                 model.openReferencedMessage(address)

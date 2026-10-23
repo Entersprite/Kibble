@@ -27,6 +27,10 @@ public final class ChatSessionModel {
     public internal(set) var directory: [Member.ID: Member] = [:] // set from +Observing.swift
     public internal(set) var messages: [Message] = [] // set from +Mentions.swift
     public internal(set) var activity = ConversationActivity()
+    public internal(set) var pins = PinnedMessages()
+    public internal(set) var pinsError: String?
+    public internal(set) var isLoadingPins = false
+    @ObservationIgnored var pinWork = MessagePinWork()
     public internal(set) var typing: [Member.ID] = [] // set from +Mentions.swift
     public internal(set) var connectionState: ConnectionState = .idle
     /// The last thing that went wrong, from the store.
@@ -346,6 +350,8 @@ public final class ChatSessionModel {
             unreadHolds.remove(id)
         }
         selected = id
+        resetPins()
+        refreshPins()
         showingMentions = false
         scrollTarget = nil
         markReadTrace?.selectionChanged(to: id, in: conversations)

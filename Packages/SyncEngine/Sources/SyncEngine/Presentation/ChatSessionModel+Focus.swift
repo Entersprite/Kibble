@@ -16,6 +16,7 @@ public extension ChatSessionModel {
             stopTyping()
         }
         if active {
+            refreshPins()
             // Another client can mark a message unread, post a new root, or
             // delete one while this window is away. The channel does not
             // guarantee replay of those changes, so foregrounding refreshes

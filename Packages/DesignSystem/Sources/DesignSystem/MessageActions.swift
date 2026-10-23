@@ -35,6 +35,8 @@ struct OwnMessageHandlers {
     /// Saved rows not yet confirmed: they may since have been edited or
     /// deleted elsewhere, so neither is offered on them until they are.
     var unconfirmed: Set<Message.ID> = []
+    var pin: ((Message) -> Void)?
+    var isPinned: (Message.ID) -> Bool = { _ in false }
 
     /// `nil` when the message offers nothing.
     func items(for message: Message) -> OwnMessageMenuItems? {
@@ -58,14 +60,19 @@ struct OwnMessageHandlers {
         let forward = forward.flatMap { action in
             addressable && !message.isDeleted && message.callStatus == nil ? { action(message) } : nil
         }
-        guard edit != nil || delete != nil || reply != nil || unread != nil || quote != nil || forward != nil
+        let pin = pin.flatMap { action in
+            confirmed && addressable && message.callStatus == nil ? { action(message) } : nil
+        }
+        guard edit != nil || delete != nil || reply != nil || unread != nil || quote != nil || forward !=
+            nil ||
+            pin != nil
         else { return nil }
         return OwnMessageMenuItems(
             edit: edit,
             delete: delete,
             replyInThread: reply,
             markUnread: unread,
-            quote: quote, forward: forward
+            quote: quote, forward: forward, pin: pin, isPinned: isPinned(message.id)
         )
     }
 }
@@ -78,4 +85,6 @@ struct OwnMessageMenuItems {
     var markUnread: (() -> Void)?
     var quote: (() -> Void)?
     var forward: (() -> Void)?
+    var pin: (() -> Void)?
+    var isPinned = false
 }

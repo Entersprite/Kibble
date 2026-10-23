@@ -19,6 +19,9 @@ public enum SidebarSelection: Hashable, Sendable {
 /// way renders from a literal in a preview or a test, and cannot accidentally
 /// reach past the seam for something it was not given.
 public struct ChatSceneState: Sendable, Equatable {
+    public var pins = PinnedMessages()
+    public var pinsError: String?
+    public var isLoadingPins = false
     public var resourceSyncStatuses: [ResourceSyncStatus] = []
     public var messageDeliveryStatuses: [Message.ID: MessageDeliveryStatus] = [:]
     public var checkingMessageDeliveries: Set<Message.ID> = []

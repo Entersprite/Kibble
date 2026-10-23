@@ -5,6 +5,8 @@ import Foundation
 /// wire them to anything, including nothing.
 @MainActor
 public struct ChatSceneActions {
+    public var setMessagePinned: ((Bool, Message) -> Void)?
+    public var refreshPins: (() -> Void)?
     public var openMessageReference: ((MessageAddress) -> Void)?
     public var loadMessageReference: MessageReferenceLoader?
     public var forwardMessage: (@MainActor (Message.ID, Conversation.ID, String) async -> Bool)?

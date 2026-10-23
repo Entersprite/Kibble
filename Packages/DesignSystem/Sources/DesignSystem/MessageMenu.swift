@@ -62,7 +62,8 @@ struct MessageMenuTable {
             Self.entry("Quote Reply", MessageMenuSymbols.quoteReply, own?.quote),
             Self.entry("Forward…", MessageMenuSymbols.forward, own?.forward),
             Self.entry("Reply in Thread", MessageMenuSymbols.replyInThread, own?.replyInThread),
-            Self.entry("Mark as Unread", MessageMenuSymbols.markUnread, own?.markUnread)
+            Self.entry("Mark as Unread", MessageMenuSymbols.markUnread, own?.markUnread),
+            Self.entry(own?.isPinned == true ? "Unpin for Everyone" : "Pin for Everyone", "pin", own?.pin)
         ].compactMap(\.self)
         editing = [
             own?.edit.map { MessageMenuEntry(title: "Edit…", symbol: MessageMenuSymbols.edit, run: $0) },

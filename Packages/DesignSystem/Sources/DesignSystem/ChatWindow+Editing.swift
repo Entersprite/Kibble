@@ -25,7 +25,7 @@ extension ChatWindow {
     var ownHandlers: OwnMessageHandlers? {
         let threads = offeredThreadActions
         guard actions.messages != nil || threads != nil || state.capabilities.canQuoteMessages || actions
-            .forwardMessage != nil
+            .forwardMessage != nil || actions.setMessagePinned != nil
         else { return nil }
         let summaries = state.threads.summaries
         return OwnMessageHandlers(
@@ -49,7 +49,11 @@ extension ChatWindow {
             forward: actions.forwardMessage == nil ? nil : { [pending = $pendingForward] in
                 pending.wrappedValue = ForwardMessageSelection(message: $0)
             },
-            unconfirmed: state.unconfirmedMessages
+            unconfirmed: state.unconfirmedMessages,
+            pin: state.pins.canModify && !state.isLoadingPins ? actions.setMessagePinned.map { action in
+                { message in action(!state.pins.messages.contains { $0.id == message.id }, message) }
+            } : nil,
+            isPinned: { id in state.pins.messages.contains { $0.id == id } }
         )
     }
 

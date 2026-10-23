@@ -21,6 +21,14 @@ public struct ThreadMessagesSnapshot: Sendable {
 /// `Sendable` and `async` throughout because a backend is a long-lived thing
 /// with a network connection, and the client that drives it is a UI.
 public protocol ChatBackend: Sendable {
+    /// Complete conversation pins, including messages outside loaded history.
+    /// A query because presentation needs both the messages and current write grant.
+    func pinnedMessages(in conversation: Conversation.ID) async throws -> PinnedMessages
+
+    /// Sets shared membership and returns the refreshed, confirmed collection.
+    /// Awaited so a refused or uncertain change can reconcile optimistic presentation.
+    func setMessagePinned(_ pinned: Bool, at address: MessageAddress) async throws -> PinnedMessages
+
     /// What this backend can do. Read it before offering the user an action:
     /// every flag defaults to `false`, so a backend that has not thought about
     /// a capability is treated as not having it.

@@ -149,6 +149,9 @@ public enum Acme {
             startedAt: messages.map(\.createdAt).max() ?? start
         )
         world.threadStates = threadStates
+        world.pinnedMessageIDs = Array(world.messages.filter {
+            $0.conversationID == Acme.priceEngine && !$0.text.isEmpty && $0.callStatus == nil
+        }.suffix(4).reversed().map(\.id))
         return world
     }()
 }

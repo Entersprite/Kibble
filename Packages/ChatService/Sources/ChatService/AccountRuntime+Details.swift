@@ -9,6 +9,9 @@ extension AccountRuntime {
         epoch: UUID
     ) async throws -> JSONValue {
         switch request.operation {
+        case GetMessagePins.operation:
+            let payload = try request.decodePayload(GetMessagePins.self)
+            return try await readMessagePins(in: payload.conversationID, backend: backend, epoch: epoch)
         case GetConversationDetails.operation:
             let payload = try request.decodePayload(GetConversationDetails.self)
             let value = try await mediaQuery(epoch: epoch) {

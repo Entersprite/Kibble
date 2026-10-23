@@ -5,6 +5,7 @@ import Foundation
 /// view properties while updating each child, even when its body reads only
 /// a small part of that snapshot.
 struct MessageRowState: Equatable {
+    let isPinned: Bool
     let deliveryStatus: MessageDeliveryStatus?
     let checkingDelivery: Bool
     let isPendingMessage: Bool
@@ -25,6 +26,7 @@ struct MessageRowState: Equatable {
         message: Message, scene: ChatSceneState, showsThread: Bool = true,
         downloads: [String: AttachmentDownloadState]? = nil, badgesSender: Bool = false
     ) {
+        isPinned = scene.pins.messages.contains { $0.id == message.id }
         deliveryStatus = scene.messageDeliveryStatuses[message.id]
         checkingDelivery = scene.checkingMessageDeliveries.contains(message.id)
         isPendingMessage = scene.pendingMessages.contains(message.id)

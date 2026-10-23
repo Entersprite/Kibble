@@ -52,6 +52,7 @@ extension ChatSessionModel {
         threads.showingList = false
         scrollTarget = nil
         selected = nil
+        resetPins()
         selectedMeetingSeries = nil
         meetingWork.reset()
         watchConversationActivity()

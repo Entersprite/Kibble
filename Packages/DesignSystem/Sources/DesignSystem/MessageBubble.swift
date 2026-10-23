@@ -17,6 +17,7 @@ struct MessageBubble: View {
     var reactions: ReactionActions?
     var own: OwnMessageHandlers?
     var openThread: ((MessageThread.ID) -> Void)?
+    var openReference: (() -> Void)?
     /// The message a search opened, and whether its tint is currently shown
     /// (search spec §1.5). Not a conditional wrapper around `body` (CLAUDE.md):
     /// every bubble carries the same background, whose opacity is zero unless
@@ -24,8 +25,7 @@ struct MessageBubble: View {
     var marked: Message.ID?
     var markOn = false
     var checkDelivery: ((Message.ID) -> Void)?
-    /// The row continues the previous message's group
-    /// (`TranscriptGrouping`): no name or time of its own.
+    /// Continues `TranscriptGrouping`: no name or time of its own.
     var continuesGroup = false
     /// The row ends its group, so the sender's picture goes beside it, at
     /// the foot of the message, as in Messages; other rows keep the column.
@@ -48,10 +48,6 @@ struct MessageBubble: View {
 
     private var ownItems: OwnMessageMenuItems? {
         state.canUseProviderActions ? own?.items(for: message) : nil
-    }
-
-    private var isMine: Bool {
-        message.sender == state.me
     }
 
     private var menu: MessageMenuContext {
@@ -122,6 +118,11 @@ struct MessageBubble: View {
             if !continuesGroup {
                 header.accessibilityHidden(true)
             }
+            if state.isPinned {
+                Label("Pinned", systemImage: "pin.fill")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.orange)
+            }
             // The message itself, apart from its name and the marks under
             // it: the reactions hang from its corner, and the picture lines up
             // with its foot.
@@ -133,6 +134,10 @@ struct MessageBubble: View {
                 } else {
                     messageContent
                 }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(.yellow.opacity(state.isPinned ? 0.5 : 0), lineWidth: 1)
             }
             .overlay(alignment: isMine ? .topLeading : .topTrailing) { tapbacks }
             .alignmentGuide(.messageBottom) { $0[.bottom] }
@@ -338,7 +343,8 @@ struct MessageBubble: View {
                     onMore: { picking = true },
                     own: ownItems,
                     inOwnBubble: isMine,
-                    open: { openURL($0) }, menuMessage: message, emojiImages: inlineEmojiImages
+                    open: { openURL($0) }, menuMessage: message,
+                    openReference: openReference, emojiImages: inlineEmojiImages
                 )
                 if message.editedAt != nil {
                     editedLabel
@@ -367,6 +373,10 @@ struct MessageBubble: View {
 }
 
 extension MessageBubble {
+    private var isMine: Bool {
+        message.sender == state.me
+    }
+
     /// Hung from the message's top corner: its foot over the message's top
     /// edge, a little of it over the corner, the rest past the message's
     /// edge. Always in the overlay, drawing nothing without reactions, so
@@ -386,13 +396,5 @@ extension MessageBubble {
             let inset = ReactionTapbacks.inset
             return mine ? dimensions[.trailing] - inset : dimensions[.leading] + inset
         }
-    }
-
-    /// "Alex Lee, 3:25 PM": the row's sender and time, which a continuing
-    /// row does not draw. The header is hidden from VoiceOver, so every row
-    /// says the same thing.
-    private var accessibilityLabel: String {
-        let sender = isMine ? "You" : Display.name(of: message.sender, in: state.directory)
-        return "\(sender), \(Display.timestamp(of: message.createdAt))"
     }
 }
