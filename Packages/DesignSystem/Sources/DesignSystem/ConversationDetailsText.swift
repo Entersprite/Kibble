@@ -6,6 +6,7 @@ enum ConversationDetailsText {
     static func kind(_ kind: Conversation.Kind) -> String {
         switch kind {
         case .space: "Space"
+        case .directMessage: "Direct Message"
         case .groupDirectMessage: "Group Chat"
         case .appDirectMessage: "App"
         case .meetChat: "Meet Chat"
