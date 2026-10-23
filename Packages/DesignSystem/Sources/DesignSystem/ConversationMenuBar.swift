@@ -119,7 +119,9 @@ extension ConversationMenuBar {
         // A backend that cannot read details gets no item, where the window
         // can say so; without the window, its host's browser decides.
         if actions.browser != nil, state?.capabilities.canReadConversationDetails != false {
+            // Enabled as the toolbar button is: not while a panel is open.
             let shows = conversation != nil && state?.browser.page == nil
+                && state?.browser.isPanelOpen == false
             entries.append(Entry(
                 id: "details", title: "Conversation Info…", style: .button(symbol: "info.circle"),
                 shortcut: MenuBarShortcuts.conversationInfo,

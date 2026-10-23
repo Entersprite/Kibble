@@ -104,13 +104,16 @@ struct ConversationMenuBarTests {
             state(selected: annDM.id) { $0.capabilities = Capabilities() },
             state(selected: annDM.id) { $0.callableConversations = [annDM.id] },
             state(selected: annDM.id) { $0.callableConversations = [annDM.id]; $0.showingMentions = true },
-            state(selected: boDM.id) { $0.callableConversations = [annDM.id] }
+            state(selected: boDM.id) { $0.callableConversations = [annDM.id] },
+            state(selected: deploys.id) { $0.browser.panelTarget = alpha.id },
+            state(selected: deploys.id) { $0.browser.creationKind = .space }
         ]
         for state in states {
             let menu = ConversationMenuBar(state: state, actions: recorder.actions)
             let window = ChatWindow(state: state, actions: recorder.actions)
             let details = entry("details", in: menu)?.command
-            #expect(details == (window.showsDetailsButton ? state.selected.map { .details($0) } : nil))
+            let offered = window.showsDetailsButton && window.isDetailsButtonEnabled
+            #expect(details == (offered ? state.selected.map { .details($0) } : nil))
             if let shown = entry("details", in: menu), shown.command != nil {
                 #expect(shown.title == "Conversation Info…")
                 #expect(shown.shortcut == MenuBarShortcuts.conversationInfo)
@@ -119,6 +122,25 @@ struct ConversationMenuBarTests {
             #expect(entry("call", in: menu)?.command == window.callConversation.map { .call($0) })
             #expect(entry("videoCall", in: menu)?.command == video)
         }
+    }
+
+    /// An open panel keeps its draft: Info can't point it at another conversation.
+    @Test func infoIsDisabledWhileAPanelOrANewConversationIsOpen() {
+        let recorder = MenuActionRecorder()
+        let open = [
+            state(selected: deploys.id) { $0.browser.panelTarget = deploys.id },
+            state(selected: deploys.id) { $0.browser.panelTarget = alpha.id },
+            state(selected: deploys.id) { $0.browser.creationKind = .groupDirectMessage }
+        ]
+        for state in open {
+            let window = ChatWindow(state: state, actions: recorder.actions)
+            #expect(window.showsDetailsButton)
+            #expect(!window.isDetailsButtonEnabled)
+            let details = entry("details", in: ConversationMenuBar(state: state, actions: recorder.actions))
+            #expect(details?.isEnabled == false)
+        }
+        let closed = state(selected: deploys.id)
+        #expect(ChatWindow(state: closed, actions: recorder.actions).isDetailsButtonEnabled)
     }
 
     @Test func markAsReadMuteAndNotificationsFollowTheRowMenu() {

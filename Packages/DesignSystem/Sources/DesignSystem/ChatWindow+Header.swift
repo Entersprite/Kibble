@@ -12,6 +12,12 @@ extension ChatWindow {
             state.capabilities.canReadConversationDetails && actions.browser != nil
     }
 
+    /// Info points no open panel or new conversation at another
+    /// conversation: that would drop its draft.
+    var isDetailsButtonEnabled: Bool {
+        !state.browser.isPanelOpen
+    }
+
     var callConversation: Conversation.ID? {
         guard !state.showingMentions, !state.threads.showingList,
               actions.call != nil,
@@ -44,6 +50,7 @@ extension ChatWindow {
                 let title = meeting ? "Latest Meeting Info" : "Conversation Info"
                 Button(title, systemImage: "info.circle") { browser.details(conversation.id, false) }
                     .help(meeting ? "Show the latest meeting’s info" : "Show conversation info")
+                    .disabled(!isDetailsButtonEnabled)
             }
             if callConversation != nil {
                 ToolbarSpacer(.fixed)

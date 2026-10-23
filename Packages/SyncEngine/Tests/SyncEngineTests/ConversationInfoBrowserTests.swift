@@ -249,9 +249,9 @@ extension ConversationInfoBrowserTests {
         await backend.hold(.mutation)
         browser.mutate(.setRole(other, .manager))
         try await waitUntilHeld(backend)
-        browser.openDetails(.init("dm:1"))
+        switchPanelMidWrite(browser, to: .init("dm:1"))
         #expect(browser.pendingMutation == nil)
-        browser.openDetails(space)
+        switchPanelMidWrite(browser, to: space)
         #expect(browser.pendingMutation == .setRole(other, .manager))
         await backend.release()
         await browser.writeTask?.value

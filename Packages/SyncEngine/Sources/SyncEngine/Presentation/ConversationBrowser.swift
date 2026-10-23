@@ -252,7 +252,10 @@ public final class ConversationBrowser {
         }
     }
 
+    /// Opens Info for `id`. Another conversation waits until the write on
+    /// its way has landed: the open panel keeps its draft and its answer.
     public func openDetails(_ id: Conversation.ID, more: Bool = false) {
+        guard !isSubmitting || panelTarget == id else { return }
         detailsTask?.cancel()
         if !more {
             forgetPreview()

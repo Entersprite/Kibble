@@ -54,7 +54,7 @@ extension ConversationInfoBrowserTests {
         await backend.hold(.mutation)
         browser.mutateEach(three.map { .removePerson($0) })
         try await waitUntilHeld(backend)
-        browser.openDetails(.init("dm:1"))
+        switchPanelMidWrite(browser, to: .init("dm:1"))
         await backend.release()
         await browser.writeTask?.value
         await browser.detailsTask?.value

@@ -44,6 +44,11 @@ public struct ConversationBrowserScene: Sendable, Equatable {
     public var pendingMutation: ConversationMutation?
 
     public init() {}
+
+    /// Info or a new conversation's sheet is up.
+    var isPanelOpen: Bool {
+        panelTarget != nil || creationKind != nil
+    }
 }
 
 @MainActor

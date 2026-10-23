@@ -29,6 +29,8 @@ public extension ConversationBrowser {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 isSubmitting = false
                 pendingChange = nil
+                // Another panel's failure is not this one's to show.
+                guard panelTarget == details.conversation.id else { return }
                 needsReconciliation = true
                 panelError = Self.message(error)
             }
@@ -81,7 +83,8 @@ public extension ConversationBrowser {
 
     private func finish(_ batch: BatchOutcome, of mutations: [ConversationMutation], in id: Conversation.ID) {
         guard let last = batch.last else {
-            // Nothing went through: as a single change's failure.
+            // Nothing went through: as a single change's failure, on its own panel only.
+            guard panelTarget == id else { return }
             switch batch.failure {
             case let .refused(message):
                 needsReconciliation = true
@@ -118,6 +121,7 @@ public extension ConversationBrowser {
         in id: Conversation.ID
     ) {
         guard result.isConfirmed else {
+            guard panelTarget == id else { return }
             needsReconciliation = true
             panelError = "The change could not be confirmed. Reload before trying again."
             return
