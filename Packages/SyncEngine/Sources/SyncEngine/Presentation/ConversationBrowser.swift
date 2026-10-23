@@ -259,25 +259,8 @@ public final class ConversationBrowser {
     public func openDetails(_ id: Conversation.ID, more: Bool = false) {
         guard !isSubmitting || panelTarget == id else { return }
         detailsTask?.cancel()
-        if panelTarget != id {
-            notice = nil
-        }
-        if !more {
-            forgetPreview()
-        }
-        panelTarget = id
-        needsReconciliation = true
-        isLoadingParticipants = false
-        panelError = nil
-        creationKind = nil
         let cursor = more ? participantCursor : nil
-        if !more {
-            if details?.conversation.id != id {
-                details = nil
-                forgetPreview(); forgetInfo()
-            }
-            participants = []; participantCursor = nil
-        }
+        retarget(to: id, more: more)
         let generation = generation
         detailsTask = Task { [weak self, engine] in
             do {
@@ -310,6 +293,30 @@ public final class ConversationBrowser {
                 isLoadingParticipants = false
                 panelError = Self.message(error)
             }
+        }
+    }
+
+    /// The panel's state as a details read for `id` begins: another
+    /// conversation's notice, preview and Info reads go; a first page
+    /// starts the people over.
+    private func retarget(to id: Conversation.ID, more: Bool) {
+        if panelTarget != id {
+            notice = nil
+        }
+        if !more {
+            forgetPreview()
+        }
+        panelTarget = id
+        needsReconciliation = true
+        isLoadingParticipants = false
+        panelError = nil
+        creationKind = nil
+        if !more {
+            if details?.conversation.id != id {
+                details = nil
+                forgetInfo()
+            }
+            participants = []; participantCursor = nil
         }
     }
 
