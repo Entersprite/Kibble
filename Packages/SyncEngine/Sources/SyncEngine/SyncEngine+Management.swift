@@ -98,18 +98,18 @@ public extension SyncEngine {
         return result
     }
 
-    private var managementScope: ManagementScope {
+    internal var managementScope: ManagementScope {
         ManagementScope(mutation: conversationMutationVersion, lifecycle: managementGeneration)
     }
 
-    private func checkManagementScope(_ version: ManagementScope, mutations: Bool = true) throws {
+    internal func checkManagementScope(_ version: ManagementScope, mutations: Bool = true) throws {
         try Task.checkCancellation()
         guard version.lifecycle == managementGeneration,
               !mutations || version.mutation == conversationMutationVersion else { throw CancellationError() }
     }
 }
 
-private struct ManagementScope {
+struct ManagementScope {
     var mutation: Int
     var lifecycle: Int
 }

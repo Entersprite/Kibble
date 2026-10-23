@@ -16,21 +16,36 @@ public final class ConversationBrowser {
     public private(set) var pickerPeople: [Member] = []
     public private(set) var isSearchingPeople = false
     public private(set) var panelTarget: Conversation.ID?
-    public private(set) var needsReconciliation = false
+    public internal(set) var needsReconciliation = false
     public private(set) var spaces: [ConversationDetails] = []
     public private(set) var isLoading = false
     public private(set) var nextCursor: String?
     public private(set) var error: String?
     public private(set) var creationKind: Conversation.Kind?
-    public private(set) var details: ConversationDetails?
+    public internal(set) var details: ConversationDetails?
     public private(set) var participants: [ConversationParticipant] = []
     public private(set) var participantCursor: String?
     /// A people page is on its way: the People tab says so instead of
     /// standing empty under its member count.
     public private(set) var isLoadingParticipants = false
-    public private(set) var panelError: String?
-    public private(set) var isSubmitting = false
-    public private(set) var notice: String?
+    public internal(set) var panelError: String?
+    public internal(set) var isSubmitting = false
+    public internal(set) var notice: String?
+    public internal(set) var integrations: ConversationIntegrations?
+    public internal(set) var isLoadingIntegrations = false
+    public internal(set) var integrationsError: String?
+    public internal(set) var appResults: [ConversationApp] = []
+    public internal(set) var isSearchingApps = false
+    public internal(set) var email: ConversationEmail?
+    public internal(set) var isLoadingEmail = false
+    public internal(set) var emailError: String?
+    public internal(set) var conversion: ConversionConsequences?
+    public internal(set) var isLoadingConversion = false
+    public internal(set) var conversionError: String?
+    public internal(set) var isLoadingAllParticipants = false
+    /// The change on its way, shown at once; cleared when its answer or failure lands.
+    public internal(set) var pendingMutation: ConversationMutation?
+    @ObservationIgnored var infoTasks: [ConversationInfoRead: Task<Void, Never>] = [:]
     @ObservationIgnored var uncertainCreationKind: Conversation.Kind?
     @ObservationIgnored var onOpen: ((Conversation.ID) -> Void)?
     @ObservationIgnored let engine: SyncEngine
@@ -138,30 +153,6 @@ public final class ConversationBrowser {
         }
     }
 
-    public func searchPeople(_ text: String) {
-        peopleTask?.cancel()
-        if !needsReconciliation {
-            panelError = nil
-        }
-        pickerPeople = []
-        isSearchingPeople = !text.isEmpty
-        guard !text.isEmpty else { return }
-        let generation = generation
-        peopleTask = Task { [weak self, engine] in
-            do {
-                try await Task.sleep(for: .milliseconds(200))
-                let result = try await engine.searchConversationPeople(text)
-                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
-                pickerPeople = result
-                isSearchingPeople = false
-            } catch {
-                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
-                panelError = Self.message(error)
-                isSearchingPeople = false
-            }
-        }
-    }
-
     public func returnToDirectory() {
         if let lastPage {
             showPage(lastPage)
@@ -173,6 +164,7 @@ public final class ConversationBrowser {
         detailsTask?.cancel()
         peopleTask?.cancel()
         forgetPreview()
+        forgetInfo()
         isSearchingPeople = false
         details = nil
         panelTarget = nil
@@ -197,6 +189,7 @@ public final class ConversationBrowser {
         participants = []
         isLoadingParticipants = false
         panelError = nil
+        forgetInfo()
     }
 
     public func create(_ draft: ConversationDraft) {
@@ -269,7 +262,7 @@ public final class ConversationBrowser {
         if !more {
             if details?.conversation.id != id {
                 details = nil
-                forgetPreview()
+                forgetPreview(); forgetInfo()
             }
             participants = []; participantCursor = nil
         }
@@ -314,6 +307,30 @@ public final class ConversationBrowser {
 }
 
 extension ConversationBrowser {
+    public func searchPeople(_ text: String) {
+        peopleTask?.cancel()
+        if !needsReconciliation {
+            panelError = nil
+        }
+        pickerPeople = []
+        isSearchingPeople = !text.isEmpty
+        guard !text.isEmpty else { return }
+        let generation = generation
+        peopleTask = Task { [weak self, engine] in
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+                let result = try await engine.searchConversationPeople(text)
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
+                pickerPeople = result
+                isSearchingPeople = false
+            } catch {
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
+                panelError = Self.message(error)
+                isSearchingPeople = false
+            }
+        }
+    }
+
     func stop() {
         stopped = true
         generation += 1
@@ -327,7 +344,8 @@ extension ConversationBrowser {
         query = ""; error = nil; panelError = nil; notice = nil
         nextCursor = nil; participantCursor = nil; scope = .discover; organization = .all
         isSearchingPeople = false; needsReconciliation = false; isLoadingParticipants = false
-        isLoading = false; isSubmitting = false
+        isLoading = false; isSubmitting = false; pendingMutation = nil
+        forgetInfo()
     }
 
     /// `ChatError` is not a `LocalizedError`, so its `localizedDescription`
@@ -343,57 +361,6 @@ extension ConversationBrowser {
         case .transport: return "The connection failed. Check your network and try again."
         case let .decoding(message), let .server(_, message), let .unknown(message):
             return message.isEmpty ? fallback : message
-        }
-    }
-
-    public func mutate(_ mutation: ConversationMutation) {
-        guard let details, !isSubmitting, !stopped, !needsReconciliation else { return }
-        isSubmitting = true
-        panelError = nil
-        let generation = generation
-        writeTask = Task { [weak self, engine] in
-            do {
-                let result = try await engine.mutateConversation(
-                    mutation, in: details.conversation.id, operationID: ClientOperationID.make(),
-                    expectedRevision: details.revision
-                )
-                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
-                isSubmitting = false
-                applyManagementResult(result, mutation: mutation, in: details.conversation.id)
-            } catch {
-                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
-                isSubmitting = false
-                needsReconciliation = true
-                panelError = Self.message(error)
-            }
-        }
-    }
-
-    private func applyManagementResult(
-        _ result: ConversationMutationResult,
-        mutation: ConversationMutation,
-        in id: Conversation.ID
-    ) {
-        guard result.isConfirmed else {
-            needsReconciliation = true
-            panelError = "The change could not be confirmed. Reload before trying again."
-            return
-        }
-        if [.leave, .deleteSpace, .declineInvitation, .block].contains(mutation) {
-            closePanel()
-        } else if details?.conversation.id == id {
-            if let updated = result.details {
-                details = updated
-            }
-            if !result.failedMembers.isEmpty {
-                notice = "\(result.failedMembers.count) people could not be updated."
-            }
-            if result.details == nil || result.details?.membership == .joined {
-                openDetails(id)
-            }
-        }
-        if page == "space" || page == "spaceSpam" {
-            search(query, scope: scope)
         }
     }
 }

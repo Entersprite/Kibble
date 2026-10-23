@@ -37,4 +37,35 @@ extension RecordingBackend {
         }
         return result
     }
+
+    func participants(in conversation: Conversation.ID, after cursor: String?) async throws
+        -> ConversationParticipantPage {
+        try await inner.participants(in: conversation, after: cursor)
+    }
+
+    func conversationIntegrations(_ conversation: Conversation.ID) async throws -> ConversationIntegrations {
+        try await inner.conversationIntegrations(conversation)
+    }
+
+    func searchConversationApps(_ query: String, in conversation: Conversation.ID) async throws
+        -> [ConversationApp] {
+        try await inner.searchConversationApps(query, in: conversation)
+    }
+
+    func openAppConversation(_ app: Member.ID, from conversation: Conversation.ID) async throws
+        -> Conversation {
+        try await inner.openAppConversation(app, from: conversation)
+    }
+
+    func webhookDeliveryURL(_ webhookID: String, in conversation: Conversation.ID) async throws -> URL {
+        try await inner.webhookDeliveryURL(webhookID, in: conversation)
+    }
+
+    func conversationEmail(_ conversation: Conversation.ID) async throws -> ConversationEmail {
+        try await inner.conversationEmail(conversation)
+    }
+
+    func conversionConsequences(_ conversation: Conversation.ID) async throws -> ConversionConsequences {
+        try await inner.conversionConsequences(conversation)
+    }
 }
