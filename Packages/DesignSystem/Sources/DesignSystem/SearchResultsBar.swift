@@ -80,11 +80,15 @@ struct SearchResultsBar: View {
 /// loaded. Pure, like `TranscriptScroll`.
 enum TranscriptMark {
     /// `request` is the highlight with its open's generation, so the same
-    /// message opened again is marked again.
+    /// message opened again is marked again. A mark already made is run again
+    /// only while it is still on (`isOn`): its run was canceled by a trigger
+    /// change that is not a new mark, such as rows loading after a jump, and
+    /// only the next run can turn it off.
     static func shouldMark(
-        _ request: TranscriptScroll.Request?, in messages: [Message], marked: TranscriptScroll.Request?
+        _ request: TranscriptScroll.Request?, in messages: [Message], marked: TranscriptScroll.Request?,
+        isOn: Bool = false
     ) -> Bool {
-        guard let request, request != marked else { return false }
+        guard let request, request != marked || isOn else { return false }
         return messages.contains { $0.id == request.id }
     }
 
@@ -108,9 +112,10 @@ enum TranscriptMark {
         do {
             try await sleep()
         } catch {
-            // Canceled: a newer trigger is already running its own mark.
-            // Falling through to `off()` here is exactly the bug this
-            // function exists to not have.
+            // Canceled: the next trigger's run owns the mark now, a new one
+            // or this one still on (`shouldMark`'s `isOn`). Falling through
+            // to `off()` here is exactly the bug this function exists to not
+            // have.
             return
         }
         guard isStillMarked() else { return }

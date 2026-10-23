@@ -176,7 +176,7 @@ struct TranscriptSearchMark: ViewModifier {
             let request = state.highlightedMessage.map {
                 TranscriptScroll.Request(id: $0, generation: state.searchOpenGeneration)
             }
-            guard TranscriptMark.shouldMark(request, in: state.messages, marked: marked) else {
+            guard TranscriptMark.shouldMark(request, in: state.messages, marked: marked, isOn: markOn) else {
                 return
             }
             let justMarked = request

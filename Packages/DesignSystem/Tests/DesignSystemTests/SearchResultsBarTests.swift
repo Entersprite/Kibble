@@ -85,4 +85,35 @@ struct SearchResultsBarTests {
         await TranscriptMark.fade(on: {}, sleep: {}, isStillMarked: { false }, off: { offCalled = true })
         #expect(!offCalled)
     }
+
+    /// The trigger also changes when only the loaded rows do, as they do just
+    /// after a jump to a pinned message. That cancels the running mark without
+    /// a new one; the next run, for the same request, must still turn it off.
+    /// It once declined ("already marked") and the tint stayed on for good.
+    @MainActor @Test func aMarkCanceledByAReloadStillTurnsOff() async {
+        struct Canceled: Error {}
+        let message = Message(
+            id: Message.ID("m"), conversationID: Conversation.ID("c"), threadID: MessageThread.ID("m"),
+            sender: Member.ID("s"), text: "x", createdAt: .now
+        )
+        let request = TranscriptScroll.Request(id: message.id, generation: 1)
+        var marked: TranscriptScroll.Request?
+        var markOn = false
+        /// `TranscriptSearchMark`'s task body, one run per trigger.
+        @MainActor func run(sleep: @MainActor () async throws -> Void) async {
+            guard TranscriptMark.shouldMark(request, in: [message], marked: marked, isOn: markOn)
+            else { return }
+            marked = request
+            await TranscriptMark.fade(
+                on: { markOn = true }, sleep: sleep, isStillMarked: { marked == request },
+                off: { markOn = false }
+            )
+        }
+        await run { throw Canceled() }
+        #expect(markOn)
+        await run {}
+        #expect(!markOn)
+        // Finished, the same request is not marked again by a later render.
+        #expect(!TranscriptMark.shouldMark(request, in: [message], marked: request, isOn: false))
+    }
 }
