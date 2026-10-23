@@ -31,7 +31,8 @@ extension AccountRuntime {
              SetThreadFollowed.operation:
             return try await dispatchDetails(request, backend: backend, epoch: epoch)
         case GetConversationEmail.operation, GetConversationIntegrations.operation,
-             GetWebhookDeliveryURL.operation, SearchConversationApps.operation:
+             GetWebhookDeliveryURL.operation, SearchConversationApps.operation,
+             GetConversionConsequences.operation:
             return try await dispatchIntegrations(request, backend: backend, epoch: epoch)
         case OpenConversationApp.operation, OpenDirectConversation.operation, CreateConversation.operation,
              MutateConversation.operation,

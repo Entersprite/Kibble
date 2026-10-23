@@ -15,6 +15,14 @@ extension AccountRuntime {
             }
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
+        case GetConversionConsequences.operation:
+            // No capability flag: eligibility is per conversation and the provider refuses.
+            let payload = try request.decodePayload(GetConversionConsequences.self)
+            let value = try await withProviderWork(epoch: epoch) {
+                try await backend.conversionConsequences(payload.conversationID)
+            }
+            try checkEpoch(epoch)
+            return try ServiceCodec.value(value)
         case SearchConversationApps.operation:
             guard capabilities.canManageConversationApps else { throw ServiceFailure.unsupportedOperation }
             let payload = try request.decodePayload(SearchConversationApps.self)

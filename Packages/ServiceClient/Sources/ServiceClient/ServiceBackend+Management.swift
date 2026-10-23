@@ -7,6 +7,10 @@ public extension ServiceBackend {
         try await call(GetConversationEmail(conversationID: conversation))
     }
 
+    func conversionConsequences(_ conversation: Conversation.ID) async throws -> ConversionConsequences {
+        try await call(GetConversionConsequences(conversationID: conversation))
+    }
+
     func openAppConversation(
         _ app: Member.ID,
         from conversation: Conversation.ID

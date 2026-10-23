@@ -140,4 +140,21 @@ struct ConversationIntegrationsTests {
         #expect(await harness.backend.managementMutations.isEmpty)
         await harness.service.shutdown()
     }
+
+    @Test func consequencesCrossTheServiceForTheBoundAccountOnly() async throws {
+        let harness = try await ReconciliationHarness.make()
+        let value = try await harness.call(GetConversionConsequences(conversationID: .init("room")))
+        #expect(value == (await harness.backend.consequences))
+        #expect(await harness.backend.consequenceReads == 1)
+        let other = ConnectedAccountID("other-account")
+        await #expect(throws: (any Error).self) {
+            _ = try await harness.transport.exchange(ServiceRequest(header: ServiceRequestHeader(
+                requestID: ServiceRequestID(UUID().uuidString), accountID: other,
+                accountRevision: harness.record.currentRevision, deadline: Date().addingTimeInterval(5)
+            ), payload: GetConversionConsequences(conversationID: .init("room"))))
+                .value(for: GetConversionConsequences.self)
+        }
+        #expect(await harness.backend.consequenceReads == 1)
+        await harness.service.shutdown()
+    }
 }

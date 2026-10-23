@@ -17,6 +17,11 @@ extension ReconciliationBackend {
         return ConversationEmail(address: "room@example.invalid", deliveryEnabled: true)
     }
 
+    func conversionConsequences(_ id: Conversation.ID) -> ConversionConsequences {
+        consequenceReads += 1
+        return consequences
+    }
+
     func mutateConversation(
         _ mutation: ConversationMutation, in id: Conversation.ID,
         operationID: String, expectedRevision: String?

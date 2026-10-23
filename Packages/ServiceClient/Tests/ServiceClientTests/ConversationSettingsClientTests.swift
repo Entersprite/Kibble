@@ -55,4 +55,23 @@ struct ConversationSettingsClientTests {
         #expect(try await second.conversationDetails(room).conversation.title != "Renamed")
         await harness.service.shutdown()
     }
+
+    @Test func consequencesRoundTripThroughTheSerializedService() async throws {
+        let harness = try await ClientHarness.make()
+        let first: any ChatBackend = harness.backend(harness.first)
+        let second: any ChatBackend = harness.backend(harness.second)
+        let created = try await first.createConversation(ConversationDraft(
+            kind: .groupDirectMessage, members: [Member.ID("peer"), Member.ID("x"), Member.ID("y")]
+        ))
+        let id = created.conversation.id
+        let consequences = try await first.conversionConsequences(id)
+        #expect(consequences.requiresHistoryAcknowledgement)
+        #expect(consequences.items.first == ConversionConsequence(topic: .sameConversation, outcome: .kept))
+        #expect(consequences.items.last == ConversionConsequence(topic: .undo, outcome: .notReversible))
+        await #expect(throws: (any Error).self) { _ = try await second.conversionConsequences(id) }
+        await #expect(throws: (any Error).self) {
+            _ = try await first.conversionConsequences(Conversation.ID("same"))
+        }
+        await harness.service.shutdown()
+    }
 }

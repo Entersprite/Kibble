@@ -43,6 +43,11 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
     var integrations = ConversationIntegrations()
     var appSearchReads = 0
     var emailReads = 0
+    var consequenceReads = 0
+    var consequences = ConversionConsequences(
+        items: [ConversionConsequence(topic: .history, outcome: .changed)],
+        requiresHistoryAcknowledgement: false
+    )
     var appOpens = 0
     var managementMutations: [ConversationMutation] = []
     var deliveryURL = URL(string: "https://example.invalid/private-delivery-key")!
