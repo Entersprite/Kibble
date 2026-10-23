@@ -1,10 +1,33 @@
 #!/usr/bin/env bash
-# Lints + unit suite. Needs no Xcode project, no simulator, no Google account.
+# Structural checks + quiet unit/native suites. --ui runs visible desktop tests;
+# --all runs both passes. Needs no Xcode project, simulator or Google account.
 #
 # Deliberately NOT `set -e`: every check runs so one invocation reports every
 # problem, not just the first.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+
+# A mode is explicit even if the caller inherited an opted-in environment.
+case "${1:-}" in
+    --ui) shift; exec python3 -B scripts/visible-ui-tests.py "$@" ;;
+    --all)
+        shift
+        result=0
+        "$PWD/scripts/test.sh" "$@" || result=1
+        "$PWD/scripts/test.sh" --ui "$@" || result=1
+        if [ "$result" = 0 ]; then echo "all quiet and visible UI checks passed"; fi
+        exit "$result"
+        ;;
+    --help)
+        echo "Usage: $0 [--ui | --all] [swift test options]"
+        echo "Default: quiet checks; visible window/sheet tests are disabled."
+        echo "--ui: visible tests only, sequentially under a shared desktop lock."
+        echo "--all: quiet checks followed by visible tests (complete test gate)."
+        exit 0
+        ;;
+esac
+export KIBBLE_VISIBLE_UI_TESTS=0
+echo "Quiet checks: visible UI tests are disabled; run $0 --ui for those or --all for both."
 
 fail=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
@@ -98,6 +121,8 @@ else
 fi
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_*.py' \
     || note "architecture checker tests"
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/visible-ui-tests.py --check \
+    || note "visible UI test discovery"
 
 echo "Service and shared storage boundaries:"
 for package in ChatService SyncEngine ChatRules ServiceClient; do
@@ -338,5 +363,9 @@ case $? in
        printf '%s\n' "$notices_out" | sed 's/^/         /' >&2 ;;
 esac
 echo
-if [ "$fail" = 0 ]; then echo "all checks passed"; else echo "FAILURES ABOVE" >&2; fi
+if [ "$fail" = 0 ]; then
+    echo "quiet checks passed (visible UI tests excluded; complete gate: $0 --all)"
+else
+    echo "FAILURES ABOVE" >&2
+fi
 exit "$fail"

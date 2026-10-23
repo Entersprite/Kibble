@@ -9,7 +9,7 @@
     /// transcript under a composer-sized inset. These scrolls are unanimated,
     /// so a hosted window can complete them without a live app event loop.
     @MainActor
-    @Suite(.serialized)
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct TranscriptFollowHostedTests {
         private let conversation = Conversation.ID("hosted-follow")
 

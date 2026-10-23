@@ -6,7 +6,7 @@
     @testable import DesignSystem
 
     @MainActor
-    @Suite(.serialized)
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct AudioCallDiagnosticsHostedTests {
         @MainActor
         private final class Collector {

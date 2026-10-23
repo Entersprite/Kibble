@@ -5,7 +5,7 @@
     import Testing
     @testable import DesignSystem
 
-    @MainActor @Suite(.serialized)
+    @MainActor @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct ConversationPreviewHostedTests {
         @Test func theNativeSheetOffersJoinAndBlockWithoutInvitationButtons() async throws {
             NSApplication.shared.accessibilitySetValue(

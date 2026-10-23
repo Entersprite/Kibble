@@ -188,7 +188,8 @@ struct IncomingCallPanelTests {
         #expect(recorder.rings == [true, false])
     }
 
-    @Test func thePanelWindowFloatsEverywhereWithoutTakingFocus() throws {
+    @Test(.enabled(if: visibleUITestsEnabled))
+    func thePanelWindowFloatsEverywhereWithoutTakingFocus() throws {
         let host = IncomingCallPanelHost(animates: false)
         let content = IncomingCallPanelContent(
             callID: UUID(), memberID: Member.ID("person:avery"), name: "Avery", person: nil

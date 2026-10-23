@@ -6,7 +6,7 @@
     @testable import DesignSystem
 
     @MainActor
-    @Suite(.serialized, .timeLimit(.minutes(1)))
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized, .timeLimit(.minutes(1)))
     struct PinnedMessageNavigationHostedTests {
         @Test func repeatedPinJumpsRenderTheTargetInEachReplacementWindow() async {
             func message(_ index: Int) -> Message {

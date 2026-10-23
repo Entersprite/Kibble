@@ -6,7 +6,7 @@
     @testable import DesignSystem
 
     @MainActor
-    @Suite(.serialized)
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct MessageListHostedTests {
         private let conversation = Conversation.ID("hosted-transcript")
 

@@ -6,7 +6,7 @@
     @testable import DesignSystem
 
     @MainActor
-    @Suite(.serialized, .timeLimit(.minutes(1)))
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized, .timeLimit(.minutes(1)))
     struct PinnedMessageHostedTests {
         @Test(arguments: [false, true], ["go-to-pinned-message", "pinned-message-content"])
         func expansionWaitsForTheMessageOrNavigationButton(dark: Bool, target: String) async throws {

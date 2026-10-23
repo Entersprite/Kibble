@@ -10,7 +10,7 @@
     /// frames are solid red then solid green, so the pixels on screen say
     /// which one is drawn.
     @MainActor
-    @Suite(.serialized, .timeLimit(.minutes(1)))
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized, .timeLimit(.minutes(1)))
     struct AnimatedRemoteImageRenderTests {
         private static let url = URL(string: "https://media.acme.example/party/confetti.gif")!
         private static let site = URL(string: "https://outfitters.acme.example")!

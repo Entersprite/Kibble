@@ -7,7 +7,7 @@
 
     /// The other person's muted microphone shows only when the provider says
     /// it is muted; unknown is never drawn as muted.
-    @MainActor @Suite(.serialized)
+    @MainActor @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct CallRemoteMutedBadgeTests {
         private let actions = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})
 

@@ -8,7 +8,7 @@
     /// The text bubble's widest, and following a last row that grows, measured
     /// in a hosted transcript.
     @MainActor
-    @Suite(.serialized)
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct TranscriptLayoutHostedTests {
         private let conversation = Conversation.ID("hosted-layout")
 

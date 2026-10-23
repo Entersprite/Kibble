@@ -4,6 +4,7 @@ import Testing
 @testable import DesignSystem
 
 @MainActor
+@Suite(.enabled(if: visibleUITestsEnabled))
 struct AccountPanelFocusTests {
     @Test func dismissingRestoresTheOriginalFieldButNeverAnotherAccountsResponder() {
         _ = NSApplication.shared

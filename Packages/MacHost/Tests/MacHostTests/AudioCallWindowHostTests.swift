@@ -226,7 +226,8 @@ struct AudioCallWindowHostTests {
         }
     }
 
-    @Test func anEndedCallsWindowClosesItselfAndWaitsForThePointer() async throws {
+    @Test(.enabled(if: visibleUITestsEnabled))
+    func anEndedCallsWindowClosesItselfAndWaitsForThePointer() async throws {
         var closed: [UUID] = []
         var pointerInside = true
         let host = AudioCallWindowHost(
@@ -251,7 +252,8 @@ struct AudioCallWindowHostTests {
         host.update(call: nil, windowRequests: 1)
     }
 
-    @Test func theSettingOffAFailureOrANewCallKeepTheWindowOpen() async throws {
+    @Test(.enabled(if: visibleUITestsEnabled))
+    func theSettingOffAFailureOrANewCallKeepTheWindowOpen() async throws {
         var enabled = false
         let host = AudioCallWindowHost(
             actions: { _ in actions }, windowClosed: { _ in },

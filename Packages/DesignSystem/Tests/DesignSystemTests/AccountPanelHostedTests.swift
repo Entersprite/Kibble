@@ -7,6 +7,7 @@ import Testing
 /// The open panel in a real window, driven by key events: one focus stop
 /// whose highlight the arrows and Tab move, and Return chooses.
 @MainActor
+@Suite(.enabled(if: visibleUITestsEnabled))
 struct AccountPanelHostedTests {
     @Test func rightAndReturnChooseTheNextAccountWithoutChangingGeometry() throws {
         let panel = try Hosted()
@@ -131,6 +132,7 @@ private struct Hosted {
         )
         host = NSHostingView(rootView: PanelHost(probe: probe))
         window.contentView = host
+        placeAwayFromPointer()
         window.makeKeyAndOrderFront(nil)
         renderTurn()
         host.layoutSubtreeIfNeeded()
@@ -152,6 +154,25 @@ private struct Hosted {
 
     func close() {
         window.orderOut(nil)
+    }
+
+    /// Hover shares the keyboard highlight. The real desktop pointer must
+    /// not select a row while this harness is testing an empty highlight.
+    private func placeAwayFromPointer() {
+        guard let screen = NSScreen.main else { return }
+        let frame = screen.visibleFrame
+        let size = window.frame.size
+        let corners = [
+            NSPoint(x: frame.minX, y: frame.minY),
+            NSPoint(x: frame.maxX - size.width, y: frame.minY),
+            NSPoint(x: frame.minX, y: frame.maxY - size.height),
+            NSPoint(x: frame.maxX - size.width, y: frame.maxY - size.height)
+        ]
+        if let origin = corners.first(where: {
+            !NSRect(origin: $0, size: size).insetBy(dx: -20, dy: -20).contains(NSEvent.mouseLocation)
+        }) {
+            window.setFrameOrigin(origin)
+        }
     }
 
     private func renderTurn() {

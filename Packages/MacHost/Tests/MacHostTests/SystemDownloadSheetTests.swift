@@ -5,6 +5,7 @@ import Testing
 /// Where Save As and its failure alert attach: the key window, else the main
 /// one, while it is on screen. A panel with no such window runs on its own.
 @MainActor
+@Suite(.enabled(if: visibleUITestsEnabled))
 struct SystemDownloadSheetTests {
     private func window(visible: Bool) -> NSWindow {
         let window = NSWindow(

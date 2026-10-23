@@ -6,7 +6,7 @@
     @testable import DesignSystem
 
     @MainActor
-    @Suite(.serialized)
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct TranscriptJumpLayoutTests {
         private func state() -> ChatSceneState {
             let conversation = Conversation.ID("jump-layout")

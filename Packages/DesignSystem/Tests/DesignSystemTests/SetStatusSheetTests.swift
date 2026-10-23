@@ -8,7 +8,7 @@
     /// The Set a Status sheet presented as a real sheet: its buttons sit in
     /// the sheet's own placements, which give Save the Return key and Cancel
     /// the Escape key, as the hand-placed buttons had them.
-    @MainActor @Suite(.serialized)
+    @MainActor @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct SetStatusSheetTests {
         private final class Saved {
             var statuses: [MemberStatus?] = []
