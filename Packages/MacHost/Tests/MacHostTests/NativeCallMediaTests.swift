@@ -8,6 +8,8 @@ struct NativeCallMediaTests {
     @Test func presentationAudioUsesAnIndependentSenderWithoutRequestingMicrophoneAccess() async throws {
         let media = NativeCallMedia(presentation: true, sharingSystemAudio: true, microphoneAccess: { false })
         let offer = try await media.makeAudioOffer(serverControlChannel: "collections")
+        #expect(offer.sdp.contains("a=mid:kibble-audio\r\n"))
+        #expect(media.peer?.localDescription?.sdp.contains("a=mid:kibble-audio\r\n") == true)
         #expect(media.sendsPresentationAudio)
         #expect(!media.isMicrophoneMuted)
         #expect(offer.sdp.contains("a=ssrc:"))

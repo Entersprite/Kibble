@@ -108,9 +108,10 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
                 }
             }
             try check(current)
-            try await setDescription(offer, local: true, connection: connection)
+            let localOffer = try NativeCallSDP.audioMIDLast(offer)
+            try await setDescription(localOffer, local: true, connection: connection)
             try check(current)
-            return CallAudioOffer(sdp: offer, srtpProfile: .aeadAES256GCM)
+            return CallAudioOffer(sdp: localOffer, srtpProfile: .aeadAES256GCM)
         } catch {
             if generation == current {
                 close()
