@@ -39,11 +39,10 @@ struct ConversationInfoSheet: View {
     let media: ChatSceneActions?
     let openNotifications: ((Conversation.ID) -> Void)?
 
-    /// The last size, offered as the sheet's ideal size when it opens again.
+    static let minimum = CGSize(width: 640, height: 440)
+    /// The size the person last left the sheet at, offered when it opens again.
     @AppStorage("conversationInfo.width") private var width = 760.0
     @AppStorage("conversationInfo.height") private var height = 560.0
-    /// The remembered size this presentation opened with.
-    @State private var opening: CGSize?
     @State private var selection = InfoSection.people
     @State private var drafts = InfoDraftState()
     @State private var draft: InfoSectionDraft?
@@ -84,16 +83,13 @@ struct ConversationInfoSheet: View {
                 .scrollEdgeEffectStyle(.soft, for: .vertical)
         }
         .frame(
-            minWidth: 640, idealWidth: max(idealSize.width, 640), maxWidth: .infinity,
-            minHeight: 440, idealHeight: max(idealSize.height, 440), maxHeight: .infinity
+            minWidth: Self.minimum.width, idealWidth: idealSize.width, maxWidth: .infinity,
+            minHeight: Self.minimum.height, idealHeight: idealSize.height, maxHeight: .infinity
         )
         .presentationSizing(.fitted)
-        .onGeometryChange(for: CGSize.self, of: \.size) { size in
-            // The first layout passes report the minimum. Hold the opening
-            // size before saving, so the sheet doesn't shrink to what it reports.
-            if opening == nil {
-                opening = CGSize(width: width, height: height)
-            }
+        // Info usually replaces Loading in a sheet already shown, which
+        // SwiftUI neither grows nor makes resizable; this sizes the window.
+        .sheetWindowSizing(minimum: Self.minimum, ideal: idealSize) { size in
             width = size.width
             height = size.height
         }
@@ -142,7 +138,7 @@ struct ConversationInfoSheet: View {
     }
 
     private var idealSize: CGSize {
-        opening ?? CGSize(width: width, height: height)
+        CGSize(width: max(width, Self.minimum.width), height: max(height, Self.minimum.height))
     }
 
     // MARK: Sections
