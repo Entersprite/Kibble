@@ -53,5 +53,53 @@
                 dark: false, name: "info-people-requests", size: NSSize(width: 450, height: 300)
             )
         }
+
+        /// Info for the kinds the per-section renders leave out: a group chat
+        /// (People and Details in the sidebar) and a one-to-one chat (People
+        /// alone), at the sheet's default and minimum sizes in both
+        /// appearances. A space's four sections render in their own tests.
+        @Test func infoSheetSectionsRenderInBothAppearances() async throws {
+            let people = ["Ana Lee", "Sam Ortiz", "Kai Rivera"].enumerated().map { index, name in
+                ConversationParticipant(
+                    member: Member(
+                        id: .init("g\(index)"), kind: .human, displayName: name,
+                        email: "\(name.split(separator: " ")[0].lowercased())@studio.example"
+                    ),
+                    role: .member, state: .joined, allowedActions: index == 0 ? [] : ["removePerson"]
+                )
+            }
+            let group = ConversationDetails(
+                conversation: Conversation(
+                    id: .init("lunch"), kind: .groupDirectMessage, title: "Lunch Crew", memberCount: 3
+                ),
+                membership: .joined, allowedActions: ["details", "rename", "addPeople", "convertToSpace"]
+            )
+            let direct = ConversationDetails(
+                conversation: Conversation(id: .init("sam"), kind: .directMessage, title: "Sam Ortiz"),
+                membership: .joined
+            )
+            for (name, details, participants) in [
+                ("group", group, people), ("direct", direct, Array(people.prefix(2)))
+            ] {
+                var state = ChatSceneState()
+                state.browser.panelTarget = details.conversation.id
+                state.browser.details = details
+                state.browser.participants = participants
+                for size in [NSSize(width: 760, height: 560), NSSize(width: 640, height: 440)] {
+                    for dark in [false, true] {
+                        try await render(
+                            ConversationPanelSheet(
+                                state: state,
+                                browser: actions,
+                                openNotifications: { _ in }
+                            ),
+                            dark: dark,
+                            name: "info-\(name)-people-\(Int(size.width))-\(dark ? "dark" : "light")",
+                            size: size
+                        )
+                    }
+                }
+            }
+        }
     }
 #endif

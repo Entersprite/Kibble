@@ -68,27 +68,11 @@
             }
             state.capabilities = Capabilities()
             state.browser.isLoadingParticipants = false
-            try await renderPeopleAndPreview(state, people: people)
+            try await renderPreview(state, people: people)
         }
 
-        private func renderPeopleAndPreview(_ initial: ChatSceneState, people: [Member]) async throws {
+        private func renderPreview(_ initial: ChatSceneState, people: [Member]) async throws {
             var state = initial
-            state.browser.participants = people.prefix(4).enumerated().map { index, person in
-                ConversationParticipant(
-                    member: person,
-                    role: index == 0 ? .owner : .member,
-                    state: index == 3 ? .invited : .joined,
-                    allowedActions: index == 0 ? [] : ["setRole", "removePerson"],
-                    allowedRoles: [.member, .manager]
-                )
-            }
-            let details = try #require(state.browser.details)
-            try await render(
-                ConversationPeopleForm(details: details, state: state, actions: actions) { _ in },
-                dark: false,
-                name: "management-people",
-                size: NSSize(width: 520, height: 460)
-            )
             state.browser.details = ConversationDetails(
                 conversation: Conversation(
                     id: .init("open"),
@@ -109,7 +93,7 @@
                 ConversationPanelSheet(state: state, browser: actions, openNotifications: nil),
                 dark: false,
                 name: "management-preview",
-                size: NSSize(width: 520, height: 580)
+                size: NSSize(width: 560, height: 580)
             )
             try await renderLoadedPreview(state, people: people)
         }

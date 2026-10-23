@@ -2,7 +2,7 @@ import ChatKit
 import Testing
 @testable import DesignSystem
 
-/// The People tab never stands empty under its member count: it says the
+/// The People list never stands empty under its member count: it says the
 /// list is loading, or why it could not load, with a way to ask again.
 struct PeopleListStatusTests {
     @Test func aPageOnItsWayIsLoading() {

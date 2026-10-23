@@ -193,7 +193,7 @@ struct DirectoryRow<Content: View>: View {
     }
 }
 
-/// The symbols of the directory lists' and the People tab's menus, in one
+/// The symbols of the directory lists' and the People table's menus, in one
 /// place so each name is checked (`WindowChromeTests`): a wrong one
 /// renders as empty space.
 enum DirectoryMenuSymbols {

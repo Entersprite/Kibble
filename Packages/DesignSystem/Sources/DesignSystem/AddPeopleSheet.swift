@@ -41,7 +41,7 @@ struct AddPeopleSheet: View {
 }
 
 /// The people a search finds who are not here yet, each with an Add button.
-/// Shared by Add People… and the older People tab.
+/// The body of Add People….
 struct AddPeopleResults: View {
     let query: String
     let state: ChatSceneState
