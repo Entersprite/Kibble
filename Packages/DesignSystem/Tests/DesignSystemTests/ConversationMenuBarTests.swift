@@ -115,7 +115,7 @@ struct ConversationMenuBarTests {
             let offered = window.showsDetailsButton && window.isDetailsButtonEnabled
             #expect(details == (offered ? state.selected.map { .details($0) } : nil))
             if let shown = entry("details", in: menu), shown.command != nil {
-                #expect(shown.title == "Conversation Info…")
+                #expect(shown.title == "Info…")
                 #expect(shown.shortcut == MenuBarShortcuts.conversationInfo)
             }
             let video = window.videoCallConversation.map { ConversationMenuBar.Command.videoCall($0) }

@@ -109,9 +109,10 @@ public struct ConversationMenuBar: Equatable {
 }
 
 extension ConversationMenuBar {
-    /// Conversation Info, Call and Video Call, each where the toolbar draws its
-    /// button: info for any conversation while no directory page is open,
-    /// calls for a DM the call service can reach.
+    /// Info…, Call and Video Call, each where the toolbar draws its button:
+    /// info for any conversation while no directory page is open (enabled
+    /// while no panel is), calls for a DM the call service can reach. The
+    /// toolbar's button keeps the longer "Conversation Info".
     @MainActor
     private static func conversationEntries(_ state: ChatSceneState?, actions: ChatSceneActions) -> [Entry] {
         let conversation = state?.selectedConversation
@@ -123,7 +124,7 @@ extension ConversationMenuBar {
             let shows = conversation != nil && state?.browser.page == nil
                 && state?.browser.isPanelOpen == false
             entries.append(Entry(
-                id: "details", title: "Conversation Info…", style: .button(symbol: "info.circle"),
+                id: "details", title: "Info…", style: .button(symbol: "info.circle"),
                 shortcut: MenuBarShortcuts.conversationInfo,
                 command: shows ? conversation.map { .details($0.id) } : nil
             ))

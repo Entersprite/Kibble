@@ -26,7 +26,7 @@ public enum MenuBarShortcuts {
 
     /// Window › Kibble, which brings the main window back after it was closed.
     public static let mainWindow = KeyboardShortcut("0")
-    /// Conversation › Conversation Info…. Italic keeps plain ⌘I in the composer.
+    /// Conversation › Info…. Italic keeps plain ⌘I in the composer.
     public static let conversationInfo = KeyboardShortcut("i", modifiers: [.command, .option])
 
     /// Accounts › Show Account Panel, beside the accounts' Control-Command digits.
