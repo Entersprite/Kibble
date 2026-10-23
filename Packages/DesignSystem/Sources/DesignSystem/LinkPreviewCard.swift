@@ -168,15 +168,31 @@ enum LinkPasteboard {
 
 /// Copies plain text (an email address, a list of them), on both platforms.
 enum TextPasteboard {
-    /// Whether the pasteboard took the text.
+    #if os(macOS)
+        /// The nspasteboard.org marker clipboard managers read as "don't keep this".
+        static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    #endif
+
+    /// Whether the pasteboard took the text. `concealed` marks a secret,
+    /// such as a webhook's URL, so clipboard history leaves it out.
     @discardableResult
-    static func copy(_ text: String) -> Bool {
+    static func copy(_ text: String, concealed: Bool = false) -> Bool {
         #if os(macOS)
-            NSPasteboard.general.clearContents()
-            return NSPasteboard.general.writeObjects([text as NSString])
+            copy(text, concealed: concealed, to: .general)
         #else
             UIPasteboard.general.string = text
             return true
         #endif
     }
+
+    #if os(macOS)
+        static func copy(_ text: String, concealed: Bool, to pasteboard: NSPasteboard) -> Bool {
+            pasteboard.clearContents()
+            guard concealed else { return pasteboard.writeObjects([text as NSString]) }
+            let item = NSPasteboardItem()
+            item.setString(text, forType: .string)
+            item.setString("", forType: concealedType)
+            return pasteboard.writeObjects([item])
+        }
+    #endif
 }

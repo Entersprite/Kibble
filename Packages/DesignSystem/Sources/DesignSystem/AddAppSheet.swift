@@ -9,6 +9,8 @@ struct AddAppSheet: View {
     let conversationName: String
     let state: ChatSceneState
     let actions: ConversationBrowserActions
+    /// Sends the add; the Integrations form shows a refusal under its Apps header.
+    let add: (Member.ID) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
@@ -43,7 +45,15 @@ struct AddAppSheet: View {
                 .onChange(of: query) { actions.searchApps(query) }
             // The Info sheet's header, which shows a refused search, is under this sheet.
             if let error = browser.panelError {
-                SheetErrorRow(message: error).padding(.horizontal, 20)
+                HStack {
+                    SheetErrorRow(message: error)
+                    Spacer(minLength: 8)
+                    // Adding waits for the details a refused write left to reload.
+                    if browser.needsReconciliation, let id = browser.panelTarget {
+                        Button("Reload Details") { actions.details(id, false) }
+                    }
+                }
+                .padding(.horizontal, 20)
             }
             List(selection: $selection) {
                 ForEach(results) { app in
@@ -85,7 +95,7 @@ struct AddAppSheet: View {
 
     private func choose(_ app: Member.ID) {
         guard !busy, results.contains(where: { $0.id == app }) else { return }
-        actions.mutate(.addApp(app))
+        add(app)
         dismiss()
     }
 }

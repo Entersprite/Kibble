@@ -14,10 +14,31 @@ struct ConversationIntegrationsForm: View {
     let state: ChatSceneState
     let actions: ConversationBrowserActions
 
+    /// Whether a refusal is shown here, beside what failed, so the sheet's
+    /// header need not repeat it.
+    @Binding var showsErrorInline: Bool
+
     @State private var addingApp = false
     @State private var editing: WebhookEditing?
     @State private var confirming: IntegrationConfirmation?
     @State private var copy: WebhookCopy?
+    /// The last change sent from here, to put its refusal beside it.
+    @State private var lastSent: ConversationMutation?
+
+    init(
+        details: ConversationDetails,
+        state: ChatSceneState,
+        actions: ConversationBrowserActions,
+        showsErrorInline: Binding<Bool> = .constant(false),
+        // The change last sent, in renders of its refusal.
+        sent: ConversationMutation? = nil
+    ) {
+        self.details = details
+        self.state = state
+        self.actions = actions
+        _showsErrorInline = showsErrorInline
+        _lastSent = State(initialValue: sent)
+    }
 
     private var browser: ConversationBrowserScene {
         state.browser
@@ -26,6 +47,10 @@ struct ConversationIntegrationsForm: View {
     /// `mutate` drops a write while one is on its way or the details need reloading.
     private var busy: Bool {
         browser.isSubmitting || browser.needsReconciliation || browser.isLoadingAllParticipants
+    }
+
+    private var failure: IntegrationFailure? {
+        IntegrationFailure.place(sent: lastSent, pending: browser.pendingMutation, error: browser.panelError)
     }
 
     private var title: String {
@@ -57,8 +82,16 @@ struct ConversationIntegrationsForm: View {
         }
         .formStyle(.grouped)
         .onAppear { actions.loadIntegrations() }
+        .onChange(of: browser.panelError) { _, error in
+            // Cleared by a reload or a success; a write on its way cleared it itself.
+            if error == nil, browser.pendingMutation == nil {
+                lastSent = nil
+            }
+        }
+        .onChange(of: failure != nil, initial: true) { _, shown in showsErrorInline = shown }
+        .onDisappear { showsErrorInline = false }
         .sheet(isPresented: $addingApp) {
-            AddAppSheet(conversationName: title, state: state, actions: actions)
+            AddAppSheet(conversationName: title, state: state, actions: actions) { send(.addApp($0)) }
         }
         .sheet(item: $editing) { editing in
             WebhookEditorSheet(
@@ -74,7 +107,7 @@ struct ConversationIntegrationsForm: View {
             }),
             presenting: confirming
         ) { confirmation in
-            Button(confirmation.button, role: .destructive) { actions.mutate(confirmation.mutation) }
+            Button(confirmation.button, role: .destructive) { send(confirmation.mutation) }
             Button("Cancel", role: .cancel) {}
         } message: { confirmation in
             if let message = confirmation.message {
@@ -82,6 +115,22 @@ struct ConversationIntegrationsForm: View {
             }
         }
         .task(id: copy) { await settle(copy) }
+    }
+
+    /// Sends a change and remembers it, so a refusal can be shown beside it.
+    private func send(_ mutation: ConversationMutation) {
+        lastSent = mutation
+        actions.mutate(mutation)
+    }
+
+    /// The refusal under what failed, with the reload a refused write needs.
+    @ViewBuilder private func refusal(at place: IntegrationFailure) -> some View {
+        if failure == place, let error = browser.panelError {
+            SheetErrorRow(message: error)
+            if browser.needsReconciliation {
+                Button("Reload Details") { actions.details(details.conversation.id, false) }
+            }
+        }
     }
 
     private func loadFailure(_ error: String) -> some View {
@@ -112,9 +161,11 @@ struct ConversationIntegrationsForm: View {
 
     private func apps(_ integrations: ConversationIntegrations) -> some View {
         Section {
+            refusal(at: .addingApp)
             ForEach(integrations.apps) { app in
                 AppRow(app: app) { trailing(for: app) }
                     .contextMenu { appMenu(app) }
+                refusal(at: .app(app.id))
             }
             if integrations.apps.isEmpty {
                 Text("No apps yet").foregroundStyle(.secondary)
@@ -127,7 +178,10 @@ struct ConversationIntegrationsForm: View {
             }
             header(
                 "Apps", add: integrations.canAddApps ? "Add App…" : nil, adding: adding,
-                action: { addingApp = true }
+                action: {
+                    lastSent = nil
+                    addingApp = true
+                }
             )
         }
     }
@@ -145,8 +199,11 @@ struct ConversationIntegrationsForm: View {
 
     @ViewBuilder private func appMenu(_ app: ConversationApp) -> some View {
         if app.allowedActions.contains("message") {
-            Button("Message", systemImage: DirectoryMenuSymbols.message) { actions.openApp(app.id) }
-                .disabled(browser.isSubmitting)
+            Button("Message", systemImage: DirectoryMenuSymbols.message) {
+                lastSent = nil
+                actions.openApp(app.id)
+            }
+            .disabled(browser.isSubmitting)
         }
         if app.allowedActions.contains("removeApp") {
             Divider()
@@ -173,6 +230,7 @@ struct ConversationIntegrationsForm: View {
                 if let copy, copy.webhook == webhook.id, case let .failed(message) = copy.phase {
                     SheetErrorRow(message: message)
                 }
+                refusal(at: .webhook(webhook.id))
             }
             if integrations.webhooks.isEmpty {
                 Text("No webhooks yet").foregroundStyle(.secondary)
@@ -185,7 +243,7 @@ struct ConversationIntegrationsForm: View {
             }
             header(
                 "Webhooks", add: integrations.canCreateWebhook ? "Add Webhook…" : nil, adding: adding,
-                action: { editing = WebhookEditing(webhook: nil) }
+                action: { edit(nil) }
             )
         }
     }
@@ -211,6 +269,12 @@ struct ConversationIntegrationsForm: View {
         .font(.subheadline)
     }
 
+    /// The editor shows its own refusal; an earlier one here is done with.
+    private func edit(_ webhook: ConversationWebhook?) {
+        lastSent = nil
+        editing = WebhookEditing(webhook: webhook)
+    }
+
     private func isPending(_ webhook: ConversationWebhook) -> Bool {
         switch browser.pendingMutation {
         case let .deleteWebhook(id): id == webhook.id
@@ -222,10 +286,8 @@ struct ConversationIntegrationsForm: View {
     @ViewBuilder private func webhookMenu(_ webhook: ConversationWebhook) -> some View {
         Button("Copy URL", systemImage: DirectoryMenuSymbols.copy) { copyURL(of: webhook) }
         if webhook.allowedActions.contains("editWebhook") {
-            Button("Edit…", systemImage: IntegrationSymbols.edit) {
-                editing = WebhookEditing(webhook: webhook)
-            }
-            .disabled(busy)
+            Button("Edit…", systemImage: IntegrationSymbols.edit) { edit(webhook) }
+                .disabled(busy)
         }
         if webhook.allowedActions.contains("deleteWebhook") {
             Divider()
@@ -243,12 +305,14 @@ struct ConversationIntegrationsForm: View {
     /// cancels this one. The row's state then clears on its own (`settle`).
     private func copyURL(of webhook: ConversationWebhook) {
         let request = WebhookCopy(webhook: webhook.id)
+        lastSent = nil
         copy = request
         actions.webhookURL(webhook.id) { result in
             guard copy == request else { return }
             switch result {
             case let .success(url):
-                copy?.phase = TextPasteboard.copy(url.absoluteString)
+                // A credential: marked so clipboard managers leave it out of their history.
+                copy?.phase = TextPasteboard.copy(url.absoluteString, concealed: true)
                     ? .copied : .failed("The URL couldn’t be copied. Try again.")
             case let .failure(error):
                 copy?.phase = .failed(WebhookCopy.message(for: error))
@@ -274,68 +338,4 @@ struct ConversationIntegrationsForm: View {
             copy = nil
         }
     }
-}
-
-/// A destructive integration change waiting on its alert.
-enum IntegrationConfirmation: Equatable {
-    case removeApp(ConversationApp)
-    case deleteWebhook(ConversationWebhook)
-
-    func title(in conversation: String) -> String {
-        switch self {
-        case let .removeApp(app): "Remove \(AppName.of(app)) from \(conversation)?"
-        case let .deleteWebhook(webhook): "Delete the webhook “\(webhook.name)”?"
-        }
-    }
-
-    var message: String? {
-        switch self {
-        case .removeApp: nil
-        case .deleteWebhook: "Anything posting to its URL will stop working."
-        }
-    }
-
-    var button: String {
-        switch self {
-        case .removeApp: "Remove"
-        case .deleteWebhook: "Delete"
-        }
-    }
-
-    var mutation: ConversationMutation {
-        switch self {
-        case let .removeApp(app): .removeApp(app.id)
-        case let .deleteWebhook(webhook): .deleteWebhook(webhook.id)
-        }
-    }
-}
-
-/// A row's actions at its end, the same items as its context menu.
-struct RowActionsMenu<Items: View>: View {
-    let name: String
-    @ViewBuilder var items: Items
-
-    var body: some View {
-        Menu {
-            items
-        } label: {
-            Label("Actions for \(name)", systemImage: "ellipsis.circle")
-                .labelStyle(.iconOnly)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.borderless)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Actions")
-    }
-}
-
-/// The Integrations menus' own symbols, checked as `DirectoryMenuSymbols` are.
-enum IntegrationSymbols {
-    static let webhook = "link"
-    static let edit = "pencil"
-    static let delete = "trash"
-    static let copied = "checkmark"
-
-    static let all = [webhook, edit, delete, copied]
 }

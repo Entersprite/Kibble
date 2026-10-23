@@ -49,6 +49,8 @@ struct ConversationInfoSheet: View {
     @State private var draft: InfoSectionDraft?
     /// The request the leave alert is asking about.
     @State private var asking: InfoDraftState.Request?
+    /// The section shows the panel's error beside what failed; the header doesn't repeat it.
+    @State private var errorShownInline = false
 
     init(
         details: ConversationDetails,
@@ -207,8 +209,10 @@ struct ConversationInfoSheet: View {
                 .id(AccountScoped(account: state.accountID, value: details.conversation.id))
         case .integrations:
             // No draft: each change is sent on its own.
-            ConversationIntegrationsForm(details: details, state: state, actions: actions)
-                .id(AccountScoped(account: state.accountID, value: details.conversation.id))
+            ConversationIntegrationsForm(
+                details: details, state: state, actions: actions, showsErrorInline: $errorShownInline
+            )
+            .id(AccountScoped(account: state.accountID, value: details.conversation.id))
         }
     }
 
@@ -245,20 +249,26 @@ struct ConversationInfoSheet: View {
                 )
             }
             if let error = state.browser.panelError {
-                HStack {
-                    SheetErrorRow(message: error)
-                    Spacer(minLength: 8)
-                    if state.browser.needsReconciliation {
-                        Button("Reload Details") { actions.details(details.conversation.id, false) }
-                    }
+                if !errorShownInline {
+                    panelErrorRow(error)
                 }
-                .padding(.horizontal, 20)
             } else if let notice = state.browser.notice {
                 Label(notice, systemImage: "info.circle")
                     .padding(.horizontal, 20)
             }
         }
         .padding(.bottom, 8)
+    }
+
+    private func panelErrorRow(_ error: String) -> some View {
+        HStack {
+            SheetErrorRow(message: error)
+            Spacer(minLength: 8)
+            if state.browser.needsReconciliation {
+                Button("Reload Details") { actions.details(details.conversation.id, false) }
+            }
+        }
+        .padding(.horizontal, 20)
     }
 
     private var title: String {

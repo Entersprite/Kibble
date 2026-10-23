@@ -160,13 +160,14 @@ struct WebhookEditorSheet: View {
     }
 
     @ToolbarContentBuilder private var buttons: some ToolbarContent {
-        if sent {
-            ToolbarItem(placement: .destructiveAction) {
-                ProgressView().controlSize(.small)
-            }
-        }
         ToolbarItem(placement: .cancellationAction) {
             Button("Cancel") { dismiss() }
+        }
+        if sent {
+            // Beside Create or Save, the button it is the progress of.
+            ToolbarItem(placement: .confirmationAction) {
+                ProgressView().controlSize(.small)
+            }
         }
         ToolbarItem(placement: .confirmationAction) {
             Button(isNew ? "Create" : "Save") {

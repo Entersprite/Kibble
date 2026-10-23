@@ -71,6 +71,30 @@
             }
         }
 
+        /// A refused remove, delete and add, each beside what failed, with
+        /// the reload a refused write needs.
+        @Test func infoIntegrationsRendersRefusalsBesideWhatFailed() async throws {
+            var state = ChatSceneState()
+            state.capabilities = Capabilities(extendedFlags: ["conversationApps", "conversationWebhooks"])
+            state.browser.panelTarget = studio.conversation.id
+            state.browser.details = studio
+            state.browser.integrations = populated
+            state.browser.panelError = "You can’t change this space’s integrations."
+            state.browser.needsReconciliation = true
+            for (name, sent) in [
+                ("remove", ConversationMutation.removeApp(.init("release"))),
+                ("delete", .deleteWebhook("w1")),
+                ("add", .addApp(.init("poll")))
+            ] {
+                try await render(
+                    ConversationIntegrationsForm(details: studio, state: state, actions: actions, sent: sent),
+                    dark: name == "delete",
+                    name: "info-integrations-refused-\(name)",
+                    size: NSSize(width: 760, height: 560)
+                )
+            }
+        }
+
         /// The webhook editor and the app picker, the small sheets over Integrations.
         @Test func webhookEditorAndAddAppRender() async throws {
             var state = ChatSceneState()
@@ -93,7 +117,9 @@
                     size: NSSize(width: 420, height: 270)
                 )
                 try await render(
-                    AddAppSheet(conversationName: "Design Studio Crew", state: state, actions: actions),
+                    AddAppSheet(
+                        conversationName: "Design Studio Crew", state: state, actions: actions, add: { _ in }
+                    ),
                     dark: dark, name: "add-app-\(dark ? "dark" : "light")",
                     size: NSSize(width: 420, height: 440)
                 )
