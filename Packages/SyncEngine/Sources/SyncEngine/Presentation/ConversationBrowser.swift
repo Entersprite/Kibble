@@ -189,6 +189,7 @@ public final class ConversationBrowser {
         participants = []
         isLoadingParticipants = false
         panelError = nil
+        notice = nil
         forgetInfo()
     }
 
@@ -211,16 +212,17 @@ public final class ConversationBrowser {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 isSubmitting = false
                 creationKind = nil
-                notice = result.failedMembers.isEmpty ? nil
-                    : "Created, but \(result.failedMembers.count) people could not be added."
                 if panelTarget != nil {
                     // Opened from Info: the new conversation shows, not the sheet over it.
                     closePanel()
                 }
                 onOpen?(result.conversation.id)
+                // After opening, which clears another panel's notice.
                 if !result.failedMembers.isEmpty {
                     openDetails(result.conversation.id)
                 }
+                notice = result.failedMembers.isEmpty ? nil
+                    : "Created, but \(result.failedMembers.count) people could not be added."
             } catch {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 isSubmitting = false
@@ -257,6 +259,9 @@ public final class ConversationBrowser {
     public func openDetails(_ id: Conversation.ID, more: Bool = false) {
         guard !isSubmitting || panelTarget == id else { return }
         detailsTask?.cancel()
+        if panelTarget != id {
+            notice = nil
+        }
         if !more {
             forgetPreview()
         }

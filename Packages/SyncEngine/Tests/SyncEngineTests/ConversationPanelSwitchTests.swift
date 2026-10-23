@@ -4,8 +4,8 @@ import Foundation
 import Testing
 @testable import SyncEngine
 
-/// The open panel while a write is on its way: a late answer reaches only
-/// the panel it was sent from.
+/// The open panel while a write is on its way, and the panel's notice: a
+/// late answer reaches only the panel it was sent from.
 extension ConversationInfoBrowserTests {
     /// `openDetails` refuses another conversation while a write is on its
     /// way. This stands in for a route that might not, so each write's own
@@ -71,6 +71,34 @@ extension ConversationInfoBrowserTests {
         #expect(browser.panelError == nil)
         #expect(!browser.needsReconciliation)
         #expect(!browser.isSubmitting)
+        browser.stop()
+    }
+
+    @Test func closingOrSwitchingThePanelClearsItsNotice() async throws {
+        let browser = try await openBrowser(FakeBackend(), at: space)
+        browser.notice = "2 people could not be updated."
+        browser.openDetails(space)
+        #expect(browser.notice != nil)
+        browser.openDetails(.init("dm:1"))
+        #expect(browser.notice == nil)
+        await browser.detailsTask?.value
+
+        browser.notice = "2 people could not be updated."
+        browser.closePanel()
+        #expect(browser.notice == nil)
+        browser.stop()
+    }
+
+    @Test func aCreationNoticeSurvivesOpeningTheNewConversation() async throws {
+        let browser = try await openBrowser(FakeBackend(), at: space)
+        browser.create(ConversationDraft(
+            kind: .groupDirectMessage, members: [other, .init("fixture-nobody")]
+        ))
+        await browser.writeTask?.value
+        #expect(browser.panelTarget != nil)
+        #expect(browser.panelTarget != space)
+        #expect(browser.notice == "Created, but 1 people could not be added.")
+        await browser.detailsTask?.value
         browser.stop()
     }
 }
