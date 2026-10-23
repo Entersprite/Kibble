@@ -74,7 +74,8 @@ struct ConvertToSpaceSheet: View {
 
     private var canConvert: Bool {
         draft.isReady(
-            details: current, conversion: browser.conversion, isLoadingConversion: browser.isLoadingConversion
+            details: current, conversion: browser.conversion,
+            isLoadingConversion: browser.isLoadingConversion, conversionError: browser.conversionError
         ) && !sent && !busy
     }
 
@@ -231,10 +232,16 @@ struct ConvertToSpaceSheet: View {
     // MARK: What converting does
 
     /// The confirmed lines, then what can't be confirmed; while they load
-    /// (or load again after a failed Convert), a small progress indicator,
-    /// and a failed read can be tried again.
+    /// (or load again after a failed Convert), a small progress indicator.
+    /// A failed read can be tried again, and replaces any earlier lines,
+    /// which may no longer be true.
     @ViewBuilder private var consequences: some View {
-        if !browser.isLoadingConversion, let conversion = browser.conversion {
+        if !browser.isLoadingConversion, let error = browser.conversionError {
+            Section {
+                SheetErrorRow(message: error)
+                Button("Try Again") { actions.loadConversion() }
+            }
+        } else if !browser.isLoadingConversion, let conversion = browser.conversion {
             let lines = Self.lines(conversion.items)
             let summary = ConversionText.unknownSummary(conversion.items)
             if !lines.isEmpty || summary != nil {
@@ -244,11 +251,6 @@ struct ConvertToSpaceSheet: View {
                         Text(summary).foregroundStyle(.secondary)
                     }
                 }
-            }
-        } else if !browser.isLoadingConversion, let error = browser.conversionError {
-            Section {
-                SheetErrorRow(message: error)
-                Button("Try Again") { actions.loadConversion() }
             }
         } else {
             Section {

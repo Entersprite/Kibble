@@ -194,4 +194,13 @@ struct ConversionDraftTests {
         #expect(!draft.isReady(details: group(), conversion: ready, isLoadingConversion: true))
         #expect(draft.isReady(details: group(), conversion: ready, isLoadingConversion: false))
     }
+
+    /// A failed read again leaves the earlier consequences behind, and they may be stale.
+    @Test func notOnEarlierConsequencesAfterAFailedRead() {
+        var draft = ConversionDraft(name: "Launch Team")
+        draft.acknowledged = true
+        let earlier = ConversionConsequences(requiresHistoryAcknowledgement: true)
+        #expect(!draft.isReady(details: group(), conversion: earlier, conversionError: "The read failed."))
+        #expect(draft.isReady(details: group(), conversion: earlier, conversionError: nil))
+    }
 }

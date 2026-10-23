@@ -30,14 +30,17 @@ struct ConversionDraft: Equatable {
     }
 
     /// Whether Convert can be offered: the current details still allow it,
-    /// the consequences have arrived and aren't being read again, the name
-    /// fits the details' limit, and the acknowledgement is ticked if required.
+    /// the consequences have arrived and aren't being read again, the last
+    /// read didn't fail, the name fits the details' limit, and the
+    /// acknowledgement is ticked if required.
     func isReady(
         details: ConversationDetails?,
         conversion: ConversionConsequences?,
-        isLoadingConversion: Bool = false
+        isLoadingConversion: Bool = false,
+        conversionError: String? = nil
     ) -> Bool {
-        guard let details, Self.allows(details), let conversion, !isLoadingConversion else { return false }
+        guard let details, Self.allows(details), let conversion, !isLoadingConversion,
+              conversionError == nil else { return false }
         return isNameValid(limit: details.fieldLimits["name"])
             && (acknowledged || !conversion.requiresHistoryAcknowledgement)
     }
@@ -48,6 +51,9 @@ struct ConversionDraft: Equatable {
         self.emoji = emoji
     }
 
+    /// Always acknowledges the history change. Convert is offered only once
+    /// the person has ticked it wherever the server asks for it, and the
+    /// backends refuse any conversion that doesn't acknowledge it.
     var mutation: ConversationMutation {
         .convertToSpace(
             name: trimmedName,
