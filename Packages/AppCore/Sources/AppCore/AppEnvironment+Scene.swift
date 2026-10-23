@@ -80,6 +80,8 @@ public extension AppEnvironment {
             stagedAttachments: Self.composerAttachments(model.stagedAttachments),
             mentionCandidates: model.mentionCandidates,
             directoryResults: model.directoryResults,
+            directoryResultsQuery: model.directoryResultsQuery,
+            offersOutsideMentions: model.offersOutsideMentions,
             threads: threadScene(of: model),
             search: Self.searchScene(model.search),
             highlightedMessage: model.search.highlight,
@@ -234,7 +236,10 @@ public extension AppEnvironment {
             directoryQuery: { [weak self] query in self?.runningModel?.directoryQuery(query) },
             memberPicked: { [weak self] member in self?.runningModel?.checkMembership(member) },
             nonMembers: { [weak self] message in
-                await self?.runningModel?.nonMembers(in: message) ?? []
+                guard let found = await self?.runningModel?.nonMembers(in: message) else {
+                    return ComposerOutsiders()
+                }
+                return Self.outsiders(found)
             },
             sendTo: { [weak self] message, conversation in
                 self?.runningModel?.send(message, in: conversation)
@@ -271,6 +276,13 @@ public extension AppEnvironment {
                 self?.runningModel?.loadNewerMessages()
             }
         )
+        if let model = runningModel, model.capabilities.canMentionNonMembers {
+            // The session it was offered for, never a replacement's.
+            actions.addAndSend = { [weak self, weak model] message, people, conversation, thread in
+                guard let self, let model, runningModel === model else { return }
+                model.addAndSend(message, adding: people, in: conversation, thread: thread)
+            }
+        }
         actions.updateSidebar = { [weak self] in self?.updateSidebar($0) }
         actions.browser = browserActions
         actions.selectMeetingSeries = { [weak self] in self?.runningModel?.selectMeetingSeries($0) }
@@ -334,5 +346,15 @@ public extension AppEnvironment {
             return true
         }
         return false
+    }
+
+    /// The model's answer at Return, as the composer takes it.
+    static func outsiders(_ found: NonMembers) -> ComposerOutsiders {
+        let adding: ComposerOutsiders.Adding = switch found.adding {
+        case .byMention: .byMention
+        case .beforeSending: .beforeSending
+        case .unavailable: .unavailable
+        }
+        return ComposerOutsiders(people: found.people, adding: adding)
     }
 }

@@ -3,16 +3,44 @@ import SwiftUI
 
 // The composer's small private types, apart for `Composer.swift`'s length.
 
-/// A send waiting on the confirmation: the message, and who is outside.
+/// A send waiting on the confirmation: the message, who is outside, and how
+/// they can be added.
 struct PendingInvite: Identifiable {
     let id = UUID()
     let message: ComposedMessage
     let people: [Member.ID]
+    var adding: ComposerOutsiders.Adding = .byMention
+    var place = "space"
+
+    /// Adding before sending needs a host that can: without one, nobody can
+    /// be added from here.
+    init(message: ComposedMessage, outsiders: ComposerOutsiders, place: String, canAddBeforeSending: Bool) {
+        self.message = message
+        people = outsiders.people
+        adding = outsiders.adding == .beforeSending && !canAddBeforeSending ? .unavailable : outsiders.adding
+        self.place = place
+    }
+
+    init(message: ComposedMessage, people: [Member.ID]) {
+        self.message = message
+        self.people = people
+    }
 
     /// The confirmation's question.
     var title: String {
         let names = ListFormatter.localizedString(byJoining: message.names(of: people))
-        return "\(names) " + (people.count == 1 ? "isn't" : "aren't") + " in this space."
+        return "\(names) " + (people.count == 1 ? "isn't" : "aren't") + " in this \(place)."
+    }
+
+    /// Whether "Add and Send" is offered beside "Send Without Adding".
+    var offersAdding: Bool {
+        adding != .unavailable
+    }
+
+    /// The line under the question.
+    var detail: String {
+        offersAdding ? "Adding them lets them see this message."
+            : "They can't be added from here, so they won't see this message."
     }
 }
 

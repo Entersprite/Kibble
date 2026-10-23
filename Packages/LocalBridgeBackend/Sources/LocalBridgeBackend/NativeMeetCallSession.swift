@@ -52,6 +52,11 @@ actor NativeMeetCallSession {
     var viewedVideo: MeetVideoStreamWire.Downstream?
     var videoSource: MeetVideoSource?
     var videoStatus: String?
+    /// Set only when the camera stream could not be registered, so the poll
+    /// searches for the remote microphone alone.
+    var audioSearchContext: MeetVideoStreamWire.Context?
+    var remoteAudioMuted: Bool?
+    var receiveRemoteMuted: (@Sendable (Bool?) async -> Void)?
 
     init(
         client: MeetCallClient, call: MeetResolvedCall, media: any CallMediaEngine,
@@ -147,6 +152,7 @@ actor NativeMeetCallSession {
         audioStream = nil
         ownPresentationSources = []
         videoContext = nil
+        audioSearchContext = nil
         videoSource = nil
         videoConfiguration = nil
         receivingVideo = nil
@@ -157,6 +163,7 @@ actor NativeMeetCallSession {
         await cleanup()
         await publish(cleanupStatus.isConfirmed ? .ended(reason) : .endedUnconfirmed(reason, cleanupStatus))
         receiveState = nil
+        receiveRemoteMuted = nil
     }
 
     private func performConnect() async throws {
@@ -226,6 +233,7 @@ actor NativeMeetCallSession {
         audioStream = nil
         ownPresentationSources = []
         videoContext = nil
+        audioSearchContext = nil
         videoSource = nil
         videoConfiguration = nil
         receivingVideo = nil

@@ -86,7 +86,7 @@ public final class CallSettingsModel {
             Self.ringtoneKey,
             Self.ringtoneNameKey,
             Self.ringtoneFileKey
-        ] {
+        ] + CallDevicePreferences.keys {
             defaults.removeObject(forKey: key)
         }
         showsPanel = true

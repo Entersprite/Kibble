@@ -65,6 +65,22 @@ struct MediaCatalogTests {
         #expect(try store().mediaSources(for: .attachment(attachment.id), at: Date()).isEmpty)
     }
 
+    /// An image-only preview - a picker's GIF, whose picture the provider
+    /// adapter names as the link's own URL - is issued from its preview like
+    /// any other; a link without a preview picture still issues nothing.
+    @Test func aTitlelessPreviewIssuesItsPictureAndABareLinkIssuesNothing() throws {
+        let gif = try #require(URL(string: "https://media.example/confetti.gif"))
+        let sources = try ProviderMediaSource.collect(
+            attachments: [], reactions: [],
+            links: [
+                MessageLink(url: gif, preview: LinkPreview(title: "", imageURL: gif)),
+                MessageLink(url: #require(URL(string: "https://media.example/other.gif")))
+            ],
+            cards: []
+        )
+        #expect(sources == [.remoteImage(gif)])
+    }
+
     @Test func unchangedFactsStayValidButUpdatesDeletionAndConversationRemovalRevokeOldHandles() throws {
         let store = try store()
         var value = message()

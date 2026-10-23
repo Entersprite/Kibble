@@ -138,6 +138,12 @@ public struct ThreadActions {
     /// The open thread's files: the +, its chips and drops on the panel.
     /// `nil` draws no + there and takes no drop (session 60).
     public var attachments: ComposerAttachmentActions?
+    /// Sends a reply into the named thread only while it is still the one
+    /// open, else keeps it as that thread's draft: the composer may await a
+    /// membership check first (mention non-members spec §2).
+    public var sendReplyTo: ((ComposedMessage, Conversation.ID, MessageThread.ID) -> Void)?
+    /// Hands an unsent reply back to its thread's draft.
+    public var keepReplyDraft: ((ComposedMessage, Conversation.ID, MessageThread.ID) -> Void)?
 
     public init(
         open: @escaping (MessageThread.ID) -> Void,
@@ -148,8 +154,12 @@ public struct ThreadActions {
         showList: @escaping () -> Void,
         openItem: @escaping (Conversation.ID, MessageThread.ID) -> Void,
         attachments: ComposerAttachmentActions? = nil,
-        clearFailedDraft: ((Conversation.ID, MessageThread.ID) -> Void)? = nil
+        clearFailedDraft: ((Conversation.ID, MessageThread.ID) -> Void)? = nil,
+        sendReplyTo: ((ComposedMessage, Conversation.ID, MessageThread.ID) -> Void)? = nil,
+        keepReplyDraft: ((ComposedMessage, Conversation.ID, MessageThread.ID) -> Void)? = nil
     ) {
+        self.sendReplyTo = sendReplyTo
+        self.keepReplyDraft = keepReplyDraft
         self.open = open
         self.close = close
         self.sendReply = sendReply

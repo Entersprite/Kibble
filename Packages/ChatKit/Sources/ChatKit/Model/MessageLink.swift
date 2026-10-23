@@ -38,6 +38,8 @@ public struct MessageLink: Codable, Hashable, Sendable {
 /// What Google says a link is, for a card (links spec §3.1). Never fetched
 /// by this client from the linked site (owner's decision).
 public struct LinkPreview: Codable, Hashable, Sendable {
+    /// Empty for a picture-only preview (an `imageURL` and no text), which a
+    /// client draws as the picture alone.
     public var title: String
     public var snippet: String?
 

@@ -69,11 +69,15 @@ public struct AudioCallSnapshot: Codable, Hashable, Sendable {
     public var failureMessage: String?
     /// Absent for older peers and outcomes whose cause is not known.
     public var endReason: AudioCallEndReason?
+    /// Whether the other person has muted their microphone, as the provider
+    /// reports it. Nil is unknown, never muted: older peers, providers without
+    /// the signal and ambiguous reports all omit it.
+    public var remoteMuted: Bool?
 
     public init(
         id: UUID, recipient: AudioCallRecipient, direction: AudioCallDirection,
         phase: AudioCallPhase, isMuted: Bool = false, failureMessage: String? = nil,
-        endReason: AudioCallEndReason? = nil
+        endReason: AudioCallEndReason? = nil, remoteMuted: Bool? = nil
     ) {
         self.id = id
         self.recipient = recipient
@@ -82,10 +86,11 @@ public struct AudioCallSnapshot: Codable, Hashable, Sendable {
         self.isMuted = isMuted
         self.failureMessage = failureMessage
         self.endReason = endReason
+        self.remoteMuted = remoteMuted
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, recipient, direction, phase, isMuted, failureMessage, endReason
+        case id, recipient, direction, phase, isMuted, failureMessage, endReason, remoteMuted
     }
 
     public init(from decoder: any Decoder) throws {
@@ -97,7 +102,10 @@ public struct AudioCallSnapshot: Codable, Hashable, Sendable {
             phase: container.decode(AudioCallPhase.self, forKey: .phase),
             isMuted: container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false,
             failureMessage: container.decodeIfPresent(String.self, forKey: .failureMessage),
-            endReason: container.decodeIfPresent(AudioCallEndReason.self, forKey: .endReason)
+            endReason: container.decodeIfPresent(AudioCallEndReason.self, forKey: .endReason),
+            // A value this reader does not understand is unknown; it must not
+            // take the rest of the call's state down with it.
+            remoteMuted: try? container.decodeIfPresent(Bool.self, forKey: .remoteMuted)
         )
     }
 }

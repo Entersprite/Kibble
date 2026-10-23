@@ -25,6 +25,9 @@ public final class ConversationBrowser {
     public private(set) var details: ConversationDetails?
     public private(set) var participants: [ConversationParticipant] = []
     public private(set) var participantCursor: String?
+    /// A people page is on its way: the People tab says so instead of
+    /// standing empty under its member count.
+    public private(set) var isLoadingParticipants = false
     public private(set) var panelError: String?
     public private(set) var isSubmitting = false
     public private(set) var notice: String?
@@ -192,6 +195,7 @@ public final class ConversationBrowser {
         creationKind = nil
         details = nil
         participants = []
+        isLoadingParticipants = false
         panelError = nil
     }
 
@@ -258,6 +262,7 @@ public final class ConversationBrowser {
         }
         panelTarget = id
         needsReconciliation = true
+        isLoadingParticipants = false
         panelError = nil
         creationKind = nil
         let cursor = more ? participantCursor : nil
@@ -282,8 +287,10 @@ public final class ConversationBrowser {
                     return
                 }
                 forgetPreview()
+                isLoadingParticipants = true
                 let page = try await engine.loadParticipants(in: id, after: cursor)
                 guard !Task.isCancelled, !stopped, self.generation == generation else { return }
+                isLoadingParticipants = false
                 let existing = Set(participants.map(\.id))
                 var seen = existing
                 participants += page.participants.filter { seen.insert($0.id).inserted }
@@ -295,6 +302,7 @@ public final class ConversationBrowser {
                 }
             } catch {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
+                isLoadingParticipants = false
                 panelError = Self.message(error)
             }
         }
@@ -318,15 +326,24 @@ extension ConversationBrowser {
         people = []; spaces = []; participants = []
         query = ""; error = nil; panelError = nil; notice = nil
         nextCursor = nil; participantCursor = nil; scope = .discover; organization = .all
-        isSearchingPeople = false; needsReconciliation = false
+        isSearchingPeople = false; needsReconciliation = false; isLoadingParticipants = false
         isLoading = false; isSubmitting = false
     }
 
+    /// `ChatError` is not a `LocalizedError`, so its `localizedDescription`
+    /// is Foundation's "(ChatKit.ChatError error 6.)"; a sheet says it in words.
     static func message(_ error: any Error) -> String {
-        if let error = error as? ChatError {
-            return error.localizedDescription
+        let fallback = "The operation could not be completed. Please reload and try again."
+        guard let error = error as? ChatError else { return fallback }
+        switch error {
+        case .notAuthenticated, .sessionExpired: return "Signed out. Sign in again and try again."
+        case .rateLimited: return "Too many requests right now. Try again in a moment."
+        case .unsupported: return "This account can’t do that."
+        case .signInRequired: return "Sign in again to do that."
+        case .transport: return "The connection failed. Check your network and try again."
+        case let .decoding(message), let .server(_, message), let .unknown(message):
+            return message.isEmpty ? fallback : message
         }
-        return "The operation could not be completed. Please reload and try again."
     }
 
     public func mutate(_ mutation: ConversationMutation) {

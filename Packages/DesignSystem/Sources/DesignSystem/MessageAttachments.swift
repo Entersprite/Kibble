@@ -4,8 +4,6 @@ import Foundation
 import ImageIO
 import QuickLook
 import SwiftUI
-import Synchronization
-import UniformTypeIdentifiers
 
 /// The decisions behind a message's attachments, pure so each is a test.
 enum AttachmentLayout {
@@ -136,14 +134,12 @@ struct AttachmentImage: View {
 
     private enum Phase {
         case loading
-        /// The first frame, and the bytes again when they animate.
-        case loaded(CGImage, animation: Data?)
+        case loaded(DecodedPicture)
         case failed
     }
 
     @State private var phase = Phase.loading
     @State private var attempt = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var size: CGSize {
         AttachmentLayout.displaySize(width: attachment.width, height: attachment.height)
@@ -173,8 +169,8 @@ struct AttachmentImage: View {
         case .loading:
             placeholder { ProgressView().controlSize(.small) }
                 .accessibilityLabel(AttachmentLayout.label(for: attachment))
-        case let .loaded(image, animation):
-            loaded(image, animation: reduceMotion ? nil : animation)
+        case let .loaded(picture):
+            loaded(picture)
         case .failed:
             // The words when they fit, the button alone when they do not: a
             // 320x40 sliver has no room for both (`minSide`).
@@ -203,29 +199,24 @@ struct AttachmentImage: View {
         .accessibilityLabel("Retry loading \(AttachmentLayout.label(for: attachment))")
     }
 
-    @ViewBuilder private func loaded(_ image: CGImage, animation: Data?) -> some View {
-        let picture = Group {
-            if let animation {
-                AnimatedPicture(data: animation, first: image, label: label)
-            } else {
-                Image(image, scale: 1, label: label).resizable()
+    @ViewBuilder private func loaded(_ decoded: DecodedPicture) -> some View {
+        let image = decoded.first
+        let picture = PictureImage(picture: decoded, label: label)
+            .scaledToFit()
+            .frame(width: size.width, height: size.height)
+            .overlay {
+                if gallery?.opening.contains(attachment.id) == true {
+                    ProgressView().controlSize(.small)
+                } else if gallery?.failed.contains(attachment.id) == true {
+                    Label("Couldn't open", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .padding(6)
+                        .background(.regularMaterial, in: Capsule())
+                }
             }
-        }
-        .scaledToFit()
-        .frame(width: size.width, height: size.height)
-        .overlay {
-            if gallery?.opening.contains(attachment.id) == true {
-                ProgressView().controlSize(.small)
-            } else if gallery?.failed.contains(attachment.id) == true {
-                Label("Couldn't open", systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .padding(6)
-                    .background(.regularMaterial, in: Capsule())
+            .contextMenu {
+                MessageMenuContent(nestedIn: menu) { pictureItems(image) }
             }
-        }
-        .contextMenu {
-            MessageMenuContent(nestedIn: menu) { pictureItems(image) }
-        }
         if let open, let quickLook {
             Button { quickLook(attachment) } label: { picture }
                 .buttonStyle(.plain)
@@ -292,93 +283,12 @@ struct AttachmentImage: View {
         phase = .loading
         do {
             let data = try await load(attachment, .preview)
-            let decoded = await Task.detached(priority: .userInitiated) {
-                (AttachmentLayout.decode(data), AnimatedPicture.animates(data) ? data : nil)
-            }.value
+            let decoded = await Task.detached(priority: .userInitiated) { DecodedPicture.decode(data) }.value
             guard !Task.isCancelled else { return }
-            phase = decoded.0.map { Phase.loaded($0, animation: decoded.1) } ?? .failed
+            phase = decoded.map(Phase.loaded) ?? .failed
         } catch {
             guard !Task.isCancelled else { return }
             phase = .failed
         }
-    }
-}
-
-/// A GIF that plays, a frame at a time, through ImageIO's own timing
-/// (`CGAnimateImageDataWithBlock`), with the first frame shown until the
-/// second arrives. Bounded: only a picture small enough that one decoded
-/// frame stays a few megabytes animates (`animates(_:)`), at most one frame
-/// is kept besides the one on screen, and playing stops when the row leaves
-/// the screen. With Reduce Motion on, `AttachmentImage` shows the first frame
-/// instead.
-struct AnimatedPicture: View {
-    let data: Data
-    let first: CGImage
-    let label: Text
-    @State private var frame: CGImage?
-
-    /// About 4.7 MB per decoded frame at four bytes a pixel.
-    nonisolated static let maxPixels = 1_228_800
-    nonisolated static let maxBytes = 12 * 1024 * 1024
-    nonisolated static let maxFrames = 600
-
-    var body: some View {
-        Image(frame ?? first, scale: 1, label: label)
-            .resizable()
-            .task(id: data) { await play() }
-    }
-
-    /// Whether `data` is an animation worth playing: more than one frame,
-    /// none too large to decode one at a time, and a file of bounded size.
-    nonisolated static func animates(_ data: Data) -> Bool {
-        guard data.count <= maxBytes,
-              let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let type = CGImageSourceGetType(source) as String?,
-              type == UTType.gif.identifier || type == UTType.png.identifier || type == UTType.webP.identifier
-        else { return false }
-        let count = CGImageSourceGetCount(source)
-        guard count > 1, count <= maxFrames,
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int
-        else { return false }
-        return width > 0 && height > 0 && width * height <= maxPixels
-    }
-
-    private func play() async {
-        let (frames, continuation) = AsyncStream.makeStream(
-            of: CGImage.self,
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        let stop = AnimationStop()
-        continuation.onTermination = { _ in stop.set() }
-        let status = CGAnimateImageDataWithBlock(data as CFData, nil) { _, image, shouldStop in
-            if stop.isSet {
-                shouldStop.pointee = true
-            } else {
-                continuation.yield(image)
-            }
-        }
-        guard status == noErr else {
-            continuation.finish()
-            return
-        }
-        for await image in frames {
-            frame = image
-        }
-    }
-}
-
-/// Tells ImageIO's frame block, which runs on the main queue, that the view
-/// stopped listening; set from the stream's termination, on any thread.
-private final class AnimationStop: Sendable {
-    private let stopped = Mutex(false)
-
-    var isSet: Bool {
-        stopped.withLock { $0 }
-    }
-
-    func set() {
-        stopped.withLock { $0 = true }
     }
 }

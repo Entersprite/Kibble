@@ -181,14 +181,17 @@ struct KibbleSettings: View {
     }
 
     private var notificationActions: NotificationSettingsActions {
-        if account == nil, let model = host?.defaultPolicy {
-            return model.settingsActions(
+        var actions = if account == nil, let model = host?.defaultPolicy {
+            model.settingsActions(
                 openSystemSettings: { SystemNotificationSettings.open() },
                 devicePause: host?.deviceNotificationPause
             )
+        } else {
+            environment
+                .notificationSettingsActions(openSystemSettings: { SystemNotificationSettings.open() })
         }
-        return environment
-            .notificationSettingsActions(openSystemSettings: { SystemNotificationSettings.open() })
+        actions.sendTest = appDelegate.sendTestNotification
+        return actions
     }
 
     @ViewBuilder private var sidebarPane: some View {

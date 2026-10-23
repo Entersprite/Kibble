@@ -116,6 +116,13 @@ public struct ChatSceneState: Sendable, Equatable {
     /// The `@` list's directory section for the active query
     /// (`ChatSessionModel.directoryResults`).
     public var directoryResults: [Member]
+    /// The `@` query `directoryResults` answer, so a composer whose own query
+    /// is different shows none of them.
+    public var directoryResultsQuery: String?
+    /// Whether the selected conversation's composers offer people outside it
+    /// (`ChatSessionModel.offersOutsideMentions`): a space or a group chat, on
+    /// a backend that can mention non-members.
+    public var offersOutsideMentions = false
     /// Threads: the marks' summaries, the panel, the list (threads spec §5).
     public var threads: ThreadSceneState
     /// Search: the overlay and the results bar (search spec §1).
@@ -171,6 +178,8 @@ public struct ChatSceneState: Sendable, Equatable {
         stagedAttachments: [ComposerAttachment] = [],
         mentionCandidates: [Member] = [],
         directoryResults: [Member] = [],
+        directoryResultsQuery: String? = nil,
+        offersOutsideMentions: Bool = false,
         threads: ThreadSceneState = ThreadSceneState(),
         search: SearchSceneState = SearchSceneState(),
         highlightedMessage: Message.ID? = nil,
@@ -214,6 +223,8 @@ public struct ChatSceneState: Sendable, Equatable {
         self.stagedAttachments = stagedAttachments
         self.mentionCandidates = mentionCandidates
         self.directoryResults = directoryResults
+        self.directoryResultsQuery = directoryResultsQuery
+        self.offersOutsideMentions = offersOutsideMentions
         self.threads = threads
         self.search = search
         self.highlightedMessage = highlightedMessage

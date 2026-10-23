@@ -131,4 +131,24 @@ public extension ChatSessionModel {
         guard !message.text.isEmpty else { return }
         failed = (conversationID: conversation, draft: message)
     }
+
+    /// `send(_:in:)` for the thread panel's composer: a reply, posted only
+    /// while `thread` is the one open in `conversation`, and otherwise handed
+    /// back to that thread's draft.
+    func sendReply(_ message: ComposedMessage, in conversation: Conversation.ID, thread: MessageThread.ID) {
+        guard conversation == selected, thread == threads.openThread else {
+            keepReplyDraft(message, in: conversation, thread: thread)
+            return
+        }
+        sendReply(message)
+    }
+
+    /// Hands `message` back to the thread's composer, as a refused reply is.
+    func keepReplyDraft(
+        _ message: ComposedMessage,
+        in conversation: Conversation.ID,
+        thread: MessageThread.ID
+    ) {
+        restoreReply(message, in: StagingKey(conversation: conversation, thread: thread))
+    }
 }

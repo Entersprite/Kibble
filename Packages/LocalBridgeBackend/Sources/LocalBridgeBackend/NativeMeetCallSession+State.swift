@@ -2,11 +2,20 @@ import Foundation
 import GChatBridgeCore
 
 extension NativeMeetCallSession {
-    func startMonitoring(receive: @escaping @Sendable (MeetNativeCallState) async -> Void) async {
+    func startMonitoring(
+        receive: @escaping @Sendable (MeetNativeCallState) async -> Void,
+        remoteMuted: (@Sendable (Bool?) async -> Void)? = nil
+    ) async {
         guard ready, !closed, monitor == nil else { return }
         receiveState = receive
+        receiveRemoteMuted = remoteMuted
         await media.setEventHandler { [weak self] event in await self?.mediaEvent(event) }
         await receive(state)
+        guard !closed else { return }
+        // A search can answer before anyone listens; unknown needs no delivery.
+        if let remoteAudioMuted {
+            await remoteMuted?(remoteAudioMuted)
+        }
         guard !closed else { return }
         monitor = Task { [weak self] in
             while !Task.isCancelled {

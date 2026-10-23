@@ -74,6 +74,8 @@ public final class ChatSessionModel {
     public internal(set) var mentionCandidates: [Member] = []
     /// The `@` list's directory section for the active query (`+Directory.swift`).
     public internal(set) var directoryResults: [Member] = []
+    /// The query `directoryResults` answer: two composers can each have an `@` open.
+    public internal(set) var directoryResultsQuery: String?
     /// The search task, the membership checks and their timings (`+Directory.swift`).
     var directorySearch: DirectorySearchState
     /// The search overlay, its results and the bar (`+Search.swift`).
@@ -351,6 +353,7 @@ public final class ChatSessionModel {
         typing = []
         mentionCandidates = []
         directoryResults = []
+        directoryResultsQuery = nil
 
         for watcher in conversationWatchers {
             watcher.cancel()

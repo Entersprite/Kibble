@@ -129,9 +129,17 @@ public extension LocalBridgeAudioCallService {
         let engine = mediaFactory()
         engine.setMuted(false)
         media = engine
-        try await trial.joinNative(preparedID: ticket, media: engine, scope: scope) { [weak self] state in
-            await self?.receiveNative(state, id: id, scope: scope)
-        }
+        try await trial.joinNative(
+            preparedID: ticket,
+            media: engine,
+            scope: scope,
+            receive: { [weak self] state in
+                await self?.receiveNative(state, id: id, scope: scope)
+            },
+            remoteMuted: { [weak self] muted in
+                await self?.receiveRemoteMuted(muted, id: id, scope: scope)
+            }
+        )
         try checkCall(id, scope: scope)
         guard await trial.nativeOutgoingAudioReady(scope: scope) else {
             throw CallMediaError.outgoingAudioUnconfirmed

@@ -4,7 +4,7 @@ import SwiftUI
 
 enum RemoteImagePhase {
     case loading
-    case loaded(CGImage)
+    case loaded(DecodedPicture)
     case failed
 }
 
@@ -13,14 +13,14 @@ enum RemoteImagePhase {
 /// an app card updated in place - shows the new picture, never the old one
 /// (review finding 2).
 struct RemoteImageState {
-    var loaded: (url: URL, image: CGImage)?
+    var loaded: (url: URL, picture: DecodedPicture)?
     var failed: URL?
     var loadedScope: UUID?
     var failedScope: UUID?
 
     func phase(for url: URL, scope: UUID? = nil) -> RemoteImagePhase {
         if let loaded, loaded.url == url, loadedScope == scope {
-            return .loaded(loaded.image)
+            return .loaded(loaded.picture)
         }
         return failed == url && failedScope == scope ? .failed : .loading
     }
@@ -30,9 +30,14 @@ struct RemoteImageState {
 /// `content`, which decides the layout: a card collapses on `.failed`, never
 /// says so (links spec §7.3). Runs on every appear and every new URL, but never
 /// refetches a picture already loaded for this URL.
+///
+/// Decoded as an attachment is (`DecodedPicture`). `animates` keeps the bytes
+/// of a picture that plays, for `PictureImage`; without it only the first
+/// frame is kept.
 struct RemoteImageView<Content: View>: View {
     let url: URL
     let load: (URL) async throws -> Data
+    var animates = false
     @ViewBuilder let content: (RemoteImagePhase) -> Content
 
     @Environment(\.sceneImageLoader) private var loader
@@ -46,14 +51,15 @@ struct RemoteImageView<Content: View>: View {
                 }
                 let requested = url
                 let scope = loader?.id
+                let animates = animates
                 do {
                     let data = try await load(requested)
-                    let image = await Task
-                        .detached(priority: .userInitiated) { AttachmentLayout.decode(data) }
-                        .value
+                    let picture = await Task.detached(priority: .userInitiated) {
+                        DecodedPicture.decode(data, animates: animates)
+                    }.value
                     guard !Task.isCancelled else { return }
-                    if let image {
-                        state.loaded = (requested, image)
+                    if let picture {
+                        state.loaded = (requested, picture)
                         state.loadedScope = scope
                     } else {
                         state.failed = requested

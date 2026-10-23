@@ -275,6 +275,7 @@ public struct AudioCallView: View {
     private var animationKey: CallAnimationKey {
         CallAnimationKey(
             phase: call.phase, isMuted: call.isMuted,
+            remoteMuted: AudioCallPresentation.showsRemoteMuted(call),
             remote: liveVideo?.remote != nil, preview: liveVideo?.preview != nil, screen: liveScreen != nil,
             notices: notices.map(\.id), sharing: screenSharing?.phase,
             camera: camera.map { [$0.isOn, $0.isUpdating] }
@@ -291,6 +292,7 @@ public struct AudioCallView: View {
 private struct CallAnimationKey: Equatable {
     let phase: AudioCallPhase
     let isMuted: Bool
+    let remoteMuted: Bool
     let remote: Bool
     let preview: Bool
     let screen: Bool

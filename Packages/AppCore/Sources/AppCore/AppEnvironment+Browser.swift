@@ -24,6 +24,7 @@ extension AppEnvironment {
         state.details = browser.details
         state.participants = browser.participants
         state.hasMoreParticipants = browser.participantCursor != nil
+        state.isLoadingParticipants = browser.isLoadingParticipants
         state.panelError = browser.panelError
         state.isSubmitting = browser.isSubmitting
         state.notice = browser.notice

@@ -126,12 +126,7 @@ struct ThreadPanel: View {
                 },
                 attachments: panel.stagedAttachments,
                 attachmentActions: threads.attachments,
-                mentions: state.capabilities.canMention
-                    ? ComposerMentions(
-                        candidates: state.mentionCandidates,
-                        includeAll: conversation.kind == .space
-                    )
-                    : nil,
+                mentions: state.capabilities.canMention ? mentions(in: conversation) : nil,
                 editing: editing,
                 emoji: actions.reactions,
                 initialDraft: state.composerDrafts[ComposerDraftAddress(
@@ -147,8 +142,8 @@ struct ThreadPanel: View {
                 onQuoteAdopted: onQuoteAdopted,
                 quoteDirectory: state.directory,
                 quoteMe: state.me,
-                // The thread open at call time, not captured as `sendHere` is: safe only
-                // while these mentions have no `nonMembers`, so nothing is awaited first.
+                // The thread open at call time. A send after the membership
+                // check goes through `sendHere`, which names this thread.
                 send: threads.sendReply
             )
             // The draft belongs to its thread (ruling 6): another thread gets
@@ -160,6 +155,27 @@ struct ThreadPanel: View {
                 value: ThreadListItem.Key(conversation: panel.thread.conversationID, thread: panel.thread.id)
             ))
         }
+    }
+
+    /// The conversation composer's `@` list, directory section and
+    /// confirmation, with every send after a check addressed to this thread:
+    /// the panel may have moved on while it was awaited.
+    private func mentions(in conversation: Conversation) -> ComposerMentions {
+        let here = panel.thread.conversationID
+        let thread = panel.thread.id
+        return ComposerMentions(
+            candidates: state.mentionCandidates,
+            includeAll: conversation.kind == .space,
+            directory: state.directoryResults,
+            directoryQuery: state.directoryResultsQuery,
+            place: ComposerMentions.place(of: conversation.kind),
+            queryChanged: actions.directoryQuery,
+            outsidePicked: actions.memberPicked,
+            nonMembers: state.offersOutsideMentions ? actions.nonMembers : nil,
+            addAndSend: actions.addAndSend.map { add in { add($0, $1, here, thread) } },
+            sendHere: threads.sendReplyTo.map { send in { send($0, here, thread) } },
+            keepHere: threads.keepReplyDraft.map { keep in { keep($0, here, thread) } }
+        )
     }
 }
 

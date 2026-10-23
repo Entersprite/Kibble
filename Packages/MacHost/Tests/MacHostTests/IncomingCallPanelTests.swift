@@ -243,6 +243,21 @@ struct IncomingCallPanelTests {
         #expect(reloaded.focus == .allowed)
         #expect(reloaded.isFocused == true)
     }
+
+    @Test func resettingCallSettingsForgetsSavedCallDevices() throws {
+        let suite = "IncomingCallPanelTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = CallDevicePreferences(defaults: defaults)
+        preferences.saveAudio("mic:usb", microphone: true)
+        preferences.saveAudio("speaker:usb", microphone: false)
+        preferences.saveCamera("camera:usb")
+        CallSettingsModel(defaults: defaults, focusStatus: FakeFocus()).reset()
+        let reloaded = CallDevicePreferences(defaults: defaults)
+        #expect(reloaded.microphone == "")
+        #expect(reloaded.speaker == "")
+        #expect(reloaded.camera == "")
+    }
 }
 
 @MainActor

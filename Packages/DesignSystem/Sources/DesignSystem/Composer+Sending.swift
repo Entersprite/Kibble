@@ -42,11 +42,35 @@ extension Composer {
                 checking = nil
             }
             let outside = await ask(message)
-            if outside.isEmpty {
+            if outside.people.isEmpty {
                 finish(message)
             } else {
-                pendingInvite = PendingInvite(message: message, people: outside)
+                pendingInvite = PendingInvite(
+                    message: message, outsiders: outside, place: mentions?.place ?? "space",
+                    canAddBeforeSending: mentions?.addAndSend != nil
+                )
             }
+        }
+    }
+
+    /// "Add and Send": the message adds them, or the host adds them and then
+    /// sends. Either way the draft clears now, as for any send; a refused add
+    /// hands the message back the way a refused send does.
+    func add(_ invite: PendingInvite) {
+        switch invite.adding {
+        case .byMention:
+            finish(invite.message.settingMode(.invite, for: invite.people))
+        case .beforeSending:
+            guard let addAndSend = mentions?.addAndSend else { return }
+            if ComposerSendGate.clears(
+                draft: draft.composed(formatting: allowsFormatting),
+                sent: invite.message
+            ) {
+                draft.clear()
+            }
+            addAndSend(invite.message, invite.people)
+        case .unavailable:
+            return
         }
     }
 

@@ -13,9 +13,18 @@ private actor ManagementTransport: HTTPTransport {
     private(set) var deletionRequests: [DeleteGroupV2Request] = []
     var rejectDeletion = false
     var deleted = false
+    /// The people page's rows: a user id, `nil` for a member that is not a
+    /// person (an app or a group), or a row naming another conversation.
+    var rows: [PeopleRow] = [.user("u-1"), .user("u-2")]
+
+    enum PeopleRow {
+        case user(String), notAPerson, elsewhere(String)
+    }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         switch request.url.lastPathComponent {
+        case "list_members", "get_members":
+            return try peopleReply(request)
         case "get_group":
             if deleted {
                 return HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data())
@@ -55,6 +64,48 @@ private actor ManagementTransport: HTTPTransport {
 
     func revoke() {
         grants = []
+    }
+
+    func setRows(_ rows: [PeopleRow]) {
+        self.rows = rows
+    }
+
+    private func peopleReply(_ request: HTTPRequest) throws -> HTTPResponse {
+        if request.url.lastPathComponent == "list_members" {
+            let input = try ListMembersRequest(serializedBytes: request.body ?? Data())
+            var response = ListMembersResponse()
+            response.memberships = rows.map { Self.membership($0, in: input.groupID) }
+            return try ok(response)
+        }
+        let input = try GetMembersRequest(serializedBytes: request.body ?? Data())
+        var response = GetMembersResponse()
+        response.members = input.memberIds.map { id in
+            var user = User()
+            user.userID = id.userID
+            user.name = "Name \(id.userID.id)"
+            var member = GChatBridgeCore.Member()
+            member.user = user
+            return member
+        }
+        return try ok(response)
+    }
+
+    private static func membership(_ row: PeopleRow, in group: GroupId) -> Membership {
+        var id = MembershipId()
+        id.groupID = group
+        switch row {
+        case let .user(value):
+            id.memberID.userID.id = value
+        case .notAPerson:
+            break
+        case let .elsewhere(value):
+            id.memberID.userID.id = value
+            id.groupID.spaceID.spaceID = "somewhere-else"
+        }
+        var membership = Membership()
+        membership.id = id
+        membership.membershipState = .memberJoined
+        return membership
     }
 
     func allowDeletion(reject: Bool = false) {
@@ -181,6 +232,49 @@ struct ManagementBackendTests {
                 operationID: "rename-one",
                 expectedRevision: before.revision
             )
+        }
+        await backend.disconnect()
+    }
+
+    /// The service fences a query against any event that could change the
+    /// media it records, and asks again when one arrives mid-query. A people
+    /// page that announced its own names was therefore asked three times and
+    /// reported as overloaded, every time: an empty People tab.
+    /// Only membership announcements count: the fake channel's own reconnects
+    /// may arrive in the same window and are not the page's doing.
+    @Test func aPeoplePageAnnouncesNoMembersWhileItIsAwaited() async throws {
+        let transport = ManagementTransport()
+        let backend = try await connected(transport)
+        let log = SenderEventLog(backend)
+        let mark = await log.settle().count
+        let page = try await backend.participants(in: Conversation.ID("space/a"), after: nil)
+        #expect(page.participants.map(\.id.rawValue) == ["u-1", "u-2"])
+        #expect(page.participants.map(\.member.displayName) == ["Name u-1", "Name u-2"])
+        let announced = await log.settle(since: mark).filter {
+            switch $0 {
+            case .membersResolved, .membersChanged: true
+            default: false
+            }
+        }
+        #expect(announced.isEmpty, "\(announced)")
+        await backend.disconnect()
+    }
+
+    @Test func aMemberWhoIsNotAPersonIsLeftOutRatherThanHidingEveryone() async throws {
+        let transport = ManagementTransport()
+        await transport.setRows([.user("u-1"), .notAPerson, .user("u-2")])
+        let backend = try await connected(transport)
+        let page = try await backend.participants(in: Conversation.ID("space/a"), after: nil)
+        #expect(page.participants.map(\.id.rawValue) == ["u-1", "u-2"])
+        await backend.disconnect()
+    }
+
+    @Test func aRowFromAnotherConversationStillRefusesThePage() async throws {
+        let transport = ManagementTransport()
+        await transport.setRows([.user("u-1"), .elsewhere("u-2")])
+        let backend = try await connected(transport)
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.participants(in: Conversation.ID("space/a"), after: nil)
         }
         await backend.disconnect()
     }

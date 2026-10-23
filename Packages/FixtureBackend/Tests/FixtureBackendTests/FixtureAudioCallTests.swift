@@ -44,6 +44,29 @@ struct FixtureAudioCallTests {
         #expect(first.receiveIncoming(from: recipient) == nil)
     }
 
+    @Test func remoteMicrophoneCanBeScriptedAndSurvivesOwnMuteAndPhaseChanges() async throws {
+        let service = FixtureAudioCallService(world: .minimal)
+        try await service.startListening()
+        let recipient = try #require(service.recipients.first)
+        let id = try #require(service.receiveIncoming(from: recipient))
+        #expect(service.currentCall?.remoteMuted == nil)
+        try await service.accept(callID: id)
+        service.setRemoteMuted(true, callID: id)
+        #expect(service.currentCall?.remoteMuted == true)
+        try await service.setMuted(true, callID: id)
+        #expect(service.currentCall?.remoteMuted == true)
+        service.setRemoteMuted(false, callID: id)
+        #expect(service.currentCall?.remoteMuted == false)
+        service.setRemoteMuted(nil, callID: id)
+        #expect(service.currentCall?.remoteMuted == nil)
+        // Negative control: another call's hook and a finished call change nothing.
+        service.setRemoteMuted(true, callID: UUID())
+        #expect(service.currentCall?.remoteMuted == nil)
+        try await service.hangUp(callID: id)
+        service.setRemoteMuted(true, callID: id)
+        #expect(service.currentCall?.remoteMuted == nil)
+    }
+
     @Test func outgoingEventsCarryCallScopeAndStaleActionsCannotChangeReplacement() async throws {
         let service = FixtureAudioCallService(world: .minimal)
         try await service.startListening()

@@ -60,12 +60,15 @@ struct LoadMessagesThreadTests {
     }
 
     /// One topic listing `count` messages: its first, then replies.
-    private func answer(listing count: Int = 2) throws -> HTTPResponse {
+    private func answer(
+        listing count: Int = 2,
+        lastRead: Int64 = 1_700_000_000_000_000
+    ) throws -> HTTPResponse {
         var topic = Topic()
         topic.id.topicID = "t-1"
         topic.id.groupID = group()
         topic.replies = [message("t-1", reply: false)] + (1 ..< count).map { message("r-\($0)", reply: true) }
-        topic.topicReadState.lastReadTime = 1_700_000_000_000_000
+        topic.topicReadState.lastReadTime = lastRead
         var response = ListTopicsResponse()
         response.topics = [topic]
         return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedBytes())
@@ -93,6 +96,29 @@ struct LoadMessagesThreadTests {
         #expect(read == .threadChanged(
             threadID: MessageThread.ID("t-1"), conversationID: Conversation.ID("space/s-1"),
             change: .read(upTo: Date(timeIntervalSince1970: 1_700_000_000))
+        ))
+    }
+
+    /// A thread the server holds no read time for (0, `findings.md` §64.9)
+    /// arrives read up to before its first message: unread, once followed.
+    @Test func aThreadNeverReadArrivesReadUpToNothing() async throws {
+        let backend = try LocalBridgeBackend(
+            cookies: Self.cookies,
+            transport: Routing(topics: answer(lastRead: 0))
+        )
+        let log = ThreadEventLog(backend)
+        try await backend.connect()
+        _ = try await backend.loadMessages(in: Conversation.ID("space/s-1"), before: nil)
+        let read = await log.first {
+            if case .threadChanged(_, _, .read) = $0 {
+                true
+            } else {
+                false
+            }
+        }
+        #expect(read == .threadChanged(
+            threadID: MessageThread.ID("t-1"), conversationID: Conversation.ID("space/s-1"),
+            change: .read(upTo: Date(timeIntervalSince1970: 0))
         ))
     }
 

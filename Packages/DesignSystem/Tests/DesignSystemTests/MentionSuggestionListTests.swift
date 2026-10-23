@@ -21,6 +21,28 @@
             #expect(MentionSuggestionRow.detail(of: inside) == "o@example.invalid")
         }
 
+        @Test func anOutsideRowInAGroupChatSaysSo() {
+            let person = ChatKit.Member(
+                id: ChatKit.Member.ID("o"), kind: .human, displayName: "O", email: "o@example.invalid"
+            )
+            let outside = MentionSuggestion(
+                target: .user(person.id), name: "O", member: person, outsideConversation: true
+            )
+            #expect(MentionSuggestionRow.detail(of: outside, place: "group chat")
+                == "Not in this group chat · o@example.invalid")
+            #expect(MentionSuggestionRow.spoken(outside, place: "group chat")
+                == "O, Not in this group chat · o@example.invalid")
+        }
+
+        /// A person shown by their email does not have it repeated beneath.
+        @Test func anEmailShownAsTheNameIsNotRepeated() {
+            let person = ChatKit.Member(id: ChatKit.Member.ID("n"), kind: .human, email: "n@example.invalid")
+            let outside = MentionSuggestion(
+                target: .user(person.id), name: "n@example.invalid", member: person, outsideConversation: true
+            )
+            #expect(MentionSuggestionRow.detail(of: outside) == "Not in this space")
+        }
+
         /// What VoiceOver hears for the highlighted row, the keyboard being
         /// in the field: the row's two lines.
         @Test func theHighlightedRowIsSpokenAsItReads() {

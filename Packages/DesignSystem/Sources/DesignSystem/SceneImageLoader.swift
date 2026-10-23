@@ -25,8 +25,8 @@ struct SceneImage<Content: View, Placeholder: View>: View {
         if let loader {
             let fetch: (URL) async throws -> Data = { try await loader.load($0) }
             RemoteImageView(url: url, load: fetch) { phase in
-                if case let .loaded(image) = phase {
-                    content(Image(decorative: image, scale: 1))
+                if case let .loaded(picture) = phase {
+                    content(Image(decorative: picture.first, scale: 1))
                 } else {
                     placeholder()
                 }

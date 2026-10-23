@@ -23,6 +23,12 @@ enum AudioCallPresentation {
         phase == .connecting || phase == .ringing || phase == .connected
     }
 
+    /// The other person's microphone is off. Only a reported mute shows it;
+    /// unknown is never drawn as muted, and a finished call shows nothing.
+    static func showsRemoteMuted(_ call: AudioCallSnapshot) -> Bool {
+        call.remoteMuted == true && !call.phase.isTerminal
+    }
+
     /// The halo pulses while the call is waiting for someone to answer.
     static func isWaiting(_ phase: AudioCallPhase) -> Bool {
         phase == .incoming || phase == .connecting || phase == .ringing

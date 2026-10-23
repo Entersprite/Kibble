@@ -30,6 +30,8 @@ private actor PeopleTransport: HTTPTransport {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         sent.append(request)
         if request.url.host == "people-pa.clients6.google.com" {
+            // A request on the wire is torn down with its task.
+            try Task.checkCancellation()
             return people
         }
         if request.url.path.contains("/mole/world") {
@@ -49,6 +51,20 @@ private actor PeopleTransport: HTTPTransport {
 
     func stream(_: HTTPRequest) async throws -> HTTPStream {
         throw NoStream()
+    }
+}
+
+/// What the backend handed its host's diagnostics, in order.
+private final class RecordedDiagnostics: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [ProviderDiagnostic] = []
+
+    var events: [ProviderDiagnostic] {
+        lock.withLock { recorded }
+    }
+
+    var diagnostics: ProviderDiagnostics {
+        ProviderDiagnostics { [self] event in lock.withLock { recorded.append(event) } }
     }
 }
 
@@ -99,14 +115,16 @@ struct PeopleSearchTests {
         shellKey: String? = "key-1",
         appHomeKey: String? = nil,
         membership: MembershipState? = .memberJoined,
-        appHomeDelay: Duration = .zero
+        appHomeDelay: Duration = .zero,
+        people: HTTPResponse = ok(answer),
+        diagnostics: ProviderDiagnostics = .init()
     ) async throws -> (LocalBridgeBackend, PeopleTransport) {
         let appHome = appHomeKey.map { shell(key: $0) } ?? ok("<html></html>")
         let transport = try PeopleTransport(
-            shell: shell(key: shellKey), appHome: appHome, people: ok(answer),
+            shell: shell(key: shellKey), appHome: appHome, people: people,
             membership: membershipAnswer(membership), appHomeDelay: appHomeDelay
         )
-        let backend = LocalBridgeBackend(cookies: cookies, transport: transport)
+        let backend = LocalBridgeBackend(cookies: cookies, transport: transport, diagnostics: diagnostics)
         try await backend.connect()
         return (backend, transport)
     }
@@ -132,6 +150,68 @@ struct PeopleSearchTests {
             id: ChatKit.Member.ID("123456789012345678901"), kind: .human, displayName: "One Person",
             email: "one@example.invalid", avatarURL: URL(string: "https://example.invalid/one.png")
         )])
+    }
+
+    /// No name where it is read, but an email: shown by the email.
+    @Test func aPersonWithoutANameHasNoDisplayName() async throws {
+        let (backend, _) = try await Self.connected(people: Self.ok(Self.withNameless))
+        let people = try await backend.searchPeople("on")
+        #expect(people.map(\.displayName) == ["One Person", nil])
+        #expect(people.map(\.email) == ["one@example.invalid", "nameless@example.invalid"])
+    }
+
+    // MARK: - What a search leaves in the log: counts and a status, nothing else
+
+    static let withNameless = #"""
+    [[["one@example.invalid",null,"PERSON",["123456789012345678901",[null],\#
+    [[[null],"One Person",null,"One"]],[[[null],"https://example.invalid/one.png"]]]],\#
+    ["nameless@example.invalid",null,"PERSON",["123456789012345678902",[null],[],[]]]]]
+    """#
+
+    @Test func anAnswerIsReportedAsCounts() async throws {
+        let recorded = RecordedDiagnostics()
+        let (backend, _) = try await Self.connected(
+            people: Self.ok(Self.withNameless), diagnostics: recorded.diagnostics
+        )
+        _ = try await backend.searchPeople("on")
+        #expect(recorded.events == [.peopleSearch(people: 2, unnamed: 1)])
+    }
+
+    @Test func aRefusedSearchIsReportedWithItsStatus() async throws {
+        let recorded = RecordedDiagnostics()
+        let refused = HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data("denied".utf8))
+        let (backend, _) = try await Self.connected(people: refused, diagnostics: recorded.diagnostics)
+        await #expect(throws: (any Error).self) { _ = try await backend.searchPeople("on") }
+        #expect(recorded.events == [.peopleSearchFailed(status: 403)])
+    }
+
+    @Test func aSearchWithNoKeyIsReportedWithoutAStatus() async throws {
+        let recorded = RecordedDiagnostics()
+        let (backend, _) = try await Self.connected(
+            shellKey: nil, appHomeKey: nil, diagnostics: recorded.diagnostics
+        )
+        await #expect(throws: (any Error).self) { _ = try await backend.searchPeople("on") }
+        #expect(recorded.events == [.peopleSearchFailed(status: nil)])
+    }
+
+    /// A keystroke cancels the search in flight: that is not a failure.
+    @Test func aCancelledSearchIsNotReported() async throws {
+        let recorded = RecordedDiagnostics()
+        let (backend, _) = try await Self.connected(
+            shellKey: nil, appHomeKey: "key-2", appHomeDelay: .milliseconds(200),
+            diagnostics: recorded.diagnostics
+        )
+        let cancelled = Task { try await backend.searchPeople("o") }
+        try await Task.sleep(for: .milliseconds(20))
+        cancelled.cancel()
+        _ = try? await cancelled.value
+        #expect(!recorded.events.contains {
+            if case .peopleSearchFailed = $0 {
+                true
+            } else {
+                false
+            }
+        })
     }
 
     @Test func withoutAKeyInTheShellAppHomeIsFetchedOnce() async throws {

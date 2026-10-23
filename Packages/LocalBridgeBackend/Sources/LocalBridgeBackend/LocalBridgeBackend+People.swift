@@ -18,7 +18,33 @@ struct PeopleKeyState {
 public extension LocalBridgeBackend {
     /// `ListAutocompletions` on `people-pa`, keyed with the Punctual key and
     /// signed with `SAPISIDHASH` alone (`findings.md` §57.4). People only.
+    /// Each answer and each failure is reported to the host's diagnostics as
+    /// counts and a status, never a query, name or id: the composer shows a
+    /// failure as no directory section at all.
     func searchPeople(_ query: String) async throws -> [ChatKit.Member] {
+        do {
+            let people = try await requestPeople(query)
+            diagnostics.record(.peopleSearch(
+                people: people.count, unnamed: people.count(where: { $0.displayName == nil })
+            ))
+            return people
+        } catch {
+            // A newer keystroke cancelled it: not a failure.
+            if !Task.isCancelled, !(error is CancellationError) {
+                diagnostics.record(.peopleSearchFailed(status: Self.status(of: error)))
+            }
+            throw error
+        }
+    }
+
+    private static func status(of error: any Error) -> Int? {
+        if case let .server(status, _)? = error as? ChatError {
+            return status
+        }
+        return nil
+    }
+
+    private func requestPeople(_ query: String) async throws -> [ChatKit.Member] {
         guard isConnected else {
             throw ChatError.unknown("searchPeople requires connect() to succeed first")
         }
@@ -47,7 +73,7 @@ public extension LocalBridgeBackend {
             ChatKit.Member(
                 id: ChatKit.Member.ID(person.id),
                 kind: .human,
-                displayName: person.name,
+                displayName: person.name.isEmpty ? nil : person.name,
                 email: person.email.isEmpty ? nil : person.email,
                 avatarURL: person.photoURL
             )

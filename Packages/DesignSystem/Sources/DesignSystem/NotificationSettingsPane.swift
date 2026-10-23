@@ -55,6 +55,9 @@ public struct NotificationSettingsActions {
     public var pause: (PauseDuration) -> Void
     public var resume: () -> Void
     public var updateConversation: (Conversation.ID, NotificationRule) -> Void
+    /// Posts a real notification with the given sound and says what macOS
+    /// allowed. `nil` hides the button, where the host cannot deliver one.
+    public var sendTest: (@MainActor (NotificationSound) async -> NotificationTestOutcome)?
 
     public init(
         reset: (() -> Void)? = nil,
@@ -63,8 +66,10 @@ public struct NotificationSettingsActions {
         openSystemSettings: (() -> Void)? = nil,
         pause: @escaping (PauseDuration) -> Void = { _ in },
         resume: @escaping () -> Void = {},
-        updateConversation: @escaping (Conversation.ID, NotificationRule) -> Void = { _, _ in }
+        updateConversation: @escaping (Conversation.ID, NotificationRule) -> Void = { _, _ in },
+        sendTest: (@MainActor (NotificationSound) async -> NotificationTestOutcome)? = nil
     ) {
+        self.sendTest = sendTest
         self.reset = reset
         self.updateGlobal = updateGlobal
         self.updateSection = updateSection
@@ -104,6 +109,7 @@ public struct NotificationSettingsPane: View {
     @State private var isVisible = false
     @State private var path: [NotificationSettingsPage] = []
     @State private var navigationFocus: NotificationSettingsFocus?
+    @State private var testOutcome: NotificationTestOutcome?
     @FocusState private var focus: NotificationSettingsFocus?
 
     public init(state: NotificationSettingsState, actions: NotificationSettingsActions) {
@@ -163,12 +169,8 @@ public struct NotificationSettingsPane: View {
                 sections.disabled(!state.isAvailable)
                 conversations.disabled(!state.isAvailable)
             }
-            if let open = actions.openSystemSettings {
-                Section {
-                    Button("Open Notification Settings…", action: open)
-                } footer: {
-                    Text("Banner or alert style is set in System Settings.")
-                }
+            if actions.sendTest != nil || actions.openSystemSettings != nil {
+                system
             }
             if let reset = actions.reset {
                 Section {
@@ -256,6 +258,29 @@ public struct NotificationSettingsPane: View {
         } footer: {
             if state.pauseIsShared {
                 Text("Pausing applies to every account on this Mac.")
+            }
+        }
+    }
+
+    /// The test uses this scope's Defaults sound (the account's, or the global
+    /// one), so it sounds like a message that follows the defaults here.
+    private var system: some View {
+        Section {
+            if let send = actions.sendTest {
+                NotificationTestButton(sound: state.global.sound, send: send, outcome: $testOutcome)
+                    .disabled(!state.isAvailable)
+            }
+            if let open = actions.openSystemSettings {
+                Button("Open Notification Settings…", action: open)
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let testOutcome {
+                    Text(testOutcome.message)
+                }
+                if actions.openSystemSettings != nil {
+                    Text("Banner or alert style is set in System Settings.")
+                }
             }
         }
     }

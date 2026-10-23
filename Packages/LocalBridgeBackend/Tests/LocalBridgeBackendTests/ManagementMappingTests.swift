@@ -54,6 +54,29 @@ struct ManagementMappingTests {
             .participant(row, group: group, me: .init("me"), people: [:], caps: caps) == nil)
     }
 
+    /// Measured on a live space: two owners, permission 4 granted, and Chat on
+    /// the web offers either owner "Remove from space".
+    @Test func anOwnerMayRemoveAnotherOwnerButNobodyElseMay() {
+        var group = GroupId(); group.dmID.dmID = "group"
+        var row = Membership()
+        row.id = ConversationManagementRequests.membershipID(group: group, user: "peer")
+        row.membershipState = .memberJoined; row.membershipRole = .roleOwner
+        var caps = GroupScopedCapabilities(); caps.capabilities = [4]
+        let byOwner = ManagementMapping.participant(
+            row, group: group, me: .init("me"), people: [:], caps: caps, viewerIsOwner: true
+        )
+        #expect(byOwner?.allowedActions.contains("removePerson") == true)
+        let byManager = ManagementMapping.participant(
+            row, group: group, me: .init("me"), people: [:], caps: caps, viewerIsOwner: false
+        )
+        #expect(byManager?.allowedActions.contains("removePerson") == false)
+        caps.capabilities = []
+        let withoutGrant = ManagementMapping.participant(
+            row, group: group, me: .init("me"), people: [:], caps: caps, viewerIsOwner: true
+        )
+        #expect(withoutGrant?.allowedActions.contains("removePerson") == false)
+    }
+
     @Test func cursorsCannotCrossQueriesOrConversations() throws {
         let cursor = ManagementCursor.encode("opaque", key: "account:people:first")
         #expect(try ManagementCursor.decode(cursor, key: "account:people:first") == "opaque")

@@ -17,6 +17,7 @@ extension NativeMeetCallSession {
             await media.configureCamera(announce: nil)
             await media.reportVideoUnavailable()
             lines.append("Native video: camera registration unavailable; voice remains available")
+            await startRemoteAudioPoll()
         }
     }
 
@@ -80,6 +81,7 @@ extension NativeMeetCallSession {
     func refreshVideo() async {
         guard ready, !closed, !isSuspended, disconnectedAt == nil,
               let context = videoContext, let configuration = videoConfiguration else { return }
+        var searched = false
         do {
             try await check()
             let id = nextStreamRequest()
@@ -89,6 +91,8 @@ extension NativeMeetCallSession {
                 header: client.streamControlHeader()
             )
             let reply = try await videoExchange(request, id: id)
+            searched = true
+            await recordRemoteAudio(reply, context: context, requestID: id)
             let streams = try MeetVideoStreamWire.downstreams(from: reply, context: context, requestID: id)
             let next = try await selectedRemoteVideo(streams)
             if next?.source != receivingVideo?.source {
@@ -118,6 +122,9 @@ extension NativeMeetCallSession {
         } catch {
             await media.cancelVideoOffer()
             guard !closed, !Task.isCancelled else { return }
+            if !searched {
+                await publishRemoteAudio(nil)
+            }
             await media.showRemoteVideo(false)
             await media.showRemotePresentation(false)
             recordVideoStatus("receiving unavailable; " + MeetDMCallTrial.errorDescription(error))

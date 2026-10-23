@@ -101,6 +101,14 @@ public final class FixtureAudioCallService: AudioCallQuiescing {
         setPhase(.ended, callID: callID, endReason: .remoteEnded)
     }
 
+    /// A script/test sets the other person's microphone; nil is unknown.
+    public func setRemoteMuted(_ muted: Bool?, callID: UUID) {
+        guard var call = currentCall, call.id == callID, !call.phase.isTerminal,
+              call.remoteMuted != muted else { return }
+        call.remoteMuted = muted
+        publish(call)
+    }
+
     public func remoteDeclined(callID: UUID) {
         setPhase(.declined, callID: callID, endReason: .declined)
     }

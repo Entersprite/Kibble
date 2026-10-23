@@ -20,6 +20,7 @@ public struct ConversationBrowserScene: Sendable, Equatable {
     public var details: ConversationDetails?
     public var participants: [ConversationParticipant] = []
     public var hasMoreParticipants = false
+    public var isLoadingParticipants = false
     public var panelError: String?
     public var isSubmitting = false
     public var notice: String?

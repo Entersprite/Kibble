@@ -132,8 +132,13 @@ public struct ChatSceneActions {
     public var directoryQuery: ((String?) -> Void)?
     /// A directory person was picked, so their membership is checked.
     public var memberPicked: ((Member.ID) -> Void)?
-    /// Who in a message is not in the conversation, asked at Return.
-    public var nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])?
+    /// Who in a message is not in the conversation, and how they can be
+    /// added, asked at Return.
+    public var nonMembers: (@MainActor (ComposedMessage) async -> ComposerOutsiders)?
+    /// "Add and Send" where the message cannot add them
+    /// (`ComposerOutsiders.Adding.beforeSending`): adds the people to the
+    /// conversation, then sends there, into the thread when one is named.
+    public var addAndSend: ((ComposedMessage, [Member.ID], Conversation.ID, MessageThread.ID?) -> Void)?
     /// Sends into one conversation only while it is open; otherwise the
     /// message goes back to its draft.
     public var sendTo: ((ComposedMessage, Conversation.ID) -> Void)?
@@ -199,7 +204,7 @@ public struct ChatSceneActions {
         composerAttachments: ComposerAttachmentActions? = nil,
         directoryQuery: ((String?) -> Void)? = nil,
         memberPicked: ((Member.ID) -> Void)? = nil,
-        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil,
+        nonMembers: (@MainActor (ComposedMessage) async -> ComposerOutsiders)? = nil,
         sendTo: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
         keepDraft: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
         messages: MessageActions? = nil,

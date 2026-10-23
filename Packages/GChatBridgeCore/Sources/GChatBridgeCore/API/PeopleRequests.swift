@@ -70,6 +70,7 @@ public enum PeopleRequests {
     }
 
     /// One `PERSON` from a `ListAutocompletions` answer (`findings.md` §57.3).
+    /// `name` is empty when the answer carried none where it is read.
     public struct Person: Hashable, Sendable {
         public let id: String
         public let name: String
@@ -77,9 +78,10 @@ public enum PeopleRequests {
         public let photoURL: URL?
     }
 
-    /// The answer's people: `PERSON` results with a 21-digit id and a name.
-    /// Mailing lists and contact groups are not people a mention can name.
-    /// The name's position is `[Verify]` (§57.3).
+    /// The answer's people: `PERSON` results with a 21-digit id and a name or
+    /// an email to show. Mailing lists and contact groups are not people a
+    /// mention can name. The name's position is `[Verify]` (§57.3), so a
+    /// person without one there is kept by their email rather than dropped.
     public static func people(from body: Data) -> [Person] {
         var text = String(decoding: body, as: UTF8.self)
         if text.hasPrefix(")]}'") {
@@ -90,11 +92,13 @@ public enum PeopleRequests {
         return results.compactMap { item in
             guard let result = item as? [Any], result.count > 3, result[2] as? String == "PERSON",
                   let person = result[3] as? [Any],
-                  let id = person.first as? String, id.count == 21, id.allSatisfy(\.isNumber),
-                  let name = nested(person, 2, 0, 1) as? String, !name.isEmpty
+                  let id = person.first as? String, id.count == 21, id.allSatisfy(\.isNumber)
             else { return nil }
+            let name = nested(person, 2, 0, 1) as? String ?? ""
+            let email = result.first as? String ?? ""
+            guard !name.isEmpty || !email.isEmpty else { return nil }
             let photo = (nested(person, 3, 0, 1) as? String).flatMap(URL.init(string:))
-            return Person(id: id, name: name, email: result.first as? String ?? "", photoURL: photo)
+            return Person(id: id, name: name, email: email, photoURL: photo)
         }
     }
 

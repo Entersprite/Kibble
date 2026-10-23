@@ -120,6 +120,39 @@ struct ThreadMappingTests {
         #expect(changes(thread) == [.counted(messages: 2, unread: nil), .markedUnread(at: nil)])
     }
 
+    /// A history page's read time of 0 is the server holding no read time for
+    /// the thread: field 2 was present on 68 of 68 threads and above zero on
+    /// 13, and field 4 counted every message newer than it (`findings.md`
+    /// §64.9). It is passed on as a position before every message, so a
+    /// followed thread nobody opened stays unread rather than reading as
+    /// "nobody has said".
+    @Test func aHistoryReadTimeOfZeroIsAThreadNeverRead() {
+        let thread = topic([message("t-1"), message("r-1", inlineReply: true)], lastRead: 0)
+        #expect(changes(thread) == [
+            .counted(messages: 2, unread: nil),
+            .read(upTo: Date(timeIntervalSince1970: 0)),
+            .markedUnread(at: nil)
+        ])
+    }
+
+    /// No field 2 at all says nothing, as before.
+    @Test func noReadTimeSaysNothingAboutReading() {
+        let thread = topic([message("t-1"), message("r-1", inlineReply: true)])
+        #expect(!changes(thread).contains { change in
+            if case .read = change {
+                true
+            } else {
+                false
+            }
+        })
+    }
+
+    /// The Threads list carries no read state, so its 0 says nothing either.
+    @Test func theThreadsListNeverSaysAThreadWasNeverRead() {
+        let listed = [message("t-1"), message("r-1", inlineReply: true)]
+        #expect(changes(topic(listed, lastRead: 0), listing: .threadsList).isEmpty)
+    }
+
     /// A history listing that may have been cut short counts nothing, and
     /// its read state is a snapshot all the same (ruling 3).
     @Test func anIncompleteHistoryCountStillClearsTheMark() {

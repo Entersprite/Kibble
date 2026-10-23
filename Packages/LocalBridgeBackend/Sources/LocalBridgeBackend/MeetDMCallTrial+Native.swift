@@ -5,7 +5,8 @@ public extension MeetDMCallTrial {
     func joinNative(
         preparedID: UUID, media: any CallMediaEngine,
         scope: UUID = UUID(),
-        receive: (@Sendable (MeetNativeCallState) async -> Void)? = nil
+        receive: (@Sendable (MeetNativeCallState) async -> Void)? = nil,
+        remoteMuted: (@Sendable (Bool?) async -> Void)? = nil
     ) async throws {
         guard let call = prepared, call.ticket == preparedID, native == nil else {
             await media.close()
@@ -25,12 +26,12 @@ public extension MeetDMCallTrial {
         do {
             try await session.connect()
             if let receive {
-                await session.startMonitoring { [weak self, weak session] state in
+                await session.startMonitoring(receive: { [weak self, weak session] state in
                     if let session {
                         await self?.nativeStateChanged(state, session: session)
                     }
                     await receive(state)
-                }
+                }, remoteMuted: remoteMuted)
             }
             await lines.append(contentsOf: session.takeReport())
         } catch {

@@ -133,7 +133,8 @@ public struct CallSettingsPane: View {
                 Text("Call Window")
             } footer: {
                 Text("The window closes a few seconds after the call ends, and waits while the pointer is "
-                    + "over it. A call that failed stays open so you can read why.")
+                    + "over it. A call that failed stays open so you can read why. The microphone, speaker "
+                    + "and camera you choose in a call are used for the next one while they’re connected.")
             }
             if let setUpCalls {
                 Section {

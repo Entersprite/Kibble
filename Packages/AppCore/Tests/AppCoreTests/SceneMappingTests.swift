@@ -211,9 +211,45 @@ struct SceneMappingTests {
 
         environment.actions.directoryQuery?("o")
         environment.actions.memberPicked?(Member.ID("u"))
-        let outside = await environment.actions.nonMembers?(ComposedMessage(text: "x")) ?? []
-        #expect(outside.isEmpty)
+        let outside = await environment.actions.nonMembers?(ComposedMessage(text: "x")) ?? ComposerOutsiders()
+        #expect(outside.people.isEmpty)
         #expect(environment.sceneState.directoryResults.isEmpty)
+        #expect(!environment.sceneState.offersOutsideMentions)
+        #expect(environment.actions.addAndSend == nil)
+    }
+
+    /// Outsiders are offered in a group chat as in a space, never in a 1:1
+    /// DM, and only on a backend that can mention them.
+    @Test func aGroupChatOffersOutsidersAndADirectMessageDoesNot() async throws {
+        var capabilities = Capabilities(canSendMessages: true)
+        capabilities.canMention = true
+        capabilities.canMentionNonMembers = true
+        let services = try FakeLaunchServices(backendCapabilities: capabilities)
+        let group = Conversation.ID("space/group")
+        let direct = Conversation.ID("dm/1")
+        try services.store.apply([.replaceConversations([
+            Conversation(id: group, kind: .groupDirectMessage),
+            Conversation(id: direct, kind: .directMessage)
+        ])])
+        let environment = AppEnvironment(services: services)
+        await environment.start()
+        await Task.yield()
+        try await Task.sleep(for: .milliseconds(50))
+
+        environment.actions.select(group)
+        #expect(environment.sceneState.offersOutsideMentions)
+        #expect(environment.actions.addAndSend != nil)
+        environment.actions.select(direct)
+        #expect(!environment.sceneState.offersOutsideMentions)
+    }
+
+    @Test func theModelsAnswerAtReturnKeepsHowTheyCanBeAdded() {
+        let people = [Member.ID("u")]
+        #expect(AppEnvironment.outsiders(NonMembers(people: people, adding: .beforeSending))
+            == ComposerOutsiders(people: people, adding: .beforeSending))
+        #expect(AppEnvironment.outsiders(NonMembers(people: people, adding: .byMention)).adding == .byMention)
+        #expect(AppEnvironment.outsiders(NonMembers(people: people, adding: .unavailable))
+            .adding == .unavailable)
     }
 
     @Test func theUnreadTotalIsZeroBeforeAnythingRuns() throws {

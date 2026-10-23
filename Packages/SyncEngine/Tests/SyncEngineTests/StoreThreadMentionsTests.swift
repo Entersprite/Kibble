@@ -68,6 +68,17 @@ struct StoreThreadMentionsTests {
         #expect(state.counted == 1)
     }
 
+    /// A thread its backend says was never read (a position before every
+    /// message) keeps a reply's mention unread past the conversation's
+    /// position too, the rule above at its limit.
+    @Test func aRepliesMentionInAThreadNeverReadIsUnread() throws {
+        let state = try unread(store(
+            conversationRead: position.addingTimeInterval(60), threadRead: Date(timeIntervalSince1970: 0)
+        ))
+        #expect(state.listed == true)
+        #expect(state.counted == 1)
+    }
+
     @Test func withoutAThreadPositionTheConversationsDecides() throws {
         let state = try unread(store(conversationRead: position.addingTimeInterval(60), threadRead: nil))
         #expect(state.listed == false)

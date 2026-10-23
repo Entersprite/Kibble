@@ -160,6 +160,40 @@ struct StoreThreadReadTests {
         #expect(try store.thread(topic, in: space)?.hasUnread == true)
     }
 
+    /// A followed thread you never opened stays unread until it is read: a
+    /// backend says "never read" with a position before every message (the
+    /// bridge sends the epoch for a read time of 0), and only a real read
+    /// moves it. A thread nobody has said anything about stays read, so a
+    /// source without read state cannot make one unread.
+    @Test func aFollowedThreadNeverReadIsUnreadUntilItIsRead() throws {
+        let never = Date(timeIntervalSince1970: 0)
+        let store = try store([root(), message("m:r1", from: bob, minute: 2)], [
+            change(.followed(true)), change(.read(upTo: never))
+        ])
+        #expect(try store.thread(topic, in: space)?.hasUnread == true)
+        // A later page saying the same keeps it unread; it never moves a read back.
+        try store.apply([change(.read(upTo: never))])
+        #expect(try store.thread(topic, in: space)?.hasUnread == true)
+        try store.apply([change(.read(upTo: at(2)))])
+        #expect(try store.thread(topic, in: space)?.hasUnread == false)
+        try store.apply([change(.read(upTo: never))])
+        #expect(try store.thread(topic, in: space)?.hasUnread == false)
+
+        let unstated = try self.store(
+            [root(), message("m:r1", from: bob, minute: 2)],
+            [change(.followed(true))]
+        )
+        #expect(try unstated.thread(topic, in: space)?.hasUnread == false)
+    }
+
+    /// Never read and not followed: the fallback asks for both, so it stays read.
+    @Test func aThreadNeverReadYouDoNotFollowStaysRead() throws {
+        let store = try store([root(), message("m:r1", from: bob, minute: 2)], [
+            change(.read(upTo: Date(timeIntervalSince1970: 0)))
+        ])
+        #expect(try store.thread(topic, in: space)?.hasUnread == false)
+    }
+
     /// Through the store and back to the microsecond (`StoredDate`).
     @Test func aSummarysDatesSurviveTheStoreToTheMicrosecond() throws {
         let store = try store([root(), message("m:r1", from: bob, minute: 1)], [

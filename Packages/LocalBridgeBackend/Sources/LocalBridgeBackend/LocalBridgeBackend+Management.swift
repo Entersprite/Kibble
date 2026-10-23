@@ -63,30 +63,44 @@ public extension LocalBridgeBackend {
             throw ChatError.notAuthenticated
         }
         let generation = directoryGeneration
-        let token = try ManagementCursor.decode(cursor, key: "people:\(generation):\(id.rawValue)")
-        let response = try await apiClient.call(
-            .listMembers,
-            MembersRequests.listMembers(group: group, pageToken: token)
-        )
-        try checkManagementGeneration(generation)
-        let ids = response.memberships.compactMap { row -> ChatKit.Member.ID? in
-            let value = row.id.memberID.userID.id
-            return value.isEmpty ? nil : ChatKit.Member.ID(value)
+        var step = "listMembers"
+        let response: ListMembersResponse
+        // A member who is not a person (an app, a group) has no user id and
+        // nothing a People row can show; it is left out rather than hiding
+        // everyone else. A row naming another conversation still refuses
+        // the page, because then the whole answer is in doubt.
+        let people: [Membership]
+        let rows: [ConversationParticipant]
+        do {
+            let token = try ManagementCursor.decode(cursor, key: "people:\(generation):\(id.rawValue)")
+            response = try await apiClient.call(
+                .listMembers,
+                MembersRequests.listMembers(group: group, pageToken: token)
+            )
+            try checkManagementGeneration(generation)
+            people = response.memberships.filter { !$0.id.memberID.userID.id.isEmpty }
+            step = "getMembers"
+            let byID = try await participantProfiles(
+                people.map { ChatKit.Member.ID($0.id.memberID.userID.id) },
+                using: apiClient,
+                generation: generation
+            )
+            step = "permissions"
+            let caps = try await managementPermissions(group, user: me.rawValue, generation: generation)
+            let viewerIsOwner = people.contains {
+                $0.id.memberID.userID.id == me.rawValue && $0.membershipRole == .roleOwner
+            }
+            rows = people.compactMap {
+                ManagementMapping.participant(
+                    $0, group: group, me: me, people: byID, caps: caps, viewerIsOwner: viewerIsOwner
+                )
+            }
+            recordPeoplePage(response, people: people, mapped: rows.count, group: group)
+        } catch {
+            diagnostics.record(.peopleListFailed(step: step, failure: ManagementFailureKind.of(error)))
+            throw error
         }
-        let profiles = ids.isEmpty ? GetMembersResponse() : try await apiClient.call(
-            .getMembers,
-            Self.getMembersRequest(ids)
-        )
-        try checkManagementGeneration(generation)
-        let people = MemberMapping.map(profiles).members
-        remember(emailsOf: people)
-        emit(.membersResolved(people))
-        let byID = Dictionary(people.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let caps = try await managementPermissions(group, user: me.rawValue, generation: generation)
-        let rows = response.memberships.compactMap {
-            ManagementMapping.participant($0, group: group, me: me, people: byID, caps: caps)
-        }
-        guard rows.count == response.memberships.count else {
+        guard rows.count == people.count else {
             throw ChatError.decoding("Some membership records could not be read. Reload the people list.")
         }
         return ConversationParticipantPage(
@@ -109,6 +123,24 @@ extension LocalBridgeBackend {
         return actions
     }
 
+    /// Not announced as `membersResolved`: the service fences a people query
+    /// against such events and would ask it again, forever. The page carries
+    /// each profile, and the service records its media.
+    private func participantProfiles(
+        _ ids: [ChatKit.Member.ID],
+        using apiClient: ProtoAPIClient,
+        generation: Int
+    ) async throws -> [ChatKit.Member.ID: ChatKit.Member] {
+        let profiles = ids.isEmpty ? GetMembersResponse() : try await apiClient.call(
+            .getMembers,
+            Self.getMembersRequest(ids)
+        )
+        try checkManagementGeneration(generation)
+        let members = MemberMapping.map(profiles).members
+        remember(emailsOf: members)
+        return Dictionary(members.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     func checkManagementGeneration(_ generation: Int) throws {
         try Task.checkCancellation()
         guard isConnected, directoryGeneration == generation else { throw CancellationError() }
@@ -126,7 +158,50 @@ extension LocalBridgeBackend {
             ConversationManagementRequests.permissions(id)
         )
         try checkManagementGeneration(generation)
-        return response.capabilities.first { $0.id == id } ?? GroupScopedCapabilities()
+        let matched = response.capabilities.first { $0.id == id }
+        recordPermissions(response, matched: matched)
+        return matched ?? GroupScopedCapabilities()
+    }
+
+    /// Enum numbers only: which explicit permission fields Google sent, so the
+    /// unconfirmed meaning of each (findings §69.4) can be measured.
+    private func recordPermissions(
+        _ response: GetGroupScopedCapabilitiesResponse,
+        matched: GroupScopedCapabilities?
+    ) {
+        guard let shown = matched ?? response.capabilities.first else {
+            diagnostics.record(.managementPermissions(rows: 0, matched: false, legacy: [], explicit: []))
+            return
+        }
+        let data = shown.permissions.unknownFields.data
+        let numbers = Set(ProtoFieldScan.fields(in: data).fields.filter { $0.wireType == 0 }.map(\.number))
+        let explicit = numbers.sorted().map { number in
+            "\(number)=\(ProtoFieldScan.varintValues(ofField: number, in: data).last.map(String.init) ?? "?")"
+        }
+        diagnostics.record(.managementPermissions(
+            rows: response.capabilities.count,
+            matched: matched != nil,
+            legacy: shown.capabilities + shown.permissions.capabilities,
+            explicit: explicit
+        ))
+    }
+
+    private func recordPeoplePage(
+        _ response: ListMembersResponse,
+        people: [Membership],
+        mapped: Int,
+        group: GroupId
+    ) {
+        diagnostics.record(.peopleRoles(people.map { row in
+            ProtoFieldScan.varintValues(ofField: 5, in: row.unknownFields.data).last.map { Int($0) }
+                ?? row.membershipRole.rawValue
+        }))
+        diagnostics.record(.peopleListRows(
+            total: response.memberships.count,
+            mapped: mapped,
+            withoutUser: response.memberships.count - people.count,
+            outsideGroup: response.memberships.count { !ManagementMapping.belongs($0, to: group) }
+        ))
     }
 }
 

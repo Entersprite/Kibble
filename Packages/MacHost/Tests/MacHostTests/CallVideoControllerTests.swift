@@ -102,6 +102,42 @@ struct CallVideoControllerTests {
         controller.clear()
     }
 
+    @Test func theChosenCameraIsKeptForTheNextCall() async throws {
+        let place = try DevicePreferencesPlace()
+        defer { place.remove() }
+        let first = CallVideoController(preferences: place.preferences()), route = CameraRoute()
+        first.install(route)
+        #expect(first.camera?.selected == "")
+        first.select("second")
+        first.clear()
+        #expect(place.preferences().camera == "second")
+
+        let next = CallVideoController(preferences: place.preferences()), nextRoute = CameraRoute()
+        next.install(nextRoute)
+        #expect(next.camera?.selected == "second")
+        // Kept, but never turned on by itself.
+        #expect(nextRoute.starts.isEmpty)
+        next.turnOn()
+        await wait { next.camera?.isOn == true }
+        #expect(nextRoute.starts == ["second"])
+        next.clear()
+    }
+
+    @Test func aMissingSavedCameraUsesTheDefaultAndStaysSaved() async throws {
+        let place = try DevicePreferencesPlace()
+        defer { place.remove() }
+        place.preferences().saveCamera("unplugged")
+        let controller = CallVideoController(preferences: place.preferences()), route = CameraRoute()
+        controller.install(route)
+        #expect(controller.camera?.selected == "")
+        #expect(controller.camera?.notice == nil)
+        controller.turnOn()
+        await wait { controller.camera?.isOn == true }
+        #expect(route.starts == [""])
+        #expect(place.preferences().camera == "unplugged")
+        controller.clear()
+    }
+
     private func wait(_ condition: () -> Bool) async {
         for _ in 0 ..< 1000 {
             if condition() {

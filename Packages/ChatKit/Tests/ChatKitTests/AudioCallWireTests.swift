@@ -66,6 +66,30 @@ struct AudioCallWireTests {
         #expect(!call.isMuted)
         #expect(call.failureMessage == nil)
         #expect(call.endReason == nil)
+        #expect(call.remoteMuted == nil)
+    }
+
+    @Test func remoteMicrophoneStateHasStableWireShapesAndAbsentMeansUnknown() throws {
+        let id = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        var call = AudioCallSnapshot(id: id, recipient: recipient, direction: .outgoing, phase: .connected)
+        // Unknown adds no key, so an older reader sees exactly the snapshot it knew.
+        #expect(try !Wire.json(call).contains("remoteMuted"))
+        call.remoteMuted = true
+        try expectWireStable(AudioCallEvent.snapshot(call), golden: "audio-call-remote-muted")
+        call.remoteMuted = false
+        try expectWireStable(AudioCallEvent.snapshot(call), golden: "audio-call-remote-unmuted")
+    }
+
+    @Test func aNewerRemoteMicrophoneValueIsUnknownRatherThanAFailedSnapshot() throws {
+        let json = #"""
+        {"id":"00000000-0000-0000-0000-000000000001",
+         "recipient":{"conversationID":"dm","memberID":"peer","displayName":"Peer"},
+         "direction":"outgoing","phase":"connected","isMuted":true,"remoteMuted":"partially"}
+        """#
+        let call = try Wire.decode(AudioCallSnapshot.self, from: json)
+        #expect(call.remoteMuted == nil)
+        #expect(call.isMuted)
+        #expect(call.phase == .connected)
     }
 
     @Test func terminalReasonsHaveStableWireShapesAndPreserveNewerValues() throws {

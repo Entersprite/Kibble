@@ -188,14 +188,16 @@ public struct Composer: View {
             }),
             presenting: pendingInvite
         ) { invite in
-            Button("Add and Send") { finish(invite.message.settingMode(.invite, for: invite.people)) }
+            if invite.offersAdding {
+                Button("Add and Send") { add(invite) }
+            }
             Button("Send Without Adding") { finish(invite.message.settingMode(
                 .withoutAdding,
                 for: invite.people
             )) }
             Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("Adding them lets them see this message.")
+        } message: { invite in
+            Text(invite.detail)
         }
         .modifier(ComposerActivityReporting(
             empty: draft.text.isEmpty,
@@ -326,7 +328,7 @@ public struct Composer: View {
         return MentionSuggestions.suggestions(
             for: query.text, candidates: mentions.candidates, includeAll: mentions.includeAll,
             // Members only while editing: an edit never adds anyone.
-            directory: draft.editing == nil ? mentions.directory : []
+            directory: draft.editing == nil ? mentions.directory(for: query.text) : []
         )
     }
 
@@ -340,7 +342,7 @@ public struct Composer: View {
                 ZStack(alignment: .bottomLeading) {
                     MentionSuggestionList(
                         suggestions: rows, highlighted: min(highlighted, rows.count - 1), pick: pick,
-                        hover: { highlighted = $0 }
+                        hover: { highlighted = $0 }, place: mentions?.place ?? "space"
                     )
                     .padding(.leading, min(field.minX + anchorX, max(0, proxy.size.width - 288)))
                 }

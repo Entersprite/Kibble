@@ -136,6 +136,10 @@ actor RecordingBackend: ChatBackend {
         return try await inner.membership(of: member, in: conversation)
     }
 
+    /// Every conversation mutation, in order (`RecordingBackend+Management.swift`).
+    var mutations: [ConversationMutation] = []
+    var leavingMutationsUnconfirmed = false
+
     /// Makes every later `send(_:)` record the command and then throw, without
     /// forwarding it.
     func failSubmissions(_ shouldFail: Bool) {
@@ -341,13 +345,6 @@ actor RecordingBackend: ChatBackend {
             )
         }
         return try await inner.uploadAttachment(attachment, to: conversation, progress: progress)
-    }
-
-    func setNotificationSetting(
-        _ level: NotificationLevel,
-        for conversation: Conversation.ID
-    ) async throws {
-        try await inner.setNotificationSetting(level, for: conversation)
     }
 
     // MARK: - Threads (threads spec §4.3)

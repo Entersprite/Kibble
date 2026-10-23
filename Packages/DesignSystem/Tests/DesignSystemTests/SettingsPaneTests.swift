@@ -59,6 +59,23 @@ struct SettingsPaneCopyTests {
         #expect(ConversationRuleList.summary(count: 12) == "12 Custom")
     }
 
+    /// Every outcome says what happened, and the ones that need a change name
+    /// where to make it; none names a provider.
+    @Test func aTestNotificationSaysWhatTheSystemAllowed() {
+        let outcomes: [NotificationTestOutcome] = [
+            .sent, .withoutSound, .withoutBanner, .quiet, .notAllowed, .failed
+        ]
+        let messages = outcomes.map(\.message)
+        #expect(Set(messages).count == outcomes.count)
+        #expect(messages.allSatisfy { !$0.isEmpty && !$0.contains("Google") })
+        for outcome in [NotificationTestOutcome.withoutSound, .withoutBanner, .quiet, .notAllowed] {
+            #expect(outcome.message.contains("System Settings"))
+        }
+        #expect(NotificationTestOutcome.notAllowed.message
+            == "Notifications are off for Kibble. Turn them on in System Settings.")
+        #expect(NotificationTestOutcome.sent.message.contains("Focus"))
+    }
+
     @Test func accountStatusesReadAsBefore() {
         let statuses: [AccountPanelAccount.Status] = [
             .connected, .connecting, .disabled, .signedOut, .failed, .removing

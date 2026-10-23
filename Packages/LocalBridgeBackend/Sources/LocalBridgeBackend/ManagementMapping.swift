@@ -121,7 +121,8 @@ enum ManagementMapping {
         group: GroupId,
         me: ChatKit.Member.ID,
         people: [ChatKit.Member.ID: ChatKit.Member],
-        caps: GroupScopedCapabilities
+        caps: GroupScopedCapabilities,
+        viewerIsOwner: Bool = false
     )
         -> ConversationParticipant? {
         guard belongs(row, to: group) else { return nil }
@@ -138,8 +139,9 @@ enum ManagementMapping {
             }
         }
         if user != me, row.membershipState == .memberJoined {
+            // An owner can be removed only by another owner, as on the web.
             if ManagementMapping.grants(caps, 4),
-               row.membershipRole != .roleOwner {
+               row.membershipRole != .roleOwner || viewerIsOwner {
                 actions.insert("removePerson")
             }
             if ManagementMapping.grants(caps, 2), row.membershipRole == .roleMember {
@@ -188,7 +190,7 @@ enum ManagementMapping {
         conversation.memberCount = conversation.members.count
     }
 
-    private static func belongs(_ row: Membership, to group: GroupId) -> Bool {
+    static func belongs(_ row: Membership, to group: GroupId) -> Bool {
         if row.id.hasGroupID {
             return row.id.groupID == group
         }

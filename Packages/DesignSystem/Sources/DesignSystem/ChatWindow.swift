@@ -231,12 +231,14 @@ public struct ChatWindow: View {
                         candidates: state.mentionCandidates,
                         includeAll: conversation.kind == .space,
                         directory: state.directoryResults,
+                        directoryQuery: state.directoryResultsQuery,
+                        place: ComposerMentions.place(of: conversation.kind),
                         queryChanged: actions.directoryQuery,
                         outsidePicked: actions.memberPicked,
                         // Asked only where outside people can be offered: a
-                        // space, on a backend that can mention them.
-                        nonMembers: state.capabilities.canMentionNonMembers && conversation.kind == .space
-                            ? actions.nonMembers : nil,
+                        // space or a group chat, on a backend that can mention them.
+                        nonMembers: state.offersOutsideMentions ? actions.nonMembers : nil,
+                        addAndSend: actions.addAndSend.map { add in { add($0, $1, conversation.id, nil) } },
                         sendHere: actions.sendTo.map { sendTo in { sendTo($0, conversation.id) } },
                         keepHere: actions.keepDraft.map { keep in { keep($0, conversation.id) } }
                     )

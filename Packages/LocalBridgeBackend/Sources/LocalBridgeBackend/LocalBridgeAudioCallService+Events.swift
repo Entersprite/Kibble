@@ -51,6 +51,15 @@ extension LocalBridgeAudioCallService {
         }
     }
 
+    /// The other person's microphone, as the native session last read it.
+    func receiveRemoteMuted(_ muted: Bool?, id: UUID, scope: UUID) {
+        guard var current = snapshot, current.id == id, callScope == scope, !isStopping,
+              !current.phase.isTerminal, current.remoteMuted != muted else { return }
+        current.remoteMuted = muted
+        snapshot = current
+        continuation.yield(.snapshot(current))
+    }
+
     private func receiveEnd(
         _ reason: MeetNativeCallEndReason, cleanup: MeetNativeCallCleanup, current: AudioCallSnapshot
     ) {
@@ -86,7 +95,7 @@ extension LocalBridgeAudioCallService {
         media.setMuted(muted)
         let next = AudioCallSnapshot(
             id: current.id, recipient: current.recipient, direction: current.direction,
-            phase: current.phase, isMuted: muted
+            phase: current.phase, isMuted: muted, remoteMuted: current.remoteMuted
         )
         snapshot = next
         continuation.yield(.snapshot(next))

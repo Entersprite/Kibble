@@ -72,6 +72,20 @@ struct FixtureThreadCallTests {
         #expect(await backend.currentWorld.conversation(pe)?.hasUnreadThread == false)
     }
 
+    /// A thread you follow and never read is unread: every reply from
+    /// someone else counts, as the bridge's server reports it (`findings.md`
+    /// §64.9). `topic:sync` has no read position and one reply from Dan.
+    @Test func followingAThreadNeverReadMakesItsRepliesUnread() async throws {
+        let (backend, collector) = try await connected()
+        #expect(await backend.currentWorld.isUnread(sync, of: pe) == false)
+        try await backend.setThreadFollowed(true, thread: sync, in: pe)
+        #expect(await collector.nextOne() == changed(sync, .followed(true)))
+        #expect(await backend.currentWorld.unreadReplies(in: sync, of: pe) == 1)
+        #expect(await backend.currentWorld.isUnread(sync, of: pe))
+        try await backend.send(.markThreadRead(conversationID: pe, threadID: sync, upTo: Acme.at(22)))
+        #expect(await backend.currentWorld.isUnread(sync, of: pe) == false)
+    }
+
     @Test func followingNeedsAConnection() async throws {
         let backend = FakeBackend(world: .acme)
         await #expect(throws: ChatError.transport("not connected")) {

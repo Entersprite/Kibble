@@ -71,6 +71,18 @@ struct ConversationPeopleForm: View {
 
     private var members: some View {
         Section {
+            switch PeopleListStatus.of(state.browser) {
+            case .loading:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading people…").foregroundStyle(.secondary)
+                }
+            case let .failed(message):
+                SheetErrorRow(message: message)
+                Button("Reload People") { actions.details(details.conversation.id, false) }
+            case .ready:
+                EmptyView()
+            }
             ForEach(filteredParticipants) { participant in
                 PersonRow(person: participant.member) {
                     trailing(for: participant)
@@ -175,5 +187,21 @@ struct ConversationPeopleForm: View {
             query.isEmpty || ($0.member.displayName ?? "").localizedCaseInsensitiveContains(query)
                 || ($0.member.email ?? "").localizedCaseInsensitiveContains(query)
         }
+    }
+}
+
+/// What the People tab shows above its rows. People already shown stay shown:
+/// a failed later page is the About tab's error, not a reason to hide them.
+enum PeopleListStatus: Equatable {
+    case loading, failed(String), ready
+
+    static func of(_ browser: ConversationBrowserScene) -> Self {
+        if browser.isLoadingParticipants {
+            return .loading
+        }
+        if browser.participants.isEmpty, let error = browser.panelError {
+            return .failed(error)
+        }
+        return .ready
     }
 }

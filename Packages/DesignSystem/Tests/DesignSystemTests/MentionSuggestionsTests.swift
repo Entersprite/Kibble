@@ -101,6 +101,27 @@ struct MentionSuggestionsTests {
         #expect(rows.map(\.name) == ["Robert Smith"])
     }
 
+    /// No name in the directory: shown, and inserted, by their email.
+    @Test func aDirectoryPersonWithoutANameIsShownByTheirEmail() {
+        let nameless = Member(id: Member.ID("n"), kind: .human, email: "nameless@example.invalid")
+        let rows = MentionSuggestions.suggestions(
+            for: "na", candidates: [], includeAll: false, directory: [nameless]
+        )
+        #expect(rows.map(\.name) == ["nameless@example.invalid"])
+        #expect(rows.first?.outsideConversation == true)
+    }
+
+    /// With neither a name nor an email there is nothing to tell them apart
+    /// by, and they do not take one of the five places.
+    @Test func aDirectoryPersonWithNeitherIsLeftOut() {
+        let blank = Member(id: Member.ID("b"), kind: .human)
+        let rows = MentionSuggestions.suggestions(
+            for: "", candidates: [], includeAll: false, directory: [blank] + outsiders(5)
+        )
+        #expect(rows.count == MentionSuggestions.directoryLimit)
+        #expect(!rows.contains { $0.target == .user(blank.id) })
+    }
+
     /// Review finding 4: a member past the members section's cap, whom the
     /// server also returns, is a member, never "Not in this space".
     @Test func aMemberBeyondTheCapIsNeverShownAsOutside() {

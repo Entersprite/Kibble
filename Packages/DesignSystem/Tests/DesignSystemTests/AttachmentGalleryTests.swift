@@ -131,29 +131,7 @@ struct AttachmentGalleryTests {
     }
 
     private static func gif(frames: Int, side: Int) throws -> Data {
-        let data = NSMutableData()
-        let destination = try #require(CGImageDestinationCreateWithData(
-            data, UTType.gif.identifier as CFString, frames, nil
-        ))
-        let context = try #require(CGContext(
-            data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ))
-        for index in 0 ..< frames {
-            context.setFillColor(CGColor(
-                red: CGFloat(index) / CGFloat(max(frames, 1)),
-                green: 0,
-                blue: 0,
-                alpha: 1
-            ))
-            context.fill(CGRect(x: 0, y: 0, width: side, height: side))
-            let image = try #require(context.makeImage())
-            CGImageDestinationAddImage(destination, image, [
-                kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]
-            ] as CFDictionary)
-        }
-        try #require(CGImageDestinationFinalize(destination))
-        return data as Data
+        try TestGIF.make(frames: frames, side: side)
     }
 
     @Test func onlyASmallManyFrameAnimationPlays() throws {

@@ -101,6 +101,65 @@ struct LinkMappingTests {
         #expect(insecure.first?.preview?.title == "Spring catalog")
     }
 
+    /// A picture with no title is still a preview: an image-only card.
+    @Test func aTitlelessPreviewWithAnImageKeepsTheImage() throws {
+        let mapped = ChannelEventMapping.links(
+            [link(title: nil, image: "https://lh3.googleusercontent.com/gif", width: 498, height: "280")],
+            text: ""
+        )
+        #expect(try mapped == [MessageLink(
+            url: #require(URL(string: "https://acme.example/doc")),
+            preview: LinkPreview(
+                title: "", imageURL: URL(string: "https://lh3.googleusercontent.com/gif"),
+                imageWidth: 498, imageHeight: 280
+            )
+        )])
+    }
+
+    /// The picker's GIF shape `[Verify]` (`findings.md` §60.1, §60.3): an
+    /// unanchored link with no card text, whose own URL is the picture.
+    @Test func anUnanchoredLinkToAnImageFileIsItsOwnPicture() throws {
+        let raw = "https://media.acme.example/AbC123/confetti.GIF"
+        let mapped = ChannelEventMapping.links([link(url: raw, title: nil)], text: "")
+        let url = try #require(URL(string: raw))
+        #expect(mapped == [MessageLink(url: url, preview: LinkPreview(title: "", imageURL: url))])
+    }
+
+    @Test func aDeclaredImageWinsOverTheLinksOwnURL() {
+        let mapped = ChannelEventMapping.links(
+            [link(
+                url: "https://media.acme.example/confetti.gif",
+                image: "https://lh3.googleusercontent.com/p"
+            )],
+            text: ""
+        )
+        #expect(mapped.first?.preview?.imageURL == URL(string: "https://lh3.googleusercontent.com/p"))
+        #expect(mapped.first?.preview?.title == "Spring catalog")
+    }
+
+    /// Only an unanchored `https` link whose path names an image file:
+    /// an anchored link, plain `http` or a page named like a GIF is not
+    /// taken for a picture.
+    @Test(arguments: [
+        (url: "https://media.acme.example/confetti.gif", start: Int32?(0), length: Int32?(3)),
+        (url: "http://media.acme.example/confetti.gif", start: nil, length: nil),
+        (url: "https://acme.example/view/confetti-gif-123", start: nil, length: nil),
+        (url: "https://acme.example/confetti.gif.html", start: nil, length: nil)
+    ])
+    func otherLinksAreNotTakenForPictures(url: String, start: Int32?, length: Int32?) {
+        let mapped = ChannelEventMapping.links(
+            [link(start: start, length: length, url: url, title: nil)],
+            text: "gif"
+        )
+        #expect(mapped.count == 1)
+        #expect(mapped.first?.preview == nil)
+    }
+
+    @Test func aHiddenUnanchoredImageLinkIsStillDropped() {
+        let hidden = link(url: "https://media.acme.example/confetti.gif", title: nil, hidden: true)
+        #expect(ChannelEventMapping.links([hidden], text: "").isEmpty)
+    }
+
     @Test func domainMessageCarriesTheLinks() throws {
         var message = GChatBridgeCore.Message()
         message.id.messageID = "m-1"

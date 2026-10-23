@@ -15,6 +15,8 @@ struct MentionSuggestionList: View {
     let pick: (MentionSuggestion) -> Void
     /// The pointer entered a row: it becomes the highlighted one.
     var hover: (Int) -> Void = { _ in }
+    /// What an outside row says it is not in (`ComposerMentions.place`).
+    var place = "space"
 
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
@@ -26,7 +28,7 @@ struct MentionSuggestionList: View {
                 }
                 let isHighlighted = index == highlighted
                 Button { pick(suggestion) } label: {
-                    MentionSuggestionRow(suggestion: suggestion)
+                    MentionSuggestionRow(suggestion: suggestion, place: place)
                 }
                 .buttonStyle(.plain)
                 .background(
@@ -56,7 +58,7 @@ struct MentionSuggestionList: View {
     /// What VoiceOver hears for the highlighted row: the row's own two lines.
     private var announcement: String? {
         guard suggestions.indices.contains(highlighted) else { return nil }
-        return MentionSuggestionRow.spoken(suggestions[highlighted])
+        return MentionSuggestionRow.spoken(suggestions[highlighted], place: place)
     }
 }
 
@@ -65,19 +67,22 @@ struct MentionSuggestionRow: View {
     static let allSymbol = "person.3.fill"
 
     let suggestion: MentionSuggestion
+    var place = "space"
 
-    /// The second line: the email; "Not in this space" first for a directory
-    /// person; and what `@all` does.
-    nonisolated static func detail(of suggestion: MentionSuggestion) -> String {
+    /// The second line: the email; "Not in this space" (or group chat) first
+    /// for a directory person; and what `@all` does. An email already shown
+    /// as the name is not repeated.
+    nonisolated static func detail(of suggestion: MentionSuggestion, place: String = "space") -> String {
         guard let member = suggestion.member else { return "Notify everyone in this space" }
-        guard suggestion.outsideConversation else { return member.email ?? "" }
-        return member.email.map { "Not in this space · \($0)" } ?? "Not in this space"
+        let email = member.email.flatMap { $0 == suggestion.name ? nil : $0 }
+        guard suggestion.outsideConversation else { return email ?? "" }
+        return email.map { "Not in this \(place) · \($0)" } ?? "Not in this \(place)"
     }
 
     /// The title, then the detail when there is one, as VoiceOver reads them.
-    nonisolated static func spoken(_ suggestion: MentionSuggestion) -> String {
+    nonisolated static func spoken(_ suggestion: MentionSuggestion, place: String = "space") -> String {
         let title = suggestion.member == nil ? "@all" : suggestion.name
-        let detail = detail(of: suggestion)
+        let detail = detail(of: suggestion, place: place)
         return detail.isEmpty ? title : "\(title), \(detail)"
     }
 
@@ -92,7 +97,7 @@ struct MentionSuggestionRow: View {
             }
             VStack(alignment: .leading, spacing: 0) {
                 Text(suggestion.member == nil ? "@all" : suggestion.name).lineLimit(1)
-                Text(Self.detail(of: suggestion))
+                Text(Self.detail(of: suggestion, place: place))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

@@ -66,6 +66,12 @@ extension AppEnvironment {
             attachments: composerAttachmentActions(in: .openThread),
             clearFailedDraft: { [weak self] conversation, thread in
                 self?.runningModel?.clearFailedReplyDraft(in: conversation, thread: thread)
+            },
+            sendReplyTo: { [weak self] message, conversation, thread in
+                self?.runningModel?.sendReply(message, in: conversation, thread: thread)
+            },
+            keepReplyDraft: { [weak self] message, conversation, thread in
+                self?.runningModel?.keepReplyDraft(message, in: conversation, thread: thread)
             }
         )
     }

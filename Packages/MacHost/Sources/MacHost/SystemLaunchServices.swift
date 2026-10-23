@@ -18,8 +18,8 @@ public final class SystemLaunchServices: LaunchServices {
     private let launchProbe: MacLaunchProbe?
     public var diagnostics: DiagnosticReportStore?
     let callDiagnostics = AudioCallDiagnosticExporter()
-    public let callAudioDevices = CallAudioDeviceController()
-    public let callVideo = CallVideoController()
+    public let callAudioDevices = CallAudioDeviceController(preferences: .standard)
+    public let callVideo = CallVideoController(preferences: .standard)
     public let callSignIn = CallSignInRecovery()
 
     public var launchReportRequested: Bool {

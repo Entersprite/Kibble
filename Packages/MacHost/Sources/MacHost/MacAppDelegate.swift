@@ -1,5 +1,7 @@
 import AppCore
 import AppKit
+import ChatKit
+import DesignSystem
 import Foundation
 
 /// Owns the session for the life of the process, not the life of a window.
@@ -141,11 +143,24 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         return SystemAccountHost(notifications: notifications, usesGoogleAccounts: true)
     }
 
+    /// Whether this launch delivers native notifications. The multi-account
+    /// fixture does not, so it registers no delegate.
+    private var deliversNotifications: Bool {
+        accountHost == nil || accountHost?.usesGoogleAccounts == true
+    }
+
     public func applicationWillFinishLaunching(_: Notification) {
         // Before launch completes, or the click that launched the app is lost.
-        if accountHost == nil || accountHost?.usesGoogleAccounts == true {
+        if deliversNotifications {
             notifications.install()
         }
+    }
+
+    /// Settings › Notifications' test. `nil` where this launch registered no
+    /// delegate: macOS would drop the banner while Settings is in front.
+    public var sendTestNotification: (@MainActor (NotificationSound) async -> NotificationTestOutcome)? {
+        guard deliversNotifications else { return nil }
+        return { [notifications] in await notifications.sendTest(sound: $0) }
     }
 
     public func applicationDidFinishLaunching(_: Notification) {

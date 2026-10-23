@@ -7,8 +7,9 @@ import LocalBridgeBackend
 /// Native presentation and hardware ports for exactly one provider generation.
 @MainActor
 final class NativeAccountCallBinding {
-    let audioDevices = CallAudioDeviceController()
-    let video = CallVideoController()
+    /// Saved devices are this Mac's, shared by every account's calls.
+    let audioDevices = CallAudioDeviceController(preferences: .standard)
+    let video = CallVideoController(preferences: .standard)
     let signIn = CallSignInRecovery()
     let diagnostics = AudioCallDiagnosticExporter()
 

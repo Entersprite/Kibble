@@ -166,9 +166,12 @@ final class VideoFakeMedia: CallMediaEngine {
     var announcement: (@Sendable (Bool) async throws -> Void)?
     var visible = false
     var remoteMuted = true
+    var remoteAudio: [UInt64?] = []
+    var searches = 0
     var closed = false
     var failVideo = false
     var failSearch = false
+    var timeOutSearch = false
     var failVideoAnswer = false
     var rollbacks = 0
     func makeAudioOffer(serverControlChannel _: String?) async throws -> CallAudioOffer {
@@ -249,19 +252,34 @@ final class VideoFakeMedia: CallMediaEngine {
         if isVideo, failVideo {
             throw CallMediaError.signalingTimedOut
         }
+        if variant == 3 {
+            searches += 1
+        }
         if variant == 3, failSearch {
             return Data([0x80])
         }
+        if variant == 3, timeOutSearch {
+            throw CallMediaError.signalingTimedOut
+        }
         let header = NativeMeetFixture.bytes(1, NativeMeetFixture.number(1, 1))
-        let result = header +
-            (variant == 3 ? NativeMeetFixture.bytes(2, downstream) : stream.map { NativeMeetFixture.bytes(
-                4,
-                $0
-            ) } ?? Data())
+        let echo = stream.map { NativeMeetFixture.bytes(4, $0) } ?? Data()
+        let search = NativeMeetFixture.bytes(2, downstream) + audioDownstreams
+        let result = header + (variant == 3 ? search : echo)
         let reply = NativeMeetFixture.number(1, id) + NativeMeetFixture.bytes(4, Data())
             + NativeMeetFixture.bytes(variant == 4 ? 5 : UInt64(variant), result)
         #expect(matches(reply))
         return reply
+    }
+
+    /// DOWN audio entries in each search reply: a mute10.1 value each, nil
+    /// for an entry without field 10. Empty by default, as before.
+    private var audioDownstreams: Data {
+        remoteAudio.enumerated().reduce(Data()) { result, entry in
+            let identity = NativeMeetFixture.number(1, 1) + NativeMeetFixture.number(2, 1)
+                + NativeMeetFixture.string(4, "audio-\(entry.offset)")
+            let mute = entry.element.map { NativeMeetFixture.bytes(10, NativeMeetFixture.number(1, $0)) }
+            return result + NativeMeetFixture.bytes(2, identity + (mute ?? Data()))
+        }
     }
 
     private var downstream: Data {

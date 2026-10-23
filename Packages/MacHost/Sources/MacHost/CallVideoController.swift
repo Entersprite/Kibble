@@ -5,6 +5,8 @@ import Observation
 
 /// Session-local camera operations. Every completion is checked against the
 /// engine that installed it; replacement never enables a previous camera.
+/// The camera the person picks is saved in `preferences` and selected again by
+/// the next engine while it is connected; it is never turned on by itself.
 @MainActor
 @Observable
 public final class CallVideoController {
@@ -21,14 +23,25 @@ public final class CallVideoController {
     private var scope = UUID()
     private var operation: Task<Void, Never>?
     private var refresh: Task<Void, Never>?
+    @ObservationIgnored private let preferences: CallDevicePreferences?
 
-    public init() {}
+    public convenience init() {
+        self.init(preferences: nil)
+    }
+
+    init(preferences: CallDevicePreferences?) {
+        self.preferences = preferences
+    }
 
     func install(_ route: any CallCameraRouting, local: LKRTCVideoTrack? = nil) -> UUID {
         clear()
         self.route = route
         localTrack = local
-        camera = CallCameraState(devices: route.devices())
+        let devices = route.devices()
+        let saved = preferences?.camera ?? ""
+        camera = CallCameraState(
+            devices: devices, selected: devices.contains { $0.id == saved } ? saved : ""
+        )
         let scope = scope
         refresh = Task { [weak self] in
             while !Task.isCancelled {
@@ -95,6 +108,7 @@ public final class CallVideoController {
         guard let camera, !camera.isUpdating,
               id.isEmpty || camera.devices.contains(where: { $0.id == id }) else { return }
         self.camera?.selected = id
+        preferences?.saveCamera(id)
         if camera.isOn {
             turnOn(id)
         }

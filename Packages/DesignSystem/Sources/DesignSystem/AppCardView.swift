@@ -7,7 +7,8 @@ import SwiftUI
 /// could map nothing from - is a note, never an empty box.
 ///
 /// The card declares its corners as its `containerShape`, so a picture in it
-/// rounds concentrically with them (`ConcentricRectangle`).
+/// rounds concentrically with them (`ConcentricRectangle`). Its pictures play
+/// when they animate, as an upload does (`PictureImage`).
 struct AppCardView: View {
     static let maxWidth: CGFloat = 420
     static let cornerRadius: CGFloat = 14
@@ -61,10 +62,9 @@ private struct CardHeaderView: View {
     var body: some View {
         HStack(spacing: 10) {
             if let url = header.imageURL, let load {
-                RemoteImageView(url: url, load: load) { phase in
-                    if case let .loaded(image) = phase {
-                        Image(image, scale: 1, label: Text(header.title.plainText))
-                            .resizable()
+                RemoteImageView(url: url, load: load, animates: true) { phase in
+                    if case let .loaded(picture) = phase {
+                        PictureImage(picture: picture, label: Text(header.title.plainText))
                             .scaledToFill()
                             .frame(width: 32, height: 32)
                             .clipShape(
@@ -150,12 +150,9 @@ private struct CardWidgetView: View {
     private func decoratedContent(_ row: AppCard.Decorated) -> some View {
         HStack(alignment: .top, spacing: 10) {
             if let icon = row.iconURL, let load {
-                RemoteImageView(url: icon, load: load) { phase in
-                    if case let .loaded(image) = phase {
-                        Image(decorative: image, scale: 1).resizable().scaledToFit().frame(
-                            width: 24,
-                            height: 24
-                        )
+                RemoteImageView(url: icon, load: load, animates: true) { phase in
+                    if case let .loaded(picture) = phase {
+                        PictureImage(picture: picture).scaledToFit().frame(width: 24, height: 24)
                     }
                 }
                 .frame(width: 24, height: 24)
@@ -177,7 +174,7 @@ private struct CardWidgetView: View {
     /// tooltip; one without is only a picture.
     @ViewBuilder private func image(_ picture: AppCard.Picture) -> some View {
         if let load {
-            RemoteImageView(url: picture.url, load: load) { phase in
+            RemoteImageView(url: picture.url, load: load, animates: true) { phase in
                 if let link = picture.link {
                     Button { openURL(link) } label: { pictureFrame(picture, phase: phase) }
                         .buttonStyle(.plain)
@@ -194,10 +191,8 @@ private struct CardWidgetView: View {
         Rectangle().fill(.quaternary)
             .aspectRatio(CardImageLayout.aspect(picture.aspectRatio), contentMode: .fit)
             .overlay {
-                if case let .loaded(image) = phase {
-                    Image(image, scale: 1, label: Text(picture.altText ?? ""))
-                        .resizable()
-                        .scaledToFit()
+                if case let .loaded(decoded) = phase {
+                    PictureImage(picture: decoded, label: Text(picture.altText ?? "")).scaledToFit()
                 }
             }
             .clipShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(AppCardView

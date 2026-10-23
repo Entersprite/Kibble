@@ -86,28 +86,9 @@ extension ChatSessionModel {
             }
             return
         }
-        // From here the mark is on the wire: a Mark as Unread now waits for
-        // its answer instead of canceling it (`markThreadUnread(from:)`).
-        threads.work.submittedGeneration[key] = generation
-        if capabilities.needsThreadUnreadClearBeforeRead, stored?.markedUnreadAt != nil {
-            // Only an advertised provider requirement adds this extra mutation.
-            // A refused clear sends no read; the next trigger tries both again.
-            let cleared = await engine.submit(.setThreadUnreadMark(
-                conversationID: key.conversation, threadID: key.thread, at: nil
-            ))
-            guard cleared, !Task.isCancelled else { return }
-        }
-        let accepted = await engine.submit(.markThreadRead(
-            conversationID: key.conversation, threadID: key.thread, upTo: position
-        ))
-        guard !Task.isCancelled else { return }
-        // Superseded on the wire by a Mark as Unread, which waits for this
-        // answer: it writes no watermark, so a reopened thread is marked read
-        // again, and it re-checks nothing.
-        guard threads.work.markGeneration[key] == generation else { return }
-        if accepted {
-            threads.work.published[key] = position
-        }
+        guard await submitThreadRead(
+            key, upTo: position, clearingMark: stored?.markedUnreadAt != nil, generation: generation
+        ) else { return }
         // Cleared before the re-check, and through the generation, for the
         // conversation trigger's two reasons (`publishReadPosition`). The
         // re-check reads the same function the position came from, so an
@@ -118,6 +99,37 @@ extension ChatSessionModel {
            freshest > position {
             markOpenThreadReadIfNeeded()
         }
+    }
+
+    /// The mark on the wire, the panel's and the sidebar's alike, and its
+    /// watermark. `false` when the caller must stop: canceled, the clear
+    /// refused, or superseded by a Mark as Unread.
+    private func submitThreadRead(
+        _ key: ThreadKey, upTo position: Date, clearingMark marked: Bool, generation: Int
+    ) async -> Bool {
+        // From here the mark is on the wire: a Mark as Unread now waits for
+        // its answer instead of canceling it (`markThreadUnread(from:)`).
+        threads.work.submittedGeneration[key] = generation
+        if capabilities.needsThreadUnreadClearBeforeRead, marked {
+            // Only an advertised provider requirement adds this extra mutation.
+            // A refused clear sends no read; the next trigger tries both again.
+            let cleared = await engine.submit(.setThreadUnreadMark(
+                conversationID: key.conversation, threadID: key.thread, at: nil
+            ))
+            guard cleared, !Task.isCancelled else { return false }
+        }
+        let accepted = await engine.submit(.markThreadRead(
+            conversationID: key.conversation, threadID: key.thread, upTo: position
+        ))
+        guard !Task.isCancelled else { return false }
+        // Superseded on the wire by a Mark as Unread, which waits for this
+        // answer: it writes no watermark, so a reopened thread is marked read
+        // again, and it re-checks nothing.
+        guard threads.work.markGeneration[key] == generation else { return false }
+        if accepted {
+            threads.work.published[key] = position
+        }
+        return true
     }
 
     /// Whether the panel shows `key`'s thread now. After a switch,
@@ -136,6 +148,59 @@ extension ChatSessionModel {
     /// message, and never a `local/` optimistic reply, which carries `Date()`.
     private static func newestServerReply(in messages: [Message]) -> Date? {
         messages.filter { $0.isReply && !$0.id.rawValue.hasPrefix("local/") }.map(\.createdAt).max()
+    }
+}
+
+// MARK: - Reading a conversation's threads
+
+extension ChatSessionModel {
+    /// Reads every unread thread of `conversation` up to its newest reply:
+    /// the sidebar's Mark as Read, after the conversation's own mark
+    /// (`markRead(_:from:)`). Each thread takes the panel's path
+    /// (`submitThreadRead`), so the panel's rules hold:
+    ///
+    /// - the in-flight guard and the generation per thread: a mark already
+    ///   running for a thread is left to it, and a Mark as Unread meanwhile
+    ///   waits for this one's answer on the wire;
+    /// - the watermark: a thread published that far, and not marked unread
+    ///   since, is not sent again;
+    /// - the provider's advertised clear before reading a manually unread
+    ///   thread, and the read-receipt gate at `SyncEngine.submit(_:)`.
+    ///
+    /// Not drawn ahead of the answer: a thread reads as read when its
+    /// backend reports the read, as the conversation's dot does. One thread
+    /// at a time, in id order, so a run is repeatable. A thread with no reply
+    /// stored has nothing to name, as in the panel, and is left unread.
+    func markUnreadThreadsRead(in conversation: Conversation.ID) async {
+        guard capabilities.supportsThreads else { return }
+        let unread = ((try? store.threadSummaries(in: conversation)) ?? [:]).values
+            .filter(\.hasUnread)
+            .sorted { $0.id.rawValue < $1.id.rawValue }
+        for thread in unread {
+            guard !Task.isCancelled else { return }
+            let key = ThreadKey(conversation: conversation, thread: thread.id)
+            let messages = (try? store.threadMessages(thread.id, in: conversation)) ?? []
+            guard threads.work.markTasks[key] == nil,
+                  let position = Self.newestServerReply(in: messages) else {
+                continue
+            }
+            let marked = thread.markedUnreadAt != nil
+            if !marked, let already = threads.work.published[key], position <= already {
+                continue
+            }
+            let generation = (threads.work.markGeneration[key] ?? 0) + 1
+            threads.work.markGeneration[key] = generation
+            // Its own task, in `markTasks`, so the panel's guard sees it and
+            // `stop()` cancels it; awaited, never canceled from here, because
+            // a mark on the wire is never canceled (`markThreadUnread(from:)`).
+            let marking = Task { @MainActor [weak self] in
+                defer { self?.clearThreadMarkTask(for: key, ifStillGeneration: generation) }
+                guard let self else { return }
+                _ = await submitThreadRead(key, upTo: position, clearingMark: marked, generation: generation)
+            }
+            threads.work.markTasks[key] = marking
+            await marking.value
+        }
     }
 }
 

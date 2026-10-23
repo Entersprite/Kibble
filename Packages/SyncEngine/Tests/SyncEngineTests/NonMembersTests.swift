@@ -21,21 +21,37 @@ struct NonMembersTests {
     /// Review Focus 1: never asked about, so never a non-member.
     @Test func aMemberPickedFromTheListIsNeverANonMember() async throws {
         let model = try await DirectorySearchTests.model(RecordingBackend(directory: [Self.outsider]))
-        #expect(await model.nonMembers(in: Self.message(["fixture-other"])).isEmpty)
+        #expect(await model.nonMembers(in: Self.message(["fixture-other"])).people.isEmpty)
         await model.stop()
     }
 
     @Test func aCheckedOutsiderIsANonMember() async throws {
         let model = try await DirectorySearchTests.model(RecordingBackend(directory: [Self.outsider]))
         model.checkMembership(Self.outsider.id)
-        #expect(await model.nonMembers(in: Self.message(["outsider"])) == [Self.outsider.id])
+        #expect(await model.nonMembers(in: Self.message(["outsider"])).people == [Self.outsider.id])
+        await model.stop()
+    }
+
+    /// In a space the message itself adds them (`findings.md` §58.1).
+    @Test func aSpaceOutsiderIsAddedByTheMessage() async throws {
+        let model = try await DirectorySearchTests.model(RecordingBackend(directory: [Self.outsider]))
+        model.checkMembership(Self.outsider.id)
+        let found = await model.nonMembers(in: Self.message(["outsider"]))
+        #expect(found == NonMembers(people: [Self.outsider.id], adding: .byMention))
+        await model.stop()
+    }
+
+    @Test func nobodyOutsideNeedsNoAdding() async throws {
+        let model = try await DirectorySearchTests.model(RecordingBackend(directory: [Self.outsider]))
+        let found = await model.nonMembers(in: Self.message(["fixture-other"]))
+        #expect(found == NonMembers())
         await model.stop()
     }
 
     @Test func aCheckedMemberIsNot() async throws {
         let model = try await DirectorySearchTests.model(RecordingBackend(directory: [Self.outsider]))
         model.checkMembership(Member.ID("fixture-other"))
-        #expect(await model.nonMembers(in: Self.message(["fixture-other"])).isEmpty)
+        #expect(await model.nonMembers(in: Self.message(["fixture-other"])).people.isEmpty)
         await model.stop()
     }
 
@@ -44,7 +60,7 @@ struct NonMembersTests {
         let model = try await DirectorySearchTests.model(backend)
         await backend.holdMemberships(true)
         model.checkMembership(Self.outsider.id)
-        #expect(await model.nonMembers(in: Self.message(["outsider"])) == [Self.outsider.id])
+        #expect(await model.nonMembers(in: Self.message(["outsider"])).people == [Self.outsider.id])
         await backend.releaseHeldMembership()
         await model.stop()
     }
@@ -56,7 +72,7 @@ struct NonMembersTests {
         model.checkMembership(Self.outsider.id)
         await settleAutoMarkRead(until: "the check is held") { await backend.heldMembershipCount == 1 }
         await backend.releaseHeldMembership()
-        #expect(await model.nonMembers(in: Self.message(["outsider"])) == [Self.outsider.id])
+        #expect(await model.nonMembers(in: Self.message(["outsider"])).people == [Self.outsider.id])
         await model.stop()
     }
 
@@ -75,14 +91,14 @@ struct NonMembersTests {
     @Test func aPersonAddedSinceTheirCheckIsNotAskedAboutAgain() async throws {
         let model = try await DirectorySearchTests.model(RecordingBackend(directory: [Self.outsider]))
         model.checkMembership(Self.outsider.id)
-        #expect(await model.nonMembers(in: Self.message(["outsider"])) == [Self.outsider.id])
+        #expect(await model.nonMembers(in: Self.message(["outsider"])).people == [Self.outsider.id])
         model.send(ComposedMessage(text: "@Out Sider", mentions: [
             Mention(target: .user(Self.outsider.id), start: 0, length: 10, mode: .invite)
         ]))
         await settleAutoMarkRead(until: "they are a member") {
             model.mentionCandidates.contains { $0.id == Self.outsider.id }
         }
-        #expect(await model.nonMembers(in: Self.message(["outsider"])).isEmpty)
+        #expect(await model.nonMembers(in: Self.message(["outsider"])).people.isEmpty)
         await model.stop()
     }
 

@@ -84,6 +84,12 @@ struct CallPersonHeader: View {
                 }
                 .shadow(color: .black.opacity(0.3), radius: 16, y: 6)
                 .accessibilityHidden(true)
+                .overlay(alignment: .bottomTrailing) {
+                    if AudioCallPresentation.showsRemoteMuted(call) {
+                        CallRemoteMutedBadge(size: (avatarSize * 0.3).rounded())
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
+                }
             VStack(spacing: 5) {
                 Text(call.recipient.displayName)
                     .font(.title.weight(.semibold))
@@ -112,6 +118,21 @@ struct CallPersonHeader: View {
                 }
             }
         }
+    }
+}
+
+/// The other person has muted their microphone: a glass disc on the corner of
+/// their avatar, like the stage's other controls.
+struct CallRemoteMutedBadge: View {
+    let size: CGFloat
+
+    var body: some View {
+        Label("Muted", systemImage: "mic.slash.fill")
+            .labelStyle(.iconOnly)
+            .font(.system(size: (size * 0.46).rounded(), weight: .semibold))
+            .frame(width: size, height: size)
+            .glassEffect(.regular, in: .circle)
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
     }
 }
 
@@ -267,6 +288,9 @@ struct CallVideoTitle: View {
                     .accessibilityLabel("Sharing their screen")
             }
             Text(call.recipient.displayName).fontWeight(.semibold).lineLimit(1)
+            if AudioCallPresentation.showsRemoteMuted(call) {
+                Label("Muted", systemImage: "mic.slash.fill").labelStyle(.iconOnly)
+            }
             CallStatusText(call: call, timing: timing).foregroundStyle(.secondary)
         }
         .font(.callout)

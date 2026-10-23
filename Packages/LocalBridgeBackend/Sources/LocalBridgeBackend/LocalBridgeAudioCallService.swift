@@ -182,7 +182,8 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
     ) {
         let next = AudioCallSnapshot(
             id: previous.id, recipient: previous.recipient, direction: previous.direction,
-            phase: phase, isMuted: previous.isMuted, failureMessage: failure, endReason: endReason
+            phase: phase, isMuted: previous.isMuted, failureMessage: failure, endReason: endReason,
+            remoteMuted: previous.remoteMuted
         )
         snapshot = next
         continuation.yield(.snapshot(next))

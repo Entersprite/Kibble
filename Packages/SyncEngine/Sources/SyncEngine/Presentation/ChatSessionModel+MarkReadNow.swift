@@ -55,6 +55,9 @@ extension ChatSessionModel {
     ///   newest is behind Google's (`MarkReadOrigin`). A failed fetch falls
     ///   back to the newest stored message, and is recorded where the window
     ///   shows it; with nothing stored either, nothing is published.
+    /// - **The conversation's unread threads too**, for `.conversationList`
+    ///   only, after its own mark and with the panel's calls
+    ///   (`markUnreadThreadsRead(in:)`), inside the same in-flight guard.
     ///
     /// Not traced by `--probe=markread`: its vocabulary describes the automatic
     /// trigger's gates, and no exhaustive switch would force a new token to be
@@ -94,6 +97,21 @@ extension ChatSessionModel {
             guard !Task.isCancelled else { return }
             newest = newestServerMessage(in: conversation)
         }
+        await publishConversationPosition(through: newest, in: conversation)
+        // The sidebar's mark reads the conversation's threads too, after the
+        // newest page has brought their replies: a conversation's read does
+        // not read its threads (`findings.md` §64.5). A banner names one
+        // message, so it reads the conversation alone.
+        guard origin == .conversationList, !Task.isCancelled else { return }
+        await markUnreadThreadsRead(in: conversation)
+    }
+
+    /// The conversation's own mark, through its newest main message.
+    private func publishConversationPosition(
+        through newestStored: Date?,
+        in conversation: Conversation.ID
+    ) async {
+        var newest = newestStored
         // Read means read through the conversation's newest main message,
         // including one no stored message is as new as: a mark short of it
         // would never clear the dot (`Conversation.markReadPosition(through:)`).
