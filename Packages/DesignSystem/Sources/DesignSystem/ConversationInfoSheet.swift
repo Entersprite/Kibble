@@ -203,6 +203,9 @@ struct ConversationInfoSheet: View {
             )
             // The draft belongs to one account's conversation; two accounts can share a space.
             .id(AccountScoped(account: state.accountID, value: details.conversation.id))
+        case .settings:
+            ConversationSettingsForm(details: details, state: state, actions: actions, report: draftBinding)
+                .id(AccountScoped(account: state.accountID, value: details.conversation.id))
         default:
             InfoSectionPlaceholder(section: shown)
         }

@@ -19,8 +19,6 @@ struct ConversationDetailsForm: View {
     @Binding var report: InfoSectionDraft?
 
     @State private var draft: DetailsDraft
-    /// Whether the `details` arriving now answer this form's Save.
-    @State private var saves = InfoSaveTracker()
     @State private var pickingEmoji = false
     @State private var pending: ConversationMutation?
     /// Seam: Convert to Space… presents `ConvertToSpaceSeam` until the
@@ -58,31 +56,15 @@ struct ConversationDetailsForm: View {
             leaving
         }
         .formStyle(.grouped)
-        .onChange(of: details) { _, details in
-            // A reload keeps what was typed; the saved answer starts over.
-            draft = draft.updated(
-                to: details, isAnswer: saves.isAnswer(submitting: state.browser.isSubmitting)
-            )
-        }
-        .onChange(of: state.browser.isSubmitting) { _, submitting in
-            saves.submittingChanged(submitting)
-        }
-        .task(id: saves.phase) {
-            switch saves.phase {
-            case .requested:
-                // A write the model dropped never starts submitting.
-                try? await Task.sleep(for: .milliseconds(500))
-                if !Task.isCancelled {
-                    saves.saveMustHaveStarted()
-                }
-            case .landing:
-                // Runs after the turn submitting ended in, and its `details`, were applied.
-                saves.landed()
-            default:
-                break
-            }
-        }
-        .onChange(of: reportKey, initial: true) { publish() }
+        .reportsInfoDraft(
+            InfoDraftSeam(
+                section: .details, isDirty: draft.isDirty, isValid: draft.isValid,
+                mutation: { draft.isValid ? draft.patch().map(ConversationMutation.details) : nil },
+                revert: { draft = DetailsDraft(details) },
+                update: { details, isAnswer in draft = draft.updated(to: details, isAnswer: isAnswer) }
+            ),
+            details: details, state: state, actions: actions, report: $report
+        )
         .sheet(isPresented: $converting) { ConvertToSpaceSeam() }
         .alert(
             pending
@@ -298,47 +280,6 @@ struct ConversationDetailsForm: View {
             }
             .disabled(state.browser.needsReconciliation || state.browser.isSubmitting)
         }
-    }
-
-    // MARK: Reporting the draft
-
-    /// What the sheet's copy of the draft depends on: its closures read the
-    /// browser's flags and `details` as they were when it was made.
-    private var reportKey: ReportKey {
-        let browser = state.browser
-        return ReportKey(
-            details: details, isDirty: draft.isDirty, isValid: draft.isValid,
-            blocked: browser.needsReconciliation || browser.isLoadingAllParticipants || browser.isSubmitting
-        )
-    }
-
-    private struct ReportKey: Equatable {
-        let details: ConversationDetails
-        let isDirty: Bool
-        let isValid: Bool
-        let blocked: Bool
-    }
-
-    private func publish() {
-        guard draft.isDirty else {
-            if report != nil {
-                report = nil
-            }
-            return
-        }
-        let blocked = reportKey.blocked
-        let details = details
-        report = InfoSectionDraft(
-            section: .details,
-            isValid: draft.isValid,
-            save: {
-                // The model drops a write while reconciling, loading or submitting.
-                guard !blocked, draft.isValid, let patch = draft.patch() else { return }
-                saves.saveRequested()
-                actions.mutate(.details(patch))
-            },
-            revert: { draft = DetailsDraft(details) }
-        )
     }
 }
 

@@ -165,3 +165,18 @@ enum LinkPasteboard {
         #endif
     }
 }
+
+/// Copies plain text (an email address, a list of them), on both platforms.
+enum TextPasteboard {
+    /// Whether the pasteboard took the text.
+    @discardableResult
+    static func copy(_ text: String) -> Bool {
+        #if os(macOS)
+            NSPasteboard.general.clearContents()
+            return NSPasteboard.general.writeObjects([text as NSString])
+        #else
+            UIPasteboard.general.string = text
+            return true
+        #endif
+    }
+}

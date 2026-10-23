@@ -273,15 +273,12 @@
             )
         }
 
-        private func scrollViews(in view: NSView) -> [NSScrollView] {
-            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews(in:))
-        }
-
         func render(
             _ view: some View,
             dark: Bool,
             name: String,
-            size: NSSize = NSSize(width: 760, height: 460)
+            size: NSSize = NSSize(width: 760, height: 460),
+            scrolledToEnd: Bool = false
         ) async throws {
             let host = NSHostingView(rootView: view
                 .frame(width: size.width, height: size.height)
@@ -308,12 +305,38 @@
                 scrolls.contains { $0.frame.width >= 200 && $0.frame.height >= 100 },
                 "The native scrolling body must receive a usable viewport."
             )
-            if let path = ProcessInfo.processInfo.environment["KIBBLE_RENDER_CAPTURE_DIR"] {
-                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-                host.cacheDisplay(in: host.bounds, to: bitmap)
-                let png = try #require(bitmap.representation(using: .png, properties: [:]))
-                try png.write(to: URL(fileURLWithPath: path).appendingPathComponent("\(name).png"))
+            if scrolledToEnd {
+                Self.scrollToEnd(scrolls)
+                try await Task.sleep(for: .milliseconds(40))
+                host.layoutSubtreeIfNeeded()
             }
+            try Self.capture(host, name: name)
+        }
+    }
+
+    extension ConversationPanelsHostedTests {
+        /// Writes `name`.png into `KIBBLE_RENDER_CAPTURE_DIR`, when it is set.
+        static func capture(_ host: NSView, name: String) throws {
+            guard let path = ProcessInfo.processInfo.environment["KIBBLE_RENDER_CAPTURE_DIR"] else { return }
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: path).appendingPathComponent("\(name).png"))
+        }
+
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews(in:))
+        }
+
+        /// Scrolls the tallest scrolling body to its end, for the rows below the fold.
+        static func scrollToEnd(_ scrolls: [NSScrollView]) {
+            let tallest = scrolls.max {
+                ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
+            }
+            guard let scroll = tallest, let document = scroll.documentView else { return }
+            let end = max(0, document.frame.height - scroll.contentView.bounds.height)
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: document.isFlipped ? end : 0))
+            scroll.reflectScrolledClipView(scroll.contentView)
         }
     }
 #endif

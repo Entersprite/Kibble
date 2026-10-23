@@ -1,10 +1,5 @@
 import ChatKit
 import SwiftUI
-#if os(macOS)
-    import AppKit
-#else
-    import UIKit
-#endif
 
 /// The People table's context menu, confirmations and Copy Member Emails.
 extension ConversationPeopleTable {
@@ -197,7 +192,7 @@ extension ConversationPeopleTable {
             copyReport = "No one here has an email address."
             return
         }
-        copyReport = Self.write(emails.joined(separator: ", "))
+        copyReport = TextPasteboard.copy(emails.joined(separator: ", "))
             ? PeopleEmailCopy.report(copied: emails.count, missing: missing)
             : PeopleEmailCopy.failure
     }
@@ -205,19 +200,9 @@ extension ConversationPeopleTable {
     private func copyEmail(of ids: Set<Member.ID>) {
         let person = model.participants.first { ids.contains($0.id) }
         guard let email = person?.member.email else { return }
-        if !Self.write(email) {
+        if !TextPasteboard.copy(email) {
             copyReport = "Couldn’t copy the email address."
         }
-    }
-
-    private static func write(_ text: String) -> Bool {
-        #if os(macOS)
-            NSPasteboard.general.clearContents()
-            return NSPasteboard.general.writeObjects([text as NSString])
-        #else
-            UIPasteboard.general.string = text
-            return true
-        #endif
     }
 }
 
