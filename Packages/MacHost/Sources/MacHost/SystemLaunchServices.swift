@@ -111,18 +111,7 @@ public final class SystemLaunchServices: LaunchServices {
         await resetCallServices()
         switch arguments.backend {
         case .fixture:
-            let fixture = FakeBackend(world: .acme, directory: FixtureWorld.acmeDirectory)
-            // The demo world's dates are literals (2026-08-31), so the mention
-            // backfill's window is anchored at the world's own start rather
-            // than the wall clock, which would leave it empty.
-            let demoNow = FixtureWorld.acme.startedAt
-            return SessionSelection(
-                backend: fixture,
-                me: Acme.alex,
-                driver: FixtureDemoDriver(backend: fixture),
-                audioCalls: FixtureAudioCallService(),
-                now: { demoNow }
-            )
+            return await makeFixtureSession()
         case .local:
             break
         }

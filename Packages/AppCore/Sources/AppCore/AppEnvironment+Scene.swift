@@ -92,6 +92,7 @@ public extension AppEnvironment {
                 calls.canCall(conversation: $0, directory: model.directory, me: model.me)
             }.map(\.id))
         )
+        state.callHistory = callHistoryScene(of: model)
         state.resourceSyncStatuses = model.resourceSyncStatuses
         state.browser = browserScene(model)
         state.composerDrafts = composerDrafts
@@ -99,7 +100,22 @@ public extension AppEnvironment {
         state.checkingMessageDeliveries = model.checkingMessageDeliveries
         state.selectedMeetingSeries = model.selectedMeetingSeries
         state.isLoadingMeetingMetadata = model.isLoadingMeetingMetadata
+        state.callOffer = callOffer(in: model)
         return state
+    }
+
+    /// Return to Call for this session's own call, Join only on a fresh
+    /// observation of one going on, otherwise Call where the service can.
+    private func callOffer(in model: ChatSessionModel) -> ConversationCallOffer? {
+        guard let id = model.selected,
+              let conversation = model.conversations.first(where: { $0.id == id }) else { return nil }
+        return ConversationCallOffer.resolve(
+            inCall: calls.activeConversationID == id,
+            observedActive: calls.discovery.isActive(in: id),
+            canJoin: calls.canJoin(conversation: conversation, directory: model.directory, me: model.me),
+            canCall: calls.canCall(conversation: conversation, directory: model.directory, me: model.me),
+            participants: calls.discovery.participantCount(in: id)
+        )
     }
 
     /// The pure mapping beside the pane (`MentionItem.init`), fed from the
@@ -283,7 +299,16 @@ public extension AppEnvironment {
                 model.addAndSend(message, adding: people, in: conversation, thread: thread)
             }
         }
+        actions.callHistory = callHistoryActions
         actions.updateSidebar = { [weak self] in self?.updateSidebar($0) }
+        if calls.isAvailable {
+            actions.joinCall = { [weak self] id in
+                guard let self, let model = runningModel,
+                      let conversation = model.conversations.first(where: { $0.id == id }) else { return }
+                calls.joinCall(in: conversation, members: Array(model.directory.values), me: model.me)
+            }
+            actions.returnToCall = { [weak self] in self?.calls.showCurrentCall() }
+        }
         actions.browser = browserActions
         actions.selectMeetingSeries = { [weak self] in self?.runningModel?.selectMeetingSeries($0) }
         actions.visibleMeetingMessages = { [weak self] in self?.runningModel?.visibleMeetingMessages($0) }

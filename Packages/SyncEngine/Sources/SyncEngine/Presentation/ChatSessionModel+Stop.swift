@@ -51,6 +51,7 @@ public extension ChatSessionModel {
         unreadHolds = []
         composerFiles.reset()
         threads.stop()
+        callHistory.leave()
         // Unreachable today - a fresh model is built per session - but a
         // stale watermark or a retained draft from the account being signed
         // out of must not survive into a model reused for the next sign-in.

@@ -30,27 +30,34 @@
         private var callSymbols: [String] {
             var on = CallCameraState()
             on.isOn = true
-            let call = AudioCallSnapshot(
+            let call = AudioCallSession(AudioCallSnapshot(
                 id: UUID(), recipient: AudioCallRecipient(
                     conversationID: .init("dm"), memberID: .init("peer"), displayName: "Peer"
                 ), direction: .outgoing, phase: .connected, isMuted: true
-            )
+            ))
             let menus = [
                 CallMenu(call: nil, isEnding: false, camera: nil, screenSharing: nil, offersVideo: true),
                 CallMenu(
                     call: call, isEnding: false, camera: on,
                     screenSharing: CallScreenShareState(phase: .sharing),
-                    offersVideo: true
+                    offersVideo: true, offersSound: true
                 )
             ]
             return menus.flatMap(\.entries).map(\.symbol)
         }
 
+        /// The Join and Return to Call items and the call window's group and
+        /// sharing controls, drawn only where a host offers them.
+        static let callControlSymbols = [
+            "phone.arrow.up.right", "phone.fill", "person.2.fill", "person.3.fill", "speaker.wave.2",
+            "speaker.wave.2.fill", "rectangle.on.rectangle", "mic.slash.fill"
+        ]
+
         @Test func everySymbolExists() {
             let names = MenuBarSymbols.all + conversationSymbols + callSymbols
             #expect(Set(conversationSymbols).count == 12)
-            #expect(Set(callSymbols).count == 7)
-            for name in names {
+            #expect(Set(callSymbols).count == 8)
+            for name in names + Self.callControlSymbols {
                 #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")
             }
         }
@@ -63,7 +70,8 @@
             let plist = try #require(NSDictionary(contentsOf: url) as? [String: Any])
             let symbols = try #require(plist["symbols"] as? [String: String])
             let releases = try #require(plist["year_to_release"] as? [String: [String: String]])
-            for name in Set(MenuBarSymbols.all + conversationSymbols + callSymbols) {
+            let all = MenuBarSymbols.all + conversationSymbols + callSymbols + Self.callControlSymbols
+            for name in Set(all) {
                 let macOS = symbols[name].flatMap { releases[$0]?["macOS"] }
                 let major = macOS.flatMap { Double($0) } ?? .infinity
                 #expect(major <= 26, "\(name) needs macOS \(macOS ?? "?")")

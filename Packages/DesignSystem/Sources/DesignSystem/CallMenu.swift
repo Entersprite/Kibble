@@ -11,7 +11,7 @@ import SwiftUI
 /// window, never by a key that could be pressed while typing.
 public struct CallMenu: Equatable, Sendable {
     public enum Item: Hashable, Sendable {
-        case mute, camera, shareScreen, endCall
+        case mute, camera, shareScreen, shareScreenWithSound, endCall
     }
 
     public struct Entry: Hashable, Identifiable, Sendable {
@@ -34,8 +34,8 @@ public struct CallMenu: Equatable, Sendable {
     /// that has started and not finished is acted on. A ring waiting for an
     /// answer holds nothing.
     public init(
-        call: AudioCallSnapshot?, isEnding: Bool, camera: CallCameraState?,
-        screenSharing: CallScreenShareState?, offersVideo: Bool
+        call: AudioCallSession?, isEnding: Bool, camera: CallCameraState?,
+        screenSharing: CallScreenShareState?, offersVideo: Bool, offersSound: Bool = false
     ) {
         let live = call.flatMap { $0.phase.isTerminal || $0.phase == .incoming || isEnding ? nil : $0 }
         let media = live.map { AudioCallPresentation.canMute($0.phase) } ?? false
@@ -58,6 +58,13 @@ public struct CallMenu: Equatable, Sendable {
                 symbol: sharing == .idle ? "rectangle.on.rectangle" : "rectangle.on.rectangle.slash",
                 shortcut: nil, isEnabled: media && screenSharing.map { $0.phase != .stopping } == true
             ))
+            // Its own item, so sound is only ever shared by choosing it.
+            if offersSound {
+                entries.append(Entry(
+                    item: .shareScreenWithSound, title: Self.shareWithSoundTitle, symbol: "speaker.wave.2",
+                    shortcut: nil, isEnabled: media && sharing == .idle && screenSharing != nil
+                ))
+            }
         }
         entries.append(Entry(
             item: .endCall, title: "End Call", symbol: "phone.down", shortcut: nil,
@@ -65,6 +72,8 @@ public struct CallMenu: Equatable, Sendable {
         ))
         self.entries = entries
     }
+
+    static let shareWithSoundTitle = "Share Screen with Sound…"
 
     /// The call window's sharing button says the same at each step.
     static func sharingTitle(_ phase: CallScreenShareState.Phase) -> String {

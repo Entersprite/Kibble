@@ -153,6 +153,7 @@ extension ChatSessionModel {
         activity = ConversationActivity()
         closeThread()
         threads.showingList = false
+        callHistory.leave()
         threads.summaries = [:]
         conversationWatchers
             .append(observe(store.observeActivity(in: id)) { [weak self] in self?.activity = $0 })

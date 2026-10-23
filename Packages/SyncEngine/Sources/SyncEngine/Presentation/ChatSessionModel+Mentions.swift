@@ -39,8 +39,8 @@ public extension ChatSessionModel {
 }
 
 extension ChatSessionModel {
-    /// Leaves the open conversation for a list in the sidebar, Mentions or
-    /// Threads, and **leaves no conversation selected.** That is the whole
+    /// Leaves the open conversation for a list in the sidebar, Mentions,
+    /// Threads or Calls, and **leaves no conversation selected.** That is the whole
     /// guarantee that viewing a list reads nothing: auto-mark-read needs a
     /// selection and that selection's message observation, and this drops
     /// both, and the thread panel with them. A mark already scheduled for the
@@ -50,6 +50,7 @@ extension ChatSessionModel {
         browser.leaveDirectory()
         showingMentions = false
         threads.showingList = false
+        callHistory.leave()
         scrollTarget = nil
         selected = nil
         selectedMeetingSeries = nil

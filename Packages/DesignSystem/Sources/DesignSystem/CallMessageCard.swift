@@ -26,7 +26,8 @@ struct CallMessageCard: View {
         }
     }
 
-    private var tint: Color {
+    /// The Calls list draws a record with the same glyph and color.
+    static func tint(of status: MessageCallStatus) -> Color {
         switch status {
         case .started: .accentColor
         case .missed: .red
@@ -34,11 +35,15 @@ struct CallMessageCard: View {
         }
     }
 
+    static func symbol(of status: MessageCallStatus) -> String {
+        status == .missed ? "video.slash.fill" : "video.fill"
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: status == .missed ? "video.slash.fill" : "video.fill")
+            Image(systemName: Self.symbol(of: status))
                 .font(.title3)
-                .foregroundStyle(tint)
+                .foregroundStyle(Self.tint(of: status))
                 .frame(width: Self.glyphSize.width, height: Self.glyphSize.height)
                 .accessibilityHidden(true)
             ZStack(alignment: .leading) {

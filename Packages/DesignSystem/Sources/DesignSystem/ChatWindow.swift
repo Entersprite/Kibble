@@ -106,6 +106,12 @@ public struct ChatWindow: View {
                                 threads.openItem($0, $1)
                             }
                             .id(state.accountID)
+                        } else if state.callHistory.showingList, let history = actions.callHistory {
+                            CallHistoryPane(
+                                scene: state.callHistory, directory: state.directory, me: state.me,
+                                callable: state.callableConversations, actions: history, call: actions.call
+                            )
+                            .id(state.accountID)
                         } else if let conversation = state.selectedConversation {
                             // `safeAreaInset`, so the transcript scrolls under the
                             // composer rather than being hidden behind it the way an

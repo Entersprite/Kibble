@@ -11,14 +11,14 @@
     struct CallRemoteMutedBadgeTests {
         private let actions = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})
 
-        private func call(_ phase: AudioCallPhase, remoteMuted: Bool?) -> AudioCallSnapshot {
-            AudioCallSnapshot(
+        private func call(_ phase: AudioCallPhase, remoteMuted: Bool?) -> AudioCallSession {
+            AudioCallSession(AudioCallSnapshot(
                 id: UUID(),
                 recipient: AudioCallRecipient(
                     conversationID: Conversation.ID("badge-fixture"), memberID: Member.ID("peer"),
                     displayName: "Maya"
                 ), direction: .outgoing, phase: phase, remoteMuted: remoteMuted
-            )
+            ))
         }
 
         @Test func onlyAKnownMuteOnALiveCallShowsTheBadge() {

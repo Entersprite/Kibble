@@ -24,17 +24,17 @@
             }
         }
 
-        private func call(_ phase: AudioCallPhase) -> AudioCallSnapshot {
-            AudioCallSnapshot(
+        private func call(_ phase: AudioCallPhase) -> AudioCallSession {
+            AudioCallSession(AudioCallSnapshot(
                 id: UUID(),
                 recipient: AudioCallRecipient(
                     conversationID: Conversation.ID("diagnostics-fixture"), memberID: Member.ID("peer"),
                     displayName: "Maya"
                 ), direction: .outgoing, phase: phase
-            )
+            ))
         }
 
-        private func view(_ call: AudioCallSnapshot, collector: Collector?) -> AudioCallView {
+        private func view(_ call: AudioCallSession, collector: Collector?) -> AudioCallView {
             AudioCallView(
                 call: call,
                 actions: AudioCallActions(

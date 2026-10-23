@@ -116,15 +116,18 @@ struct CallRoundFace: View {
     }
 }
 
-/// The controls of a live call: microphone, camera, sharing, the device menu
-/// and End, in that order, as FaceTime orders them.
+/// The controls of a live call: microphone, camera, sharing, the people in a
+/// group or space, the device menu and End, in that order, as FaceTime
+/// orders them.
 struct CallControlBar: View {
-    let call: AudioCallSnapshot
+    let call: AudioCallSession
     let actions: AudioCallActions
     let devices: CallAudioDevices?
     let camera: CallCameraState?
     let screenSharing: CallScreenShareState?
     let diagnostics: CallDiagnosticsItem?
+    var roster: [CallRosterEntry]?
+    var showsPeople: Binding<Bool>?
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
@@ -140,7 +143,12 @@ struct CallControlBar: View {
                     CallCameraButton(camera: camera, toggle: toggle)
                 }
                 if canUseMedia, let screenSharing, let toggle = actions.toggleScreenSharing {
-                    CallScreenShareButton(state: screenSharing, toggle: toggle)
+                    CallScreenShareButton(
+                        state: screenSharing, toggle: toggle, shareWithSound: actions.shareScreenWithSound
+                    )
+                }
+                if call.isConversationCall, call.phase == .connected, let showsPeople {
+                    CallPeopleButton(entries: roster, isPresented: showsPeople)
                 }
                 if menu.hasContent {
                     menu

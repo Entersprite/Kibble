@@ -55,6 +55,17 @@ final class FakeLaunchBackend: ChatBackend, @unchecked Sendable {
         history.withLock { $0 = messages }
     }
 
+    /// What `callHistory` answers, for any query, and every query as asked.
+    /// Behind a lock for `commands`' reason.
+    let callHistoryPages = Mutex<(page: CallHistoryPage, queries: [CallHistoryQuery])>(
+        (CallHistoryPage(messages: []), [])
+    )
+    /// What call discovery answers, and which conversations it was asked about.
+    typealias CallDiscoveryState = (
+        answers: [Conversation.ID: ConversationCallAvailability], asked: [Conversation.ID]
+    )
+    let callDiscovery = Mutex<CallDiscoveryState>(([:], []))
+
     /// Every attachment fetch, as `id/size`. Behind a lock for `commands`' reason.
     private let fetches = Mutex<[String]>([])
 

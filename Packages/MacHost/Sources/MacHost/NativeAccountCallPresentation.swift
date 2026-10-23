@@ -120,16 +120,13 @@ final class NativeAccountCallPresentation {
 
     private func observe() {
         guard !stopped else { return }
-        var person: Member?
-        if let call = environment.calls.call, case let .running(model) = environment.phase {
-            person = model.directory[call.recipient.memberID]
-        }
+        let (person, conversation) = MacAppDelegate.callPeople(in: environment)
         withObservationTracking {
             let call = environment.calls.call
             var rule: ResolvedRule?
             if case let .running(model) = environment.phase, environment.settings.account != nil,
                let conversation = model.conversations
-               .first(where: { $0.id == call?.recipient.conversationID }) {
+               .first(where: { $0.id == call?.conversationID }) {
                 rule = environment.settings.resolved(for: conversation)
             }
             var surface = IncomingCallSurface.notificationsOnly
@@ -148,7 +145,7 @@ final class NativeAccountCallPresentation {
             window?.update(
                 call: call, windowRequests: environment.calls.windowRequests,
                 devices: binding.audioDevices.devices, alertsIncoming: raises, video: binding.video,
-                person: person
+                person: person, conversation: conversation, participants: environment.calls.participants
             )
         } onChange: { [weak self] in Task { @MainActor [weak self] in self?.observe() } }
     }

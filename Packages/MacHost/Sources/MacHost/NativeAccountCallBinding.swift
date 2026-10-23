@@ -63,8 +63,11 @@ final class NativeAccountCallBindings {
 }
 
 /// The provider stream stays FIFO, including its checked recovery barrier.
+/// Every port the native service offers passes through: the service asks
+/// this adapter, not the source, whether Join and conversation calls exist.
 @MainActor
-final class NativeAccountAudioCalls: AudioCallQuiescing {
+final class NativeAccountAudioCalls: AudioCallQuiescing, ExistingAudioCallService,
+    ConversationAudioCallService {
     private let source: LocalBridgeAudioCallService
     private let binding: NativeAccountCallBinding
     var events: AsyncStream<AudioCallEvent> {
@@ -85,6 +88,26 @@ final class NativeAccountAudioCalls: AudioCallQuiescing {
 
     func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {
         try await source.startOutgoing(to: recipient, callID: callID)
+    }
+
+    var canJoinExistingCalls: Bool {
+        source.canJoinExistingCalls
+    }
+
+    func joinExisting(to recipient: AudioCallRecipient, callID: UUID) async throws {
+        try await source.joinExisting(to: recipient, callID: callID)
+    }
+
+    var canCallConversations: Bool {
+        source.canCallConversations
+    }
+
+    func startConversationCall(to target: ConversationCallTarget, callID: UUID) async throws {
+        try await source.startConversationCall(to: target, callID: callID)
+    }
+
+    func joinConversationCall(to target: ConversationCallTarget, callID: UUID) async throws {
+        try await source.joinConversationCall(to: target, callID: callID)
     }
 
     func accept(callID: UUID) async throws {

@@ -7,15 +7,15 @@
 
     @MainActor
     struct CallSharingAndPanelLayoutTests {
-        private func call(_ phase: AudioCallPhase) -> AudioCallSnapshot {
-            AudioCallSnapshot(
+        private func call(_ phase: AudioCallPhase) -> AudioCallSession {
+            AudioCallSession(AudioCallSnapshot(
                 id: UUID(),
                 recipient: AudioCallRecipient(
                     conversationID: Conversation.ID("layout"), memberID: Member.ID("peer"),
                     displayName: "Maya Okafor"
                 ),
                 direction: .outgoing, phase: phase
-            )
+            ))
         }
 
         private func size(_ view: some View) -> CGSize {

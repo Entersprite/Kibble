@@ -15,6 +15,11 @@ enum AudioCallPresentation {
         }
     }
 
+    /// A join's first moments read as joining, since nobody is being rung.
+    static func status(for call: AudioCallSession) -> String {
+        call.isJoining && call.phase == .connecting ? "Joining…" : status(for: call.phase)
+    }
+
     static func canMute(_ phase: AudioCallPhase) -> Bool {
         phase == .ringing || phase == .connected
     }
@@ -25,7 +30,7 @@ enum AudioCallPresentation {
 
     /// The other person's microphone is off. Only a reported mute shows it;
     /// unknown is never drawn as muted, and a finished call shows nothing.
-    static func showsRemoteMuted(_ call: AudioCallSnapshot) -> Bool {
+    static func showsRemoteMuted(_ call: AudioCallSession) -> Bool {
         call.remoteMuted == true && !call.phase.isTerminal
     }
 
@@ -34,7 +39,7 @@ enum AudioCallPresentation {
         phase == .incoming || phase == .connecting || phase == .ringing
     }
 
-    static func failureMessage(for call: AudioCallSnapshot) -> String? {
+    static func failureMessage(for call: AudioCallSession) -> String? {
         if let message = call.failureMessage {
             return message
         }

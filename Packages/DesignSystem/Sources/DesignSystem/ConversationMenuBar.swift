@@ -19,6 +19,8 @@ public struct ConversationMenuBar: Equatable {
         case details(Conversation.ID)
         case call(Conversation.ID)
         case videoCall(Conversation.ID)
+        case joinCall(Conversation.ID)
+        case returnToCall
         case markAsRead([Conversation.ID])
         case mute([Conversation.ID])
         case unmute([Conversation.ID])
@@ -27,6 +29,7 @@ public struct ConversationMenuBar: Equatable {
         case closeThread
         case mentions
         case threads
+        case calls
         case select(SidebarSelection)
     }
 
@@ -125,7 +128,12 @@ extension ConversationMenuBar {
                 command: shows ? conversation.map { .details($0.id) } : nil
             ))
         }
-        let callable = state.flatMap(callableConversation)
+        let offer = state.flatMap { state in
+            state.selectedConversation.flatMap { conversation in
+                callOffer(in: state, actions: actions).map { (conversation.id, $0) }
+            }
+        }
+        let callable = offer.flatMap { $0.1 == .call ? $0.0 : nil }
         if actions.call != nil {
             entries.append(Entry(
                 id: "call", title: ConversationMenu.Item.call.title,
@@ -139,17 +147,41 @@ extension ConversationMenuBar {
                 ))
             }
         }
+        if actions.joinCall != nil {
+            let joinable = offer.flatMap {
+                if case .join = $0.1 {
+                    $0.0
+                } else {
+                    nil
+                }
+            }
+            entries.append(Entry(
+                id: "joinCall", title: "Join Call", style: .button(symbol: "phone.arrow.up.right"),
+                shortcut: nil, command: joinable.map(Command.joinCall)
+            ))
+        }
+        if actions.returnToCall != nil {
+            entries.append(Entry(
+                id: "returnToCall", title: "Return to Call", style: .button(symbol: "phone.fill"),
+                shortcut: nil, command: offer?.1 == .returnToCall ? .returnToCall : nil
+            ))
+        }
         return entries
     }
 
-    /// The DM the toolbar's Call button would call: its conversation on
-    /// screen, a DM, and one the call service can reach.
-    private static func callableConversation(_ state: ChatSceneState) -> Conversation.ID? {
+    /// What the toolbar offers for the conversation on screen, each choice
+    /// falling back to Call where the host supplied nothing to carry it out
+    /// (Call itself raises a call already going on).
+    @MainActor
+    static func callOffer(in state: ChatSceneState, actions: ChatSceneActions) -> ConversationCallOffer? {
         guard !state.showingMentions, !state.threads.showingList,
-              let conversation = state.selectedConversation,
-              conversation.kind == .directMessage, state.callableConversations.contains(conversation.id)
-        else { return nil }
-        return conversation.id
+              let conversation = state.selectedConversation else { return nil }
+        let callable = actions.call != nil && state.callableConversations.contains(conversation.id)
+        switch state.callOffer {
+        case .returnToCall? where actions.returnToCall != nil: return .returnToCall
+        case let .join(participants)? where actions.joinCall != nil: return .join(participants: participants)
+        default: return callable ? .call : nil
+        }
     }
 
     /// Mark as Read, Mute or Unmute, and Notification Settings…, from the
@@ -200,7 +232,7 @@ extension ConversationMenuBar {
         case .meetingSeries?:
             return state.meetingSeries
                 .map { ConversationMenu.entries(for: $0, state: state, offers: offers) } ?? []
-        case .mentions?, .threads?, nil:
+        case .mentions?, .threads?, .calls?, nil:
             return []
         }
     }
@@ -235,7 +267,7 @@ extension ConversationMenuBar {
         return state.threads.panel
     }
 
-    /// Go to Mentions and Go to Threads, the sidebar's pinned rows.
+    /// Go to Mentions, Go to Threads and Go to Calls, the sidebar's pinned rows.
     @MainActor
     private static func paneEntries(_ state: ChatSceneState?, actions: ChatSceneActions) -> [Entry] {
         var entries: [Entry] = []
@@ -249,6 +281,12 @@ extension ConversationMenuBar {
             entries.append(Entry(
                 id: "threads", title: "Go to Threads", style: .button(symbol: ThreadsPresentation.rowSymbol),
                 shortcut: nil, command: state == nil ? nil : .threads
+            ))
+        }
+        if actions.callHistory != nil {
+            entries.append(Entry(
+                id: "calls", title: "Go to Calls", style: .button(symbol: CallHistoryPresentation.rowSymbol),
+                shortcut: nil, command: state == nil ? nil : .calls
             ))
         }
         return entries
@@ -293,11 +331,13 @@ public extension ConversationMenuBar {
         case let .details(id): actions.browser?.details(id, false)
         case let .call(id): actions.call?(id)
         case let .videoCall(id): actions.videoCall?(id)
+        case let .joinCall(id): actions.joinCall?(id)
+        case .returnToCall: actions.returnToCall?()
         case let .markAsRead(ids): ids.forEach { actions.markRead?($0) }
         case let .mute(ids): ids.forEach { actions.mute?($0) }
         case let .unmute(ids): ids.forEach { actions.unmute?($0) }
         case let .notificationSettings(id): actions.showNotificationSettings?(id)
-        case .setFollowed, .closeThread, .mentions, .threads, .select: move(command, actions: actions)
+        case .setFollowed, .closeThread, .mentions, .threads, .calls, .select: move(command, actions: actions)
         }
     }
 
@@ -310,8 +350,10 @@ public extension ConversationMenuBar {
         case .closeThread: actions.threads?.close()
         case .mentions: actions.showMentions?()
         case .threads: actions.threads?.showList()
+        case .calls: actions.callHistory?.show()
         case let .select(selection): SidebarPinned.choose(selection, actions: actions)
-        case .details, .call, .videoCall, .markAsRead, .mute, .unmute, .notificationSettings: break
+        case .details, .call, .videoCall, .joinCall, .returnToCall, .markAsRead, .mute, .unmute,
+             .notificationSettings: break
         }
     }
 }

@@ -26,13 +26,14 @@ struct IncomingCallAlert: Equatable, Sendable {
     let delivery: Delivery
     var scope: UUID?
 
-    static func make(call: AudioCallSnapshot?, rule: ResolvedRule?, paused: Bool) -> Self? {
-        guard let call, call.direction == .incoming, call.phase == .incoming,
+    /// Only a person rings; a group or space call is always this Mac's own.
+    static func make(call: AudioCallSession?, rule: ResolvedRule?, paused: Bool) -> Self? {
+        guard let call, call.recipient != nil, call.direction == .incoming, call.phase == .incoming,
               let rule, !paused, rule.delivery != .off else { return nil }
         guard [.bannerAndSound, .banner, .notificationCenter].contains(rule.delivery) else { return nil }
         return Self(
             id: call.id,
-            title: rule.showsPreview ? call.recipient.displayName : "Kibble",
+            title: rule.showsPreview ? call.displayName : "Kibble",
             delivery: rule.delivery
         )
     }
@@ -66,10 +67,10 @@ struct IncomingCallRoute: Equatable {
     /// a Notification Center-only rule get the notification alone, which macOS
     /// filters, and nothing that would pull the person to Kibble.
     static func make(
-        call: AudioCallSnapshot?, rule: ResolvedRule?, paused: Bool, surface: IncomingCallSurface
+        call: AudioCallSession?, rule: ResolvedRule?, paused: Bool, surface: IncomingCallSurface
     ) -> Self {
         guard let alert = IncomingCallAlert.make(call: call, rule: rule, paused: paused),
-              let call, let rule else { return Self() }
+              let call, let recipient = call.recipient, let rule else { return Self() }
         guard alert.delivery == .banner || alert.delivery == .bannerAndSound else {
             return Self(notification: alert)
         }
@@ -80,8 +81,8 @@ struct IncomingCallRoute: Equatable {
             return Self(notification: alert)
         }
         let content = IncomingCallPanelContent(
-            callID: call.id, memberID: call.recipient.memberID,
-            name: rule.showsPreview ? call.recipient.displayName : nil,
+            callID: call.id, memberID: recipient.memberID,
+            name: rule.showsPreview ? recipient.displayName : nil,
             person: rule.showsPreview ? surface.person : nil, endsOtherCall: surface.endsOtherCall,
             problem: call.failureMessage
         )
@@ -125,7 +126,7 @@ final class IncomingCallAlerts {
     /// Returns whether the call window should rise for this call.
     @discardableResult
     func update(
-        call: AudioCallSnapshot?, rule: ResolvedRule?, paused: Bool,
+        call: AudioCallSession?, rule: ResolvedRule?, paused: Bool,
         surface: IncomingCallSurface = .notificationsOnly
     ) -> Bool {
         if observedCall != call?.id {
@@ -187,7 +188,7 @@ final class IncomingCallAlerts {
         }
     }
 
-    static func isCurrent(_ response: IncomingCallResponse, call: AudioCallSnapshot?) -> Bool {
+    static func isCurrent(_ response: IncomingCallResponse, call: AudioCallSession?) -> Bool {
         call?.id == response.callID && call?.direction == .incoming && call?.phase == .incoming
     }
 }

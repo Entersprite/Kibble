@@ -60,7 +60,8 @@ enum ConversationMenu {
                 items.append(.action(action))
             }
         }
-        if offers.call, conversation.kind == .directMessage, state.callableConversations.contains(id) {
+        // A group or space the call service can call starts its call quietly.
+        if offers.call, state.callableConversations.contains(id) {
             items.insert(.call, at: 0)
         }
         return items

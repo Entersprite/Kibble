@@ -88,12 +88,14 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     }
 
     public func update(
-        call: AudioCallSnapshot?,
+        call: AudioCallSession?,
         windowRequests: Int,
         devices: CallAudioDevices? = nil,
         alertsIncoming: Bool = true,
         video: CallVideoController? = nil,
-        person: Member? = nil
+        person: Member? = nil,
+        conversation: Conversation? = nil,
+        participants: [CallParticipantDevice]? = nil
     ) {
         guard let call else {
             cancelClosing()
@@ -117,8 +119,10 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         timing = Self.timing(timing, for: call.phase, now: now)
         let window = window ?? makeWindow()
         self.window = window
-        window.title = call.recipient.displayName
-        render(call, in: window, devices: devices, video: video, person: person)
+        window.title = call.displayName
+        render(call, in: window, devices: devices, video: video, people: CallPeople(
+            person: person, conversation: conversation, participants: participants
+        ))
         resize(window, isNewCall: isNewCall)
         if shouldPresent {
             present(window)
@@ -132,11 +136,11 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     /// An ended or declined call's window closes after `closeDelay`, later if
     /// the pointer is over it, so a reach for Call Back is not cut off. A failed
     /// call, or one ending with a cleanup warning, stays open to be read.
-    static func closesAutomatically(_ call: AudioCallSnapshot) -> Bool {
+    static func closesAutomatically(_ call: AudioCallSession) -> Bool {
         (call.phase == .ended || call.phase == .declined) && call.failureMessage == nil
     }
 
-    private func scheduleClose(after call: AudioCallSnapshot) {
+    private func scheduleClose(after call: AudioCallSession) {
         guard Self.closesAutomatically(call), closesFinishedCalls() else {
             cancelClosing()
             return
@@ -163,8 +167,8 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     /// Updates the one hosting view in place, so the view keeps its own state
     /// and the video renderers keep their tracks from snapshot to snapshot.
     private func render(
-        _ call: AudioCallSnapshot, in window: NSWindow, devices: CallAudioDevices?,
-        video: CallVideoController?, person: Member?
+        _ call: AudioCallSession, in window: NSWindow, devices: CallAudioDevices?,
+        video: CallVideoController?, people: CallPeople
     ) {
         let videoContent = video.flatMap(CallVideoSurface.content(for:))
         layout = layout.next(call: call, hasVideo: videoContent?.hasVideo == true)
@@ -175,7 +179,9 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         let view = AudioCallView(
             call: call,
             actions: actions,
-            person: person,
+            person: people.person,
+            conversation: people.conversation,
+            participants: people.participants,
             timing: timing,
             devices: devices,
             camera: video?.camera,
@@ -310,6 +316,14 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     }
 }
 
+/// Who the window shows: the person called, or the conversation and the
+/// devices its call reports.
+struct CallPeople {
+    var person: Member?
+    var conversation: Conversation?
+    var participants: [CallParticipantDevice]?
+}
+
 /// Which stage the call window shows. Video is sticky for the call that first
 /// showed it and resets with the next call.
 struct CallWindowLayout: Equatable {
@@ -319,7 +333,7 @@ struct CallWindowLayout: Equatable {
         videoCall != nil
     }
 
-    func next(call: AudioCallSnapshot, hasVideo: Bool) -> Self {
+    func next(call: AudioCallSession, hasVideo: Bool) -> Self {
         if videoCall == call.id {
             return self
         }

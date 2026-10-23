@@ -171,12 +171,21 @@ public struct ChatSceneActions {
     /// and how to show them (on the Mac, SwiftUI's `openSettings`, which only a
     /// view can read).
     public var showSettings: (() -> Void)?
-    /// Starts a DM audio call, or brings the existing call window forward.
+    /// Starts a call: a DM rings the person, a group or space starts one quietly.
+    /// Brings the existing call window forward while a call is going on.
     public var call: ((Conversation.ID) -> Void)?
-    /// Starts a DM call with the camera on. **Optional**, beside `call`: only
+    /// Starts a call with the camera on. **Optional**, beside `call`: only
     /// a host whose calls can carry video supplies it, and `nil` draws no
     /// Video Call button.
     public var videoCall: ((Conversation.ID) -> Void)?
+    /// Joins the call going on in a conversation, ringing nobody. Offered
+    /// only where `ChatSceneState.callOffer` says so.
+    public var joinCall: ((Conversation.ID) -> Void)?
+    /// Brings this session's call window forward.
+    public var returnToCall: (() -> Void)?
+    /// The Calls list. **Optional, and `nil` draws no Calls row**: only a
+    /// backend that keeps call records offers it.
+    public var callHistory: CallHistoryActions?
     /// Page the selected transcript. Missing callbacks draw no paging controls.
     public var loadOlderMessages: (() -> Void)?
     public var loadNewerMessages: (() -> Void)?

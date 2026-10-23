@@ -46,12 +46,15 @@ struct AudioCallHeaderTests {
         #expect(header(selected: false).videoCallConversation == nil)
     }
 
+    /// The call service names what it can call, groups and spaces included;
+    /// the header draws Call for exactly those.
     @Test(arguments: [
         Conversation.Kind.appDirectMessage, .groupDirectMessage, .space, .meetChat, .unknown("future")
     ])
-    func otherConversationKindsHaveNoCallButton(_ kind: Conversation.Kind) {
-        #expect(header(kind: kind).callConversation == nil)
-        #expect(header(kind: kind).videoCallConversation == nil)
+    func anyKindHasCallOnlyWhereTheServiceCanCallIt(_ kind: Conversation.Kind) {
+        #expect(header(kind: kind).callConversation == id)
+        #expect(header(kind: kind, supported: false).callConversation == nil)
+        #expect(header(kind: kind, supported: false).videoCallConversation == nil)
     }
 
     @Test(arguments: [

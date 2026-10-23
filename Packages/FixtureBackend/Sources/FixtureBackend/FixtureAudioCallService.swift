@@ -14,6 +14,7 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
     private var listening = false
     private var sequence: UInt64 = 0
     private var existingCalls: Set<Conversation.ID> = []
+    private var existingParticipants: [Conversation.ID: [CallParticipantDevice]] = [:]
 
     public var canJoinExistingCalls: Bool {
         true
@@ -24,7 +25,15 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
             existingCalls.insert(id)
         } else {
             existingCalls.remove(id)
+            existingParticipants[id] = nil
         }
+    }
+
+    /// A script names who is already in a call going on; joining it reports them.
+    public func setExistingCallParticipants(_ devices: [CallParticipantDevice], in id: Conversation.ID) {
+        guard devices.count <= 256 else { return }
+        existingCalls.insert(id)
+        existingParticipants[id] = devices
     }
 
     public func joinExisting(to recipient: AudioCallRecipient, callID: UUID) async throws {
@@ -73,6 +82,9 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
         existingCalls.insert(target.conversationID)
         call.phase = .connected
         publishConversation(call)
+        if joining, let devices = existingParticipants[target.conversationID] {
+            continuation.yield(.participantsChanged(callID: callID, participants: devices))
+        }
     }
 
     private func publishConversation(_ call: ConversationCallSnapshot) {

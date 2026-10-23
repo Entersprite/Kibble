@@ -11,6 +11,7 @@ public enum SidebarSelection: Hashable, Sendable {
     case meetingSeries(MeetingSeries.ID)
     case mentions
     case threads
+    case calls
 }
 
 /// Everything the chat window draws, as one value.
@@ -68,6 +69,9 @@ public struct ChatSceneState: Sendable, Equatable {
     public var capabilities: Capabilities
     /// Conversations the current call service can call. An empty set hides Call.
     public var callableConversations: Set<Conversation.ID>
+    /// What the selected conversation's header offers for calls; nil offers
+    /// nothing. Join appears only on a fresh observation of a call going on.
+    public var callOffer: ConversationCallOffer?
 
     /// A send that was not accepted, mentions and all, for the composer to
     /// adopt. `nil` in every ordinary frame.
@@ -125,6 +129,8 @@ public struct ChatSceneState: Sendable, Equatable {
     public var offersOutsideMentions = false
     /// Threads: the marks' summaries, the panel, the list (threads spec §5).
     public var threads: ThreadSceneState
+    /// The Calls list: retained call records, a page at a time.
+    public var callHistory = CallHistoryScene()
     /// Search: the overlay and the results bar (search spec §1).
     public var search: SearchSceneState
     /// The message the transcript marks once, after a search opened it.
@@ -249,6 +255,9 @@ public struct ChatSceneState: Sendable, Equatable {
         }
         if threads.showingList {
             return .threads
+        }
+        if callHistory.showingList {
+            return .calls
         }
         if let selectedMeetingSeries {
             return .meetingSeries(selectedMeetingSeries)

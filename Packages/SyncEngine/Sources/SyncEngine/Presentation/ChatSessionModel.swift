@@ -109,6 +109,7 @@ public final class ChatSessionModel {
     @ObservationIgnored var transcriptWork = TranscriptWork()
     @ObservationIgnored var ownStatusWork = OwnStatusWork()
     public internal(set) var threads = ThreadSessionState() // the panel and the list, +Threads.swift
+    public internal(set) var callHistory = CallHistorySessionState() // the Calls list, +CallHistory.swift
 
     /// Whether the app is frontmost. Fed by the app shell; `true` by default
     /// so every existing construction site and test keeps its behaviour.
