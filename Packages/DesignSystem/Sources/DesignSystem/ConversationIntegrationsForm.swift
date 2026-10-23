@@ -50,7 +50,14 @@ struct ConversationIntegrationsForm: View {
     }
 
     private var failure: IntegrationFailure? {
-        IntegrationFailure.place(sent: lastSent, pending: browser.pendingMutation, error: browser.panelError)
+        IntegrationFailure.place(
+            sent: lastSent, pending: browser.pendingMutation, error: browser.panelError,
+            shown: IntegrationFailure.Shown(
+                browser.integrations,
+                showsApps: state.capabilities.canManageConversationApps,
+                showsWebhooks: state.capabilities.canManageConversationWebhooks
+            )
+        )
     }
 
     private var title: String {
@@ -82,9 +89,15 @@ struct ConversationIntegrationsForm: View {
         }
         .formStyle(.grouped)
         .onAppear { actions.loadIntegrations() }
-        .onChange(of: browser.panelError) { _, error in
-            // Cleared by a reload or a success; a write on its way cleared it itself.
-            if error == nil, browser.pendingMutation == nil {
+        .onChange(
+            of: IntegrationFailure.Progress(
+                pending: browser.pendingMutation, error: browser.panelError,
+                integrations: browser.integrations
+            )
+        ) { _, now in
+            // A success (seen finishing, or as the reload after it), or a reload
+            // that cleared the error: a later error isn't this change's.
+            if IntegrationFailure.forgetsSent(pending: now.pending, error: now.error) {
                 lastSent = nil
             }
         }

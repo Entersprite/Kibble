@@ -8,19 +8,53 @@ enum IntegrationFailure: Equatable {
     case webhook(String)
     case addingApp
 
+    /// What the section draws, for where a refusal can land.
+    struct Shown: Equatable {
+        var apps: Set<Member.ID> = []
+        var webhooks: Set<String> = []
+        var appsSection = false
+
+        init(apps: Set<Member.ID> = [], webhooks: Set<String> = [], appsSection: Bool = false) {
+            self.apps = apps; self.webhooks = webhooks; self.appsSection = appsSection
+        }
+
+        init(_ integrations: ConversationIntegrations?, showsApps: Bool, showsWebhooks: Bool) {
+            guard let integrations else { return }
+            appsSection = showsApps
+            apps = showsApps ? Set(integrations.apps.map(\.id)) : []
+            webhooks = showsWebhooks ? Set(integrations.webhooks.map(\.id)) : []
+        }
+    }
+
     /// The place for the refusal of `sent`, the last change this section
-    /// sent: once nothing is on its way and the panel has an error. Other
-    /// changes (a webhook's save) say so in their own sheet.
+    /// sent: once nothing is on its way and the panel has an error, and only
+    /// where that place is drawn, so the sheet's header shows any error
+    /// that has nowhere here to go. Other changes (a webhook's save) say so
+    /// in their own sheet.
     static func place(
-        sent: ConversationMutation?, pending: ConversationMutation?, error: String?
+        sent: ConversationMutation?, pending: ConversationMutation?, error: String?, shown: Shown
     ) -> Self? {
         guard error != nil, pending == nil, let sent else { return nil }
         switch sent {
-        case let .removeApp(id): return .app(id)
-        case let .deleteWebhook(id): return .webhook(id)
-        case .addApp: return .addingApp
+        case let .removeApp(id): return shown.apps.contains(id) ? .app(id) : nil
+        case let .deleteWebhook(id): return shown.webhooks.contains(id) ? .webhook(id) : nil
+        case .addApp: return shown.appsSection ? .addingApp : nil
         default: return nil
         }
+    }
+
+    /// What tells the last change is done with: the write finishing, the
+    /// error clearing, or the list reloading after a confirmed change.
+    struct Progress: Equatable {
+        var pending: ConversationMutation?
+        var error: String?
+        var integrations: ConversationIntegrations?
+    }
+
+    /// Whether the last change is done with: nothing on its way and no
+    /// error, after a success or a reload. A later error is someone else's.
+    static func forgetsSent(pending: ConversationMutation?, error: String?) -> Bool {
+        pending == nil && error == nil
     }
 }
 
