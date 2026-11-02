@@ -8,7 +8,7 @@
     /// Info's window size through the panel's real presentation: one sheet
     /// whose content follows the model, so Info usually replaces Loading or
     /// Preview in a sheet that is already shown.
-    @MainActor @Suite(.serialized)
+    @MainActor @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct ConversationInfoSheetSizingTests {
         @Observable @MainActor final class Scene {
             var state = ChatSceneState()

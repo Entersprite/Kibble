@@ -7,7 +7,7 @@
 
     /// The Info sheet presented as a real sheet, because its footer buttons
     /// and their key equivalents exist only in the sheet's own bottom bar.
-    @MainActor @Suite(.serialized)
+    @MainActor @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct ConversationInfoSheetHostedTests {
         @MainActor final class Counts {
             var reverts = 0
