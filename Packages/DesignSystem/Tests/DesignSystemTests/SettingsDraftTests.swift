@@ -93,6 +93,13 @@ struct SettingsDraftTests {
         #expect(draft.patch() == nil)
     }
 
+    @Test func unavailablePermissionsDoNotClaimToBeCustomRules() {
+        #expect(PermissionText.access(.unknown) == "Unavailable")
+        #expect(PermissionText.audience(.unknown) == "Unavailable")
+        #expect(PermissionText.access(ConversationAccess("custom")) == "Custom rule")
+        #expect(PermissionText.label("replyMessages") == "Reply to messages")
+    }
+
     @Test func unknownPermissionIdsHaveNoLabel() {
         #expect(PermissionText.label("future") == nil)
         #expect(PermissionText.label("viewMembers") == "See the member list")

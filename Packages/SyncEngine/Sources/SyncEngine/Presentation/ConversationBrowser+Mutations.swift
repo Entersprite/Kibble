@@ -11,6 +11,7 @@ public extension ConversationBrowser {
     func mutate(_ mutation: ConversationMutation) {
         guard let details, !isSubmitting, !isLoadingAllParticipants, !stopped, !needsReconciliation
         else { return }
+        retirePanelReadsForMutation()
         isSubmitting = true
         pendingChange = (details.conversation.id, mutation)
         panelError = nil
@@ -31,8 +32,7 @@ public extension ConversationBrowser {
                 pendingChange = nil
                 // Another panel's failure is not this one's to show.
                 guard panelTarget == details.conversation.id else { return }
-                needsReconciliation = true
-                panelError = Self.message(error)
+                recoverMetadata(mutation, in: details.conversation.id, error: Self.message(error))
             }
         }
     }
@@ -49,6 +49,7 @@ public extension ConversationBrowser {
         }
         guard let details, let id = panelTarget, details.conversation.id == id, !isSubmitting,
               !isLoadingAllParticipants, !stopped, !needsReconciliation else { return }
+        retirePanelReadsForMutation()
         isSubmitting = true
         pendingChange = (id, mutations[0])
         panelError = nil
@@ -69,6 +70,9 @@ public extension ConversationBrowser {
                         expectedRevision: batch.revision
                     )
                     guard batch.record(result, of: mutation) else { break }
+                    guard !Task.isCancelled, !stopped, self.generation == generation,
+                          panelTarget == id else { break }
+                    retainConfirmedRole(mutation, result: result)
                 } catch {
                     batch.failure = .refused(Self.message(error))
                     break
@@ -122,13 +126,13 @@ public extension ConversationBrowser {
     ) {
         guard result.isConfirmed else {
             guard panelTarget == id else { return }
-            needsReconciliation = true
-            panelError = "The change could not be confirmed. Reload before trying again."
+            recoverMetadata(mutation, in: id, error: "The change could not be confirmed.")
             return
         }
         if [.leave, .deleteSpace, .declineInvitation, .block].contains(mutation) {
             closePanel()
         } else if details?.conversation.id == id {
+            retainConfirmedRole(mutation, result: result)
             if let updated = result.details {
                 details = updated
             }
@@ -136,13 +140,30 @@ public extension ConversationBrowser {
                 notice = "\(result.failedMembers.count) people could not be updated."
             }
             if result.details == nil || result.details?.membership == .joined {
-                openDetails(id)
+                if mutation.editsMetadata, result.details != nil {
+                    needsReconciliation = false
+                    if case .settings = mutation {
+                        refreshSettingsParticipants(id)
+                    }
+                } else {
+                    openDetails(id)
+                }
                 reloadInfo(after: mutation)
             }
         }
         if page == "space" || page == "spaceSpam" {
             search(query, scope: scope)
         }
+    }
+
+    /// Reconcile an uncertain edit with a read, never another write. The form
+    /// keeps its draft and error while fresh details unblock the next explicit Save.
+    private func recoverMetadata(_ mutation: ConversationMutation, in id: Conversation.ID, error: String) {
+        needsReconciliation = true
+        if mutation.editsMetadata {
+            openDetails(id)
+        }
+        panelError = error
     }
 }
 
@@ -177,5 +198,14 @@ struct BatchOutcome {
             revisionLost = true
         }
         return true
+    }
+}
+
+private extension ConversationMutation {
+    var editsMetadata: Bool {
+        switch self {
+        case .settings, .details, .identity, .guidelines, .emoji: true
+        default: false
+        }
     }
 }

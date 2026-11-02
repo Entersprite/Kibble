@@ -50,6 +50,7 @@ actor AccountRuntime {
     var now: @Sendable () -> Date = { Date() }
     var mediaFactsVersion = UUID()
     /// Provider changes, distinct from references issued by concurrent queries.
+    var managementQueries: [UUID: PendingManagementRead] = [:]
     var pinQueries: [UUID: PendingPinRead] = [:]
     var resourceSync: [ResourceSyncAddress: ResourceSyncStatus] = [:]
     var reads = AccountReadState()

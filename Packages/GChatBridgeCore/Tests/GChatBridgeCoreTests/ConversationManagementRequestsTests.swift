@@ -3,6 +3,22 @@ import Testing
 @testable import GChatBridgeCore
 
 struct ConversationManagementRequestsTests {
+    @Test func theFifthNativeRoleFlagAndFutureFieldsSurviveRoundTrip() throws {
+        var roles = try SpacePermissionRoles(serializedBytes: Data([0x28, 1, 0x38, 7]))
+        #expect(roles.hasRole5 && roles.role5)
+        #expect(roles.unknownFields.data == Data([0x38, 7]))
+        roles.owners = true
+        let encoded = try roles.serializedData()
+        #expect(ProtoFieldScan.varintValues(ofField: 5, in: encoded) == [1])
+        #expect(ProtoFieldScan.varintValues(ofField: 7, in: encoded) == [7])
+    }
+
+    @Test func infoRequestsTheCurrentClientsManagementMetadata() {
+        let request = ConversationManagementRequests.details(GroupId())
+        // Rpl's native get_group metadata options, plus full member records.
+        #expect(Set(request.fetchOptions.map(\.rawValue)).isSuperset(of: [0, 1, 5, 7, 8, 9]))
+    }
+
     @Test func directoryCountsUseTheSummarysNestedFieldTen() throws {
         // Field10 -> repeated counts1; each count has total1, member kind2, membership3.
         let summary = try SearchSpaceDirectoryResponse.Summary(serializedBytes: Data([
@@ -99,6 +115,7 @@ struct ConversationManagementRequestsTests {
         #expect(request.groupID == group)
         #expect(!request.hasSpaceID)
         #expect(request.updateMasks == [.name, .spaceDetails])
+        #expect(!request.requestHeader.hasClientFeatureCapabilities)
         #expect(request.spaceDetails.hasDescription_p)
         #expect(request.spaceDetails.description_p.isEmpty)
         #expect(!request.hasVisibility)

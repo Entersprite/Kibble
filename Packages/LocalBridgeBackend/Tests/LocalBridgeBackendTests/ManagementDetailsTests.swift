@@ -13,6 +13,7 @@ private actor DetailsTransport: HTTPTransport {
     var avatar = SpaceAvatar()
     var changeBeforeWrite = false
     var omitDetailsEcho = false
+    var ignoreUpdate = false
     private(set) var updates: [UpdateGroupRequest] = []
     private var reads = 0
 
@@ -32,6 +33,10 @@ private actor DetailsTransport: HTTPTransport {
         details.description_p = ""
         details.guidelines = ""
         omitDetailsEcho = true
+    }
+
+    func ignoreWrites() {
+        ignoreUpdate = true; omitDetailsEcho = true
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -61,20 +66,20 @@ private actor DetailsTransport: HTTPTransport {
         case "update_group":
             let input = try UpdateGroupRequest(serializedBytes: request.body ?? Data())
             updates.append(input)
-            if input.hasSpaceDetails {
+            if !ignoreUpdate, input.hasSpaceDetails {
                 details = input.spaceDetails
             }
-            if input.hasName {
+            if !ignoreUpdate, input.hasName {
                 name = input.name
             }
-            if input.hasAvatarInfo {
+            if !ignoreUpdate, input.hasAvatarInfo {
                 avatar = input.avatarInfo
             }
             revision += 1
             var response = UpdateGroupResponse()
             response.group.groupID = input.groupID
             response.group.name = name
-            if input.hasAvatarInfo {
+            if !ignoreUpdate, input.hasAvatarInfo {
                 response.group.avatarInfo = avatar
             }
             if !omitDetailsEcho {
@@ -120,17 +125,40 @@ struct ManagementDetailsTests {
         await backend.disconnect()
     }
 
-    @Test func missingEchoDoesNotConfirmAnExplicitClearOrRepeatIt() async throws {
+    @Test func sparseEchoIsConfirmedByReadingWithoutRepeatingTheWrite() async throws {
         let transport = try DetailsTransport()
         await transport.omitEmptyDetailsEcho()
         let backend = try await connected(transport)
+        let result = try await backend.mutateConversation(
+            .guidelines("New guidelines"), in: .init("space/a"), operationID: "sparse", expectedRevision: nil
+        )
+        #expect(result.isConfirmed && result.details?.guidelines == "New guidelines")
+        let replay = try await backend.mutateConversation(
+            .guidelines("New guidelines"), in: .init("space/a"), operationID: "sparse", expectedRevision: nil
+        )
+        #expect(replay == result)
+        #expect(await transport.updates.count == 1)
+        await backend.disconnect()
+    }
+
+    @Test(arguments: [
+        ConversationMutation.guidelines("Not applied"),
+        .details(.init(description: "", guidelines: "")), .emoji("")
+    ])
+    func sparseAcknowledgementWithoutTheRequestedChangeRemainsUnconfirmed(
+        _ mutation: ConversationMutation
+    ) async throws {
+        let transport = try DetailsTransport()
+        await transport.ignoreWrites()
+        let backend = try await connected(transport)
         await #expect(throws: ChatError.self) {
             _ = try await backend.mutateConversation(
-                .guidelines(""), in: .init("space/a"), operationID: "uncertain", expectedRevision: nil
+                mutation, in: .init("space/a"), operationID: "ignored",
+                expectedRevision: nil
             )
         }
         let replay = try await backend.mutateConversation(
-            .guidelines(""), in: .init("space/a"), operationID: "uncertain", expectedRevision: nil
+            mutation, in: .init("space/a"), operationID: "ignored", expectedRevision: nil
         )
         #expect(!replay.isConfirmed)
         #expect(await transport.updates.count == 1)

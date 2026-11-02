@@ -14,18 +14,18 @@ extension AccountRuntime {
             return try await readMessagePins(in: payload.conversationID, backend: backend, epoch: epoch)
         case GetConversationDetails.operation:
             let payload = try request.decodePayload(GetConversationDetails.self)
-            let value = try await mediaQuery(epoch: epoch) {
+            let value = try await managementQuery(in: payload.conversationID, epoch: epoch) {
                 try await backend.conversationDetails(payload.conversationID)
-            } remember: { catalog, value, date in
+            } members: { $0.conversation.members } remember: { catalog, value, date in
                 try Self.rememberDetails(catalog, [value], at: date)
             }
             try checkEpoch(epoch)
             return try ServiceCodec.value(value)
         case GetParticipants.operation:
             let payload = try request.decodePayload(GetParticipants.self)
-            let value = try await mediaQuery(epoch: epoch) {
+            let value = try await managementQuery(in: payload.conversationID, epoch: epoch) {
                 try await backend.participants(in: payload.conversationID, after: payload.cursor)
-            } remember: { catalog, value, date in
+            } members: { $0.participants.map(\.id) } remember: { catalog, value, date in
                 try catalog.rememberQueryMembers(value.participants.map(\.member), at: date)
             }
             try checkEpoch(epoch)

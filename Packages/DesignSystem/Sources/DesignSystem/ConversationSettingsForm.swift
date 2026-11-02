@@ -31,6 +31,13 @@ struct ConversationSettingsForm: View {
 
     var body: some View {
         Form {
+            if details.access == .unknown || draft.permissions.isEmpty {
+                Section {
+                    Text("Some space settings could not be read.").foregroundStyle(.secondary)
+                    Button("Reload Settings") { actions.details(details.conversation.id, false) }
+                        .disabled(state.browser.isSubmitting)
+                }
+            }
             Group {
                 access
                 whoCan
@@ -94,6 +101,8 @@ struct ConversationSettingsForm: View {
             if draft.turnsRequestsOff {
                 Text("Open spaces don’t take requests to join. Saving turns requests off.")
                     .foregroundStyle(.secondary)
+            } else if let allowed = draft.requestToJoin, !draft.isOpen, !draft.canChangeRequestToJoin {
+                LabeledContent("Requests to join", value: allowed ? "Allowed" : "Not allowed")
             } else if draft.requestToJoin != nil, !draft.isOpen {
                 Toggle("Allow requests to join", isOn: Binding(
                     get: { draft.requestToJoin ?? false },

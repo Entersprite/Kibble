@@ -10,6 +10,7 @@ extension ProviderDiagnostics {
     static var native: ProviderDiagnostics {
         let log = Logger(subsystem: "com.entersprite.kibble", category: "MeetingMetadata")
         let pins = Logger(subsystem: "com.entersprite.kibble", category: "pins")
+        let management = Logger(subsystem: "com.entersprite.kibble", category: "management")
         let people = Logger(subsystem: "com.entersprite.kibble", category: "people")
         return ProviderDiagnostics { event in
             switch event {
@@ -53,6 +54,11 @@ extension ProviderDiagnostics {
                     Permissions: rows=\(rows, privacy: .public) matched=\(matched, privacy: .public) \
                     legacy=[\(caps, privacy: .public)] explicit=[\(flags, privacy: .public)]
                     """
+                )
+            case let .managementWrite(step, failure):
+                let outcome = failure ?? "ok"
+                management.notice(
+                    "Management write: step=\(step, privacy: .public) outcome=\(outcome, privacy: .public)"
                 )
             case let .peopleRoles(roles):
                 let list = roles.map(String.init).joined(separator: ",")

@@ -44,16 +44,52 @@ extension LocalBridgeBackend {
         }
         let response = try await context.client.call(.updateGroup, request)
         try checkManagementGeneration(context.generation)
-        guard response.hasGroup, response.group.groupID == context.group,
-              name == nil || response.group.hasName && response.group.name == name,
-              !request.hasAvatarInfo || response.group.hasAvatarInfo && response.group.avatarInfo == request
-              .avatarInfo,
-              !request.hasSpaceDetails || response.group.hasGroupDetails
-              && response.group.groupDetails.description_p == request.spaceDetails.description_p
-              && response.group.groupDetails.guidelines == request.spaceDetails.guidelines,
-              description == nil || response.group.groupDetails.hasDescription_p,
-              guidelines == nil || response.group.groupDetails.hasGuidelines else {
+        // Updates may acknowledge only the changed group. Confirm sparse replies
+        // through a fresh read; never repeat a write to obtain an echo.
+        let confirmed = try await managementUpdateSnapshot(
+            response, context: context,
+            needsRead: !response.hasGroup || !Self.managementUpdateMatches(
+                request,
+                group: response.group,
+                requiresEchoFields: true
+            )
+        )
+        guard confirmed.groupID == context.group,
+              Self.managementUpdateMatches(request, group: confirmed) else {
             throw unconfirmedManagement()
         }
+    }
+
+    private static func managementUpdateMatches(
+        _ request: UpdateGroupRequest, group: Group, requiresEchoFields: Bool = false
+    ) -> Bool {
+        if requiresEchoFields {
+            guard !request.hasName || group.hasName,
+                  !request.hasAvatarInfo || group.hasAvatarInfo,
+                  !request.hasSpaceDetails || group.hasGroupDetails else { return false }
+        }
+        return (!request.hasName || group.name == request.name)
+            && (!request.hasAvatarInfo || group.avatarInfo.emoji.unicode == request.avatarInfo.emoji.unicode)
+            &&
+            (!request.hasSpaceDetails || group.groupDetails.description_p == request.spaceDetails
+                .description_p
+                && group.groupDetails.guidelines == request.spaceDetails.guidelines)
+    }
+
+    func managementUpdateSnapshot(
+        _ response: UpdateGroupResponse, context: ManagementWriteContext, needsRead: Bool
+    ) async throws -> Group {
+        if response.hasGroup, response.group.hasGroupID, response.group.groupID != context.group {
+            throw unconfirmedManagement()
+        }
+        if !needsRead {
+            return response.group
+        }
+        let read = try await context.client.call(
+            .managementDetails, ConversationManagementRequests.details(context.group)
+        )
+        try checkManagementGeneration(context.generation)
+        guard read.hasGroup, read.group.groupID == context.group else { throw unconfirmedManagement() }
+        return read.group
     }
 }

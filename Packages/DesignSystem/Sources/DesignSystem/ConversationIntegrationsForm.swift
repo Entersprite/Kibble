@@ -277,7 +277,12 @@ struct ConversationIntegrationsForm: View {
             if isPending(webhook) {
                 ProgressView().controlSize(.small)
             }
-            RowActionsMenu(name: webhook.name) { webhookMenu(webhook) }
+            if canCopyWebhookURL || !webhook.allowedActions.isDisjoint(with: [
+                "editWebhook",
+                "deleteWebhook"
+            ]) {
+                RowActionsMenu(name: webhook.name) { webhookMenu(webhook) }
+            }
         }
         .font(.subheadline)
     }
@@ -293,21 +298,6 @@ struct ConversationIntegrationsForm: View {
         case let .deleteWebhook(id): id == webhook.id
         case let .saveWebhook(id, _, _): id == webhook.id
         default: false
-        }
-    }
-
-    @ViewBuilder private func webhookMenu(_ webhook: ConversationWebhook) -> some View {
-        Button("Copy URL", systemImage: DirectoryMenuSymbols.copy) { copyURL(of: webhook) }
-        if webhook.allowedActions.contains("editWebhook") {
-            Button("Edit…", systemImage: IntegrationSymbols.edit) { edit(webhook) }
-                .disabled(busy)
-        }
-        if webhook.allowedActions.contains("deleteWebhook") {
-            Divider()
-            Button("Delete…", systemImage: IntegrationSymbols.delete, role: .destructive) {
-                confirming = .deleteWebhook(webhook)
-            }
-            .disabled(busy)
         }
     }
 
@@ -349,6 +339,30 @@ struct ConversationIntegrationsForm: View {
             copy?.phase = .failed("The URL didn’t arrive. Try again.")
         } else {
             copy = nil
+        }
+    }
+}
+
+extension ConversationIntegrationsForm {
+    private var canCopyWebhookURL: Bool {
+        !details.allowedActions.isDisjoint(with: ["createWebhook", "editWebhook", "deleteWebhook"])
+    }
+
+    @ViewBuilder private func webhookMenu(_ webhook: ConversationWebhook) -> some View {
+        if canCopyWebhookURL {
+            Button("Copy URL", systemImage: DirectoryMenuSymbols.copy) { copyURL(of: webhook) }
+                .disabled(busy)
+        }
+        if webhook.allowedActions.contains("editWebhook") {
+            Button("Edit…", systemImage: IntegrationSymbols.edit) { edit(webhook) }
+                .disabled(busy)
+        }
+        if webhook.allowedActions.contains("deleteWebhook") {
+            Divider()
+            Button("Delete…", systemImage: IntegrationSymbols.delete, role: .destructive) {
+                confirming = .deleteWebhook(webhook)
+            }
+            .disabled(busy)
         }
     }
 }

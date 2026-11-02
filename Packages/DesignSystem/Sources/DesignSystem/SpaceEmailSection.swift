@@ -84,7 +84,9 @@ struct SpaceEmailSection: View {
         } else {
             nil
         }
-        if let enabled = pending ?? email.deliveryEnabled {
+        if let enabled = email.deliveryEnabled, !email.canChangeDelivery {
+            LabeledContent("Receive email", value: enabled ? "On" : "Off")
+        } else if let enabled = pending ?? email.deliveryEnabled {
             Toggle(isOn: Binding(get: { enabled }, set: { actions.mutate(.setEmailDelivery($0)) })) {
                 HStack(spacing: 6) {
                     Text("Receive email")
@@ -110,7 +112,9 @@ struct SpaceEmailSection: View {
             Button("Delete", role: .destructive) { actions.mutate(.deleteEmail) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Its address stops working, and earlier email messages in this space are deleted too.")
+            Text(
+                "The address stops working. Email cards remain, but their links to full emails stop working."
+            )
         }
     }
 }

@@ -39,6 +39,7 @@ actor ReconciliationBackend: ManagedChatActivityBackend, ProviderCheckpointBacke
     private(set) var receiveConversations: Set<Conversation.ID> = []
     var searchMembers: [Member] = []
     var preview = ConversationPreview()
+    var detailsQuery: (@Sendable () async throws -> ConversationDetails)?
     var pinQuery: (@Sendable () async throws -> PinnedMessages)?
     var integrations = ConversationIntegrations()
     var appSearchReads = 0

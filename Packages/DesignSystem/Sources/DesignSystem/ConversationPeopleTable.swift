@@ -49,6 +49,7 @@ struct ConversationPeopleTable: View {
     var isBusy: Bool {
         let browser = state.browser
         return browser.isSubmitting || browser.needsReconciliation || browser.isLoadingAllParticipants
+            || browser.isLoadingParticipants
     }
 
     var body: some View {
@@ -101,10 +102,14 @@ struct ConversationPeopleTable: View {
     /// controls after it change with the width.
     private var bar: some View {
         HStack(spacing: 8) {
-            TextField("Search People", text: $query, prompt: Text("Search"))
-                .textFieldStyle(.roundedBorder)
-                .labelsHidden()
-                .frame(minWidth: 140, maxWidth: .infinity)
+            if details.conversation.kind != .directMessage {
+                TextField("Search People", text: $query, prompt: Text("Search"))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(minWidth: 140, maxWidth: .infinity)
+            } else {
+                Spacer()
+            }
             ViewThatFits(in: .horizontal) {
                 barControls(.full)
                 barControls(.compact)
@@ -125,7 +130,7 @@ struct ConversationPeopleTable: View {
                 }
             }
             copyButton(compact: compact)
-            if details.allowedActions.contains("addPeople") {
+            if details.conversation.kind != .directMessage, details.allowedActions.contains("addPeople") {
                 Button {
                     addingPeople = true
                 } label: {

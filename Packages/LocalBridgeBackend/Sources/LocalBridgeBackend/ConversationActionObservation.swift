@@ -8,6 +8,7 @@ public struct ConversationActionObservation: Codable, Sendable, Equatable {
     public let outcome: String
     public let payloadShape: String?
     public let hasSessionProof: Bool?
+    public var management: ManagementWriteObservation?
 
     public init(
         rpc: String,
@@ -23,6 +24,7 @@ public struct ConversationActionObservation: Codable, Sendable, Equatable {
         self.outcome = outcome
         self.payloadShape = payloadShape
         self.hasSessionProof = hasSessionProof
+        management = nil
     }
 }
 

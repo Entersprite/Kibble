@@ -4,7 +4,7 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct SpaceEmailBackendTests {
-    @Test func emailGenerationDeliveryAndDeletionUseConfirmedScopedStateAndReplayOnce() async throws {
+    @Test func emailGenerationAndDeliveryReplayOnceButChatOwnershipDoesNotAuthorizeDeletion() async throws {
         let transport = try WebhookTransport()
         await transport.enableEmail()
         let backend = try await connected(transport)
@@ -24,7 +24,7 @@ struct SpaceEmailBackendTests {
         ) == first)
         let generated = try await backend.conversationEmail(room)
         #expect(generated.address == "room@example.invalid" && generated.deliveryEnabled == true)
-        #expect(generated.canDelete && !generated.canGenerate)
+        #expect(!generated.canDelete && !generated.canGenerate)
         _ = try await backend.mutateConversation(
             .setEmailDelivery(false),
             in: room,
@@ -32,14 +32,13 @@ struct SpaceEmailBackendTests {
             expectedRevision: nil
         )
         #expect(try await backend.conversationEmail(room).deliveryEnabled == false)
-        _ = try await backend.mutateConversation(
-            .deleteEmail,
-            in: room,
-            operationID: "delete",
-            expectedRevision: nil
-        )
-        #expect(try await backend.conversationEmail(room).address == nil)
-        #expect(await transport.writes == 3)
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.mutateConversation(
+                .deleteEmail, in: room, operationID: "delete", expectedRevision: nil
+            )
+        }
+        #expect(try await backend.conversationEmail(room).address == "room@example.invalid")
+        #expect(await transport.writes == 2)
         await backend.disconnect()
     }
 

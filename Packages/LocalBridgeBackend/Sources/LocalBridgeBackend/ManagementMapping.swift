@@ -41,6 +41,12 @@ enum ManagementMapping {
         }
     }
 
+    /// Permission-setting edit grants are explicit booleans; similarly numbered
+    /// legacy capabilities describe feature availability, not edit authority.
+    static func explicitGrant(_ caps: GroupScopedCapabilities, _ number: Int) -> Bool {
+        ProtoFieldScan.varintValues(ofField: number, in: caps.permissions.unknownFields.data).last == 1
+    }
+
     static func grants(_ caps: GroupScopedCapabilities, _ number: Int) -> Bool {
         // New permission booleans take precedence, including an explicit refusal.
         let values = ProtoFieldScan.varintValues(ofField: number, in: caps.permissions.unknownFields.data)
@@ -105,7 +111,7 @@ enum ManagementMapping {
             result.insert("generateEmail")
         }
         if legacy.contains(48) {
-            result.formUnion(["setEmailDelivery", "deleteEmail"])
+            result.insert("setEmailDelivery")
         }
         return result
     }
@@ -213,8 +219,9 @@ enum ManagementMapping {
                 actions.insert("rejectRequest")
             }
         }
+        let role = role(in: row)
         if [.memberJoined, .memberInvited].contains(row.membershipState), grants(caps, 4),
-           row.membershipRole != .roleOwner || viewerIsOwner {
+           [.member, .manager, .owner].contains(role), role != .owner || viewerIsOwner {
             actions.insert("removePerson")
         }
         return actions
@@ -226,7 +233,8 @@ enum ManagementMapping {
         viewerIsOwner: Bool,
         mayChange: Bool
     ) -> [ConversationRole] {
-        guard mayChange, row.membershipState == .memberJoined else { return [] }
+        guard mayChange, row.membershipState == .memberJoined,
+              [.member, .manager, .owner].contains(role(in: row)) else { return [] }
         var roles: [ConversationRole] = []
         if row.membershipRole == .roleMember, grants(caps, 2) {
             roles = [.member, .manager]

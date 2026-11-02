@@ -323,4 +323,34 @@
             scroll.reflectScrolledClipView(scroll.contentView)
         }
     }
+
+    extension ConversationPanelsHostedTests {
+        @Test func directMessagePeopleRenderWithoutGroupControls() async throws {
+            let peer = Member(
+                id: .init("peer"),
+                kind: .human,
+                displayName: "Alex Lee",
+                email: "alex@example.invalid"
+            )
+            let details = ConversationDetails(
+                conversation: Conversation(
+                    id: .init("dm"),
+                    kind: .directMessage,
+                    title: "Alex Lee",
+                    memberCount: 2
+                ),
+                membership: .joined, allowedActions: ["addPeople"]
+            )
+            var state = ChatSceneState()
+            state.browser.details = details
+            state.browser.participants = [ConversationParticipant(member: peer)]
+            for dark in [false, true] {
+                try await render(
+                    ConversationPeopleTable(details: details, state: state, actions: actions),
+                    dark: dark, name: "dm-people-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 560, height: 440)
+                )
+            }
+        }
+    }
 #endif

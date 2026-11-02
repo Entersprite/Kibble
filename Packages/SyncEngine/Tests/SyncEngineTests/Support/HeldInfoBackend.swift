@@ -7,7 +7,7 @@ import Foundation
 /// before the panel moved on does.
 actor HeldInfoBackend: ChatBackend {
     enum Hold: Sendable {
-        case integrations, webhookURL, mutation, laterPages
+        case integrations, webhookURL, mutation, laterPages, participants
     }
 
     nonisolated let capabilities = Capabilities.fixture
@@ -17,7 +17,9 @@ actor HeldInfoBackend: ChatBackend {
     }
 
     private var holding: Set<Hold> = []
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [(Hold, CheckedContinuation<Void, Never>)] = []
+    private var failNextPeople = false
+    private var failNextDetail = false
     private var failingMutations = false
     private var failingLaterPages = false
     private var failingMutationNumber: Int?
@@ -42,7 +44,26 @@ actor HeldInfoBackend: ChatBackend {
         holding = []
         let held = waiters
         waiters = []
-        held.forEach { $0.resume() }
+        held.forEach { $0.1.resume() }
+    }
+
+    func isHolding(_ call: Hold) -> Bool {
+        waiters.contains { $0.0 == call }
+    }
+
+    func release(_ call: Hold) {
+        holding.remove(call)
+        let held = waiters.filter { $0.0 == call }
+        waiters.removeAll { $0.0 == call }
+        held.forEach { $0.1.resume() }
+    }
+
+    func failNextDetails() {
+        failNextDetail = true
+    }
+
+    func failNextParticipants() {
+        failNextPeople = true
     }
 
     func failMutations() {
@@ -61,7 +82,7 @@ actor HeldInfoBackend: ChatBackend {
 
     private func wait(for call: Hold) async {
         guard holding.contains(call) else { return }
-        await withCheckedContinuation { waiters.append($0) }
+        await withCheckedContinuation { waiters.append((call, $0)) }
     }
 
     func connect() async throws {
@@ -90,11 +111,20 @@ actor HeldInfoBackend: ChatBackend {
 
     func conversationDetails(_ id: Conversation.ID) async throws -> ConversationDetails {
         detailsReads += 1
+        if failNextDetail {
+            failNextDetail = false
+            throw ChatError.server(status: 500, message: "The details read failed.")
+        }
         return try await inner.conversationDetails(id)
     }
 
     func participants(in id: Conversation.ID, after cursor: String?) async throws
         -> ConversationParticipantPage {
+        await wait(for: .participants)
+        if failNextPeople {
+            failNextPeople = false
+            throw ChatError.server(status: 500, message: "The old people read failed.")
+        }
         if cursor != nil {
             await wait(for: .laterPages)
         }

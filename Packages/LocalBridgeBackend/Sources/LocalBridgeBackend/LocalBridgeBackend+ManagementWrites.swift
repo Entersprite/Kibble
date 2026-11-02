@@ -3,6 +3,19 @@ import Foundation
 import GChatBridgeCore
 
 public extension LocalBridgeBackend {
+    private func validateManagementWrite(
+        _ mutation: ConversationMutation, before: ConversationDetails, expectedRevision: String?
+    ) throws {
+        guard before.allowedActions.contains(mutation.action) || mutation.isParticipantChange else {
+            recordManagementStage("preflightPermission", failure: "denied")
+            throw ChatError.unknown("You do not have permission to make this change.")
+        }
+        guard expectedRevision == nil || before.revision == expectedRevision else {
+            recordManagementStage("preflightRevision", failure: "changed")
+            throw ChatError.unknown("This conversation changed. Reload before saving.")
+        }
+    }
+
     func mutateConversation(
         _ mutation: ConversationMutation,
         in id: Conversation.ID,
@@ -30,13 +43,10 @@ public extension LocalBridgeBackend {
                 isConfirmed: false
             )
         )
-        let before = try await conversationDetails(id)
-        guard before.allowedActions.contains(mutation.action) || mutation.isParticipantChange else {
-            throw ChatError.unknown("You do not have permission to make this change.")
+        let before = try await managementStep("preflightDetails") {
+            try await conversationDetails(id)
         }
-        guard expectedRevision == nil || before.revision == expectedRevision else {
-            throw ChatError.unknown("This conversation changed. Reload before saving.")
-        }
+        try validateManagementWrite(mutation, before: before, expectedRevision: expectedRevision)
         // Retain an uncertain result before suspension. Replaying an operation never resubmits a write.
         let uncertain = ConversationMutationResult(
             operationID: operationID,
@@ -44,9 +54,11 @@ public extension LocalBridgeBackend {
             isConfirmed: false
         )
         managementOperations[key] = ManagementOperation(id: id, mutation: mutation, result: uncertain)
-        let failed = try await applyManagementWrite(mutation, context: ManagementWriteContext(
-            group: group, before: before, me: me, client: apiClient, generation: generation
-        ))
+        let failed = try await managementStep("applyWrite") {
+            try await applyManagementWrite(mutation, context: ManagementWriteContext(
+                group: group, before: before, me: me, client: apiClient, generation: generation
+            ))
+        }
         try checkManagementGeneration(generation)
         return try await finishManagementWrite(
             id,
@@ -78,7 +90,9 @@ extension LocalBridgeBackend {
         if [.leave, .declineInvitation, .deleteSpace, .block].contains(context.mutation) {
             after = before; after.membership = .unknown; after.allowedActions = []
         } else {
-            after = try await conversationDetails(id)
+            after = try await managementStep("completionDetails") {
+                try await conversationDetails(id)
+            }
         }
         try checkManagementGeneration(generation)
         let result = ConversationMutationResult(
@@ -237,43 +251,6 @@ extension LocalBridgeBackend {
               name == nil || response.group.name == name,
               description == nil || response.group.groupDetails.description_p == description
         else { throw unconfirmedManagement() }
-    }
-
-    private func updateManagementParticipant(
-        _ mutation: ConversationMutation,
-        person: ChatKit.Member.ID,
-        context: ManagementWriteContext
-    ) async throws
-        -> [ChatKit.Member.ID] {
-        let group = context.group
-        let client = context.client
-        let target = try await managementTarget(person, group: group, generation: context.generation)
-        guard target.allowedActions.contains(mutation.action) else {
-            throw ChatError.unknown("This member cannot be changed with your current permissions.")
-        }
-        if case let .setRole(_, role) = mutation {
-            guard target.allowedRoles.contains(role), let wire = ManagementMapping.role(role) else {
-                throw ChatError.unsupported(capability: "conversationRole")
-            }
-            let response = try await client.call(
-                .updateMembershipRole,
-                ConversationManagementRequests.role(
-                    wire,
-                    user: person.rawValue,
-                    group: group
-                )
-            )
-            guard response.results.contains(where: {
-                $0.hasMembership && $0.membership.id.groupID == group
-                    && $0.membership.id.memberID.userID.id == person.rawValue
-                    && $0.membership.membershipRole == wire && (!$0.hasStatus || $0.status == 0)
-            }) else { throw unconfirmedManagement() }
-        } else if case .approveRequest = mutation {
-            return try await addManagementPeople([person], group: group, join: true, client: client)
-        } else {
-            try await removeManagementPerson(person, group: group, client: client)
-        }
-        return []
     }
 
     func addManagementPeople(

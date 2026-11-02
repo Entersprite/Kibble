@@ -59,10 +59,11 @@ public actor ProtoAPIClient {
     /// One typed call.
     public func call<Request, Response>(
         _ method: APIMethod<Request, Response>,
-        _ request: Request
+        _ request: Request,
+        onRefusal: (@Sendable (APIRefusal) -> Void)? = nil
     ) async throws -> Response {
         let body: Data = try request.serializedBytes()
-        let raw = try await callRaw(method.name, body: body)
+        let raw = try await callRaw(method.name, body: body, onRefusal: onRefusal)
         if raw.body.isEmpty, method.allowsEmptyResponse {
             lastEncoding = nil
             return Response()
@@ -87,7 +88,9 @@ public actor ProtoAPIClient {
     ///
     /// The probe path. A typed decode would discard a field the vendored proto
     /// cannot name, which is precisely what the probe is looking for (§12.1.1).
-    public func callRaw(_ name: String, body: Data) async throws -> RawAPIResponse {
+    public func callRaw(
+        _ name: String, body: Data, onRefusal: (@Sendable (APIRefusal) -> Void)? = nil
+    ) async throws -> RawAPIResponse {
         counter += 1
         let request = requests.request(
             method: name,
@@ -118,7 +121,9 @@ public actor ProtoAPIClient {
         // the jar behind the server.
         await credentials.absorb(response.headers, from: request.url)
         guard response.status == 200 else {
-            lastRefusal = APIRefusal(method: name, status: response.status, body: response.body)
+            let refusal = APIRefusal(method: name, status: response.status, body: response.body)
+            lastRefusal = refusal
+            onRefusal?(refusal)
             throw APIFailure.httpStatus(response.status)
         }
         return RawAPIResponse(status: response.status, body: response.body)

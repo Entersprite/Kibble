@@ -239,3 +239,40 @@ struct ProtoAPIClientTests {
         }
     }
 }
+
+private final class RefusalCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [APIRefusal] = []
+    var refusals: [APIRefusal] {
+        lock.withLock { values }
+    }
+
+    func record(_ value: APIRefusal) {
+        lock.withLock { values.append(value) }
+    }
+}
+
+extension ProtoAPIClientTests {
+    @Test func refusalCallbacksStayBoundToTheirRequestWhenTheLastRefusalChanges() async throws {
+        let capture = RefusalCapture()
+        let transport = FakeHTTPTransport(responses: [
+            HTTPResponse(status: 400, headers: HTTPHeaders([]), body: Data("first".utf8)),
+            HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data("second".utf8))
+        ])
+        let api = client(transport)
+        await #expect(throws: APIFailure.httpStatus(400)) {
+            _ = try await api.call(
+                .getSelfUserStatus,
+                GetSelfUserStatusRequest(),
+                onRefusal: { capture.record($0) }
+            )
+        }
+        await #expect(throws: APIFailure.httpStatus(403)) {
+            _ = try await api.callRaw("another_method", body: Data(), onRefusal: { capture.record($0) })
+        }
+        #expect(capture.refusals.map(\.status) == [400, 403])
+        #expect(capture.refusals.map(\.body) == [Data("first".utf8), Data("second".utf8)])
+        #expect(capture.refusals.map(\.method) == ["get_self_user_status", "another_method"])
+        #expect(await api.lastRefusal?.status == 403)
+    }
+}

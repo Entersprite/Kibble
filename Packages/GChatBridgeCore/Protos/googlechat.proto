@@ -158,6 +158,11 @@ message ClientFeatureCapabilities {
 	optional CapabilityLevel spam_room_invites_level = 5;
 	optional CapabilityLevel tombstone_level = 6;
 	optional CapabilityLevel rich_text_viewing_level = 7;
+    optional CapabilityLevel target_audience_level = 10;
+    optional CapabilityLevel request_to_join_level = 37;
+    optional CapabilityLevel support_manager_role_level = 56;
+    optional CapabilityLevel support_view_members_permission_level = 64;
+    optional CapabilityLevel support_join_discover_permission_level = 70;
 }
 
 message RequestHeader {
@@ -1155,6 +1160,8 @@ message SpacePermissionRoles {
  optional bool owners = 1;
  optional bool members = 2;
  optional bool organization = 3;
+ // Native role flag; its semantic name is not established.
+ optional bool role_5 = 5;
  optional bool managers = 6;
 }
 message SpacePermissionAudience {
@@ -2605,6 +2612,11 @@ message GetGroupRequest {
 		INCLUDE_SNIPPET = 4;
 		INCLUDE_DYNAMIC_GROUP_NAME = 5;
 		INCLUDE_ACCOUNT_USER_CAPABILITIES = 6;
+        // Metadata options sent by the current web get_group client (Rpl).
+        // Keep numeric names until each option's individual meaning is verified.
+        MANAGEMENT_METADATA_7 = 7;
+        MANAGEMENT_METADATA_8 = 8;
+        MANAGEMENT_METADATA_9 = 9;
 	}
 	repeated FetchOptions fetch_options = 4;
 	optional ReferenceRevision user_not_older_than = 2;

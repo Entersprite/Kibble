@@ -38,6 +38,12 @@ public extension LocalBridgeBackend {
         actions = supplementedManagementActions(
             actions, group: group, state: state, conversation: conversation, caps: capabilities
         )
+        if state == .joined, conversation.kind == .space {
+            let mayLeave = try await managementMayLeaveSpace(group, me: me, generation: generation)
+            if !mayLeave {
+                actions.remove("leave")
+            }
+        }
         var details = ManagementMapping.details(
             response,
             conversation: conversation,

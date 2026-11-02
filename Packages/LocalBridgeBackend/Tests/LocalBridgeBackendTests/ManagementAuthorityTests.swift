@@ -174,6 +174,23 @@ private actor AuthorityTransport: HTTPTransport {
 
 @Suite(.timeLimit(.minutes(1)))
 struct ManagementAuthorityTests {
+    @Test func theLastSpaceOwnerCannotLeaveUntilAnotherOwnerIsConfirmed() async throws {
+        let transport = AuthorityTransport()
+        await transport.enableRoles(otherOwner: false)
+        let backend = try await connected(transport)
+        let lastOwner = try await backend.conversationDetails(.init("space/a"))
+        #expect(!lastOwner.allowedActions.contains("leave"))
+        await #expect(throws: ChatError.self) {
+            _ = try await backend.mutateConversation(
+                .leave, in: .init("space/a"), operationID: "last-owner-leave", expectedRevision: nil
+            )
+        }
+        await transport.enableRoles(otherOwner: true)
+        let coOwner = try await backend.conversationDetails(.init("space/a"))
+        #expect(coOwner.allowedActions.contains("leave"))
+        await backend.disconnect()
+    }
+
     @Test func ownerCanRemoveOwnerWhenViewerIsAbsentFromThePage() async throws {
         let transport = AuthorityTransport()
         let backend = try await connected(transport)
@@ -185,7 +202,8 @@ struct ManagementAuthorityTests {
         )
         #expect(result.isConfirmed)
         #expect(await transport.removals == 1)
-        #expect(await transport.viewerReads == 2)
+        #expect(await transport
+            .viewerReads == 4) // Info also rechecks leave authority before/after the write.
         await backend.disconnect()
     }
 

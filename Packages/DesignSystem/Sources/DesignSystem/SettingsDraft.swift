@@ -231,8 +231,9 @@ enum PermissionText {
         switch id {
         case "viewMembers": "See the member list"
         case "manageMembers": "Add and remove people"
-        case "modifyDetails": "Change name and details"
+        case "modifyDetails": "Modify space board and details"
         case "changeHistory": "Turn history on or off"
+        case "replyMessages": "Reply to messages"
         case "mentionAll": "Use @all"
         case "manageApps": "Manage apps"
         case "manageWebhooks": "Manage webhooks"
@@ -246,6 +247,7 @@ enum PermissionText {
         case PermissionAudience.managers.type: "Owners and Managers"
         case PermissionAudience.members.type: "All Members"
         case PermissionAudience.organization.type: "Organization"
+        case PermissionAudience.unknown.type: "Unavailable"
         default: "Custom rule"
         }
     }
@@ -256,6 +258,7 @@ enum PermissionText {
         case ConversationAccess.restricted.type: "Private"
         case ConversationAccess.discoverable.type: "Discoverable"
         case ConversationAccess.open.type: "Open"
+        case ConversationAccess.unknown.type: "Unavailable"
         default: "Custom rule"
         }
     }

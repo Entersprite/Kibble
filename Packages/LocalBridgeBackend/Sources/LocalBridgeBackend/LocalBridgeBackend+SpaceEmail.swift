@@ -7,19 +7,11 @@ public extension LocalBridgeBackend {
         let generation = directoryGeneration
         let details = try await conversationDetails(id)
         guard details.membership == .joined, details.conversation.kind == .space,
-              let group = ChannelEventMapping.groupID(for: id), let me = calendarPoll.me else {
+              let group = ChannelEventMapping.groupID(for: id) else {
             throw ChatError.unsupported(capability: "conversationEmail")
         }
         let response = try await managementEmail(group, generation: generation)
         let value = response.details.first
-        let owner = details.allowedActions.contains("deleteEmail")
-            ? try await managementViewerIsOwner(
-                group: group,
-                me: me,
-                rows: [],
-                generation: generation,
-                resolveWhenAbsent: true
-            ) : false
         return ConversationEmail(
             address: value?.email,
             deliveryEnabled: value
@@ -29,7 +21,8 @@ public extension LocalBridgeBackend {
             canGenerate: value == nil && response.canGenerate && details.allowedActions
                 .contains("generateEmail"),
             canChangeDelivery: value != nil && details.allowedActions.contains("setEmailDelivery"),
-            canDelete: value != nil && owner
+            // Google Group ownership has no verified mapping in this response.
+            canDelete: false
         )
     }
 }
@@ -96,20 +89,9 @@ extension LocalBridgeBackend {
     }
 
     private func deleteManagementEmail(
-        current: ListSpaceEmailResponse,
-        context: ManagementWriteContext
+        current _: ListSpaceEmailResponse,
+        context _: ManagementWriteContext
     ) async throws {
-        guard let email = current.details.first,
-              try await managementViewerIsOwner(
-                  group: context.group, me: context.me, rows: [], generation: context.generation,
-                  resolveWhenAbsent: true
-              ) else { throw ChatError.unsupported(capability: "deleteEmail") }
-        _ = try await context.client.call(
-            .deleteSpaceEmail,
-            SpaceEmailRequests.delete(email.email, in: context.group)
-        )
-        try checkManagementGeneration(context.generation)
-        let after = try await managementEmail(context.group, generation: context.generation)
-        guard after.details.isEmpty else { throw unconfirmedManagement() }
+        throw ChatError.unsupported(capability: "deleteEmail")
     }
 }

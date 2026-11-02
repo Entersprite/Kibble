@@ -34,6 +34,19 @@ struct ManagementMappingTests {
         #expect(ManagementMapping.canDeleteSpace(caps))
     }
 
+    @Test func anUnknownRoleCannotBorrowTheDefaultRolesPrivileges() throws {
+        var group = GroupId(); group.spaceID.spaceID = "space"
+        var row = try Membership(serializedBytes: Data([0x28, 0xA0, 0x06]))
+        row.id = ConversationManagementRequests.membershipID(group: group, user: "peer")
+        row.membershipState = .memberJoined
+        var caps = GroupScopedCapabilities(); caps.capabilities = [2, 4, 60]
+        let value = ManagementMapping.participant(
+            row, group: group, me: .init("me"), people: [:], caps: caps, viewerIsOwner: true
+        )
+        #expect(value?.allowedRoles.isEmpty == true)
+        #expect(value?.allowedActions.isEmpty == true)
+    }
+
     @Test func absentPermissionsAndUnknownRolesNeverGrantAnEdit() throws {
         #expect(ManagementMapping.actions(GroupScopedCapabilities(), joined: true).isEmpty)
         #expect(try ManagementMapping.role(in: Membership(serializedBytes: Data([0x28, 0xA0, 0x06])))
@@ -112,4 +125,20 @@ struct ManagementMappingTests {
             try ManagementCursor.decode("malformed", key: "account:people:first")
         }
     }
+}
+
+/// Fictional explicit permission booleans, encoded independently of the proto's
+/// unknown-field storage. Legacy capability lists are deliberately separate.
+func explicitManagementPermissions(_ fields: [Int32]) throws -> ManagementPermissions {
+    var bytes = Data()
+    for field in fields {
+        var tag = UInt64(field) << 3
+        while tag > 127 {
+            bytes.append(UInt8(tag & 127) | 128)
+            tag >>= 7
+        }
+        bytes.append(UInt8(tag))
+        bytes.append(1)
+    }
+    return try ManagementPermissions(serializedBytes: bytes)
 }

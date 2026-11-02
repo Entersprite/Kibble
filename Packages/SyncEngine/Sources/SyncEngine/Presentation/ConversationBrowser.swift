@@ -83,20 +83,6 @@ public final class ConversationBrowser {
         }
     }
 
-    private func saveDirectory() {
-        guard let page else { return }
-        directorySnapshots[page] = ConversationDirectorySnapshot(
-            query: query,
-            scope: scope,
-            organization: organization,
-            people: people,
-            spaces: spaces,
-            cursor: nextCursor,
-            error: error,
-            wasLoading: isLoading
-        )
-    }
-
     func leaveDirectory() {
         saveDirectory()
         queryTask?.cancel()
@@ -269,6 +255,8 @@ public final class ConversationBrowser {
                 details = detail
                 needsReconciliation = false
                 guard detail.membership == .joined else {
+                    participants = []; participantCursor = nil
+                    isLoadingParticipants = false
                     if !more {
                         loadPreview(id)
                     }
@@ -280,8 +268,9 @@ public final class ConversationBrowser {
                 guard !Task.isCancelled, !stopped, self.generation == generation else { return }
                 isLoadingParticipants = false
                 let existing = Set(participants.map(\.id))
-                var seen = existing
-                participants += page.participants.filter { seen.insert($0.id).inserted }
+                var seen = more ? existing : []
+                let incoming = page.participants.filter { seen.insert($0.id).inserted }
+                participants = more ? participants + incoming : incoming
                 participantCursor = page.nextCursor == cursor ? nil : page.nextCursor
                 if more, page.participants.allSatisfy({ existing.contains($0.id) }),
                    participantCursor != nil {
@@ -297,18 +286,19 @@ public final class ConversationBrowser {
     }
 
     /// The panel's state as a details read for `id` begins: another
-    /// conversation's notice, preview and Info reads go; a first page
-    /// starts the people over.
+    /// conversation's notice, preview and Info reads go. Same-conversation
+    /// rows stay visible until the first page replaces them.
     private func retarget(to id: Conversation.ID, more: Bool) {
         if panelTarget != id {
             notice = nil
+            participants = []; participantCursor = nil
         }
         if !more {
             forgetPreview()
         }
         panelTarget = id
         needsReconciliation = true
-        isLoadingParticipants = false
+        isLoadingParticipants = true
         panelError = nil
         creationKind = nil
         if !more {
@@ -316,7 +306,6 @@ public final class ConversationBrowser {
                 details = nil
                 forgetInfo()
             }
-            participants = []; participantCursor = nil
         }
     }
 
@@ -326,6 +315,44 @@ public final class ConversationBrowser {
 }
 
 extension ConversationBrowser {
+    /// Keep an acknowledged role visible until the authoritative People read arrives.
+    func retainConfirmedRole(_ mutation: ConversationMutation, result: ConversationMutationResult) {
+        guard result.isConfirmed, case let .setRole(id, role) = mutation,
+              !result.failedMembers.contains(id),
+              let index = participants.firstIndex(where: { $0.id == id }) else { return }
+        participants[index].role = role
+    }
+
+    /// Retire earlier reads even when the provider ignores cancellation.
+    func retirePanelReadsForMutation() {
+        detailsTask?.cancel(); detailsTask = nil
+        peopleTask?.cancel(); peopleTask = nil
+        isLoadingParticipants = false
+        isSearchingPeople = false
+    }
+
+    /// Refresh People permissions without replacing confirmed details or blocking edits.
+    func refreshSettingsParticipants(_ id: Conversation.ID) {
+        detailsTask?.cancel()
+        isLoadingParticipants = true
+        let generation = generation
+        detailsTask = Task { [weak self, engine] in
+            do {
+                let page = try await engine.loadParticipants(in: id, after: nil)
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation,
+                      panelTarget == id else { return }
+                participants = page.participants
+                participantCursor = page.nextCursor
+                isLoadingParticipants = false
+            } catch {
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation,
+                      panelTarget == id else { return }
+                isLoadingParticipants = false
+                panelError = Self.message(error)
+            }
+        }
+    }
+
     public func searchPeople(_ text: String) {
         peopleTask?.cancel()
         if !needsReconciliation {
@@ -365,21 +392,5 @@ extension ConversationBrowser {
         isSearchingPeople = false; needsReconciliation = false; isLoadingParticipants = false
         isLoading = false; isSubmitting = false; pendingChange = nil
         forgetInfo()
-    }
-
-    /// `ChatError` is not a `LocalizedError`, so its `localizedDescription`
-    /// is Foundation's "(ChatKit.ChatError error 6.)"; a sheet says it in words.
-    static func message(_ error: any Error) -> String {
-        let fallback = "The operation could not be completed. Please reload and try again."
-        guard let error = error as? ChatError else { return fallback }
-        switch error {
-        case .notAuthenticated, .sessionExpired: return "Signed out. Sign in again and try again."
-        case .rateLimited: return "Too many requests right now. Try again in a moment."
-        case .unsupported: return "This account can’t do that."
-        case .signInRequired: return "Sign in again to do that."
-        case .transport: return "The connection failed. Check your network and try again."
-        case let .decoding(message), let .server(_, message), let .unknown(message):
-            return message.isEmpty ? fallback : message
-        }
     }
 }

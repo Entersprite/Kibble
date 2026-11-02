@@ -25,6 +25,8 @@ public enum ProviderDiagnostic: Sendable, Hashable {
     /// `number=value`, and the role numbers of a people page's rows.
     case managementPermissions(rows: Int, matched: Bool, legacy: [Int32], explicit: [String])
     case peopleRoles([Int])
+    /// A fixed management stage and failure kind; never request IDs, values or server text.
+    case managementWrite(step: String, failure: String?)
 }
 
 public struct ProviderDiagnostics: Sendable {

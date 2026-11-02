@@ -19,24 +19,41 @@ extension LocalBridgeBackend {
             patch.permissions,
             current: settings.permissions
         )
-        let snapshot = try await freshManagementResponse(context)
+        let snapshot = try await managementStep("settingsSnapshot") {
+            try await freshManagementResponse(context)
+        }
         let current = snapshot.group
         let organization = SpaceSettingsMapping.organizationAudience(snapshot.defaultTargetAudiences)
-        var request = ConversationManagementRequests.identity(context.group, name: nil, description: nil)
-        request.spacePermissions = try managementPermissionPatch(
-            patch,
-            current: current,
-            organization: organization,
-            settings: settings,
-            before: context.before
+        let updated = try await managementStep("settingsPatch") {
+            try managementPermissionPatch(
+                patch, current: current, organization: organization,
+                settings: settings, before: context.before
+            )
+        }
+        let permissions = SpaceSettingsMapping.patch(
+            updated, over: current.spacePermissions, includeAccess: patch.access != nil
         )
-        request.updateMasks.append(.spacePermissions)
-        let response = try await context.client.call(.updateGroup, request)
+        guard !permissions.rules.isEmpty
+        else { throw ChatError.unsupported(capability: "unchangedSettings") }
+        let request = ConversationManagementRequests.spaceSettings(context.group, permissions: permissions)
+        let response = try await managementStep("settingsRequest") {
+            try await sendSettingsRequest(request, snapshot: snapshot, context: context)
+        }
         try checkManagementGeneration(context.generation)
-        guard response.hasGroup, response.group.groupID == context.group,
-              !request.hasSpacePermissions || response.group.hasSpacePermissions
-              && response.group.spacePermissions == request.spacePermissions else {
-            throw unconfirmedManagement()
+        try await managementStep("settingsConfirmation") {
+            let confirmed = try await managementUpdateSnapshot(
+                response, context: context,
+                needsRead: !response.hasGroup || !response.group.hasSpacePermissions
+                    || !SpaceSettingsMapping.confirms(
+                        request.spacePermissions,
+                        in: response.group.spacePermissions
+                    )
+            )
+            guard confirmed.groupID == context.group, confirmed.hasSpacePermissions,
+                  SpaceSettingsMapping.confirms(request.spacePermissions, in: confirmed.spacePermissions)
+            else {
+                throw unconfirmedManagement()
+            }
         }
     }
 
@@ -63,18 +80,10 @@ extension LocalBridgeBackend {
             throw ChatError.unsupported(capability: "requestToJoin")
         }
         if let enabled = patch.requestToJoin {
-            guard !enabled || (patch.access ?? before.access) != .open,
-                  let index = permissions.rules.firstIndex(where: { $0.permission == 22 }),
-                  permissions.rules.filter({ $0.permission == 22 }).count == 1 else {
+            guard !enabled || (patch.access ?? before.access) != .open else {
                 throw ChatError.unsupported(capability: "requestToJoin")
             }
-            guard let audience = organization
-            else { throw ChatError.unsupported(capability: "requestToJoin") }
-            permissions.rules[index].roles.owners = false
-            permissions.rules[index].roles.managers = false
-            permissions.rules[index].roles.members = false
-            permissions.rules[index].roles.organization = false
-            permissions.rules[index].audiences.audiences = enabled ? [audience] : []
+            permissions = try SpaceSettingsMapping.changingJoinRequests(permissions, to: enabled)
         }
         return permissions
     }
