@@ -1,9 +1,9 @@
 import ChatKit
 import SwiftUI
 
-/// The pins' one tint and symbol, so the floating row, the transcript's
-/// outline and the menus agree. The tint is kept to the row's glass and the
-/// outline; the glyphs beside messages and in rows stay neutral.
+/// The pins' one tint and symbol, so the transcript's outline and the menus
+/// agree. The tint is kept to the outline; the row's glass, the glyphs beside
+/// messages and in rows stay neutral.
 enum PinStyle {
     static let symbol = "pin.fill"
     static let tint = Color.yellow
@@ -11,15 +11,11 @@ enum PinStyle {
     /// Between a message and its pin glyph.
     static let glyphGap: CGFloat = 6
 
-    /// The row's capsules, a little stronger under the highlight.
-    static func glass(highlighted: Bool) -> Glass {
-        .regular.tint(tint.opacity(highlighted ? 0.45 : 0.28)).interactive()
-    }
+    /// The row's capsules: plain glass, the highlight a fill on it.
+    static let glass = Glass.regular.interactive()
 
-    /// The disclosed list's one surface, the capsules' tint; its rows are not glass.
-    static var panelGlass: Glass {
-        .regular.tint(tint.opacity(0.28))
-    }
+    /// The disclosed list's one surface; its rows are not glass.
+    static let panelGlass = Glass.regular
 }
 
 /// What the pin row's one highlight can rest on.
@@ -104,9 +100,9 @@ public struct PinnedMessagesMenuItem: View {
     }
 }
 
-/// A capsule of the pin row: callout text on the pins' tinted glass.
-/// In the disclosed panel (`inPanel`) a row is no glass of its own: the panel
-/// is the surface, and the highlight is a plain fill, as a menu's row is.
+/// A capsule of the pin row: callout text on plain glass, the highlight a
+/// plain fill, as a menu's row is. In the disclosed panel (`inPanel`) a row is
+/// no glass of its own: the panel is the surface.
 struct PinGlassButtonStyle: ButtonStyle {
     var highlighted = false
     var inPanel = false
@@ -121,8 +117,8 @@ struct PinGlassButtonStyle: ButtonStyle {
             .foregroundStyle(.primary)
             .opacity(configuration.isPressed ? 0.7 : 1)
             .background {
-                Capsule().fill(Color.primary.opacity(inPanel && highlighted ? 0.1 : 0))
+                Capsule().fill(Color.primary.opacity(highlighted ? 0.1 : 0))
             }
-            .glassEffect(inPanel ? .identity : PinStyle.glass(highlighted: highlighted), in: .capsule)
+            .glassEffect(inPanel ? .identity : PinStyle.glass, in: .capsule)
     }
 }
