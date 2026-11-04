@@ -18,6 +18,8 @@ struct MessageBubble: View {
     var own: OwnMessageHandlers?
     var openThread: ((MessageThread.ID) -> Void)?
     var openReference: (() -> Void)?
+    var callAction: (() -> Void)?
+    var returnsToCall = false
     /// The message a search opened, and whether its tint is currently shown
     /// (search spec §1.5). Not a conditional wrapper around `body` (CLAUDE.md):
     /// every bubble carries the same background, whose opacity is zero unless
@@ -45,6 +47,7 @@ struct MessageBubble: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.invokeCardAction) private var invokeCardAction
     @Environment(\.internalLinkHosts) var internalLinkHosts
+    @Environment(\.meetingLinkHosts) var meetingLinkHosts
 
     private var ownItems: OwnMessageMenuItems? {
         state.canUseProviderActions ? own?.items(for: message) : nil
@@ -125,7 +128,7 @@ struct MessageBubble: View {
                 if message.isDeleted {
                     bubble
                 } else if let status = message.callStatus {
-                    CallMessageCard(status: status)
+                    CallMessageCard(status: status, join: callAction, returnsToCall: returnsToCall)
                 } else {
                     messageContent
                 }
@@ -226,6 +229,7 @@ struct MessageBubble: View {
                 quickLook: quickLook
             )
         }
+        meetingCards(menu: menu)
         // Link cards, each with the row's menu plus Open Link, Copy Link and
         // Share (links spec §7.3, §7.5).
         ForEach(parts.previews, id: \.url) { link in

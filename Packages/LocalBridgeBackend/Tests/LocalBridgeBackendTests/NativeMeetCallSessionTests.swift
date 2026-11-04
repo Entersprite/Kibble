@@ -201,6 +201,8 @@ final class NativeFakeMedia: CallMediaEngine {
     var isConnected = false
     var calls: [String] = []
     var answer: String?
+    var activityReply: Data?
+    var sentActivityFrames: [(String, Data)] = []
     var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
     let failConnection: Bool
 

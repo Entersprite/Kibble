@@ -20,15 +20,19 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
     /// Nil for older peers/sources without explicit existing-call admission.
     public var supportsExistingJoin: Bool?
     public var supportsConversationCalls: Bool?
+    public var supportsMeetingLinks: Bool?
+    public var meetingLinkHosts: [String]?
     public var conversationCall: ConversationCallSnapshot?
+    public var meetingCall: ConversationCallSnapshot?
     public var participants: [CallParticipantDevice]?
+    public var interaction: CallInteractionState?
 
     public var currentCallID: UUID? {
-        conversationCall?.id ?? call?.id
+        meetingCall?.id ?? conversationCall?.id ?? call?.id
     }
 
     public var currentPhase: AudioCallPhase? {
-        conversationCall?.phase ?? call?.phase
+        meetingCall?.phase ?? conversationCall?.phase ?? call?.phase
     }
 
     public init(
@@ -36,20 +40,30 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
         recipients: [AudioCallRecipient] = [],
         call: AudioCallSnapshot? = nil, lastEvent: AudioCallEvent? = nil,
         supportsExistingJoin: Bool? = nil, supportsConversationCalls: Bool? = nil,
-        conversationCall: ConversationCallSnapshot? = nil, participants: [CallParticipantDevice]? = nil
+        supportsMeetingLinks: Bool? = nil, meetingLinkHosts: [String]? = nil,
+        conversationCall: ConversationCallSnapshot? = nil, meetingCall: ConversationCallSnapshot? = nil,
+        participants: [CallParticipantDevice]? = nil,
+        interaction: CallInteractionState? = nil
     ) {
         self.version = version; self.isListening = isListening; self.recipients = recipients
         self.isListenerStarting = isListenerStarting
         self.call = call; self.lastEvent = lastEvent
         self.supportsExistingJoin = supportsExistingJoin
         self.supportsConversationCalls = supportsConversationCalls
+        self.supportsMeetingLinks = supportsMeetingLinks
+        self.meetingLinkHosts = meetingLinkHosts
         self.conversationCall = conversationCall
+        self.meetingCall = meetingCall
         self.participants = participants
+        self.interaction = interaction
     }
 
     private enum CodingKeys: String, CodingKey {
+        case meetingCall
         case version, isListening, isListenerStarting, recipients, call, lastEvent, supportsExistingJoin
-        case supportsConversationCalls, conversationCall, participants
+        case supportsConversationCalls, supportsMeetingLinks, meetingLinkHosts, conversationCall,
+             participants,
+             interaction
     }
 
     public init(from decoder: any Decoder) throws {
@@ -66,11 +80,15 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
                 Bool.self,
                 forKey: .supportsConversationCalls
             ),
+            supportsMeetingLinks: container.decodeIfPresent(Bool.self, forKey: .supportsMeetingLinks),
+            meetingLinkHosts: container.decodeIfPresent([String].self, forKey: .meetingLinkHosts),
             conversationCall: container.decodeIfPresent(
                 ConversationCallSnapshot.self,
                 forKey: .conversationCall
             ),
-            participants: container.decodeIfPresent([CallParticipantDevice].self, forKey: .participants)
+            meetingCall: container.decodeIfPresent(ConversationCallSnapshot.self, forKey: .meetingCall),
+            participants: container.decodeIfPresent([CallParticipantDevice].self, forKey: .participants),
+            interaction: container.decodeIfPresent(CallInteractionState.self, forKey: .interaction)
         )
     }
 }

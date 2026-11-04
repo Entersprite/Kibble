@@ -132,17 +132,22 @@ extension AudioCallController {
         )
     }
 
-    private func raiseCurrentCall() -> Bool {
+    func raiseCurrentCall() -> Bool {
         guard isEnding || call.map({ !$0.phase.isTerminal }) == true else { return false }
         windowRequests += 1
         return true
     }
 
-    private func begin(
+    func begin(
         _ session: AudioCallSession, _ operation: @escaping @MainActor (UUID) async throws -> Void
     ) -> UUID {
+        sourceTermination = nil
+        if breakoutTask == nil {
+            breakoutReturnURL = nil
+        }
         call = session
         participants = nil
+        interaction = nil
         windowRequests += 1
         let id = session.id
         runOperation(id: id) { try await operation(id) }

@@ -5,6 +5,62 @@ import Testing
 
 @MainActor
 struct NativeMeetMicrophoneTests {
+    @Test(arguments: [UInt64(5), 6])
+    func selectedServerReliabilityLimitReachesTheMediaEngine(_ field: UInt64) async throws {
+        let transport = ScriptedTransport(responses(
+            streamChannelID: 42, streamReliabilityLimit: (field, 0)
+        ))
+        let media = StreamFakeMedia()
+        let session = try await NativeMeetFixture.session(transport, media: media)
+        try await session.connect()
+        #expect(media.controlOperations == ["configure", "answer"])
+        #expect(media.controlChannel?.maxPacketLifeTime == (field == 5 ? 0 : nil))
+        #expect(media.controlChannel?.maxRetransmits == (field == 6 ? 0 : nil))
+        #expect(media.requests.count == 1)
+        #expect(await session.takeReport().contains {
+            $0.hasPrefix("Native stream control reliability: maximum")
+        })
+        await session.close()
+        #expect(media.controlChannel == nil)
+    }
+
+    @Test func invalidChannelAssignmentClosesMediaBeforeRegisteringADevice() async throws {
+        let transport = ScriptedTransport(responses(streamChannelID: 65535))
+        let media = StreamFakeMedia()
+        let session = try await NativeMeetFixture.session(transport, media: media)
+        await #expect(throws: MeetMediaSessionWire.StreamControlFailure.identifier) {
+            try await session.connect()
+        }
+        #expect(media.closed && media.requests.isEmpty && media.controlOperations.isEmpty)
+        let sent = await transport.sent
+        #expect(!sent.contains { $0.url.path.hasSuffix("CreateMeetingDevice") })
+        #expect(!sent.contains { $0.url.path.hasSuffix("CreateMeetingInvite") })
+        let report = await session.takeReport().joined(separator: "\n")
+        #expect(report.contains("Meet stream control setup failed: invalid assigned SCTP identifier."))
+        #expect(!report.contains("65535"))
+        await session.close()
+    }
+
+    @Test(arguments: [false, true])
+    func serverChannelAssignmentIsInstalledBeforeTheAnswerAndNeverReusedAfterClose(
+        _ defaults: Bool
+    ) async throws {
+        let transport = ScriptedTransport(responses(
+            streamChannelID: 42, streamReliable: !defaults, streamCompression: defaults ? 0 : 1
+        ))
+        let media = StreamFakeMedia()
+        let session = try await NativeMeetFixture.session(transport, media: media)
+        try await session.connect()
+        #expect(media.controlOperations == ["configure", "answer"])
+        #expect(media.controlChannel == CallStreamControlChannel(id: 42, isOrdered: true))
+        #expect(media.requests.count == 1)
+        #expect(await session.takeReport().contains {
+            $0 == "Native stream control setup: server-assigned negotiated channel; uncompressed"
+        })
+        await session.close()
+        #expect(media.controlChannel == nil)
+    }
+
     @Test func returnedStreamInheritsCurrentCallContextWithoutChangingLaterWrites() async throws {
         let transport = ScriptedTransport(responses())
         let media = StreamFakeMedia()
@@ -60,6 +116,7 @@ struct NativeMeetMicrophoneTests {
         let session = try await NativeMeetFixture.session(transport, media: media)
         try await session.connect()
         #expect(media.requests.count == 1)
+        #expect(media.timeouts == [.seconds(50)])
         let add = try stream(in: media.requests[0], variant: 4)
         #expect(ProtoFieldScan.varintValues(ofField: 1, in: add) == [2])
         #expect(ProtoFieldScan.varintValues(ofField: 2, in: add) == [1])
@@ -71,6 +128,7 @@ struct NativeMeetMicrophoneTests {
         #expect(try await session.setMuted(false))
         #expect(!media.isMicrophoneMuted)
         #expect(media.requests.count == 3)
+        #expect(media.timeouts == [.seconds(50), .seconds(8), .seconds(8)])
         #expect(try flag(stream(in: media.requests[1], variant: 2)) == 1)
         #expect(try flag(stream(in: media.requests[2], variant: 2)) == 0)
         #expect(await transport.sent.count == 4) // No automatic invitations.
@@ -102,13 +160,17 @@ struct NativeMeetMicrophoneTests {
         let transport = ScriptedTransport(responses())
         let media = StreamFakeMedia()
         media.failRegistration = true
+        media
+            .streamDiagnosticLines = ["Native stream control: stage=waitingForReply; channel=open; sent=true"]
         let session = try await NativeMeetFixture.session(transport, media: media)
         await #expect(throws: CallMediaError.outgoingAudioUnconfirmed) { try await session.connect() }
         #expect(media.closed)
         await #expect(throws: MeetDeviceSessionError.notJoined) { try await session.invite(callee: "peer") }
         #expect(media.requests.count == 1)
         #expect(await session.audioStream == nil)
-        #expect(await session.takeReport().contains { $0.contains("registration unconfirmed") })
+        let report = await session.takeReport()
+        #expect(report.contains { $0.contains("registration unconfirmed") })
+        #expect(report.contains(media.streamDiagnosticLines[0]))
         await session.close()
     }
 
@@ -223,19 +285,6 @@ struct NativeMeetMicrophoneTests {
         await trial.endNativeCall()
     }
 
-    private func responses() -> [Result<HTTPResponse, any Error>] {
-        NativeMeetFixture.responses().map { value in
-            value.map { HTTPResponse(
-                status: $0.status,
-                headers: HTTPHeaders(fields: $0.headers.fields + [.init(
-                    name: "X-Goog-Meeting-Debugid",
-                    value: "conference-sentinel"
-                )]),
-                body: $0.body
-            ) }
-        }
-    }
-
     private func stream(in request: Data, variant: Int) throws -> Data {
         let body = try #require(ProtoFieldScan.payloads(ofField: variant, in: request).first)
         return try #require(ProtoFieldScan.payloads(ofField: 4, in: body).first)
@@ -254,6 +303,27 @@ struct NativeMeetMicrophoneTests {
             await Task.yield()
         }
         _ = try #require(media.pending)
+    }
+}
+
+private extension NativeMeetMicrophoneTests {
+    func responses(
+        streamChannelID: UInt16? = nil, streamReliable: Bool = true, streamCompression: UInt64 = 1,
+        streamReliabilityLimit: (field: UInt64, value: UInt64)? = nil
+    ) -> [Result<HTTPResponse, any Error>] {
+        NativeMeetFixture.responses(
+            streamChannelID: streamChannelID, streamReliable: streamReliable,
+            streamCompression: streamCompression, streamReliabilityLimit: streamReliabilityLimit
+        ).map { value in
+            value.map { HTTPResponse(
+                status: $0.status,
+                headers: HTTPHeaders(fields: $0.headers.fields + [.init(
+                    name: "X-Goog-Meeting-Debugid",
+                    value: "conference-sentinel"
+                )]),
+                body: $0.body
+            ) }
+        }
     }
 }
 

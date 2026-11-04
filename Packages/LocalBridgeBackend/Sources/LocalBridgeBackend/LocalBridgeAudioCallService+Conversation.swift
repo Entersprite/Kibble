@@ -19,7 +19,7 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
         callID: UUID,
         joining: Bool
     ) async throws {
-        guard !hasCall, operation == nil, !isStopping, hasLoadedPeople else {
+        guard !hasCall, operation == nil, !isStopping else {
             throw ChatError.unsupported(capability: "conversationCalls")
         }
         callScope = UUID()
@@ -29,8 +29,9 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
         publishConversation(.init(id: callID, target: target, phase: .connecting))
         let scope = callScope
         try await runOperation(id: callID, scope: scope) {
+            try await self.waitForCallContext(callID: callID, scope: scope)
             let prepared = try await self.trial.prepareConversation(
-                in: target.conversationID,
+                in: Self.conversationID(target),
                 joining: joining
             )
             try self.checkCall(callID, scope: scope)
@@ -39,9 +40,15 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
         }
     }
 
+    private static func conversationID(_ target: ConversationCallTarget) throws -> Conversation.ID {
+        guard let id = target.conversationID, target.meetingURL == nil else { throw CancellationError() }
+        return id
+    }
+
     func publishConversation(_ call: ConversationCallSnapshot) {
         conversationSnapshot = call
-        continuation.yield(.conversationSnapshot(call))
+        continuation
+            .yield(call.target.meetingURL == nil ? .conversationSnapshot(call) : .meetingSnapshot(call))
     }
 
     func hangUpConversation(callID: UUID) async throws {

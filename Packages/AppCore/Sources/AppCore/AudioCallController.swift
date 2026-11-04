@@ -14,29 +14,40 @@ public final class AudioCallController {
     /// roster is not established. One person can have several devices, and a
     /// presentation is a device of its own (`parentID`).
     public internal(set) var participants: [CallParticipantDevice]?
+    public internal(set) var interaction: CallInteractionState?
     public internal(set) var windowRequests = 0
-    public private(set) var listenerFailure: String?
+    public internal(set) var listenerFailure: String?
     public private(set) var isAvailable = false
     public private(set) var isEnding = false
-    public private(set) var isUpdatingMute = false
+    public internal(set) var isUpdatingMute = false
     public private(set) var isRecovering = false
     /// Mirrors the service's own answer after each event, so views observe it.
-    public private(set) var supportsExistingJoin = false
-    public private(set) var supportsConversationCalls = false
+    public internal(set) var supportsExistingJoin = false
+    public internal(set) var supportsConversationCalls = false
+    public internal(set) var supportsMeetingLinks = false
+    public internal(set) var supportedMeetingLinkHosts: Set<String> = []
     /// Calls going on in the conversation on screen; stopped with this controller.
     public let discovery = CallDiscoveryMonitor()
 
     /// Read by `+Starting.swift`; written only here, from the service's events.
     var recipients: [Conversation.ID: AudioCallRecipient] = [:]
     @ObservationIgnored var service: (any AudioCallService)?
-    @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var retiredIDs: Set<UUID> = []
+    @ObservationIgnored var generation = 0
+    public internal(set) var breakoutReturnURL: URL?
+    @ObservationIgnored var breakoutTaskToken: UUID?
+    @ObservationIgnored var breakoutTask: Task<Void, any Error>?
+    @ObservationIgnored var activityTask: Task<Void, any Error>?
+    @ObservationIgnored var inviteTask: Task<Void, any Error>?
+    @ObservationIgnored var interactionTask: Task<Void, Never>?
+    public internal(set) var isUpdatingInteraction = false
+    @ObservationIgnored var retiredIDs: Set<UUID> = []
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var listenerTask: Task<Void, Never>?
-    @ObservationIgnored private var operationTask: Task<Void, Never>?
-    @ObservationIgnored private var endingSnapshot: AudioCallSession?
+    @ObservationIgnored var operationTask: Task<Void, Never>?
+    @ObservationIgnored var sourceTermination: AudioCallSession?
+    @ObservationIgnored var endingSnapshot: AudioCallSession?
     @ObservationIgnored var endingTask: Task<Void, Never>?
-    @ObservationIgnored private var muteTask: Task<Void, Never>?
+    @ObservationIgnored var muteTask: Task<Void, Never>?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
     @ObservationIgnored private var muteRevision = 0
     @ObservationIgnored private var directoryTask: Task<Void, Never>?
@@ -87,6 +98,10 @@ public final class AudioCallController {
         listenerTask?.cancel()
         operationTask?.cancel()
         muteTask?.cancel()
+        interactionTask?.cancel()
+        stopActivityWork()
+        interactionTask = nil
+        isUpdatingInteraction = false
         endingTask?.cancel()
         eventTask = nil
         listenerTask = nil
@@ -101,10 +116,13 @@ public final class AudioCallController {
         isUpdatingMute = false
         supportsExistingJoin = false
         supportsConversationCalls = false
+        supportsMeetingLinks = false
+        supportedMeetingLinkHosts = []
         listenerFailure = nil
         operationFailure = nil
         call = nil
         participants = nil
+        interaction = nil
         let cleanup = Task {
             if let oldService {
                 await oldService.stop()
@@ -191,81 +209,6 @@ public final class AudioCallController {
         }
     }
 
-    private func receive(_ event: AudioCallEvent) {
-        switch event {
-        case let .recipientsChanged(values):
-            recipients = values.reduce(into: [:]) { $0[$1.conversationID] = $1 }
-        case let .listenerChanged(isListening):
-            listenerFailure = isListening ? nil : "Incoming calls are unavailable."
-        case let .snapshot(snapshot):
-            receiveSnapshot(AudioCallSession(snapshot, isJoining: joining(snapshot.id)))
-        case let .conversationSnapshot(snapshot):
-            receiveSnapshot(AudioCallSession(snapshot, isJoining: joining(snapshot.id)))
-        case let .participantsChanged(callID, devices):
-            guard call?.id == callID, call?.phase.isTerminal == false, !retiredIDs.contains(callID)
-            else { break }
-            participants = devices
-        case .unknown, .listenerBarrier: break
-        }
-        refreshSupport()
-    }
-
-    private func joining(_ id: UUID) -> Bool {
-        call?.id == id && call?.isJoining == true
-    }
-
-    private func refreshSupport() {
-        let join = existingJoinService?.canJoinExistingCalls ?? false
-        let conversations = conversationService?.canCallConversations ?? false
-        if supportsExistingJoin != join {
-            supportsExistingJoin = join
-        }
-        if supportsConversationCalls != conversations {
-            supportsConversationCalls = conversations
-        }
-    }
-
-    private func receiveSnapshot(_ snapshot: AudioCallSession) {
-        if receiveTerminalSnapshot(snapshot) {
-            return
-        }
-        guard !retiredIDs.contains(snapshot.id) else { return }
-        if call?.id == snapshot.id {
-            guard call?.phase.isTerminal == false, !isEnding else { return }
-            call = snapshot
-            if snapshot.phase.isTerminal {
-                retire(snapshot.id)
-            }
-        } else if snapshot.recipient != nil, snapshot.direction == .incoming, snapshot.phase == .incoming,
-                  call == nil || call?.phase.isTerminal == true, !isEnding {
-            call = snapshot
-            participants = nil
-            windowRequests += 1
-        }
-    }
-
-    private func receiveTerminalSnapshot(_ snapshot: AudioCallSession) -> Bool {
-        guard call?.id == snapshot.id, snapshot.phase.isTerminal else { return false }
-        if isEnding {
-            endingSnapshot = snapshot
-            return true
-        }
-        // Terminal information can arrive after the awaited operation returns.
-        // Refining the same terminal phase cannot reactivate a retired call.
-        guard call?.phase == snapshot.phase else { return false }
-        call = snapshot
-        return true
-    }
-
-    /// A finished call keeps no roster: nobody shown is still in it.
-    private func retire(_ id: UUID) {
-        retiredIDs.insert(id)
-        operationTask?.cancel()
-        muteTask?.cancel()
-        isUpdatingMute = false
-        participants = nil
-    }
-
     func runOperation(
         id: UUID,
         restoring incoming: AudioCallSession? = nil,
@@ -286,11 +229,12 @@ public final class AudioCallController {
                     call?.failureMessage = "Another call is already using this device."
                     return
                 }
-                let message = Self.failureMessage(for: error, joining: call?.isJoining == true)
+                let message = Self.failureMessage(for: error, call: call)
                 call?.phase = .failed
                 call?.failureMessage = message
                 retiredIDs.insert(id)
                 participants = nil
+                interaction = nil
                 // The service owns cleanup on failed connection operations.
             }
         }
@@ -304,9 +248,17 @@ public final class AudioCallController {
         self.call?.phase = .ended
         self.call?.failureMessage = nil
         participants = nil
+        interaction = nil
         isEnding = true
         operationTask?.cancel()
         muteTask?.cancel()
+        interactionTask?.cancel()
+        activityTask?.cancel()
+        activityTask = nil
+        inviteTask?.cancel()
+        inviteTask = nil
+        interactionTask = nil
+        isUpdatingInteraction = false
         isUpdatingMute = false
         endingTask = Task { [weak self] in
             guard self?.generation == scope, !Task.isCancelled else { return }
@@ -352,6 +304,7 @@ public extension AudioCallController {
         recipients = [:]
         call = nil
         participants = nil
+        interaction = nil
         listenerTask?.cancel()
         directoryTask?.cancel()
         do {
@@ -386,11 +339,18 @@ public extension AudioCallController {
 
 extension AudioCallController {
     /// Fixed copy for a refused start or join; the error's own text never shows.
-    private static func failureMessage(for error: any Error, joining: Bool) -> String {
+    private static func failureMessage(for error: any Error, call: AudioCallSession?) -> String {
         if error as? ServiceFailure == .deviceBusy {
             return "Another call is already using this device."
         }
-        return joining ? "The call couldn’t be joined. It may have ended." : "The call could not connect."
+        if (error as? ServiceFailure)?.code == "invalidRequest",
+           case let .conversation(target) = call?.target, target.meetingURL != nil {
+            return "This meeting link isn’t supported. Copy the meeting’s direct link and try again."
+        }
+        if call?.isJoining == true {
+            return "The call couldn’t be joined. It may have ended."
+        }
+        return "The call could not connect."
     }
 
     func recordHandoffFailure(id: UUID) {

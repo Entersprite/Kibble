@@ -101,42 +101,89 @@ extension AccountRuntime {
         case ReadCallState.operation:
             result = try await calls.read(request.decodePayload(ReadCallState.self))
         case ControlCall.operation:
-            let control = try request.decodePayload(ControlCall.self)
-            try await calls.validateSource(control)
-            if control.action == "start" || control.action == "join" {
-                try await validateCallRecipient(control.recipient, backend: backend, epoch: epoch)
-            }
-            result = try await calls.control(control, session: context.sessionID)
-            if control.action == "restart" {
-                requestCallDirectoryRefresh()
-            }
-        case ControlConversationCall.operation:
-            let control = try request.decodePayload(ControlConversationCall.self)
-            try await calls.validateConversationSource(control)
-            guard let conversation = try storage.conversation(control.conversationID),
-                  [.space, .groupDirectMessage].contains(conversation.kind) else {
-                throw ServiceFailure.invalidRequest
-            }
-            let version = callFactsVersions[conversation.id]
-            let world = callWorldVersion
-            let details = try await withProviderWork(epoch: epoch) {
-                try await backend.conversationDetails(conversation.id)
-            }
-            try checkEpoch(epoch)
-            guard version == callFactsVersions[conversation.id], world == callWorldVersion else {
-                throw ServiceFailure.overloaded
-            }
-            guard details.conversation.id == conversation.id,
-                  details.conversation.kind == conversation.kind,
-                  details.membership == .joined else { throw ServiceFailure.notAuthorized }
-            let target = ConversationCallTarget(
-                conversationID: conversation.id, displayName: details.conversation.title ?? "Group call"
+            result = try await dispatchCallControl(
+                request,
+                calls: calls,
+                context: context,
+                backend: backend,
+                epoch: epoch
             )
-            result = try await calls.controlConversation(control, target: target, session: context.sessionID)
+        case PerformCallActivity.operation:
+            result = try await calls.performActivity(
+                request.decodePayload(PerformCallActivity.self),
+                session: context.sessionID
+            )
+        case InviteCallParticipant.operation:
+            result = try await calls.inviteParticipant(
+                request.decodePayload(InviteCallParticipant.self),
+                session: context.sessionID
+            )
+        case ControlCallInteraction.operation:
+            result = try await calls.controlInteraction(
+                request.decodePayload(ControlCallInteraction.self),
+                session: context.sessionID
+            )
+        case JoinMeetingCall.operation:
+            result = try await calls.joinMeeting(
+                request.decodePayload(JoinMeetingCall.self),
+                session: context.sessionID
+            )
+        case ControlConversationCall.operation:
+            result = try await dispatchConversationCallControl(
+                request,
+                calls: calls,
+                context: context,
+                backend: backend,
+                epoch: epoch
+            )
         default: throw ServiceFailure.unsupportedOperation
         }
         try checkEpoch(epoch)
         return try ServiceCodec.value(result)
+    }
+
+    private func dispatchCallControl(
+        _ request: ServiceRequest, calls: ServiceCallRuntime, context: ServiceSessionContext,
+        backend: any ChatBackend, epoch: UUID
+    ) async throws -> ServiceCallState {
+        let control = try request.decodePayload(ControlCall.self)
+        try await calls.validateSource(control)
+        if control.action == "start" || control.action == "join" {
+            try await validateCallRecipient(control.recipient, backend: backend, epoch: epoch)
+        }
+        let result = try await calls.control(control, session: context.sessionID)
+        if control.action == "restart" {
+            requestCallDirectoryRefresh()
+        }
+        return result
+    }
+
+    private func dispatchConversationCallControl(
+        _ request: ServiceRequest, calls: ServiceCallRuntime, context: ServiceSessionContext,
+        backend: any ChatBackend, epoch: UUID
+    ) async throws -> ServiceCallState {
+        let control = try request.decodePayload(ControlConversationCall.self)
+        try await calls.validateConversationSource(control)
+        guard let conversation = try storage.conversation(control.conversationID),
+              [.space, .groupDirectMessage].contains(conversation.kind) else {
+            throw ServiceFailure.invalidRequest
+        }
+        let version = callFactsVersions[conversation.id]
+        let world = callWorldVersion
+        let details = try await withProviderWork(epoch: epoch) {
+            try await backend.conversationDetails(conversation.id)
+        }
+        try checkEpoch(epoch)
+        guard version == callFactsVersions[conversation.id], world == callWorldVersion else {
+            throw ServiceFailure.overloaded
+        }
+        guard details.conversation.id == conversation.id,
+              details.conversation.kind == conversation.kind,
+              details.membership == .joined else { throw ServiceFailure.notAuthorized }
+        let target = ConversationCallTarget(
+            conversationID: conversation.id, displayName: details.conversation.title ?? "Group call"
+        )
+        return try await calls.controlConversation(control, target: target, session: context.sessionID)
     }
 
     private func validateCallRecipient(

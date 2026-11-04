@@ -1,26 +1,33 @@
 import ChatKit
 import Foundation
 
-/// Internal URLs become separate quotes. Text offsets are transformed only
+/// Internal URLs become quotes and advertised meeting links become cards. Text offsets are transformed only
 /// for rendering; the original message remains the menu/send authority.
 struct MessageLinkPresentation {
     let message: Message
     let references: [MessageLink]
+    let meetings: [MessageLink]
 
-    init(_ original: Message, internalHosts: Set<String>) {
-        let links = Self.links(in: original, internalHosts: internalHosts)
+    init(_ original: Message, internalHosts: Set<String>, meetingHosts: Set<String> = []) {
+        let links = Self.links(in: original, hosts: internalHosts.union(meetingHosts))
         let internalLinks = links.filter {
             $0.messageAddress != nil || internalHosts.contains($0.url.host()?.lowercased() ?? "")
         }
-        let removed = Self.removedRanges(in: original.text, links: internalLinks)
-        message = Self.removing(removed, from: original, links: links, internalHosts: internalHosts)
+        let meetingLinks = links.filter {
+            !internalLinks.contains($0) && LinkPolicy.isMeetingLink($0.url, hosts: meetingHosts)
+        }
+        let excluded = internalLinks + meetingLinks
+        let removed = Self.removedRanges(in: original.text, links: excluded)
+        message = Self.removing(removed, from: original, links: links, excluding: Set(excluded))
         var seen: Set<URL> = []
         references = internalLinks.filter { seen.insert($0.url).inserted }
+        seen = []
+        meetings = meetingLinks.filter { seen.insert($0.url).inserted }
     }
 
-    private static func links(in original: Message, internalHosts: Set<String>) -> [MessageLink] {
+    private static func links(in original: Message, hosts: Set<String>) -> [MessageLink] {
         var links = original.links
-        if original.text.contains("://"), internalHosts.contains(where: {
+        if original.text.contains("://"), hosts.contains(where: {
             original.text.range(of: $0, options: .caseInsensitive) != nil
         }),
             let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
@@ -28,7 +35,7 @@ struct MessageLinkPresentation {
                 in: original.text,
                 range: NSRange(original.text.startIndex..., in: original.text)
             ) {
-                guard let url = match.url, internalHosts.contains(url.host()?.lowercased() ?? ""),
+                guard let url = match.url, hosts.contains(url.host()?.lowercased() ?? ""),
                       !links
                       .contains(where: { $0.start == match.range.location && $0.length == match.range.length
                       })
@@ -54,7 +61,8 @@ struct MessageLinkPresentation {
     }
 
     private static func removing(
-        _ removed: [NSRange], from original: Message, links: [MessageLink], internalHosts: Set<String>
+        _ removed: [NSRange], from original: Message, links: [MessageLink],
+        excluding excluded: Set<MessageLink>
     ) -> Message {
         var result = original
         for span in removed.reversed() {
@@ -82,8 +90,7 @@ struct MessageLinkPresentation {
             return span
         }
         result.links = links.compactMap { link in
-            guard link.messageAddress == nil, !internalHosts.contains(link.url.host()?.lowercased() ?? "")
-            else { return nil }
+            guard !excluded.contains(link) else { return nil }
             var link = link
             if let start = link.start, let length = link.length {
                 guard !Self.overlaps(start, length, removed) else { return nil }

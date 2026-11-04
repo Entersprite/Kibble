@@ -128,6 +128,11 @@ struct CallControlBar: View {
     let diagnostics: CallDiagnosticsItem?
     var roster: [CallRosterEntry]?
     var showsPeople: Binding<Bool>?
+    var stageSelection: Binding<CallStageSelection>?
+    var layoutVideos: [CallRemoteVideo] = []
+    var showsInvitations: Binding<Bool>?
+    var showsActivities: Binding<Bool>?
+    var showsChat: Binding<Bool>?
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
@@ -174,7 +179,17 @@ struct CallControlBar: View {
         if canUseMedia, let camera, let select = actions.selectCamera {
             video = CallMoreMenu.Video(camera: camera, select: select)
         }
-        return CallMoreMenu(audio: audio, video: video, diagnostics: diagnostics)
+        return CallMoreMenu(
+            audio: audio,
+            video: video,
+            diagnostics: diagnostics,
+            stageSelection: stageSelection,
+            layoutVideos: layoutVideos,
+            showsInvitations: showsInvitations,
+            showsActivities: showsActivities,
+            showsChat: showsChat,
+            interactions: actions
+        )
     }
 }
 
@@ -195,13 +210,55 @@ struct CallMoreMenu: View {
     let audio: Audio?
     let video: Video?
     let diagnostics: CallDiagnosticsItem?
+    var stageSelection: Binding<CallStageSelection>?
+    var layoutVideos: [CallRemoteVideo] = []
+    var showsInvitations: Binding<Bool>?
+    var showsActivities: Binding<Bool>?
+    var showsChat: Binding<Bool>?
+    var interactions: AudioCallActions?
 
     var hasContent: Bool {
-        audio != nil || video != nil || diagnostics != nil
+        audio != nil || video != nil || diagnostics != nil || stageSelection != nil || interactions?
+            .toggleHandRaised != nil || interactions?.meetingURL != nil || interactions?
+            .invitations != nil || interactions?.chat != nil || interactions?.activities != nil
     }
 
     var body: some View {
         Menu {
+            if interactions?.activities != nil, let showsActivities {
+                Button("Activities…", systemImage: "square.grid.2x2") { showsActivities.wrappedValue = true }
+            }
+            if interactions?.chat != nil, let showsChat {
+                Button("Chat", systemImage: "bubble.left.and.bubble.right") { showsChat.wrappedValue = true }
+            }
+            if interactions?.invitations != nil, let showsInvitations {
+                Button("Invite People…", systemImage: "person.badge.plus") {
+                    showsInvitations.wrappedValue = true
+                }
+            }
+            if let interactions {
+                if let toggle = interactions.toggleHandRaised {
+                    Button(
+                        interactions.handRaised == true ? "Lower Hand" : "Raise Hand",
+                        systemImage: "hand.raised",
+                        action: toggle
+                    )
+                    .disabled(interactions.isUpdatingHand)
+                }
+                if let url = interactions.meetingURL {
+                    if let copy = interactions.copyMeetingLink {
+                        Button(
+                            "Copy Meeting Link",
+                            systemImage: "link",
+                            action: copy
+                        )
+                    }
+                    ShareLink(item: url) { Label("Share Meeting Link", systemImage: "square.and.arrow.up") }
+                }
+            }
+            if let stageSelection {
+                CallLayoutMenu(selection: stageSelection, videos: layoutVideos)
+            }
             if let audio {
                 CallAudioDeviceSections(
                     devices: audio.devices, selectMicrophone: audio.selectMicrophone,

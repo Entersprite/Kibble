@@ -256,6 +256,7 @@ public extension MeetVideoStreamWire {
     struct DeviceAudio: Sendable, Equatable {
         public let deviceName: String
         public let muted: Bool?
+        public var sourceSSRCs: [UInt32] = []
     }
 
     /// Explicit participant keys allow group microphones to remain separate.
@@ -274,7 +275,12 @@ public extension MeetVideoStreamWire {
             guard let name = try? MeetProto.text(6, stream),
                   MeetDeviceWire.validDevice(name) else { return nil }
             let hasMute = ProtoFieldScan.fields(in: stream).fields.contains { $0.number == 10 }
-            return try DeviceAudio(deviceName: name, muted: hasMute ? flag(10, stream) : nil)
+            var audio = try DeviceAudio(deviceName: name, muted: hasMute ? flag(10, stream) : nil)
+            if let source = try? MeetVideoSource.parse(MeetProto.payload(8, stream)),
+               source.retransmission == nil {
+                audio.sourceSSRCs = [source.primary]
+            }
+            return audio
         }
     }
 

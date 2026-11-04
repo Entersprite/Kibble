@@ -74,6 +74,28 @@ public enum ProtoFieldScan {
         return (fields, false)
     }
 
+    /// Removes one scalar for an addressed update while retaining every other
+    /// encoded field, including fields unknown to the current provider.
+    static func removingVarint(_ number: Int, from data: Data) -> Data? {
+        var result = Data(), index = data.startIndex, removed = false
+        while index < data.endIndex {
+            let start = index
+            guard let key = varint(data, &index), key >> 3 > 0 else { return nil }
+            let wireType = Int(key & 7)
+            var payload: Range<Data.Index>?
+            guard skipValue(wireType: wireType, in: data, index: &index, payload: &payload) else {
+                return nil
+            }
+            if key >> 3 == UInt64(number) {
+                guard wireType == 0, !removed else { return nil }
+                removed = true
+            } else {
+                result.append(data[start ..< index])
+            }
+        }
+        return result
+    }
+
     /// The raw bytes of every top-level occurrence of `number` as a
     /// length-delimited (wire type 2) field - every `world_items` (field 4)
     /// entry in a `PaginatedWorldResponse`, still encoded, so a caller can

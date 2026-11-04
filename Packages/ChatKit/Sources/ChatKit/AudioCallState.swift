@@ -71,7 +71,9 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
     case listenerChanged(isListening: Bool)
     case snapshot(AudioCallSnapshot)
     case conversationSnapshot(ConversationCallSnapshot)
+    case meetingSnapshot(ConversationCallSnapshot)
     case participantsChanged(callID: UUID, participants: [CallParticipantDevice]?)
+    case interactionChanged(callID: UUID, state: CallInteractionState?)
     case listenerBarrier(UUID)
     /// The complete event from a newer peer, including its discriminator.
     case unknown(type: String, payload: JSONValue)
@@ -81,7 +83,7 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case type, recipients, call, isListening, token, callID, participants
+        case type, recipients, call, isListening, token, callID, participants, interaction
     }
 
     public init(from decoder: any Decoder) throws {
@@ -97,6 +99,13 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
                 callID: container.decode(UUID.self, forKey: .callID),
                 participants: container.decodeIfPresent([CallParticipantDevice].self, forKey: .participants)
             )
+        case "interactionChanged":
+            self = try .interactionChanged(
+                callID: container.decode(UUID.self, forKey: .callID),
+                state: container.decodeIfPresent(CallInteractionState.self, forKey: .interaction)
+            )
+        case "meetingSnapshot":
+            self = try .meetingSnapshot(container.decode(ConversationCallSnapshot.self, forKey: .call))
         case "conversationSnapshot":
             self = try .conversationSnapshot(container.decode(ConversationCallSnapshot.self, forKey: .call))
         case "listenerChanged":
@@ -119,6 +128,13 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
             try container.encode("participantsChanged", forKey: .type)
             try container.encode(callID, forKey: .callID)
             try container.encodeIfPresent(participants, forKey: .participants)
+        case let .interactionChanged(callID, state):
+            try container.encode("interactionChanged", forKey: .type)
+            try container.encode(callID, forKey: .callID)
+            try container.encodeIfPresent(state, forKey: .interaction)
+        case let .meetingSnapshot(call):
+            try container.encode("meetingSnapshot", forKey: .type)
+            try container.encode(call, forKey: .call)
         case let .conversationSnapshot(call):
             try container.encode("conversationSnapshot", forKey: .type)
             try container.encode(call, forKey: .call)

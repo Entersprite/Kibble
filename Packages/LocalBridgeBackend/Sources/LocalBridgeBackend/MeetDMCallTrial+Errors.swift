@@ -36,6 +36,9 @@ public extension MeetDMCallTrial {
     }
 
     private nonisolated static func otherError(_ error: any Error) -> String {
+        if let error = error as? MeetMediaSessionWire.StreamControlFailure {
+            return "Meet stream control setup failed: " + error.rawValue + "."
+        }
         if error is MeetCallWire.WireError {
             return "Meet response or request shape was invalid."
         }

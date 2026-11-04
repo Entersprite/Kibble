@@ -30,10 +30,38 @@ actor NativeMeetCallSession {
     var invitationVersion: UInt64?
     var outgoingInvitationStatus: UInt64?
     var participantLocalDevice: String?
+    var participantSpeaking: [String: Bool] = [:]
+    var participantAudioSources: [UInt32: String] = [:]
+    var audioLevelTimes: [UInt32: Double] = [:]
     var participantMutes: [String: Bool] = [:]
+    var participantHands: [String: String]?
+    var handVersion: UInt64?
+    var handOperation = false
+    var ownHandRaised: Bool?
+    var ownHandName: String?
     var publishedParticipants: [CallParticipantDevice]?
     var participantHandles: [String: UUID] = [:]
     var participantDevices: [String: MeetDeviceWire.Device] = [:]
+    var deniedActivities: Set<String> = []
+    var breakoutInitialized = false
+    var roomAssignments: [String: [UUID]] = [:]
+    var activityChatLocked = false
+    var activityReactionsLocked = false
+    var activities = CallActivitiesState()
+    var activityResources: [UUID: (kind: String, name: String)] = [:]
+    var artifactSessions: [String: String] = [:]
+    var activityVersions: [Int: UInt64] = [:]
+    var unavailableActivityFields: Set<Int> = []
+    var pollsAccepting = false
+    var questionsAccepting = false
+    var currentActivityQuestions: [UUID: Data] = [:]
+    var currentActivityPolls: [UUID: Data] = [:]
+    var pollSeries: String?
+    var questionSeries: String?
+    var lastReactionTime: ContinuousClock.Instant?
+    var activitySequence: UInt64 = 0
+    var activityChannelsTask: Task<Void, Never>?
+    var receiveActivities: (@Sendable (CallActivitiesState) async -> Void)?
     var receiveParticipants: (@Sendable ([CallParticipantDevice]?) async -> Void)?
     var peerJoined = false
     var localObserved = false
@@ -81,6 +109,24 @@ actor NativeMeetCallSession {
         self.staysWhenAlone = staysWhenAlone
         self.validateAccount = validateAccount
         self.now = now
+        activities.availableActions = [
+            "refresh",
+            "react",
+            "chat",
+            "recording",
+            "transcription",
+            "notes",
+            "attendance",
+            "createPoll",
+            "votePoll",
+            "closePoll",
+            "askQuestion",
+            "voteQuestion",
+            "answerQuestion",
+            "createRooms",
+            "openRooms",
+            "closeRooms"
+        ]
     }
 
     func connect() async throws {
@@ -93,33 +139,6 @@ actor NativeMeetCallSession {
         } onCancel: {
             task.cancel()
         }
-    }
-
-    func invite(callee: String) async throws {
-        guard ready, !closed, connection == nil else { throw MeetDeviceSessionError.notJoined }
-        let task = Task { try await performInvite(callee: callee) }
-        connection = task
-        defer { connection = nil }
-        try await withTaskCancellationHandler {
-            try await task.value
-        } onCancel: {
-            task.cancel()
-        }
-    }
-
-    private func performInvite(callee: String) async throws {
-        // A background read must not consume an explicit Ring click as busy.
-        // Mark the invitation operation in flight first, then settle that read.
-        _ = await refresh?.result
-        try await check()
-        guard ready, !closed, await media.isConnected else { throw MeetDeviceSessionError.mediaNotConnected }
-        try await validateAccount()
-        await device.setMediaConnected(media.isConnected)
-        try await device.invite(calleeID: callee, requestID: UUID())
-        try Task.checkCancellation()
-        lines.append("CreateMeetingInvite: accepted from Kibble's joined native device")
-        ringingDeadline = now().advanced(by: .seconds(36))
-        await publish(.ringing)
     }
 
     func close(reason: MeetNativeCallEndReason = .localEnded) async {
@@ -135,6 +154,7 @@ actor NativeMeetCallSession {
         let mediaWasClosed = closed
         closed = true
         ready = false
+        activityChannelsTask?.cancel()
         monitor?.cancel()
         monitor = nil
         let task = connection
@@ -153,6 +173,8 @@ actor NativeMeetCallSession {
             await media.close()
         }
         await publish(.ending)
+        _ = await activityChannelsTask?.result
+        activityChannelsTask = nil
         _ = await task?.result
         _ = await refresh?.result
         _ = await streamTask?.result
@@ -200,8 +222,7 @@ actor NativeMeetCallSession {
                 .createMediaSession(clientConfiguration: video?.clientConfiguration ?? offer
                     .clientConfiguration)
             try await check()
-            lines.append("CreateMediaSession: accepted (media credentials withheld)")
-            mediaSessionName = session.name
+            try await acceptMediaSession(session)
             lines.append("Native audio: converting server answer")
             let answer = try video?.answer(serverConfiguration: session.serverConfiguration)
                 ?? serverAnswer(offer, configuration: session.serverConfiguration)
@@ -218,7 +239,7 @@ actor NativeMeetCallSession {
             await device.setMediaConnected(true)
             lines.append("Native audio: peer transport connected")
             lines.append("Native control: collections channel open")
-            try await device.join()
+            try await joinDevice()
             try await check()
             guard await media.isConnected else { throw CallMediaError.connectionFailed }
             try await finishConnect(offer, streamControl: supportsStreamControl)
@@ -264,47 +285,17 @@ actor NativeMeetCallSession {
         ready = true
     }
 
-    private static func suite(_ profile: CallSRTPProfile) -> MeetAudioOffer.SRTPSuite {
-        switch profile {
-        case .aes128SHA180: .aes128SHA180
-        case .aeadAES128GCM: .aeadAES128GCM
-        case .aeadAES256GCM: .aeadAES256GCM
-        }
-    }
-
-    private func reportOffer(_ local: CallAudioOffer) {
-        lines.append("Native audio: local offer prepared (SDP withheld)")
-        lines.append("Native audio codecs: Opus with optional RED; legacy codecs excluded")
-        lines.append("Native control: server-created collections channel; protobuf; uncompressed")
-        lines.append("Native audio config: DTLS selector 1; media selector 2; audio output enabled; SRTP "
-            + local.srtpProfile.rawValue)
-    }
-
-    private func serverAnswer(_ offer: MeetAudioOffer, configuration: Data) throws -> String {
-        do {
-            return try offer.answer(serverConfiguration: configuration)
-        } catch {
-            if let failure = error as? MeetAudioOffer.AnswerFailure, failure == .ice {
-                lines += MeetAudioOffer.iceDiagnostics(serverConfiguration: configuration)
-            }
-            throw error
-        }
-    }
-
-    func check() async throws {
-        try Task.checkCancellation()
-        guard !closed else { throw MeetDeviceSessionError.closed }
-        try await validateAccount()
-        try Task.checkCancellation()
-        guard !closed else { throw MeetDeviceSessionError.closed }
-    }
-
     private func cleanup() async {
         guard !cleanupAttempted else { return }
         cleanupAttempted = true
         // A cancelled connection task cannot carry its cancelled transport
         // into the leave request. Settle registration first, then leave once.
         let device = device
+        do {
+            try await Task.detached { try await device.cancelParticipantInvitations() }.value
+        } catch {
+            cleanupStatus.invitationUnconfirmed = true
+        }
         do {
             try await Task.detached { try await device.cancelInvitation() }.value
             lines.append("Native cleanup: invitation cancellation settled or no invitation remained")

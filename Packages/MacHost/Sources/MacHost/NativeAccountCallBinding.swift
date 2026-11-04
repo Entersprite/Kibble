@@ -12,6 +12,8 @@ final class NativeAccountCallBinding {
     let video = CallVideoController(preferences: .standard)
     let signIn = CallSignInRecovery()
     let diagnostics = AudioCallDiagnosticExporter()
+    var admissionOwner: UUID?
+    var confirmAdmission: @MainActor @Sendable ([CallAdmissionNotice]) async -> Bool = { _ in false }
 
     func install(_ source: LocalBridgeAudioCallService) async {
         video.isAvailable = true
@@ -26,7 +28,11 @@ final class NativeAccountCallBinding {
     }
 
     func makeMedia() -> any CallMediaEngine {
-        NativeCallMedia(audioDevices: audioDevices, videoController: video)
+        NativeCallMedia(
+            audioDevices: audioDevices,
+            videoController: video,
+            admissionConfirmation: confirmAdmission
+        )
     }
 
     func clearMedia() {
@@ -35,6 +41,8 @@ final class NativeAccountCallBinding {
     }
 
     func retire() async {
+        admissionOwner = nil
+        confirmAdmission = { _ in false }
         clearMedia()
         video.isAvailable = false
         diagnostics.install(nil)
@@ -67,7 +75,7 @@ final class NativeAccountCallBindings {
 /// this adapter, not the source, whether Join and conversation calls exist.
 @MainActor
 final class NativeAccountAudioCalls: AudioCallQuiescing, ExistingAudioCallService,
-    ConversationAudioCallService {
+    ConversationAudioCallService, MeetingLinkAudioCallService, CallInteractionService, CallActivitiesService {
     private let source: LocalBridgeAudioCallService
     private let binding: NativeAccountCallBinding
     var events: AsyncStream<AudioCallEvent> {
@@ -88,6 +96,34 @@ final class NativeAccountAudioCalls: AudioCallQuiescing, ExistingAudioCallServic
 
     func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {
         try await source.startOutgoing(to: recipient, callID: callID)
+    }
+
+    func inviteToCall(_ member: Member.ID, callID: UUID) async throws {
+        try await source.inviteToCall(member, callID: callID)
+    }
+
+    func performCallActivity(_ activity: CallActivity, callID: UUID) async throws {
+        try await source.performCallActivity(activity, callID: callID)
+    }
+
+    func setHandRaised(_ raised: Bool, callID: UUID) async throws {
+        try await source.setHandRaised(raised, callID: callID)
+    }
+
+    var meetingLinkHosts: Set<String> {
+        source.meetingLinkHosts
+    }
+
+    func normalizedMeetingLink(_ url: URL) throws -> URL {
+        try source.normalizedMeetingLink(url)
+    }
+
+    var canJoinMeetingLinks: Bool {
+        source.canJoinMeetingLinks
+    }
+
+    func joinMeeting(at url: URL, callID: UUID) async throws {
+        try await source.joinMeeting(at: url, callID: callID)
     }
 
     var canJoinExistingCalls: Bool {

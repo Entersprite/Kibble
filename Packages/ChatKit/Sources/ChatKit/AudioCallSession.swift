@@ -52,7 +52,7 @@ public struct AudioCallSession: Hashable, Sendable {
         self.isJoining = isJoining
     }
 
-    public var conversationID: Conversation.ID {
+    public var conversationID: Conversation.ID? {
         switch target {
         case let .person(recipient): recipient.conversationID
         case let .conversation(target): target.conversationID

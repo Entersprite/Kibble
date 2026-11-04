@@ -137,6 +137,7 @@ public struct ChatWindow: View {
                                 checkMessageDelivery: actions.checkMessageDelivery
                             )
                             .ownMessages(transcriptHandlers)
+                            .callControls(actions)
                             .meetingVisibility(actions.visibleMeetingMessages)
                             .resuming(transcriptPositions.resume(
                                 account: state.accountID, conversation: state.selectedConversation?.id
@@ -215,6 +216,8 @@ public struct ChatWindow: View {
         .environment(\.openMessageReference, actions.openMessageReference)
         .environment(\.loadMessageReference, actions.loadMessageReference)
         .environment(\.internalLinkHosts, state.capabilities.internalLinkHosts)
+        .environment(\.meetingLinkHosts, state.meetingLinkHosts)
+        .environment(\.joinMeetingLink, actions.joinMeeting)
         .environment(\.messageReferenceDirectory, state.directory)
         .environment(\.messageReferenceScope, state.accountID)
     }

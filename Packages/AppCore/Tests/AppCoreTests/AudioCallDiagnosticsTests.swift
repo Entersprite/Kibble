@@ -41,6 +41,55 @@ struct AudioCallDiagnosticsTests {
             == "unclassified")
     }
 
+    @Test func knownProviderCategoriesAreUsefulWithoutExportingDetailsOrFutureNames() {
+        let error = ServiceFailure(code: "providerFailure", details: .object([
+            "type": .string("unsupported"), "capability": .string("https://secret.example/token")
+        ]))
+        let failure = CallOperationFailure(id: UUID(), error: error)
+        #expect(failure.code == "providerFailure" && failure.providerCategory == "unsupported")
+        let future = CallOperationFailure(id: UUID(), error: ServiceFailure(
+            code: "providerFailure",
+            details: .object([
+                "type": .string("private-future-kind"),
+                "message": .string("secret")
+            ])
+        ))
+        #expect(future.code == "providerFailure" && future.providerCategory == nil)
+    }
+
+    @Test(arguments: ["meetingLinkEnvelope", "meetingLinkNormalization"])
+    func onlyKnownCallStagesAreAccepted(_ stage: String) {
+        let failure = CallOperationFailure(id: UUID(), error: ServiceFailure(
+            code: "invalidRequest", details: .object([
+                "callStage": .string(stage), "private": .string("private secret")
+            ])
+        ))
+        #expect(failure.code == "invalidRequest" && failure.stage == stage)
+        let unknown = CallOperationFailure(id: UUID(), error: ServiceFailure(
+            code: "invalidRequest", details: .object(["callStage": .string("private secret")])
+        ))
+        #expect(unknown.code == "unclassified" && unknown.stage == nil)
+    }
+
+    @Test func linkShapeReportsStructureWithoutLinkContents() throws {
+        let url = try #require(URL(string:
+            "https://private-user:private-password@private-host.test:444/private-path/abcd-efgh-ijkl/"
+                + "?private-query=private-value#private-fragment"
+        ))
+        let report = MeetingLinkDiagnosticShape.lines(url, supportedHosts: []).joined(separator: "\n")
+        #expect(report.contains("advertised host=false; credentials=true; port=other"))
+        #expect(report.contains("segments=2; lengths=12,14; trailing slash=true"))
+        #expect(report.contains("groups=4,4,4; lowercase ASCII=true"))
+        #expect(report.contains("query=true; fragment=true"))
+        #expect(!report.contains("private") && !report.contains("abcd"))
+        let huge = try #require(URL(string: "https://private-host.test/" + String(
+            repeating: "a",
+            count: 3000
+        )))
+        #expect(MeetingLinkDiagnosticShape
+            .lines(huge, supportedHosts: []) == ["Meeting link shape: over size limit"])
+    }
+
     private func wait(_ condition: @MainActor () -> Bool) async throws {
         for _ in 0 ..< 1000 {
             if condition() {

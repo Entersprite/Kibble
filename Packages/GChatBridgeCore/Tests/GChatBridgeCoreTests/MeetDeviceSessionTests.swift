@@ -309,3 +309,66 @@ struct MeetDeviceSessionTests {
         Data(data.base64EncodedString().utf8)
     }
 }
+
+extension MeetDeviceSessionTests {
+    @Test(arguments: [UInt64(0), 1, 2, 3, 4, UInt64.max])
+    func pendingTransferChoosesJoinHereTooWithoutTransferringAnotherDevice(_ transfer: UInt64) async throws {
+        var registered = response(state: 2)
+        registered = try HTTPResponse(
+            status: registered.status, headers: registered.headers,
+            body: base64(MeetProto.decode(registered.body) + MeetProto.number(54, transfer))
+        )
+        let transport = FakeHTTPTransport(responses: [registered, response(state: 1), response(state: 6)])
+        let session = try makeSession(transport)
+        try await session.register(mediaSession: "mediasessions/native")
+        #expect(await session.admissionState?.transfer == transfer)
+        await session.setMediaConnected(true)
+        try await session.join()
+        let request = try #require(await transport.sent[1].body)
+        let value = try MeetProto.payload(1, request)
+        let mask = try MeetProto.payload(2, request)
+        #expect(ProtoFieldScan.payloads(ofField: 1, in: mask)
+            .contains(Data("transfer".utf8)) == (transfer == 3))
+        #expect(ProtoFieldScan.varintValues(ofField: 54, in: value).isEmpty)
+        #expect(try MeetProto.text(1, value) == "spaces/demo/devices/one")
+        #expect(await session.admissionState?.joinState == 1)
+        try await session.leave()
+        #expect(await transport.sent.count == 3)
+    }
+
+    @Test func aPresentationNeverChoosesTransferForThePrimaryDevice() throws {
+        let request = try MeetDeviceWire.join(
+            device: "spaces/demo/devices/presentation", mediaSession: "mediasessions/child",
+            presentation: true, joinAlongside: true
+        )
+        #expect(try !ProtoFieldScan.payloads(ofField: 1, in: MeetProto.payload(2, request))
+            .contains(Data("transfer".utf8)))
+    }
+
+    @Test func handChangesUseTheJoinedDeviceAndReturnedHandWithoutReplayingCreation() async throws {
+        let name = "spaces/demo/hands/one"
+        let transport = FakeHTTPTransport(responses: [
+            response(state: 2), response(state: 1),
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: base64(MeetProto.string(1, name))),
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data())
+        ])
+        let session = try makeSession(transport)
+        await #expect(throws: MeetDeviceSessionError.notJoined) {
+            try await session.setHandRaised(true, currentName: nil)
+        }
+        try await session.register(mediaSession: "mediasessions/native")
+        await session.setMediaConnected(true)
+        try await session.join()
+        let raised = try await session.setHandRaised(true, currentName: nil)
+        #expect(raised == name)
+        _ = try await session.setHandRaised(true, currentName: raised)
+        #expect(await transport.sent.count == 3)
+        _ = try await session.setHandRaised(false, currentName: raised)
+        let requests = await transport.sent
+        #expect(requests.count == 4)
+        let create = try #require(requests[2].body)
+        #expect(try MeetProto.text(1, create) == "spaces/demo")
+        #expect(try MeetProto.payload(2, create).isEmpty)
+        #expect(try MeetProto.text(1, #require(requests[3].body)) == name)
+    }
+}

@@ -11,7 +11,7 @@ import SwiftUI
 /// window, never by a key that could be pressed while typing.
 public struct CallMenu: Equatable, Sendable {
     public enum Item: Hashable, Sendable {
-        case mute, camera, shareScreen, shareScreenWithSound, endCall
+        case joinMeeting, mute, camera, shareScreen, shareScreenWithSound, endCall
     }
 
     public struct Entry: Hashable, Identifiable, Sendable {
@@ -35,7 +35,8 @@ public struct CallMenu: Equatable, Sendable {
     /// answer holds nothing.
     public init(
         call: AudioCallSession?, isEnding: Bool, camera: CallCameraState?,
-        screenSharing: CallScreenShareState?, offersVideo: Bool, offersSound: Bool = false
+        screenSharing: CallScreenShareState?, offersVideo: Bool, offersSound: Bool = false,
+        offersMeetingLinks: Bool = false
     ) {
         let live = call.flatMap { $0.phase.isTerminal || $0.phase == .incoming || isEnding ? nil : $0 }
         let media = live.map { AudioCallPresentation.canMute($0.phase) } ?? false
@@ -45,6 +46,12 @@ public struct CallMenu: Equatable, Sendable {
             item: .mute, title: muted ? "Unmute" : "Mute", symbol: muted ? "mic" : "mic.slash",
             shortcut: MenuBarShortcuts.muteCall, isEnabled: media
         )]
+        if offersMeetingLinks {
+            entries.insert(Entry(
+                item: .joinMeeting, title: "Join Meeting…", symbol: "link", shortcut: nil,
+                isEnabled: live == nil && call?.phase != .incoming && !isEnding
+            ), at: 0)
+        }
         if offersVideo {
             let isOn = camera?.isOn ?? false
             entries.append(Entry(

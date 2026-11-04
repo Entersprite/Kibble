@@ -114,6 +114,8 @@ extension ServiceCallRuntime {
         }
         used.insert(id)
         state.participants = nil
+        state.meetingCall = nil
+        state.interaction = nil
         state.conversationCall = nil
         state.call = .init(id: id, recipient: recipient, direction: .outgoing, phase: .connecting)
         publish()

@@ -62,8 +62,15 @@ public final class CallMenuModel {
         return CallMenu(
             call: source.calls.call, isEnding: source.calls.isEnding, camera: video?.camera,
             screenSharing: video?.screenSharing.state, offersVideo: video?.isAvailable == true,
-            offersSound: video?.screenSharing.offersSound == true
+            offersSound: video?.screenSharing.offersSound == true,
+            offersMeetingLinks: source.calls.canJoinMeetingLinks
         )
+    }
+
+    func meetingLinkSource() -> Source? {
+        let current = sources?()
+        return current?.selected.flatMap { $0.calls.isAvailable ? $0 : nil }
+            ?? current?.all.first(where: { $0.calls.isAvailable })
     }
 
     public func toggleMute() {

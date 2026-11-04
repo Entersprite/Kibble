@@ -28,6 +28,7 @@ struct CallCommands: Commands {
 
     private func perform(_ item: CallMenu.Item) {
         switch item {
+        case .joinMeeting: model.joinMeeting()
         case .mute: model.toggleMute()
         case .camera: model.toggleCamera()
         case .shareScreen: model.toggleScreenSharing()

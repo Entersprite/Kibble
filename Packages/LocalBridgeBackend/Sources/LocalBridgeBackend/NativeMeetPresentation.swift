@@ -49,6 +49,8 @@ actor NativeMeetPresentation {
         stage = .mediaSession
         let session = try await client.createMediaSession(clientConfiguration: offer.clientConfiguration)
         try await check()
+        _ = try await NativeMeetStreamControl.configure(media, from: session.serverConfiguration)
+        try await check()
         stage = .registration
         try await device.register(mediaSession: session.name)
         try await check()

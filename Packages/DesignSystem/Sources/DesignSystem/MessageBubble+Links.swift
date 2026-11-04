@@ -7,11 +7,12 @@ extension MessageBubble {
     }
 
     var linkPresentation: MessageLinkPresentation {
-        MessageLinkPresentation(message, internalHosts: internalLinkHosts)
+        MessageLinkPresentation(message, internalHosts: internalLinkHosts, meetingHosts: meetingLinkHosts)
     }
 
     var showsLinkedText: Bool {
-        linkPresentation.references.isEmpty || !linkPresentation.message.text
+        (linkPresentation.references.isEmpty && linkPresentation.meetings.isEmpty) || !linkPresentation
+            .message.text
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -20,6 +21,13 @@ extension MessageBubble {
             BubbleWidthLimit(reserve: MessageBubbleLayout.reserve(isMine: message.sender == state.me)) {
                 MessageLinkQuote(link: link, me: state.me)
             }
+        }
+    }
+
+    func meetingCards(menu: MessageMenuContext) -> some View {
+        ForEach(linkPresentation.meetings, id: \.url) { link in
+            MeetingLinkCard(link: link, text: message.text)
+                .modifier(ReactionMenu(context: menu, link: link.url))
         }
     }
 }

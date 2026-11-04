@@ -3,6 +3,7 @@ import AppKit
 import ChatAPI
 import ChatKit
 import DesignSystem
+import LocalBridgeBackend
 import Observation
 
 /// Account selection never rebinds a call window or its native hardware controls.
@@ -22,6 +23,7 @@ final class NativeAccountCallPresentation {
     private var window: AudioCallWindowHost?
     private var alerts: IncomingCallAlerts?
     private var stopped = false
+    private let admissionPrompt = NativeCallAdmissionPrompt()
 
     init(
         environment: AppEnvironment, binding: NativeAccountCallBinding,
@@ -39,6 +41,7 @@ final class NativeAccountCallPresentation {
                 for: id, calls: calls, audioDevices: binding.audioDevices,
                 video: binding.video, diagnostics: binding.diagnostics
             )
+            MacAppDelegate.addCallConversationActions(to: &actions, for: id, environment: environment)
             actions.callBack = MacAppDelegate.callBack(after: id, environment: environment)
             actions.imageLoader = environment.imageLoader
             actions.accountLabel = accountLabel()
@@ -62,6 +65,14 @@ final class NativeAccountCallPresentation {
             showPanel: { [weak self] in self?.showPanel($0) }, hidePanel: { [panel] in panel.hide() },
             ring: { [ringer] in $0 ? ringer.start() : ringer.stop() }
         )
+        binding.admissionOwner = notificationScope
+        binding.confirmAdmission = { [weak self] notices in
+            guard let self, !stopped, let id = environment.calls.call?.id, let window = window?.window else {
+                return false
+            }
+            let accepted = await admissionPrompt.confirm(notices, in: window)
+            return accepted && !stopped && environment.calls.call?.id == id
+        }
         observe()
     }
 
@@ -100,6 +111,11 @@ final class NativeAccountCallPresentation {
 
     func stop() {
         stopped = true
+        admissionPrompt.cancel()
+        if binding.admissionOwner == notificationScope {
+            binding.admissionOwner = nil
+            binding.confirmAdmission = { _ in false }
+        }
         sounds.stop()
         alerts?.update(call: nil, rule: nil, paused: true)
         window?.update(call: nil, windowRequests: 0)

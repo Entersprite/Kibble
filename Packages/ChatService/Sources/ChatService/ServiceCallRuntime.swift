@@ -13,6 +13,8 @@ actor ServiceCallRuntime {
     var owner: ClientSessionID?
     var reserved: UUID?
     var used: Set<UUID> = []
+    var usedActivityRequests: Set<UUID> = []
+    var sentInvitations: Set<UUID> = []
     var controlling = false
     var stopped = false
     var recoveryPaused = false
@@ -41,20 +43,8 @@ actor ServiceCallRuntime {
         guard reader == nil, !stopped else { return }
         let events = await source.events
         guard !stopped else { return }
-        let joining = source as? any ExistingAudioCallService
-        let canJoin = await joining?.canJoinExistingCalls == true
+        await installCapabilities()
         guard !stopped else { return }
-        if canJoin {
-            state.supportsExistingJoin = true
-            publish()
-        }
-        let conversations = source as? any ConversationAudioCallService
-        let canCall = await conversations?.canCallConversations == true
-        guard !stopped else { return }
-        if canCall {
-            state.supportsConversationCalls = true
-            publish()
-        }
         reader = Task { [weak self] in
             for await event in events {
                 guard !Task.isCancelled else { return }
@@ -171,15 +161,25 @@ actor ServiceCallRuntime {
             state.isListenerStarting = false
         case let .snapshot(snapshot):
             return await receiveSnapshot(snapshot)
+        case let .meetingSnapshot(snapshot):
+            return await receiveMeetingSnapshot(snapshot)
         case let .conversationSnapshot(snapshot):
             return await receiveConversationSnapshot(snapshot)
         case let .participantsChanged(id, participants):
-            guard state.currentCallID == id, state.currentPhase?.isTerminal == false,
-                  participants?.count ?? 0 <= 256,
-                  Set(participants?.map(\.id) ?? []).count == (participants?.count ?? 0) else { return false }
-            state.participants = participants
+            return receiveParticipants(participants, callID: id)
+        case let .interactionChanged(id, interaction):
+            guard state.currentCallID == id, state.currentPhase?.isTerminal == false else { return false }
+            state.interaction = interaction
         case .unknown, .listenerBarrier: break
         }
+        return true
+    }
+
+    private func receiveParticipants(_ participants: [CallParticipantDevice]?, callID id: UUID) -> Bool {
+        guard state.currentCallID == id, state.currentPhase?.isTerminal == false,
+              participants?.count ?? 0 <= 256,
+              Set(participants?.map(\.id) ?? []).count == (participants?.count ?? 0) else { return false }
+        state.participants = participants
         return true
     }
 
@@ -207,8 +207,10 @@ actor ServiceCallRuntime {
         }
         guard !stopped else { return false }
         state.conversationCall = nil
+        state.meetingCall = nil
         if state.call?.id != snapshot.id || snapshot.phase.isTerminal {
             state.participants = nil
+            state.interaction = nil
         }
         state.call = snapshot
         return true
@@ -224,10 +226,29 @@ actor ServiceCallRuntime {
         }
         guard !stopped else { return false }
         state.call = nil
+        state.meetingCall = nil
         if snapshot.phase.isTerminal {
             state.participants = nil
+            state.interaction = nil
         }
         state.conversationCall = snapshot
+        return true
+    }
+
+    private func receiveMeetingSnapshot(_ snapshot: ConversationCallSnapshot) async -> Bool {
+        guard state.meetingCall?.id == snapshot.id, snapshot.target.conversationID == nil,
+              snapshot.target.meetingURL != nil,
+              reserved == snapshot.id || snapshot.phase.isTerminal else { return false }
+        if snapshot.phase.isTerminal {
+            await releaseReservation()
+        }
+        guard !stopped else { return false }
+        state.call = nil
+        state.conversationCall = nil
+        if snapshot.phase.isTerminal {
+            state.participants = nil; state.interaction = nil
+        }
+        state.meetingCall = snapshot
         return true
     }
 

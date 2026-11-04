@@ -12,7 +12,9 @@ extension AccountRuntime {
         switch request.operation {
         case SetMessagePinned.operation:
             return try await mutateMessagePin(request, backend: backend, epoch: epoch)
-        case ReadCallState.operation, ControlCall.operation, ControlConversationCall.operation:
+        case ReadCallState.operation, ControlCall.operation, ControlConversationCall.operation,
+             JoinMeetingCall.operation, PerformCallActivity.operation, ControlCallInteraction.operation,
+             InviteCallParticipant.operation:
             guard let context else { throw ServiceFailure.notAuthorized }
             return try await dispatchCalls(request, context: context, backend: backend, epoch: epoch)
         case BeginDownloadTransfer.operation, GetDownloadTransfer.operation:

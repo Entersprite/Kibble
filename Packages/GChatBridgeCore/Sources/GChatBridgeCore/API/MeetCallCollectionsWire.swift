@@ -25,12 +25,25 @@ public enum MeetCallCollectionsWire {
     public struct Snapshot: Sendable {
         public let devices: Devices?
         public let invitations: Invitations?
+        public var hands: Hands?
+        public var activities: MeetActivityCollections.Snapshot?
+    }
+
+    public struct Hand: Sendable {
+        public let name: String
+        public let device: String
+    }
+
+    public struct Hands: Sendable {
+        public let version: UInt64
+        public let values: [Hand]
     }
 
     public static func sync(space: String) throws -> Data {
         guard MeetDeviceWire.validSpace(space) else { throw MeetCallWire.WireError.invalidIdentifier }
         // An absent version requests FULL, matching the web collection helpers.
-        return MeetProto.string(1, space) + MeetProto.bytes(3, Data()) + MeetProto.bytes(12, Data())
+        return MeetActivityCollections.sync(space: space) + MeetProto.bytes(3, Data())
+            + MeetProto.bytes(11, Data()) + MeetProto.bytes(12, Data())
     }
 
     public static func snapshot(from body: Data, in space: String) throws -> Snapshot {
@@ -63,7 +76,42 @@ public enum MeetCallCollectionsWire {
         } else {
             invitations = nil
         }
-        return Snapshot(devices: devices, invitations: invitations)
+        var snapshot = Snapshot(devices: devices, invitations: invitations)
+        if let full = try fullCollection(10, data) {
+            let hands = try values(full).map { entry in
+                let name = try MeetProto.text(1, entry)
+                let device = try MeetProto.text(4, entry)
+                guard name.hasPrefix(space + "/"), name.utf8.count <= 512,
+                      device.hasPrefix(space + "/devices/"), device.utf8.count <= 512 else {
+                    throw MeetCallWire.WireError.malformedResponse
+                }
+                return Hand(name: name, device: device)
+            }
+            guard Set(hands.map(\.name)).count == hands.count,
+                  Set(hands.map(\.device)).count == hands.count
+            else { throw MeetCallWire.WireError.malformedResponse }
+            snapshot.hands = try Hands(version: version(full), values: hands)
+        }
+        snapshot.activities = try MeetActivityCollections.availableSnapshot(body, space: space)
+        return snapshot
+    }
+
+    static func admissionDevice(from body: Data, in space: String, name: String) throws -> MeetDeviceWire
+        .Device? {
+        guard MeetDeviceWire.validDevice(name), name.hasPrefix(space + "/devices/") else {
+            throw MeetCallWire.WireError.invalidIdentifier
+        }
+        guard let full = try fullCollection(2, MeetProto.decode(body)) else { return nil }
+        _ = try version(full)
+        let selected = try values(full).filter {
+            ProtoFieldScan.payloads(ofField: 1, in: $0).contains(Data(name.utf8))
+        }
+        guard selected.count <= 1 else { throw MeetCallWire.WireError.malformedResponse }
+        return try selected.first.map { try MeetDeviceWire.devicePayload(
+            $0,
+            in: space,
+            includeAcknowledgements: true
+        ) }
     }
 
     private static func fullCollection(_ field: Int, _ data: Data) throws -> Data? {
@@ -81,8 +129,11 @@ public enum MeetCallCollectionsWire {
         return try MeetProto.payload(2, wrapper)
     }
 
-    private static func version(_ full: Data) throws -> UInt64 {
-        let version = try MeetProto.value(1, MeetProto.payload(1, full))
+    static func version(_ full: Data) throws -> UInt64 {
+        let metadata = try MeetProto.payload(1, full)
+        // The native protobuf int64 getter defaults an omitted scalar to zero.
+        // Keep malformed/duplicate/wrong-wire fields distinct from omission.
+        let version = try MeetActivityCollections.has(1, metadata) ? MeetProto.value(1, metadata) : 0
         guard version <= UInt64(Int64.max) else { throw MeetCallWire.WireError.malformedResponse }
         return version
     }

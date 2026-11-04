@@ -36,7 +36,17 @@ extension NativeMeetCallSession {
             context: context,
             requestID: requestID
         )
-        else { participantMutes = [:]; await publishParticipants(); return }
+        else {
+            participantMutes = [:]; participantAudioSources = [:]; participantSpeaking =
+                [:]; await publishParticipants(); return
+        }
+        let sources = audio.flatMap { value in value.sourceSSRCs.map { ($0, value.deviceName) } }
+        let grouped = Dictionary(grouping: sources, by: { $0.0 })
+        participantAudioSources = grouped.reduce(into: [:]) { result, pair in
+            if pair.value.count == 1 {
+                result[pair.key] = pair.value[0].1
+            }
+        }
         let byDevice = Dictionary(grouping: audio, by: \.deviceName)
         participantMutes = byDevice.reduce(into: [:]) { result, row in
             if row.value.count == 1, let muted = row.value.first?.muted {
@@ -62,7 +72,10 @@ extension NativeMeetCallSession {
                 parentID: device.primaryDevice.flatMap { participantHandles[$0] },
                 isPresentation: device.isPresentation,
                 isLocal: name == participantLocalDevice || device.primaryDevice == participantLocalDevice,
-                microphoneMuted: participantMutes[name]
+                microphoneMuted: participantMutes[name],
+                handRaised: name == participantLocalDevice ? ownHandRaised ?? participantHands
+                    .map { $0[name] != nil } : participantHands.map { $0[name] != nil },
+                isSpeaking: participantSpeaking[name]
             )
         }
         guard participants != publishedParticipants else { return }

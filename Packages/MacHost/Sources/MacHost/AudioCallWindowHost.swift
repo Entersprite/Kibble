@@ -171,7 +171,14 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         video: CallVideoController?, people: CallPeople
     ) {
         let videoContent = video.flatMap(CallVideoSurface.content(for:))
-        layout = layout.next(call: call, hasVideo: videoContent?.hasVideo == true)
+        layout = layout.next(
+            call: call,
+            hasVideo: videoContent?
+                .hasVideo == true ||
+                (call.isConversationCall && call
+                    .phase == .connected &&
+                    (people.participants?.filter { !$0.isLocal && !$0.isPresentation }.count ?? 0) > 0)
+        )
         var actions = actionsForCall(call.id)
         if call.phase.isTerminal {
             actions.close = { [weak window] in window?.close() }

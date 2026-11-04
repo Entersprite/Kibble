@@ -10,6 +10,8 @@ struct CallRosterEntry: Identifiable, Equatable {
     /// Nil is unknown, never muted.
     let microphoneMuted: Bool?
     let isPresenting: Bool
+    var handRaised = false
+    var isSpeaking = false
 }
 
 enum CallRoster {
@@ -22,7 +24,8 @@ enum CallRoster {
             .map { device in
                 CallRosterEntry(
                     id: device.id, name: name(of: device), microphoneMuted: device.microphoneMuted,
-                    isPresenting: presenting.contains(device.id)
+                    isPresenting: presenting.contains(device.id), handRaised: device.handRaised == true,
+                    isSpeaking: device.isSpeaking == true
                 )
             }
             // By name, so a roster update in another order does not shuffle the window.
@@ -188,6 +191,10 @@ struct CallRosterFace: View {
                     .font(.system(size: 16, weight: .semibold))
             }
             .overlay(alignment: .bottomTrailing) {
+                if entry.handRaised {
+                    Image(systemName: "hand.raised.fill").foregroundStyle(.yellow)
+                        .accessibilityLabel("Hand raised")
+                }
                 if CallRoster.showsMuted(entry) {
                     CallRemoteMutedBadge(size: 18)
                         .offset(x: 3, y: 3)
@@ -273,6 +280,9 @@ struct CallPeopleList: View {
     /// Name, then only what is reported: a muted microphone, a shared screen.
     static func label(for entry: CallRosterEntry) -> String {
         var parts = [entry.name]
+        if entry.handRaised {
+            parts.append("hand raised")
+        }
         if CallRoster.showsMuted(entry) {
             parts.append("muted")
         }

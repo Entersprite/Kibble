@@ -9,6 +9,15 @@ public protocol CallMediaEngine: AnyObject, Sendable {
     var supportsVideo: Bool { get }
     var supportsScreenSharing: Bool { get }
     var sendsPresentationAudio: Bool { get }
+    func confirmAdmission(_ notices: [CallAdmissionNotice]) async -> Bool
+    func prepareActivityChannel(_ label: String) async throws
+    func sendActivityData(channel: String, data: Data) async throws
+    func exchangeActivityData(
+        channel: String,
+        data: Data,
+        matches: @escaping @Sendable (Data) -> Bool
+    ) async throws -> Data
+    func remoteAudioLevels() -> [CallAudioSourceLevel]
     func configureScreenSharing(
         start: (@Sendable (any CallMediaEngine) async throws -> Void)?,
         stop: (@Sendable () async -> Bool)?
@@ -29,9 +38,14 @@ public protocol CallMediaEngine: AnyObject, Sendable {
     func waitUntilConnected(timeout: Duration) async throws
     func setEventHandler(_ handler: (@Sendable (CallMediaEvent) async -> Void)?)
     func setMuted(_ muted: Bool)
+    /// A server-assigned SCTP channel is negotiated before applying the answer.
+    /// Nil preserves the legacy in-band channel path.
+    func configureStreamControl(_ channel: CallStreamControlChannel?) throws
     func exchangeStreamControl(
         _ request: Data, matches: @escaping @Sendable (Data) -> Bool, timeout: Duration
     ) async throws -> Data
+    /// Fixed control-transport phases/counts only, sampled before failure cleanup.
+    func streamControlDiagnosticReport() -> [String]
     /// On-demand, bounded media-flow diagnostics. Fixed labels and aggregate
     /// counters only; no device names, identifiers, signaling or audio samples.
     func diagnosticReport() async -> [String]
@@ -39,6 +53,7 @@ public protocol CallMediaEngine: AnyObject, Sendable {
 }
 
 public enum CallMediaEvent: Sendable {
+    case activityData(channel: String, data: Data)
     case collectionsChanged
     case connected
     case disconnected
@@ -49,6 +64,39 @@ public enum CallMediaEvent: Sendable {
 }
 
 public extension CallMediaEngine {
+    func confirmAdmission(_: [CallAdmissionNotice]) async -> Bool {
+        false
+    }
+
+    func configureStreamControl(_ channel: CallStreamControlChannel?) throws {
+        guard channel == nil else { throw CallMediaError.negotiationFailed }
+    }
+
+    func streamControlDiagnosticReport() -> [String] {
+        []
+    }
+
+    func prepareActivityChannel(_: String) async throws {
+        throw CallMediaError.connectionFailed
+    }
+
+    func sendActivityData(channel _: String, data _: Data) async throws {
+        throw CallMediaError.connectionFailed
+    }
+
+    func exchangeActivityData(
+        channel _: String,
+        data _: Data,
+        matches _: @escaping @Sendable (Data) -> Bool
+    ) async throws
+        -> Data {
+        throw CallMediaError.connectionFailed
+    }
+
+    func remoteAudioLevels() -> [CallAudioSourceLevel] {
+        []
+    }
+
     var sendsPresentationAudio: Bool {
         false
     }
@@ -110,6 +158,17 @@ public extension CallMediaEngine {
     }
 }
 
+/// Private media-port values. SSRCs remain inside the provider/native binding;
+/// only call-local participant UUIDs and speaking state reach clients.
+public struct CallAudioSourceLevel: Sendable {
+    public let source: UInt32
+    public let level: Double
+    public let timestamp: Double
+    public init(source: UInt32, level: Double, timestamp: Double) {
+        self.source = source; self.level = level; self.timestamp = timestamp
+    }
+}
+
 /// DTLS-SRTP preference is not represented in the SDP fingerprint. Carry the
 /// engine's actual preference alongside its offer instead of guessing it in
 /// the provider encoder. These names contain no provider identifiers.
@@ -132,6 +191,19 @@ public struct CallAudioOffer: Sendable {
 public enum CallMediaError: Error, Sendable, Equatable {
     case microphoneDenied, busy, closed, negotiationFailed, connectionFailed, timedOut
     case outgoingAudioUnconfirmed, signalingTimedOut
+}
+
+public struct CallStreamControlChannel: Sendable, Equatable {
+    public let id: UInt16
+    public let isOrdered: Bool
+    public let maxPacketLifeTime: UInt16?
+    public let maxRetransmits: UInt16?
+    public init(
+        id: UInt16, isOrdered: Bool, maxPacketLifeTime: UInt16? = nil, maxRetransmits: UInt16? = nil
+    ) {
+        self.id = id; self.isOrdered = isOrdered
+        self.maxPacketLifeTime = maxPacketLifeTime; self.maxRetransmits = maxRetransmits
+    }
 }
 
 /// Local receive-transceiver index; provider stream/device identifiers stay in

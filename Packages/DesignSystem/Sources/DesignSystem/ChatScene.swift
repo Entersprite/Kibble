@@ -74,6 +74,7 @@ public struct ChatSceneState: Sendable, Equatable {
     public var callableConversations: Set<Conversation.ID>
     /// What the selected conversation's header offers for calls; nil offers
     /// nothing. Join appears only on a fresh observation of a call going on.
+    public var meetingLinkHosts: Set<String> = []
     public var callOffer: ConversationCallOffer?
 
     /// A send that was not accepted, mentions and all, for the composer to

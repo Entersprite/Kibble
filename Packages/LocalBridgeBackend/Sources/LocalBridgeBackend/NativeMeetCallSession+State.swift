@@ -2,6 +2,14 @@ import Foundation
 import GChatBridgeCore
 
 extension NativeMeetCallSession {
+    func check() async throws {
+        try Task.checkCancellation()
+        guard !closed else { throw MeetDeviceSessionError.closed }
+        try await validateAccount()
+        try Task.checkCancellation()
+        guard !closed else { throw MeetDeviceSessionError.closed }
+    }
+
     func startMonitoring(
         receive: @escaping @Sendable (MeetNativeCallState) async -> Void,
         remoteMuted: (@Sendable (Bool?) async -> Void)? = nil
@@ -18,10 +26,15 @@ extension NativeMeetCallSession {
         }
         guard !closed else { return }
         monitor = Task { [weak self] in
+            var ticks = 0
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
                 guard let self else { return }
-                await monitorTick()
+                ticks += 1
+                await sampleSpeakers()
+                if ticks % 4 == 0 {
+                    await monitorTick()
+                }
             }
         }
     }
@@ -29,6 +42,7 @@ extension NativeMeetCallSession {
     func mediaEvent(_ event: CallMediaEvent) async {
         guard ready, !closed else { return }
         switch event {
+        case let .activityData(channel, data): await receiveActivityData(channel: channel, data: data)
         case .collectionsChanged: needsRefresh = true
         case .connected:
             disconnectedAt = nil
@@ -110,10 +124,26 @@ extension NativeMeetCallSession {
     }
 
     private func reconcile(_ snapshot: MeetCallCollectionsWire.Snapshot) async {
+        if let activities = snapshot.activities {
+            await reconcileActivities(activities)
+        }
+        if let hands = snapshot.hands, handVersion.map({ hands.version > $0 }) ?? true {
+            handVersion = hands.version
+            participantHands = Dictionary(
+                hands.values.map { ($0.device, $0.name) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            if let local = await device.localDeviceName {
+                ownHandName = participantHands?[local]
+                ownHandRaised = ownHandName != nil
+            }
+        }
+
         if let devices = snapshot.devices, deviceVersion.map({ devices.version > $0 }) ?? true,
            let local = await device.localDeviceName {
             await reconcileDevices(devices, local: local)
         }
+        await publishParticipants()
         guard !closed else { return }
         if let invitations = snapshot.invitations,
            invitationVersion.map({ invitations.version > $0 }) ?? true,

@@ -10,17 +10,19 @@ public enum MeetDeviceSessionError: Error, Sendable, Equatable {
 /// No automatic retry of mutations, including an ambiguous ring or leave.
 public actor MeetDeviceSession {
     private let client: MeetCallClient
-    private let space: MeetCallWire.Space
+    let space: MeetCallWire.Space
     private let incomingInvitation: MeetIncomingInvitation?
     private var presentation = false
     private var expectedPrimary: String?
     private var token = MeetMeetingToken()
-    private var device: MeetDeviceWire.Device?
+    var device: MeetDeviceWire.Device?
     private var mediaSession: String?
-    private var busy = false
-    private var closed = false
-    private var mediaConnected = false
+    var busy = false
+    var closed = false
+    var mediaConnected = false
+    var acknowledgedAdmissionTypes: Set<UInt64> = []
     private var didInvite = false
+    private var additionalInvites: [String] = []
     private var didRegister = false
     private var invitationID: String?
     private var cancellationAttempted = false
@@ -33,6 +35,38 @@ public actor MeetDeviceSession {
 
     public var localDeviceName: String? {
         device?.name
+    }
+
+    public var publicJoinURL: URL {
+        space.url
+    }
+
+    public func setHandRaised(_ raised: Bool, currentName: String?) async throws -> String? {
+        try begin()
+        defer { busy = false }
+        guard mediaConnected, let device,
+              device.joinState == 1 else { throw MeetDeviceSessionError.notJoined }
+        if raised {
+            if let currentName {
+                return currentName
+            }
+            let response = try await send(
+                "MeetingHandRaiseService/CreateHandRaise",
+                body: MeetProto.string(1, space.name) + MeetProto.bytes(2, Data())
+            )
+            let resource = try MeetProto.decode(response.body)
+            let name = try MeetProto.text(1, resource)
+            guard name.hasPrefix(space.name + "/"), name.utf8.count <= 512 else {
+                throw MeetCallWire.WireError.malformedResponse
+            }
+            return name
+        }
+        guard let currentName else { return nil }
+        guard currentName.hasPrefix(space.name + "/"), currentName.utf8.count <= 512 else {
+            throw MeetCallWire.WireError.invalidIdentifier
+        }
+        _ = try await send("MeetingHandRaiseService/DeleteHandRaise", body: MeetProto.string(1, currentName))
+        return nil
     }
 
     public func cancelInvitation() async throws {
@@ -141,15 +175,20 @@ public actor MeetDeviceSession {
             "UpdateMeetingDevice", body: MeetDeviceWire.join(
                 device: device.name,
                 mediaSession: mediaSession,
-                presentation: presentation
+                presentation: presentation,
+                joinAlongside: device.transfer == 3
             )
         )
         let joined = try MeetDeviceWire.device(from: response.body, in: space.name)
-        guard joined.name == device.name else { throw MeetCallWire.WireError.malformedResponse }
-        self.device = joined
-        guard !presentation || (joined.primaryDevice == expectedPrimary && joined.captureType == 2)
-        else { throw MeetCallWire.WireError.malformedResponse }
+        try acceptAdmissionDevice(joined)
         guard joined.joinState == 1, !joined.isDeleted else { throw MeetDeviceSessionError.notJoined }
+    }
+
+    func acceptAdmissionDevice(_ value: MeetDeviceWire.Device) throws {
+        guard value.name == device?.name else { throw MeetCallWire.WireError.malformedResponse }
+        device = value
+        guard !presentation || (value.primaryDevice == expectedPrimary && value.captureType == 2)
+        else { throw MeetCallWire.WireError.malformedResponse }
     }
 
     public func invite(calleeID: String, requestID: UUID) async throws {
@@ -166,6 +205,38 @@ public actor MeetDeviceSession {
             invitationID = try MeetInvitationWire.invitationID(from: response.body)
         } catch {
             throw MeetCallClientError.inviteRejected
+        }
+    }
+
+    public func inviteParticipant(calleeID: String) async throws {
+        try begin()
+        defer { busy = false }
+        guard !presentation, mediaConnected,
+              device?.joinState == 1 else { throw MeetDeviceSessionError.notJoined }
+        guard additionalInvites.count < 64 else { throw MeetDeviceSessionError.busy }
+        let response = try await send(
+            "MeetingInviteService/CreateMeetingInvite",
+            body: MeetCallWire.invite(spaceName: space.name, calleeID: calleeID, requestID: UUID())
+        )
+        try additionalInvites.append(MeetInvitationWire.invitationID(from: response.body))
+    }
+
+    public func cancelParticipantInvitations() async throws {
+        try begin()
+        defer { busy = false }
+        let ids = additionalInvites
+        additionalInvites = []
+        var unconfirmed = false
+        let deadline = ContinuousClock.now + .seconds(20)
+        for id in ids {
+            guard ContinuousClock.now < deadline else { unconfirmed = true; break }
+            do { _ = try await send(
+                "MeetingInviteService/CancelMeetingInvite",
+                body: MeetInvitationWire.cancel(id: id)
+            ) } catch { unconfirmed = true }
+        }
+        if unconfirmed {
+            throw MeetDeviceSessionError.invitationCancellationUnconfirmed
         }
     }
 
@@ -193,7 +264,7 @@ public actor MeetDeviceSession {
         didRegister = false
     }
 
-    private func begin() throws {
+    func begin() throws {
         guard !closed else { throw MeetDeviceSessionError.closed }
         guard !busy else { throw MeetDeviceSessionError.busy }
         busy = true
@@ -203,7 +274,7 @@ public actor MeetDeviceSession {
         try await send("MeetingDeviceService/" + method, body: body, isDevice: true)
     }
 
-    private func send(_ method: String, body: Data, isDevice: Bool = false) async throws -> HTTPResponse {
+    func send(_ method: String, body: Data, isDevice: Bool = false) async throws -> HTTPResponse {
         guard let value = token.value else { throw MeetCallClientError.missingMeetingToken }
         var request = client.configuration.request(method: method, body: body, token: value)
         if isDevice {

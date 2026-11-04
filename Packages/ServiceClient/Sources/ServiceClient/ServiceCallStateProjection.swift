@@ -20,7 +20,10 @@ struct ServiceCallStateProjection {
     }
 
     mutating func accept(_ state: ServiceCallState) throws -> [AudioCallEvent] {
-        guard state.call == nil || state.conversationCall == nil else { throw ServiceFailure.invalidResponse }
+        guard [state.call?.id, state.conversationCall?.id, state.meetingCall?.id].compactMap(\.self)
+            .count <= 1 else {
+            throw ServiceFailure.invalidResponse
+        }
         let admission = try admit(state)
         guard admission.accepted else { return restoreConnection(after: []) }
         var events = admission.events
@@ -39,6 +42,7 @@ struct ServiceCallStateProjection {
             call.endReason = nil
             events.append(.conversationSnapshot(call))
         }
+        events.append(contentsOf: meetingEvents(state))
         if let call = state.conversationCall, previous?.conversationCall != call {
             events.append(.conversationSnapshot(call))
         }
@@ -52,15 +56,38 @@ struct ServiceCallStateProjection {
         if let call = state.call, previous?.call != call {
             events.append(.snapshot(call))
         }
-        if let id = state.currentCallID, state.currentPhase?.isTerminal == false,
-           previous?.participants != state.participants {
-            events.append(.participantsChanged(callID: id, participants: state.participants))
-        }
+        events.append(contentsOf: metadataEvents(state))
         if case .unknown = state.lastEvent, let event = state.lastEvent {
             events.append(event)
         }
         previous = state
         return restoreConnection(after: events)
+    }
+
+    private func meetingEvents(_ state: ServiceCallState) -> [AudioCallEvent] {
+        var events: [AudioCallEvent] = []
+        if var call = previous?.meetingCall, !call.phase.isTerminal, call.id != state.meetingCall?.id {
+            call.phase = .ended; call.failureMessage = nil; call.endReason = nil
+            events.append(.meetingSnapshot(call))
+        }
+        if let call = state.meetingCall,
+           previous?.meetingCall != call {
+            events.append(.meetingSnapshot(call))
+        }
+        return events
+    }
+
+    private func metadataEvents(_ state: ServiceCallState) -> [AudioCallEvent] {
+        var events: [AudioCallEvent] = []
+        if let id = state.currentCallID, state.currentPhase?.isTerminal == false,
+           previous?.currentCallID != state.currentCallID || previous?.participants != state.participants {
+            events.append(.participantsChanged(callID: id, participants: state.participants))
+        }
+        if let id = state.currentCallID, state.currentPhase?.isTerminal == false,
+           previous?.currentCallID != state.currentCallID || previous?.interaction != state.interaction {
+            events.append(.interactionChanged(callID: id, state: state.interaction))
+        }
+        return events
     }
 
     mutating func connectionFailed() -> [AudioCallEvent] {
@@ -102,6 +129,10 @@ struct ServiceCallStateProjection {
         if var call = previous.call, !call.phase.isTerminal {
             call.phase = .failed; call.failureMessage = "The call connection ended."
             return (true, [.snapshot(call)])
+        }
+        if var call = previous.meetingCall, !call.phase.isTerminal {
+            call.phase = .failed; call.failureMessage = "The call connection ended."
+            return (true, [.meetingSnapshot(call)])
         }
         if var call = previous.conversationCall, !call.phase.isTerminal {
             call.phase = .failed

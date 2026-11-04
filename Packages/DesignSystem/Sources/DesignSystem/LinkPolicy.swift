@@ -21,4 +21,25 @@ public enum LinkPolicy {
     @MainActor public static func openURLAction(blocking hosts: Set<String>) -> OpenURLAction {
         OpenURLAction { url in canOpen(url, blocking: hosts) ? .systemAction : .discarded }
     }
+
+    @MainActor static func openURLAction(
+        blocking hosts: Set<String>, meetingHosts: Set<String>, join: ((URL) -> Void)?
+    ) -> OpenURLAction {
+        OpenURLAction { url in
+            guard canOpen(url, blocking: hosts) else { return .discarded }
+            if let join, url.scheme?.lowercased() == "https", url.user == nil, url.password == nil,
+               meetingHosts.contains(url.host()?.lowercased() ?? ""), url.absoluteString.utf8.count <= 2048 {
+                join(url)
+                return .handled
+            }
+            return .systemAction
+        }
+    }
+
+    static func isMeetingLink(_ url: URL, hosts: Set<String>) -> Bool {
+        url.scheme?.lowercased() == "https" && url.user == nil && url.password == nil
+            && (url.port == nil || url.port == 443) && url.fragment == nil
+            && hosts.contains(url.host()?.lowercased() ?? "") && url.path != "/" && !url.path.isEmpty
+            && url.absoluteString.utf8.count <= 2048
+    }
 }

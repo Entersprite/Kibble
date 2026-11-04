@@ -4,14 +4,18 @@ import Foundation
 /// Deterministic audio state without microphone, network, provider code or timers.
 @MainActor
 public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCallService,
-    ConversationAudioCallService {
+    ConversationAudioCallService, MeetingLinkAudioCallService, CallInteractionService, CallActivitiesService {
     public let events: AsyncStream<AudioCallEvent>
     public private(set) var currentCall: AudioCallSnapshot?
     public private(set) var recipients: [AudioCallRecipient]
     public private(set) var currentConversationCall: ConversationCallSnapshot?
     private let conversationTargets: Set<Conversation.ID>
-    private let continuation: AsyncStream<AudioCallEvent>.Continuation
+    let continuation: AsyncStream<AudioCallEvent>.Continuation
     private var listening = false
+    private var participantDevices: [CallParticipantDevice]?
+    public private(set) var invitedMembers: [Member.ID] = []
+    var activityState = CallActivitiesState()
+    var activitySequence: UInt64 = 0
     private var sequence: UInt64 = 0
     private var existingCalls: Set<Conversation.ID> = []
     private var existingParticipants: [Conversation.ID: [CallParticipantDevice]] = [:]
@@ -65,31 +69,87 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
     }
 
     private func beginConversation(_ target: ConversationCallTarget, callID: UUID, joining: Bool) throws {
-        guard listening, conversationTargets.contains(target.conversationID),
+        guard let id = target.conversationID, target.meetingURL == nil, listening,
+              conversationTargets.contains(id),
               currentCall?.phase.isTerminal != false,
               currentConversationCall?.phase.isTerminal != false else {
             throw ChatError.unsupported(capability: "conversationCalls")
         }
         currentCall = nil
         var call = ConversationCallSnapshot(id: callID, target: target, phase: .connecting)
-        if joining, !existingCalls.contains(target.conversationID) {
+        if joining, !existingCalls.contains(id) {
             call.phase = .failed
             call.failureMessage = "This call is no longer available."
             publishConversation(call)
             throw ChatError.unknown("This call is no longer available.")
         }
         publishConversation(call)
-        existingCalls.insert(target.conversationID)
+        existingCalls.insert(id)
         call.phase = .connected
         publishConversation(call)
-        if joining, let devices = existingParticipants[target.conversationID] {
-            continuation.yield(.participantsChanged(callID: callID, participants: devices))
+        if joining, let devices = existingParticipants[id] {
+            setParticipantDevices(devices, callID: callID)
         }
     }
 
+    public func inviteToCall(_ member: Member.ID, callID: UUID) async throws {
+        guard (currentCall?.id == callID && currentCall?.phase == .connected) ||
+            (currentConversationCall?.id == callID && currentConversationCall?.phase == .connected)
+        else { throw CancellationError() }
+        invitedMembers.append(member)
+    }
+
+    public func setHandRaised(_ raised: Bool, callID: UUID) async throws {
+        guard (currentCall?.id == callID && currentCall?.phase == .connected) ||
+            (currentConversationCall?.id == callID && currentConversationCall?.phase == .connected)
+        else { throw CancellationError() }
+        let local = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        var devices = (participantDevices ?? []).filter { !$0.isLocal }
+        devices.append(CallParticipantDevice(
+            id: local,
+            displayName: "You",
+            isLocal: true,
+            handRaised: raised
+        ))
+        setParticipantDevices(devices, callID: callID)
+    }
+
+    public var meetingLinkHosts: Set<String> {
+        ["meet.example.test"]
+    }
+
+    public var canJoinMeetingLinks: Bool {
+        true
+    }
+
+    public func joinMeeting(at url: URL, callID: UUID) async throws {
+        guard listening, url.scheme == "https", url.user == nil, url.password == nil,
+              currentCall?.phase.isTerminal != false,
+              currentConversationCall?.phase.isTerminal != false else {
+            throw ChatError.unsupported(capability: "meetingLinks")
+        }
+        currentCall = nil
+        publishConversation(.init(
+            id: callID,
+            target: .init(meetingURL: url, displayName: "Fixture Meeting"),
+            phase: .connected
+        ))
+    }
+
     private func publishConversation(_ call: ConversationCallSnapshot) {
+        if (currentCall?.id ?? currentConversationCall?.id) != call.id {
+            participantDevices = nil
+            resetActivities()
+        }
         currentConversationCall = call
-        continuation.yield(.conversationSnapshot(call))
+        continuation
+            .yield(call.target.meetingURL == nil ? .conversationSnapshot(call) : .meetingSnapshot(call))
+        if call.phase == .connected {
+            continuation.yield(.interactionChanged(
+                callID: call.id,
+                state: activityInteraction(url: call.target.meetingURL)
+            ))
+        }
     }
 
     public init(world: FixtureWorld = .acme) {
@@ -166,6 +226,7 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
     public func setParticipantDevices(_ participants: [CallParticipantDevice]?, callID: UUID) {
         let current = currentConversationCall?.id ?? currentCall?.id
         guard current == callID, participants?.count ?? 0 <= 256 else { return }
+        participantDevices = participants
         continuation.yield(.participantsChanged(callID: callID, participants: participants))
     }
 
@@ -177,6 +238,7 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
         listening = false
         currentCall = nil
         currentConversationCall = nil
+        participantDevices = nil
         continuation.yield(.recipientsChanged([]))
     }
 
@@ -225,8 +287,18 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
     }
 
     private func publish(_ call: AudioCallSnapshot) {
+        if (currentCall?.id ?? currentConversationCall?.id) != call.id {
+            participantDevices = nil
+            resetActivities()
+        }
         currentConversationCall = nil
         currentCall = call
         continuation.yield(.snapshot(call))
+        if call.phase == .connected {
+            continuation.yield(.interactionChanged(
+                callID: call.id,
+                state: activityInteraction(url: URL(string: "https://meet.example.test/fixture"))
+            ))
+        }
     }
 }

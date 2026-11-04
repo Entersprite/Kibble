@@ -4,6 +4,7 @@ import ChatPersistence
 public extension ChatSessionModel {
     func stop() async {
         browser.stop()
+        callChat.stop()
         resetPins()
         stopModelObservers()
         // Cancelled, not joined: the request behind it may not itself be

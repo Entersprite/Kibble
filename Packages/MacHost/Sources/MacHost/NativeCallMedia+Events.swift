@@ -37,6 +37,14 @@ extension NativeCallMedia: LKRTCPeerConnectionDelegate {
                 channel.close()
                 return
             }
+            if ["reactions", "meet_messages"].contains(channel.label) {
+                if let existing = activityChannels[channel.label], existing !== channel {
+                    channel.close()
+                } else {
+                    activityChannels[channel.label] = channel; channel.delegate = self
+                }
+                return
+            }
             if channel.label == "dcrpc" {
                 if streamChannel == nil {
                     streamChannel = channel
@@ -66,7 +74,14 @@ extension NativeCallMedia: LKRTCDataChannelDelegate {
     public nonisolated func dataChannelDidChangeState(_ channel: LKRTCDataChannel) {
         let identity = ObjectIdentifier(channel)
         Task { @MainActor [weak self] in
-            guard let self, let controlChannel, ObjectIdentifier(controlChannel) == identity else { return }
+            guard let self else { return }
+            if let activity = activityChannels.first(where: { ObjectIdentifier($0.value) == identity }) {
+                if channel.readyState == .closed || channel.readyState == .closing {
+                    activityChannels[activity.key] = nil
+                }
+                return
+            }
+            guard let controlChannel, ObjectIdentifier(controlChannel) == identity else { return }
             if controlChannel.readyState == .closed || controlChannel.readyState == .closing {
                 await eventHandler?(.failed)
             }
@@ -82,9 +97,20 @@ extension NativeCallMedia: LKRTCDataChannelDelegate {
         let identity = ObjectIdentifier(channel)
         Task { @MainActor [weak self] in
             guard let self else { return }
+            if let activity = activityChannels.first(where: { ObjectIdentifier($0.value) == identity }) {
+                if exchangingActivity, activity.key == "meet_messages", activityReplies.count < 16 {
+                    activityReplies.append(data)
+                }
+                await eventHandler?(.activityData(channel: activity.key, data: data))
+                return
+            }
             if let streamChannel, ObjectIdentifier(streamChannel) == identity {
-                if isExchangingStream, streamReplies.count < 16 {
-                    streamReplies.append(data)
+                if isExchangingStream, let streamReplyMatches {
+                    let matched = streamReplyMatches(data)
+                    streamTrace.receive(matched: matched)
+                    if matched, streamReplies.isEmpty {
+                        streamReplies.append(data)
+                    }
                 }
                 return
             }

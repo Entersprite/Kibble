@@ -28,7 +28,8 @@ extension NativeMeetCallSession {
             )
             lines.append("Native send audio: registering the local sender on dcrpc (identifiers withheld)")
             let reply = try await media.exchangeStreamControl(
-                body, matches: { MeetAudioStreamWire.matchesRequest($0, requestID: id) }, timeout: .seconds(8)
+                body, matches: { MeetAudioStreamWire.matchesRequest($0, requestID: id) },
+                timeout: .seconds(50)
             )
             try await check()
             lines.append("Native dcrpc registration reply: " + MeetAudioStreamWire.replyDiagnostic(reply))
@@ -46,11 +47,17 @@ extension NativeMeetCallSession {
                             : "initial microphone announcement acknowledged")
                 )
         } catch {
-            guard !closed else { return }
-            lines
-                .append("Native send audio: registration unconfirmed; " + MeetDMCallTrial
-                    .errorDescription(error))
+            await reportRegistrationFailure(error)
         }
+    }
+
+    private func reportRegistrationFailure(_ error: any Error) async {
+        guard !closed else { return }
+        let transport = await media.streamControlDiagnosticReport()
+        guard !closed else { return }
+        lines += transport
+        lines
+            .append("Native send audio: registration unconfirmed; " + MeetDMCallTrial.errorDescription(error))
     }
 
     func setMuted(_ muted: Bool, sequence: UInt64? = nil) async throws -> Bool {

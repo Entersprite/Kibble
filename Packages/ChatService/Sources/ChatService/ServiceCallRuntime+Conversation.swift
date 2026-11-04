@@ -33,6 +33,8 @@ extension ServiceCallRuntime {
         }
         used.insert(id)
         state.participants = nil
+        state.meetingCall = nil
+        state.interaction = nil
         state.call = nil
         state.conversationCall = .init(id: id, target: target, phase: .connecting)
         publish()

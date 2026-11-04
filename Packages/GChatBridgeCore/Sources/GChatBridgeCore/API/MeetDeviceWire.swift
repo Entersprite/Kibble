@@ -10,6 +10,8 @@ public enum MeetDeviceWire {
         public let primaryDevice: String?
         public let captureType: UInt64
         public let displayName: String?
+        public let transfer: UInt64
+        public let acknowledgements: [Acknowledgement]
 
         public var isPresentation: Bool {
             primaryDevice != nil || [2, 3, 4, 5].contains(captureType)
@@ -20,11 +22,14 @@ public enum MeetDeviceWire {
             joinState: UInt64,
             isDeleted: Bool,
             primaryDevice: String? = nil,
-            captureType: UInt64 = 0, displayName: String? = nil
+            captureType: UInt64 = 0, displayName: String? = nil, transfer: UInt64 = 0,
+            acknowledgements: [Acknowledgement] = []
         ) {
             self.name = name; self.joinState = joinState; self.isDeleted = isDeleted
             self.primaryDevice = primaryDevice; self.captureType = captureType
             self.displayName = displayName
+            self.transfer = transfer
+            self.acknowledgements = acknowledgements
         }
     }
 
@@ -51,7 +56,9 @@ public enum MeetDeviceWire {
         return body
     }
 
-    public static func join(device: String, mediaSession: String, presentation: Bool = false) throws -> Data {
+    public static func join(
+        device: String, mediaSession: String, presentation: Bool = false, joinAlongside: Bool = false
+    ) throws -> Data {
         guard validDevice(device), validMediaSession(mediaSession) else {
             throw MeetCallWire.WireError.invalidIdentifier
         }
@@ -61,8 +68,13 @@ public enum MeetDeviceWire {
                 38,
                 1
             )
-        let mask = ["cloud_session_id", "join_state", "media_capture_type", "participation_mode"]
-            .reduce(into: Data()) { $0 += MeetProto.string(1, $1) }
+        var paths = ["cloud_session_id", "join_state", "media_capture_type", "participation_mode"]
+        // Clear the pending transfer choice exactly as native Join here too:
+        // mask transfer, with field54 omitted (its default0), never TRANSFER1.
+        if joinAlongside, !presentation {
+            paths.append("transfer")
+        }
+        let mask = paths.reduce(into: Data()) { $0 += MeetProto.string(1, $1) }
         return MeetProto.bytes(1, value) + MeetProto.bytes(2, mask)
     }
 
@@ -89,10 +101,12 @@ public enum MeetDeviceWire {
 
     /// The RPC returns MeetingDevice directly, not a wrapper around field 1.
     public static func device(from body: Data, in space: String) throws -> Device {
-        try devicePayload(MeetProto.decode(body), in: space)
+        try devicePayload(MeetProto.decode(body), in: space, includeAcknowledgements: true)
     }
 
-    static func devicePayload(_ data: Data, in space: String) throws -> Device {
+    static func devicePayload(
+        _ data: Data, in space: String, includeAcknowledgements: Bool = false
+    ) throws -> Device {
         let name = try MeetProto.text(1, data)
         guard validSpace(space), validDevice(name), name.hasPrefix(space + "/devices/") else {
             throw MeetCallWire.WireError.malformedResponse
@@ -123,6 +137,7 @@ public enum MeetDeviceWire {
             primary = nil
         }
         let capture = try fields.contains(where: { $0.number == 25 }) ? MeetProto.value(25, data) : 0
+        let transfer = try fields.contains(where: { $0.number == 54 }) ? MeetProto.value(54, data) : 0
         let displayName: String?
         if fields.contains(where: { $0.number == 2 }) {
             let text = try MeetProto.text(2, data)
@@ -131,12 +146,13 @@ public enum MeetDeviceWire {
         } else {
             displayName = nil
         }
-        return Device(
+        return try Device(
             name: name,
             joinState: state,
             isDeleted: deleted,
             primaryDevice: primary,
-            captureType: capture, displayName: displayName
+            captureType: capture, displayName: displayName, transfer: transfer,
+            acknowledgements: includeAcknowledgements ? acknowledgementRequirements(in: data) : []
         )
     }
 

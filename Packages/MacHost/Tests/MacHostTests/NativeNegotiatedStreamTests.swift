@@ -1,0 +1,138 @@
+import Foundation
+@preconcurrency import LiveKitWebRTC
+import LocalBridgeBackend
+import Testing
+@testable import MacHost
+
+@MainActor
+@Suite(.timeLimit(.minutes(1)))
+struct NativeNegotiatedStreamTests {
+    @Test(arguments: [UInt16(0), 42])
+    func assignedStreamReceivesReplies(_ id: UInt16) async throws {
+        try await exchange(assigned: true, configuration: .init(id: id, isOrdered: true))
+    }
+
+    @Test(arguments: [
+        CallStreamControlChannel(id: 42, isOrdered: true, maxPacketLifeTime: 0),
+        CallStreamControlChannel(id: 42, isOrdered: true, maxPacketLifeTime: 1000),
+        CallStreamControlChannel(id: 42, isOrdered: true, maxRetransmits: 0),
+        CallStreamControlChannel(id: 42, isOrdered: true, maxRetransmits: 3)
+    ])
+    func serverReliabilityLimitsSurviveNativeRequestReply(
+        _ configuration: CallStreamControlChannel
+    ) async throws {
+        try await exchange(assigned: true, configuration: configuration)
+    }
+
+    @Test func unrelatedInBandChannelCannotReceiveAssignedStreamReplies() async throws {
+        try await exchange(assigned: false, configuration: .init(id: 42, isOrdered: true))
+    }
+
+    private func exchange(assigned: Bool, configuration: CallStreamControlChannel) async throws {
+        let client = NativeCallMedia(presentation: true), server = NativeCallMedia(presentation: true)
+        defer { client.close(); server.close() }
+        _ = try await client.makeAudioOffer(serverControlChannel: "collections")
+        // This local server exercises only the stream-control lane, without a
+        // provider collections service, microphone or Google network request.
+        client.expectedControlChannel = nil
+        let (remote, _) = try server.preparePeer(serverControlChannel: nil)
+        remote.delegate = nil
+        try server.configureStreamControl(configuration)
+        try client.configureStreamControl(assigned ? configuration : nil)
+        let local = try #require(client.peer)
+        try await connect(local, remote)
+        try await client.waitUntilConnected(timeout: .seconds(5))
+        let request = Data([8, 7, 34, 0]), reply = Data([8, 7, 42, 0])
+        server.isExchangingStream = true
+        server.streamReplyMatches = { $0 == request }
+        let exchange = Task {
+            try await client.exchangeStreamControl(request, matches: { $0 == reply }, timeout: .seconds(1))
+        }
+        if assigned {
+            for _ in 0 ..< 200 where server.streamReplies.isEmpty {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(server.streamReplies == [request])
+            let channel = try #require(server.streamChannel)
+            #expect(channel.sendData(LKRTCDataBuffer(data: reply, isBinary: true)))
+            #expect(try await exchange.value == reply)
+            #expect(client.streamChannel?.isNegotiated == true)
+            #expect(client.streamChannel?.channelId == Int32(configuration.id))
+            if let lifetime = configuration.maxPacketLifeTime {
+                #expect(client.streamChannel?.maxPacketLifeTime == lifetime)
+            }
+            if let retransmits = configuration.maxRetransmits {
+                #expect(client.streamChannel?.maxRetransmits == retransmits)
+            }
+        } else {
+            await #expect(throws: CallMediaError.signalingTimedOut) { try await exchange.value }
+            #expect(server.streamReplies.isEmpty)
+            let report = client.streamControlDiagnosticReport().joined(separator: "\n")
+            #expect(report.contains("channel=open; sent=true; received=0"))
+        }
+    }
+
+    @Test func conflictingTransportOptionsCannotCreateAChannel() throws {
+        let media = NativeCallMedia(presentation: true)
+        _ = try media.preparePeer(serverControlChannel: nil)
+        defer { media.close() }
+        #expect(throws: CallMediaError.negotiationFailed) {
+            try media.configureStreamControl(.init(
+                id: 42, isOrdered: true, maxPacketLifeTime: 0, maxRetransmits: 0
+            ))
+        }
+        #expect(media.streamChannel == nil)
+    }
+
+    private func connect(_ local: LKRTCPeerConnection, _ remote: LKRTCPeerConnection) async throws {
+        try await gathered(local)
+        let offer = try #require(local.localDescription)
+        try await set(offer, local: false, peer: remote)
+        let answer = try await answer(remote)
+        try await set(answer, local: true, peer: remote)
+        try await gathered(remote)
+        let gatheredAnswer = try #require(remote.localDescription)
+        try await set(gatheredAnswer, local: false, peer: local)
+    }
+
+    private func answer(_ peer: LKRTCPeerConnection) async throws -> LKRTCSessionDescription {
+        try await withCheckedThrowingContinuation { continuation in
+            let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+            peer.answer(for: constraints) { value, error in
+                if let value {
+                    continuation.resume(returning: value)
+                } else {
+                    continuation.resume(throwing: error ?? CallMediaError.negotiationFailed)
+                }
+            }
+        }
+    }
+
+    private func set(
+        _ description: LKRTCSessionDescription,
+        local: Bool,
+        peer: LKRTCPeerConnection
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            let completion: @Sendable (Error?) -> Void = { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+            if local {
+                peer.setLocalDescription(description, completionHandler: completion)
+            } else {
+                peer.setRemoteDescription(description, completionHandler: completion)
+            }
+        }
+    }
+
+    private func gathered(_ peer: LKRTCPeerConnection) async throws {
+        for _ in 0 ..< 300 where peer.iceGatheringState != .complete {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(peer.iceGatheringState == .complete)
+    }
+}

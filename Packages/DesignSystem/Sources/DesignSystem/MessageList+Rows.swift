@@ -32,10 +32,24 @@ extension MessageList {
             loadRemoteImage: loadRemoteImage,
             attachmentFiles: attachmentFiles,
             reactions: reactions, own: own, openThread: threads?.open,
+            callAction: callAction(for: message), returnsToCall: state.callOffer == .returnToCall,
             marked: marked?.id, markOn: markOn, checkDelivery: checkMessageDelivery,
             continuesGroup: placement.continuesGroup, endsGroup: placement.endsGroup,
             datedBySeparator: true
         )
+    }
+
+    private func callAction(for message: Message) -> (() -> Void)? {
+        guard let actions = callActions,
+              TranscriptCallControl.offersAction(for: message, in: state) else { return nil }
+        switch state.callOffer {
+        case .join:
+            return actions.joinCall.map { join in { join(message.conversationID) } }
+        case .returnToCall:
+            return actions.returnToCall
+        default:
+            return nil
+        }
     }
 
     /// Older messages load as the person scrolls up near the top, with no
@@ -71,6 +85,21 @@ extension MessageList {
         ) {
             unseenArrivals = true
         }
+    }
+}
+
+/// A status entry never establishes activity. Only the newest loaded call entry
+/// in the selected conversation can borrow its independently verified live offer.
+enum TranscriptCallControl {
+    static func offersAction(for message: Message, in state: ChatSceneState) -> Bool {
+        guard !state.hasNewerMessages, !message.isDeleted, message.callStatus == .started,
+              message.callMetadata?.endedAt == nil, message.conversationID == state.selected,
+              state.callOffer == .returnToCall || {
+                  if case .join = state.callOffer {
+                      return true
+                  }; return false
+              }() else { return false }
+        return state.messages.last(where: { !$0.isDeleted && $0.callStatus != nil })?.id == message.id
     }
 }
 

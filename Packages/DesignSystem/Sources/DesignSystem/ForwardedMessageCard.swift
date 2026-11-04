@@ -27,9 +27,14 @@ struct ForwardedMessageCard: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.openMessageReference) private var openReference
     @Environment(\.internalLinkHosts) private var internalLinkHosts
+    @Environment(\.meetingLinkHosts) private var meetingLinkHosts
 
     private var linkPresentation: MessageLinkPresentation {
-        MessageLinkPresentation(forwarded.message, internalHosts: internalLinkHosts)
+        MessageLinkPresentation(
+            forwarded.message,
+            internalHosts: internalLinkHosts,
+            meetingHosts: meetingLinkHosts
+        )
     }
 
     private var senderDirectory: [Member.ID: Member] {
@@ -121,6 +126,10 @@ struct ForwardedMessageCard: View {
         ForEach(parts.files, id: \.id) { file in
             chip(file)
         }
+        ForEach(linkPresentation.meetings, id: \.url) { link in
+            MeetingLinkCard(link: link, text: forwarded.source.text)
+                .modifier(ReactionMenu(context: menu ?? .empty(forwarded.message), link: link.url))
+        }
         ForEach(parts.previews, id: \.url) { link in
             ViewThatFits(in: .horizontal) {
                 LinkPreviewCard(link: link, load: loadRemoteImage)
@@ -129,7 +138,8 @@ struct ForwardedMessageCard: View {
             }
             .modifier(ReactionMenu(context: menu ?? .empty(forwarded.message), link: link.url))
         }
-        if forwarded.source.text.isEmpty, forwarded.attachments.isEmpty, parts.previews.isEmpty {
+        if forwarded.source.text.isEmpty, forwarded.attachments.isEmpty, parts.previews.isEmpty,
+           linkPresentation.meetings.isEmpty {
             placeholder("Forwarded a message")
         }
     }

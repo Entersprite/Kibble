@@ -1,7 +1,7 @@
 import ChatKit
 import SwiftUI
 
-/// Transcript history only. The incoming-call banner owns live call controls.
+/// Historical status, with an optional freshly verified action supplied by the client.
 ///
 /// Every card is the same size, whatever it says: the glyph sits in a fixed
 /// column, and the words take the width of the longest title. A card sized
@@ -9,6 +9,8 @@ import SwiftUI
 /// screenshot).
 struct CallMessageCard: View {
     let status: MessageCallStatus
+    var join: (() -> Void)?
+    var returnsToCall = false
 
     static let statuses: [MessageCallStatus] = [.started, .missed, .ended, .unknown("")]
     static let glyphSize = CGSize(width: 26, height: 22)
@@ -55,6 +57,11 @@ struct CallMessageCard: View {
                     .foregroundStyle(status == .missed ? .red : .primary)
             }
             .font(.callout.weight(.medium))
+            if let join {
+                Button(returnsToCall ? "Return to Call" : "Join", action: join)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -62,6 +69,6 @@ struct CallMessageCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 14).stroke(.quaternary, lineWidth: 1)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: join == nil ? .combine : .contain)
     }
 }

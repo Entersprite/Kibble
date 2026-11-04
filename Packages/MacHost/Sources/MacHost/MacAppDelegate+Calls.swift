@@ -56,6 +56,7 @@ public extension MacAppDelegate {
                 video: video,
                 diagnostics: callDiagnostics
             )
+            Self.addCallConversationActions(to: &actions, for: id, environment: environment)
             actions.callBack = Self.callBack(after: id, environment: environment)
             actions.imageLoader = environment.imageLoader
             return actions
@@ -117,6 +118,7 @@ public extension MacAppDelegate {
                 }
             }
         )
+        addInteractionActions(to: &actions, for: id, calls: calls)
         addVideoActions(to: &actions, for: id, calls: calls, video: video)
         return actions
     }

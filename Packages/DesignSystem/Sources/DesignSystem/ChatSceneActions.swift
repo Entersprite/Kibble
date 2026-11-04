@@ -182,6 +182,7 @@ public struct ChatSceneActions {
     public var videoCall: ((Conversation.ID) -> Void)?
     /// Joins the call going on in a conversation, ringing nobody. Offered
     /// only where `ChatSceneState.callOffer` says so.
+    public var joinMeeting: ((URL) -> Void)?
     public var joinCall: ((Conversation.ID) -> Void)?
     /// Brings this session's call window forward.
     public var returnToCall: (() -> Void)?

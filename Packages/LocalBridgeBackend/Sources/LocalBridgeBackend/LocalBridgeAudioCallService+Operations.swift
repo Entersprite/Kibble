@@ -153,6 +153,15 @@ public extension LocalBridgeAudioCallService {
             }
         )
         try checkCall(id, scope: scope)
+        let url = await trial.nativeJoinURL(scope: scope)
+        try checkCall(id, scope: scope)
+        continuation.yield(.interactionChanged(
+            callID: id,
+            state: .init(joinURL: url, canRaiseHand: true, canInvite: true)
+        ))
+        try await trial.observeNativeActivities(scope: scope) { [weak self] activities in
+            await self?.receiveActivities(activities, url: url, id: id, scope: scope)
+        }
         guard await trial.nativeOutgoingAudioReady(scope: scope) else {
             throw CallMediaError.outgoingAudioUnconfirmed
         }

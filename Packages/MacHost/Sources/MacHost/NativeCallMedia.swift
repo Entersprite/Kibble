@@ -32,8 +32,13 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     var controlChannel: LKRTCDataChannel?
     var expectedControlChannel: String?
     var generation = UUID()
+    var activityChannels: [String: LKRTCDataChannel] = [:]
+    var activityReplies: [Data] = []
+    var exchangingActivity = false
     var streamChannel: LKRTCDataChannel?
     var streamReplies: [Data] = []
+    var streamReplyMatches: (@Sendable (Data) -> Bool)?
+    var streamTrace = NativeStreamControlTrace()
     var isExchangingStream = false
     var videoController: CallVideoController?
     var video: NativeCallVideo?
@@ -44,6 +49,7 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
     private var recoveryMonitor: CallMediaRecoveryMonitor?
     private let microphoneAccess: @MainActor @Sendable () async -> Bool
+    let admissionConfirmation: @MainActor @Sendable ([CallAdmissionNotice]) async -> Bool
 
     public init(
         presentation: Bool = false, sharingSystemAudio: Bool = false,
@@ -51,6 +57,9 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         videoController: CallVideoController? = nil,
         microphoneAccess: @escaping @MainActor @Sendable () async -> Bool = {
             await AVCaptureDevice.requestAccess(for: .audio)
+        },
+        admissionConfirmation: @escaping @MainActor @Sendable ([CallAdmissionNotice]) async -> Bool = { _ in
+            false
         }
     ) {
         isPresentation = presentation
@@ -60,6 +69,7 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         self.audioDevices = audioDevices
         self.videoController = videoController
         self.microphoneAccess = microphoneAccess
+        self.admissionConfirmation = admissionConfirmation
         super.init()
     }
 
@@ -220,10 +230,16 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         audioSender?.track?.isEnabled = false
         audio = nil
         audioSender = nil
+        for channel in activityChannels.values {
+            channel.delegate = nil; channel.close()
+        }
+        activityChannels = [:]; activityReplies = []; exchangingActivity = false
         streamChannel?.delegate = nil
         streamChannel?.close()
         streamChannel = nil
         streamReplies.removeAll()
+        streamReplyMatches = nil
+        streamTrace = NativeStreamControlTrace()
         isExchangingStream = false
         controlChannel?.delegate = nil
         controlChannel?.close()

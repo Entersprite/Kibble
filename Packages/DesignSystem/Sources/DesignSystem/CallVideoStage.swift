@@ -98,21 +98,23 @@ struct CallVideoStage: View {
     /// Room the trailing column needs beside a shared screen, so the cameras
     /// sit next to it rather than over it.
     var trailingColumn: CGFloat = 0
+    var selection = CallStageSelection()
+    var pin: ((CallRemoteVideo) -> Void)?
 
     var body: some View {
-        switch CallStageLayout.of(videos) {
+        switch selection.stage(in: videos) {
         case .none:
             EmptyView()
         case .single:
-            if let main = CallStageLayout.main(of: videos) {
-                CallRemoteStage(content: main.content, isScreen: main.isScreen)
+            if let main = selection.main(in: videos) {
+                focused(main)
                     .id(main.id)
             }
         case .presentation:
-            if let main = CallStageLayout.main(of: videos) {
+            if let main = selection.main(in: videos) {
                 ZStack {
                     Color.black.ignoresSafeArea()
-                    CallRemoteStage(content: main.content, isScreen: main.isScreen)
+                    focused(main)
                         .padding(.trailing, trailingColumn)
                         .id(main.id)
                 }
@@ -120,6 +122,23 @@ struct CallVideoStage: View {
         case .grid:
             grid(videos + ownTile)
         }
+    }
+
+    private func focused(_ video: CallRemoteVideo) -> some View {
+        CallRemoteStage(content: video.content, isScreen: video.isScreen)
+            .overlay(alignment: .bottomLeading) {
+                if let name = video.label {
+                    HStack(spacing: 5) {
+                        if CallRoster.isMuted(video, in: roster) {
+                            Image(systemName: "mic.slash.fill")
+                        }
+                        Text(name)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .padding(8).background(.black.opacity(0.6), in: .capsule)
+                    .padding(.leading, 16).padding(.bottom, 100)
+                }
+            }
     }
 
     private var ownTile: [CallRemoteVideo] {
@@ -144,8 +163,15 @@ struct CallVideoStage: View {
                     spacing: spacing
                 ) {
                     ForEach(videos) { video in
-                        CallVideoTile(video: video, muted: CallRoster.isMuted(video, in: roster))
-                            .frame(width: width, height: max(0, height))
+                        CallVideoTile(
+                            video: video,
+                            muted: CallRoster.isMuted(video, in: roster),
+                            pin: video.participantID == nil ? nil : pin.map { action in { action(video) } },
+                            isPinned: selection.pinned == CallStageSelection.key(video),
+                            isSpeaking: roster?.first(where: { $0.id == video.participantID })?
+                                .isSpeaking == true
+                        )
+                        .frame(width: width, height: max(0, height))
                     }
                 }
             }
@@ -168,6 +194,9 @@ struct CallVideoTile: View {
     let video: CallRemoteVideo
     var muted = false
     var cornerRadius: CGFloat = 14
+    var pin: (() -> Void)?
+    var isPinned = false
+    var isSpeaking = false
 
     var body: some View {
         video.content
@@ -175,7 +204,10 @@ struct CallVideoTile: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                    .strokeBorder(
+                        isSpeaking ? Color.green : Color.white.opacity(0.16),
+                        lineWidth: isSpeaking ? 2 : 1
+                    )
             }
             .overlay(alignment: .bottomLeading) {
                 if video.label != nil || muted || video.isScreen {
@@ -195,6 +227,15 @@ struct CallVideoTile: View {
                     .padding(.vertical, 4)
                     .background(.black.opacity(0.5), in: .capsule)
                     .padding(8)
+                }
+            }
+            .contextMenu {
+                if let pin {
+                    Button(
+                        isPinned ? "Unpin" : "Pin",
+                        systemImage: isPinned ? "pin.slash" : "pin",
+                        action: pin
+                    )
                 }
             }
             .accessibilityElement()
@@ -217,14 +258,22 @@ struct CallVideoFilmstrip: View {
     let videos: [CallRemoteVideo]
     let roster: [CallRosterEntry]?
     var width: CGFloat = 176
+    var selection = CallStageSelection()
+    var pin: ((CallRemoteVideo) -> Void)?
 
     var body: some View {
         ScrollView(.vertical) {
             VStack(spacing: 10) {
                 ForEach(videos) { video in
-                    CallVideoTile(video: video, muted: CallRoster.isMuted(video, in: roster))
-                        .frame(width: width, height: (width * 9 / 16).rounded())
-                        .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+                    CallVideoTile(
+                        video: video,
+                        muted: CallRoster.isMuted(video, in: roster),
+                        pin: video.participantID == nil ? nil : pin.map { action in { action(video) } },
+                        isPinned: selection.pinned == CallStageSelection.key(video),
+                        isSpeaking: roster?.first(where: { $0.id == video.participantID })?.isSpeaking == true
+                    )
+                    .frame(width: width, height: (width * 9 / 16).rounded())
+                    .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
                 }
             }
         }

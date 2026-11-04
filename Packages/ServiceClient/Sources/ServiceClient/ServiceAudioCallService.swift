@@ -4,7 +4,8 @@ import Foundation
 
 /// A device-scoped API facade. Stopping this observer does not stop service media.
 @MainActor
-public final class ServiceAudioCallService: ExistingAudioCallService, ConversationAudioCallService {
+public final class ServiceAudioCallService: ExistingAudioCallService, ConversationAudioCallService,
+    MeetingLinkAudioCallService, CallInteractionService, CallActivitiesService {
     public let events: AsyncStream<AudioCallEvent>
     private let sink: AsyncStream<AudioCallEvent>.Continuation
     private let client: AccountClient
@@ -91,10 +92,74 @@ public final class ServiceAudioCallService: ExistingAudioCallService, Conversati
         }
         try check(epoch)
         guard let sourceID else { throw ServiceFailure.staleCallSource }
+        guard let conversationID = target.conversationID,
+              target.meetingURL == nil else { throw ServiceFailure.invalidRequest }
         let request = ControlConversationCall(
-            action: action, conversationID: target.conversationID, callID: id, sourceID: sourceID
+            action: action, conversationID: conversationID, callID: id, sourceID: sourceID
         )
         let result = try await client.call(request, account: account, revision: revision)
+        try check(epoch)
+        try receive(result)
+    }
+
+    public var meetingLinkHosts: Set<String> {
+        guard canJoinMeetingLinks else { return [] }
+        let hosts = (projection.currentState?.meetingLinkHosts ?? []).prefix(8)
+        return Set(hosts.filter { !$0.isEmpty && $0.utf8.count <= 253 })
+    }
+
+    public var canJoinMeetingLinks: Bool {
+        !projection.isConnectionUnavailable && projection.currentState?.supportsMeetingLinks == true
+    }
+
+    public func joinMeeting(at url: URL, callID: UUID) async throws {
+        let epoch = generation
+        if sourceID == nil {
+            try await receive(read(after: nil, wait: 0))
+        }
+        try check(epoch)
+        guard canJoinMeetingLinks, let sourceID else { throw ServiceFailure.unsupportedOperation }
+        let result = try await client.call(
+            JoinMeetingCall(url: url, callID: callID, sourceID: sourceID),
+            account: account,
+            revision: revision
+        )
+        try check(epoch)
+        try receive(result)
+    }
+
+    public func inviteToCall(_ member: Member.ID, callID: UUID) async throws {
+        let epoch = generation
+        guard let sourceID else { throw ServiceFailure.staleCallSource }
+        let result = try await client.call(
+            InviteCallParticipant(callID: callID, sourceID: sourceID, memberID: member),
+            account: account,
+            revision: revision
+        )
+        try check(epoch)
+        try receive(result)
+    }
+
+    public func setHandRaised(_ raised: Bool, callID: UUID) async throws {
+        let epoch = generation
+        guard let sourceID else { throw ServiceFailure.staleCallSource }
+        let result = try await client.call(
+            ControlCallInteraction(callID: callID, sourceID: sourceID, raised: raised),
+            account: account,
+            revision: revision
+        )
+        try check(epoch)
+        try receive(result)
+    }
+
+    public func performCallActivity(_ activity: CallActivity, callID: UUID) async throws {
+        let epoch = generation
+        guard let sourceID else { throw ServiceFailure.staleCallSource }
+        let result = try await client.call(
+            PerformCallActivity(callID: callID, sourceID: sourceID, activity: activity),
+            account: account,
+            revision: revision
+        )
         try check(epoch)
         try receive(result)
     }

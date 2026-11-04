@@ -9,10 +9,13 @@ public struct CallParticipantDevice: Codable, Hashable, Sendable {
     public let isPresentation: Bool
     public let isLocal: Bool
     public let microphoneMuted: Bool?
+    public let handRaised: Bool?
+    public let isSpeaking: Bool?
 
     public init(
         id: UUID, displayName: String? = nil, parentID: UUID? = nil,
-        isPresentation: Bool = false, isLocal: Bool = false, microphoneMuted: Bool? = nil
+        isPresentation: Bool = false, isLocal: Bool = false, microphoneMuted: Bool? = nil,
+        handRaised: Bool? = nil, isSpeaking: Bool? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -20,10 +23,12 @@ public struct CallParticipantDevice: Codable, Hashable, Sendable {
         self.isPresentation = isPresentation
         self.isLocal = isLocal
         self.microphoneMuted = microphoneMuted
+        self.handRaised = handRaised
+        self.isSpeaking = isSpeaking
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, displayName, parentID, isPresentation, isLocal, microphoneMuted
+        case id, displayName, parentID, isPresentation, isLocal, microphoneMuted, handRaised, isSpeaking
     }
 
     public init(from decoder: any Decoder) throws {
@@ -34,7 +39,9 @@ public struct CallParticipantDevice: Codable, Hashable, Sendable {
             parentID: fields.decodeIfPresent(UUID.self, forKey: .parentID),
             isPresentation: fields.decodeIfPresent(Bool.self, forKey: .isPresentation) ?? false,
             isLocal: fields.decodeIfPresent(Bool.self, forKey: .isLocal) ?? false,
-            microphoneMuted: try? fields.decodeIfPresent(Bool.self, forKey: .microphoneMuted)
+            microphoneMuted: try? fields.decodeIfPresent(Bool.self, forKey: .microphoneMuted),
+            handRaised: try? fields.decodeIfPresent(Bool.self, forKey: .handRaised),
+            isSpeaking: try? fields.decodeIfPresent(Bool.self, forKey: .isSpeaking)
         )
     }
 }

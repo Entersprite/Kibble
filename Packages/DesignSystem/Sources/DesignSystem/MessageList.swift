@@ -34,6 +34,7 @@ public struct MessageList: View {
     var own: OwnMessageHandlers?
     /// Where this account's transcript was when it last left the screen.
     var resume: TranscriptResume?
+    var callActions: ChatSceneActions?
 
     /// The last target this list scrolled to, so that it is honoured once.
     /// `@State` is enough: opening a mention always passes through the
@@ -96,6 +97,12 @@ public struct MessageList: View {
     func ownMessages(_ handlers: OwnMessageHandlers?) -> MessageList {
         var list = self
         list.own = handlers
+        return list
+    }
+
+    func callControls(_ actions: ChatSceneActions) -> MessageList {
+        var list = self
+        list.callActions = actions
         return list
     }
 
@@ -175,7 +182,11 @@ public struct MessageList: View {
                     .padding(.top, 12)
                     // Every link under the transcript opens through one rule (links spec §7.1).
                     .environment(
-                        \.openURL, LinkPolicy.openURLAction(blocking: state.capabilities.internalLinkHosts)
+                        \.openURL, LinkPolicy.openURLAction(
+                            blocking: state.capabilities.internalLinkHosts,
+                            meetingHosts: state.meetingLinkHosts,
+                            join: callActions?.joinMeeting
+                        )
                     )
             }
             .modifier(TranscriptFollowing(follow: follow, proxy: proxy, conditions: followConditions))
