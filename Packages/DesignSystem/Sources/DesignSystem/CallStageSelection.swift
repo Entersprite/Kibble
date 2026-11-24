@@ -322,7 +322,7 @@ struct CallLayoutMenu: View {
             }
             Divider()
             Toggle("Hide Tiles Without Video", isOn: settings.hidesTilesWithoutVideo)
-            Toggle("Hide Self View", isOn: $selection.hidesSelf)
+            Toggle("Hide My Video", isOn: $selection.hidesSelf)
             Menu("Self View", systemImage: "person.crop.rectangle") {
                 let visibleVideos = selection.visibleVideos(from: videos)
                 CallSelfViewControls(
