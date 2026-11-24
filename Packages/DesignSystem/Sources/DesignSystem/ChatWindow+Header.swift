@@ -152,7 +152,7 @@ extension ChatWindow {
             return "Mentions"
         }
         if state.stars.showingList {
-            return "Starred"
+            return "Saved"
         }
         if state.scheduled.showingList {
             return "Scheduled"

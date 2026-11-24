@@ -70,7 +70,7 @@ struct ConversationMenuBarTests {
             ["details", "call", "videoCall"],
             ["markAsRead", "mute", "notificationSettings"],
             ["follow", "closeThread"],
-            ["mentions", "threads"],
+            ["mentions"],
             ["next", "previous"],
             ["listed.0", "listed.1", "listed.2", "listed.3"]
         ])
@@ -84,7 +84,7 @@ struct ConversationMenuBarTests {
         let menu = ConversationMenuBar(state: nil, actions: recorder.actions)
         #expect(ids(menu) == [
             "details", "call", "videoCall", "markAsRead", "mute", "notificationSettings", "follow",
-            "closeThread", "mentions", "threads", "next", "previous"
+            "closeThread", "mentions", "next", "previous"
         ])
         #expect(menu.sections.joined().allSatisfy { !$0.isEnabled })
         #expect(menu.account == nil)
@@ -329,7 +329,7 @@ struct ConversationMenuBarTests {
         let commands: [ConversationMenuBar.Command] = [
             .details(deploys.id), .call(annDM.id), .videoCall(annDM.id), .markAsRead([annDM.id, boDM.id]),
             .mute([annDM.id]), .unmute([boDM.id]), .notificationSettings(annDM.id), .setFollowed(true),
-            .closeThread, .mentions, .threads, .select(.conversation(boDM.id)),
+            .closeThread, .mentions, .select(.conversation(boDM.id)),
             .select(.meetingSeries(.init("p")))
         ]
         for command in commands {
@@ -337,7 +337,7 @@ struct ConversationMenuBarTests {
         }
         #expect(recorder.log == [
             "details deploys", "call dm-ann", "video dm-ann", "read dm-ann", "read dm-bo", "mute dm-ann",
-            "unmute dm-bo", "notifications dm-ann", "follow true", "close thread", "mentions", "threads",
+            "unmute dm-bo", "notifications dm-ann", "follow true", "close thread", "mentions",
             "select dm-bo", "series p"
         ])
     }

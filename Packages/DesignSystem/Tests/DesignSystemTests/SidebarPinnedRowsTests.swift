@@ -20,15 +20,15 @@ struct SidebarPinnedRowsTests {
         )
     }
 
-    @Test func searchMentionsAndThreadsInThatOrderWhenAllAreOffered() {
+    @Test func searchThenMentionsAndNoThreadsRowWhenAllAreOffered() {
         let actions = ChatSceneActions(showMentions: {}, threads: threads(), search: .inert)
-        #expect(SidebarPinned.rows(actions) == [.search, .mentions, .threads])
+        #expect(SidebarPinned.rows(actions) == [.search, .mentions])
     }
 
     /// The same gate as Edit › Search…: a backend that cannot search gets no row.
     @Test func searchIsDrawnOnlyWhereTheHostOffersIt() {
         let actions = ChatSceneActions(showMentions: {}, threads: threads())
-        #expect(SidebarPinned.rows(actions) == [.mentions, .threads])
+        #expect(SidebarPinned.rows(actions) == [.mentions])
     }
 
     @Test func nothingIsPinnedWhereNothingIsOffered() {

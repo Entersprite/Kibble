@@ -99,8 +99,9 @@ struct CallActivitiesView: View {
         }
     }
 
-    /// The sections, and Refresh, which turns into the progress of whatever
-    /// is on its way. Both stay in place so the bar never changes size.
+    /// The sections, and the progress of whatever is on its way, which keeps
+    /// its place so the bar never changes size. The sheet rereads the meeting
+    /// when it opens and the call keeps it current, so there is no Refresh.
     private var header: some View {
         HStack(spacing: 12) {
             Picker("Section", selection: $tab) {
@@ -108,19 +109,11 @@ struct CallActivitiesView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            ZStack {
-                Button("Refresh", systemImage: "arrow.clockwise") { submit(CallActivity("refresh")) }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .disabled(busy)
-                    .opacity(busy ? 0 : 1)
-                    .help("Refresh")
-                ProgressView()
-                    .controlSize(.small)
-                    .opacity(busy ? 1 : 0)
-                    .accessibilityHidden(!busy)
-            }
-            .frame(width: 22)
+            ProgressView()
+                .controlSize(.small)
+                .opacity(busy ? 1 : 0)
+                .accessibilityHidden(!busy)
+                .frame(width: 22)
         }
         .padding(.horizontal, 20)
         .padding(.top, 16)

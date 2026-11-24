@@ -12,7 +12,7 @@ struct MessagePinMenuTests {
         )
         var handlers = OwnMessageHandlers(pin: { _ in }, star: { _ in }, isStarred: { _ in true })
         let items = MessageMenuTable(own: handlers.items(for: message)).message.map(\.title)
-        #expect(items == ["Unstar", "Pin for Everyone"])
+        #expect(items == ["Remove from Saved", "Pin for Everyone"])
         handlers.starIsPending = { _ in true }
         #expect(MessageMenuTable(own: handlers.items(for: message)).message
             .map(\.title) == ["Pin for Everyone"])

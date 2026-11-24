@@ -206,13 +206,6 @@ private struct BlockedListSection<Row: Identifiable & Equatable & Sendable>: Vie
                 if state.isLoading {
                     ProgressView().controlSize(.mini)
                 }
-                Spacer()
-                Button("Refresh", systemImage: "arrow.clockwise", action: actions.refresh)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .disabled(busy)
-                    .help("Refresh \(kind.title)")
-                    .accessibilityLabel("Refresh \(kind.title)")
             }
         }
         .task(id: state.isAvailable) {

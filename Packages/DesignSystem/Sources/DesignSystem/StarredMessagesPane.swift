@@ -32,12 +32,15 @@ public struct StarredMessagesActions {
     }
 }
 
-/// What the Starred pane says apart from its rows.
+/// What the Saved pane says apart from its rows.
 enum StarredPresentation {
     static let openTitle = MentionsPresentation.openTitle
-    static let loadingText = "Loading starred messages…"
-    static let failedTitle = "Couldn’t Load Starred Messages"
-    static let moreFailedText = "Couldn’t load more starred messages."
+    static let loadingText = "Loading saved messages…"
+    static let failedTitle = "Couldn’t Load Saved Messages"
+    /// "Save for Later", not "Save": a file's menu already has Save As….
+    static let saveTitle = "Save for Later"
+    static let removeTitle = "Remove from Saved"
+    static let moreFailedText = "Couldn’t load more saved messages."
 
     /// A message with no words is named by its first file.
     static func preview(of message: Message) -> String {
@@ -45,10 +48,11 @@ enum StarredPresentation {
     }
 }
 
-/// The Starred list, in the detail pane: a `List`, as the Mentions and Calls
+/// The Saved list, in the detail pane: a `List`, as the Mentions and Calls
 /// lists are. A click selects a row, Return or a double-click shows the
-/// message in its conversation, and the star at the row's end takes the
-/// star off. Reaching the last row asks for the next page.
+/// message in its conversation, and the bookmark at the row's end takes it
+/// off the list. It rereads itself when shown and as saves change, so it
+/// has no Refresh. Reaching the last row asks for the next page.
 struct StarredMessagesPane: View {
     let state: ChatSceneState
     let actions: StarredMessagesActions
@@ -82,18 +86,15 @@ struct StarredMessagesPane: View {
                 if canOpen(address) {
                     Button(StarredPresentation.openTitle, systemImage: "text.bubble") { open?(address) }
                 }
-                Button("Unstar", systemImage: "star.slash") { actions.set(false, address) }
-                    .disabled(state.stars.pending.contains(address))
+                Button(StarredPresentation.removeTitle, systemImage: MessageMenuSymbols.unstar) {
+                    actions.set(false, address)
+                }
+                .disabled(state.stars.pending.contains(address))
             }
         } primaryAction: { addresses in
             if addresses.count == 1, let address = addresses.first, canOpen(address) {
                 open?(address)
             }
-        }
-        .toolbar {
-            Button("Refresh", systemImage: "arrow.clockwise", action: actions.refresh)
-                .disabled(isBusy)
-                .help("Refresh Starred Messages")
         }
     }
 
@@ -139,14 +140,14 @@ struct StarredMessagesPane: View {
             }
         } else {
             ContentUnavailableView(
-                "No Starred Messages", systemImage: "star",
-                description: Text("Star a message to find it here later.")
+                "No Saved Messages", systemImage: MessageMenuSymbols.star,
+                description: Text("Choose Save for Later on a message to find it here.")
             )
         }
     }
 
     /// The Mentions row's shape: where and who on one line with the time at
-    /// its end, then the message. The star takes it back off the list.
+    /// its end, then the message. The bookmark takes it back off the list.
     private func row(_ message: Message) -> some View {
         let sender = state.stars.members[message.sender] ?? state.directory[message.sender]
         let conversation = state.conversations.first { $0.id == message.conversationID }
@@ -173,13 +174,12 @@ struct StarredMessagesPane: View {
             }
             .accessibilityElement(children: .combine)
             Button { actions.set(false, address) } label: {
-                Label("Unstar", systemImage: "star.fill")
+                Label(StarredPresentation.removeTitle, systemImage: MessageMenuSymbols.starred)
                     .labelStyle(.iconOnly)
-                    .foregroundStyle(.yellow)
             }
             .buttonStyle(.borderless)
             .disabled(state.stars.pending.contains(address))
-            .help("Unstar")
+            .help(StarredPresentation.removeTitle)
         }
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)

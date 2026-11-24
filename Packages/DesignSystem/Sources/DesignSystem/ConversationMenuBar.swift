@@ -29,7 +29,6 @@ public struct ConversationMenuBar: Equatable {
         case closeThread
         case mentions
         case starred
-        case threads
         case calls
         case select(SidebarSelection)
     }
@@ -272,7 +271,8 @@ extension ConversationMenuBar {
         return state.threads.panel
     }
 
-    /// Go to Mentions, Go to Threads and Go to Calls, the sidebar's pinned rows.
+    /// Go to Mentions, Go to Saved, Go to Scheduled and Go to Calls, the
+    /// sidebar's pinned rows.
     @MainActor
     private static func paneEntries(_ state: ChatSceneState?, actions: ChatSceneActions) -> [Entry] {
         var entries: [Entry] = []
@@ -284,7 +284,7 @@ extension ConversationMenuBar {
         }
         if actions.stars != nil {
             entries.append(Entry(
-                id: "starred", title: "Go to Starred", style: .button(symbol: "star"),
+                id: "starred", title: "Go to Saved", style: .button(symbol: MessageMenuSymbols.star),
                 shortcut: nil, command: state == nil ? nil : .starred
             ))
         }
@@ -292,12 +292,6 @@ extension ConversationMenuBar {
             entries.append(Entry(
                 id: "scheduled", title: "Go to Scheduled", style: .button(symbol: "clock"),
                 shortcut: nil, command: state == nil ? nil : .select(.scheduled)
-            ))
-        }
-        if actions.threads != nil {
-            entries.append(Entry(
-                id: "threads", title: "Go to Threads", style: .button(symbol: ThreadsPresentation.rowSymbol),
-                shortcut: nil, command: state == nil ? nil : .threads
             ))
         }
         if actions.callHistory != nil {
@@ -354,7 +348,7 @@ public extension ConversationMenuBar {
         case let .mute(ids): ids.forEach { actions.mute?($0) }
         case let .unmute(ids): ids.forEach { actions.unmute?($0) }
         case let .notificationSettings(id): actions.showNotificationSettings?(id)
-        case .setFollowed, .closeThread, .mentions, .starred, .threads, .calls, .select: move(
+        case .setFollowed, .closeThread, .mentions, .starred, .calls, .select: move(
                 command,
                 actions: actions
             )
@@ -369,7 +363,6 @@ public extension ConversationMenuBar {
         case .closeThread: actions.threads?.close()
         case .mentions: actions.showMentions?()
         case .starred: actions.stars?.show()
-        case .threads: actions.threads?.showList()
         case .calls: actions.callHistory?.show()
         case let .select(selection): SidebarPinned.choose(selection, actions: actions)
         case .details, .call, .videoCall, .joinCall, .returnToCall, .markAsRead, .mute, .unmute,

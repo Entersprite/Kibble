@@ -27,6 +27,8 @@ enum ScheduledPresentation {
 /// lists are: a click selects a row, Return or a double-click edits it (or
 /// moves it, where its words cannot be edited), and the context menu and the
 /// row's own menu offer the rest. Reaching the last row asks for the next page.
+/// The list rereads itself when shown and as the queue changes, so it has no
+/// Refresh.
 struct ScheduledMessagesPane: View {
     let state: ChatSceneState
     let actions: ScheduledMessagesActions
@@ -71,11 +73,6 @@ struct ScheduledMessagesPane: View {
             if state.scheduled.messages.isEmpty {
                 emptyState
             }
-        }
-        .toolbar {
-            Button("Refresh", systemImage: "arrow.clockwise", action: actions.refresh)
-                .disabled(busy)
-                .help("Refresh Scheduled Messages")
         }
         .sheet(item: $editing) { item in
             ScheduledEditSheet(

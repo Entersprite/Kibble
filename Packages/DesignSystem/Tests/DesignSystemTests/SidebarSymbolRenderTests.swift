@@ -95,7 +95,6 @@
             let space = Conversation(id: .init("space/1"), kind: .space, title: "Design")
             let rep = try await render(List {
                 MentionsSidebarRow(unread: 0)
-                ThreadsSidebarRow(unread: 0)
                 ConversationRow(
                     conversation: space,
                     state: ConversationRowState(

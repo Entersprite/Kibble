@@ -39,20 +39,8 @@ struct MentionsSidebarRow: View {
     }
 }
 
-/// The Threads row (threads spec §5.3): followed threads, with a badge of the
-/// unread ones. No context menu and no rules, like the Mentions row.
-struct ThreadsSidebarRow: View {
-    let unread: Int
-
-    var body: some View {
-        SidebarSymbolTitle(title: ThreadsPresentation.title, symbol: ThreadsPresentation.rowSymbol)
-            .padding(.vertical, 1)
-            .badge(SidebarPinned.badge(ThreadsPresentation.badge(unread: unread)))
-    }
-}
-
 /// The Calls row: retained call records. No badge, since a record says
-/// nothing about what is unread, and no context menu, like the Threads row.
+/// nothing about what is unread, and no context menu, like the Mentions row.
 struct CallsSidebarRow: View {
     var body: some View {
         SidebarSymbolTitle(title: CallHistoryPresentation.title, symbol: CallHistoryPresentation.rowSymbol)
@@ -66,7 +54,6 @@ enum PinnedRow: Hashable {
     case mentions
     case starred
     case scheduled
-    case threads
     case calls
 }
 
@@ -101,9 +88,6 @@ enum SidebarPinned {
         }
         if actions.scheduled != nil {
             rows.append(.scheduled)
-        }
-        if actions.threads != nil {
-            rows.append(.threads)
         }
         if actions.callHistory != nil {
             rows.append(.calls)
@@ -164,7 +148,7 @@ enum SidebarPinned {
 ///
 /// - **The toolbar band's inset is not added.** A sidebar list extends under
 ///   the band by itself, outside its frame: framed at 158 pt, its scroll view
-///   was 210 tall, and adding the inset left 52 pt of empty rows under Threads.
+///   was 210 tall, and adding the inset left 52 pt of empty rows under the last row.
 /// - **The content fills what the list shows, so it grows in place but never
 ///   shrinks.** With a row taken away it stayed 158 pt. So the caller gives
 ///   this a new identity for new rows (`.id(rows)`), and a fresh one starts at
@@ -188,16 +172,13 @@ struct PinnedList: View {
                     MentionsSidebarRow(unread: state.unreadMentionCount)
                         .tag(SidebarSelection.mentions)
                 case .starred:
-                    SidebarSymbolTitle(title: "Starred", symbol: "star")
+                    SidebarSymbolTitle(title: "Saved", symbol: MessageMenuSymbols.star)
                         .padding(.vertical, 1)
                         .tag(SidebarSelection.starred)
                 case .scheduled:
                     SidebarSymbolTitle(title: "Scheduled", symbol: "clock")
                         .padding(.vertical, 1)
                         .tag(SidebarSelection.scheduled)
-                case .threads:
-                    ThreadsSidebarRow(unread: state.threads.unreadCount)
-                        .tag(SidebarSelection.threads)
                 case .calls:
                     CallsSidebarRow()
                         .tag(SidebarSelection.calls)

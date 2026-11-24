@@ -55,7 +55,7 @@
 
         @Test func everySymbolExists() {
             let names = MenuBarSymbols.all + conversationSymbols + callSymbols
-            #expect(Set(conversationSymbols).count == 12)
+            #expect(Set(conversationSymbols).count == 11)
             #expect(Set(callSymbols).count == 8)
             for name in names + Self.callControlSymbols {
                 #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")
