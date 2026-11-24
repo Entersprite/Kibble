@@ -60,15 +60,31 @@ struct ComposerDictationButton: View {
     let action: () -> Void
 
     var body: some View {
+        ComposerFieldButton(
+            title: "Start Dictation", systemImage: ComposerLayout.dictationSymbol, action: action
+        )
+    }
+}
+
+/// A small plain glyph inside the field's trailing edge: dictation while the
+/// field is empty, Schedule Send once there is something to send. No glass
+/// of its own, since it sits on the field's.
+struct ComposerFieldButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
-            Label("Start Dictation", systemImage: ComposerLayout.dictationSymbol)
+            Label(title, systemImage: systemImage)
                 .labelStyle(.iconOnly)
                 .foregroundStyle(.secondary)
                 // A line's height, so the field keeps its own.
                 .frame(height: 16)
+                .contentShape(Rectangle().inset(by: -4))
         }
         .buttonStyle(.plain)
-        .help("Start Dictation")
+        .help(title)
     }
 }
 

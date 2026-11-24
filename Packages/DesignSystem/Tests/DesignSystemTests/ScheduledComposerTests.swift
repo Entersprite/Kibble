@@ -1,5 +1,7 @@
+import AppKit
 import ChatKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import DesignSystem
 
@@ -21,6 +23,17 @@ struct ScheduledComposerTests {
         var uploading = file
         uploading.state = .uploading(fraction: 0.5)
         #expect(!offers(uploading, canSchedule: true))
+    }
+
+    @MainActor
+    @Test func scheduleSendIsAsSmallAsTheDictationGlyphItReplaces() {
+        let schedule = NSHostingView(
+            rootView: ComposerFieldButton(title: "Schedule Send…", systemImage: "clock") {}
+        ).fittingSize
+        let dictation = NSHostingView(rootView: ComposerDictationButton {}).fittingSize
+        #expect(schedule.height == dictation.height)
+        #expect(schedule.height == 16)
+        #expect(schedule.width < ComposerLayout.lineHeight)
     }
 
     @MainActor
