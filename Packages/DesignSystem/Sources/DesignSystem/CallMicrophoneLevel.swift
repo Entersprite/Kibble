@@ -26,12 +26,18 @@ struct CallMicrophoneLevelView: View {
                 .accessibilityAddTraits(.isHeader)
             if action.isMuted {
                 Text("Unmute to check your microphone.")
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(.secondary)
             } else if let level {
-                ProgressView(value: level)
+                ProgressView(value: min(max(level, 0), 1))
+                    .progressViewStyle(.linear)
+                    .tint(.green)
                     .accessibilityLabel("Microphone level")
+                Text("Speak to see the level move.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } else if hasSample {
-                Text("Microphone level unavailable.")
+                Text("The microphone level isn’t available.")
                     .foregroundStyle(.secondary)
             } else {
                 ProgressView()

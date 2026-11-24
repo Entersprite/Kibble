@@ -22,15 +22,38 @@ struct CallCaptionSelectionTests {
 
     @Test func theNativeControlsRenderWithMeetingSpecificChoices() throws {
         let languages = CallCaptionLanguages(live: ["hu-HU"], translations: ["hu-HU": ["sk-SK"]])
-        let view = CallCaptionControls(settings: nil, languages: languages) { _ in }
-            .frame(width: 320, alignment: .leading).padding(16)
-            .background(Color(nsColor: .windowBackgroundColor))
+        // The controls are a section of rows; a grouped form is their container.
+        let view = Form {
+            CallCaptionControls(settings: nil, languages: languages) { _ in }
+            CallCaptionControls(
+                settings: CallCaptionState(spokenLanguage: "hu-HU", displayLanguage: "hu-HU"),
+                languages: languages
+            ) { _ in }
+            CallHostSettingsView(
+                settings: CallHostSettings(
+                    managementEnabled: true, reactionsAllowed: true, chatMessagesAllowed: true,
+                    screenSharingAllowed: false, microphoneAllowed: true, cameraAllowed: true,
+                    joiningBeforeHostAllowed: false, waitingRoomEnabled: false,
+                    meetingAccess: CallMeetingAccess(
+                        preset: "trusted", availablePresets: ["open", "trusted", "restricted"],
+                        joinRequestsAllowed: true
+                    )
+                ),
+                availableActions: [
+                    "hostManagement", "allowJoinRequests", "allowJoiningBeforeHost", "allowChatMessages",
+                    "allowScreenSharing", "allowReactions", "setMeetingAccess", "endConference"
+                ],
+                submit: { _ in }
+            )
+        }
+        .formStyle(.grouped)
+        .frame(width: 420, height: 900)
+        .background(Color(nsColor: .windowBackgroundColor))
         let host = NSHostingView(rootView: view)
         host.appearance = NSAppearance(named: .aqua)
         host.frame.size = host.fittingSize
         host.layoutSubtreeIfNeeded()
-        #expect(host.frame.size.width == 352)
-        #expect(host.frame.size.height > 100)
+        #expect(host.frame.size == CGSize(width: 420, height: 900))
         if let directory = ProcessInfo.processInfo.environment["KIBBLE_CAPTION_SETTINGS_RENDER_DIR"] {
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)

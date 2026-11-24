@@ -30,15 +30,22 @@ struct CallCaptionLabel: View {
 
     var body: some View {
         if let segment, expired != segment {
+            // Light text on a dark plate, as captions are everywhere, so the
+            // words read over any video; no wider than the audio column.
             VStack(alignment: .leading, spacing: 2) {
                 if let speaker = segment.speaker {
                     Text(speaker).font(.caption).fontWeight(.semibold).lineLimit(1)
+                        .foregroundStyle(.white.opacity(0.7))
                 }
                 Text(segment.text).font(.callout).lineLimit(3)
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: 320, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
             .accessibilityElement(children: .combine)
             .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(.regularMaterial, in: .rect(cornerRadius: 10))
+            .background(.black.opacity(0.7), in: .rect(cornerRadius: 12, style: .continuous))
             .task(id: segment) {
                 try? await Task.sleep(for: .seconds(8))
                 guard !Task.isCancelled else { return }
@@ -70,16 +77,29 @@ struct CallCaptionControls: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Captions").font(.headline)
-            Picker("Meeting language", selection: Binding(
+        // A switch for the captions themselves, bound to what the meeting
+        // confirmed, then the languages. Changing a language while captions
+        // are on is its own explicit step, so nothing is sent by browsing a menu.
+        Section {
+            Toggle("Live Captions", isOn: Binding(
+                get: { settings != nil },
+                set: { isOn in
+                    if isOn {
+                        apply()
+                    } else {
+                        submit(CallActivity("captions", enabled: false))
+                    }
+                }
+            ))
+            .disabled(settings == nil && !canApply)
+            Picker("Meeting Language", selection: Binding(
                 get: { selection.spoken },
                 set: { preferences = CallCaptionSelection(spoken: $0, translated: selection.translated) }
             )) {
                 choices(available.meetingLanguages)
             }
             if let targets = available.translations[selection.spoken], !targets.isEmpty {
-                Picker("Translate to", selection: Binding(
+                Picker("Translate To", selection: Binding(
                     get: { selection.translated },
                     set: { preferences = CallCaptionSelection(spoken: selection.spoken, translated: $0) }
                 )) {
@@ -89,18 +109,25 @@ struct CallCaptionControls: View {
                     choices(targets)
                 }
             }
-            HStack {
-                Button(settings == nil ? "Turn On Captions" : "Apply Languages") {
-                    submit(CallActivity("captions", options: [selection.spoken, selection.display]))
-                }
-                .disabled(!available.supports(spoken: selection.spoken, display: selection.display) ||
-                    settings?.spokenLanguage == selection.spoken && settings?.displayLanguage == selection
-                    .display)
-                if settings != nil {
-                    Button("Turn Off Captions") { submit(CallActivity("captions", enabled: false)) }
-                }
+            if settings != nil, differsFromConfirmed {
+                Button("Use These Languages", action: apply).disabled(!canApply)
             }
+        } header: {
+            Text("Captions")
         }
+    }
+
+    private var canApply: Bool {
+        available.supports(spoken: selection.spoken, display: selection.display)
+    }
+
+    private var differsFromConfirmed: Bool {
+        settings?.spokenLanguage != selection.spoken || settings?.displayLanguage != selection.display
+    }
+
+    private func apply() {
+        guard canApply else { return }
+        submit(CallActivity("captions", options: [selection.spoken, selection.display]))
     }
 
     private var available: CallCaptionLanguages {

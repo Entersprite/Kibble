@@ -13,7 +13,7 @@ extension CallSelfViewPreferences.Placement {
         switch self {
         case .automatic: "Automatic"
         case .floating: "Floating"
-        case .tile: "Show in a Tile"
+        case .tile: "In a Tile"
         }
     }
 }
@@ -52,23 +52,36 @@ struct CallSelfViewControls: View {
     let isFloating: Bool
 
     var body: some View {
+        // Where it sits is checked in place; the corner is a submenu, since
+        // dragging the preview is the usual way to move it.
         Picker("Placement", selection: settings.selfView.placement) {
             ForEach(CallSelfViewPreferences.Placement.allCases, id: \.self) {
                 Text($0.title).tag($0)
             }
         }
+        .pickerStyle(.inline)
+        .labelsHidden()
         if isFloating {
             Picker("Corner", selection: settings.selfView.corner) {
                 ForEach(CallSelfViewPreferences.Corner.allCases, id: \.self) {
                     Text($0.title).tag($0)
                 }
             }
-            Button(selection.minimizesSelf ? "Restore Self View" : "Minimize Self View") {
+            .pickerStyle(.menu)
+        }
+        if isFloating || selection.supportsSelfCrop {
+            Divider()
+        }
+        if isFloating {
+            Button(
+                selection.minimizesSelf ? "Restore Self View" : "Minimize Self View",
+                systemImage: selection.minimizesSelf ? "arrow.up.left.and.arrow.down.right" : "minus"
+            ) {
                 selection.minimizesSelf.toggle()
             }
         }
         if selection.supportsSelfCrop {
-            Toggle("Crop Preview", isOn: settings.selfView.cropped)
+            Toggle("Crop to Fill", isOn: settings.selfView.cropped)
         }
     }
 

@@ -71,8 +71,16 @@ struct CallMeetingDetailsContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Meeting Details").font(.headline)
-            Text(details.url.absoluteString).textSelection(.enabled)
+            Text("Meeting Details").font(.headline).accessibilityAddTraits(.isHeader)
+            // The whole link stays selectable; a long one breaks in the middle.
+            Text(details.url.absoluteString)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .accessibilityLabel("Meeting link")
+                .accessibilityValue(details.url.absoluteString)
             if let dialIn = activeDialIn {
                 dialInRows(dialIn)
             }
@@ -91,7 +99,7 @@ struct CallMeetingDetailsContent: View {
             }
             if !details.attachments.isEmpty {
                 Divider()
-                Text("Attachments").font(.subheadline.weight(.semibold))
+                Text("Attachments").font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
                 if details.attachments.count > 3 {
                     ScrollView { attachmentRows }.frame(height: 144)
                 } else {
@@ -106,10 +114,10 @@ struct CallMeetingDetailsContent: View {
     private func dialInRows(_ dialIn: CallDialIn) -> some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             GridRow {
-                Text("Dial-in").foregroundStyle(.secondary)
+                Text("Phone").foregroundStyle(.secondary)
                 if numbers.count > 1 {
                     Picker(
-                        "Dial-in",
+                        "Phone number",
                         selection: Binding(get: { activeDialIn }, set: { selectedDialIn = $0 })
                     ) {
                         ForEach(numbers, id: \.self) { number in
@@ -124,7 +132,7 @@ struct CallMeetingDetailsContent: View {
             }
             GridRow {
                 Text("PIN").foregroundStyle(.secondary)
-                Text(dialIn.pin).textSelection(.enabled)
+                Text(dialIn.pin).monospacedDigit().textSelection(.enabled)
             }
         }
     }

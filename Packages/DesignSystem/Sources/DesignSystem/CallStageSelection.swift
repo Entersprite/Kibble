@@ -306,14 +306,21 @@ struct CallLayoutMenu: View {
 
     var body: some View {
         Menu("Layout", systemImage: "rectangle.grid.2x2") {
+            // The arrangement first, checked in place as a menu's choices
+            // are; then what is left out of it, your own picture, and last
+            // the pins and feeds that are yours alone.
             Picker("Layout", selection: settings.layout) {
                 ForEach(CallViewLayout.allCases) { Text($0.title).tag($0) }
             }
+            .pickerStyle(.inline)
+            .labelsHidden()
             if selection.layoutPreferences.layout == .tiled {
-                Picker("Tile Limit", selection: settings.tileLimit) {
-                    ForEach(CallTileLimit.allCases) { Text($0.rawValue.formatted()).tag($0) }
+                Picker("Maximum Tiles", selection: settings.tileLimit) {
+                    ForEach(CallTileLimit.allCases) { Text("\($0.rawValue) Tiles").tag($0) }
                 }
+                .pickerStyle(.menu)
             }
+            Divider()
             Toggle("Hide Tiles Without Video", isOn: settings.hidesTilesWithoutVideo)
             Toggle("Hide Self View", isOn: $selection.hidesSelf)
             Menu("Self View", systemImage: "person.crop.rectangle") {
@@ -323,6 +330,8 @@ struct CallLayoutMenu: View {
                     isFloating: selection.selfViewSurface(in: visibleVideos).isFloating
                 )
             }
+            .disabled(selection.hidesSelf)
+            Divider()
             CallPersonalVideoControls(selection: $selection, videos: videos)
         }
     }
