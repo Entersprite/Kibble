@@ -26,7 +26,7 @@ struct ScheduledComposerTests {
     }
 
     @MainActor
-    @Test func scheduleSendIsAsSmallAsTheDictationGlyphItReplaces() {
+    @Test func scheduleSendIsAsSmallAsTheDictationGlyphBesideIt() {
         let schedule = NSHostingView(
             rootView: ComposerFieldButton(title: "Schedule Send…", systemImage: "clock") {}
         ).fittingSize

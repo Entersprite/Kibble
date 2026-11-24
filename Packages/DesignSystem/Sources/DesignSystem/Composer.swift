@@ -4,7 +4,7 @@ import SwiftUI
 /// The message field, the way Messages on the Mac draws it (session 59): a
 /// round + button, the field, and a round emoji button, in Liquid Glass. The
 /// field is a capsule at one line and a rounded box beyond it, with a
-/// dictation microphone while it is empty and no send button: Return sends.
+/// dictation microphone and no send button: Return sends.
 ///
 /// The + needs `attachmentActions` and the emoji button `emoji`; without
 /// them there is no button, as with `StatusStrip`'s, because drawing a control

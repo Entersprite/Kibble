@@ -53,7 +53,7 @@ extension Composer {
         if scheduling?.isSubmitting == true {
             ProgressView().controlSize(.small).accessibilityLabel("Scheduling message")
         } else if offersScheduleSend {
-            // Small and plain, as the dictation glyph it takes the place of.
+            // Small and plain, as the dictation glyph beside it.
             ComposerFieldButton(title: "Schedule Send…", systemImage: "clock") {
                 schedulingDate = true
             }

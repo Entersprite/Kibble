@@ -54,7 +54,7 @@ struct ComposerEmojiButton: View {
     }
 }
 
-/// Start Dictation, inside the field while it is empty
+/// Start Dictation, inside the field's trailing edge
 /// (`ComposerLayout.offersDictation`), where Messages draws its waveform.
 struct ComposerDictationButton: View {
     let action: () -> Void
@@ -66,9 +66,9 @@ struct ComposerDictationButton: View {
     }
 }
 
-/// A small plain glyph inside the field's trailing edge: dictation while the
-/// field is empty, Schedule Send once there is something to send. No glass
-/// of its own, since it sits on the field's.
+/// A small plain glyph inside the field's trailing edge: Schedule Send once
+/// there is something to send, then dictation. No glass of its own, since it
+/// sits on the field's.
 struct ComposerFieldButton: View {
     let title: String
     let systemImage: String

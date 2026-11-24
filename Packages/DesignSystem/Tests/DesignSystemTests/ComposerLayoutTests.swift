@@ -108,14 +108,14 @@
             #expect(path.contains(CGPoint(x: 298, y: 90)))
         }
 
-        /// The microphone shows on an empty field, where Messages shows its
-        /// waveform, and text hides it. An edit never shows it, even one
+        /// The microphone stays while there is text, so more can be dictated
+        /// into a message already begun. An edit never shows it, even one
         /// emptied.
-        @Test func dictationIsOfferedOnAnEmptyFieldOnly() {
+        @Test func dictationIsOfferedWithOrWithoutTextButNeverInAnEdit() {
             var draft = ComposerDraft()
             #expect(ComposerLayout.offersDictation(draft))
             draft.edit("On my way")
-            #expect(!ComposerLayout.offersDictation(draft))
+            #expect(ComposerLayout.offersDictation(draft))
             var editing = ComposerDraft()
             editing.beginEditing(Message.ID("m-1"), with: ComposedMessage(text: "Typo"))
             editing.edit("")
