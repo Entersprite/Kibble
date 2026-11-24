@@ -226,11 +226,15 @@ struct CallRosterFace: View {
                 Text(CallRosterFace.initials(entry.name))
                     .font(.system(size: 16, weight: .semibold))
             }
-            .overlay(alignment: .bottomTrailing) {
+            // The hand has the top corner to itself; the microphone keeps the bottom.
+            .overlay(alignment: .topTrailing) {
                 if entry.handRaised {
-                    Image(systemName: "hand.raised.fill").foregroundStyle(.yellow)
-                        .accessibilityLabel("Hand raised")
+                    CallRaisedHandBadge(size: 18)
+                        .offset(x: 3, y: -3)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
+            }
+            .overlay(alignment: .bottomTrailing) {
                 if CallRoster.showsMuted(entry) {
                     CallRemoteMutedBadge(size: 18)
                         .offset(x: 3, y: 3)
@@ -252,5 +256,21 @@ struct CallRosterFace: View {
         let words = name.split(separator: " ").prefix(2)
         let letters = words.compactMap(\.first).map(String.init).joined()
         return letters.isEmpty ? "?" : letters.uppercased()
+    }
+}
+
+/// A raised hand on someone's disc: yellow on a dark circle, so it reads on
+/// any picture behind it and beside the muted badge.
+struct CallRaisedHandBadge: View {
+    let size: CGFloat
+
+    var body: some View {
+        Label("Hand raised", systemImage: "hand.raised.fill")
+            .labelStyle(.iconOnly)
+            .font(.system(size: (size * 0.52).rounded(), weight: .semibold))
+            .foregroundStyle(.yellow)
+            .frame(width: size, height: size)
+            .background(.black.opacity(0.75), in: .circle)
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
     }
 }

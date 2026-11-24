@@ -37,6 +37,7 @@ public struct AudioCallView: View {
     @State private var showsActivities = false
     @State private var activityDrafts = CallActivityDrafts()
     @State private var showsChat = false
+    @State private var reactionFailed = false
     @State private var stageSelection = CallStageSelection()
 
     public init(
@@ -149,11 +150,7 @@ public struct AudioCallView: View {
         .modifier(CallActivityOverlay(
             callID: call.id, state: call.phase.isTerminal ? nil : actions.activities?.state
         ))
-        .popover(isPresented: $showsChat) {
-            if let chat = actions.chat {
-                CallChatView(scene: chat)
-            }
-        }
+        .modifier(CallReactionFailureExpiry(failed: $reactionFailed))
         .sheet(isPresented: $showsInvitations) {
             if let invitations = actions.invitations {
                 CallInvitePeople(actions: invitations)
@@ -179,6 +176,7 @@ public struct AudioCallView: View {
             showsPeople = false
             showsInvitations = false
             showsChat = false
+            reactionFailed = false
             stageSelection = CallStageSelection(layoutPreferences: actions.layoutPreferences)
             stageSelection.supportsSelfCrop = video?.croppedPreview != nil
             stageSelection.observeParticipants(participants)
@@ -241,7 +239,8 @@ extension AudioCallView {
                     roster: roster, pinTargets: participants, showsPeople: $showsPeople,
                     stageSelection: video == nil ? nil : $stageSelection, layoutVideos: pinCandidates,
                     showsInvitations: $showsInvitations, showsActivities: $showsActivities,
-                    showsChat: $showsChat
+                    showsChat: $showsChat,
+                    react: CallReactionSender.action(for: actions.activities, failed: $reactionFailed)
                 )
             }
         }
@@ -342,15 +341,9 @@ extension AudioCallView {
             phase: call.phase, devices: devices, camera: camera, screenSharing: screenSharing,
             microphoneRestricted: actions.microphoneRestricted
         )
-        for artifact in actions.activities?.state.artifacts ?? []
-            where ["active", "starting"].contains(artifact.phase) {
-            notices.append(CallNotice(
-                id: "artifact/" + artifact.kind,
-                text: artifact.kind
-                    .capitalized +
-                    (artifact.phase == "active" ? " is active" : " is starting"),
-                kind: .info
-            ))
+        notices += CallArtifactPresentation.notices(for: actions.activities?.state.artifacts ?? [])
+        if reactionFailed {
+            notices.append(CallNotice(id: "reaction", text: CallActivityCopy.reactionFailed, kind: .warning))
         }
         if let feedback = copyState.notice {
             notices.append(feedback)

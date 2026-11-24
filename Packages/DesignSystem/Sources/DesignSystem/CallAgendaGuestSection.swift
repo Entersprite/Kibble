@@ -19,6 +19,7 @@ struct CallAgendaGuestSection: View {
                             openChat(guest.id)
                         }
                         .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
                         .help("Chat with \(guest.displayName)")
                         .disabled(busy)
                     }
@@ -50,7 +51,7 @@ struct CallAgendaGuestSection: View {
         case "accepted": "Accepted"
         case "tentative": "Maybe"
         case "declined": "Declined"
-        case "needsAction": "Awaiting Response"
+        case "needsAction": "No Response Yet"
         default: nil
         }
     }

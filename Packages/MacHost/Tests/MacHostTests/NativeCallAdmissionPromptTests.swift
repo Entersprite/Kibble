@@ -7,7 +7,7 @@ import Testing
 struct NativeCallAdmissionPromptTests {
     @Test func theNoticeCanBeInspectedWithoutPresentingItsSheet() throws {
         let alert = NativeCallAdmissionPrompt.alert(for: [.recording, .transcription, .notes])
-        #expect(alert.buttons.map(\.title) == ["Continue Joining", "Cancel"])
+        #expect(alert.buttons.map(\.title) == ["Join", "Cancel"])
         alert.layout()
         let view = try #require(alert.window.contentView)
         view.layoutSubtreeIfNeeded()

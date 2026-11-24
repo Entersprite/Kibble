@@ -13,13 +13,17 @@ struct CallWaitingPeopleSection: View {
             Text("Waiting to Join").font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
             ForEach(participants) { participant in
                 HStack(spacing: 7) {
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(participant.name).lineLimit(1)
                         Text(participant.isInWaitingRoom ? "In the waiting room" : "Asking to join")
                             .font(.caption).foregroundStyle(.secondary)
                         if let warning = participant.warning {
-                            Label(warningText(warning), systemImage: "exclamationmark.triangle")
-                                .font(.caption).foregroundStyle(.secondary)
+                            Label {
+                                Text(warningText(warning))
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+                            }
+                            .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     Spacer(minLength: 4)

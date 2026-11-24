@@ -57,11 +57,12 @@ struct CallRaisedHandsBanner: View {
                 CallRaisedHandGlyph().accessibilityHidden(true)
                 Text(message).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                Button("Dismiss raised hands", systemImage: "xmark", action: dismiss)
+                Button("Dismiss", systemImage: "xmark", action: dismiss)
                     .labelStyle(.iconOnly).buttonStyle(.borderless)
+                    .help("Dismiss")
             }
             if let openQueue {
-                Button("Open Queue", action: openQueue)
+                Button("Show Raised Hands", action: openQueue)
                     .buttonStyle(.borderless)
             }
         }
