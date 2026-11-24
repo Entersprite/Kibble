@@ -60,7 +60,8 @@ struct CallMeetingPreparationControls: View {
                 "Microphone", devices: preparation.audioSelection?.devices.microphones,
                 selection: preparation.audioSelection?.devices.microphone,
                 select: preparation.audioSelection?.selectMicrophone,
-                status: preparation.microphone
+                status: preparation.microphone,
+                openSettings: preparation.openMicrophoneSettings
             )
             if case let .active(level)? = checks?.microphone {
                 ProgressView(value: min(max(level, 0), 1))
@@ -71,6 +72,12 @@ struct CallMeetingPreparationControls: View {
         } trailing: {
             if let checks, let toggle = checks.toggleMicrophone {
                 tryButton(Self.microphoneTest(checks.microphone), action: toggle)
+            }
+            if let media = preparation.joinMedia {
+                joinToggle("Microphone when joining", isOn: Binding(
+                    get: { !media.wrappedValue.microphoneMuted },
+                    set: { media.wrappedValue.microphoneMuted = !$0 }
+                ))
             }
         }
     }
@@ -87,12 +94,21 @@ struct CallMeetingPreparationControls: View {
                     )
                 }
                 .disabled(preparation.isJoining)
-            } else {
-                CallPreparationStatus(status: preparation.camera)
+            }
+            if preparation.camera != .ready || preparation.cameraSelection?.devices.isEmpty != false {
+                CallPreparationStatus(
+                    status: preparation.camera,
+                    openSettings: preparation.openCameraSettings
+                )
             }
         } trailing: {
             if let preview = preparation.cameraPreview {
                 tryButton(Self.cameraPreview(preview), action: preview.toggle)
+            }
+            if let media = preparation.joinMedia, preparation.canJoinWithCamera {
+                joinToggle("Camera when joining", isOn: media.cameraEnabled)
+                    .disabled(!media.wrappedValue.cameraEnabled
+                        && preparation.camera != .ready && preparation.camera != .needsPermission)
             }
         }
     }
@@ -116,7 +132,8 @@ struct CallMeetingPreparationControls: View {
     /// The device in use as a menu of the choices, or what stands in the way.
     @ViewBuilder private func audioDevice(
         _ title: String, devices: [CallAudioDevice]?, selection: String?,
-        select: ((String) -> Void)?, status: CallMeetingPreparation.DeviceStatus
+        select: ((String) -> Void)?, status: CallMeetingPreparation.DeviceStatus,
+        openSettings: (() -> Void)? = nil
     ) -> some View {
         if let devices, !devices.isEmpty, let selection, let select {
             CallPreparationDeviceMenu(
@@ -127,11 +144,20 @@ struct CallMeetingPreparationControls: View {
             .disabled(preparation.isJoining)
             // A device can be listed and still not be usable yet.
             if status != .ready {
-                CallPreparationStatus(status: status)
+                CallPreparationStatus(status: status, openSettings: openSettings)
             }
         } else {
-            CallPreparationStatus(status: status)
+            CallPreparationStatus(status: status, openSettings: openSettings)
         }
+    }
+
+    private func joinToggle(_ label: String, isOn: Binding<Bool>) -> some View {
+        Toggle(label, isOn: isOn)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .disabled(preparation.isJoining)
+            .help(label)
     }
 
     private func tryButton(_ test: CallPreparationTest, action: @escaping () -> Void) -> some View {
@@ -235,6 +261,7 @@ private struct CallPreparationDeviceMenu<Choices: View>: View {
 /// simply ready.
 private struct CallPreparationStatus: View {
     let status: CallMeetingPreparation.DeviceStatus
+    let openSettings: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 4) {
@@ -244,6 +271,10 @@ private struct CallPreparationStatus: View {
                     .accessibilityHidden(true)
             }
             Text(status.title)
+            if let openSettings, status == .needsPermission || status == .accessOff {
+                Button("Open Settings", action: openSettings)
+                    .buttonStyle(.link)
+            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)

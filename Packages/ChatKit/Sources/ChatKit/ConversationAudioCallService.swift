@@ -36,6 +36,17 @@ public struct ConversationCallTarget: Codable, Hashable, Sendable {
     }
 }
 
+/// Device intent for a single explicit meeting join. It is never a device preference.
+public struct MeetingJoinMedia: Codable, Hashable, Sendable {
+    public var microphoneMuted: Bool
+    public var cameraEnabled: Bool
+
+    public init(microphoneMuted: Bool = false, cameraEnabled: Bool = false) {
+        self.microphoneMuted = microphoneMuted
+        self.cameraEnabled = cameraEnabled
+    }
+}
+
 /// Optional explicit link admission. The provider validates the URL and owns
 /// resolution and admission; a link is never authorization or an invitation.
 @MainActor
@@ -43,14 +54,27 @@ public protocol MeetingLinkAudioCallService: AudioCallService {
     var canJoinMeetingLinks: Bool { get }
     var canCreateMeetingLinks: Bool { get }
     var canPreviewMeetingLinks: Bool { get }
+    var canConfigureMeetingJoinMedia: Bool { get }
     var meetingLinkHosts: Set<String> { get }
     func normalizedMeetingLink(_ url: URL) throws -> URL
     func joinMeeting(at url: URL, callID: UUID) async throws
+    func joinMeeting(at url: URL, callID: UUID, media: MeetingJoinMedia) async throws
     func createMeetingLink() async throws -> URL
     func previewMeetingTitle(at url: URL) async throws -> String?
 }
 
 public extension MeetingLinkAudioCallService {
+    var canConfigureMeetingJoinMedia: Bool {
+        false
+    }
+
+    func joinMeeting(at url: URL, callID: UUID, media: MeetingJoinMedia) async throws {
+        guard media == MeetingJoinMedia() else {
+            throw ChatError.unsupported(capability: "meetingJoinMedia")
+        }
+        try await joinMeeting(at: url, callID: callID)
+    }
+
     var canPreviewMeetingLinks: Bool {
         false
     }

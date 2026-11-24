@@ -1,3 +1,4 @@
+import ChatKit
 import SwiftUI
 
 @MainActor
@@ -20,6 +21,10 @@ public struct CallMeetingPreparation {
     public var join: () -> Void
     public let cancel: () -> Void
     public var canCheckDevices: () -> Bool = { true }
+    public var joinMedia: Binding<MeetingJoinMedia>?
+    public var canJoinWithCamera = false
+    public var openMicrophoneSettings: (() -> Void)?
+    public var openCameraSettings: (() -> Void)?
     public var hasSpeaker = false
     public var cameraPreview: CallPreparationCameraPreview?
     public var cameraSelection: CallPreparationCameraSelection?

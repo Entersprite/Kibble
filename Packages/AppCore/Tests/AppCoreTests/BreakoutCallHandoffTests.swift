@@ -53,6 +53,25 @@ struct BreakoutCallHandoffTests {
         await calls.stop()
     }
 
+    @Test func meetingMediaChoicesBelongToThePreparationThatIsJoined() async throws {
+        let service = RoomCallService(), calls = AudioCallController()
+        calls.start(service: service)
+        let first = try #require(URL(string: "https://meet.example.test/first"))
+        let next = try #require(URL(string: "https://meet.example.test/next"))
+        let old = try #require(calls.prepareMeeting(at: first))
+        calls.setMeetingJoinMedia(.init(microphoneMuted: true, cameraEnabled: true), for: old)
+        let id = try #require(calls.prepareMeeting(at: next))
+        calls.setMeetingJoinMedia(.init(cameraEnabled: true), for: old)
+        #expect(calls.meetingJoinMedia(for: id) == MeetingJoinMedia())
+        let choice = MeetingJoinMedia(microphoneMuted: true, cameraEnabled: true)
+        calls.setMeetingJoinMedia(choice, for: id)
+        calls.joinPreparedMeeting(id)
+        #expect(calls.call?.isMuted == true)
+        #expect(await eventually { service.joinMedia == [choice] && calls.call?.phase == .connected })
+        #expect(calls.call?.isMuted == true)
+        await calls.stop()
+    }
+
     @Test func closingThePreviewOrStoppingItsAccountPreventsJoin() async throws {
         let service = RoomCallService(), calls = AudioCallController()
         calls.start(service: service)
@@ -194,6 +213,8 @@ private final class RoomCallService: MeetingLinkAudioCallService {
     var call: ConversationCallSnapshot?
     var operations: [String] = []
     var joined: [URL] = []
+    var joinMedia: [MeetingJoinMedia] = []
+    let canConfigureMeetingJoinMedia = true
     var failCleanup = false
     var holdCleanup = false
     var canPreviewMeetingLinks = false
@@ -234,12 +255,19 @@ private final class RoomCallService: MeetingLinkAudioCallService {
     }
 
     func joinMeeting(at url: URL, callID: UUID) async throws {
+        try await joinMeeting(at: url, callID: callID, media: MeetingJoinMedia())
+    }
+
+    func joinMeeting(at url: URL, callID: UUID, media: MeetingJoinMedia) async throws {
         if let joinFailure {
             throw joinFailure
         }
         operations.append("join"); joined.append(url)
+        joinMedia.append(media)
         let target = ConversationCallTarget(meetingURL: url, displayName: "Meeting")
-        let value = ConversationCallSnapshot(id: callID, target: target, phase: .connected)
+        let value = ConversationCallSnapshot(
+            id: callID, target: target, phase: .connected, isMuted: media.microphoneMuted
+        )
         call = value; sink.yield(.meetingSnapshot(value))
         var activities = CallActivitiesState()
         activities.rooms = [CallBreakoutRoom(

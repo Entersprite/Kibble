@@ -4,7 +4,7 @@ import Foundation
 import LocalBridgeBackend
 
 /// Kibble's native media peer. Audio starts during explicit call preparation;
-/// camera capture starts only through the call window's camera action.
+/// camera capture requires an explicit choice for this call.
 @MainActor
 public final class NativeCallMedia: NSObject, CallMediaEngine {
     private static let sslReady: Bool = {
@@ -47,6 +47,8 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     var isNegotiating = false
     private var connectionState: LKRTCPeerConnectionState = .new
     var muted = false
+    private var startsWithMicrophoneMuted = false
+    private var microphoneAuthorized = false
     public internal(set) var allowsMicrophone = true
     var allowsCamera = true
     var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
@@ -106,7 +108,7 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
             }
         }
         do {
-            let permitted = isPresentation ? true : await microphoneAccess()
+            let permitted = isPresentation || startsWithMicrophoneMuted ? true : await microphoneAccess()
             try check(current)
             guard permitted else { throw CallMediaError.microphoneDenied }
             guard Self.sslReady else { throw CallMediaError.negotiationFailed }
@@ -196,8 +198,22 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         await eventHandler?(event)
     }
 
+    public func prepareMutedMeetingJoin() {
+        startsWithMicrophoneMuted = true
+        setMuted(true)
+    }
+
+    public func authorizeMicrophone() async -> Bool {
+        guard startsWithMicrophoneMuted, !microphoneAuthorized else { return true }
+        let scope = generation
+        let authorized = await microphoneAccess()
+        guard scope == generation, !Task.isCancelled else { return false }
+        microphoneAuthorized = authorized
+        return authorized
+    }
+
     public func setMuted(_ muted: Bool) {
-        let muted = muted || !allowsMicrophone
+        let muted = muted || !allowsMicrophone || (startsWithMicrophoneMuted && !microphoneAuthorized)
         self.muted = muted
         audio?.isEnabled = !muted
         audioSender?.track?.isEnabled = !muted

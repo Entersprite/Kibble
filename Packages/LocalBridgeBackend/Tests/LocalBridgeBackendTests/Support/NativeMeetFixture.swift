@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 import Testing
@@ -18,7 +19,7 @@ enum NativeMeetFixture {
 
     static func session(
         _ transport: any HTTPTransport, media: any CallMediaEngine,
-        staysWhenAlone: Bool = false,
+        staysWhenAlone: Bool = false, joinMedia: MeetingJoinMedia = MeetingJoinMedia(),
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         admissionSleep: @escaping @Sendable (Duration) async throws
             -> Void = { try await Task.sleep(for: $0) },
@@ -39,7 +40,7 @@ enum NativeMeetFixture {
         return NativeMeetCallSession(
             client: client,
             call: call,
-            media: media, staysWhenAlone: staysWhenAlone,
+            media: media, staysWhenAlone: staysWhenAlone, joinMedia: joinMedia,
             validateAccount: validate,
             now: now,
             admissionSleep: admissionSleep

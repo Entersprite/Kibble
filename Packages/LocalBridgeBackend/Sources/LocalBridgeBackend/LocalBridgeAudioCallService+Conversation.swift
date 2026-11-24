@@ -81,6 +81,17 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
         muteSequence += 1
         let sequence = muteSequence
         let scope = callScope
+        if !muted, current.target.meetingURL != nil {
+            let authorized = await media.authorizeMicrophone()
+            try checkCall(callID, scope: scope)
+            guard sequence == muteSequence, let latest = conversationSnapshot,
+                  latest.phase == .connected else {
+                throw CancellationError()
+            }
+            guard authorized else { throw CallMediaError.microphoneDenied }
+            guard media.allowsMicrophone else { throw CallMediaError.captureRestricted }
+            current = latest
+        }
         media.setMuted(muted)
         current.isMuted = muted
         publishConversation(current)

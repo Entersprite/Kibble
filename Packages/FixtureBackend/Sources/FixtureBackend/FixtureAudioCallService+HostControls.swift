@@ -1,4 +1,5 @@
 import ChatKit
+import Foundation
 
 extension FixtureAudioCallService {
     private func applyMeetingAccess(_ activity: CallActivity) throws {
@@ -35,5 +36,20 @@ extension FixtureAudioCallService {
             activityState.hostSettings?.reactionsAllowed = activity.enabled
             setActivityAvailability("react", available: activity.enabled)
         }
+    }
+
+    func setFixtureSharedPin(_ activity: CallActivity, callID: UUID) throws {
+        guard activity.participantIDs.isEmpty, var devices = participantDevices,
+              let index = devices.firstIndex(where: {
+                  $0.id == activity.resourceID && $0.isPinnedForEveryone != nil
+              }) else { throw CancellationError() }
+        if devices[index].isPinnedForEveryone == activity.enabled {
+            return
+        }
+        let count = devices.filter { $0.isPinnedForEveryone == true }.count
+        guard !activity.enabled || activityState.sharedPinLimit.map({ count < $0 }) == true
+        else { throw CancellationError() }
+        devices[index].isPinnedForEveryone = activity.enabled
+        setParticipantDevices(devices, callID: callID)
     }
 }

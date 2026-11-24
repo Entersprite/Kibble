@@ -22,7 +22,7 @@ public extension AppEnvironment {
         }
         let blocked = model.blockedRooms
         let error: String? = switch blocked.failure {
-        case .load: "Refresh to try loading blocked conversations again."
+        case .load: "Couldn’t load blocked conversations."
         case .unblock: "Couldn’t confirm the unblock. Refresh the list before trying again."
         case nil: nil
         }
@@ -48,7 +48,7 @@ public extension AppEnvironment {
         }
         let blocked = model.blockedPeople
         let error: String? = switch blocked.failure {
-        case .load: "Refresh to try loading blocked people again."
+        case .load: "Couldn’t load blocked people."
         case .unblock: "Couldn’t confirm the unblock. Refresh the list before trying again."
         case nil: nil
         }

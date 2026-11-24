@@ -7,7 +7,7 @@ import Observation
 /// Session-local camera operations. Every completion is checked against the
 /// engine that installed it; replacement never enables a previous camera.
 /// The camera the person picks is saved in `preferences` and selected again by
-/// the next engine while it is connected; it is never turned on by itself.
+/// the next engine while it is connected. Starting capture requires an explicit choice.
 @MainActor
 @Observable
 public final class CallVideoController {
@@ -26,6 +26,7 @@ public final class CallVideoController {
     @ObservationIgnored private var videoPreferences = CallVideoPreferences()
     private var operation: Task<Void, Never>?
     private var isStartingCamera = false
+    private var hasRequestedCamera = false
     private var refresh: Task<Void, Never>?
     @ObservationIgnored private let preferences: CallDevicePreferences?
     @ObservationIgnored private(set) var localSpeechForGesture: (() async -> Bool)?
@@ -83,6 +84,7 @@ public final class CallVideoController {
         videoPreferences = CallVideoPreferences()
         operation?.cancel(); operation = nil
         isStartingCamera = false
+        hasRequestedCamera = false
         refresh?.cancel(); refresh = nil
         route?.suppress()
         route = nil
@@ -132,6 +134,7 @@ public final class CallVideoController {
 
     public func toggle() {
         guard let camera else { return }
+        hasRequestedCamera = true
         if camera.isOn {
             turnOff()
         } else {
@@ -150,7 +153,13 @@ public final class CallVideoController {
     /// Turns the chosen camera on; does nothing while it is on or changing.
     public func turnOn() {
         guard let camera, !camera.isOn, !camera.isUpdating else { return }
+        hasRequestedCamera = true
         turnOn(camera.selected)
+    }
+
+    func startForJoin(ifCurrent expected: UUID) {
+        guard scope == expected, !hasRequestedCamera, camera?.allowsStart == true else { return }
+        turnOn()
     }
 
     public func select(_ id: String) {

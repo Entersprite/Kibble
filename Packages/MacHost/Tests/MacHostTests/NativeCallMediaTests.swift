@@ -20,6 +20,24 @@ struct NativeCallMediaTests {
         #expect(!media.isConnected)
     }
 
+    @Test func aMutedJoinPreparesADisabledSenderAndAuthorizesOnlyOnUnmute() async throws {
+        var requested = 0
+        let media = NativeCallMedia(microphoneAccess: { requested += 1; return requested == 2 })
+        defer { media.close() }
+        media.prepareMutedMeetingJoin()
+        _ = try await media.makeAudioOffer(serverControlChannel: "collections")
+        #expect(media.audioSender?.track?.isEnabled == false)
+        #expect(requested == 0)
+
+        #expect(await !media.authorizeMicrophone())
+        media.setMuted(false)
+        #expect(media.isMicrophoneMuted)
+        #expect(await media.authorizeMicrophone())
+        media.setMuted(false)
+        #expect(!media.isMicrophoneMuted)
+        #expect(requested == 2)
+    }
+
     @Test func deniedMicrophoneDoesNotPrepareAPeerAndCanBeTriedAgain() async {
         let media = NativeCallMedia(microphoneAccess: { false })
         for _ in 0 ..< 2 {

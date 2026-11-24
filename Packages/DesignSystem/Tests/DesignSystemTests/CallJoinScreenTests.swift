@@ -39,11 +39,17 @@
             var blocked = CallMeetingPreparation(
                 microphone: .needsPermission, camera: .accessOff, join: {}, cancel: {}
             )
+            blocked.joinMedia = .constant(.init(microphoneMuted: true))
+            blocked.canJoinWithCamera = true
+            blocked.openMicrophoneSettings = {}
+            blocked.openCameraSettings = {}
             blocked.audioChecks = .init(
                 microphone: .off, toggleMicrophone: nil, isPlaying: false, toggleSpeaker: nil,
                 notice: "Allow microphone access in System Settings to test it here."
             )
             var joining = CallMeetingPreparation(microphone: .ready, camera: .ready, join: {}, cancel: {})
+            joining.joinMedia = .constant(.init(cameraEnabled: true))
+            joining.canJoinWithCamera = true
             joining.hasSpeaker = true
             joining.isJoining = true
             joining.audioSelection = .init(

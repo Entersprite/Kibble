@@ -166,6 +166,28 @@ struct CallVideoControllerTests {
         controller.clear()
     }
 
+    @Test func anObsoleteJoinCannotStartTheReplacementCamera() async {
+        let controller = CallVideoController(), original = CameraRoute(), replacement = CameraRoute()
+        let old = controller.install(original)
+        let current = controller.install(replacement)
+        controller.startForJoin(ifCurrent: old)
+        #expect(controller.camera?.isUpdating == false)
+        #expect(replacement.starts.isEmpty)
+        controller.setCameraAllowed(false, ifCurrent: current)
+        controller.startForJoin(ifCurrent: current)
+        #expect(controller.camera?.isUpdating == false)
+        controller.setCameraAllowed(true, ifCurrent: current)
+        controller.startForJoin(ifCurrent: current)
+        await wait { controller.camera?.isOn == true }
+        #expect(replacement.sending && original.starts.isEmpty)
+        controller.toggle()
+        await wait { controller.camera?.isUpdating == false }
+        controller.startForJoin(ifCurrent: current)
+        #expect(controller.camera?.isUpdating == false)
+        #expect(!replacement.sending)
+        controller.clear()
+    }
+
     @Test func theChosenCameraIsKeptForTheNextCall() async throws {
         let place = try DevicePreferencesPlace()
         defer { place.remove() }

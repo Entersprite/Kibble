@@ -154,15 +154,20 @@ public extension LocalBridgeAudioCallService {
         return ChatError.transport(message)
     }
 
-    internal func connect(_ ticket: UUID, id: UUID, scope: UUID) async throws {
+    internal func connect(
+        _ ticket: UUID, id: UUID, scope: UUID, joinMedia: MeetingJoinMedia = MeetingJoinMedia()
+    ) async throws {
         try checkCall(id, scope: scope)
         let engine = mediaFactory()
-        engine.setMuted(false)
+        if !joinMedia.microphoneMuted {
+            engine.setMuted(false)
+        }
         media = engine
         try await trial.joinNative(
             preparedID: ticket,
             media: engine,
             scope: scope,
+            joinMedia: joinMedia,
             receive: { [weak self] state in
                 await self?.receiveNative(state, id: id, scope: scope)
             },

@@ -35,6 +35,7 @@ public final class AudioCallController {
     public internal(set) var supportsConversationCalls = false
     public internal(set) var supportsMeetingLinks = false
     var supportsMeetingLinkCreation = false
+    var supportsMeetingJoinMedia = false
     public internal(set) var supportedMeetingLinkHosts: Set<String> = []
     /// Calls going on in the conversation on screen; stopped with this controller.
     public let discovery = CallDiscoveryMonitor()

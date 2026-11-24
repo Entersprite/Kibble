@@ -64,6 +64,15 @@ extension NativeMeetCallSession {
         }
     }
 
+    func startJoinCameraIfReady() async {
+        guard pendingJoinCamera, ready, !closed, state == .active, videoContext != nil,
+              activityVersions[1] != nil, !unavailableActivityFields.contains(1) else { return }
+        pendingJoinCamera = false
+        if localCapturePermissions.camera {
+            await media.startCameraForJoin()
+        }
+    }
+
     private func announceCamera(_ enabled: Bool) async throws {
         try await check()
         guard ready, let context = videoContext else { throw CallMediaError.closed }

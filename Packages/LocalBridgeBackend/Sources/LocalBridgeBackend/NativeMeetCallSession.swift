@@ -86,7 +86,8 @@ actor NativeMeetCallSession {
     var streamRequestID: UInt64 = 0
     var streamTask: Task<Bool, Never>?
     var muteRevision: UInt64 = 0
-    var desiredMuted = false
+    var desiredMuted: Bool
+    var pendingJoinCamera: Bool
     var mediaSessionName = ""
     var ownPresentationSources: [MeetVideoSource] = []
     var presentationStart: Task<Void, any Error>?
@@ -111,6 +112,7 @@ actor NativeMeetCallSession {
     init(
         client: MeetCallClient, call: MeetResolvedCall, media: any CallMediaEngine,
         staysWhenAlone: Bool = false,
+        joinMedia: MeetingJoinMedia = MeetingJoinMedia(),
         validateAccount: @escaping @Sendable () async throws -> Void,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         admissionSleep: @escaping @Sendable (Duration) async throws -> Void = {
@@ -121,6 +123,8 @@ actor NativeMeetCallSession {
         device = MeetDeviceSession(client: client, call: call)
         self.media = media
         self.staysWhenAlone = staysWhenAlone
+        desiredMuted = joinMedia.microphoneMuted
+        pendingJoinCamera = joinMedia.cameraEnabled
         self.validateAccount = validateAccount
         self.now = now
         self.admissionSleep = admissionSleep
@@ -208,9 +212,7 @@ actor NativeMeetCallSession {
     private func performConnect() async throws {
         do {
             try await check()
-            if staysWhenAlone {
-                await media.setMuted(true)
-            }
+            await prepareInitialMicrophone()
             lines.append("Native audio: preparing local offer")
             let supportsStreamControl = await media.supportsStreamControl
             let local = try await media.makeAudioOffer(serverControlChannel: "collections")

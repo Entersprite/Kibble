@@ -7,6 +7,7 @@ import Testing
 final class StreamFakeMedia: CallMediaEngine {
     var isConnected = false
     var isMicrophoneMuted = false
+    var muteWhenOffering: Bool?
     var supportsStreamControl: Bool {
         true
     }
@@ -35,6 +36,7 @@ final class StreamFakeMedia: CallMediaEngine {
     }
 
     func makeAudioOffer(serverControlChannel _: String?) async throws -> CallAudioOffer {
+        muteWhenOffering = isMicrophoneMuted
         let sdp = NativeMeetFixture.offer.replacingOccurrences(
             of: "a=mid:0\r\n",
             with:

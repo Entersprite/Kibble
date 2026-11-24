@@ -36,6 +36,7 @@ public protocol CallMediaEngine: AnyObject, Sendable {
     func applyVideoAnswer(_ sdp: String) async throws
     func cancelVideoOffer() async
     func configureCamera(announce: (@Sendable (Bool) async throws -> Void)?)
+    func startCameraForJoin()
     func reportVideoUnavailable()
     func showRemoteVideo(_ visible: Bool)
     var isMicrophoneMuted: Bool { get }
@@ -46,6 +47,8 @@ public protocol CallMediaEngine: AnyObject, Sendable {
     func waitUntilConnected(timeout: Duration) async throws
     func setEventHandler(_ handler: (@Sendable (CallMediaEvent) async -> Void)?)
     func setMuted(_ muted: Bool)
+    func prepareMutedMeetingJoin()
+    func authorizeMicrophone() async -> Bool
     /// A server-assigned SCTP channel is negotiated before applying the answer.
     /// Nil preserves the legacy in-band channel path.
     func configureStreamControl(_ channel: CallStreamControlChannel?) throws
@@ -84,6 +87,16 @@ public struct CallLocalAudioActivity: Sendable {
 }
 
 public extension CallMediaEngine {
+    func prepareMutedMeetingJoin() {
+        setMuted(true)
+    }
+
+    func authorizeMicrophone() async -> Bool {
+        true
+    }
+
+    func startCameraForJoin() {}
+
     func confirmAdmission(_: [CallAdmissionNotice]) async -> Bool {
         false
     }

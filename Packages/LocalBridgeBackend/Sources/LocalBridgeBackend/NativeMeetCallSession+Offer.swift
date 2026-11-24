@@ -2,6 +2,14 @@ import Foundation
 import GChatBridgeCore
 
 extension NativeMeetCallSession {
+    func prepareInitialMicrophone() async {
+        if desiredMuted {
+            await media.prepareMutedMeetingJoin()
+        } else if staysWhenAlone {
+            await media.setMuted(true)
+        }
+    }
+
     func finishConnect(_ offer: MeetAudioOffer, streamControl: Bool) async throws {
         lines.append("UpdateMeetingDevice: JOINED accepted")
         if streamControl {

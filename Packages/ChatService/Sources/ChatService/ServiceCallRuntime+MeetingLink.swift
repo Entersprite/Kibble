@@ -64,6 +64,10 @@ extension ServiceCallRuntime {
               let links = source as? any MeetingLinkAudioCallService else {
             throw ServiceFailure.unsupportedOperation
         }
+        let media = request.media ?? MeetingJoinMedia()
+        guard media == MeetingJoinMedia() || state.supportsMeetingJoinMedia == true else {
+            throw ServiceFailure.unsupportedOperation
+        }
         guard !used.contains(request.callID) else { throw ServiceFailure.operationConflict }
         guard used.count < 1024 else { throw ServiceFailure.overloaded }
         controlling = true
@@ -82,11 +86,12 @@ extension ServiceCallRuntime {
         state.conversationCall = nil
         state.meetingCall = .init(
             id: request.callID,
-            target: .init(meetingURL: url, displayName: "Meeting"), phase: .connecting
+            target: .init(meetingURL: url, displayName: "Meeting"), phase: .connecting,
+            isMuted: media.microphoneMuted
         )
         publish()
         do {
-            try await links.joinMeeting(at: url, callID: request.callID)
+            try await links.joinMeeting(at: url, callID: request.callID, media: media)
             try checkActive()
         } catch {
             try? await source.hangUp(callID: request.callID)

@@ -32,6 +32,32 @@ struct MeetingLinkControlTests {
         await harness.service.shutdown()
     }
 
+    @Test func serializedFacadeCarriesInitialMuteThroughAdmission() async throws {
+        let harness = try await CallHarness.make()
+        let account = harness.accounts[0], client = harness.client()
+        let summary = try #require(try await client.accounts().first { $0.id == account.id })
+        let facade = try ServiceAudioCallService(account: summary, client: client)
+        try await facade.startListening()
+        #expect(facade.canConfigureMeetingJoinMedia)
+        let fixture = try #require(await harness.providers.source(account.id, device: .init("one")))
+        fixture.nextMeetingAdmission = .waitingRoom
+        let url = try #require(URL(string: "https://meet.example.test/room"))
+        let id = UUID()
+        try await facade.joinMeeting(at: url, callID: id, media: .init(microphoneMuted: true))
+        try await callEventually {
+            let call = try await harness.read(account).meetingCall
+            return call?.admission == .waitingRoom && call?.isMuted == true
+        }
+        fixture.admitMeetingJoin(callID: id)
+        try await callEventually {
+            let call = try await harness.read(account).meetingCall
+            return call?.phase == .connected && call?.isMuted == true
+        }
+        try await facade.hangUp(callID: id)
+        await facade.stop()
+        await harness.service.shutdown()
+    }
+
     @Test(arguments: [true, false])
     func pendingAdmissionRemainsWithTheCallOwnerAcrossSerialization(_ admit: Bool) async throws {
         let harness = try await CallHarness.make()

@@ -6,6 +6,7 @@ public extension MeetDMCallTrial {
     func joinNative(
         preparedID: UUID, media: any CallMediaEngine,
         scope: UUID = UUID(),
+        joinMedia: MeetingJoinMedia = MeetingJoinMedia(),
         receive: (@Sendable (MeetNativeCallState) async -> Void)? = nil,
         remoteMuted: (@Sendable (Bool?) async -> Void)? = nil,
         participants: (@Sendable ([CallParticipantDevice]?) async -> Void)? = nil,
@@ -17,6 +18,7 @@ public extension MeetDMCallTrial {
         }
         let session = NativeMeetCallSession(
             client: call.client, call: call.call, media: media, staysWhenAlone: call.isConversationCall,
+            joinMedia: joinMedia,
             validateAccount: { [weak self] in
                 guard let self else { throw MeetDMCallTrialError.superseded }
                 try await validateNative(call.context.stored, generation: call.generation)

@@ -49,6 +49,7 @@ extension AudioCallController {
             clearMeetingPreparation()
         }
         supportsMeetingLinkCreation = links?.canCreateMeetingLinks == true
+        supportsMeetingJoinMedia = links?.canConfigureMeetingJoinMedia == true
         supportedMeetingLinkHosts = supportsMeetingLinks ? links?.meetingLinkHosts ?? [] : []
         let join = existingJoinService?.canJoinExistingCalls ?? false
         let conversations = conversationService?.canCallConversations ?? false

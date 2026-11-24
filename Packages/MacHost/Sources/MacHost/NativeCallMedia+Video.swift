@@ -95,6 +95,11 @@ public extension NativeCallMedia {
         }
     }
 
+    func startCameraForJoin() {
+        guard !Task.isCancelled, isConnected, let videoScope else { return }
+        videoController?.startForJoin(ifCurrent: videoScope)
+    }
+
     func reportVideoUnavailable() {
         guard let video, let videoController else { return }
         videoScope = videoController.unavailable(video, local: video.track)

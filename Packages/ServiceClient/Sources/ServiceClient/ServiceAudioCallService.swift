@@ -145,15 +145,26 @@ public final class ServiceAudioCallService: ExistingAudioCallService, Conversati
         return url
     }
 
+    public var canConfigureMeetingJoinMedia: Bool {
+        canJoinMeetingLinks && projection.currentState?.supportsMeetingJoinMedia == true
+    }
+
     public func joinMeeting(at url: URL, callID: UUID) async throws {
+        try await joinMeeting(at: url, callID: callID, media: MeetingJoinMedia())
+    }
+
+    public func joinMeeting(at url: URL, callID: UUID, media: MeetingJoinMedia) async throws {
         let epoch = generation
         if sourceID == nil {
             try await receive(read(after: nil, wait: 0))
         }
         try check(epoch)
         guard canJoinMeetingLinks, let sourceID else { throw ServiceFailure.unsupportedOperation }
+        let options = media == MeetingJoinMedia() ? nil : media
+        guard options == nil || canConfigureMeetingJoinMedia
+        else { throw ServiceFailure.unsupportedOperation }
         let result = try await client.call(
-            JoinMeetingCall(url: url, callID: callID, sourceID: sourceID),
+            JoinMeetingCall(url: url, callID: callID, sourceID: sourceID, media: options),
             account: account,
             revision: revision
         )

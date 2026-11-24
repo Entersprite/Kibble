@@ -1,5 +1,6 @@
 import AppKit
 import DesignSystem
+import SwiftUI
 
 @MainActor
 struct CallPreparationHardware {
@@ -32,11 +33,20 @@ extension AudioCallWindowHost {
             .cameraStatus(hasDevice: preparation.devices.camera != nil)
         let available = scene.canCheckDevices
         let canSelect: @MainActor () -> Bool = { [weak self] in
-            guard let self else { return false }
-            return self.callID == callID && available() && !preparation.camera.isJoining
+            self?.callID == callID && self?.preparation.camera.isJoining == false && available()
         }
         let allowed: @MainActor () -> Bool = { [weak window] in
             window?.isKeyWindow == true && canSelect()
+        }
+        if let media = scene.joinMedia {
+            scene.joinMedia = Binding(
+                get: { media.wrappedValue },
+                set: {
+                    if canSelect() {
+                        media.wrappedValue = $0
+                    }
+                }
+            )
         }
         if available() {
             addCamera(to: &scene, id: callID, allowed: allowed, canSelect: canSelect)
@@ -48,7 +58,7 @@ extension AudioCallWindowHost {
         scene.isJoining = preparation.camera.isJoining
         let join = scene.join
         scene.join = { [weak self] in
-            guard let self, self.callID == callID else { return }
+            guard let self, self.callID == callID, !preparation.camera.isJoining else { return }
             preparation.camera.join(callID, after: preparation.audio.stop()) { [weak self] in
                 if available() {
                     self?.preparation.devices.saveChoices(for: callID)

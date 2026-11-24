@@ -39,6 +39,29 @@ struct NativeMeetVideoTests {
         #expect(await session.videoContext == nil)
     }
 
+    @Test(arguments: [(true, true), (false, true), (true, false)])
+    func joinCameraRequiresAnExplicitChoiceAndConfirmedCapturePermission(
+        enabled: Bool, allowed: Bool
+    ) async throws {
+        let media = VideoFakeMedia()
+        let startup = responses()
+        let snapshots = NativeMeetHostControlsTests()
+        let first = snapshots.snapshot(version: 1, role: 2, management: true, camera: allowed)
+        let next = snapshots.snapshot(version: 2, role: 2, management: true, camera: true)
+        let transport = ScriptedTransport(Array(startup.prefix(4)) + [first, next] + Array(startup.suffix(1)))
+        let session = try await NativeMeetFixture.session(
+            transport, media: media, staysWhenAlone: true, joinMedia: .init(cameraEnabled: enabled)
+        )
+        try await session.connect()
+        #expect(media.joinCameraStarts == 0)
+        await session.refreshState()
+        #expect(await session.state == .active)
+        #expect(media.joinCameraStarts == (enabled && allowed ? 1 : 0))
+        await session.refreshState()
+        #expect(media.joinCameraStarts == (enabled && allowed ? 1 : 0))
+        await session.close()
+    }
+
     @Test func simultaneousStreamsKeepStableReceiversAndReleaseRemovedSubscriptions() async throws {
         let media = VideoFakeMedia()
         media.receiveSlots = 3
@@ -77,8 +100,11 @@ struct NativeMeetVideoTests {
     @Test func unavailableVideoRegistrationKeepsTheJoinedVoiceCallAndNoCameraControls() async throws {
         let media = VideoFakeMedia()
         media.failVideo = true
-        let session = try await NativeMeetFixture.session(ScriptedTransport(responses()), media: media)
+        let session = try await NativeMeetFixture.session(
+            ScriptedTransport(responses()), media: media, joinMedia: .init(cameraEnabled: true)
+        )
         try await session.connect()
+        #expect(media.joinCameraStarts == 0)
         #expect(await session.ready)
         #expect(await session.audioStream != nil)
         #expect(media.announcement == nil)
@@ -216,6 +242,7 @@ final class VideoFakeMedia: CallMediaEngine {
     var requests: [Data] = []
     var answers: [String] = []
     var announcement: (@Sendable (Bool) async throws -> Void)?
+    var joinCameraStarts = 0
     var visible = false
     var remoteMuted = true
     var remoteAudio: [UInt64?] = []
@@ -283,6 +310,12 @@ final class VideoFakeMedia: CallMediaEngine {
     func setMuted(_: Bool) {}
     func configureCamera(announce: (@Sendable (Bool) async throws -> Void)?) {
         announcement = announce
+    }
+
+    func startCameraForJoin() {
+        #expect(isConnected && announcement != nil)
+        #expect(requests.count == 2)
+        joinCameraStarts += 1
     }
 
     func showRemoteVideo(_ visible: Bool) {

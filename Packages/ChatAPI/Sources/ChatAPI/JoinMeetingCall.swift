@@ -39,9 +39,12 @@ public struct JoinMeetingCall: ServiceRequestPayload {
     public let callID: UUID
     public let sourceID: UUID
 
-    public init(url: URL, callID: UUID, sourceID: UUID) {
+    public let media: MeetingJoinMedia?
+
+    public init(url: URL, callID: UUID, sourceID: UUID, media: MeetingJoinMedia? = nil) {
         self.url = url
         self.callID = callID
         self.sourceID = sourceID
+        self.media = media
     }
 }

@@ -135,9 +135,11 @@ extension NativeMeetCallSession {
             guard !closed else { return }
             needsRefresh = false
             await reconcile(snapshot)
-            if !closed, let devices = snapshot.devices, devices.version == verifiedDeviceVersion,
-               state == .stateUnavailable {
-                await publish(stableState)
+            if !closed, let devices = snapshot.devices, devices.version == verifiedDeviceVersion {
+                if state == .stateUnavailable {
+                    await publish(stableState)
+                }
+                await startJoinCameraIfReady()
             }
         } catch {
             guard !closed else { return }

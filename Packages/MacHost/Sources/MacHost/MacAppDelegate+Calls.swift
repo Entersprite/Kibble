@@ -118,7 +118,9 @@ public extension MacAppDelegate {
                 }
             }
         )
-        actions.meetingPreparation = CallMeetingPreparationDevices.scene(for: id, calls: calls)
+        actions.meetingPreparation = CallMeetingPreparationDevices.scene(
+            for: id, calls: calls, canJoinWithCamera: video.isAvailable
+        )
         addInteractionActions(to: &actions, for: id, calls: calls)
         addVideoActions(to: &actions, for: id, calls: calls, video: video)
         CallSystemMediaControls.add(to: &actions, callID: id, calls: calls, audio: audioDevices, video: video)

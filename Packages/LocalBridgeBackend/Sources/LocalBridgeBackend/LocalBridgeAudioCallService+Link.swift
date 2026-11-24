@@ -52,7 +52,15 @@ extension LocalBridgeAudioCallService: MeetingLinkAudioCallService {
         return url
     }
 
+    public var canConfigureMeetingJoinMedia: Bool {
+        true
+    }
+
     public func joinMeeting(at url: URL, callID: UUID) async throws {
+        try await joinMeeting(at: url, callID: callID, media: MeetingJoinMedia())
+    }
+
+    public func joinMeeting(at url: URL, callID: UUID, media: MeetingJoinMedia) async throws {
         let link = try MeetJoinLink(url)
         guard !hasCall, operation == nil, !isStopping else {
             throw ChatError.unsupported(capability: "meetingLinks")
@@ -62,7 +70,8 @@ extension LocalBridgeAudioCallService: MeetingLinkAudioCallService {
         incomingHandle = nil
         snapshot = nil
         publishConversation(.init(
-            id: callID, target: .init(meetingURL: link.url, displayName: "Meeting"), phase: .connecting
+            id: callID, target: .init(meetingURL: link.url, displayName: "Meeting"), phase: .connecting,
+            isMuted: media.microphoneMuted
         ))
         let scope = callScope
         try await runOperation(id: callID, scope: scope, canWaitForAdmission: true) {
@@ -70,7 +79,7 @@ extension LocalBridgeAudioCallService: MeetingLinkAudioCallService {
             let prepared = try await self.trial.prepareMeetingLink(link.url)
             try self.checkCall(callID, scope: scope)
             self.readMeetingAgenda(preparedID: prepared.id, callID: callID, scope: scope)
-            try await self.connect(prepared.id, id: callID, scope: scope)
+            try await self.connect(prepared.id, id: callID, scope: scope, joinMedia: media)
             try self.checkCall(callID, scope: scope)
         }
     }

@@ -5,6 +5,7 @@ struct MeetingPreparation {
     let id: UUID
     let url: URL
     var title: String?
+    var media = MeetingJoinMedia()
 }
 
 public extension AudioCallController {
@@ -52,6 +53,16 @@ public extension AudioCallController {
 
     var meetingPreparationID: UUID? {
         meetingPreparation?.id
+    }
+
+    func meetingJoinMedia(for id: UUID) -> MeetingJoinMedia? {
+        guard supportsMeetingJoinMedia, meetingPreparation?.id == id else { return nil }
+        return meetingPreparation?.media
+    }
+
+    func setMeetingJoinMedia(_ media: MeetingJoinMedia, for id: UUID) {
+        guard meetingJoinMedia(for: id) != nil else { return }
+        meetingPreparation?.media = media
     }
 
     /// Window projection only. A preview holds no call lease or media.
@@ -117,7 +128,9 @@ public extension AudioCallController {
             cancelMeetingPreparation(id)
             return
         }
-        beginMeeting(at: preparation.url, id: id, links: links, title: preparation.title)
+        beginMeeting(
+            at: preparation.url, id: id, links: links, title: preparation.title, media: preparation.media
+        )
     }
 
     func dismissCallWindow(_ id: UUID) {
@@ -138,17 +151,20 @@ public extension AudioCallController {
 
     @discardableResult
     private func beginMeeting(
-        at url: URL, id: UUID, links: any MeetingLinkAudioCallService, title: String? = nil
+        at url: URL, id: UUID, links: any MeetingLinkAudioCallService, title: String? = nil,
+        media: MeetingJoinMedia = MeetingJoinMedia()
     ) -> UUID {
-        begin(meetingSession(id: id, url: url, title: title)) { id in
-            try await links.joinMeeting(at: url, callID: id)
+        begin(meetingSession(id: id, url: url, title: title, muted: media.microphoneMuted)) { id in
+            try await links.joinMeeting(at: url, callID: id, media: media)
         }
     }
 
-    private func meetingSession(id: UUID, url: URL, title: String?) -> AudioCallSession {
+    private func meetingSession(
+        id: UUID, url: URL, title: String?, muted: Bool = false
+    ) -> AudioCallSession {
         AudioCallSession(.init(
             id: id, target: ConversationCallTarget(meetingURL: url, displayName: title ?? "Meeting"),
-            phase: .connecting
+            phase: .connecting, isMuted: muted
         ), isJoining: true)
     }
 }

@@ -20,11 +20,13 @@ extension ServiceCallRuntime {
             let canJoin = await links.canJoinMeetingLinks
             let canCreate = await links.canCreateMeetingLinks
             let canPreview = await links.canPreviewMeetingLinks
+            let canConfigureMedia = await links.canConfigureMeetingJoinMedia
             let hosts = canJoin ? await Array(links.meetingLinkHosts).sorted() : []
             guard !stopped else { return }
             if canJoin {
                 state.supportsMeetingLinks = true
                 state.meetingLinkHosts = hosts
+                state.supportsMeetingJoinMedia = canConfigureMedia ? true : nil
                 if canPreview {
                     state.supportsMeetingLinkPreview = true
                 }

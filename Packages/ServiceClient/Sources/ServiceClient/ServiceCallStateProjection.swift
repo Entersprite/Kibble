@@ -58,7 +58,8 @@ struct ServiceCallStateProjection {
         }
         events.append(contentsOf: metadataEvents(state))
         if previous?.supportsMeetingLinkCreation != state.supportsMeetingLinkCreation ||
-            previous?.supportsMeetingLinkPreview != state.supportsMeetingLinkPreview {
+            previous?.supportsMeetingLinkPreview != state.supportsMeetingLinkPreview ||
+            previous?.supportsMeetingJoinMedia != state.supportsMeetingJoinMedia {
             events.append(.capabilitiesChanged)
         }
         if case .unknown = state.lastEvent, let event = state.lastEvent {

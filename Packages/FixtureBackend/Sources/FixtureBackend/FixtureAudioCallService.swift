@@ -142,7 +142,16 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
         return URL(string: "https://meet.example.test/fixture-\(meetingLinkSequence)")!
     }
 
+    public var canConfigureMeetingJoinMedia: Bool {
+        true
+    }
+
     public func joinMeeting(at url: URL, callID: UUID) async throws {
+        try await joinMeeting(at: url, callID: callID, media: MeetingJoinMedia())
+    }
+
+    public func joinMeeting(at url: URL, callID: UUID, media: MeetingJoinMedia) async throws {
+        guard !media.cameraEnabled else { throw ChatError.unsupported(capability: "meetingJoinCamera") }
         guard listening, url.scheme == "https", url.user == nil, url.password == nil,
               currentCall?.phase.isTerminal != false,
               currentConversationCall?.phase.isTerminal != false else {
@@ -155,7 +164,7 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
             id: callID,
             target: .init(meetingURL: url, displayName: "Fixture Meeting"),
             phase: admission == nil ? .connected : .connecting,
-            admission: admission
+            isMuted: media.microphoneMuted, admission: admission
         ))
     }
 
@@ -380,21 +389,6 @@ extension FixtureAudioCallService {
             devices[index].handRaised = false
             devices[index].handRaisedAt = nil
         }
-        setParticipantDevices(devices, callID: callID)
-    }
-
-    func setFixtureSharedPin(_ activity: CallActivity, callID: UUID) throws {
-        guard activity.participantIDs.isEmpty, var devices = participantDevices,
-              let index = devices.firstIndex(where: {
-                  $0.id == activity.resourceID && $0.isPinnedForEveryone != nil
-              }) else { throw CancellationError() }
-        if devices[index].isPinnedForEveryone == activity.enabled {
-            return
-        }
-        let count = devices.filter { $0.isPinnedForEveryone == true }.count
-        guard !activity.enabled || activityState.sharedPinLimit.map({ count < $0 }) == true
-        else { throw CancellationError() }
-        devices[index].isPinnedForEveryone = activity.enabled
         setParticipantDevices(devices, callID: callID)
     }
 }

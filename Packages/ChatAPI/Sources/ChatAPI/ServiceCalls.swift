@@ -23,6 +23,7 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
     public var supportsMeetingLinks: Bool?
     public var supportsMeetingLinkCreation: Bool?
     public var supportsMeetingLinkPreview: Bool?
+    public var supportsMeetingJoinMedia: Bool?
     public var meetingLinkHosts: [String]?
     public var conversationCall: ConversationCallSnapshot?
     public var meetingCall: ConversationCallSnapshot?
@@ -43,7 +44,8 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
         call: AudioCallSnapshot? = nil, lastEvent: AudioCallEvent? = nil,
         supportsExistingJoin: Bool? = nil, supportsConversationCalls: Bool? = nil,
         supportsMeetingLinks: Bool? = nil, supportsMeetingLinkCreation: Bool? = nil,
-        supportsMeetingLinkPreview: Bool? = nil, meetingLinkHosts: [String]? = nil,
+        supportsMeetingLinkPreview: Bool? = nil, supportsMeetingJoinMedia: Bool? = nil,
+        meetingLinkHosts: [String]? = nil,
         conversationCall: ConversationCallSnapshot? = nil, meetingCall: ConversationCallSnapshot? = nil,
         participants: [CallParticipantDevice]? = nil,
         interaction: CallInteractionState? = nil
@@ -56,6 +58,7 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
         self.supportsMeetingLinks = supportsMeetingLinks
         self.supportsMeetingLinkCreation = supportsMeetingLinkCreation
         self.supportsMeetingLinkPreview = supportsMeetingLinkPreview
+        self.supportsMeetingJoinMedia = supportsMeetingJoinMedia
         self.meetingLinkHosts = meetingLinkHosts
         self.conversationCall = conversationCall
         self.meetingCall = meetingCall
@@ -67,7 +70,7 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
         case meetingCall
         case version, isListening, isListenerStarting, recipients, call, lastEvent, supportsExistingJoin
         case supportsConversationCalls, supportsMeetingLinks, supportsMeetingLinkCreation,
-             supportsMeetingLinkPreview,
+             supportsMeetingLinkPreview, supportsMeetingJoinMedia,
              meetingLinkHosts,
              conversationCall,
              participants,
@@ -97,6 +100,7 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
                 Bool.self,
                 forKey: .supportsMeetingLinkPreview
             ),
+            supportsMeetingJoinMedia: container.decodeIfPresent(Bool.self, forKey: .supportsMeetingJoinMedia),
             meetingLinkHosts: container.decodeIfPresent([String].self, forKey: .meetingLinkHosts),
             conversationCall: container.decodeIfPresent(
                 ConversationCallSnapshot.self,

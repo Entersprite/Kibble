@@ -110,6 +110,21 @@ struct NativeMeetMicrophoneTests {
         await session.close()
     }
 
+    @Test(arguments: [true, false])
+    func meetingJoinRegistersTheSelectedMuteAndHoldsTheTrackUntilAdmission(_ startsMuted: Bool) async throws {
+        let media = StreamFakeMedia()
+        let session = try await NativeMeetFixture.session(
+            ScriptedTransport(responses()), media: media, staysWhenAlone: true,
+            joinMedia: .init(microphoneMuted: startsMuted)
+        )
+        try await session.connect()
+        #expect(media.muteWhenOffering == true)
+        let registration = try #require(media.requests.first)
+        #expect(try flag(stream(in: registration, variant: 4)) == (startsMuted ? 1 : 0))
+        #expect(media.isMicrophoneMuted == startsMuted)
+        await session.close()
+    }
+
     @Test func registersOwnSSRCBeforeRingAndConfirmsMuteUnmute() async throws {
         let transport = ScriptedTransport(responses())
         let media = StreamFakeMedia()
