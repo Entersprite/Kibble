@@ -8,8 +8,6 @@ import SwiftUI
 /// chosen in the pane, never whichever account the main window shows now.
 /// Without the account host, Settings › Account signs the single session out.
 struct KibbleSettings: View {
-    private enum BlockedCategory { case people, conversations }
-
     let appDelegate: MacAppDelegate
     @Binding var pane: String
     /// Without the account host: the single session's own sign-out, confirmed by the shell.
@@ -19,7 +17,6 @@ struct KibbleSettings: View {
     @State private var removingAccount: String?
     @State private var deletingData = false
     @State private var deletionError: String?
-    @State private var blockedCategory: BlockedCategory = .conversations
 
     private var host: SystemAccountHost? {
         appDelegate.accountHost
@@ -151,34 +148,16 @@ struct KibbleSettings: View {
     @ViewBuilder private var privacyPane: some View {
         if host != nil, account == nil {
             ContentUnavailableView("Choose an Account", systemImage: "person.crop.circle")
-        } else if let rooms = environment.blockedConversationsSettings,
-                  let people = environment.blockedPeopleSettings {
-            VStack(spacing: 0) {
-                Picker("Blocked Items", selection: $blockedCategory) {
-                    Text("Conversations").tag(BlockedCategory.conversations)
-                    Text("People").tag(BlockedCategory.people)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                switch blockedCategory {
-                case .conversations:
-                    BlockedConversationsSettingsPane(state: rooms.state, actions: rooms.actions)
-                        .id(rooms.session)
-                case .people:
-                    BlockedPeopleSettingsPane(state: people.state, actions: people.actions)
-                        .id(people.session)
-                }
-            }
-        } else if let settings = environment.blockedConversationsSettings {
-            BlockedConversationsSettingsPane(state: settings.state, actions: settings.actions)
-                .id(settings.session)
-        } else if let settings = environment.blockedPeopleSettings {
-            BlockedPeopleSettingsPane(state: settings.state, actions: settings.actions)
-                .id(settings.session)
         } else {
-            ContentUnavailableView("Blocked Conversations Unavailable", systemImage: "hand.raised")
+            // One form, a section per list the account can manage.
+            PrivacySettingsPane(
+                conversations: environment.blockedConversationsSettings.map {
+                    .init(state: $0.state, actions: $0.actions, session: $0.session)
+                },
+                people: environment.blockedPeopleSettings.map {
+                    .init(state: $0.state, actions: $0.actions, session: $0.session)
+                }
+            )
         }
     }
 

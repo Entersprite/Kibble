@@ -100,13 +100,31 @@ struct ScheduledDateSheet: View {
         _deliveryTime = State(initialValue: initial)
     }
 
+    /// Small enough to be a sheet or a popover, so it draws its own buttons:
+    /// a popover has no toolbar to put them in. Return schedules, Escape cancels.
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.headline)
-            DatePicker("Deliver at", selection: $deliveryTime, displayedComponents: [.date, .hourAndMinute])
-                .disabled(isSaving)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(title)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                if isSaving {
+                    ProgressView().controlSize(.small).accessibilityLabel("Saving")
+                }
+            }
+            DatePicker(
+                "Send on", selection: $deliveryTime, in: Date()...,
+                displayedComponents: [.date, .hourAndMinute]
+            )
+            .disabled(isSaving)
             if failed {
-                Text("The new time could not be confirmed. Check the queue before trying again.")
+                SheetErrorRow(message: "The new time " + ScheduledPresentation.unconfirmedText)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if deliveryTime <= Date() {
+                Text("Choose a time in the future.")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
             }
             HStack {
@@ -120,6 +138,7 @@ struct ScheduledDateSheet: View {
             }
         }
         .padding(20)
+        .frame(width: 340)
         .interactiveDismissDisabled(isSaving)
     }
 }

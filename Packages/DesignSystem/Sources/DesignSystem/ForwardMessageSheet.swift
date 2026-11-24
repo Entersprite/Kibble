@@ -125,9 +125,11 @@ struct ForwardMessageSheet: View {
         }
         if let schedule {
             ToolbarItem(placement: .automatic) {
-                Button("Schedule Send…", systemImage: "clock") { choosingTime = true }
-                    .labelStyle(.iconOnly)
+                // Words, as a sheet's buttons are: an icon alone beside
+                // Cancel and Forward does not say what it does.
+                Button("Schedule…") { choosingTime = true }
                     .disabled(sending || destination == nil)
+                    .help("Forward at a Later Time")
                     .popover(isPresented: $choosingTime) {
                         ScheduledDateSheet(
                             title: "Schedule Forward", confirm: "Schedule",
@@ -137,7 +139,7 @@ struct ForwardMessageSheet: View {
                                 choosingTime = false
                                 guard let destination else { return }
                                 let caption = comment
-                                perform(failure: "Couldn’t confirm scheduling. Check Scheduled first.") {
+                                perform(failure: "Scheduling " + ScheduledPresentation.unconfirmedText) {
                                     await schedule(message.id, destination, caption, time)
                                 }
                             }
@@ -154,7 +156,7 @@ struct ForwardMessageSheet: View {
     private func submit() {
         guard !sending, let destination, let send else { return }
         let caption = comment
-        perform(failure: "The message could not be forwarded. Your selection and comment are kept.") {
+        perform(failure: "The message couldn’t be forwarded. Your selection and comment are kept.") {
             await send(message.id, destination, caption)
         }
     }

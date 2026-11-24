@@ -31,7 +31,7 @@
             }
             #expect(host.frame.size == CGSize(width: 560, height: 360))
             try capture(host, dark: dark, people: people)
-            let location = NSPoint(x: host.bounds.width - 49, y: host.bounds.height - 72)
+            let location = NSPoint(x: host.bounds.width - 62, y: host.bounds.height - 65)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 let event = try #require(NSEvent.mouseEvent(
                     with: type, location: location, modifierFlags: [], timestamp: 0,
