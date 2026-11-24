@@ -8,6 +8,8 @@ import SwiftUI
 /// the device under its title; where the host lists more than one, the name
 /// is a menu. A device that cannot be used says why in the same place. The
 /// trailing control tries the device, and is there only when the host can.
+/// Where the host takes them, a second panel holds how you enter: with the
+/// microphone on, and with the camera on.
 struct CallMeetingPreparationControls: View {
     let preparation: CallMeetingPreparation
 
@@ -21,6 +23,7 @@ struct CallMeetingPreparationControls: View {
                 speaker
             }
             .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            joinChoices
             if let notice {
                 Text(notice)
                     .font(.callout)
@@ -73,12 +76,31 @@ struct CallMeetingPreparationControls: View {
             if let checks, let toggle = checks.toggleMicrophone {
                 tryButton(Self.microphoneTest(checks.microphone), action: toggle)
             }
-            if let media = preparation.joinMedia {
-                joinToggle("Microphone when joining", isOn: Binding(
+        }
+    }
+
+    /// How you enter, apart from which devices you use: one row of its own
+    /// with each switch named, so a switch is never mistaken for the device's
+    /// own state or for the test beside it. One row, because the compact
+    /// window has no room for two.
+    @ViewBuilder private var joinChoices: some View {
+        if let media = preparation.joinMedia {
+            HStack(spacing: 14) {
+                Text("Join With").font(.callout.weight(.medium))
+                Spacer(minLength: 4)
+                joinToggle("Microphone", full: "Join with Microphone On", isOn: Binding(
                     get: { !media.wrappedValue.microphoneMuted },
                     set: { media.wrappedValue.microphoneMuted = !$0 }
                 ))
+                if preparation.canJoinWithCamera {
+                    joinToggle("Camera", full: "Join with Camera On", isOn: media.cameraEnabled)
+                        .disabled(!media.wrappedValue.cameraEnabled
+                            && preparation.camera != .ready && preparation.camera != .needsPermission)
+                }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
 
@@ -104,11 +126,6 @@ struct CallMeetingPreparationControls: View {
         } trailing: {
             if let preview = preparation.cameraPreview {
                 tryButton(Self.cameraPreview(preview), action: preview.toggle)
-            }
-            if let media = preparation.joinMedia, preparation.canJoinWithCamera {
-                joinToggle("Camera when joining", isOn: media.cameraEnabled)
-                    .disabled(!media.wrappedValue.cameraEnabled
-                        && preparation.camera != .ready && preparation.camera != .needsPermission)
             }
         }
     }
@@ -151,13 +168,20 @@ struct CallMeetingPreparationControls: View {
         }
     }
 
-    private func joinToggle(_ label: String, isOn: Binding<Bool>) -> some View {
-        Toggle(label, isOn: isOn)
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .disabled(preparation.isJoining)
-            .help(label)
+    private func joinToggle(_ label: String, full: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 5) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            // The whole phrase is the switch's own name, for VoiceOver.
+            Toggle(full, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .disabled(preparation.isJoining)
+        }
+        .help(full)
     }
 
     private func tryButton(_ test: CallPreparationTest, action: @escaping () -> Void) -> some View {

@@ -75,8 +75,44 @@
             .environment(\.colorScheme, .dark)
             let size = try render(view, name: "preparation-states")
             #expect(size.width == CallLayout.compact.width)
-            // Each panel with its buttons takes well under half the window's height.
-            #expect(size.height < CallLayout.compact.height * 1.2)
+            // Two whole sets of controls, worst cases, stay near one window's
+            // height; the window itself is measured in the test below.
+            #expect(size.height < CallLayout.compact.height * 1.3)
+        }
+
+        /// The join screen as the window shows it, devices ready and both
+        /// join choices offered: it still fits the compact audio window.
+        @Test func theJoinScreenWithItsChoicesKeepsTheCompactWindow() throws {
+            let url = try #require(URL(string: "https://meet.example.test/abc-defg-hij"))
+            let call = AudioCallSession(.init(
+                id: UUID(), target: ConversationCallTarget(meetingURL: url, displayName: "Weekly Planning"),
+                phase: .connecting
+            ), isJoining: true)
+            var preparation = CallMeetingPreparation(microphone: .ready, camera: .ready, join: {}, cancel: {})
+            preparation.hasSpeaker = true
+            preparation.audioSelection = .init(
+                devices: CallAudioDevices(
+                    microphones: [.init(id: "mic", name: "MacBook Pro Microphone")],
+                    speakers: [.init(id: "out", name: "MacBook Pro Speakers")],
+                    microphone: "mic", speaker: "out"
+                ),
+                selectMicrophone: { _ in }, selectSpeaker: { _ in }
+            )
+            preparation.audioChecks = .init(
+                microphone: .off, toggleMicrophone: {}, isPlaying: false, toggleSpeaker: {}, notice: nil
+            )
+            var plain = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})
+            plain.meetingPreparation = preparation
+            var choosing = plain
+            preparation.joinMedia = .constant(.init())
+            preparation.canJoinWithCamera = true
+            choosing.meetingPreparation = preparation
+            let without = NSHostingView(rootView: AudioCallView(call: call, actions: plain)).fittingSize
+            let with = NSHostingView(rootView: AudioCallView(call: call, actions: choosing)).fittingSize
+            #expect(without.height == CallLayout.compact.height)
+            #expect(with.height == CallLayout.compact.height)
+            let size = try render(AudioCallView(call: call, actions: choosing), name: "join-window")
+            #expect(size.width == CallLayout.compact.width)
         }
 
         @Test func detailsAndTheMicrophoneMeterRender() throws {

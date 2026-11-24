@@ -91,9 +91,13 @@
         }
 
         private func submitFromClock(in window: NSWindow) async throws {
-            let location = NSPoint(
-                x: 360 - ComposerLayout.spacing - 13 - ComposerLayout.lineHeight / 2,
-                y: 11 + 7.5 + ComposerLayout.lineHeight / 2
+            // Found by its name, not at a fixed point: the button's place
+            // depends on what else sits in the field.
+            let host = try #require(window.contentView)
+            let button = try #require(find("Schedule Send…", in: host))
+            let onScreen = try frame(button)
+            let location = window.convertPoint(
+                fromScreen: NSPoint(x: onScreen.midX, y: onScreen.midY)
             )
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 let event = try #require(NSEvent.mouseEvent(
@@ -118,6 +122,28 @@
             for _ in 0 ..< 100 where window.attachedSheet != nil {
                 try await Task.sleep(for: .milliseconds(10))
             }
+        }
+
+        private func find(_ label: String, in node: NSObject) -> NSObject? {
+            if value("accessibilityLabel", on: node) as? String == label {
+                return node
+            }
+            return (value("accessibilityChildren", on: node) as? [NSObject] ?? [])
+                .lazy.compactMap { find(label, in: $0) }.first
+        }
+
+        private func value(_ name: String, on node: NSObject) -> AnyObject? {
+            let selector = NSSelectorFromString(name)
+            return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+        }
+
+        private func frame(_ node: NSObject) throws -> CGRect {
+            let selector = NSSelectorFromString("accessibilityFrame")
+            try #require(node.responds(to: selector))
+            let get = unsafeBitCast(
+                node.method(for: selector), to: (@convention(c) (AnyObject, Selector) -> CGRect).self
+            )
+            return get(node, selector)
         }
     }
 #endif
