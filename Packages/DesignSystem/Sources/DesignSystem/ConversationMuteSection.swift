@@ -13,6 +13,12 @@ public struct ConversationMuteSetting {
     }
 }
 
+/// Words the settings saved with the account share.
+enum ProviderSettingCopy {
+    /// Why these sit apart from Kibble's own rules on this Mac.
+    static let scope = "Applies everywhere you use this account."
+}
+
 struct ConversationMuteSection: View {
     let setting: ConversationMuteSetting
     let now: Date
@@ -24,47 +30,59 @@ struct ConversationMuteSection: View {
 
     var body: some View {
         let muted = setting.pause.isActive(at: now)
+        // One row: "Mute" and, as a pop-up's title would, how it stands now.
+        // The menu holds the choices; only a custom time asks for more, so
+        // only it carries an ellipsis.
         return Section {
-            LabeledContent {
-                Menu(muted ? "Change Mute…" : "Mute…") {
-                    if muted {
-                        Button("Unmute") { submit(.off) }
-                        Divider()
+            LabeledContent("Mute this conversation") {
+                HStack(spacing: 8) {
+                    if save != nil {
+                        ProgressView().controlSize(.small).accessibilityLabel("Saving mute setting")
                     }
-                    Button("For 1 Hour") { submit(.until(.now.addingTimeInterval(3600))) }
-                    Button("For 4 Hours") { submit(.until(.now.addingTimeInterval(4 * 3600))) }
-                    Button("Until Next Workday") {
-                        if let nextWorkday = Self.nextWorkday(from: .now, calendar: calendar) {
-                            submit(.until(nextWorkday))
+                    Menu(Self.status(setting.pause, muted: muted)) {
+                        if muted {
+                            Button("Unmute") { submit(.off) }
+                            Divider()
                         }
+                        Button("For 1 Hour") { submit(.until(.now.addingTimeInterval(3600))) }
+                        Button("For 4 Hours") { submit(.until(.now.addingTimeInterval(4 * 3600))) }
+                        Button("Until Next Workday") {
+                            if let nextWorkday = Self.nextWorkday(from: .now, calendar: calendar) {
+                                submit(.until(nextWorkday))
+                            }
+                        }
+                        Button("Until I Unmute") { submit(.untilResumed) }
+                        Divider()
+                        Button("Until a Custom Time…") { customTime = .now.addingTimeInterval(3600) }
                     }
-                    Button("Until I Unmute") { submit(.untilResumed) }
-                    Button("Until a Custom Time…") { customTime = .now.addingTimeInterval(3600) }
-                }
-                .disabled(!setting.canSave || save != nil)
-            } label: {
-                if muted, case let .until(end) = setting.pause {
-                    Text("Muted until \(end.formatted(date: .abbreviated, time: .shortened))")
-                } else {
-                    Text(muted ? "Muted" : "Notifications Active")
+                    .fixedSize()
+                    .disabled(!setting.canSave || save != nil)
+                    .accessibilityLabel("Mute")
+                    .accessibilityValue(Self.status(setting.pause, muted: muted))
                 }
             }
             if let customTime {
                 customTimeEditor(customTime, now: now)
             }
-            if save != nil {
-                ProgressView().controlSize(.small).accessibilityLabel("Saving mute setting")
-            }
         } header: {
-            Text("Conversation Mute")
+            Text("Mute")
         } footer: {
             if failed {
                 Text("Couldn’t confirm the mute setting. Check the current setting before trying again.")
             } else if showsScope {
-                Text("Applies across your Chat clients.")
+                Text(ProviderSettingCopy.scope)
             }
         }
         .onDisappear { save?.cancel() }
+    }
+
+    /// How the conversation stands, as the menu's title.
+    nonisolated static func status(_ pause: Pause, muted: Bool) -> String {
+        guard muted else { return "Off" }
+        if case let .until(end) = pause {
+            return "Until \(end.formatted(date: .abbreviated, time: .shortened))"
+        }
+        return "Until I Unmute"
     }
 
     private func customTimeEditor(_ date: Date, now: Date) -> some View {
@@ -74,12 +92,15 @@ struct ConversationMuteSection: View {
                 get: { customTime ?? date }, set: { customTime = $0 }
             ), in: now ... latest)
                 .disabled(save != nil)
-            HStack {
-                Spacer()
-                Button("Cancel") { customTime = nil }
-                    .disabled(save != nil)
-                Button("Mute Conversation") { submit(.until(date)) }
-                    .disabled(!setting.canSave || save != nil || date <= now || date > latest)
+            LabeledContent {
+                HStack {
+                    Button("Cancel") { customTime = nil }
+                        .disabled(save != nil)
+                    Button("Mute") { submit(.until(date)) }
+                        .disabled(!setting.canSave || save != nil || date <= now || date > latest)
+                }
+            } label: {
+                EmptyView()
             }
         }
     }

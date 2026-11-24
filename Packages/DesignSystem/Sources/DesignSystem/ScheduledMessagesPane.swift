@@ -1,95 +1,81 @@
 import ChatKit
 import SwiftUI
 
-public struct ScheduledMessagesScene: Sendable, Equatable {
-    public var showingList = false
-    public var canScheduleAttachments = false
-    public var messages: [ScheduledMessage] = []
-    public var pending: Set<ScheduledMessageAddress> = []
-    public var submissions: Set<ComposerDraftAddress> = []
-    public var receipts: [ComposerDraftAddress: ComposerScheduleReceipt] = [:]
-    public var isLoading = false
-    public var readFailed = false
-    public var hasMore = false
+/// What the Scheduled pane says apart from its rows.
+enum ScheduledPresentation {
+    static let loadingText = "Loading scheduled messages…"
+    static let failedTitle = "Couldn’t Load Scheduled Messages"
+    static let moreFailedText = "Couldn’t load more scheduled messages."
+    static let unconfirmedText = "couldn’t be confirmed. Check Scheduled before trying again."
 
-    public init() {}
-}
-
-@MainActor
-public struct ScheduledMessagesActions {
-    public typealias Completion = @MainActor (Bool) -> Void
-    public var show: () -> Void
-    public var refresh: () -> Void
-    public var loadMore: () -> Void
-    let submit: (ComposerDraftAddress, ComposedMessage, ComposedMessage, Date) -> Bool
-    let latestReceipt: (ComposerDraftAddress) -> ComposerScheduleReceipt?
-    let edit: (ScheduledMessageAddress, ComposedMessage, @escaping Completion) -> Bool
-    let reschedule: (ScheduledMessageAddress, Date, @escaping Completion) -> Bool
-    let cancel: (ScheduledMessageAddress) -> Void
-    let sendNow: ((ScheduledMessageAddress) -> Void)?
-
-    public init(
-        show: @escaping () -> Void,
-        refresh: @escaping () -> Void,
-        loadMore: @escaping () -> Void,
-        submit: @escaping (ComposerDraftAddress, ComposedMessage, ComposedMessage, Date) -> Bool,
-        latestReceipt: @escaping (ComposerDraftAddress) -> ComposerScheduleReceipt?,
-        edit: @escaping (ScheduledMessageAddress, ComposedMessage, @escaping Completion) -> Bool,
-        reschedule: @escaping (ScheduledMessageAddress, Date, @escaping Completion) -> Bool,
-        cancel: @escaping (ScheduledMessageAddress) -> Void,
-        sendNow: ((ScheduledMessageAddress) -> Void)? = nil
-    ) {
-        self.show = show
-        self.refresh = refresh
-        self.loadMore = loadMore
-        self.submit = submit
-        self.latestReceipt = latestReceipt
-        self.edit = edit
-        self.reschedule = reschedule
-        self.cancel = cancel
-        self.sendNow = sendNow
+    /// When it goes out, as a row and a sheet say it.
+    static func time(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
 
-    func composer(at address: ComposerDraftAddress, scene: ScheduledMessagesScene) -> ComposerScheduling {
-        ComposerScheduling(
-            isSubmitting: scene.submissions.contains(address),
-            receipt: scene.receipts[address],
-            latestReceipt: { latestReceipt(address) },
-            schedule: { submit(address, $0, $1, $2) },
-            canScheduleAttachments: scene.canScheduleAttachments
-        )
+    /// A message with no words is still a row: its files or its forward say what it is.
+    static func body(of message: ScheduledMessage) -> String? {
+        if !message.body.text.isEmpty {
+            return message.body.text
+        }
+        return message.hasContentWithoutCaption ? nil : "Message"
     }
 }
 
+/// The Scheduled list, in the detail pane: messages waiting to go out,
+/// soonest as the service orders them. A `List`, as the Mentions and Calls
+/// lists are: a click selects a row, Return or a double-click edits it (or
+/// moves it, where its words cannot be edited), and the context menu and the
+/// row's own menu offer the rest. Reaching the last row asks for the next page.
 struct ScheduledMessagesPane: View {
     let state: ChatSceneState
     let actions: ScheduledMessagesActions
+    @State private var selection: ScheduledMessageAddress?
     @State private var editing: ScheduledMessage?
     @State private var moving: ScheduledMessage?
     @State private var moveFailed = false
     @State private var deletion: ScheduledMessageAddress?
 
     var body: some View {
-        List {
-            ForEach(state.scheduled.messages) { message in
-                row(message)
-            }
-            if !state.scheduled.messages.isEmpty, state.scheduled.readFailed {
-                Text("Couldn’t load scheduled messages").foregroundStyle(.secondary)
-            }
-            if !state.scheduled.messages.isEmpty, state.scheduled.hasMore {
-                Button("Load More", action: actions.loadMore).disabled(busy)
+        List(selection: $selection) {
+            Section {
+                ForEach(state.scheduled.messages) { message in
+                    row(message)
+                        .tag(message.id)
+                        .onAppear {
+                            if message.id == state.scheduled.messages.last?.id, canLoadMore {
+                                actions.loadMore()
+                            }
+                        }
+                }
+            } footer: {
+                footer
             }
         }
         .listStyle(.inset)
+        .contextMenu(forSelectionType: ScheduledMessageAddress.self) { ids in
+            if let message = PaneSelection.single(ids, in: state.scheduled.messages) {
+                menuItems(for: message)
+            }
+        } primaryAction: { ids in
+            if let message = PaneSelection.single(ids, in: state.scheduled.messages),
+               !state.scheduled.pending.contains(message.id) {
+                if message.canEditBody {
+                    editing = message
+                } else {
+                    move(message)
+                }
+            }
+        }
         .overlay {
             if state.scheduled.messages.isEmpty {
                 emptyState
             }
         }
         .toolbar {
-            Button("Refresh Scheduled", systemImage: "arrow.clockwise", action: actions.refresh)
+            Button("Refresh", systemImage: "arrow.clockwise", action: actions.refresh)
                 .disabled(busy)
+                .help("Refresh Scheduled Messages")
         }
         .sheet(item: $editing) { item in
             ScheduledEditSheet(
@@ -102,33 +88,23 @@ struct ScheduledMessagesPane: View {
                 title: "Reschedule Message", confirm: "Reschedule",
                 initial: max(item.deliveryTime, Date().addingTimeInterval(60)),
                 cancel: { moving = nil },
-                save: { date in
-                    moveFailed = false
-                    if !actions.reschedule(item.id, date, { accepted in
-                        guard moving?.id == item.id else { return }
-                        if accepted {
-                            moving = nil
-                        } else {
-                            moveFailed = true
-                        }
-                    }) {
-                        moveFailed = true
-                    }
-                },
+                save: { date in reschedule(item, to: date) },
                 isSaving: state.scheduled.pending.contains(item.id), failed: moveFailed
             )
         }
         .alert(
-            "Cancel This Scheduled Message?",
-            isPresented: Binding(get: { deletion != nil }, set: {
-                if !$0 {
+            "Delete This Scheduled Message?",
+            isPresented: Binding(get: { deletion != nil }, set: { shown in
+                if !shown {
                     deletion = nil
                 }
             }),
             presenting: deletion
         ) { address in
-            Button("Cancel Scheduled Send", role: .destructive) { actions.cancel(address) }
-            Button("Keep Message", role: .cancel) {}
+            Button("Delete", role: .destructive) { actions.cancel(address) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("It won’t be sent.")
         }
     }
 
@@ -136,29 +112,103 @@ struct ScheduledMessagesPane: View {
         state.scheduled.isLoading || !state.scheduled.pending.isEmpty
     }
 
+    private var canLoadMore: Bool {
+        state.scheduled.hasMore && !busy && !state.scheduled.readFailed
+    }
+
+    private func move(_ message: ScheduledMessage) {
+        moveFailed = false
+        moving = message
+    }
+
+    private func reschedule(_ item: ScheduledMessage, to date: Date) {
+        moveFailed = false
+        let started = actions.reschedule(item.id, date) { accepted in
+            guard moving?.id == item.id else { return }
+            if accepted {
+                moving = nil
+            } else {
+                moveFailed = true
+            }
+        }
+        if !started {
+            moveFailed = true
+        }
+    }
+
+    /// Below the rows: the next page on its way, or a read that failed.
+    @ViewBuilder private var footer: some View {
+        if !state.scheduled.messages.isEmpty {
+            HStack(spacing: 8) {
+                if state.scheduled.isLoading {
+                    ProgressView().controlSize(.small)
+                } else if state.scheduled.readFailed {
+                    Text(ScheduledPresentation.moreFailedText)
+                    Button(
+                        "Try Again",
+                        action: state.scheduled.hasMore ? actions.loadMore : actions.refresh
+                    )
+                    .controlSize(.small)
+                } else if state.scheduled.hasMore {
+                    Button("Load More", action: actions.loadMore)
+                        .controlSize(.small)
+                        .disabled(busy)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
     @ViewBuilder private var emptyState: some View {
         if state.scheduled.isLoading {
-            ProgressView("Loading scheduled messages")
+            ProgressView(ScheduledPresentation.loadingText)
         } else if state.scheduled.readFailed {
             ContentUnavailableView {
-                Label("Couldn’t Load Scheduled Messages", systemImage: "clock")
+                Label(ScheduledPresentation.failedTitle, systemImage: "exclamationmark.triangle")
             } actions: {
                 Button("Try Again", action: actions.refresh)
             }
         } else {
-            ContentUnavailableView("No Scheduled Messages", systemImage: "clock")
+            ContentUnavailableView(
+                "No Scheduled Messages", systemImage: "clock",
+                description: Text("Messages you schedule wait here until they’re sent.")
+            )
         }
     }
 
+    @ViewBuilder private func menuItems(for message: ScheduledMessage) -> some View {
+        if message.canEditBody {
+            Button("Edit Message…", systemImage: "pencil") { editing = message }
+        }
+        Button("Reschedule…", systemImage: "clock") { move(message) }
+        if let sendNow = actions.sendNow {
+            Button("Send Now", systemImage: "paperplane") { sendNow(message.id) }
+        }
+        Divider()
+        Button("Delete…", systemImage: "trash", role: .destructive) { deletion = message.id }
+    }
+
+    /// Where it goes and when on one line, then what it says. A send that
+    /// failed says so in red, as a failed message does in the transcript.
     private func row(_ message: ScheduledMessage) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(conversationTitle(message)).font(.callout.weight(.semibold)).lineLimit(1)
-                if !message.body.text.isEmpty || !message.hasContentWithoutCaption {
-                    Text(message.body.text.isEmpty ? "Message" : message.body.text).lineLimit(3)
+        let pending = state.scheduled.pending.contains(message.id)
+        return HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(conversationTitle(message))
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Label(ScheduledPresentation.time(message.deliveryTime), systemImage: "clock")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let body = ScheduledPresentation.body(of: message) {
+                    Text(body).lineLimit(3)
                 }
                 if message.isForward == true {
-                    Label("Forwarded a message", systemImage: "arrowshape.turn.up.right")
+                    Label("Forwarded message", systemImage: "arrowshape.turn.up.right")
                         .foregroundStyle(.secondary)
                 }
                 if let names = message.attachmentNames, !names.isEmpty {
@@ -167,35 +217,29 @@ struct ScheduledMessagesPane: View {
                         .lineLimit(1)
                 }
                 if message.deliveryFailed {
-                    Label("Couldn’t send", systemImage: "exclamationmark.circle").foregroundStyle(.red)
+                    Label("Couldn’t send", systemImage: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
                 }
-                Text(message.deliveryTime, format: .dateTime.month(.abbreviated).day().hour().minute())
-                    .foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
-            Menu {
-                if message.canEditBody {
-                    Button("Edit Message…", systemImage: "pencil") { editing = message }
+            .accessibilityElement(children: .combine)
+            if pending {
+                ProgressView().controlSize(.small).accessibilityLabel("Updating scheduled message")
+            } else {
+                Menu {
+                    menuItems(for: message)
+                } label: {
+                    Label("Actions", systemImage: "ellipsis.circle")
+                        .labelStyle(.iconOnly)
                 }
-                Button("Reschedule…", systemImage: "clock") {
-                    moveFailed = false
-                    moving = message
-                }
-                if let sendNow = actions.sendNow {
-                    Button("Send Now", systemImage: "paperplane") { sendNow(message.id) }
-                }
-                Button("Cancel Scheduled Send…", systemImage: "trash", role: .destructive) {
-                    deletion = message.id
-                }
-            } label: {
-                Label("Scheduled Message Actions", systemImage: "ellipsis")
-                    .labelStyle(.iconOnly)
+                .menuStyle(.button)
+                .buttonStyle(.borderless)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Actions for This Scheduled Message")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .disabled(state.scheduled.pending.contains(message.id))
         }
         .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func conversationTitle(_ message: ScheduledMessage) -> String {
@@ -203,93 +247,5 @@ struct ScheduledMessagesPane: View {
             return "Conversation"
         }
         return Display.title(of: conversation, directory: state.directory, me: state.me)
-    }
-}
-
-private struct ScheduledEditSheet: View {
-    let formatting: Bool
-    let item: ScheduledMessage
-    let save: (ComposedMessage, @escaping ScheduledMessagesActions.Completion) -> Bool
-    @Environment(\.dismiss) private var dismiss
-    @State private var draft = ComposerDraft()
-    @State private var isSaving = false
-    @State private var failed = false
-    @State private var focusRequest = 0
-
-    init(
-        item: ScheduledMessage, formatting: Bool,
-        save: @escaping (ComposedMessage, @escaping ScheduledMessagesActions.Completion) -> Bool
-    ) {
-        self.formatting = formatting
-        self.save = save
-        self.item = item
-        var draft = ComposerDraft()
-        draft.adopt(item.body, formatting: formatting)
-        _draft = State(initialValue: draft)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Edit Scheduled Message").font(.headline)
-            if item.isForward == true {
-                Label("Forwarded a message", systemImage: "arrowshape.turn.up.right")
-                    .foregroundStyle(.secondary)
-            }
-            field
-                .disabled(isSaving)
-                .padding(8)
-                .background(.quaternary, in: .rect(cornerRadius: 8))
-            if failed {
-                Text("The edit could not be confirmed. Check the queue before trying again.")
-                    .foregroundStyle(.secondary)
-            }
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                    .disabled(isSaving)
-                Button("Save", action: submit)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!canSave)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 340)
-        .interactiveDismissDisabled(isSaving)
-        .onAppear { focusRequest += 1 }
-    }
-
-    private var field: some View {
-        #if os(macOS)
-            ComposerTextView(
-                draft: $draft, anchorX: .constant(0), placeholder: "Scheduled message",
-                listOpen: false, focusRequest: focusRequest, onKey: { _ in }, onSubmit: submit,
-                formatting: formatting
-            )
-            .frame(minHeight: 56)
-        #else
-            TextEditor(text: Binding(get: { draft.text }, set: { draft.edit($0) })).frame(minHeight: 72)
-        #endif
-    }
-
-    private var canSave: Bool {
-        !isSaving && (item.hasContentWithoutCaption ||
-            !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-    }
-
-    private func submit() {
-        guard canSave else { return }
-        failed = false
-        isSaving = true
-        if !save(draft.composed(formatting: formatting), { accepted in
-            isSaving = false
-            if accepted {
-                dismiss()
-            } else {
-                failed = true
-            }
-        }) {
-            isSaving = false
-            failed = true
-        }
     }
 }

@@ -37,6 +37,67 @@ public typealias BlockedConversationsSettingsActions = BlockedListSettingsAction
 public typealias BlockedPeopleSettingsState = BlockedListSettingsState<BlockedPerson>
 public typealias BlockedPeopleSettingsActions = BlockedListSettingsActions<Member.ID>
 
+/// One blocked list as the Privacy pane takes it: its state, its actions and
+/// the session they belong to, so a list never outlives its account.
+@MainActor
+public struct BlockedListSettings<Row: Identifiable & Equatable & Sendable> where Row.ID: Sendable {
+    let state: BlockedListSettingsState<Row>
+    let actions: BlockedListSettingsActions<Row.ID>
+    let session: AnyHashable
+
+    public init(
+        state: BlockedListSettingsState<Row>, actions: BlockedListSettingsActions<Row.ID>,
+        session: AnyHashable = 0
+    ) {
+        self.state = state
+        self.actions = actions
+        self.session = session
+    }
+}
+
+/// Settings › Privacy: who and what this account has blocked, as one grouped
+/// form with a section per list, the way System Settings lists things a
+/// person can take back. A list the account cannot manage is left out.
+public struct PrivacySettingsPane: View {
+    let conversations: BlockedListSettings<BlockedConversation>?
+    let people: BlockedListSettings<BlockedPerson>?
+
+    public init(
+        conversations: BlockedListSettings<BlockedConversation>?,
+        people: BlockedListSettings<BlockedPerson>?
+    ) {
+        self.conversations = conversations
+        self.people = people
+    }
+
+    public var body: some View {
+        if conversations == nil, people == nil {
+            ContentUnavailableView(
+                "Nothing to Manage", systemImage: "hand.raised",
+                description: Text("This account doesn’t offer blocking.")
+            )
+        } else {
+            Form {
+                if let people {
+                    BlockedListSection(
+                        state: people.state, actions: people.actions,
+                        label: { $0.name.isEmpty ? "Unnamed Person" : $0.name }, kind: .people
+                    )
+                    .id(BlockedListCopy.Identity(kind: .people, session: people.session))
+                }
+                if let conversations {
+                    BlockedListSection(
+                        state: conversations.state, actions: conversations.actions,
+                        label: { $0.name.isEmpty ? "Unnamed Conversation" : $0.name }, kind: .conversations
+                    )
+                    .id(BlockedListCopy.Identity(kind: .conversations, session: conversations.session))
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+}
+
 public struct BlockedConversationsSettingsPane: View {
     let state: BlockedConversationsSettingsState
     let actions: BlockedConversationsSettingsActions
@@ -47,10 +108,7 @@ public struct BlockedConversationsSettingsPane: View {
     }
 
     public var body: some View {
-        BlockedListSettingsPane(
-            state: state, actions: actions,
-            label: { $0.name.isEmpty ? "Unnamed conversation" : $0.name }, kind: .conversations
-        )
+        PrivacySettingsPane(conversations: .init(state: state, actions: actions), people: nil)
     }
 }
 
@@ -64,15 +122,12 @@ public struct BlockedPeopleSettingsPane: View {
     }
 
     public var body: some View {
-        BlockedListSettingsPane(
-            state: state, actions: actions,
-            label: { $0.name.isEmpty ? $0.id.rawValue : $0.name }, kind: .people
-        )
+        PrivacySettingsPane(conversations: nil, people: .init(state: state, actions: actions))
     }
 }
 
-private struct BlockedListSettingsPane<Row: Identifiable & Equatable & Sendable>: View
-    where Row.ID: Sendable {
+/// What a blocked list says, apart from its rows. Pure, so each state is a test.
+enum BlockedListCopy {
     enum Kind {
         case conversations, people
 
@@ -80,29 +135,84 @@ private struct BlockedListSettingsPane<Row: Identifiable & Equatable & Sendable>
             self == .people ? "Blocked People" : "Blocked Conversations"
         }
 
-        var loading: String {
-            self == .people ? "Loading blocked people" : "Loading blocked conversations"
+        var noun: String {
+            self == .people ? "people" : "conversations"
         }
     }
 
+    /// A section's identity: its list and its session, so two lists of one
+    /// session stay two views and a new session starts each afresh.
+    struct Identity: Hashable {
+        let kind: Kind
+        let session: AnyHashable
+    }
+
+    /// The line that stands in for the rows while there are none to show.
+    static func placeholder(
+        _ kind: Kind, hasRows: Bool, isAvailable: Bool, isLoading: Bool, failed: Bool
+    ) -> String? {
+        if hasRows {
+            return nil
+        }
+        if !isAvailable {
+            return "Not connected."
+        }
+        if isLoading {
+            return "Loading…"
+        }
+        return failed ? "Couldn’t load blocked \(kind.noun)." : "No blocked \(kind.noun)."
+    }
+}
+
+/// One list: a name and Unblock on each row, the list's progress and Refresh
+/// in its header, and what went wrong as a row of its own.
+private struct BlockedListSection<Row: Identifiable & Equatable & Sendable>: View
+    where Row.ID: Sendable {
     let state: BlockedListSettingsState<Row>
     let actions: BlockedListSettingsActions<Row.ID>
     let label: (Row) -> String
-    let kind: Kind
+    let kind: BlockedListCopy.Kind
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(kind.title).font(.headline)
-                Spacer()
-                Button("Refresh", systemImage: "arrow.clockwise", action: actions.refresh).disabled(busy)
+        Section {
+            ForEach(state.rows ?? []) { row in
+                let name = label(row)
+                LabeledContent {
+                    if state.pending == row.id {
+                        ProgressView().controlSize(.small).accessibilityLabel("Unblocking \(name)")
+                    } else {
+                        Button("Unblock") { actions.unblock(row.id) }
+                            .controlSize(.small)
+                            .accessibilityLabel("Unblock \(name)")
+                            .disabled(busy)
+                    }
+                } label: {
+                    Text(name).lineLimit(1)
+                }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            contents
+            if let placeholder = BlockedListCopy.placeholder(
+                kind, hasRows: state.rows?.isEmpty == false, isAvailable: state.isAvailable,
+                isLoading: state.isLoading || (state.rows == nil && state.error == nil),
+                failed: state.rows == nil
+            ) {
+                Text(placeholder).foregroundStyle(.secondary)
+            }
             if let error = state.error {
-                Text(error).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20).padding(.bottom, 12)
+                SheetErrorRow(message: error)
+            }
+        } header: {
+            HStack(spacing: 6) {
+                Text(kind.title)
+                if state.isLoading {
+                    ProgressView().controlSize(.mini)
+                }
+                Spacer()
+                Button("Refresh", systemImage: "arrow.clockwise", action: actions.refresh)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .disabled(busy)
+                    .help("Refresh \(kind.title)")
+                    .accessibilityLabel("Refresh \(kind.title)")
             }
         }
         .task(id: state.isAvailable) {
@@ -114,36 +224,5 @@ private struct BlockedListSettingsPane<Row: Identifiable & Equatable & Sendable>
 
     private var busy: Bool {
         !state.isAvailable || state.isLoading || state.pending != nil
-    }
-
-    @ViewBuilder private var contents: some View {
-        if let rows = state.rows, !rows.isEmpty {
-            List(rows) { row in
-                let name = label(row)
-                HStack {
-                    Text(name).lineLimit(1)
-                    Spacer()
-                    if state.pending == row.id {
-                        ProgressView().controlSize(.small).accessibilityLabel("Unblocking \(name)")
-                    } else {
-                        Button("Unblock") { actions.unblock(row.id) }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Unblock \(name)")
-                            .disabled(busy)
-                    }
-                }
-            }
-            .listStyle(.inset)
-        } else if !state.isAvailable {
-            ContentUnavailableView("Not Connected", systemImage: "wifi.slash")
-        } else if state.isLoading || (state.rows == nil && state.error == nil) {
-            ProgressView(kind.loading).frame(maxHeight: .infinity)
-        } else if state.rows == nil {
-            ContentUnavailableView(
-                "Couldn’t Load \(kind.title)", systemImage: "exclamationmark.circle"
-            )
-        } else {
-            ContentUnavailableView("No \(kind.title)", systemImage: "hand.raised")
-        }
     }
 }

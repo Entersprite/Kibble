@@ -76,35 +76,50 @@ struct ConversationSectionEditor: View {
         _unreadOnly = State(initialValue: false)
     }
 
+    /// A small sheet shaped like the app's others: a title, a grouped form,
+    /// and the sheet's own buttons, which give Return to Save and Escape to
+    /// Cancel and put Delete at the far side.
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(section == nil ? "New Section" : "Edit Section")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
+        VStack(spacing: 0) {
+            HStack {
+                Text(section == nil ? "New Section" : "Edit Section")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                if saveTask != nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel(section == nil ? "Creating section" : "Saving section")
+                }
+            }
+            .padding([.horizontal, .top], 20)
             Form {
                 Section {
-                    TextField("Name", text: $name, prompt: Text("Required"))
+                    TextField("Name", text: $name, prompt: Text("Section name"))
+                        .onSubmit(submit)
                     if section != nil {
-                        Picker("Sort By", selection: $sort) {
+                        Picker("Sort by", selection: $sort) {
                             ForEach([SidebarSortOrder.activity, .name], id: \.self) {
                                 Text(SidebarSortTitles.sort($0)).tag($0)
                             }
                         }
-                        Toggle("Show Unread Conversations Only", isOn: $unreadOnly)
+                        Toggle("Show unread conversations only", isOn: $unreadOnly)
+                    }
+                }
+                .disabled(saveTask != nil)
+                if saveFailed {
+                    Section {
+                        SheetErrorRow(message: section == nil
+                            ? "The section couldn’t be created. Try again."
+                            : "The change couldn’t be confirmed. Check the sidebar before trying again.")
                     }
                 }
             }
             .formStyle(.grouped)
-            .disabled(saveTask != nil)
-            if saveFailed {
-                Text("The section change couldn’t be confirmed.")
-                    .foregroundStyle(.red)
-            }
-            buttons
         }
-        .padding(20)
         .frame(width: 380)
-        .frame(minHeight: section == nil ? 216 : 260, idealHeight: section == nil ? 232 : 280)
+        .frame(minHeight: height, idealHeight: height)
+        .toolbar { buttons }
         .interactiveDismissDisabled(saveTask != nil)
         .onDisappear { saveTask?.cancel() }
         .alert("Delete Section?", isPresented: $confirmDelete, presenting: section) { current in
@@ -119,23 +134,25 @@ struct ConversationSectionEditor: View {
         }
     }
 
-    private var buttons: some View {
-        HStack {
-            if delete != nil {
+    /// Room for the title and every row the form shows, so nothing scrolls:
+    /// one row to name a new section, three to edit one, and the failure's.
+    private var height: CGFloat {
+        (section == nil ? 150 : 236) + (saveFailed ? 64 : 0)
+    }
+
+    @ToolbarContentBuilder private var buttons: some ToolbarContent {
+        if delete != nil, section != nil {
+            ToolbarItem(placement: .destructiveAction) {
                 Button("Delete Section…", role: .destructive) { confirmDelete = true }
                     .disabled(saveTask != nil)
             }
-            if saveTask != nil {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("Updating Section")
-            }
-            Spacer()
+        }
+        ToolbarItem(placement: .cancellationAction) {
             Button("Cancel", role: .cancel) { dismiss() }
-                .keyboardShortcut(.cancelAction)
                 .disabled(saveTask != nil)
+        }
+        ToolbarItem(placement: .confirmationAction) {
             Button(section == nil ? "Create" : "Save", action: submit)
-                .keyboardShortcut(.defaultAction)
                 .disabled(saveTask != nil || !canSave)
         }
     }

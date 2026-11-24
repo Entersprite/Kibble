@@ -128,7 +128,7 @@ extension Composer {
                                 Button("Keep Mine", action: keepLocal)
                             }
                         } else {
-                            Button("Retry", action: sync.opened)
+                            Button("Try Again", action: sync.opened)
                         }
                     }
                     .controlSize(.small)
@@ -155,7 +155,7 @@ extension Composer {
             return status.savedDraftWasCleared ? "The saved draft was cleared on another device." :
                 "The saved draft changed on another device."
         }
-        return "Draft sync could not be confirmed."
+        return "This draft couldn’t be synced."
     }
 }
 

@@ -52,12 +52,20 @@ struct SpaceNotificationLevelSection: View {
                     Text(title(for: level)).tag(level)
                 }
             }
+            // The level is saved on request, not as it is picked: saving one
+            // also unmutes the space, which a stray pick should not do.
             LabeledContent {
-                Button("Save Space Setting") { saveLevel(isMuted: isMuted) }
-                    .disabled(!setting.canSave || save != nil || !canSaveLevel)
+                HStack(spacing: 8) {
+                    if save != nil {
+                        ProgressView().controlSize(.small).accessibilityLabel("Saving space setting")
+                    }
+                    Button("Save") { saveLevel(isMuted: isMuted) }
+                        .disabled(!setting.canSave || save != nil || !canSaveLevel)
+                        .accessibilityLabel("Save space notifications")
+                }
             } label: {
-                if save != nil {
-                    ProgressView().controlSize(.small).accessibilityLabel("Saving space setting")
+                if canSaveLevel, save == nil {
+                    Text("Not saved yet").foregroundStyle(.secondary)
                 }
             }
         } header: {
@@ -68,7 +76,7 @@ struct SpaceNotificationLevelSection: View {
             } else if isMuted, confirmed == nil {
                 Text("Saving a level also unmutes this space.")
             } else {
-                Text("Applies across your Chat clients.")
+                Text(ProviderSettingCopy.scope)
             }
         }
         .disabled(save != nil)
