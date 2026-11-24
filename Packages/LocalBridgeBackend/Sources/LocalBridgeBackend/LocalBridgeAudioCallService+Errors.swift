@@ -5,6 +5,9 @@ extension LocalBridgeAudioCallService {
     /// Fixed call-stage descriptions only. Provider messages, URLs and opaque
     /// identifiers must never enter ordinary window state.
     static func failureMessage(_ error: any Error) -> String {
+        if let error = error as? NativeMeetAdmissionError {
+            return error.message
+        }
         if let error = error as? MeetCallBootstrapError {
             return bootstrapFailureMessage(error)
         }
@@ -44,6 +47,8 @@ extension LocalBridgeAudioCallService {
         switch error {
         case .microphoneDenied: "Microphone access is required to answer or place a call."
         case .outgoingAudioUnconfirmed: "Call audio registration could not be confirmed."
+        case .sharingRestricted: "The meeting host turned off screen sharing."
+        case .captureRestricted: "The meeting host restricted this device."
         case .negotiationFailed: "Call audio negotiation failed."
         case .timedOut, .connectionFailed: "Call audio could not connect."
         default: "Call audio setup failed."

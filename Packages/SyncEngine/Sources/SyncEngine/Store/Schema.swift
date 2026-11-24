@@ -98,6 +98,9 @@ enum Schema {
         }
         migrator.registerMigration("v28", migrate: addMessagePins)
         migrator.registerMigration("v29", migrate: cacheMessagePins)
+        migrator.registerMigration("v30") { db in
+            try db.alter(table: "conversation") { $0.add(column: "notificationMuteUntil", .double) }
+        }
         return migrator
     }
 

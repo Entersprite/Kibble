@@ -15,6 +15,10 @@ public struct MessageAddress: Codable, Hashable, Sendable {
         self.message = message
     }
 
+    public init(_ message: Message) {
+        self.init(conversation: message.conversationID, thread: message.threadID, message: message.id)
+    }
+
     /// A quote's or a forward's source, when it names one: a snapshot whose
     /// source the backend could not address has empty identifiers.
     public init?(_ quote: MessageQuote) {

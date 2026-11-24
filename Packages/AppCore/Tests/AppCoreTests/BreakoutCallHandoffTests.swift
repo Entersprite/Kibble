@@ -7,6 +7,113 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct BreakoutCallHandoffTests {
+    @Test func onlyTheCurrentPreparationCanDisplayAnAgendaTitle() async throws {
+        let service = RoomCallService(), calls = AudioCallController()
+        service.canPreviewMeetingLinks = true
+        calls.start(service: service)
+        let first = try #require(URL(string: "https://meet.example.test/first"))
+        let second = try #require(URL(string: "https://meet.example.test/second"))
+        _ = try #require(calls.prepareMeeting(at: first))
+        #expect(await eventually { service.previews[first] != nil })
+        let stale = try #require(calls.meetingPreviewTask)
+        let target = try #require(calls.prepareMeeting(at: second))
+        #expect(stale.isCancelled)
+        #expect(await eventually { service.previews[second] != nil })
+        service.previews.removeValue(forKey: first)?.resume(returning: "Wrong meeting")
+        await stale.value
+        #expect(calls.callWindowSession?.displayName == "Meeting")
+        service.previews.removeValue(forKey: second)?.resume(returning: "Planning review")
+        #expect(await eventually { calls.callWindowSession?.displayName == "Planning review" })
+        #expect(calls.call == nil && calls.meetingPreparationID == target && service.operations.isEmpty)
+        calls.joinPreparedMeeting(target)
+        #expect(calls.call?.displayName == "Planning review")
+        #expect(await eventually { service.joined == [second] })
+        await calls.stop()
+    }
+
+    @Test func aPreparedMeetingJoinsTheExactLinkOnceAfterConfirmation() async throws {
+        let service = RoomCallService(), calls = AudioCallController()
+        calls.start(service: service)
+        let first = try #require(URL(string: "https://meet.example.test/first"))
+        let next = try #require(URL(string: "https://meet.example.test/next?source=chat"))
+        let old = try #require(calls.prepareMeeting(at: first))
+        #expect(calls.prepareMeeting(at: first) == old)
+        let id = try #require(calls.prepareMeeting(at: next))
+        #expect(id != old)
+        #expect(calls.callWindowSession?.id == id && calls.call == nil)
+        calls.dismissCallWindow(old)
+        calls.joinPreparedMeeting(old)
+        await Task.yield()
+        #expect(service.operations.isEmpty)
+        #expect(calls.meetingPreparationID == id)
+        calls.joinPreparedMeeting(id)
+        calls.joinPreparedMeeting(id)
+        #expect(await eventually { service.joined == [next] && calls.call?.phase == .connected })
+        #expect(calls.meetingPreparationID == nil && calls.call?.id == id)
+        await calls.stop()
+    }
+
+    @Test func closingThePreviewOrStoppingItsAccountPreventsJoin() async throws {
+        let service = RoomCallService(), calls = AudioCallController()
+        calls.start(service: service)
+        let otherHost = try #require(URL(string: "https://other.example.test/room"))
+        #expect(calls.prepareMeeting(at: otherHost) == nil)
+        let url = try #require(URL(string: "https://meet.example.test/room"))
+        let first = try #require(calls.prepareMeeting(at: url))
+        calls.dismissCallWindow(first)
+        calls.joinPreparedMeeting(first)
+        #expect(calls.callWindowSession == nil)
+        let second = try #require(calls.prepareMeeting(at: url))
+        await calls.stop()
+        calls.joinPreparedMeeting(second)
+        #expect(service.operations.isEmpty && calls.callWindowSession == nil)
+    }
+
+    @Test func anIncomingCallReplacesTheUnconfirmedPreview() async throws {
+        let service = RoomCallService(), calls = AudioCallController()
+        calls.start(service: service)
+        let url = try #require(URL(string: "https://meet.example.test/room"))
+        let prepared = try #require(calls.prepareMeeting(at: url))
+        let incoming = UUID()
+        service.sink.yield(.snapshot(AudioCallSnapshot(
+            id: incoming, recipient: .init(
+                conversationID: .init("call-space"), memberID: .init("caller"), displayName: "Caller"
+            ), direction: .incoming, phase: .incoming
+        )))
+        #expect(await eventually { calls.callWindowSession?.id == incoming })
+        calls.joinPreparedMeeting(prepared)
+        #expect(calls.meetingPreparationID == nil && calls.call?.phase == .incoming)
+        #expect(service.operations.isEmpty)
+        await calls.stop()
+    }
+
+    @Test(arguments: [true, false])
+    func returningFromTheWaitingRoomJoinsTheSameMeetingOnlyOnRequest(_ conversationCall: Bool) async throws {
+        let service = RoomCallService(), calls = AudioCallController()
+        calls.start(service: service)
+        let url = try #require(URL(string: "https://meet.example.test/main"))
+        let target = conversationCall
+            ? ConversationCallTarget(conversationID: .init("opaque-space"), displayName: "Planning")
+            : ConversationCallTarget(meetingURL: url, displayName: "Planning")
+        var call = ConversationCallSnapshot(id: UUID(), target: target, phase: .connected)
+        let id = call.id
+        calls.call = AudioCallSession(call)
+        service.sink.yield(.interactionChanged(callID: id, state: .init(joinURL: url)))
+        #expect(await eventually { calls.interaction?.joinURL == url })
+        #expect(calls.waitingRoomReturnLink(after: id) == nil)
+        service.sink.yield(.interactionChanged(callID: id, state: nil))
+        call.phase = .ended
+        call.endReason = .sentToWaitingRoom
+        service.sink.yield(conversationCall ? .conversationSnapshot(call) : .meetingSnapshot(call))
+        #expect(await eventually { calls.waitingRoomReturnLink(after: id) == url })
+        #expect(service.joined.isEmpty)
+        calls.returnToMeeting(after: UUID())
+        calls.returnToMeeting(after: id)
+        #expect(await eventually { service.joined == [url] && calls.call?.phase == .connected })
+        #expect(calls.call?.id != id && calls.waitingRoomReturnLink(after: id) == nil)
+        await calls.stop()
+    }
+
     @Test func aRoomJoinsOnlyAfterConfirmedParentTerminationAndCanReturn() async throws {
         let service = RoomCallService(), calls = AudioCallController()
         calls.start(service: service)
@@ -89,6 +196,8 @@ private final class RoomCallService: MeetingLinkAudioCallService {
     var joined: [URL] = []
     var failCleanup = false
     var holdCleanup = false
+    var canPreviewMeetingLinks = false
+    var previews: [URL: CheckedContinuation<String?, Never>] = [:]
     var joinFailure: ServiceFailure?
     var canJoinMeetingLinks: Bool {
         true
@@ -120,6 +229,10 @@ private final class RoomCallService: MeetingLinkAudioCallService {
 
     func setMuted(_: Bool, callID _: UUID) async throws {}
     func stop() async {}
+    func previewMeetingTitle(at url: URL) async throws -> String? {
+        await withCheckedContinuation { previews[url] = $0 }
+    }
+
     func joinMeeting(at url: URL, callID: UUID) async throws {
         if let joinFailure {
             throw joinFailure

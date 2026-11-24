@@ -105,7 +105,7 @@ extension MeetDMCallTrial {
         }
     }
 
-    func loadCallClient(_ context: Context, generation: Int) async throws -> MeetCallClient {
+    func loadCallClient(_ context: Context, generation: Int? = nil) async throws -> MeetCallClient {
         let accountIndex = switch endpoints.account {
         case let .index(index): index
         case .none: 0
@@ -115,7 +115,9 @@ extension MeetDMCallTrial {
         ).loadConfiguration(accountIndex: accountIndex, userAgent: endpoints.userAgent)
         lines.append("Meet call shell: client key found")
         lines.append("Meet RTC client header: validated client descriptor protobuf")
-        try ensureGeneration(generation)
+        if let generation {
+            try ensureGeneration(generation)
+        }
         return MeetCallClient(
             transport: transport, credentials: context.credentials, configuration: configuration,
             sha1: proof.sha1Hex

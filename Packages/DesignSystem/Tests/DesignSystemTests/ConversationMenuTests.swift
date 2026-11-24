@@ -197,7 +197,8 @@ struct ConversationMenuTests {
         SidebarProjection.build(
             conversations,
             preferences: state.sidebarPreferences,
-            directory: state.directory
+            directory: state.directory,
+            customSections: state.conversationSections
         )
     }
 
@@ -216,18 +217,46 @@ struct ConversationMenuTests {
         ))
     }
 
+    @Test func sectionMenuOffersOtherDestinationsAndRemovalOnlyForAnAssignedConversation() throws {
+        let dm = Conversation(id: id, kind: .directMessage)
+        var state = ChatSceneState(conversations: [dm])
+        state.conversationSections = [
+            .init(id: "work", name: "Work", conversationIDs: [id]),
+            .init(id: "later", name: "Later", conversationIDs: [])
+        ]
+        let sections = sidebar([dm], state: state)
+        let offered = try #require(ConversationMenu.rowMenu(
+            for: [.conversation(id)], in: sections, state: state, offers: Offers(moveToSection: true)
+        )?.section)
+        #expect(offered.conversationID == id)
+        #expect(offered.destinations == [.init(id: "later", name: "Later")])
+        #expect(offered.canRemove)
+        #expect(ConversationMenu.rowMenu(
+            for: [.conversation(id)], in: sections, state: state, offers: Offers()
+        )?.section == nil)
+        let unassigned = try #require(ConversationSectionMenu(
+            conversationID: .init("other"), sections: state.conversationSections
+        ))
+        #expect(unassigned.destinations.map(\.id) == ["work", "later"])
+        #expect(!unassigned.canRemove)
+    }
+
     @Test func aRightClickedMeetingSeriesActsOnItsOriginals() throws {
         let old = meeting("old", start: 100, unread: true)
         let latest = meeting("latest", start: 200, unread: true)
-        let state = ChatSceneState(conversations: [old, latest])
+        var state = ChatSceneState(conversations: [old, latest])
+        state.conversationSections = [.init(id: "work", name: "Work", conversationIDs: [])]
+        var offers = all
+        offers.moveToSection = true
         let series = try #require(MeetingSeries.build([old, latest]).first)
         let menu = try #require(ConversationMenu.rowMenu(
             for: [.meetingSeries(series.id)], in: sidebar([old, latest], state: state), state: state,
-            offers: all
+            offers: offers
         ))
         #expect(menu.entries == ConversationMenu.entries(for: series, state: state, offers: all))
         #expect(menu.favorite == .meetingSeries(series.id))
         #expect(menu.title == "Planning")
+        #expect(menu.section == nil)
     }
 
     /// Empty space, a pinned row, several rows, or a row the sections no

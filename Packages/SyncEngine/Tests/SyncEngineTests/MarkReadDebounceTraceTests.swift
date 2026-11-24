@@ -80,7 +80,8 @@ struct MarkReadDebounceTraceTests {
     /// `scheduled` would be missing exactly when someone needs it.
     @MainActor
     @Test func aCancelledWaitRecordsItsOwnToken() async throws {
-        let harness = try tracedHarness(markReadDebounce: .milliseconds(50))
+        // Keep the wait pending for the duration of the test. stop() cancels it.
+        let harness = try tracedHarness(markReadDebounce: .seconds(3600))
         try await harness.model.start()
         await settleAutoMarkRead()
 

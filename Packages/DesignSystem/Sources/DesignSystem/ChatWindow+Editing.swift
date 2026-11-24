@@ -25,7 +25,7 @@ extension ChatWindow {
     var ownHandlers: OwnMessageHandlers? {
         let threads = offeredThreadActions
         guard actions.messages != nil || threads != nil || state.capabilities.canQuoteMessages || actions
-            .forwardMessage != nil || actions.setMessagePinned != nil
+            .forwardMessage != nil || actions.setMessagePinned != nil || actions.stars != nil
         else { return nil }
         let summaries = state.threads.summaries
         return OwnMessageHandlers(
@@ -53,7 +53,15 @@ extension ChatWindow {
             pin: state.pins.canModify && !state.isLoadingPins ? actions.setMessagePinned.map { action in
                 { message in action(!state.pins.messages.contains { $0.id == message.id }, message) }
             } : nil,
-            isPinned: { id in state.pins.messages.contains { $0.id == id } }
+            isPinned: { id in state.pins.messages.contains { $0.id == id } },
+            star: actions.stars.map { action in
+                { message in
+                    let address = MessageAddress(message)
+                    action.set(!state.stars.knownStars.contains(address), address)
+                }
+            },
+            isStarred: { state.stars.knownStars.contains(MessageAddress($0)) },
+            starIsPending: { state.stars.pending.contains(MessageAddress($0)) }
         )
     }
 

@@ -138,16 +138,13 @@ struct ChannelEventTests {
         #expect(subject.bodies.map(\.type).contains(.sessionReady))
     }
 
-    /// **The rule §12.1.1 exists for.** The vendored proto's `EventType` stops
-    /// at 50 and live traffic carried 51, 64, 70 and 83. Those must arrive as
-    /// numbers rather than vanishing: regenerating from a newer proto would
-    /// shrink the unknown set and never empty it.
+    /// Keep the original number regardless of how many tags the schema recognizes.
     @Test func aTagTheVendoredProtoHasNeverHeardOfSurvivesAsANumber() throws {
         let subject = try #require(try event(bodies: [51, 64, 70, 83].map {
             positionalBody(type: $0)
         }))
         #expect(subject.bodies.map(\.typeTag) == [51, 64, 70, 83])
-        #expect(subject.bodies.allSatisfy { $0.type == nil })
+        #expect(subject.bodies.map(\.type) == [nil, nil, .groupLabelApplied, nil])
     }
 
     /// The body's own value is retained whether or not the type is known, so a

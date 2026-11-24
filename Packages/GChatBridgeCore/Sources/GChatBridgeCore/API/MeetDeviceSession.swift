@@ -21,6 +21,7 @@ public actor MeetDeviceSession {
     var closed = false
     var mediaConnected = false
     var acknowledgedAdmissionTypes: Set<UInt64> = []
+    var waitingAdmissionVersion: UInt64?
     private var didInvite = false
     private var additionalInvites: [String] = []
     private var didRegister = false
@@ -41,32 +42,19 @@ public actor MeetDeviceSession {
         space.url
     }
 
-    public func setHandRaised(_ raised: Bool, currentName: String?) async throws -> String? {
-        try begin()
-        defer { busy = false }
-        guard mediaConnected, let device,
-              device.joinState == 1 else { throw MeetDeviceSessionError.notJoined }
-        if raised {
-            if let currentName {
-                return currentName
-            }
-            let response = try await send(
-                "MeetingHandRaiseService/CreateHandRaise",
-                body: MeetProto.string(1, space.name) + MeetProto.bytes(2, Data())
-            )
-            let resource = try MeetProto.decode(response.body)
-            let name = try MeetProto.text(1, resource)
-            guard name.hasPrefix(space.name + "/"), name.utf8.count <= 512 else {
-                throw MeetCallWire.WireError.malformedResponse
-            }
-            return name
+    public func publicDialIn(preferredRegion: String?) -> MeetDialIn? {
+        publicDialInDetails(preferredRegion: preferredRegion)?.numbers.first
+    }
+
+    public func publicDialInDetails(preferredRegion: String?) -> (numbers: [MeetDialIn], directory: URL?)? {
+        guard !closed, !presentation, device?.joinState == 1, device?.isDeleted == false else { return nil }
+        var numbers = space.dialIn
+        if let index = numbers.firstIndex(where: { $0.region != nil && $0.region == preferredRegion }),
+           index != 0 {
+            let preferred = numbers.remove(at: index)
+            numbers.insert(preferred, at: 0)
         }
-        guard let currentName else { return nil }
-        guard currentName.hasPrefix(space.name + "/"), currentName.utf8.count <= 512 else {
-            throw MeetCallWire.WireError.invalidIdentifier
-        }
-        _ = try await send("MeetingHandRaiseService/DeleteHandRaise", body: MeetProto.string(1, currentName))
-        return nil
+        return (numbers, space.phoneDirectory)
     }
 
     public func cancelInvitation() async throws {
@@ -100,14 +88,22 @@ public actor MeetDeviceSession {
         invitationID = nil
     }
 
-    public func collections() async throws -> MeetCallCollectionsWire.Snapshot {
+    public func collections(timeout: Duration? = nil) async throws -> MeetCallCollectionsWire.Snapshot {
         try begin()
         defer { busy = false }
         let response = try await send(
             "MeetingSpaceService/SyncMeetingSpaceCollections",
-            body: MeetCallCollectionsWire.sync(space: space.name)
+            body: MeetCallCollectionsWire.sync(space: space.name), timeout: timeout
         )
-        return try MeetCallCollectionsWire.snapshot(from: response.body, in: space.name)
+        var snapshot = try MeetCallCollectionsWire.snapshot(from: response.body, in: space.name)
+        if let devices = snapshot.devices, devices.version < (waitingAdmissionVersion ?? 0) {
+            snapshot.devices = nil
+        }
+        if let name = device?.name {
+            snapshot.activities?.devices = snapshot.devices
+            snapshot.activities?.hostAccess = snapshot.devices?.hostAccess(for: name)
+        }
+        return snapshot
     }
 
     public init(client: MeetCallClient, call: MeetResolvedCall) {
@@ -142,12 +138,13 @@ public actor MeetDeviceSession {
         token.absorb(call.token); presentation = true; expectedPrimary = primary
     }
 
-    public func register(mediaSession: String) async throws {
+    public func register(mediaSession: String, supportsWaitingRoom: Bool = false) async throws {
         try begin()
         defer { busy = false }
         guard !didRegister else { throw MeetDeviceSessionError.deviceExists }
         let body = try MeetDeviceWire.create(
-            space: space.name, mediaSession: mediaSession, incomingInvitation: incomingInvitation
+            space: space.name, mediaSession: mediaSession, incomingInvitation: incomingInvitation,
+            supportsWaitingRoom: supportsWaitingRoom && !presentation
         )
         didRegister = true
         let response = try await request("CreateMeetingDevice", body: body)
@@ -181,6 +178,13 @@ public actor MeetDeviceSession {
         )
         let joined = try MeetDeviceWire.device(from: response.body, in: space.name)
         try acceptAdmissionDevice(joined)
+        let etagVersion = response.headers["etag"]?
+            .split(separator: "-", omittingEmptySubsequences: false).first
+        if [3, 13].contains(joined.joinState), !joined.isDeleted,
+           let prefix = etagVersion,
+           let revision = UInt64(prefix), revision <= UInt64(Int64.max) {
+            waitingAdmissionVersion = max(waitingAdmissionVersion ?? 0, revision)
+        }
         guard joined.joinState == 1, !joined.isDeleted else { throw MeetDeviceSessionError.notJoined }
     }
 
@@ -259,9 +263,33 @@ public actor MeetDeviceSession {
         guard left.name == device.name, left.joinState == 6 else {
             throw MeetDeviceSessionError.leaveUnconfirmed
         }
-        self.device = nil
+        settleDevice()
+    }
+
+    public func endConference() async throws {
+        try begin()
+        defer { busy = false }
+        guard !presentation, mediaConnected, device?.joinState == 1
+        else { throw MeetDeviceSessionError.notJoined }
+        let response = try await send(
+            "MeetingSpaceService/EndConference", body: MeetActivityWire.endConferenceBody(space: space.name)
+        )
+        guard try MeetProto.decode(response.body).isEmpty
+        else { throw MeetCallWire.WireError.malformedResponse }
+        settleDevice()
+    }
+
+    public func observeRemovedDevice(_ observed: MeetDeviceWire.Device) {
+        guard observed.name == device?.name,
+              observed.wasRemoved || observed.wasSentToWaitingRoom else { return }
+        settleDevice()
+    }
+
+    private func settleDevice() {
+        device = nil
         mediaSession = nil
         didRegister = false
+        mediaConnected = false
     }
 
     func begin() throws {
@@ -274,9 +302,14 @@ public actor MeetDeviceSession {
         try await send("MeetingDeviceService/" + method, body: body, isDevice: true)
     }
 
-    func send(_ method: String, body: Data, isDevice: Bool = false) async throws -> HTTPResponse {
+    func send(
+        _ method: String, body: Data, isDevice: Bool = false, timeout: Duration? = nil
+    ) async throws -> HTTPResponse {
         guard let value = token.value else { throw MeetCallClientError.missingMeetingToken }
         var request = client.configuration.request(method: method, body: body, token: value)
+        if let timeout {
+            request.timeout = timeout
+        }
         if isDevice {
             request.headers = HTTPHeaders(fields: request.headers.fields + [
                 .init(name: "x-goog-ext-174067345-bin", value: MeetDeviceWire.clientExtension)

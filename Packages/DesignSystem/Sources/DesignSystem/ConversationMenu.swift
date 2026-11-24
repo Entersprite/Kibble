@@ -25,6 +25,7 @@ enum ConversationMenu {
         var unmute = false
         var notificationSettings = false
         var info = false
+        var moveToSection = false
         var conversationActions: Capabilities = .init()
     }
 
@@ -148,6 +149,7 @@ extension ConversationMenu {
         let entries: [Entry]
         let favorite: SidebarSelection
         let title: String
+        var section: ConversationSectionMenu?
     }
 
     /// The menu for the rows a right-click names, from the sections the list
@@ -167,21 +169,32 @@ extension ConversationMenu {
                     Entry(item: $0, targets: [conversation.id])
                 },
                 favorite: target,
-                title: Display.title(of: conversation, directory: state.directory, me: state.me)
+                title: Display.title(of: conversation, directory: state.directory, me: state.me),
+                section: sectionMenu(for: conversation.id, state: state, offers: offers)
             )
         case let .meeting(series)?:
             return RowMenu(
                 entries: entries(for: series, state: state, offers: offers), favorite: target,
-                title: series.title
+                title: series.title,
+                section: series.occurrences.count == 1
+                    ? sectionMenu(for: series.latest.id, state: state, offers: offers) : nil
             )
         case nil:
             return nil
         }
     }
+
+    private static func sectionMenu(
+        for id: Conversation.ID, state: ChatSceneState, offers: Offers
+    ) -> ConversationSectionMenu? {
+        guard offers.moveToSection else { return nil }
+        return ConversationSectionMenu(conversationID: id, sections: state.conversationSections)
+    }
 }
 
+@MainActor
 extension ConversationMenu.Offers {
-    @MainActor init(_ actions: ChatSceneActions) {
+    init(_ actions: ChatSceneActions) {
         self.init(
             call: actions.call != nil,
             markRead: actions.markRead != nil,
@@ -189,6 +202,7 @@ extension ConversationMenu.Offers {
             unmute: actions.unmute != nil,
             notificationSettings: actions.showNotificationSettings != nil,
             info: actions.browser != nil,
+            moveToSection: actions.moveConversationToSection != nil,
             conversationActions: actions.conversationActions?.capabilities ?? Capabilities()
         )
     }

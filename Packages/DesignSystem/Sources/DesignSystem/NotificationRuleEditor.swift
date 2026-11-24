@@ -8,15 +8,21 @@ public struct NotificationRuleEditor: View {
     private let title: String
     private let rule: NotificationRule
     private let inherited: ResolvedRule
+    private let spaceNotifications: SpaceNotificationSetting?
+    private let conversationMute: ConversationMuteSetting?
     private let update: (NotificationRule) -> Void
 
     public init(
         title: String, rule: NotificationRule, inherited: ResolvedRule,
+        spaceNotifications: SpaceNotificationSetting? = nil,
+        conversationMute: ConversationMuteSetting? = nil,
         update: @escaping (NotificationRule) -> Void
     ) {
         self.title = title
         self.rule = rule
         self.inherited = inherited
+        self.spaceNotifications = spaceNotifications
+        self.conversationMute = conversationMute
         self.update = update
     }
 
@@ -25,8 +31,34 @@ public struct NotificationRuleEditor: View {
     }
 
     var form: some View {
+        TimelineView(.explicit(muteExpiry.map { [$0] } ?? [])) { _ in
+            form(now: .now)
+        }
+    }
+
+    private var muteExpiry: Date? {
+        if case let .until(end)? = conversationMute?.pause {
+            return end
+        }
+        return spaceNotifications?.muteUntil
+    }
+
+    private func form(now: Date) -> some View {
         Form {
-            NotificationRuleFields(rule: rule, inherited: inherited, update: update)
+            if let spaceNotifications {
+                SpaceNotificationLevelSection(setting: spaceNotifications, now: now)
+            }
+            if let conversationMute {
+                ConversationMuteSection(
+                    setting: conversationMute,
+                    now: now,
+                    showsScope: spaceNotifications == nil
+                )
+            }
+            NotificationRuleFields(
+                title: spaceNotifications != nil || conversationMute != nil ? "Kibble Notifications" : nil,
+                rule: rule, inherited: inherited, update: update
+            )
             Section {
                 SettingsResetButton(
                     message: "Reset these notification settings? They will inherit their defaults. "

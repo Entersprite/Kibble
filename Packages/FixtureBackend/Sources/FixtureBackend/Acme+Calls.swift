@@ -7,10 +7,20 @@ import Foundation
 /// every time.
 public extension Acme {
     static let storefrontCallDevices: [CallParticipantDevice] = [
-        CallParticipantDevice(id: device(1), displayName: "Maya Okafor", microphoneMuted: false),
-        CallParticipantDevice(id: device(2), displayName: "Dan Reyes", microphoneMuted: true),
-        CallParticipantDevice(id: device(3), displayName: "Priya Shah"),
-        CallParticipantDevice(id: device(4), displayName: "Tom Whitfield", microphoneMuted: false),
+        CallParticipantDevice(
+            id: device(1),
+            displayName: "Maya Okafor",
+            microphoneMuted: false,
+            role: .participant
+        ),
+        CallParticipantDevice(id: device(2), displayName: "Dan Reyes", microphoneMuted: true, role: .cohost),
+        CallParticipantDevice(id: device(3), displayName: "Priya Shah", role: .participant),
+        CallParticipantDevice(
+            id: device(4),
+            displayName: "Tom Whitfield",
+            microphoneMuted: false,
+            role: .participant
+        ),
         CallParticipantDevice(
             id: device(5), displayName: "Maya Okafor", parentID: device(1), isPresentation: true
         )

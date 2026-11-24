@@ -121,7 +121,7 @@ extension ChatWindow {
     var favoriteTarget: SidebarSelection? {
         guard state.browser.page == nil, state.selectedConversation != nil else { return nil }
         switch state.sidebarSelection {
-        case let selection? where ![.mentions, .threads, .calls].contains(selection): return selection
+        case .conversation?, .meetingSeries?: return state.sidebarSelection
         default: return nil
         }
     }
@@ -150,6 +150,12 @@ extension ChatWindow {
         }
         if state.showingMentions {
             return "Mentions"
+        }
+        if state.stars.showingList {
+            return "Starred"
+        }
+        if state.scheduled.showingList {
+            return "Scheduled"
         }
         if state.threads.showingList {
             return ThreadsPresentation.title

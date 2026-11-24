@@ -10,12 +10,20 @@ public struct SidebarSection: Identifiable, Sendable, Hashable {
     public let title: String
     public let conversations: [Conversation]
     public let items: [SidebarItem]
+    public let customSectionID: String?
+    public var isCustom: Bool {
+        customSectionID != nil
+    }
 
-    public init(id: String, title: String, conversations: [Conversation], items: [SidebarItem]? = nil) {
+    public init(
+        id: String, title: String, conversations: [Conversation], items: [SidebarItem]? = nil,
+        customSectionID: String? = nil
+    ) {
         self.id = id
         self.title = title
         self.conversations = conversations
         self.items = items ?? conversations.map(SidebarItem.conversation)
+        self.customSectionID = customSectionID
     }
 }
 

@@ -32,9 +32,10 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     var controlChannel: LKRTCDataChannel?
     var expectedControlChannel: String?
     var generation = UUID()
-    var activityChannels: [String: LKRTCDataChannel] = [:]
-    var activityReplies: [Data] = []
-    var exchangingActivity = false
+    var activityChannels: [String: NativeActivityChannel] = [:]
+    var activityReplyChannel: String?
+    var activityReply: Data?
+    var activityReplyMatches: (@Sendable (Data) -> Bool)?
     var streamChannel: LKRTCDataChannel?
     var streamReplies: [Data] = []
     var streamReplyMatches: (@Sendable (Data) -> Bool)?
@@ -46,6 +47,8 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     var isNegotiating = false
     private var connectionState: LKRTCPeerConnectionState = .new
     var muted = false
+    public internal(set) var allowsMicrophone = true
+    var allowsCamera = true
     var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
     private var recoveryMonitor: CallMediaRecoveryMonitor?
     private let microphoneAccess: @MainActor @Sendable () async -> Bool
@@ -194,6 +197,7 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
     }
 
     public func setMuted(_ muted: Bool) {
+        let muted = muted || !allowsMicrophone
         self.muted = muted
         audio?.isEnabled = !muted
         audioSender?.track?.isEnabled = !muted
@@ -230,10 +234,10 @@ public final class NativeCallMedia: NSObject, CallMediaEngine {
         audioSender?.track?.isEnabled = false
         audio = nil
         audioSender = nil
-        for channel in activityChannels.values {
+        for channel in activityChannels.values.map(\.channel) {
             channel.delegate = nil; channel.close()
         }
-        activityChannels = [:]; activityReplies = []; exchangingActivity = false
+        activityChannels = [:]; activityReplyChannel = nil; activityReply = nil; activityReplyMatches = nil
         streamChannel?.delegate = nil
         streamChannel?.close()
         streamChannel = nil

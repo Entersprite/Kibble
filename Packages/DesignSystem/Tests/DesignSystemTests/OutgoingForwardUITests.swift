@@ -52,7 +52,8 @@
                     let preview = ForwardMessageSheet(
                         message: message(),
                         state: state,
-                        send: { _, _, _ in true }
+                        send: { _, _, _ in true },
+                        schedule: { _, _, _, _ in true }
                     )
                     .frame(width: width).background(.background)
                     .environment(\.colorScheme, dark ? .dark : .light)

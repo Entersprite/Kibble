@@ -56,14 +56,14 @@ public extension MacAppDelegate {
                 video: video,
                 diagnostics: callDiagnostics
             )
-            Self.addCallConversationActions(to: &actions, for: id, environment: environment)
+            Self.addCallConversationActions(to: &actions, for: id, environment: environment) {
+                environment.requestMainWindow()
+            }
             actions.callBack = Self.callBack(after: id, environment: environment)
             actions.imageLoader = environment.imageLoader
             return actions
         }, windowClosed: { id in
-            if calls.call?.id == id {
-                calls.windowClosed()
-            }
+            calls.dismissCallWindow(id)
         }, closesFinishedCalls: { [callSettings] in callSettings.closesFinishedCalls })
         callAlerts = IncomingCallAlerts(
             post: { [notifications] in await notifications.postCall($0) },
@@ -118,8 +118,13 @@ public extension MacAppDelegate {
                 }
             }
         )
+        actions.meetingPreparation = CallMeetingPreparationDevices.scene(for: id, calls: calls)
         addInteractionActions(to: &actions, for: id, calls: calls)
         addVideoActions(to: &actions, for: id, calls: calls, video: video)
+        CallSystemMediaControls.add(to: &actions, callID: id, calls: calls, audio: audioDevices, video: video)
+        if calls.waitingRoomReturnLink(after: id) != nil {
+            actions.returnToMeeting = { calls.returnToMeeting(after: id) }
+        }
         return actions
     }
 
@@ -238,7 +243,7 @@ public extension MacAppDelegate {
                 incomingRings: callRinger.isRinging
             )
             callWindowHost?.update(
-                call: environment.calls.call,
+                call: environment.calls.callWindowSession,
                 windowRequests: environment.calls.windowRequests,
                 devices: callAudioDevices.devices, alertsIncoming: alertsIncoming, video: callVideo,
                 person: person, conversation: conversation, participants: environment.calls.participants
@@ -266,6 +271,7 @@ public extension MacAppDelegate {
     internal static func callBack(after id: UUID, environment: AppEnvironment) -> (() -> Void)? {
         let calls = environment.calls
         guard let call = calls.call, call.id == id, call.phase.isTerminal,
+              call.endReason != .sentToWaitingRoom,
               case let .running(model) = environment.phase,
               let conversation = model.conversations.first(where: { $0.id == call.conversationID }),
               calls.canCall(conversation: conversation, directory: model.directory, me: model.me)

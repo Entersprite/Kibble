@@ -819,6 +819,8 @@ message Message {
 	repeated Reaction reactions = 21;
 	//repeated DYNProtoCommunalLabelTag communal_labels = 27;
 	//repeated DYNProtoPersonalLabelTag personal_labels = 26;
+	// The current world-entity message carries the caller's labels here.
+	repeated MessageLabel personal_label_tags = 43;
 	//optional ?? message_integration_payload = 23;
 	//optional DYNProtoMessage_MessagePermission editable_by = 24;
 	//optional DYNProtoMessage_MessagePermission deletable_by = 25;
@@ -1262,10 +1264,11 @@ message GroupReadState {
 	// purple's newer proto; measured present on 217 of 220 items, while
 	// unread_message_count (4) arrives on all 220 and is always zero.
 	//
-	// Of purple's extra set, 24, 28, 30, 31 and an unnamed 36 also arrive and
+	// Of purple's extra set, 24, 28, 30 and an unnamed 36 also arrive and
 	// are left in unknownFields, because each one added is a claim about the
 	// wire that nothing here has measured.
 	optional int64 last_head_message_create_time_usec = 29;
+	repeated GroupLabel group_labels = 31;
 
 	// purple's name (findings.md §64.4): on all 271 world items in §63's run.
 	// Push 53 updates it (GroupUnreadThreadStateUpdatedEvent).
@@ -1285,8 +1288,31 @@ message GroupNotificationSettings {
 		NOTIFY_LESS_WITH_NEW_THREADS = 1;
 		NOTIFY_LESS = 2;
 		NOTIFY_NEVER = 3;
+		NOTIFY_ALL = 4;
+		NOTIFY_MAIN_CONVERSATION = 5;
 	}
 	optional RoomNotificationState room_state = 2;
+
+	message MuteSettings {
+		enum State {
+			MUTE_STATE_UNSPECIFIED = 0;
+			UNMUTED = 1;
+			MUTED = 2;
+		}
+		optional State state = 1;
+		optional ComGoogleProtobufTimestamp expiry = 2;
+	}
+	optional MuteSettings mute_settings = 3;
+}
+
+message UpdateGroupNotificationSettingsRequest {
+	optional GroupId group_id = 1;
+	optional GroupNotificationSettings settings = 2;
+	optional RequestHeader request_header = 100;
+}
+
+message UpdateGroupNotificationSettingsResponse {
+	optional GroupNotificationSettings settings = 1;
 }
 
 message RetentionSettings {
@@ -1354,6 +1380,7 @@ message SendReplyTarget {
 message MessageInfo {
 	optional bool accept_format_annotations = 1;
 	optional SendReplyTarget reply_to = 3;
+	optional UnsentMessageId unsent_message_id = 5;
 }
 
 message CreateTopicRequest {
@@ -1388,6 +1415,97 @@ message CreateMessageResponse {
 	optional Message message = 1;
 	optional WriteRevision group_revision = 3;
 	optional ReadRevision current_group_revision = 4;
+}
+
+message UnsentMessageId {
+	optional string local_id = 1;
+	optional GroupId group_id = 2;
+	optional string topic_id = 3;
+}
+
+message UnsentMessageDelivery {
+	optional ComGoogleProtobufTimestamp scheduled_time = 1;
+	optional int32 status = 2;
+}
+
+message UnsentMessageReference {
+	optional MessageId id = 1;
+	optional int64 create_time = 2;
+	optional string text = 6;
+	optional int32 reference_type = 15;
+}
+
+message UnsentMessage {
+	optional UnsentMessageId id = 1;
+	optional ComGoogleProtobufTimestamp modified_time = 3;
+	optional string text = 4;
+	repeated Annotation annotations = 5;
+	optional UnsentMessageReference reference = 6;
+	optional int32 unsent_type = 7;
+	optional UnsentMessageDelivery delivery = 8;
+	optional string client_sync_value = 9;
+}
+
+message UnsentMessageChangedEvent {
+	optional UnsentMessage message = 1;
+}
+
+message UnsentMessageUpdateMask {
+	message NestedField {
+		optional int32 field_number = 1;
+		optional UnsentMessageUpdateMask mask = 2;
+	}
+	repeated NestedField nested_fields = 1;
+	repeated int32 whole_fields = 2;
+	optional bool inverted = 3;
+}
+
+message CreateUnsentMessageRequest {
+	optional RequestHeader request_header = 1;
+	optional UnsentMessage message = 2;
+}
+
+message UpdateUnsentMessageRequest {
+	optional RequestHeader request_header = 1;
+	optional UnsentMessage message = 2;
+	optional UnsentMessageUpdateMask update_mask = 3;
+}
+
+message WriteUnsentMessageResponse {
+	optional UnsentMessage message = 1;
+	optional WriteRevision revision = 2;
+}
+
+message DeleteUnsentMessageRequest {
+	optional RequestHeader request_header = 1;
+	optional UnsentMessageId id = 2;
+}
+
+message DeleteUnsentMessageResponse {
+	optional WriteRevision revision = 1;
+}
+
+message ListUnsentMessagesRequest {
+	message Options {
+		optional int32 page_size = 5;
+		optional string cursor = 6;
+	}
+	message Scope {
+		optional GroupId group_id = 1;
+		optional TopicId topic_id = 2;
+		optional int32 unsent_type = 3;
+		optional int32 list_mode = 5;
+		optional bool group_only = 6;
+	}
+	optional RequestHeader request_header = 1;
+	optional Options options = 2;
+	optional Scope scope = 3;
+}
+
+message ListUnsentMessagesResponse {
+	repeated UnsentMessage messages = 1;
+	optional ReadRevision revision = 2;
+	optional string next_cursor = 3;
 }
 
 message UpdateReactionRequest {
@@ -1808,6 +1926,11 @@ message GroupViewedEvent {
 	optional int64 view_time = 2;
 }
 
+message GroupNotificationSettingsUpdatedEvent {
+	optional GroupId group_id = 1;
+	optional GroupNotificationSettings settings = 2;
+}
+
 // The thread pushes' bodies (threads spec §2.3). A body's field number is not
 // its event type (findings.md §12.1.3); each one's field is in
 // Event.EventBody. From purple: push 4, TOPIC_VIEWED.
@@ -2059,7 +2182,15 @@ message Event {
 		SHARED_DRIVE_UPDATED = 48;
         MESSAGE_LABEL_APPLIED = 68;
         MESSAGE_LABEL_REMOVED = 69;
+        GROUP_LABEL_APPLIED = 70;
+        GROUP_LABEL_REMOVED = 71;
+        ROSTER_SECTION_CREATED = 72;
+        ROSTER_SECTION_DELETED = 73;
+        ROSTER_SECTION_UPDATED = 74;
         MESSAGE_LABEL_UPDATED = 85;
+        UNSENT_MESSAGE_CREATED = 87;
+        UNSENT_MESSAGE_DELETED = 88;
+        UNSENT_MESSAGE_UPDATED = 89;
 		MESSAGE_PERSONAL_LABEL_UPDATED = 49;
 		USER_QUOTA_EXCEEDED = 50;
 	}
@@ -2081,7 +2212,7 @@ message Event {
 			MembershipChangedEvent membership_changed = 14;
 			//GroupHideChangedEvent group_hide_changed = 15;
 			//DriveAclFixProcessedEvent drive_acl_fix_processed = 16;
-			//GroupNotificationSettingsUpdatedEvent group_notification_settings_updated = 17;
+			GroupNotificationSettingsUpdatedEvent group_notification_settings_updated = 17;
 			MessageDeletedEvent message_deleted = 18;
 			//RetentionSettingsUpdatedEvent retention_settings_updated = 19;
 			//TopicCreatedEvent topic_created = 21;
@@ -2107,10 +2238,13 @@ message Event {
 			//SharedDriveUpdatedEvent shared_drive_updated_event = 42;
 			//MessagePersonalLabelUpdatedEvent message_personal_label_updated = 43;
             MessageLabelChangedEvent message_label_changed = 56;
+            GroupLabelChangedEvent group_label_changed = 57;
+            RosterSectionChangedEvent roster_section_changed = 58;
 			// Push 53, from the bundle (findings.md §64.4) [Verify].
 			GroupUnreadThreadStateUpdatedEvent group_unread_thread_state_updated_event = 46;
 			// Push 82, measured (findings.md §63.10).
 			TopicMetadataUpdatedEvent topic_metadata_updated_event = 64;
+			UnsentMessageChangedEvent unsent_message_changed = 67;
 		}
 
 		optional EventType event_type = 12;
@@ -2810,11 +2944,44 @@ enum SortKey {
 	SORT_KEY_UNSPECIFIED = 0;
 	SORT_BY_SORT_TIME_DESC = 1;
 	SORT_BY_RELEVANCE_SCORE = 2;
+	SORT_BY_STARRED_LABEL_APPLIED_TIME = 4;
 }
 
 message Sort {
 	optional SortKey sort_key = 1;
 	optional string sort_value = 2;
+}
+
+message WorldEntityFilter {
+	repeated WorldEntityFilterTerm terms = 1;
+}
+
+message WorldEntityFilterTerm {
+	optional int32 entity_type = 1;
+	optional WorldEntityExpression expression = 2;
+}
+
+message WorldEntityExpression {
+	optional WorldEntityFieldEquals field_equals = 5;
+	optional string value = 8;
+}
+
+message WorldEntityFieldEquals {
+	optional int32 field = 1;
+	optional WorldEntityExpression field_argument = 2;
+	optional WorldEntityExpression operand = 3;
+}
+
+message WorldEntityQueryOptions {
+	message SortOptions {
+		optional int32 direction = 1;
+		optional bool by_label_applied_time = 2;
+	}
+	message HydrationOptions {
+		optional bool include_entity = 1;
+	}
+	optional SortOptions sort_options = 1;
+	optional HydrationOptions hydration_options = 2;
 }
 
 enum SectionType {
@@ -2843,6 +3010,90 @@ message WorldSectionRequest {
 	optional Section section = 15;
 }
 
+message WorldEntitySectionRequest {
+	optional int32 page_size = 1;
+	optional WorldEntityQueryOptions entity_options = 10;
+	optional Sort sort = 11;
+	optional WorldEntityFilter entity_filter = 16;
+}
+
+message GroupLabel {
+	optional int32 type = 1;
+	optional string secondary_key = 2;
+}
+
+message ChangeGroupLabelRequest {
+	optional GroupLabel label = 1;
+	optional GroupId group_id = 2;
+	optional RequestHeader request_header = 100;
+}
+
+message ChangeGroupLabelResponse {
+	optional WriteRevision write_revision = 1;
+}
+
+message RosterSectionID {
+	optional int32 type = 1;
+	optional GroupLabel label = 2;
+	optional string id = 3;
+}
+
+message RosterSectionDefinition {
+	optional RosterSectionID id = 1;
+	optional int32 position = 2;
+	optional string name = 3;
+	optional bool unread_only = 4;
+	optional int32 visible_item_count = 6;
+	message ContentSort {
+		optional int32 order = 1;
+	}
+	optional ContentSort content_sort = 10;
+	optional int32 activity_item_count = 11;
+}
+
+message UpdateRosterSectionRequest {
+	optional RosterSectionDefinition section = 1;
+	optional UnsentMessageUpdateMask update_mask = 3;
+	optional RequestHeader request_header = 100;
+}
+
+message UpdateRosterSectionResponse {
+	optional RosterSectionDefinition section = 1;
+	optional WriteRevision write_revision = 2;
+}
+
+message CreateRosterSectionRequest {
+	optional RosterSectionDefinition section = 1;
+	optional RequestHeader request_header = 100;
+}
+
+message CreateRosterSectionResponse {
+	optional RosterSectionDefinition section = 1;
+	optional WriteRevision write_revision = 2;
+}
+
+message DeleteRosterSectionRequest {
+	optional RosterSectionID section_id = 2;
+	optional RequestHeader request_header = 100;
+}
+
+message DeleteRosterSectionResponse {
+	optional WriteRevision write_revision = 1;
+}
+
+message WorldRosterSection {
+	optional RosterSectionDefinition definition = 2;
+}
+
+message GroupLabelChangedEvent {
+	optional GroupId group_id = 1;
+	optional GroupLabel label = 2;
+}
+
+message RosterSectionChangedEvent {
+	optional RosterSectionDefinition section = 1;
+}
+
 message WorldSectionResponse {
 	optional WorldSection world_section = 1;
 	optional WorldFilter world_filter = 4;
@@ -2850,6 +3101,8 @@ message WorldSectionResponse {
 	optional int64 next_page_anchor_sort_timestamp_micros = 3;
 	optional bool has_more_items = 5;
 	optional string pagination_token = 6;
+	repeated WorldRosterSection roster_sections = 9;
+	optional WorldEntityFilter entity_filter = 16;
 }
 
 message PaginatedWorldRequest {
@@ -2866,11 +3119,22 @@ message PaginatedWorldRequest {
 		FETCH_USER_PROFILES_FOR_GROUP_NAMING = 5;
 		FETCH_SNIPPET_SENDER_PROFILES = 6;
 		FETCH_THREAD_MESSAGE_SENDER_PROFILES = 7;
+		FETCH_ROSTER_SECTIONS = 8;
 	}
 	repeated FetchOptions fetch_options = 4;
 	optional bool fetch_from_user_spaces = 5;
 	optional bool receive_world_update_notifications = 6;
 	optional bool fetch_snippets_for_unnamed_rooms = 7;
+	optional bool register_world_client = 9;
+	repeated int32 badge_fetch_options = 10;
+}
+
+// The web client's entity sections share the paginated_world route and response.
+message PaginatedEntityWorldRequest {
+	optional RequestHeader request_header = 1;
+	repeated WorldEntitySectionRequest sections = 2;
+	repeated PaginatedWorldRequest.FetchOptions fetch_options = 4;
+	optional bool register_world_client = 9;
 }
 
 message PaginatedWorldResponse {
@@ -3016,6 +3280,14 @@ message UpdateGroupResponse {
 	optional WriteRevision group_revision = 2;
 }
 
+message ListBlockedUsersRequest {
+	optional RequestHeader request_header = 100;
+}
+
+message ListBlockedUsersResponse {
+	repeated UserId blocked_user_id = 1;
+}
+
 message BlockEntityRequest {
 	optional RequestHeader request_header = 100;
 	oneof Entity {
@@ -3029,6 +3301,20 @@ message BlockEntityRequest {
 message BlockEntityResponse {
 	optional GroupReadState read_state = 1;
 	optional WriteRevision user_revision = 2;
+}
+
+message BlockedRoomsResponse {
+	message Room {
+		optional WebGroupReference group = 1;
+		optional string name = 2;
+	}
+	repeated Room rooms = 1;
+}
+
+message UnblockRoomRequest {
+	optional WebGroupReference group = 2;
+	optional bool blocked = 3;
+	optional bool reported = 4;
 }
 
 message SetCustomStatusRequest {

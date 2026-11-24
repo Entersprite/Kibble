@@ -33,9 +33,16 @@ public struct CallChatScene {
 
 struct CallChatView: View {
     let scene: CallChatScene
+    var embedded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Chat").font(.headline)
+            if embedded {
+                Text("Messages are saved in the meeting conversation.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Chat").font(.headline)
+            }
             ScrollViewReader { _ in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
@@ -75,9 +82,12 @@ struct CallChatView: View {
                         .disabled(scene.isSending || scene.draft
                             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+            } else if embedded {
+                Text("Chat is read-only in this meeting.").font(.callout).foregroundStyle(.secondary)
             }
         }
-        .padding(16).frame(width: 340, height: 420)
+        .padding(embedded ? 0 : 16)
+        .frame(width: embedded ? nil : 340, height: embedded ? 320 : 420)
         .onAppear(perform: scene.open)
         .onDisappear(perform: scene.close)
     }

@@ -17,12 +17,22 @@ extension ServiceCallRuntime {
             publish()
         }
         if let links = source as? any MeetingLinkAudioCallService {
-            let enabled = await links.canJoinMeetingLinks
+            let canJoin = await links.canJoinMeetingLinks
+            let canCreate = await links.canCreateMeetingLinks
+            let canPreview = await links.canPreviewMeetingLinks
+            let hosts = canJoin ? await Array(links.meetingLinkHosts).sorted() : []
             guard !stopped else { return }
-            if enabled {
+            if canJoin {
                 state.supportsMeetingLinks = true
-                state.meetingLinkHosts = await Array(links.meetingLinkHosts).sorted()
-                guard !stopped else { return }
+                state.meetingLinkHosts = hosts
+                if canPreview {
+                    state.supportsMeetingLinkPreview = true
+                }
+            }
+            if canCreate {
+                state.supportsMeetingLinkCreation = true
+            }
+            if canJoin || canCreate {
                 publish()
             }
         }

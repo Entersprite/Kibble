@@ -49,6 +49,8 @@ public enum ChannelEventMapping {
             message(in: body).map(ChatEvent.messageUpdated) ?? routed(body)
         case .groupViewed:
             readState(in: body) ?? routed(body)
+        case .groupNotificationSettingsUpdated:
+            notificationSettingsEvent(in: body) ?? routed(body)
         case .messageDeleted:
             deletion(in: body) ?? routed(body)
         case .groupHideChanged, .clearHistory, .markAsUnread:
@@ -59,7 +61,8 @@ public enum ChannelEventMapping {
         case .blockStateChanged, .userRemovedFromGroup, .membershipChanged:
             .gap(scope: .everything, reason: "Conversation state changed on the service.")
         default:
-            ActivityMapping.event(body) ?? threadEvent(in: body) ?? pinEvent(in: body) ?? routed(body)
+            personalCollectionEvent(in: body) ?? ActivityMapping
+                .event(body) ?? threadEvent(in: body) ?? routed(body)
         }
     }
 
@@ -126,8 +129,8 @@ public enum ChannelEventMapping {
     private static func readState(in body: ChannelEventBody) -> ChatEvent? {
         guard body.type == .groupViewed else { return nil }
         let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
-        guard case let .groupViewed(event)? = decoded.message.type else { return nil }
-        guard let conversationID = conversationID(event.groupID) else { return nil }
+        guard case let .groupViewed(event)? = decoded.message.type,
+              let conversationID = conversationID(event.groupID) else { return nil }
         // **Presence decides, never the value**, as in
         // `WorldMapping.readPosition`: an absent `view_time` reads as 0,
         // which is 1970, and would turn every mention in the conversation
@@ -147,8 +150,8 @@ public enum ChannelEventMapping {
     /// caught once on this branch.
     static func domainMessage(_ message: GChatBridgeCore.Message) -> ChatKit.Message? {
         let identifier = message.id.messageID
-        guard !identifier.isEmpty else { return nil }
-        guard let conversationID = conversationID(message.id.parentID.topicID.groupID) else {
+        guard !identifier.isEmpty,
+              let conversationID = conversationID(message.id.parentID.topicID.groupID) else {
             return nil
         }
         let activity = MessageActivityMapping.pin(in: message.annotations)

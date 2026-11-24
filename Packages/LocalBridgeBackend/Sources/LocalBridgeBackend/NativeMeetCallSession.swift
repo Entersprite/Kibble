@@ -10,6 +10,7 @@ actor NativeMeetCallSession {
     let staysWhenAlone: Bool
     let media: any CallMediaEngine
     let now: @Sendable () -> ContinuousClock.Instant
+    let admissionSleep: @Sendable (Duration) async throws -> Void
     let validateAccount: @Sendable () async throws -> Void
     var connection: Task<Void, any Error>?
     var ready = false
@@ -22,6 +23,7 @@ actor NativeMeetCallSession {
     var refresh: Task<MeetCallCollectionsWire.Snapshot, any Error>?
     var closing: Task<Void, Never>?
     var receiveState: (@Sendable (MeetNativeCallState) async -> Void)?
+    var receiveWaitingRoomMessages: (@Sendable ([CallMeetingMessage]) async -> Void)?
     var state: MeetNativeCallState = .ready
     var stableState: MeetNativeCallState = .ready
     var deviceVersion: UInt64?
@@ -30,15 +32,18 @@ actor NativeMeetCallSession {
     var invitationVersion: UInt64?
     var outgoingInvitationStatus: UInt64?
     var participantLocalDevice: String?
+    var participantVersion: UInt64?
     var participantSpeaking: [String: Bool] = [:]
     var participantAudioSources: [UInt32: String] = [:]
     var audioLevelTimes: [UInt32: Double] = [:]
     var participantMutes: [String: Bool] = [:]
-    var participantHands: [String: String]?
+    var participantHands: [String: MeetCallCollectionsWire.Hand]?
     var handVersion: UInt64?
     var handOperation = false
     var ownHandRaised: Bool?
-    var ownHandName: String?
+    var observedOwnHand: String?
+    var requestedOwnLowering: String?
+    var automaticHand = NativeAutomaticHandLowering()
     var publishedParticipants: [CallParticipantDevice]?
     var participantHandles: [String: UUID] = [:]
     var participantDevices: [String: MeetDeviceWire.Device] = [:]
@@ -46,7 +51,7 @@ actor NativeMeetCallSession {
     var breakoutInitialized = false
     var roomAssignments: [String: [UUID]] = [:]
     var activityChatLocked = false
-    var activityReactionsLocked = false
+    var hostControls = HostControlsState()
     var activities = CallActivitiesState()
     var activityResources: [UUID: (kind: String, name: String)] = [:]
     var artifactSessions: [String: String] = [:]
@@ -61,6 +66,12 @@ actor NativeMeetCallSession {
     var lastReactionTime: ContinuousClock.Instant?
     var activitySequence: UInt64 = 0
     var activityChannelsTask: Task<Void, Never>?
+    var agendaArtifactRead: Task<Void, Never>?
+    var agendaGuestRows: [MeetAgendaGuest] = []
+    var agendaGuestHandles: [String: UUID] = [:]
+    var agendaGuestPresenceAliases: Set<String>?
+    var assignedActivityChannels: Set<MeetMediaSessionWire.ActivityChannel>?
+    var captionTransport = NativeMeetCaptionTransport()
     var receiveActivities: (@Sendable (CallActivitiesState) async -> Void)?
     var receiveParticipants: (@Sendable ([CallParticipantDevice]?) async -> Void)?
     var peerJoined = false
@@ -101,7 +112,10 @@ actor NativeMeetCallSession {
         client: MeetCallClient, call: MeetResolvedCall, media: any CallMediaEngine,
         staysWhenAlone: Bool = false,
         validateAccount: @escaping @Sendable () async throws -> Void,
-        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
+        admissionSleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        }
     ) {
         self.client = client
         device = MeetDeviceSession(client: client, call: call)
@@ -109,6 +123,7 @@ actor NativeMeetCallSession {
         self.staysWhenAlone = staysWhenAlone
         self.validateAccount = validateAccount
         self.now = now
+        self.admissionSleep = admissionSleep
         activities.availableActions = [
             "refresh",
             "react",
@@ -141,20 +156,11 @@ actor NativeMeetCallSession {
         }
     }
 
-    func close(reason: MeetNativeCallEndReason = .localEnded) async {
-        if let closing {
-            await closing.value; return
-        }
-        let task = Task { await performClose(reason: reason) }
-        closing = task
-        await task.value
-    }
-
     private func performClose(reason: MeetNativeCallEndReason) async {
         let mediaWasClosed = closed
         closed = true
         ready = false
-        activityChannelsTask?.cancel()
+        retireMeetingActivities()
         monitor?.cancel()
         monitor = nil
         let task = connection
@@ -195,12 +201,16 @@ actor NativeMeetCallSession {
         await cleanup()
         await publish(cleanupStatus.isConfirmed ? .ended(reason) : .endedUnconfirmed(reason, cleanupStatus))
         receiveState = nil
+        receiveWaitingRoomMessages = nil
         receiveRemoteMuted = nil
     }
 
     private func performConnect() async throws {
         do {
             try await check()
+            if staysWhenAlone {
+                await media.setMuted(true)
+            }
             lines.append("Native audio: preparing local offer")
             let supportsStreamControl = await media.supportsStreamControl
             let local = try await media.makeAudioOffer(serverControlChannel: "collections")
@@ -218,17 +228,14 @@ actor NativeMeetCallSession {
                 lines.append("Native control: dcrpc requested; ordered, reliable and uncompressed")
             }
             lines.append("CreateMediaSession: started")
-            let session = try await client
-                .createMediaSession(clientConfiguration: video?.clientConfiguration ?? offer
-                    .clientConfiguration)
-            try await check()
-            try await acceptMediaSession(session)
+            let session = try await createPrimaryMediaSession(video?.clientConfiguration ?? offer
+                .clientConfiguration)
             lines.append("Native audio: converting server answer")
             let answer = try video?.answer(serverConfiguration: session.serverConfiguration)
                 ?? serverAnswer(offer, configuration: session.serverConfiguration)
             lines.append("CreateMeetingDevice: started")
             registrationAttempted = true
-            try await device.register(mediaSession: session.name)
+            try await device.register(mediaSession: session.name, supportsWaitingRoom: staysWhenAlone)
             lines.append("CreateMeetingDevice: accepted")
             try await check()
             try await media.applyAnswer(answer)
@@ -275,16 +282,6 @@ actor NativeMeetCallSession {
         await cleanup()
     }
 
-    private func finishConnect(_ offer: MeetAudioOffer, streamControl: Bool) async throws {
-        lines.append("UpdateMeetingDevice: JOINED accepted")
-        if streamControl {
-            await registerAudioStream(offer)
-            try await check()
-            guard audioStream != nil else { throw CallMediaError.outgoingAudioUnconfirmed }
-        }
-        ready = true
-    }
-
     private func cleanup() async {
         guard !cleanupAttempted else { return }
         cleanupAttempted = true
@@ -315,5 +312,16 @@ actor NativeMeetCallSession {
                 .append("Native cleanup: device leave unconfirmed; " + MeetDMCallTrial
                     .errorDescription(error))
         }
+    }
+}
+
+extension NativeMeetCallSession {
+    func close(reason: MeetNativeCallEndReason = .localEnded) async {
+        if let closing {
+            await closing.value; return
+        }
+        let task = Task { await performClose(reason: reason) }
+        closing = task
+        await task.value
     }
 }

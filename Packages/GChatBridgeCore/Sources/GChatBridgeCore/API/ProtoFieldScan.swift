@@ -186,6 +186,16 @@ public enum ProtoFieldScan {
         return results
     }
 
+    static func packedVarintValues(in data: Data, limit: Int) -> [UInt64]? {
+        var values: [UInt64] = []
+        var index = data.startIndex
+        while index < data.endIndex {
+            guard values.count < limit, let value = varint(data, &index) else { return nil }
+            values.append(value)
+        }
+        return values
+    }
+
     /// Advances `index` past one field's value, given its `wireType`.
     ///
     /// `false` means the value could not be read - the walk stops there, the

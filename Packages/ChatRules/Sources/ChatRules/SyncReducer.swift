@@ -32,7 +32,7 @@ public enum SyncReducer {
             reduceDetailEvent(event)
         case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged:
             supersedingStaleError(reduceMessageEvent(event))
-        case .conversationRemoved, .conversationUnreadMarkChanged:
+        case .conversationRemoved, .conversationUnreadMarkChanged, .conversationNotificationSettingsChanged:
             supersedingStaleError(reduceConversationActionEvent(event))
         case .conversationsChanged, .conversationUpdated, .membersChanged, .membersResolved,
              .readStateChanged, .typingChanged, .presenceChanged, .statusChanged, .calendarChanged:
@@ -41,7 +41,8 @@ public enum SyncReducer {
             supersedingStaleError(reduceThreadEvent(event))
         case .selfIdentified, .availabilityChanged:
             supersedingStaleError(reduceSessionEvent(event))
-        case .resourceSyncChanged, .connectionStateChanged, .backendError, .gap, .unknown:
+        case .resourceSyncChanged, .connectionStateChanged, .backendError, .gap, .unknown,
+             .messageStarChanged, .unsentMessagesChanged, .conversationSectionsChanged:
             reduceSessionEvent(event)
         }
     }

@@ -10,10 +10,20 @@ extension AccountRuntime {
         epoch: UUID
     ) async throws -> JSONValue {
         switch request.operation {
-        case SetMessagePinned.operation:
-            return try await mutateMessagePin(request, backend: backend, epoch: epoch)
+        case SetMessagePinned.operation, GetStarredMessages.operation, SetMessageStarred.operation,
+             GetScheduledMessages.operation, ScheduleMessage.operation, EditScheduledMessage.operation,
+             RescheduleMessage.operation, CancelScheduledMessage.operation, SendScheduledMessageNow.operation,
+             GetBlockedConversations.operation, UnblockConversation.operation,
+             GetBlockedPeople.operation, UnblockPerson.operation,
+             GetSyncedDrafts.operation, WriteSyncedDraft.operation,
+             GetConversationSections.operation, UpdateConversationSection.operation,
+             CreateConversationSection.operation, DeleteConversationSection.operation,
+             MoveConversationToSection.operation:
+            return try await dispatchCollections(request, backend: backend, epoch: epoch)
         case ReadCallState.operation, ControlCall.operation, ControlConversationCall.operation,
-             JoinMeetingCall.operation, PerformCallActivity.operation, ControlCallInteraction.operation,
+             JoinMeetingCall.operation, CreateMeetingLink.operation, PreviewMeetingLink.operation,
+             PerformCallActivity.operation,
+             ControlCallInteraction.operation,
              InviteCallParticipant.operation:
             guard let context else { throw ServiceFailure.notAuthorized }
             return try await dispatchCalls(request, context: context, backend: backend, epoch: epoch)
@@ -29,7 +39,7 @@ extension AccountRuntime {
         case GetMessagePins.operation, GetConversationDetails.operation, GetParticipants.operation,
              BrowseSpaces.operation,
              GetConversationPreview.operation, GetMembership.operation, LoadThread.operation,
-             SetNotificationSetting.operation,
+             SetNotificationSetting.operation, SetConversationMute.operation,
              SetThreadFollowed.operation:
             return try await dispatchDetails(request, backend: backend, epoch: epoch)
         case GetConversationEmail.operation, GetConversationIntegrations.operation,

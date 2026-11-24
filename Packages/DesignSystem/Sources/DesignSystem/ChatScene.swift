@@ -10,6 +10,8 @@ public enum SidebarSelection: Hashable, Sendable {
     case conversation(Conversation.ID)
     case meetingSeries(MeetingSeries.ID)
     case mentions
+    case starred
+    case scheduled
     case threads
     case calls
 }
@@ -21,6 +23,8 @@ public enum SidebarSelection: Hashable, Sendable {
 /// reach past the seam for something it was not given.
 public struct ChatSceneState: Sendable, Equatable {
     public var pins = PinnedMessages()
+    public var stars = StarredMessagesScene()
+    public var scheduled = ScheduledMessagesScene()
     public var pinsError: String?
     public var isLoadingPins = false
     public var resourceSyncStatuses: [ResourceSyncStatus] = []
@@ -80,6 +84,7 @@ public struct ChatSceneState: Sendable, Equatable {
     /// A send that was not accepted, mentions and all, for the composer to
     /// adopt. `nil` in every ordinary frame.
     public var failedDraft: ComposedMessage?
+    public var failedDraftID: UUID?
 
     /// Conversations whose rule hides the unread indicator - drawn read in the
     /// sidebar whatever `hasUnread` says (spec §3). The flag itself is untouched:
@@ -146,6 +151,7 @@ public struct ChatSceneState: Sendable, Equatable {
     /// The sidebar sections a person has collapsed, by `SidebarSection.id`.
     /// The host keeps them across launches (`ChatSceneActions.setSectionCollapsed`).
     public var sidebarPreferences: SidebarPreferences = .init()
+    public var conversationSections: [ConversationSection] = []
     public var collapsedSections: Set<String>
     /// Which account a message would be sent as, while several are connected:
     /// the composers say so in their placeholder. `nil` with one account.
@@ -257,6 +263,12 @@ public struct ChatSceneState: Sendable, Equatable {
     public var sidebarSelection: SidebarSelection? {
         if showingMentions {
             return .mentions
+        }
+        if stars.showingList {
+            return .starred
+        }
+        if scheduled.showingList {
+            return .scheduled
         }
         if threads.showingList {
             return .threads

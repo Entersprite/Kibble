@@ -16,15 +16,18 @@ struct CallChatModelTests {
         model.setActive(false)
         await settleAutoMarkRead(until: "world") { !model.conversations.isEmpty }
         let selected = Conversation.ID("dm:1"), call = Conversation.ID("space:1")
+        let callID = UUID()
         model.select(selected)
-        model.openCallChat(in: call)
+        model.openCallChat(in: call, callID: callID)
         await settleAutoMarkRead(until: "call messages") { !model.callChat.messages.isEmpty }
         #expect(model.callChat.messages.allSatisfy { $0.conversationID == call })
-        model.updateCallChatDraft("From the call", in: call)
-        model.closeCallChat(in: call)
-        model.openCallChat(in: call)
+        model.updateCallChatDraft("From the call", in: call, callID: callID)
+        model.closeCallChat(in: call, callID: callID)
+        model.openCallChat(in: call, callID: callID)
         #expect(model.callChat.draft == "From the call")
-        model.sendCallChat(in: call)
+        model.sendCallChat(in: call, callID: UUID())
+        #expect(!model.callChat.isSending)
+        model.sendCallChat(in: call, callID: callID)
         await settleAutoMarkRead(until: "call send") { !model.callChat.isSending }
         let commands = await backend.commands
         #expect(commands.contains {
@@ -56,5 +59,21 @@ struct CallChatModelTests {
         await model.stop()
         #expect(model.callChat.draft.isEmpty)
         #expect(model.callChat.savedDrafts.isEmpty)
+    }
+
+    @Test func aRetiredCallCannotCloseOrEditTheSameConversationInItsReplacement() async throws {
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: FakeBackend(world: .minimal), store: store)
+        let model = ChatSessionModel(store: store, engine: engine)
+        let conversation = Conversation.ID("space/meeting"), first = UUID(), replacement = UUID()
+        model.openCallChat(in: conversation, callID: first)
+        model.updateCallChatDraft("Keep this draft", in: conversation, callID: first)
+        model.openCallChat(in: conversation, callID: replacement)
+        model.closeCallChat(in: conversation, callID: first)
+        model.updateCallChatDraft("Stale", in: conversation, callID: first)
+        #expect(model.callChat.callID == replacement)
+        #expect(model.callChat.observer != nil)
+        #expect(model.callChat.draft == "Keep this draft")
+        await model.stop()
     }
 }

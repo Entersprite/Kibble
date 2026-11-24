@@ -116,13 +116,20 @@ struct ThreadStagedSendTests {
         let model = harness.model
         model.stage([Self.file("a"), Self.file("b")], in: .openThread)
         await harness.backend.failUploads(true)
-        model.sendReply(ComposedMessage(text: "caption"))
+        let caption = ComposedMessage(text: "caption")
+        let address = ComposerDraftAddress(conversation: ThreadFixture.conversation, thread: thread)
+        let draft = SyncedDraft(id: .init(address: address, record: "draft"), body: caption)
+        var receipts: [Bool] = []
+        model.sendReply(caption, in: address.conversation, thread: thread, consuming: draft) {
+            receipts.append($0)
+        }
         await settleAutoMarkRead(until: "the send stopped") {
             !model.threadStagedAttachments.isEmpty && model.threadStagedAttachments
                 .allSatisfy { !$0.isUploading }
         }
         #expect(model.threadStagedAttachments.map(\.state) == [.failed, .ready])
         #expect(await Self.sends(harness.backend).isEmpty)
+        #expect(receipts == [false])
         #expect(model.failedDraft == nil)
         #expect(model.failedReplyDraft?.text == "caption")
         model.closeThread()

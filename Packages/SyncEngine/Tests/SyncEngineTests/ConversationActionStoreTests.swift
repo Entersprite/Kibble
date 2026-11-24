@@ -6,6 +6,61 @@ import Testing
 @testable import SyncEngine
 
 struct ConversationActionStoreTests {
+    @Test func timedMuteSurvivesProjectionAndExpiresWithoutClearingTheRoomLevel() throws {
+        let store = try ChatStore.inMemory()
+        let id = Conversation.ID("space")
+        let until = Date(timeIntervalSince1970: 1_800_000_000)
+        let event = ChatEvent.conversationNotificationSettingsChanged(
+            conversationID: id, level: nil, muted: true, muteUntil: until
+        )
+        try store.apply([.upsertConversation(.init(id: id, kind: .space, notificationLevel: .less))])
+        let decoded = try JSONDecoder().decode(ChatEvent.self, from: JSONEncoder().encode(event))
+        try store.apply(SyncReducer.reduce(decoded).writes)
+        let timed = try #require(store.conversations().first)
+        #expect(timed.notificationMuteUntil == until)
+        #expect(timed.isProviderMuted(at: until.addingTimeInterval(-1)))
+        #expect(!timed.isProviderMuted(at: until))
+        #expect(timed.notificationLevel == .less)
+
+        let levelOnly = ChatEvent.conversationNotificationSettingsChanged(
+            conversationID: id, level: .never, muted: nil
+        )
+        try store.apply(SyncReducer.reduce(levelOnly).writes)
+        #expect(try store.conversations().first?.notificationMuteUntil == until)
+        let clear = ChatEvent.conversationNotificationSettingsChanged(
+            conversationID: id,
+            level: nil,
+            muted: false
+        )
+        try store.apply(SyncReducer.reduce(clear).writes)
+        #expect(try store.conversations().first?.notificationMuteUntil == nil)
+        #expect(try store.conversations().first?.notificationLevel == .never)
+    }
+
+    @Test func confirmedNotificationsChangeOnlyTheAddressedSettings() throws {
+        let store = try ChatStore.inMemory()
+        let id = Conversation.ID("space")
+        let at = Date(timeIntervalSince1970: 1_790_000_000)
+        let original = Conversation(
+            id: id, kind: .space, title: "Space", hasUnread: true, isMuted: true, readPosition: at
+        )
+        let event = ChatEvent.conversationNotificationSettingsChanged(
+            conversationID: id, level: .lessWithNewThreads, muted: false
+        )
+        let decoded = try JSONDecoder().decode(ChatEvent.self, from: JSONEncoder().encode(event))
+        #expect(decoded == event)
+        try store.apply([.upsertConversation(original)] + SyncReducer.reduce(decoded).writes)
+        var expected = original
+        expected.notificationLevel = .lessWithNewThreads
+        expected.isMuted = false
+        #expect(try store.conversations() == [expected])
+        try store.apply(SyncReducer.reduce(.conversationNotificationSettingsChanged(
+            conversationID: id, level: nil, muted: true
+        )).writes)
+        expected.isMuted = true
+        #expect(try store.conversations() == [expected])
+    }
+
     @Test func manualUnreadSurvivesLateReceiptsAndClearsExplicitly() throws {
         let store = try ChatStore.inMemory()
         let id = Conversation.ID("opaque")

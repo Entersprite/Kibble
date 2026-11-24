@@ -31,24 +31,45 @@ extension AccountRuntime {
                 try await backend.invokeCardAction(payload.action)
             }
         case SendCommand.operation:
-            let payload = try request.decodePayload(SendCommand.self)
-            guard !SendHint.accepts(payload.command) else { throw ServiceFailure.invalidRequest }
-            let result = try await performOperation(
-                payload.operationID, request: request, epoch: epoch,
-                authorize: {
-                    try authorizeForward(payload.command)
-                    try authorizePrivacy(payload.command)
-                    try authorizeUploadedAttachments(payload.command)
-                }, perform: {
-                    try await { try await backend.send(payload.command); return ServiceUnit() }()
-                }
-            )
-            _ = result
-            guard let operation = try storage.operation(payload.operationID)
-            else { throw ServiceFailure.operationUnknown }
-            return try ServiceCodec.value(operation)
+            return try await dispatchSend(request, backend: backend, epoch: epoch)
         default: return try await dispatchAppOpening(request, backend: backend, epoch: epoch)
         }
+    }
+
+    private func dispatchSend(
+        _ request: ServiceRequest, backend: any ChatBackend, epoch: UUID
+    ) async throws -> JSONValue {
+        let payload = try request.decodePayload(SendCommand.self)
+        guard !SendHint.accepts(payload.command) else { throw ServiceFailure.invalidRequest }
+        if let draft = payload.draft {
+            guard capabilities.canSendSavedDraft else { throw ServiceFailure.unsupportedOperation }
+            guard draft.canConsume(
+                      with: payload.command,
+                      allowingAttachments: capabilities.canSendSavedDraftWithAttachments
+                  ),
+                  Self.validDraft(draft, in: nil) else {
+                throw ServiceFailure.invalidRequest
+            }
+        }
+        _ = try await performOperation(
+            payload.operationID, request: request, epoch: epoch,
+            authorize: {
+                try authorizeForward(payload.command)
+                try authorizePrivacy(payload.command)
+                try authorizeUploadedAttachments(payload.command)
+            }, perform: {
+                if let draft = payload.draft {
+                    let consumed = try await backend.send(payload.command, consuming: draft)
+                    return SendCommandReceipt(draftConsumed: consumed)
+                }
+                try await backend.send(payload.command)
+                return SendCommandReceipt()
+            }
+        )
+        try checkEpoch(epoch)
+        guard let operation = try storage.operation(payload.operationID)
+        else { throw ServiceFailure.operationUnknown }
+        return try ServiceCodec.value(operation)
     }
 
     private func dispatchAppOpening(

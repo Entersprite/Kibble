@@ -2,6 +2,7 @@ import AppKit
 import ChatKit
 import DesignSystem
 import Foundation
+@preconcurrency import LiveKitWebRTC
 import Testing
 @testable import MacHost
 
@@ -20,6 +21,43 @@ struct AudioCallWindowHostTests {
     }
 
     private let actions = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})
+
+    @Test func meetingPreparationIgnoresAnOldVideoRouteAndKeepsItsWindowForJoin() throws {
+        let video = CallVideoController()
+        _ = video.install(CameraRoute())
+        let factory = LKRTCPeerConnectionFactory()
+        let track = factory.videoTrack(with: factory.videoSource(), trackId: "previous-video")
+        video.remoteTrack = track
+        video.remoteVisible = true
+        var preparing = true
+        let host = AudioCallWindowHost(
+            actions: { _ in
+                var actions = actions
+                if preparing {
+                    actions.meetingPreparation = .init(
+                        microphone: .ready,
+                        camera: .unavailable,
+                        join: {},
+                        cancel: {}
+                    )
+                }
+                return actions
+            },
+            windowClosed: { _ in }, present: { _ in }
+        )
+        let url = try #require(URL(string: "https://meet.example.test/room"))
+        let preview = AudioCallSession(.init(
+            id: UUID(), target: .init(meetingURL: url, displayName: "Meeting"), phase: .connecting
+        ), isJoining: true)
+        host.update(call: preview, windowRequests: 1, video: video)
+        let window = try #require(host.window)
+        #expect(!host.layout.isVideo)
+        preparing = false
+        host.update(call: preview, windowRequests: 2, video: video)
+        #expect(host.window === window && host.layout.isVideo)
+        host.update(call: nil, windowRequests: 2)
+        video.clear()
+    }
 
     @Test func pausedOrSilentIncomingDoesNotRaiseAWindowButExplicitOpenStillWorks() {
         var presented = 0
@@ -215,6 +253,9 @@ struct AudioCallWindowHostTests {
     @Test func onlyCleanEndsCloseThemselves() {
         var call = call(phase: .ended)
         #expect(AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = .sentToWaitingRoom
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = nil
         call.phase = .declined
         #expect(AudioCallWindowHost.closesAutomatically(call))
         call.failureMessage = "Leaving the call could not be confirmed."

@@ -26,7 +26,8 @@ public enum MeetActivityWire {
         kind: String,
         start: Bool,
         session: String?,
-        requestID: UUID
+        requestID: UUID,
+        recordingCaptionLanguage: String? = nil
     ) throws -> Request {
         let fields: [String: (UInt64, String)] = [
             "recording": (20, "recording_session_info"),
@@ -34,7 +35,16 @@ public enum MeetActivityWire {
             "notes": (29, "smart_notes_session_info")
         ]
         guard let (field, path) = fields[kind] else { throw MeetCallWire.WireError.invalidIdentifier }
-        var info = MeetProto.bytes(2, MeetProto.number(1, start ? 1 : 3))
+        var state = MeetProto.number(1, start ? 1 : 3)
+        if let recordingCaptionLanguage {
+            guard kind == "recording", start, MeetCaptionWire.validLanguage(recordingCaptionLanguage)
+            else { throw MeetCallWire.WireError.invalidIdentifier }
+            state += MeetProto.bytes(6, MeetProto.string(1, recordingCaptionLanguage))
+        }
+        var info = MeetProto.bytes(2, state)
+        if recordingCaptionLanguage != nil {
+            info += MeetProto.number(4, 1)
+        }
         if !start {
             guard let session, !session.isEmpty, session.utf8.count <= 512 else {
                 throw MeetCallWire.WireError.invalidIdentifier
@@ -45,32 +55,115 @@ public enum MeetActivityWire {
         return try updateSpace(
             space,
             callInfo: MeetProto.bytes(field, info),
-            mask: mask,
+            mask: [mask],
             requestID: requestID
         )
+    }
+
+    public static func recordingCaptionLanguage(in session: Data) -> String? {
+        guard (try? MeetProto.value(4, session)) == 1,
+              let state = try? MeetProto.payload(2, session),
+              let languages = try? MeetProto.payload(6, state),
+              let language = try? MeetProto.text(1, languages), MeetCaptionWire.validLanguage(language)
+        else { return nil }
+        return language
     }
 
     public static func attendance(space: String, enabled: Bool, requestID: UUID) throws -> Request {
         try updateSpace(
             space,
             callInfo: MeetProto.bytes(11, MeetProto.number(4, enabled ? 1 : 0)),
-            mask: "call_info.settings.attendance_report_enabled",
+            mask: ["call_info.settings.attendance_report_enabled"],
             requestID: requestID
         )
     }
 
-    private static func updateSpace(
-        _ space: String,
-        callInfo: Data,
-        mask: String,
+    public enum HostSetting: Sendable {
+        case management, reactions, chatMessages, screenSharing, microphone, camera
+        case allowJoiningBeforeHost, allowJoinRequests
+    }
+
+    static func endConferenceBody(space: String) throws -> Data {
+        guard MeetDeviceWire.validSpace(space) else { throw MeetCallWire.WireError.invalidIdentifier }
+        return MeetProto.string(1, space)
+    }
+
+    public static func hostSetting(
+        _ setting: HostSetting,
+        space: String,
+        enabled: Bool,
         requestID: UUID
     ) throws -> Request {
+        let field: Data
+        let paths: [String]
+        let savedSettings: Data?
+        switch setting {
+        case .management:
+            field = MeetProto.number(7, enabled ? 1 : 0)
+            paths = ["call_info.settings.moderation_enabled"]
+            savedSettings = nil
+        case .reactions:
+            field = MeetProto.number(9, enabled ? 0 : 1)
+            paths = ["call_info.settings.reactions_lock"]
+            savedSettings = nil
+        case .chatMessages:
+            let policy: UInt64 = enabled ? 2 : 3
+            field = MeetProto.number(38, policy)
+            paths = ["call_info.settings.send_chat_lock", "settings.send_chat_lock"]
+            savedSettings = MeetProto.number(36, policy)
+        case .screenSharing:
+            let locked: UInt64 = enabled ? 0 : 1
+            field = MeetProto.number(3, locked)
+            paths = ["call_info.settings.present_lock", "settings.present_lock"]
+            savedSettings = MeetProto.number(4, locked)
+        case .microphone:
+            field = MeetProto.number(5, enabled ? 0 : 1)
+            paths = ["call_info.settings.audio_lock"]
+            savedSettings = nil
+        case .camera:
+            field = MeetProto.number(6, enabled ? 0 : 1)
+            paths = ["call_info.settings.video_lock"]
+            savedSettings = nil
+        case .allowJoiningBeforeHost:
+            field = MeetProto.number(11, enabled ? 1 : 0)
+            paths = ["call_info.settings.allow_joining_before_host", "settings.allow_joining_before_host"]
+            savedSettings = MeetProto.number(10, enabled ? 1 : 0)
+        case .allowJoinRequests:
+            let policy: UInt64 = enabled ? 2 : 1
+            field = MeetProto.number(40, policy)
+            paths = ["call_info.settings.knocking_setting", "settings.knocking_setting"]
+            savedSettings = MeetProto.number(38, policy)
+        }
+        return try updateSpace(
+            space, callInfo: MeetProto.bytes(11, field),
+            mask: paths, requestID: requestID, savedSettings: savedSettings
+        )
+    }
+
+    static func spaceSettings(in space: Data, saved: Bool) -> Data? {
+        if saved {
+            return try? MeetProto.payload(15, space)
+        }
+        return (try? MeetProto.payload(6, space)).flatMap { try? MeetProto.payload(11, $0) }
+    }
+
+    static func updateSpace(
+        _ space: String,
+        callInfo: Data,
+        mask: [String],
+        requestID: UUID,
+        savedSettings: Data? = nil
+    ) throws -> Request {
         guard MeetDeviceWire.validSpace(space) else { throw MeetCallWire.WireError.invalidIdentifier }
+        var resource = MeetProto.string(1, space) + MeetProto.bytes(6, callInfo)
+        if let savedSettings {
+            resource += MeetProto.bytes(15, savedSettings)
+        }
+        let paths = mask.reduce(into: Data()) { $0 += MeetProto.string(1, $1) }
         return Request(
             method: "MeetingSpaceService/UpdateMeetingSpace",
-            body:
-            MeetProto.bytes(1, MeetProto.string(1, space) + MeetProto.bytes(6, callInfo))
-                + MeetProto.bytes(2, MeetProto.string(1, mask)) + MeetProto.string(3, requestID.uuidString)
+            body: MeetProto.bytes(1, resource) + MeetProto.bytes(2, paths)
+                + MeetProto.string(3, requestID.uuidString)
         )
     }
 
@@ -230,5 +323,69 @@ public enum MeetActivityWire {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               text.utf8.count <= maximum,
               !text.contains("\0") else { throw MeetCallWire.WireError.invalidIdentifier }
+    }
+}
+
+public extension MeetActivityWire {
+    static func continuousChatGroup(in space: Data) -> String? {
+        guard let info = try? MeetProto.payload(6, space),
+              let chat = try? MeetProto.payload(34, info),
+              let id = try? MeetProto.text(1, chat), MeetDeviceWire.validSpace("spaces/" + id)
+        else { return nil }
+        return id
+    }
+
+    static func waitingRoomEnabled(in space: Data) -> Bool? {
+        explicitSpaceSetting(in: space, field: 22, saved: false)
+    }
+
+    static func joiningBeforeHostAllowed(in space: Data, saved: Bool = false) -> Bool? {
+        explicitSpaceSetting(in: space, field: saved ? 10 : 11, saved: saved)
+    }
+
+    private static func explicitSpaceSetting(in space: Data, field: Int, saved: Bool) -> Bool? {
+        guard let settings = spaceSettings(in: space, saved: saved),
+              let value = try? MeetProto.value(field, settings), value <= 1 else { return nil }
+        return value == 1
+    }
+
+    static func hostSettings(in space: Data) -> (managementEnabled: Bool, reactionsAllowed: Bool)? {
+        guard let settings = spaceSettings(in: space, saved: false) else { return nil }
+        let fields = ProtoFieldScan.fields(in: settings)
+        guard !fields.truncated else { return nil }
+        let management = fields.fields.contains { $0.number == 7 } ? try? MeetProto.value(7, settings) : 0
+        let locked = fields.fields.contains { $0.number == 9 } ? try? MeetProto.value(9, settings) : 0
+        guard let management, let locked, management <= 1, locked <= 1 else { return nil }
+        return (management == 1, locked == 0)
+    }
+
+    static func chatSendingPolicy(in space: Data, saved: Bool = false) -> Bool? {
+        switch spaceSettings(in: space, saved: saved).flatMap({
+            try? MeetProto.value(saved ? 36 : 38, $0)
+        }) {
+        case 2: true
+        case 3: false
+        default: nil
+        }
+    }
+
+    static func screenSharingPolicy(in space: Data, saved: Bool = false) -> Bool? {
+        captureAllowed(in: space, field: saved ? 4 : 3, saved: saved)
+    }
+
+    static func microphonePolicy(in space: Data) -> Bool? {
+        captureAllowed(in: space, field: 5, saved: false)
+    }
+
+    static func cameraPolicy(in space: Data) -> Bool? {
+        captureAllowed(in: space, field: 6, saved: false)
+    }
+
+    private static func captureAllowed(in space: Data, field: Int, saved: Bool) -> Bool? {
+        guard let settings = spaceSettings(in: space, saved: saved) else { return nil }
+        let fields = ProtoFieldScan.fields(in: settings)
+        guard !fields.truncated else { return nil }
+        let locked = fields.fields.contains { $0.number == field } ? try? MeetProto.value(field, settings) : 0
+        return locked.flatMap { $0 <= 1 ? $0 == 0 : nil }
     }
 }

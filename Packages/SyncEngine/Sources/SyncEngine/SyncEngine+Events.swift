@@ -7,7 +7,8 @@ import Foundation
 extension SyncEngine {
     func handle(_ event: ChatEvent) async {
         switch event {
-        case let .conversationRemoved(id, _), let .conversationUnreadMarkChanged(id, _):
+        case let .conversationRemoved(id, _), let .conversationUnreadMarkChanged(id, _),
+             let .conversationNotificationSettingsChanged(id, _, _, _):
             invalidateConversationSnapshot(id)
         default: break
         }
@@ -19,6 +20,7 @@ extension SyncEngine {
                 restored = try store.restoreConversationForArrival(message)
             }
             try store.apply(reduction.writes + meetingMetadataWrites(for: event))
+            publishMessageCollectionChange(for: event)
             if restored {
                 await perform(.reloadConversations)
             }

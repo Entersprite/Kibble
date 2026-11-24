@@ -6,6 +6,8 @@ extension AppEnvironment {
     private nonisolated static let accountPreferencesPrefix = "personalPreferences.v1."
     private static let toneField = "skinTone"
     private static let sectionsField = "collapsedSections"
+    private static let callLayoutField = "callLayout"
+    private static let handGestureField = "raisesHandWithCameraGesture"
 
     /// Load local choices when the backend identifies an account. The old
     /// app-wide values are claimed once by the first real account; the demo
@@ -17,6 +19,7 @@ extension AppEnvironment {
             skinTone = .none
             sidebarPreferences = .init()
             collapsedSections = []
+            raisesHandWithCameraGesture = false
             return
         }
 
@@ -38,6 +41,7 @@ extension AppEnvironment {
         let saved = preferences.dictionary(forKey: key) ?? [:]
         skinTone = SkinTone(rawValue: saved[Self.toneField] as? Int ?? 0) ?? .none
         collapsedSections = Set(saved[Self.sectionsField] as? [String] ?? [])
+        raisesHandWithCameraGesture = saved[Self.handGestureField] as? Bool ?? false
         sidebarPreferences = (saved["sidebar"] as? Data).flatMap {
             try? JSONDecoder().decode(SidebarPreferences.self, from: $0)
         } ?? Self.globalSidebar(in: preferences)
@@ -67,6 +71,31 @@ extension AppEnvironment {
 }
 
 public extension AppEnvironment {
+    func saveCameraHandGesture(_ enabled: Bool, for identity: Member.ID) {
+        guard settings.account == identity else { return }
+        let key = Self.accountPreferencesPrefix + preferenceNamespace + identity.rawValue
+        var saved = preferences.dictionary(forKey: key) ?? [:]
+        saved[Self.handGestureField] = enabled
+        preferences.set(saved, forKey: key)
+        raisesHandWithCameraGesture = enabled
+    }
+
+    var callLayoutPreferences: CallLayoutPreferences {
+        guard let identity = settings.account else { return CallLayoutPreferences() }
+        let key = Self.accountPreferencesPrefix + preferenceNamespace + identity.rawValue
+        return (preferences.dictionary(forKey: key)?[Self.callLayoutField] as? Data).flatMap {
+            try? JSONDecoder().decode(CallLayoutPreferences.self, from: $0)
+        } ?? CallLayoutPreferences()
+    }
+
+    func saveCallLayoutPreferences(_ value: CallLayoutPreferences, for identity: Member.ID) {
+        guard settings.account == identity, let data = try? JSONEncoder().encode(value) else { return }
+        let key = Self.accountPreferencesPrefix + preferenceNamespace + identity.rawValue
+        var saved = preferences.dictionary(forKey: key) ?? [:]
+        saved[Self.callLayoutField] = data
+        preferences.set(saved, forKey: key)
+    }
+
     static func globalSidebar(in preferences: UserDefaults) -> SidebarPreferences {
         (preferences.data(forKey: "sidebarDefaults.v1")).flatMap {
             try? JSONDecoder().decode(SidebarPreferences.self, from: $0)

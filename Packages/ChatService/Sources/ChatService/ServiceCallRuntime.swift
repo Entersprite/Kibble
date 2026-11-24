@@ -14,6 +14,9 @@ actor ServiceCallRuntime {
     var reserved: UUID?
     var used: Set<UUID> = []
     var usedActivityRequests: Set<UUID> = []
+    var usedMeetingLinkRequests: Set<UUID> = []
+    var creatingMeetingLink = false
+    var meetingLinkPreviews: [UUID: Task<String?, any Error>] = [:]
     var sentInvitations: Set<UUID> = []
     var controlling = false
     var stopped = false
@@ -115,6 +118,7 @@ actor ServiceCallRuntime {
             await stopping.value; return
         }
         stopped = true
+        cancelMeetingLinkPreviews()
         cancelRecoveryWait(throwing: ServiceFailure.accountDisabled)
         reader?.cancel(); listener?.cancel()
         let pending = waiters.values
@@ -144,9 +148,7 @@ actor ServiceCallRuntime {
             acknowledgeRecoveryBarrier(token)
             return
         }
-        guard !recoveryPaused else { return }
-        guard await applyCallEvent(event) else { return }
-        guard !stopped else { return }
+        guard !recoveryPaused, await applyCallEvent(event), !stopped else { return }
         state.lastEvent = event
         publish()
     }
@@ -170,7 +172,7 @@ actor ServiceCallRuntime {
         case let .interactionChanged(id, interaction):
             guard state.currentCallID == id, state.currentPhase?.isTerminal == false else { return false }
             state.interaction = interaction
-        case .unknown, .listenerBarrier: break
+        case .unknown, .listenerBarrier, .capabilitiesChanged: break
         }
         return true
     }

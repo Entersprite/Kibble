@@ -28,6 +28,7 @@ public struct ConversationMenuBar: Equatable {
         case setFollowed(Bool)
         case closeThread
         case mentions
+        case starred
         case threads
         case calls
         case select(SidebarSelection)
@@ -83,7 +84,7 @@ public struct ConversationMenuBar: Equatable {
         var seen = Set<SidebarSelection>()
         return SidebarProjection.build(
             state.conversations, preferences: state.sidebarPreferences, directory: state.directory,
-            me: state.me
+            me: state.me, customSections: state.conversationSections
         )
         .filter { !collapsed.contains($0.id) }
         .flatMap(\.items)
@@ -236,7 +237,7 @@ extension ConversationMenuBar {
         case .meetingSeries?:
             return state.meetingSeries
                 .map { ConversationMenu.entries(for: $0, state: state, offers: offers) } ?? []
-        case .mentions?, .threads?, .calls?, nil:
+        case .mentions?, .starred?, .scheduled?, .threads?, .calls?, nil:
             return []
         }
     }
@@ -279,6 +280,18 @@ extension ConversationMenuBar {
             entries.append(Entry(
                 id: "mentions", title: "Go to Mentions", style: .button(symbol: SidebarPinned.mentionsSymbol),
                 shortcut: nil, command: state == nil ? nil : .mentions
+            ))
+        }
+        if actions.stars != nil {
+            entries.append(Entry(
+                id: "starred", title: "Go to Starred", style: .button(symbol: "star"),
+                shortcut: nil, command: state == nil ? nil : .starred
+            ))
+        }
+        if actions.scheduled != nil {
+            entries.append(Entry(
+                id: "scheduled", title: "Go to Scheduled", style: .button(symbol: "clock"),
+                shortcut: nil, command: state == nil ? nil : .select(.scheduled)
             ))
         }
         if actions.threads != nil {
@@ -326,10 +339,10 @@ extension ConversationMenuBar {
     }
 }
 
+@MainActor
 public extension ConversationMenuBar {
     /// Carries out a command through the window's own actions, the way the
     /// window's control for it would.
-    @MainActor
     static func perform(_ command: Command, actions: ChatSceneActions) {
         switch command {
         case let .details(id): actions.browser?.details(id, false)
@@ -341,18 +354,21 @@ public extension ConversationMenuBar {
         case let .mute(ids): ids.forEach { actions.mute?($0) }
         case let .unmute(ids): ids.forEach { actions.unmute?($0) }
         case let .notificationSettings(id): actions.showNotificationSettings?(id)
-        case .setFollowed, .closeThread, .mentions, .threads, .calls, .select: move(command, actions: actions)
+        case .setFollowed, .closeThread, .mentions, .starred, .threads, .calls, .select: move(
+                command,
+                actions: actions
+            )
         }
     }
 
     /// The commands that change what the window shows rather than act on a
     /// conversation.
-    @MainActor
     private static func move(_ command: Command, actions: ChatSceneActions) {
         switch command {
         case let .setFollowed(followed): actions.threads?.setFollowed(followed)
         case .closeThread: actions.threads?.close()
         case .mentions: actions.showMentions?()
+        case .starred: actions.stars?.show()
         case .threads: actions.threads?.showList()
         case .calls: actions.callHistory?.show()
         case let .select(selection): SidebarPinned.choose(selection, actions: actions)

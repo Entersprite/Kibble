@@ -8,6 +8,8 @@ import SwiftUI
 /// chosen in the pane, never whichever account the main window shows now.
 /// Without the account host, Settings › Account signs the single session out.
 struct KibbleSettings: View {
+    private enum BlockedCategory { case people, conversations }
+
     let appDelegate: MacAppDelegate
     @Binding var pane: String
     /// Without the account host: the single session's own sign-out, confirmed by the shell.
@@ -17,6 +19,7 @@ struct KibbleSettings: View {
     @State private var removingAccount: String?
     @State private var deletingData = false
     @State private var deletionError: String?
+    @State private var blockedCategory: BlockedCategory = .conversations
 
     private var host: SystemAccountHost? {
         appDelegate.accountHost
@@ -64,6 +67,7 @@ struct KibbleSettings: View {
                         .frame(width: 560, height: 540)
                 }
             }
+            privacyTab
             Tab("Downloads", systemImage: "arrow.down.circle", value: SettingsPane.downloads) {
                 DownloadSettingsPane(
                     state: appDelegate.environment.downloadSettingsState,
@@ -126,7 +130,7 @@ struct KibbleSettings: View {
 
     /// The tabs `body` draws, in the same conditions.
     private var shownPanes: [SettingsPane] {
-        var panes: [SettingsPane] = [.notifications, .calls, .sidebar, .downloads, .updates]
+        var panes: [SettingsPane] = [.notifications, .calls, .sidebar, .privacy, .downloads, .updates]
         if host != nil {
             panes.append(.accounts)
         }
@@ -134,6 +138,48 @@ struct KibbleSettings: View {
             panes.append(.account)
         }
         return panes
+    }
+
+    private var privacyTab: some TabContent<SettingsPane> {
+        Tab("Privacy", systemImage: "hand.raised", value: SettingsPane.privacy) {
+            scoped {
+                privacyPane.frame(width: 560, height: 360)
+            }
+        }
+    }
+
+    @ViewBuilder private var privacyPane: some View {
+        if host != nil, account == nil {
+            ContentUnavailableView("Choose an Account", systemImage: "person.crop.circle")
+        } else if let rooms = environment.blockedConversationsSettings,
+                  let people = environment.blockedPeopleSettings {
+            VStack(spacing: 0) {
+                Picker("Blocked Items", selection: $blockedCategory) {
+                    Text("Conversations").tag(BlockedCategory.conversations)
+                    Text("People").tag(BlockedCategory.people)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                switch blockedCategory {
+                case .conversations:
+                    BlockedConversationsSettingsPane(state: rooms.state, actions: rooms.actions)
+                        .id(rooms.session)
+                case .people:
+                    BlockedPeopleSettingsPane(state: people.state, actions: people.actions)
+                        .id(people.session)
+                }
+            }
+        } else if let settings = environment.blockedConversationsSettings {
+            BlockedConversationsSettingsPane(state: settings.state, actions: settings.actions)
+                .id(settings.session)
+        } else if let settings = environment.blockedPeopleSettings {
+            BlockedPeopleSettingsPane(state: settings.state, actions: settings.actions)
+                .id(settings.session)
+        } else {
+            ContentUnavailableView("Blocked Conversations Unavailable", systemImage: "hand.raised")
+        }
     }
 
     /// Whether the shared notification pause covers multiple connected accounts.

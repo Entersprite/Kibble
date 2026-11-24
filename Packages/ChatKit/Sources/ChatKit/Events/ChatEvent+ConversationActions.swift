@@ -22,6 +22,13 @@ extension ChatEvent {
                 conversationID: container.decode(Conversation.ID.self, forKey: .conversationID),
                 at: container.decodeWireIfPresent(Date.self, forKey: .at)
             )
+        case Tag.conversationNotificationSettingsChanged.rawValue:
+            try .conversationNotificationSettingsChanged(
+                conversationID: container.decode(Conversation.ID.self, forKey: .conversationID),
+                level: container.decodeIfPresent(NotificationLevel.self, forKey: .notificationLevel),
+                muted: container.decodeIfPresent(Bool.self, forKey: .muted),
+                muteUntil: container.decodeWireIfPresent(Date.self, forKey: .muteUntil)
+            )
         default: nil
         }
     }
@@ -44,6 +51,12 @@ extension ChatEvent {
             try container.encode(Tag.conversationUnreadMarkChanged.rawValue, forKey: .type)
             try container.encode(id, forKey: .conversationID)
             try container.encodeWireIfPresent(at, forKey: .at)
+        case let .conversationNotificationSettingsChanged(id, level, muted, muteUntil):
+            try container.encode(Tag.conversationNotificationSettingsChanged.rawValue, forKey: .type)
+            try container.encode(id, forKey: .conversationID)
+            try container.encodeIfPresent(level, forKey: .notificationLevel)
+            try container.encodeIfPresent(muted, forKey: .muted)
+            try container.encodeWireIfPresent(muteUntil, forKey: .muteUntil)
         default: return false
         }
         return true

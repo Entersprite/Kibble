@@ -46,6 +46,7 @@ public enum MenuBarShortcuts {
     /// Call › Mute and Unmute. Go to Mentions has no shortcut, so the two
     /// never compete for Shift-Command-M.
     public static let muteCall = KeyboardShortcut("m", modifiers: [.command, .shift])
+    public static let toggleCallHand = KeyboardShortcut("h", modifiers: [.control, .command])
 
     /// The nth account in the Accounts menu, Control-Command-1 to 9; `nil` past
     /// the ninth.
@@ -67,7 +68,8 @@ public enum MenuBarShortcuts {
     public static var all: [KeyboardShortcut] {
         [
             search, nextResult, previousResult, newMessage, newGroupChat, mainWindow, accountPanel,
-            conversationInfo, back, forward, nextConversation, previousConversation, markAsRead, muteCall
+            conversationInfo, back, forward, nextConversation, previousConversation, markAsRead, muteCall,
+            toggleCallHand
         ]
             + (0 ..< 9).compactMap(account) + (0 ..< 9).compactMap(conversation)
             + ComposerFormat.keyed.compactMap(\.shortcut)

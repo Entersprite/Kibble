@@ -16,6 +16,8 @@ enum MessageMenuSymbols {
     static let moreEmoji = EmojiPickerModel.addSymbol
     static let pin = "pin"
     static let unpin = "pin.slash"
+    static let star = "star"
+    static let unstar = "star.slash"
 
     // What the attachment menus add for the file or picture under the pointer.
     static let quickLook = "eye"
@@ -28,7 +30,7 @@ enum MessageMenuSymbols {
 
     static let all = [
         quoteReply, forward, replyInThread, markUnread, openLink, copyLink, edit, delete, moreEmoji, pin,
-        unpin,
+        unpin, star, unstar,
         quickLook, open, showInFinder, download, cancelDownload, saveAs, copyImage
     ]
 }
@@ -66,6 +68,9 @@ struct MessageMenuTable {
             Self.entry("Forward…", MessageMenuSymbols.forward, own?.forward),
             Self.entry("Reply in Thread", MessageMenuSymbols.replyInThread, own?.replyInThread),
             Self.entry("Mark as Unread", MessageMenuSymbols.markUnread, own?.markUnread),
+            own?.isStarred == true
+                ? Self.entry("Unstar", MessageMenuSymbols.unstar, own?.star)
+                : Self.entry("Star", MessageMenuSymbols.star, own?.star),
             own?.isPinned == true
                 ? Self.entry("Unpin for Everyone", MessageMenuSymbols.unpin, own?.pin)
                 : Self.entry("Pin for Everyone", MessageMenuSymbols.pin, own?.pin)

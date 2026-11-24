@@ -8,9 +8,17 @@ public struct CallScreenShareState: Equatable, Sendable {
     public var notice: String?
     /// The Mac's sound goes with the screen, by the person's explicit choice.
     public var sharesSound: Bool
+    public var allowsStart: Bool
 
-    public init(phase: Phase = .idle, notice: String? = nil, sharesSound: Bool = false) {
+    public init(
+        phase: Phase = .idle, notice: String? = nil, sharesSound: Bool = false, allowsStart: Bool = true
+    ) {
         self.phase = phase; self.notice = notice; self.sharesSound = sharesSound
+        self.allowsStart = allowsStart
+    }
+
+    public var canToggle: Bool {
+        phase != .stopping && (phase != .idle || allowsStart)
     }
 }
 
@@ -41,6 +49,7 @@ struct CallScreenShareButton: View {
             .fixedSize()
             .help(title)
             .accessibilityLabel(title)
+            .disabled(!state.canToggle)
         } else {
             CallRoundButton(
                 title: title,
@@ -48,7 +57,7 @@ struct CallScreenShareButton: View {
                 tone: state.phase == .idle ? .plain : .active,
                 action: toggle
             )
-            .disabled(state.phase == .stopping)
+            .disabled(!state.canToggle)
         }
     }
 

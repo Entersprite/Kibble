@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 
@@ -66,6 +67,7 @@ extension NativeMeetCallSession {
     private func announceCamera(_ enabled: Bool) async throws {
         try await check()
         guard ready, let context = videoContext else { throw CallMediaError.closed }
+        guard !enabled || localCapturePermissions.camera else { throw CallMediaError.captureRestricted }
         let id = nextStreamRequest()
         let request = try MeetVideoStreamWire.mute(
             context: context,
@@ -76,6 +78,7 @@ extension NativeMeetCallSession {
         let reply = try await videoExchange(request, id: id)
         try MeetVideoStreamWire.confirm(from: reply, context: context, muted: !enabled, requestID: id)
         try await check()
+        guard !enabled || localCapturePermissions.camera else { throw CallMediaError.captureRestricted }
         cameraMuted = !enabled
     }
 
@@ -156,20 +159,31 @@ extension NativeMeetCallSession {
         if let source = await presentation?.source {
             rememberPresentationSource(source)
         }
+        let preferences = await media.remoteVideoPreferences()
         try await check()
-        let remote = streams
-            .filter {
-                $0.source != videoSource && !ownPresentationSources.contains($0.source) && !isOwnVideo($0)
+        let remote = streams.compactMap { stream -> (stream: MeetVideoStreamWire.Downstream, pinRank: Int)? in
+            guard stream.source != videoSource, !ownPresentationSources.contains(stream.source),
+                  !isOwnVideo(stream) else { return nil }
+            let participant = videoParticipant(for: stream)
+            if let participant, preferences.hiddenVideoFeeds.contains(participant.id) {
+                return nil
             }
-        if receivingVideoCapacity == 1 {
-            return MeetVideoStreamWire.preferred(remote).map { [$0] } ?? []
+            return (stream, videoPinRank(participant, muted: stream.muted, preferences: preferences))
         }
         let ranked = remote.sorted {
-            let left = $0.muted ? 2 : ($0.isCamera ? 1 : 0)
-            let right = $1.muted ? 2 : ($1.isCamera ? 1 : 0)
-            return left == right ? $0.source.primary < $1.source.primary : left < right
+            if $0.pinRank != $1.pinRank {
+                return $0.pinRank < $1.pinRank
+            }
+            let left = videoRank($0.stream), right = videoRank($1.stream)
+            return left == right ? $0.stream.source.primary < $1.stream.source.primary : left < right
         }
-        let selected = Array(ranked.prefix(receivingVideoCapacity))
+        if receivingVideoCapacity == 1 {
+            if let best = ranked.first, best.pinRank != Int.max {
+                return [best.stream]
+            }
+            return MeetVideoStreamWire.preferred(remote.map(\.stream)).map { [$0] } ?? []
+        }
+        let selected = ranked.prefix(receivingVideoCapacity).map(\.stream)
         var slots = [MeetVideoStreamWire.Downstream?](repeating: nil, count: receivingVideoCapacity)
         for (index, previous) in receivingVideos.enumerated() where slots.indices.contains(index) {
             if let previous, let current = selected.first(where: { $0.source == previous.source }) {
@@ -182,6 +196,28 @@ extension NativeMeetCallSession {
             }
         }
         return slots
+    }
+
+    private func videoParticipant(for stream: MeetVideoStreamWire
+        .Downstream) -> (id: UUID, isSharedPin: Bool)? {
+        guard let name = stream.deviceName, let device = participantDevices[name],
+              device.isPresentation != stream.isCamera, let id = participantHandles[name]
+        else { return nil }
+        return (id, device.isPinnedForEveryone == true)
+    }
+
+    private func videoPinRank(
+        _ participant: (id: UUID, isSharedPin: Bool)?, muted: Bool, preferences: CallVideoPreferences
+    ) -> Int {
+        guard !muted, let participant else { return Int.max }
+        if participant.isSharedPin, !preferences.dismissedSharedPins.contains(participant.id) {
+            return 0
+        }
+        return preferences.personalPins.firstIndex(of: participant.id).map { $0 + 1 } ?? Int.max
+    }
+
+    private func videoRank(_ stream: MeetVideoStreamWire.Downstream) -> Int {
+        stream.muted ? 2 : (stream.isCamera ? 1 : 0)
     }
 
     private func isOwnVideo(_ stream: MeetVideoStreamWire.Downstream) -> Bool {

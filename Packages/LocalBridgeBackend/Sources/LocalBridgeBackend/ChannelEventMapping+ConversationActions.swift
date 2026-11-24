@@ -3,6 +3,19 @@ import Foundation
 import GChatBridgeCore
 
 extension ChannelEventMapping {
+    static func notificationSettingsEvent(in body: ChannelEventBody) -> ChatEvent? {
+        guard body.type == .groupNotificationSettingsUpdated,
+              let value = field(17, in: body.value)
+        else { return nil }
+        let payload = PBLiteDecoder.decode(GroupNotificationSettingsUpdatedEvent.self, from: value).message
+        guard payload.hasSettings, let id = conversationID(payload.groupID) else { return nil }
+        let settings = GroupNotificationMapping(payload.settings)
+        guard settings.level != nil || settings.isMuted != nil else { return nil }
+        return .conversationNotificationSettingsChanged(
+            conversationID: id, level: settings.level, muted: settings.isMuted, muteUntil: settings.muteUntil
+        )
+    }
+
     /// Body fields from the vendored reference: tags 16/32/37 carry their
     /// payloads in fields 15/29/32. A malformed body is still routed unknown.
     static func conversationActionEvent(in body: ChannelEventBody) -> ChatEvent? {

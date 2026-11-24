@@ -11,7 +11,20 @@ struct CallRosterEntry: Identifiable, Equatable {
     let microphoneMuted: Bool?
     let isPresenting: Bool
     var handRaised = false
+    var handRaisedAt: Date?
     var isSpeaking = false
+    var role: CallParticipantRole?
+    var canSendToWaitingRoom = false
+    var canBlockInMeeting = false
+    var isPinnedForEveryone = false
+
+    var cohostChange: Bool? {
+        switch role {
+        case .participant: true
+        case .cohost: false
+        default: nil
+        }
+    }
 }
 
 enum CallRoster {
@@ -25,7 +38,11 @@ enum CallRoster {
                 CallRosterEntry(
                     id: device.id, name: name(of: device), microphoneMuted: device.microphoneMuted,
                     isPresenting: presenting.contains(device.id), handRaised: device.handRaised == true,
-                    isSpeaking: device.isSpeaking == true
+                    handRaisedAt: device.handRaisedAt,
+                    isSpeaking: device.isSpeaking == true, role: device.role,
+                    canSendToWaitingRoom: device.canSendToWaitingRoom == true,
+                    canBlockInMeeting: device.canBlockInMeeting == true,
+                    isPinnedForEveryone: device.isPinnedForEveryone == true
                 )
             }
             // By name, so a roster update in another order does not shuffle the window.
@@ -34,6 +51,12 @@ enum CallRoster {
                 guard order == .orderedSame else { return order == .orderedAscending }
                 return $0.id.uuidString < $1.id.uuidString
             }
+    }
+
+    static func raisedHands(_ entries: [CallRosterEntry]) -> [CallRosterEntry] {
+        entries.filter(\.handRaised).sorted { first, second in
+            (first.handRaisedAt ?? .distantFuture) < (second.handRaisedAt ?? .distantFuture)
+        }
     }
 
     static func name(of device: CallParticipantDevice) -> String {
@@ -75,13 +98,15 @@ struct CallConversationHeader: View {
     let timing: CallTiming
     var accountLabel: String?
     var avatarSize: CGFloat = 96
+    var isPreparingMeeting = false
+    var preparationPreview: AnyView?
     let showPeople: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 16) {
             picture
                 .background {
-                    if AudioCallPresentation.isWaiting(call.phase) {
+                    if !isPreparingMeeting, AudioCallPresentation.isWaiting(call.phase) {
                         // `ConversationPicture`'s own corner for a space's tile.
                         CallWaitingHalo(
                             size: avatarSize,
@@ -90,7 +115,7 @@ struct CallConversationHeader: View {
                     }
                 }
                 .shadow(color: .black.opacity(0.3), radius: 16, y: 6)
-                .accessibilityHidden(true)
+                .accessibilityHidden(preparationPreview == nil)
             VStack(spacing: 5) {
                 Text(call.displayName)
                     .font(.title.weight(.semibold))
@@ -98,9 +123,15 @@ struct CallConversationHeader: View {
                     .minimumScaleFactor(0.75)
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
-                CallStatusText(call: call, timing: timing)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                Group {
+                    if isPreparingMeeting {
+                        Text("Ready to join?")
+                    } else {
+                        CallStatusText(call: call, timing: timing)
+                    }
+                }
+                .font(.title3)
+                .foregroundStyle(.secondary)
                 if let accountLabel {
                     Text(accountLabel)
                         .font(.callout)
@@ -126,7 +157,12 @@ struct CallConversationHeader: View {
     }
 
     @ViewBuilder private var picture: some View {
-        if let conversation {
+        if let preparationPreview {
+            preparationPreview
+                .frame(width: 256, height: 144)
+                .clipShape(.rect(cornerRadius: 16))
+                .accessibilityLabel("Camera preview")
+        } else if let conversation {
             ConversationPicture(conversation: conversation, size: avatarSize)
         } else {
             MonogramCircle(size: avatarSize) {
@@ -216,92 +252,5 @@ struct CallRosterFace: View {
         let words = name.split(separator: " ").prefix(2)
         let letters = words.compactMap(\.first).map(String.init).joined()
         return letters.isEmpty ? "?" : letters.uppercased()
-    }
-}
-
-/// Everyone else in the call, for the People control and the strip's "+N".
-struct CallPeopleList: View {
-    let entries: [CallRosterEntry]?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("In This Call")
-                .font(.headline)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 6)
-                .accessibilityAddTraits(.isHeader)
-            if let entries, !entries.isEmpty {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(entries) { entry in
-                            row(entry)
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 8)
-                }
-                .frame(maxHeight: 320)
-            } else {
-                Text(entries == nil ? "Who’s in the call isn’t known yet." : "Nobody else has joined yet.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 12)
-            }
-        }
-        .frame(width: 260, alignment: .leading)
-    }
-
-    private func row(_ entry: CallRosterEntry) -> some View {
-        HStack(spacing: 10) {
-            MonogramCircle(size: 26) {
-                Text(CallRosterFace.initials(entry.name)).font(.system(size: 10, weight: .semibold))
-            }
-            Text(entry.name).lineLimit(1)
-            Spacer(minLength: 8)
-            if entry.isPresenting {
-                Image(systemName: "rectangle.on.rectangle")
-                    .foregroundStyle(.secondary)
-                    .help("Sharing their screen")
-            }
-            if CallRoster.showsMuted(entry) {
-                Image(systemName: "mic.slash.fill")
-                    .foregroundStyle(.secondary)
-                    .help("Muted")
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.label(for: entry))
-    }
-
-    /// Name, then only what is reported: a muted microphone, a shared screen.
-    static func label(for entry: CallRosterEntry) -> String {
-        var parts = [entry.name]
-        if entry.handRaised {
-            parts.append("hand raised")
-        }
-        if CallRoster.showsMuted(entry) {
-            parts.append("muted")
-        }
-        if entry.isPresenting {
-            parts.append("sharing their screen")
-        }
-        return parts.joined(separator: ", ")
-    }
-}
-
-/// The People control in a conversation call's bar: the list in a popover.
-struct CallPeopleButton: View {
-    let entries: [CallRosterEntry]?
-    @Binding var isPresented: Bool
-
-    var body: some View {
-        CallRoundButton(title: "People", symbol: "person.2.fill") { isPresented.toggle() }
-            .popover(isPresented: $isPresented, arrowEdge: .top) {
-                CallPeopleList(entries: entries)
-            }
     }
 }

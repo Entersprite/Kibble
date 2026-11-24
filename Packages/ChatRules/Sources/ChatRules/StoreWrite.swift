@@ -34,6 +34,9 @@ public enum StoreWrite: Sendable, Equatable {
     case restoreConversation(Conversation)
     case removeConversation(conversation: Conversation.ID, historyBefore: Date?)
     case setConversationUnreadMark(conversation: Conversation.ID, at: Date?)
+    case setConversationNotificationSettings(
+        conversation: Conversation.ID, level: NotificationLevel?, muted: Bool?, muteUntil: Date?
+    )
 
     /// Member records. Separate from membership because the same person appears
     /// in many conversations and the record is shared.

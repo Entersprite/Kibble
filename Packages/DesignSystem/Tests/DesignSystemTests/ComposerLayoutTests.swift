@@ -64,6 +64,39 @@
             #expect(six > empty)
         }
 
+        @Test func theComposerAcknowledgesIdenticalDraftsWithDifferentOfferIDs() {
+            let first = UUID()
+            let second = UUID()
+            var acknowledged: [UUID] = []
+            func composer(_ id: UUID) -> Composer {
+                Composer(
+                    placeholder: "the conversation", restoring: ComposedMessage(text: "Try again"),
+                    restorationID: id, onRestored: { acknowledged.append(id) }, send: { _ in }
+                )
+            }
+            let host = NSHostingView(rootView: composer(first))
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 420, height: 300),
+                styleMask: [.titled], backing: .buffered, defer: true
+            )
+            window.contentView = host
+            func settle() {
+                host.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                host.layoutSubtreeIfNeeded()
+            }
+
+            settle()
+            #expect(acknowledged == [first])
+            host.rootView = composer(second)
+            settle()
+            #expect(acknowledged == [first, second])
+            host.rootView = composer(second)
+            settle()
+            #expect(acknowledged == [first, second])
+            withExtendedLifetime(window) {}
+        }
+
         /// Six lines in a capsule ran into its ends, which curve through half
         /// its height. A point 2pt in from the left, 30pt down, is on a
         /// straight side when the corners are half of one line (15.5pt), and

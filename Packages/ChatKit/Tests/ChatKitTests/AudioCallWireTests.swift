@@ -3,6 +3,22 @@ import Testing
 @testable import ChatKit
 
 struct AudioCallWireTests {
+    @Test func pendingAdmissionUsesTheExistingConnectingPhaseAndRetainsNewerReasons() throws {
+        let old = #"""
+        {"id":"00000000-0000-0000-0000-000000000001","phase":"connecting",
+         "target":{"meetingURL":"https://meet.example.test/room","displayName":"Meeting"}}
+        """#
+        var call = try Wire.decode(ConversationCallSnapshot.self, from: old)
+        #expect(call.admission == nil)
+        for admission in [.requestPending, .waitingRoom, CallAdmission(rawValue: "futureWaiting")] {
+            call.admission = admission
+            let decoded = try Wire.decode(ConversationCallSnapshot.self, from: Wire.json(call))
+            #expect(decoded == call)
+            #expect(decoded.phase == .connecting && !decoded.phase.isTerminal)
+            #expect(AudioCallSession(decoded).admission == admission)
+        }
+    }
+
     private var recipient: AudioCallRecipient {
         AudioCallRecipient(
             conversationID: Conversation.ID("opaque-dm"),
@@ -96,6 +112,8 @@ struct AudioCallWireTests {
         for (value, json) in [
             (AudioCallEndReason.localEnded, #""localEnded""#),
             (.remoteEnded, #""remoteEnded""#), (.declined, #""declined""#),
+            (.removedFromMeeting, #""removedFromMeeting""#),
+            (.sentToWaitingRoom, #""sentToWaitingRoom""#),
             (.unknown("futureCause"), #""futureCause""#)
         ] {
             #expect(try Wire.json(value) == json)

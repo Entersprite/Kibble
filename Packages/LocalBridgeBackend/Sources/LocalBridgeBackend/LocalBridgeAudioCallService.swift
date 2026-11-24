@@ -22,10 +22,16 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
     var loading: Task<Void, any Error>?
     var listening: Task<Void, Never>?
     var operation: Task<Void, any Error>?
+    var admissionReceipt: AsyncThrowingStream<Void, any Error>.Continuation?
+    var meetingLinkCreation: Task<URL, any Error>?
+    var meetingAgendaRead: Task<Void, Never>?
+    var waitingRoomAgendaRead: Task<Void, Never>?
+    var waitingRoomActivities: CallActivitiesState?
     var stopping: Task<Void, Never>?
     var sessionScope = UUID()
     var callScope = UUID()
     var muteSequence: UInt64 = 0
+    var lastModeratorMute: UUID?
     var isStopping = false
     var directoryRecipients: [AudioCallRecipient]?
     var directoryRevision = 0
@@ -113,6 +119,9 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
         // not begin another request once stop has been requested.
         loading?.cancel()
         operation?.cancel()
+        admissionReceipt = nil
+        meetingLinkCreation?.cancel()
+        cancelMeetingAgendaRead()
         listening?.cancel()
         media?.setMuted(true)
     }
@@ -139,18 +148,22 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
         callScope = UUID()
         let loading = loading
         let operation = operation
+        let meetingLinkCreation = meetingLinkCreation
         let listening = listening
         loading?.cancel()
         operation?.cancel()
+        meetingLinkCreation?.cancel()
         listening?.cancel()
         media?.setMuted(true)
         await incoming?.stop()
         await trial.close()
         _ = await loading?.result
         _ = await operation?.result
+        _ = await meetingLinkCreation?.result
         _ = await listening?.result
         self.loading = nil
         self.operation = nil
+        self.meetingLinkCreation = nil
         self.listening = nil
         incoming = nil
         media = nil

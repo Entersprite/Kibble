@@ -106,6 +106,10 @@ public actor LocalBridgeBackend: ChatBackend {
     var directoryGeneration = 0
     var discoverableManagementSpaces: Set<Conversation.ID> = []
     var managementOperations: [String: ManagementOperation] = [:]
+    var scheduledMutations: Set<ScheduledMessageAddress> = []
+    var draftMutations: Set<ComposerDraftAddress> = []
+    var unblockingConversations: Set<Conversation.ID> = []
+    var unblockingPeople: Set<ChatKit.Member.ID> = []
 
     /// Email by member id, from every `get_members` answer this session, for
     /// the `invitee_info` a sent mention carries (`findings.md` §56.2). Never
@@ -159,6 +163,9 @@ public actor LocalBridgeBackend: ChatBackend {
     var hiddenThrough: [Conversation.ID: Int64] = [:]
     var onConversationAction: (@Sendable (ConversationActionObservation) -> Void)?
     var conversationDetails: [Conversation.ID: WorldItemLite] = [:]
+    var notificationWrites: [Conversation.ID: PendingNotificationWrite] = [:]
+    var conversationSectionWriteID: UUID?
+    var nextTemporaryConversationSectionID = 1
     /// Host-owned, content-free telemetry for failed read-state writes.
     var onReadStateFailure: (@Sendable (ReadStateRequestFailure) -> Void)?
     var onHistoryResponse: (@Sendable (HistoryResponseObservation) -> Void)?

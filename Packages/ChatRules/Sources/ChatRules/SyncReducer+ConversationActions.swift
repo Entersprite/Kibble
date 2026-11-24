@@ -10,6 +10,12 @@ extension SyncReducer {
             )
         case let .conversationUnreadMarkChanged(id, at):
             Reduction(writes: [.setConversationUnreadMark(conversation: id, at: at)])
+        case let .conversationNotificationSettingsChanged(id, level, muted, muteUntil):
+            Reduction(writes: [
+                .setConversationNotificationSettings(
+                    conversation: id, level: level, muted: muted, muteUntil: muteUntil
+                )
+            ])
         default: Reduction()
         }
     }

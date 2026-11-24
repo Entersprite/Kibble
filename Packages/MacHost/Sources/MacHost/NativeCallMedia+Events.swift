@@ -37,11 +37,9 @@ extension NativeCallMedia: LKRTCPeerConnectionDelegate {
                 channel.close()
                 return
             }
-            if ["reactions", "meet_messages"].contains(channel.label) {
-                if let existing = activityChannels[channel.label], existing !== channel {
+            if Self.activityLabels.contains(channel.label) {
+                if activityChannels[channel.label]?.channel !== channel {
                     channel.close()
-                } else {
-                    activityChannels[channel.label] = channel; channel.delegate = self
                 }
                 return
             }
@@ -75,9 +73,11 @@ extension NativeCallMedia: LKRTCDataChannelDelegate {
         let identity = ObjectIdentifier(channel)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            if let activity = activityChannels.first(where: { ObjectIdentifier($0.value) == identity }) {
+            if let activity = activityChannels
+                .first(where: { ObjectIdentifier($0.value.channel) == identity }) {
                 if channel.readyState == .closed || channel.readyState == .closing {
                     activityChannels[activity.key] = nil
+                    await eventHandler?(.activityClosed(channel: activity.key))
                 }
                 return
             }
@@ -97,11 +97,15 @@ extension NativeCallMedia: LKRTCDataChannelDelegate {
         let identity = ObjectIdentifier(channel)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            if let activity = activityChannels.first(where: { ObjectIdentifier($0.value) == identity }) {
-                if exchangingActivity, activity.key == "meet_messages", activityReplies.count < 16 {
-                    activityReplies.append(data)
+            if let activity = activityChannels
+                .first(where: { ObjectIdentifier($0.value.channel) == identity }) {
+                let frame = activity.value.compression == .gzip ? try? NativeActivityGzip.decode(data) : data
+                guard let frame else { return }
+                if activityReply == nil, activity.key == activityReplyChannel,
+                   activityReplyMatches?(frame) == true {
+                    activityReply = frame
                 }
-                await eventHandler?(.activityData(channel: activity.key, data: data))
+                await eventHandler?(.activityData(channel: activity.key, data: frame))
                 return
             }
             if let streamChannel, ObjectIdentifier(streamChannel) == identity {

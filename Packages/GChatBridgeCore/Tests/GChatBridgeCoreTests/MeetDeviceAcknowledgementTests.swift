@@ -40,15 +40,15 @@ struct MeetDeviceAcknowledgementTests {
             let full = entries.reduce(into: MeetProto.bytes(1, Data())) { $0 += MeetProto.bytes(2, $1) }
             return Data(MeetProto.bytes(2, MeetProto.bytes(2, full)).base64EncodedString().utf8)
         }
-        let selected = try MeetCallCollectionsWire.admissionDevice(
+        let selected = try MeetCallCollectionsWire.admissionRead(
             from: response([browser, own]), in: "spaces/demo", name: name
-        )
+        )?.device
         #expect(selected?.joinState == 9 && selected?.acknowledgements == [.init(type: 3, state: 1)])
-        #expect(try MeetCallCollectionsWire.admissionDevice(
+        #expect(try MeetCallCollectionsWire.admissionRead(
             from: response([browser]), in: "spaces/demo", name: name
-        ) == nil)
+        )?.device == nil)
         #expect(throws: (any Error).self) {
-            try MeetCallCollectionsWire.admissionDevice(
+            try MeetCallCollectionsWire.admissionRead(
                 from: response([own, own]),
                 in: "spaces/demo",
                 name: name

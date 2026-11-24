@@ -17,7 +17,25 @@ enum AudioCallPresentation {
 
     /// A join's first moments read as joining, since nobody is being rung.
     static func status(for call: AudioCallSession) -> String {
-        call.isJoining && call.phase == .connecting ? "Joining…" : status(for: call.phase)
+        if call.phase == .ended, call.endReason == .removedFromMeeting {
+            return "Removed from the meeting"
+        }
+        if call.phase == .ended, call.endReason == .sentToWaitingRoom {
+            return "Sent to the waiting room"
+        }
+        if let waiting = admissionStatus(for: call) {
+            return waiting
+        }
+        return call.isJoining && call.phase == .connecting ? "Joining…" : status(for: call.phase)
+    }
+
+    static func admissionStatus(for call: AudioCallSession) -> String? {
+        guard call.phase == .connecting else { return nil }
+        switch call.admission {
+        case .requestPending: return "Waiting for the host to let you in…"
+        case .waitingRoom: return "In the waiting room…"
+        default: return nil
+        }
     }
 
     static func canMute(_ phase: AudioCallPhase) -> Bool {
@@ -58,13 +76,23 @@ enum AudioCallPresentation {
     /// controls they belong to are usable.
     static func notices(
         phase: AudioCallPhase, devices: CallAudioDevices?, camera: CallCameraState?,
-        screenSharing: CallScreenShareState?
+        screenSharing: CallScreenShareState?, microphoneRestricted: Bool = false
     ) -> [CallNotice] {
         var notices: [CallNotice] = []
         if !phase.isTerminal, let notice = devices?.notice {
             notices.append(CallNotice(id: "audio", text: notice, kind: .warning))
         }
         guard canMute(phase) else { return notices }
+        if microphoneRestricted {
+            notices.append(CallNotice(
+                id: "mic-lock", text: "The meeting host turned off your microphone.", kind: .info
+            ))
+        }
+        if camera?.allowsStart == false {
+            notices.append(CallNotice(
+                id: "camera-lock", text: "The meeting host turned off your camera.", kind: .info
+            ))
+        }
         if let notice = camera?.notice {
             notices.append(CallNotice(id: "camera", text: notice, kind: .warning))
         }

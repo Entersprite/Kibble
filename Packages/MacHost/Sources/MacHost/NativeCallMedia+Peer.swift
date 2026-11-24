@@ -19,7 +19,9 @@ extension NativeCallMedia {
         if !isPresentation {
             let route = NativeCallAudioRouting(factory: factory)
             audioRoute = route
-            audioRouteScope = audioDevices?.install(route)
+            audioRouteScope = audioDevices?.install(route) { [weak self] in
+                await self?.localAudioActivity()?.level
+            }
         }
         let configuration = LKRTCConfiguration()
         configuration.sdpSemantics = .unifiedPlan

@@ -69,6 +69,7 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
     case recipientsChanged([AudioCallRecipient])
     /// Actual subscription readiness, including failures after startup returned.
     case listenerChanged(isListening: Bool)
+    case capabilitiesChanged
     case snapshot(AudioCallSnapshot)
     case conversationSnapshot(ConversationCallSnapshot)
     case meetingSnapshot(ConversationCallSnapshot)
@@ -110,6 +111,7 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
             self = try .conversationSnapshot(container.decode(ConversationCallSnapshot.self, forKey: .call))
         case "listenerChanged":
             self = try .listenerChanged(isListening: container.decode(Bool.self, forKey: .isListening))
+        case "capabilitiesChanged": self = .capabilitiesChanged
         case "listenerBarrier": self = try .listenerBarrier(container.decode(UUID.self, forKey: .token))
         default: self = try .unknown(type: raw, payload: JSONValue(from: decoder))
         }
@@ -118,6 +120,8 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .capabilitiesChanged:
+            try container.encode("capabilitiesChanged", forKey: .type)
         case let .recipientsChanged(recipients):
             try container.encode("recipientsChanged", forKey: .type)
             try container.encode(recipients, forKey: .recipients)

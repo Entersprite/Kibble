@@ -141,6 +141,7 @@ extension AudioCallController {
     func begin(
         _ session: AudioCallSession, _ operation: @escaping @MainActor (UUID) async throws -> Void
     ) -> UUID {
+        clearMeetingPreparation()
         sourceTermination = nil
         if breakoutTask == nil {
             breakoutReturnURL = nil

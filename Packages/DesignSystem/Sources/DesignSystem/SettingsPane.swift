@@ -11,6 +11,7 @@ public enum SettingsPane: String, CaseIterable, Sendable {
     case notifications
     case calls
     case sidebar
+    case privacy
     case downloads
     case updates
     /// The single session's own account, without the account host.

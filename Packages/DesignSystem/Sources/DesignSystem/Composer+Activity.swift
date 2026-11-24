@@ -2,9 +2,13 @@ import ChatKit
 import SwiftUI
 
 extension Composer {
-    func finish(_ message: ComposedMessage) {
-        if ComposerSendGate.clears(draft: draft.composed(formatting: allowsFormatting), sent: message) {
-            draft.clear()
+    func finish(_ message: ComposedMessage, matching composition: ComposedMessage?) {
+        pendingInvite = nil
+        if canClearSubmission(message, matching: composition) {
+            if sendWithDraftSync(message) {
+                return
+            }
+            clearForSubmission()
         }
         if let sendHere = mentions?.sendHere {
             sendHere(message)

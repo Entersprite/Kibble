@@ -15,7 +15,7 @@ struct CallEndReasonTests {
             (.localEnded, .localEnded), (.ringCancelled, .localEnded),
             (.remoteEnded, .remoteEnded), (.invitationEnded, .remoteEnded), (.declined, .declined),
             (.transportFailed, nil), (.joinFailed, nil), (.accountChanged, nil),
-            (.ringingTimedOut, nil), (.deviceEnded, nil)
+            (.ringingTimedOut, nil), (.deviceEnded, nil), (.removedFromMeeting, .removedFromMeeting)
         ]
         for (native, expected) in causes {
             let call = AudioCallSnapshot(

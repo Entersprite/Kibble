@@ -3,15 +3,27 @@ import Foundation
 
 public extension AudioCallController {
     var isHandRaised: Bool {
-        participants?.first(where: { $0.isLocal && !$0.isPresentation })?.handRaised == true
+        localHandIsRaised == true
+    }
+
+    var localHandIsRaised: Bool? {
+        participants?.first(where: { $0.isLocal && !$0.isPresentation })?.handRaised
     }
 
     func toggleHandRaised() {
+        setHandRaised(!isHandRaised)
+    }
+
+    func raiseHandIfLowered(in callID: UUID) {
+        guard call?.id == callID, localHandIsRaised == false else { return }
+        setHandRaised(true)
+    }
+
+    private func setHandRaised(_ raised: Bool) {
         guard let call, call.phase == .connected, !isEnding, !isUpdatingInteraction,
               interaction?.canRaiseHand == true,
               let interactions = service as? any CallInteractionService else { return }
         let epoch = generation
-        let raised = !isHandRaised
         isUpdatingInteraction = true
         interactionTask = Task { [weak self] in
             defer {

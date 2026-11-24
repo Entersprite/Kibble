@@ -164,6 +164,22 @@ actor SenderEventLog {
         try? await Task.sleep(for: .milliseconds(300))
         return Array(events.dropFirst(mark))
     }
+
+    func waitForResolvedMembers() async throws -> [ChatEvent] {
+        let deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline {
+            if events.contains(where: {
+                if case .membersResolved = $0 {
+                    return true
+                }
+                return false
+            }) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return events
+    }
 }
 
 /// Fixtures both suites build from.

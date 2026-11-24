@@ -28,6 +28,9 @@ struct NativeMeetCallSessionTests {
         let collections = try #require(ProtoFieldScan.payloads(ofField: 8, in: config).first)
         #expect(ProtoFieldScan.varintValues(ofField: 1, in: collections) == [1])
         #expect(ProtoFieldScan.varintValues(ofField: 2, in: collections) == [1])
+        let registration = try #require(sent[2].body)
+        let registeredDevice = try #require(ProtoFieldScan.payloads(ofField: 2, in: registration).first)
+        #expect(!ProtoFieldScan.fields(in: registeredDevice).fields.contains { $0.number == 39 })
         #expect(sent[4].url.path.hasSuffix("CreateMeetingInvite"))
         #expect(sent[4].headers["x-goog-meeting-token"] == "30;joined")
         #expect(sent[5].url.path.hasSuffix("CancelMeetingInvite"))
@@ -200,14 +203,35 @@ struct NativeMeetCallSessionTests {
 final class NativeFakeMedia: CallMediaEngine {
     var isConnected = false
     var calls: [String] = []
+    var presentationPermissions: [Bool] = []
+    var capturePermissions: [[Bool]] = []
+    var isMicrophoneMuted = false
+    var localAudioSample: CallLocalAudioActivity?
     var answer: String?
     var activityReply: Data?
+    var activityReplies: [Data] = []
+    var activityExchange: (() async throws -> Data)?
+    var onClose: (() -> Void)?
+    var supportsActivityChannelAssignments = false
+    var supportsGzipActivityChannels = false
+    var activityChannelAssignments: [String: CallStreamControlChannel] = [:]
     var sentActivityFrames: [(String, Data)] = []
     var eventHandler: (@Sendable (CallMediaEvent) async -> Void)?
     let failConnection: Bool
 
     init(failConnection: Bool = false) {
         self.failConnection = failConnection
+    }
+
+    func setScreenSharingAllowed(_ allowed: Bool) {
+        presentationPermissions.append(allowed)
+    }
+
+    func setCaptureAllowed(microphone: Bool, camera: Bool) {
+        capturePermissions.append([microphone, camera])
+        if !microphone {
+            setMuted(true)
+        }
     }
 
     func makeAudioOffer(serverControlChannel: String?) async throws -> CallAudioOffer {
@@ -224,6 +248,11 @@ final class NativeFakeMedia: CallMediaEngine {
         calls.append("answer")
     }
 
+    func configureActivityChannel(_ channel: CallStreamControlChannel, label: String) {
+        calls.append(label)
+        activityChannelAssignments[label] = channel
+    }
+
     func waitUntilConnected(timeout _: Duration) async throws {
         if failConnection {
             throw CallMediaError.timedOut
@@ -236,9 +265,17 @@ final class NativeFakeMedia: CallMediaEngine {
         eventHandler = handler
     }
 
-    func setMuted(_: Bool) {}
+    func setMuted(_ muted: Bool) {
+        isMicrophoneMuted = muted
+    }
+
+    func localAudioActivity() async -> CallLocalAudioActivity? {
+        isMicrophoneMuted ? nil : localAudioSample
+    }
+
     func close() {
         calls.append("close"); isConnected = false
+        onClose?()
     }
 }
 
@@ -255,7 +292,7 @@ private actor NativeAccountGate {
     }
 }
 
-private actor NativeHoldRegistration: HTTPTransport {
+actor NativeHoldRegistration: HTTPTransport {
     let base: ScriptedTransport
     private(set) var started = false
     private var continuation: CheckedContinuation<Void, Never>?

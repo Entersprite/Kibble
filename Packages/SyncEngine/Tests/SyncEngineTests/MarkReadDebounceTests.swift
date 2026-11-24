@@ -202,7 +202,8 @@ struct MarkReadDebounceTests {
     /// than probably having ended.
     @MainActor
     @Test func stopDuringTheWaitPublishesNothingAndWedgesNothing() async throws {
-        let harness = try await makeTracedMarkReadHarness(markReadDebounce: .milliseconds(50))
+        // Keep the wait pending for the duration of the test. stop() cancels it.
+        let harness = try await makeTracedMarkReadHarness(markReadDebounce: .seconds(3600))
         harness.model.select(autoMarkReadConversation)
         await settleAutoMarkRead(until: "the mark for the open conversation is waiting") {
             harness.model.markTasks[autoMarkReadConversation] != nil

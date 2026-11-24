@@ -119,6 +119,7 @@ struct PinGlassButtonStyle: ButtonStyle {
             .background {
                 Capsule().fill(Color.primary.opacity(highlighted ? 0.1 : 0))
             }
+            .contentShape(.interaction, Capsule())
             .glassEffect(inPanel ? .identity : PinStyle.glass, in: .capsule)
     }
 }

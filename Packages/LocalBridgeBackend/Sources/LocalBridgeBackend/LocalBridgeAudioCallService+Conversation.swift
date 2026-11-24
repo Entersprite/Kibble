@@ -28,7 +28,7 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
         snapshot = nil
         publishConversation(.init(id: callID, target: target, phase: .connecting))
         let scope = callScope
-        try await runOperation(id: callID, scope: scope) {
+        try await runOperation(id: callID, scope: scope, canWaitForAdmission: true) {
             try await self.waitForCallContext(callID: callID, scope: scope)
             let prepared = try await self.trial.prepareConversation(
                 in: Self.conversationID(target),
@@ -56,6 +56,8 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
               !current.phase.isTerminal || operation != nil else { return }
         let scope = callScope
         callScope = UUID()
+        admissionReceipt = nil
+        cancelMeetingAgendaRead()
         let pending = operation
         pending?.cancel()
         media?.setMuted(true)
@@ -66,6 +68,7 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
         operation = nil
         media = nil
         current.phase = .ended
+        current.admission = nil
         current.endReason = .localEnded
         current.failureMessage = cleanup.message
         publishConversation(current)
@@ -74,6 +77,7 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
     func setConversationMuted(_ muted: Bool, callID: UUID) async throws {
         guard var current = conversationSnapshot, current.id == callID, current.phase == .connected,
               let media, !isStopping else { throw CancellationError() }
+        guard muted || media.allowsMicrophone else { throw CallMediaError.captureRestricted }
         muteSequence += 1
         let sequence = muteSequence
         let scope = callScope
@@ -91,10 +95,24 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
     func receiveConversationNative(_ state: MeetNativeCallState, id: UUID, scope: UUID) {
         guard var current = conversationSnapshot, current.id == id, callScope == scope,
               !isStopping else { return }
+        let previousAdmission = current.admission
         switch state {
-        case .ready, .ringing, .ending: return
+        case .ready:
+            guard current.admission != nil else { return }
+            current.admission = nil
+        case .ringing, .ending: return
+        case let .awaitingAdmission(status):
+            current.phase = .connecting
+            current.failureMessage = nil
+            current.admission = status
+            publishConversation(current)
+            updateWaitingRoomDetails(from: previousAdmission, call: current, scope: scope)
+            admissionReceipt?.finish()
+            admissionReceipt = nil
+            return
         case .active:
             current.phase = .connected
+            current.admission = nil
             current.failureMessage = nil
         case .reconnecting, .stateUnavailable:
             current.phase = .connecting
@@ -105,13 +123,30 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
             finishConversation(&current, reason: reason, cleanup: cleanup)
         }
         publishConversation(current)
+        updateWaitingRoomDetails(from: previousAdmission, call: current, scope: scope)
+    }
+
+    private func updateWaitingRoomDetails(
+        from previous: CallAdmission?, call: ConversationCallSnapshot, scope: UUID
+    ) {
+        guard previous != call.admission else { return }
+        if call.admission == .waitingRoom {
+            if let url = call.target.meetingURL {
+                readWaitingRoomAgenda(at: url, callID: call.id, scope: scope)
+            }
+        } else if previous == .waitingRoom {
+            cancelWaitingRoomAgendaRead()
+            continuation.yield(.interactionChanged(callID: call.id, state: nil))
+        }
     }
 
     private func finishConversation(
         _ call: inout ConversationCallSnapshot, reason: MeetNativeCallEndReason,
         cleanup: MeetNativeCallCleanup
     ) {
+        cancelMeetingAgendaRead()
         media = nil
+        call.admission = nil
         switch reason {
         case .transportFailed, .joinFailed, .accountChanged:
             call.phase = .failed
@@ -119,7 +154,12 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
         default:
             call.phase = .ended
             call.failureMessage = cleanup.message
-            call.endReason = reason == .localEnded ? .localEnded : nil
+            call.endReason = switch reason {
+            case .localEnded: .localEnded
+            case .removedFromMeeting: .removedFromMeeting
+            case .sentToWaitingRoom: .sentToWaitingRoom
+            default: nil
+            }
         }
     }
 }

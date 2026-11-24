@@ -176,17 +176,57 @@ struct OutsideMentionsTests {
         await model.stop()
     }
 
+    @Test(arguments: [false, true])
+    func addAndSendPostsOnlyFilesStagedAtConfirmation(withFile: Bool) async throws {
+        let backend = Self.backend()
+        await backend.holdMutations(true)
+        let model = try await DirectorySearchTests.model(backend, select: Self.group.rawValue)
+        if withFile {
+            model.stage([Self.file("original")], in: .conversation)
+        }
+        let message = Self.mentioning([Self.outsider])
+        model.addAndSend(message, adding: [Self.outsider.id], in: Self.group, thread: nil)
+        await settleAutoMarkRead(until: "membership is pending") { await !backend.heldMutations.isEmpty }
+        #expect(await backend.uploads.isEmpty)
+        model.stage([Self.file("later")], in: .conversation)
+        await backend.releaseHeldMutation()
+
+        await settleAutoMarkRead(until: "the post settled") {
+            model.stagedAttachments.map(\.id) == ["later"] && model.sendTasks.isEmpty
+        }
+        #expect(await Self.sent(backend) == [message.text])
+        #expect(await backend.uploads.map(\.id) == (withFile ? ["original"] : []))
+        #expect(model.stagedAttachments.map(\.state) == [.ready])
+        await model.stop()
+    }
+
     /// Nobody in the fixture's directory, so the add fails for them.
     @Test func aRefusedAddSendsNothingAndGivesTheMessageBack() async throws {
         let backend = Self.backend()
         let model = try await DirectorySearchTests.model(backend, select: Self.group.rawValue)
         let stranger = Member(id: Member.ID("stranger"), kind: .human, displayName: "Stranger")
         let message = Self.mentioning([stranger])
-        model.addAndSend(message, adding: [stranger.id], in: Self.group, thread: nil)
+        let address = ComposerDraftAddress(conversation: Self.group)
+        let draft = SyncedDraft(id: .init(address: address, record: "saved"), body: message)
+        var receipts: [Bool] = []
+        model.stage([Self.file("original")], in: .conversation)
+        model
+            .addAndSend(message, adding: [stranger.id], at: address, consuming: draft) { receipts.append($0) }
+        #expect(model.stagedAttachments.first?.isUploading == true)
         await settleAutoMarkRead(until: "the message comes back") { model.failedDraft == message }
         await settleAutoMarkRead(until: "the failure shows") { model.lastError != nil }
         #expect(await Self.sent(backend).isEmpty)
+        #expect(await backend.uploads.isEmpty)
+        #expect(model.stagedAttachments.map(\.state) == [.ready])
+        #expect(receipts == [false])
         await model.stop()
+    }
+
+    private static func file(_ id: String) -> OutgoingAttachment {
+        OutgoingAttachment(
+            id: id, file: URL(fileURLWithPath: "/nonexistent/\(id).png"), name: "\(id).png",
+            contentType: "image/png", byteSize: 100
+        )
     }
 
     @Test func anUnconfirmedAddSendsNothing() async throws {

@@ -117,6 +117,9 @@ struct ThreadPanel: View {
     /// "Message the thread", and "… as ‹account›" while several are connected.
     @ViewBuilder private var composer: some View {
         if state.capabilities.canSendMessages, let conversation = state.selectedConversation {
+            let address = ComposerDraftAddress(
+                conversation: panel.thread.conversationID, thread: panel.thread.id
+            )
             Composer(
                 placeholder: "the thread" + (state.sendingAs.map { " as \($0)" } ?? ""),
                 activity: { actions.typingActivity?(panel.thread.conversationID, panel.thread.id, $0) },
@@ -129,19 +132,15 @@ struct ThreadPanel: View {
                 mentions: state.capabilities.canMention ? mentions(in: conversation) : nil,
                 editing: editing,
                 emoji: actions.reactions,
-                initialDraft: state.composerDrafts[ComposerDraftAddress(
-                    conversation: panel.thread.conversationID, thread: panel.thread.id
-                )] ?? .init(),
-                preserveDraft: actions.preserveDraft.map { preserve in
-                    { preserve(ComposerDraftAddress(
-                        conversation: panel.thread.conversationID, thread: panel.thread.id
-                    ), $0) }
-                },
+                initialDraft: state.composerDrafts[address] ?? .init(),
+                preserveDraft: actions.preserveDraft(at: address),
                 allowsFormatting: state.capabilities.canFormatMessages,
                 quoteRequest: quoteRequest,
                 onQuoteAdopted: onQuoteAdopted,
                 quoteDirectory: state.directory,
                 quoteMe: state.me,
+                scheduling: actions.scheduled?.composer(at: address, scene: state.scheduled),
+                draftSync: actions.syncComposerDraft?(address),
                 // The thread open at call time. A send after the membership
                 // check goes through `sendHere`, which names this thread.
                 send: threads.sendReply

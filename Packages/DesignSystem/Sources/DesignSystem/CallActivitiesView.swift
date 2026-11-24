@@ -1,15 +1,6 @@
 import ChatKit
 import SwiftUI
 
-@MainActor
-public struct CallActivitiesScene {
-    public var state: CallActivitiesState
-    public var perform: (CallActivity) async throws -> Void
-    public init(state: CallActivitiesState, perform: @escaping (CallActivity) async throws -> Void) {
-        self.state = state; self.perform = perform
-    }
-}
-
 struct CallActivitiesView: View {
     let scene: CallActivitiesScene
     @Environment(\.dismiss) private var dismiss
@@ -18,12 +9,14 @@ struct CallActivitiesView: View {
     @State private var error: String?
     @State private var operation: Task<Void, Never>?
     @Binding private var message: String
+    @Binding private var waitingRoomMessage: String
     @Binding private var question: String
     @Binding private var pollTitle: String
     @Binding private var pollOptions: String
     @Binding private var roomNames: String
     @Binding private var anonymous: Bool
     @State private var artifactToStart: String?
+    @State var recordingCaptionLanguage = ""
 
     init(
         scene: CallActivitiesScene,
@@ -31,7 +24,8 @@ struct CallActivitiesView: View {
         initialTab: String = "Meeting"
     ) {
         self.scene = scene; _tab = State(initialValue: initialTab)
-        _message = drafts.message; _question = drafts.question
+        _message = drafts.message; _waitingRoomMessage = drafts.waitingRoomMessage
+        _question = drafts.question
         _pollTitle = drafts.pollTitle; _pollOptions = drafts.pollOptions
         _roomNames = drafts.roomNames; _anonymous = drafts.anonymous
     }
@@ -57,7 +51,11 @@ struct CallActivitiesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     switch tab {
-                    case "Chat": chat
+                    case "Chat":
+                        CallMeetingActivityChat(
+                            scene: scene, message: $message, waitingRoomMessage: $waitingRoomMessage,
+                            busy: busy, submit: submit
+                        )
                     case "Polls": polls
                     case "Q&A": questions
                     case "Rooms": rooms
@@ -69,6 +67,15 @@ struct CallActivitiesView: View {
         .padding(20).frame(width: 560, height: 560)
         .task { submit(CallActivity("refresh")) }
         .onDisappear { operation?.cancel() }
+        .onChange(of: scene.state.recordingCaptionLanguages) {
+            if !recordingCaptionLanguage.isEmpty,
+               !scene.state.recordingCaptionLanguages.contains(recordingCaptionLanguage) {
+                recordingCaptionLanguage = ""
+                if artifactToStart == "recording" {
+                    artifactToStart = nil
+                }
+            }
+        }
         .confirmationDialog("Start meeting activity?", isPresented: Binding(
             get: { artifactToStart != nil }, set: {
                 if !$0 {
@@ -77,7 +84,19 @@ struct CallActivitiesView: View {
             }
         )) {
             if let kind = artifactToStart {
-                Button("Start " + title(kind)) { submit(CallActivity(kind)); artifactToStart = nil }
+                Button("Start " + title(kind)) {
+                    submit(CallActivity(
+                        kind,
+                        recordingCaptionLanguage: kind == "recording" ? chosenLanguage : nil
+                    ))
+                    artifactToStart = nil
+                }
+                if kind == "recording", canSetCapturePair(true) {
+                    Button("Start Recording and Transcription") {
+                        submitCapturePair(true)
+                        artifactToStart = nil
+                    }
+                }
             }
         } message: {
             Text(
@@ -89,6 +108,12 @@ struct CallActivitiesView: View {
 
     private var meeting: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if scene.state.availableActions.contains("captions") {
+                CallCaptionControls(settings: scene.state.captions, languages: scene.state.captionLanguages) {
+                    submit($0)
+                }
+                Divider()
+            }
             Text("Reactions").font(.headline)
             HStack {
                 ForEach(["❤️", "👍", "🎉", "👏", "😂", "😮", "😢", "🤔", "👎"], id: \.self) { emoji in
@@ -103,15 +128,35 @@ struct CallActivitiesView: View {
                     VStack(alignment: .leading) {
                         Text(title(artifact.kind)).font(.headline)
                         Text(artifact.phase.capitalized).font(.caption).foregroundStyle(.secondary)
+                        if let language = artifact.recordingCaptionLanguage {
+                            Text("Captions in \(languageName(language))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
-                    if ["active", "starting"].contains(artifact.phase) {
+                    if artifact.canSetEnabled(false) {
+                        if artifact.kind == "recording", canSetCapturePair(false) {
+                            Button("Stop Recording and Transcription") { submitCapturePair(false) }
+                        }
                         Button("Stop") { submit(CallActivity(artifact.kind, enabled: false)) }
                             .disabled(!can(artifact.kind))
                     } else {
                         Button("Start…") { artifactToStart = artifact.kind }
-                            .disabled(!can(artifact.kind) || !["stopped", "preconfigured"]
-                                .contains(artifact.phase))
+                            .disabled(!can(artifact.kind) || !artifact.canSetEnabled(true))
+                    }
+                }
+                if artifact.kind == "recording", artifact.canSetEnabled(true),
+                   scene.state.availableActions.contains("recording"),
+                   !scene.state.recordingCaptionLanguages.isEmpty {
+                    recordingCaptionPicker
+                }
+            }
+            if !scene.state.artifactFiles.isEmpty {
+                ForEach(scene.state.artifactFiles) { file in
+                    if file.url.scheme?.lowercased() == "https", file.url.host != nil {
+                        Link(destination: file.url) {
+                            Label(file.title ?? title(file.kind), systemImage: "arrow.up.right.square")
+                        }
                     }
                 }
             }
@@ -121,34 +166,9 @@ struct CallActivitiesView: View {
                 set: { submit(CallActivity("attendance", enabled: $0)) }
             ))
             .disabled(!can("attendance"))
+            hostControls { submit($0) }
             Text("Availability depends on your account, meeting permissions, and organization settings.")
                 .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private var chat: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if scene.state.messages.isEmpty {
-                Text("No meeting messages yet.").foregroundStyle(.secondary)
-            }
-            ForEach(scene.state.messages) { message in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(message.sender).font(.caption).foregroundStyle(.secondary)
-                    Text(message.text).textSelection(.enabled)
-                }
-            }
-            Divider()
-            HStack(alignment: .bottom) {
-                TextField("Message everyone", text: $message, axis: .vertical).lineLimit(1 ... 5)
-                Button("Send", systemImage: "paperplane") {
-                    let text = message
-                    submit(CallActivity("chat", text: text)) {
-                        if message == text {
-                            message = ""
-                        }
-                    }
-                }.disabled(!can("chat") || message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
         }
     }
 
@@ -269,21 +289,56 @@ struct CallActivitiesView: View {
         text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
+}
 
-    private func submit(_ activity: CallActivity, accepted: (() -> Void)? = nil) {
+private extension CallActivitiesView {
+    func submit(_ activity: CallActivity, accepted: (() -> Void)? = nil) {
+        let failure = activity.action == "refresh" ? "Meeting activities could not be refreshed." :
+            "The action was refused or could not be confirmed. Check the meeting state before trying again."
+        submit(failure: failure, accepted: accepted) { try await scene.perform(activity) }
+    }
+
+    func canSetCapturePair(_ enabled: Bool) -> Bool {
+        scene.setRecordingAndTranscriptionEnabled != nil &&
+            scene.state.canSetRecordingAndTranscriptionEnabled(enabled)
+    }
+
+    func submitCapturePair(_ enabled: Bool) {
+        guard canSetCapturePair(enabled),
+              let setEnabled = scene.setRecordingAndTranscriptionEnabled else { return }
+        let failure = "The capture change could not be confirmed. Check its status before trying again."
+        let language = enabled ? chosenLanguage : nil
+        submit(failure: failure) {
+            try await setEnabled(enabled, language)
+        }
+    }
+
+    func submit(
+        failure: String,
+        accepted: (() -> Void)? = nil,
+        _ action: @escaping () async throws -> Void
+    ) {
         guard !busy else { return }
         busy = true; error = nil
         operation = Task { @MainActor in
             defer { busy = false; operation = nil }
             do {
-                try await scene.perform(activity)
+                try await action()
                 guard !Task.isCancelled else { return }
                 accepted?()
+            } catch let failure as CallArtifactPairError {
+                guard !Task.isCancelled else { return }
+                self.error = switch failure {
+                case .recordingUnconfirmed:
+                    "Transcription stopped. Check the recording status before trying again."
+                case .transcriptionUnconfirmed:
+                    "The recording change was confirmed. Check the transcription status before trying again."
+                case .bothUnconfirmed:
+                    "Neither stop could be confirmed. Check both activity statuses before trying again."
+                }
             } catch {
                 guard !Task.isCancelled else { return }
-                self.error = activity.action == "refresh" ? "Meeting activities could not be refreshed." :
-                    "The action was refused or could not be confirmed. " +
-                    "Check the meeting state before trying again."
+                self.error = failure
             }
         }
     }

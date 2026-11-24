@@ -4,27 +4,38 @@ import LocalBridgeBackend
 
 public extension NativeCallMedia {
     func configureStreamControl(_ channel: CallStreamControlChannel?) throws {
-        guard let peer else { throw CallMediaError.closed }
+        guard peer != nil else { throw CallMediaError.closed }
         guard !isExchangingStream, streamChannel == nil else { throw CallMediaError.busy }
         guard let channel else { return }
-        guard channel.id < 65535, channel.maxPacketLifeTime == nil || channel.maxRetransmits == nil else {
+        guard channel.compression == .none else { throw CallMediaError.negotiationFailed }
+        streamChannel = try createAssignedChannel(channel, label: "dcrpc")
+    }
+
+    internal func createAssignedChannel(
+        _ channel: CallStreamControlChannel, label: String
+    ) throws -> LKRTCDataChannel {
+        guard let peer else { throw CallMediaError.closed }
+        let id = Int32(channel.id)
+        guard channel.id < 65535, channel.maxPacketLifeTime == nil || channel.maxRetransmits == nil,
+              streamChannel?.channelId != id,
+              !activityChannels.values.contains(where: { $0.channel.channelId == id }) else {
             throw CallMediaError.negotiationFailed
         }
         let config = LKRTCDataChannelConfiguration()
         config.isOrdered = channel.isOrdered
         config.isNegotiated = true
-        config.channelId = Int32(channel.id)
+        config.channelId = id
         if let lifetime = channel.maxPacketLifeTime {
             config.maxPacketLifeTime = Int32(lifetime)
         }
         if let retransmits = channel.maxRetransmits {
             config.maxRetransmits = Int32(retransmits)
         }
-        guard let created = peer.dataChannel(forLabel: "dcrpc", configuration: config) else {
+        guard let created = peer.dataChannel(forLabel: label, configuration: config) else {
             throw CallMediaError.negotiationFailed
         }
-        streamChannel = created
         created.delegate = self
+        return created
     }
 
     /// Opaque, bounded transport only. The bridge supplies request IDs and

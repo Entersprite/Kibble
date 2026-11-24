@@ -51,6 +51,10 @@ public extension APIMethod where Request == GetMessageRequest, Response == GetMe
 
 public extension APIMethod where Request == ApplyMessageLabelRequest, Response == ApplyMessageLabelResponse {
     static var applyPin: Self {
+        applyMessageLabel
+    }
+
+    static var applyMessageLabel: Self {
         Self("apply_message_label", allowsEmptyResponse: true)
     }
 }
@@ -58,6 +62,10 @@ public extension APIMethod where Request == ApplyMessageLabelRequest, Response =
 public extension APIMethod where Request == RemoveMessageLabelRequest,
     Response == RemoveMessageLabelResponse {
     static var removePin: Self {
+        removeMessageLabel
+    }
+
+    static var removeMessageLabel: Self {
         Self("remove_message_label", allowsEmptyResponse: true)
     }
 }

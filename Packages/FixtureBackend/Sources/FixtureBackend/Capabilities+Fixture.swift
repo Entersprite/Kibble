@@ -42,9 +42,14 @@ public extension Capabilities {
             .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
         ], extendedFlags: [
             "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
-            "messagePins", "conversationPreview", "customEmojiMessages",
+            "messagePins", "starredMessages", "scheduledMessages", "sendScheduledMessageNow",
+            "conversationPreview",
+            "customEmojiMessages",
             "customEmojiStatus", "callHistory", "callDiscovery", "conversationWebhooks", "conversationApps",
-            "conversationEmail"
+            "conversationEmail", "blockedConversations", "blockedPeople", "syncedDraftReads",
+            "syncedDraftWrites", "conversationMute",
+            "scheduleSavedDraft", "scheduleAttachments", "scheduleForwards",
+            "sendSavedDraft", "sendSavedDraftWithAttachments"
         ]
     )
 }

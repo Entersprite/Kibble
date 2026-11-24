@@ -7,8 +7,13 @@ extension NativeMeetCallSession {
         let confirmed: Bool
         switch activity.action {
         case "recording", "transcription", "notes":
-            let phase = activities.artifacts.first { $0.kind == activity.action }?.phase
-            confirmed = activity.enabled ? phase == "active" || phase == "starting" : phase == "stopped"
+            let artifact = activities.artifacts.first { $0.kind == activity.action }
+            let phase = artifact?.phase
+            let matchesPhase = activity.enabled
+                ? phase == "active" || phase == "starting" : phase == "stopped"
+            let matchesCaptions = activity.recordingCaptionLanguage
+                .map { $0 == artifact?.recordingCaptionLanguage }
+            confirmed = matchesPhase && matchesCaptions != false
         case "attendance": confirmed = activities.attendanceReportEnabled == activity.enabled
         case "createPoll": confirmed = activities.polls
             .contains { !baseline.contains($0.id) && $0.question == activity.text }

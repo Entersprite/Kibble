@@ -37,11 +37,19 @@ public struct ConversationSelection: Identifiable, Hashable, Sendable {
 /// "Notifications for <name>", with a Done button (spec §4, the main window).
 public struct ConversationNotificationSheet: View {
     private let state: ConversationRuleState
+    private let spaceNotifications: SpaceNotificationSetting?
+    private let conversationMute: ConversationMuteSetting?
     private let update: (NotificationRule) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    public init(state: ConversationRuleState, update: @escaping (NotificationRule) -> Void) {
+    public init(
+        state: ConversationRuleState, spaceNotifications: SpaceNotificationSetting? = nil,
+        conversationMute: ConversationMuteSetting? = nil,
+        update: @escaping (NotificationRule) -> Void
+    ) {
         self.state = state
+        self.spaceNotifications = spaceNotifications
+        self.conversationMute = conversationMute
         self.update = update
     }
 
@@ -49,7 +57,8 @@ public struct ConversationNotificationSheet: View {
         NavigationStack {
             NotificationRuleEditor(
                 title: "Notifications for \(state.title)",
-                rule: state.rule, inherited: state.inherited, update: update
+                rule: state.rule, inherited: state.inherited,
+                spaceNotifications: spaceNotifications, conversationMute: conversationMute, update: update
             )
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

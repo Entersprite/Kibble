@@ -260,6 +260,10 @@ extension FakeBackend {
         case .requestJoin:
             details.membership = .requested
             details.allowedActions = []
+        case .block:
+            blockedRooms[details.conversation.id] = (details.conversation, false)
+            details.membership = .unknown
+            details.allowedActions = []
         default:
             details.membership = .unknown
             details.allowedActions = []

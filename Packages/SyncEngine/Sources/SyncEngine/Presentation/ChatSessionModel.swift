@@ -23,7 +23,13 @@ import Observation
 public final class ChatSessionModel {
     /// Local feedback for one admitted composer send, never channel echoes or replay.
     @ObservationIgnored public var didBeginSending: (@MainActor () -> Void)?
+    @ObservationIgnored public var refreshOpenDraft: (@MainActor (ComposerDraftAddress) -> Void)?
     public internal(set) var conversations: [Conversation] = [] // set from +AutoMarkRead.swift
+    public internal(set) var conversationSections: [ConversationSection] = []
+    @ObservationIgnored var conversationSectionTask: Task<Void, Never>?
+    @ObservationIgnored var conversationSectionWrite: (id: UUID, cancel: @Sendable () -> Void)?
+    @ObservationIgnored var conversationSectionReadInvalidated = false
+    @ObservationIgnored var removedConversationSectionIDs: Set<String> = []
     public internal(set) var directory: [Member.ID: Member] = [:] // set from +Observing.swift
     public internal(set) var callChat = CallChatSessionState()
     public internal(set) var messages: [Message] = [] // set from +Mentions.swift
@@ -90,6 +96,10 @@ public final class ChatSessionModel {
     /// Whether the sidebar's Mentions row is chosen; `selected` is `nil` then.
     /// `internal(set)` for `+Mentions.swift`.
     public internal(set) var showingMentions = false
+    public let stars = StarredMessagesSessionState()
+    public let schedules = ScheduledMessagesSessionState()
+    public let blockedRooms = BlockedConversationsSessionState()
+    public let blockedPeople = BlockedListSessionState<BlockedPerson>()
     /// The message `open(conversation:message:)` asked the transcript to
     /// scroll to, until the next selection. `internal(set)` for `+Mentions.swift`.
     public internal(set) var scrollTarget: Message.ID? {
@@ -201,27 +211,12 @@ public final class ChatSessionModel {
     var conversationActionGenerations: [Conversation.ID: UUID] = [:]
     var unreadHolds: Set<Conversation.ID> = []
 
-    /// The text of a send that was not accepted, and the conversation it was
-    /// typed in.
-    ///
-    /// Both halves, because exposing the text alone is how it ends up in
-    /// somebody else's composer: `ChatWindow` keys the composer on the
-    /// conversation id precisely so a half-typed line cannot follow the user
-    /// to a different person, and a restore that ignored the id would undo
-    /// that.
-    ///
-    /// Not `private`: `failedDraft`, `clearFailedDraft()` and `send(_:)` all
-    /// live in `ChatSessionModel+Send.swift`, in a different source file
-    /// where Swift's same-file `private` visibility does not reach. Same
-    /// reasoning as `published` and `markTasks` above, and still invisible
-    /// outside this module.
-    var failed: (conversationID: Conversation.ID, draft: ComposedMessage)?
+    /// Unaccepted top-level drafts awaiting adoption in their original conversation.
+    var failedDrafts: [Conversation.ID: [FailedDraftOffer]] = [:]
     /// Each conversation's staged files, and the sends uploading them (`+Staging.swift`).
     public internal(set) var composerFiles = ComposerFiles()
 
-    /// Not `private` for the same reason as `failed` just above:
-    /// `send(_:)`'s optimistic row is written through this from
-    /// `ChatSessionModel+Send.swift`.
+    /// Also used by the send path for optimistic rows.
     let store: ChatStore
     /// Not `private`: `ChatSessionModel+AutoMarkRead.swift`'s trigger submits
     /// through this directly, the same way `select(_:)` in this file and

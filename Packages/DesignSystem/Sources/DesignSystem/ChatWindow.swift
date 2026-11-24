@@ -62,20 +62,14 @@ public struct ChatWindow: View {
                     min: SidebarColumnLayout.minimumWidth,
                     ideal: SidebarColumnLayout.idealWidth
                 )
-                .toolbar(removing: .sidebarToggle)
-                .toolbar {
-                    ToolbarSpacer(.flexible, placement: .primaryAction)
-                    NavigationTools(
+                .modifier(ConversationSidebarHeader(
+                    accountID: state.accountID, capabilities: state.capabilities, actions: actions,
+                    navigation: NavigationTools(
                         canGoBack: navigationHistory.canGoBack,
                         canGoForward: navigationHistory.canGoForward,
                         step: step
                     )
-                    if let browser = actions.browser {
-                        // Its own capsule, apart from Back and Forward.
-                        ToolbarSpacer(.fixed, placement: .primaryAction)
-                        ConversationSidebarTools(capabilities: state.capabilities, actions: browser)
-                    }
-                }
+                ))
         } content: {
             VStack(spacing: 0) {
                 if unavailable == nil {
@@ -97,6 +91,16 @@ public struct ChatWindow: View {
                             }
                             // Its selected row is one account's message.
                             .id(state.accountID)
+                        } else if state.stars.showingList, let stars = actions.stars {
+                            StarredMessagesPane(
+                                state: state,
+                                actions: stars,
+                                open: actions.openMessageReference
+                            )
+                            .id(state.accountID)
+                        } else if state.scheduled.showingList, let scheduled = actions.scheduled {
+                            ScheduledMessagesPane(state: state, actions: scheduled)
+                                .id(state.accountID)
                         } else if state.threads.showingList, let threads = actions.threads {
                             ThreadsPane(
                                 items: state.threads.items,
@@ -202,8 +206,11 @@ public struct ChatWindow: View {
         .modifier(navigationRecording)
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
         .sheet(item: $pendingForward) { selection in
-            ForwardMessageSheet(message: selection.message, state: state, send: actions.forwardMessage)
-                .id(AccountScoped(account: state.accountID, value: selection.id))
+            ForwardMessageSheet(
+                message: selection.message, state: state, send: actions.forwardMessage,
+                schedule: actions.scheduleForward
+            )
+            .id(AccountScoped(account: state.accountID, value: selection.id))
         }
         // The search panel takes every click in the window, so no
         // text cursor shows through it.
@@ -225,6 +232,7 @@ public struct ChatWindow: View {
     /// The bar's content: the field, or why there isn't one.
     @ViewBuilder private func composer(for conversation: Conversation) -> some View {
         if state.capabilities.canSendMessages {
+            let address = ComposerDraftAddress(conversation: conversation.id)
             Composer(
                 placeholder: (state.meetingSeries?.title ?? Display.title(
                     of: conversation,
@@ -232,7 +240,7 @@ public struct ChatWindow: View {
                     me: state.me
                 )) + (state.sendingAs.map { " as \($0)" } ?? ""),
                 activity: { actions.typingActivity?(conversation.id, nil, $0) },
-                restoring: state.failedDraft,
+                restoring: state.failedDraft, restorationID: state.failedDraftID,
                 onRestored: actions.draftRestored,
                 attachments: state.stagedAttachments,
                 attachmentActions: actions.composerAttachments,
@@ -255,16 +263,15 @@ public struct ChatWindow: View {
                     : nil,
                 editing: composerEditing(),
                 emoji: actions.reactions,
-                initialDraft: state
-                    .composerDrafts[ComposerDraftAddress(conversation: conversation.id)] ?? .init(),
-                preserveDraft: actions.preserveDraft.map { preserve in
-                    { preserve(ComposerDraftAddress(conversation: conversation.id), $0) }
-                },
+                initialDraft: state.composerDrafts[address] ?? .init(),
+                preserveDraft: actions.preserveDraft(at: address),
                 allowsFormatting: state.capabilities.canFormatMessages,
                 quoteRequest: transcriptQuote?.quote.conversation == conversation.id ? transcriptQuote : nil,
                 onQuoteAdopted: { transcriptQuote = nil },
                 quoteDirectory: state.directory,
                 quoteMe: state.me,
+                scheduling: actions.scheduled?.composer(at: address, scene: state.scheduled),
+                draftSync: actions.syncComposerDraft?(address),
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without

@@ -83,4 +83,25 @@ struct SendRequestsTests {
         #expect(decodedMessage.textBody == "reply")
         #expect(decodedMessage.localID == "l2")
     }
+
+    @Test func savedDraftsKeepTheirOwnIdentityBesideTheOptimisticSendID() throws {
+        let group = spaceGroup("s-1")
+        var draft = UnsentMessageId()
+        draft.groupID = group
+        draft.localID = "original-draft"
+        let topic = SendRequests.createTopic(group: group, text: "Text", localID: "new-send", unsent: draft)
+        let topicBytes: Data = try topic.serializedBytes()
+        let topicInfo = try #require(ProtoFieldScan.payloads(ofField: 9, in: topicBytes).first)
+        #expect(ProtoFieldScan.payloads(ofField: 4, in: topicBytes) == [Data("new-send".utf8)])
+        #expect(try ProtoFieldScan.payloads(ofField: 5, in: topicInfo) == [draft.serializedBytes()])
+
+        draft.topicID = "t-1"
+        let reply = SendRequests.createMessage(
+            group: group, topicID: draft.topicID, text: "Reply", localID: "new-reply", unsent: draft
+        )
+        let replyBytes: Data = try reply.serializedBytes()
+        let replyInfo = try #require(ProtoFieldScan.payloads(ofField: 7, in: replyBytes).first)
+        #expect(ProtoFieldScan.payloads(ofField: 4, in: replyBytes) == [Data("new-reply".utf8)])
+        #expect(try ProtoFieldScan.payloads(ofField: 5, in: replyInfo) == [draft.serializedBytes()])
+    }
 }

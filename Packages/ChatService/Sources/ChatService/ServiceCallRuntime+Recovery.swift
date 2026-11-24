@@ -21,6 +21,7 @@ extension ServiceCallRuntime {
         }
         let token = UUID()
         recoveryPaused = true
+        cancelMeetingLinkPreviews()
         recoveryBarrier = CallRecoveryBarrier(token: token)
         listener?.cancel()
         try await quiescing.pauseForRecovery(barrier: token)

@@ -3,6 +3,60 @@ import Testing
 @testable import GChatBridgeCore
 
 struct MeetStreamControlChannelTests {
+    @Test func activityOffersRequestTheSupportedLabelsWithoutAssignedIDs() {
+        let configuration = MeetMediaSessionWire.requestingActivityChannels(in: Data())
+        let requests = ProtoFieldScan.payloads(ofField: 17, in: configuration)
+        let labels = requests.compactMap { ProtoFieldScan.payloads(ofField: 1, in: $0).first }
+        #expect(labels == ["reactions", "meet_messages", "captions_v2"].map { Data($0.utf8) })
+        for request in requests {
+            #expect(ProtoFieldScan.varintValues(ofField: 2, in: request) == [1])
+            #expect(ProtoFieldScan.varintValues(ofField: 3, in: request).isEmpty)
+            #expect(ProtoFieldScan.varintValues(ofField: 4, in: request) == [1])
+            #expect(ProtoFieldScan.varintValues(ofField: 7, in: request) == [1])
+        }
+    }
+
+    @Test func anUnusableOptionalAssignmentIsIsolatedFromOtherActivities() throws {
+        let reactions = MeetProto.bytes(12, channel(id: 0, label: "reactions"))
+        let messages = MeetProto.bytes(12, channel(id: 42, label: "meet_messages"))
+        let valid = try MeetMediaSessionWire.activityChannels(serverConfiguration: reactions + messages)
+        #expect(valid[.reactions]?.id == 0)
+        #expect(valid[.messages]?.id == 42)
+        let rejected = [
+            messages + messages,
+            messages + MeetProto.bytes(12, channel(id: 42)),
+            MeetProto.bytes(12, channel(id: 42, label: "meet_messages", compression: 2)),
+            MeetProto.bytes(12, MeetProto.string(1, "meet_messages"))
+        ]
+        for configuration in rejected {
+            let partial = try MeetMediaSessionWire
+                .activityChannels(serverConfiguration: reactions + configuration)
+            #expect(partial[.reactions]?.id == 0)
+            #expect(partial[.messages] == nil)
+        }
+    }
+
+    @Test func captionsCanOfferGzipAndUseTheFirstReturnedPreference() throws {
+        let offered = MeetMediaSessionWire.requestingActivityChannels(in: Data(), allowsGzipCaptions: true)
+        let requests = ProtoFieldScan.payloads(ofField: 17, in: offered)
+        let captions = try #require(requests.last)
+        #expect(ProtoFieldScan.payloads(ofField: 7, in: captions) == [Data([2, 1])])
+        #expect(requests.dropLast().allSatisfy { ProtoFieldScan.varintValues(ofField: 7, in: $0) == [1] })
+
+        let descriptor = MeetProto.string(1, "captions_v2") + MeetProto.number(3, 42)
+        let gzipFirst = MeetProto.bytes(12, descriptor + MeetProto.bytes(7, Data([2, 1])))
+        let noneFirst = MeetProto.bytes(12, descriptor + MeetProto.bytes(7, Data([1, 2])))
+        let allowed = try MeetMediaSessionWire.activityChannels(
+            serverConfiguration: gzipFirst, allowsGzipCaptions: true
+        )
+        #expect(allowed[.captions]?.compression == .gzip)
+        #expect(try MeetMediaSessionWire.activityChannels(serverConfiguration: gzipFirst).isEmpty)
+        let fallback = try MeetMediaSessionWire.activityChannels(
+            serverConfiguration: noneFirst, allowsGzipCaptions: true
+        )
+        #expect(fallback[.captions]?.compression == .some(.none))
+    }
+
     @Test(arguments: [(UInt64(5), UInt64(0)), (5, 1), (5, 65535), (6, 0), (6, 1), (6, 65535)])
     func acceptsNativeLifetimeAndRetransmissionLimits(_ field: UInt64, _ limit: UInt64) throws {
         let raw = MeetProto.string(1, "dcrpc") + MeetProto.number(2, 1) + MeetProto.number(3, 42)

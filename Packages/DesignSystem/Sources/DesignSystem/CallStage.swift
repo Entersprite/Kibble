@@ -197,25 +197,6 @@ struct CallWaitingHalo: View {
     }
 }
 
-/// Your own camera, in a corner of the stage.
-struct CallSelfView: View {
-    let content: AnyView
-
-    var body: some View {
-        content
-            .frame(width: 192, height: 108)
-            .background(.black)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.white.opacity(0.2), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.35), radius: 14, y: 5)
-            .accessibilityElement()
-            .accessibilityLabel("Your camera preview")
-    }
-}
-
 /// What you are sharing, as the other person receives it: shown whole on
 /// black, labeled "Sharing", with Stop Sharing on hover.
 struct CallSharingPreview: View {
@@ -361,9 +342,22 @@ struct CallNoticeView: View {
     }
 }
 
+/// Both layouts fill the window, so either can go full screen.
+struct CallFrame: ViewModifier {
+    let isVideo: Bool
+
+    func body(content: Content) -> some View {
+        let minimum = isVideo ? CallLayout.videoMinimum : CallLayout.compact
+        content.frame(
+            minWidth: minimum.width, maxWidth: .infinity,
+            minHeight: minimum.height, maxHeight: .infinity
+        )
+    }
+}
+
 extension View {
     /// Lets a drag on otherwise empty stage move the window.
-    @ViewBuilder func windowDragArea() -> some View {
+    func windowDragArea() -> some View {
         #if os(macOS)
             gesture(WindowDragGesture())
         #else

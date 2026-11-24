@@ -128,6 +128,8 @@ extension AccountRuntime {
                 request.decodePayload(JoinMeetingCall.self),
                 session: context.sessionID
             )
+        case CreateMeetingLink.operation, PreviewMeetingLink.operation:
+            return try await dispatchMeetingLinks(request, calls: calls, epoch: epoch)
         case ControlConversationCall.operation:
             result = try await dispatchConversationCallControl(
                 request,
@@ -140,6 +142,27 @@ extension AccountRuntime {
         }
         try checkEpoch(epoch)
         return try ServiceCodec.value(result)
+    }
+
+    private func dispatchMeetingLinks(
+        _ request: ServiceRequest,
+        calls: ServiceCallRuntime,
+        epoch: UUID
+    ) async throws
+        -> JSONValue {
+        let result: JSONValue
+        switch request.operation {
+        case CreateMeetingLink.operation:
+            result = try await ServiceCodec
+                .value(calls.createMeetingLink(request.decodePayload(CreateMeetingLink.self)))
+        case PreviewMeetingLink.operation:
+            result = try await ServiceCodec
+                .value(calls.previewMeetingLink(request.decodePayload(PreviewMeetingLink.self)))
+        default:
+            throw ServiceFailure.unsupportedOperation
+        }
+        try checkEpoch(epoch)
+        return result
     }
 
     private func dispatchCallControl(

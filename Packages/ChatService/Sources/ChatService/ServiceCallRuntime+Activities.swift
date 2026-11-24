@@ -23,7 +23,8 @@ extension ServiceCallRuntime {
             throw ServiceFailure.invalidRequest
         }
         guard let activities = source as? any CallActivitiesService,
-              state.interaction?.activities?.availableActions.contains(activity.action) == true else {
+              let current = state.interaction?.activities, current.availableActions.contains(activity.action),
+              current.acceptsRecordingCaptionChoice(activity) else {
             throw ServiceFailure.unsupportedOperation
         }
         guard !controlling else { throw ServiceFailure.deviceBusy }

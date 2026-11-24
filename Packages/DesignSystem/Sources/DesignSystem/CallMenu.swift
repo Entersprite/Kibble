@@ -11,7 +11,8 @@ import SwiftUI
 /// window, never by a key that could be pressed while typing.
 public struct CallMenu: Equatable, Sendable {
     public enum Item: Hashable, Sendable {
-        case joinMeeting, mute, camera, shareScreen, shareScreenWithSound, endCall
+        case createMeetingLink, joinMeeting, mute, camera, shareScreen, shareScreenWithSound, toggleHand,
+             endCall
     }
 
     public struct Entry: Hashable, Identifiable, Sendable {
@@ -36,7 +37,9 @@ public struct CallMenu: Equatable, Sendable {
     public init(
         call: AudioCallSession?, isEnding: Bool, camera: CallCameraState?,
         screenSharing: CallScreenShareState?, offersVideo: Bool, offersSound: Bool = false,
-        offersMeetingLinks: Bool = false
+        offersMeetingLinks: Bool = false, offersMeetingLinkCreation: Bool = false,
+        isCreatingMeetingLink: Bool = false, microphoneRestricted: Bool = false,
+        handRaised: Bool? = nil, isUpdatingHand: Bool = false
     ) {
         let live = call.flatMap { $0.phase.isTerminal || $0.phase == .incoming || isEnding ? nil : $0 }
         let media = live.map { AudioCallPresentation.canMute($0.phase) } ?? false
@@ -44,7 +47,7 @@ public struct CallMenu: Equatable, Sendable {
         let muted = live?.isMuted ?? false
         var entries = [Entry(
             item: .mute, title: muted ? "Unmute" : "Mute", symbol: muted ? "mic" : "mic.slash",
-            shortcut: MenuBarShortcuts.muteCall, isEnabled: media
+            shortcut: MenuBarShortcuts.muteCall, isEnabled: media && !microphoneRestricted
         )]
         if offersMeetingLinks {
             entries.insert(Entry(
@@ -52,26 +55,23 @@ public struct CallMenu: Equatable, Sendable {
                 isEnabled: live == nil && call?.phase != .incoming && !isEnding
             ), at: 0)
         }
+        if offersMeetingLinkCreation {
+            entries.insert(Entry(
+                item: .createMeetingLink, title: "Copy New Meeting Link", symbol: "link.badge.plus",
+                shortcut: nil,
+                isEnabled: !isCreatingMeetingLink
+            ), at: 0)
+        }
         if offersVideo {
-            let isOn = camera?.isOn ?? false
+            entries += Self.videoEntries(
+                camera: camera, screenSharing: screenSharing, offersSound: offersSound, media: media
+            )
+        }
+        if let handRaised, live?.phase == .connected {
             entries.append(Entry(
-                item: .camera, title: isOn ? "Turn Camera Off" : "Turn Camera On",
-                symbol: isOn ? "video.slash" : "video", shortcut: nil,
-                isEnabled: media && camera.map { !$0.isUpdating } == true
+                item: .toggleHand, title: Self.handTitle(handRaised), symbol: "hand.raised",
+                shortcut: MenuBarShortcuts.toggleCallHand, isEnabled: !isUpdatingHand
             ))
-            let sharing = screenSharing?.phase ?? .idle
-            entries.append(Entry(
-                item: .shareScreen, title: Self.sharingTitle(sharing),
-                symbol: sharing == .idle ? "rectangle.on.rectangle" : "rectangle.on.rectangle.slash",
-                shortcut: nil, isEnabled: media && screenSharing.map { $0.phase != .stopping } == true
-            ))
-            // Its own item, so sound is only ever shared by choosing it.
-            if offersSound {
-                entries.append(Entry(
-                    item: .shareScreenWithSound, title: Self.shareWithSoundTitle, symbol: "speaker.wave.2",
-                    shortcut: nil, isEnabled: media && sharing == .idle && screenSharing != nil
-                ))
-            }
         }
         entries.append(Entry(
             item: .endCall, title: "End Call", symbol: "phone.down", shortcut: nil,
@@ -80,7 +80,36 @@ public struct CallMenu: Equatable, Sendable {
         self.entries = entries
     }
 
+    private static func videoEntries(
+        camera: CallCameraState?, screenSharing: CallScreenShareState?, offersSound: Bool, media: Bool
+    ) -> [Entry] {
+        let isOn = camera?.isOn ?? false
+        var entries = [Entry(
+            item: .camera, title: isOn ? "Turn Camera Off" : "Turn Camera On",
+            symbol: isOn ? "video.slash" : "video", shortcut: nil,
+            isEnabled: media && camera?.canToggle == true
+        )]
+        let sharing = screenSharing?.phase ?? .idle
+        entries.append(Entry(
+            item: .shareScreen, title: Self.sharingTitle(sharing),
+            symbol: sharing == .idle ? "rectangle.on.rectangle" : "rectangle.on.rectangle.slash",
+            shortcut: nil, isEnabled: media && screenSharing?.canToggle == true
+        ))
+        // Its own item, so sound is only ever shared by choosing it.
+        if offersSound {
+            entries.append(Entry(
+                item: .shareScreenWithSound, title: Self.shareWithSoundTitle, symbol: "speaker.wave.2",
+                shortcut: nil, isEnabled: media && sharing == .idle && screenSharing?.allowsStart == true
+            ))
+        }
+        return entries
+    }
+
     static let shareWithSoundTitle = "Share Screen with Sound…"
+
+    static func handTitle(_ isRaised: Bool) -> String {
+        isRaised ? "Lower Hand" : "Raise Hand"
+    }
 
     /// The call window's sharing button says the same at each step.
     static func sharingTitle(_ phase: CallScreenShareState.Phase) -> String {

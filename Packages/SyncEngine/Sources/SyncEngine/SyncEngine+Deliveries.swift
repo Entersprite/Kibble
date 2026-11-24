@@ -29,6 +29,7 @@ extension SyncEngine {
                 committed = true
             }
             guard committed else { return true }
+            publishMessageCollectionChanges(in: delivery)
             for event in delivery.events {
                 processActivity(event)
                 if case .conversationsChanged = event {

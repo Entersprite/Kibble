@@ -17,8 +17,14 @@ public extension SyncEngine {
     /// retained for reconciliation. It is not a claim that an unknown send arrived.
     @discardableResult
     func submit(_ command: ChatCommand, undoing writes: [StoreWrite] = []) async -> Bool {
+        await submit(command, consuming: nil, undoing: writes).retained
+    }
+
+    internal func submit(
+        _ command: ChatCommand, consuming draft: SyncedDraft?, undoing writes: [StoreWrite]
+    ) async -> (retained: Bool, draftConsumed: Bool) {
         let generation = managementGeneration
-        guard canDispatchTrackedMessage(command, undoing: writes) else { return false }
+        guard canDispatchTrackedMessage(command, undoing: writes) else { return (false, false) }
         if suppressed(command) {
             // A refused mark still means the messages it covers are read
             // here - receipts off, no account yet, or ghost mode - so their
@@ -37,25 +43,31 @@ public extension SyncEngine {
             if case let .markRead(conversation, upTo) = command {
                 announcer.yield(.read(conversation, upTo: upTo.addingTimeInterval(0.000_001)))
             }
-            return false
+            return (false, false)
         }
         if case let .conversationAction(id, action) = command {
-            return await submitConversationAction(action, in: id) == nil
+            return await (submitConversationAction(action, in: id) == nil, false)
         }
         do {
             try command.validateMessageContent(capabilities: backend.capabilities)
-            try await backend.send(command)
+            let consumed: Bool
+            if let draft {
+                consumed = try await backend.send(command, consuming: draft)
+            } else {
+                try await backend.send(command)
+                consumed = false
+            }
             try Task.checkCancellation()
-            guard generation == managementGeneration else { return false }
+            guard generation == managementGeneration else { return (false, false) }
             recordAcceptedDelivery(command, undoing: writes)
-            return true
+            return (true, consumed)
         } catch {
             // Same reasoning as `requestMoreMessages` and `perform` just below:
             // cancelling this task does not oblige whatever is underneath it to
             // throw `CancellationError`, and a write from a session that no
             // longer owns the store is the exact trap `ChatSessionModel.stop()`
             // cancelling `markTasks` exists to close.
-            guard !Task.isCancelled, generation == managementGeneration else { return false }
+            guard !Task.isCancelled, generation == managementGeneration else { return (false, false) }
             if error is UncertainOperation {
                 let status = deliveryUpdates(in: writes, status: .unconfirmed)
                 record(
@@ -66,12 +78,12 @@ public extension SyncEngine {
                 // draft or retracting its pending row. Other commands still
                 // cannot advance success-dependent state such as read receipts.
                 if case .sendMessage = command {
-                    return true
+                    return (true, false)
                 }
-                return false
+                return (false, false)
             }
             record(error, undoing: writes)
-            return false
+            return (false, false)
         }
     }
 

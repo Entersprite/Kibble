@@ -5,15 +5,19 @@ import Foundation
 /// wire them to anything, including nothing.
 @MainActor
 public struct ChatSceneActions {
+    public var stars: StarredMessagesActions?
+    public var scheduled: ScheduledMessagesActions?
     public var setMessagePinned: ((Bool, Message) -> Void)?
     public var refreshPins: (() -> Void)?
     public var openMessageReference: ((MessageAddress) -> Void)?
     public var loadMessageReference: MessageReferenceLoader?
     public var forwardMessage: (@MainActor (Message.ID, Conversation.ID, String) async -> Bool)?
+    public var scheduleForward: (@MainActor (Message.ID, Conversation.ID, String, Date) async -> Bool)?
     public var invokeCardAction: AppCardActionHandler?
     public var openEmbeddedMedia: (@MainActor @Sendable (URL) -> Void)?
     public var checkMessageDelivery: ((Message.ID) -> Void)?
     public var preserveDraft: ((ComposerDraftAddress, ComposerDraft) -> Void)?
+    public var syncComposerDraft: ((ComposerDraftAddress) -> ComposerDraftSync?)?
     public var showSidebarSettings: (() -> Void)?
     public var browser: ConversationBrowserActions?
     public var typingActivity: ((Conversation.ID, MessageThread.ID?, Bool) -> Void)?
@@ -166,6 +170,10 @@ public struct ChatSceneActions {
     /// `ChatSceneState.collapsedSections`. **Optional**: a host that keeps none
     /// gets collapse the sidebar forgets at relaunch, as before.
     public var updateSidebar: ((SidebarPreferences) -> Void)?
+    public var editConversationSection: ((ConversationSectionEdit) async throws -> Void)?
+    public var createConversationSection: ((String) async throws -> Void)?
+    public var deleteConversationSection: ((String) async throws -> Void)?
+    public var moveConversationToSection: ((ConversationSectionPlacement) -> Void)?
     public var showDirectory: ((String) -> Void)?
     public var setSectionCollapsed: ((String, Bool) -> Void)?
     /// Opens the app's settings, from the sidebar footer's gear. **Optional,

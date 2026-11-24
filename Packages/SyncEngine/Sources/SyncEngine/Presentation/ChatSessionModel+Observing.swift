@@ -50,6 +50,7 @@ extension ChatSessionModel {
         watchClientTransport()
         watchMessageDeliveries()
         watchReplicaHistory()
+        watchMessageCollectionChanges()
     }
 
     func watchClientTransport() {
@@ -154,6 +155,8 @@ extension ChatSessionModel {
         activity = ConversationActivity()
         closeThread()
         threads.showingList = false
+        stars.leave()
+        schedules.leave()
         callHistory.leave()
         threads.summaries = [:]
         conversationWatchers

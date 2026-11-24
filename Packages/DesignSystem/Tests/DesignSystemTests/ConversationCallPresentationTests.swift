@@ -225,6 +225,102 @@ struct ConversationCallPresentationTests {
     // MARK: Window
 
     #if os(macOS)
+        @Test(arguments: [false, true])
+        func meetingPreparationFitsTheCompactCallWindow(_ hasPreview: Bool) throws {
+            let url = try #require(URL(string: "https://meet.example.test/room"))
+            let call = AudioCallSession(.init(
+                id: UUID(), target: previewMeetingTarget(at: url, titled: hasPreview), phase: .connecting
+            ), isJoining: true)
+            var actions = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})
+            actions.meetingPreparation = .init(
+                microphone: .needsPermission,
+                camera: .unavailable,
+                join: {},
+                cancel: {}
+            )
+            if hasPreview {
+                actions.meetingPreparation?.cameraPreview = .init(
+                    content: AnyView(Rectangle().fill(Color.blue.gradient)), isStarting: false, notice: nil,
+                    toggle: {}
+                )
+                actions.meetingPreparation?.cameraSelection = previewCameraSelection()
+            }
+            actions.meetingPreparation?.hasSpeaker = true
+            let toggleMic: (() -> Void)? = hasPreview ? {} : nil
+            actions.meetingPreparation?.audioChecks = .init(
+                microphone: hasPreview ? .active(0.68) : .off, toggleMicrophone: toggleMic,
+                isPlaying: !hasPreview, toggleSpeaker: {}, notice: nil
+            )
+            actions.meetingPreparation?.audioSelection = .init(
+                devices: CallAudioDevices(
+                    microphones: [.init(id: "mic", name: "USB Microphone")],
+                    speakers: [.init(id: "speaker", name: "USB Headphones")], speaker: "speaker"
+                ),
+                selectMicrophone: { _ in }, selectSpeaker: { _ in }
+            )
+            let size = CallLayout.compact
+            let host = NSHostingView(rootView: AudioCallView(call: call, actions: actions))
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size),
+                styleMask: [.borderless], backing: .buffered, defer: true
+            )
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            #expect(bitmap.size == size)
+            if let directory = ProcessInfo.processInfo.environment["KIBBLE_CALL_CAPTURE_DIR"] {
+                let png = try #require(bitmap.representation(using: .png, properties: [:]))
+                let name = hasPreview ? "meeting-camera-preview" : "meeting-preparation"
+                try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent(name + ".png"))
+            }
+            withExtendedLifetime(window) {}
+        }
+
+        @Test func returningToTheMeetingFitsTheCompactCallWindow() throws {
+            let url = try #require(URL(string: "https://meet.example.test/room"))
+            let call = AudioCallSession(.init(
+                id: UUID(), target: .init(meetingURL: url, displayName: "Planning review"),
+                phase: .ended, endReason: .sentToWaitingRoom
+            ))
+            var actions = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {}, close: {})
+            actions.returnToMeeting = {}
+            let renderer = ImageRenderer(content: AudioCallView(call: call, actions: actions))
+            let size = CallLayout.compact
+            renderer.proposedSize = ProposedViewSize(size)
+            let image = try #require(renderer.cgImage)
+            #expect(image.width == Int(size.width) && image.height == Int(size.height))
+            if let directory = ProcessInfo.processInfo.environment["KIBBLE_CALL_CAPTURE_DIR"] {
+                let bitmap = NSBitmapImageRep(cgImage: image)
+                let png = try #require(bitmap.representation(using: .png, properties: [:]))
+                try png
+                    .write(to: URL(fileURLWithPath: directory)
+                        .appendingPathComponent("return-to-meeting.png"))
+            }
+        }
+
+        @Test(arguments: [CallAdmission.requestPending, .waitingRoom])
+        func waitingForAdmissionFitsTheCompactCallWindow(_ admission: CallAdmission) throws {
+            let url = try #require(URL(string: "https://meet.example.test/room"))
+            let call = AudioCallSession(.init(
+                id: UUID(), target: .init(meetingURL: url, displayName: "Planning review"),
+                phase: .connecting, admission: admission
+            ), isJoining: true)
+            let renderer = ImageRenderer(content: AudioCallView(
+                call: call, actions: AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})
+            ))
+            let size = CallLayout.compact
+            renderer.proposedSize = ProposedViewSize(size)
+            let image = try #require(renderer.cgImage)
+            #expect(image.width == Int(size.width) && image.height == Int(size.height))
+            if let directory = ProcessInfo.processInfo.environment["KIBBLE_CALL_CAPTURE_DIR"] {
+                let bitmap = NSBitmapImageRep(cgImage: image)
+                let png = try #require(bitmap.representation(using: .png, properties: [:]))
+                try png.write(to: URL(fileURLWithPath: directory)
+                    .appendingPathComponent(admission.rawValue + ".png"))
+            }
+        }
+
         /// A full roster keeps the audio window's width, and its faces fit in it.
         @Test func aGroupCallsRosterKeepsTheCompactWidth() {
             let target = ConversationCallTarget(conversationID: id, displayName: "A rather long space name")
@@ -250,3 +346,18 @@ struct ConversationCallPresentationTests {
         }
     #endif
 }
+
+#if os(macOS)
+    private func previewMeetingTarget(at url: URL, titled: Bool) -> ConversationCallTarget {
+        .init(meetingURL: url, displayName: titled ? "Quarterly Planning and Design Review" : "Meeting")
+    }
+
+    @MainActor
+    private func previewCameraSelection() -> CallPreparationCameraSelection {
+        CallPreparationCameraSelection(
+            devices: [.init(id: "front", name: "Front Camera"), .init(id: "usb", name: "USB Camera")],
+            selection: "usb",
+            select: { _ in }
+        )
+    }
+#endif

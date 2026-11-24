@@ -37,7 +37,12 @@ public extension ConversationSnapshot {
         preserve(\.kind); preserve(\.title); preserve(\.avatarURL); preserve(\.meeting)
         preserve(\.lastActivity); preserve(\.latestMainMessageAt)
         preserve(\.unreadCount); preserve(\.hasUnread); preserve(\.readPosition)
-        preserve(\.isMuted); preserve(\.notificationLevel); preserve(\.markedUnreadAt)
+        preserve(\.notificationLevel); preserve(\.markedUnreadAt)
+        if current.isMuted != baseline.isMuted
+            || current.notificationMuteUntil != baseline.notificationMuteUntil {
+            value.isMuted = current.isMuted
+            value.notificationMuteUntil = current.notificationMuteUntil
+        }
         preserve(\.members); preserve(\.memberCount); preserve(\.isThreaded)
         preserve(\.repliesEnabled); preserve(\.hasUnreadThread); preserve(\.historyClearedBefore)
         // A read or Mark as unread changes the whole read-state snapshot,

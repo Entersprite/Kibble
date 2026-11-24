@@ -104,7 +104,8 @@
         /// A submenu is editing when any of its items opens one of these panels
         /// or toggles: the Font, Spelling and Grammar, and Substitutions menus.
         static let editingSubmenuActions: Set<String> = [
-            "orderFrontFontPanel:", "showGuessPanel:", "orderFrontSubstitutionsPanel:"
+            "orderFrontFontPanel:", "addFontTrait:", "removeFontTrait:", "underline:", "outline:",
+            "showGuessPanel:", "orderFrontSubstitutionsPanel:"
         ]
 
         /// The text view's own link items. Open With has no public action of

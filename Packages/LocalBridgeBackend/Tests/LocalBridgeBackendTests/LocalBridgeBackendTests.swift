@@ -141,7 +141,7 @@ struct LocalBridgeBackendTests {
         #expect(backend.capabilities == Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
             canSendTypingState: true, receivesTypingState: true, receivesReadReceipts: true,
-            canSetStatus: true, canMarkRead: true,
+            canSetNotificationLevel: true, canSetStatus: true, canMarkRead: true,
             canMarkUnread: true, canHideConversations: true, canBlockConversations: true,
             canLeaveConversations: true, canDeleteConversations: true,
             canCreateConversations: true, canReadConversationDetails: true, canBrowseSpaces: true,
@@ -157,21 +157,21 @@ struct LocalBridgeBackendTests {
                 "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
                 "conversationPreview", "customEmojiMessages", "customEmojiStatus",
                 "callDiscovery", "conversationWebhooks", "conversationApps", "conversationEmail",
-                "messagePins"
+                "messagePins", "starredMessages", "scheduledMessages", "sendScheduledMessageNow",
+                "blockedConversations", "blockedPeople", "syncedDraftReads", "syncedDraftWrites",
+                "conversationMute",
+                "scheduleSavedDraft", "scheduleAttachments", "scheduleForwards",
+                "sendSavedDraft", "sendSavedDraftWithAttachments"
             ]
         ))
     }
 
-    /// `loadMessages(in:before:)` and `send(_:)` are real implementations now -
-    /// `LoadMessagesTests.swift` and `SendMessageTests.swift` cover what they
-    /// actually do. The one remaining genuinely unimplemented action still
-    /// says so by name.
-    @Test func everyActionSaysWhatIsMissingRatherThanFailingVaguely() async throws {
+    @Test func theSpaceLevelWriteRefusesADirectMessage() async throws {
         let backend = backend([ScriptedTransport.ok(Self.shell(app: "DynamiteWebUi"))])
         try await backend.connect()
 
-        await #expect(throws: ChatError.unsupported(capability: LocalBridgeBackend.missingChannel)) {
-            try await backend.setNotificationSetting(.less, for: Conversation.ID("space:1"))
+        await #expect(throws: ChatError.unsupported(capability: "canSetNotificationLevel")) {
+            try await backend.setNotificationSetting(.less, for: Conversation.ID("dm/1"))
         }
     }
 

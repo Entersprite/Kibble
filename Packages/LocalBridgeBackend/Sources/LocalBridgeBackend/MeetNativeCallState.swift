@@ -1,14 +1,16 @@
+import ChatKit
 import Foundation
 
 public enum MeetNativeCallEndReason: String, Sendable {
     case localEnded, ringCancelled, remoteEnded, declined, invitationEnded, ringingTimedOut, transportFailed,
-         accountChanged, deviceEnded, joinFailed
+         accountChanged, deviceEnded, joinFailed, removedFromMeeting, sentToWaitingRoom
 }
 
 /// Native trial state reflects observed media and provider collections. An
 /// acknowledged invitation alone never means that the peer answered.
 public enum MeetNativeCallState: Sendable, Equatable {
     case ready, ringing, active, reconnecting, stateUnavailable, ending
+    case awaitingAdmission(CallAdmission)
     case ended(MeetNativeCallEndReason)
     case endedUnconfirmed(MeetNativeCallEndReason, MeetNativeCallCleanup)
 
@@ -24,6 +26,8 @@ public enum MeetNativeCallState: Sendable, Equatable {
         case .ready: "Native audio joined. Ready to ring the selected person."
         case .ringing: "Invitation sent. Waiting for the other person to join…"
         case .active: "Call active. Another joined device is present."
+        case .awaitingAdmission(.waitingRoom): "Waiting in the meeting’s waiting room."
+        case .awaitingAdmission: "Waiting for the meeting host to respond."
         case .reconnecting: "Audio connection interrupted. Waiting for it to recover…"
         case .stateUnavailable: "Call status is unavailable. You can still end the call."
         case .ending: "Ending the native call…"
@@ -32,6 +36,8 @@ public enum MeetNativeCallState: Sendable, Equatable {
         case .ended(.localEnded): "Native call ended."
         case .ended(.ringCancelled): "Ringing cancelled. Check the report for confirmation."
         case .ended(.deviceEnded): "Meet ended Kibble's device. Native call ended."
+        case .ended(.removedFromMeeting): "Removed from the meeting."
+        case .ended(.sentToWaitingRoom): "Sent to the waiting room."
         case .ended(.remoteEnded): "The other device left. Native call ended."
         case .ended(.declined): "The call was declined."
         case .ended(.invitationEnded): "The invitation ended before another device joined."

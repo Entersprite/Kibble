@@ -1,4 +1,5 @@
 import Foundation
+import WebKit
 
 /// A timestamped log of what the login web view did.
 ///
@@ -7,9 +8,8 @@ import Foundation
 /// refused by policy, a failed load, or clicks never reaching the view. Each
 /// leaves a different trace, and none of them leaves a visible one.
 ///
-/// URLs are recorded **path-only, with the query stripped**. Google's sign-in
-/// URLs carry identifiers and one-time tokens in their query strings, and this
-/// file is meant to be readable and pasteable.
+/// The trace records fixed navigation stages. URLs, page text and raw errors
+/// can include account identifiers or one-time values.
 @MainActor
 public enum LoginTrace {
     private(set) static var lines: [String] = []
@@ -17,11 +17,27 @@ public enum LoginTrace {
     public static func note(_ message: String) {
         let stamp = Date().formatted(date: .omitted, time: .standard)
         lines.append("\(stamp)  \(message)")
+        if lines.count > 120 {
+            lines.removeFirst(lines.count - 120)
+        }
         flush()
     }
 
     public static func note(_ message: String, url: URL?) {
-        note("\(message) \(redact(url))")
+        note("\(message) [\(LoginPageLocation(url).rawValue)]")
+    }
+
+    static func safeFailure(_ error: any Error) -> String {
+        let error = error as NSError
+        switch (error.domain, error.code) {
+        case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet): return "This Mac appears to be offline."
+        case (NSURLErrorDomain, NSURLErrorTimedOut): return "The page took too long to load."
+        case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed):
+            return "A secure connection couldn’t be made."
+        case (WKError.errorDomain, WKError.Code.webContentProcessTerminated.rawValue):
+            return "The browser page closed unexpectedly."
+        default: return "The page couldn’t be loaded."
+        }
     }
 
     /// Host and path only. A sign-in query string is full of tokens.

@@ -92,6 +92,13 @@ extension AccountRuntime {
             }
             try checkEpoch(epoch)
             return try ServiceCodec.value(ServiceUnit())
+        case SetConversationMute.operation:
+            let payload = try request.decodePayload(SetConversationMute.self)
+            try await withProviderWork(epoch: epoch) {
+                try await backend.setConversationMute(payload.pause, in: payload.conversationID)
+            }
+            try checkEpoch(epoch)
+            return try ServiceCodec.value(ServiceUnit())
         case SetThreadFollowed.operation:
             let payload = try request.decodePayload(SetThreadFollowed.self)
             try await withProviderWork(epoch: epoch) {

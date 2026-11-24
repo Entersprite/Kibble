@@ -14,16 +14,23 @@ public struct CallCameraState: Equatable, Sendable {
     public var isOn: Bool
     public var isUpdating: Bool
     public var notice: String?
+    public var allowsStart: Bool
 
     public init(
         devices: [CallCameraDevice] = [],
         selected: String = "",
         isOn: Bool = false,
         isUpdating: Bool = false,
-        notice: String? = nil
+        notice: String? = nil,
+        allowsStart: Bool = true
     ) {
         self.devices = devices; self.selected = selected; self.isOn = isOn
         self.isUpdating = isUpdating; self.notice = notice
+        self.allowsStart = allowsStart
+    }
+
+    public var canToggle: Bool {
+        !isUpdating && (isOn || allowsStart)
     }
 }
 
@@ -39,7 +46,7 @@ struct CallCameraButton: View {
             symbol: camera.isOn ? "video.fill" : "video.slash.fill",
             action: toggle
         )
-        .disabled(camera.isUpdating)
+        .disabled(!camera.canToggle)
     }
 }
 
@@ -47,13 +54,27 @@ struct CallCameraButton: View {
 struct CallCameraSection: View {
     let camera: CallCameraState
     let select: (String) -> Void
+    var openVideoEffects: (() -> Void)?
 
     var body: some View {
-        Picker("Camera", selection: Binding(get: { camera.selected }, set: { select($0) })) {
-            Text("Default Camera").tag("")
-            ForEach(camera.devices) { Text($0.name).tag($0.id) }
+        CallCameraPicker(devices: camera.devices, selection: camera.selected, select: select)
+            .pickerStyle(.inline)
+            .disabled(camera.isUpdating)
+        if let openVideoEffects {
+            Button("Video Effects…", systemImage: "video.badge.waveform", action: openVideoEffects)
         }
-        .pickerStyle(.inline)
-        .disabled(camera.isUpdating)
+    }
+}
+
+struct CallCameraPicker: View {
+    let devices: [CallCameraDevice]
+    let selection: String
+    let select: (String) -> Void
+
+    var body: some View {
+        Picker("Camera", selection: Binding(get: { selection }, set: { select($0) })) {
+            Text("Default Camera").tag("")
+            ForEach(devices) { Text($0.name).tag($0.id) }
+        }
     }
 }

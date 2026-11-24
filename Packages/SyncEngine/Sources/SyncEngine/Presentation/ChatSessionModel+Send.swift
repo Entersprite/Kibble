@@ -10,7 +10,7 @@ import Foundation
 /// `LiveChannelTests.swift` records for splitting a file rather than trimming
 /// a doc comment to fit.
 ///
-/// `failed` and `store` are declared in `ChatSessionModel.swift` without
+/// `failedDrafts` and `store` are declared in `ChatSessionModel.swift` without
 /// `private` (plain `internal`) specifically so this extension - in a
 /// different source file, where Swift's same-file `private` visibility does
 /// not reach - can read and write them, exactly as `published`, `markTasks`
@@ -19,23 +19,54 @@ import Foundation
 /// past `private` or `internal` regardless.
 ///
 public extension ChatSessionModel {
+    struct FailedDraftOffer {
+        public let conversationID: Conversation.ID
+        public let id = UUID()
+        public let draft: ComposedMessage
+    }
+
     /// Forwarded from the backend so a view can degrade without meeting one.
     /// Here rather than in `ChatSessionModel.swift`, for that file's length.
     var capabilities: Capabilities {
         engine.capabilities
     }
 
-    /// The failed message, mentions and all, but only while its own
-    /// conversation is open.
+    /// The refused draft visible to the current composer.
     var failedDraft: ComposedMessage? {
-        guard let failed, isViewingConversation(failed.conversationID) else { return nil }
-        return failed.draft
+        failedDraftOffer?.draft
+    }
+
+    /// The original conversation and value the composer is being offered.
+    var failedDraftOffer: FailedDraftOffer? {
+        guard let selected, !failedDrafts.isEmpty else { return nil }
+        if let draft = failedDrafts[selected]?.first {
+            return draft
+        }
+        // A meeting series uses one composer even when the most recent
+        // occurrence changes while a send to the previous one is in flight.
+        guard let series = meetingSeries else { return nil }
+        for occurrence in series.occurrences.reversed() {
+            if let draft = failedDrafts[occurrence.id]?.first {
+                return draft
+            }
+        }
+        return nil
     }
 
     /// Called by the host once it has put the text back, so it is not offered
     /// again on the next redraw.
     func clearFailedDraft() {
-        failed = nil
+        guard let offer = failedDraftOffer else { return }
+        clearFailedDraft(in: offer.conversationID, matching: offer.id)
+    }
+
+    /// Consume exactly the offer the composer acknowledged.
+    func clearFailedDraft(in conversation: Conversation.ID, matching id: UUID) {
+        guard failedDrafts[conversation]?.first?.id == id else { return }
+        failedDrafts[conversation]?.removeFirst()
+        if failedDrafts[conversation]?.isEmpty == true {
+            failedDrafts[conversation] = nil
+        }
     }
 
     /// Sends, and shows the message immediately.
@@ -51,20 +82,35 @@ public extension ChatSessionModel {
     /// a message that never leaves.
     ///
     /// With files staged, the text goes with the first of them instead
-    /// (`sendStaged(_:in:)`). Mentions ride on the optimistic row too, so the
+    /// (`sendStaged`). Mentions ride on the optimistic row too, so the
     /// bubble highlights at once, and on a refused draft, so a resend still
     /// mentions (mention composer spec §2).
     func send(_ message: ComposedMessage) {
-        guard let selected, capabilities.canSendMessages else { return }
-        if stagedAttachments.contains(where: { !$0.isUploading }) {
+        send(message, consuming: nil, completed: nil)
+    }
+
+    internal func send(
+        _ message: ComposedMessage, using reserved: [StagedAttachment]? = nil,
+        consuming draft: SyncedDraft?, completed: (@MainActor (Bool) -> Void)?
+    ) {
+        guard let selected, capabilities.canSendMessages else {
+            completed?(false)
+            return
+        }
+        let key = StagingKey(conversation: selected, thread: nil)
+        let batch = reserved ?? reserveStagedFiles(in: key)
+        if !batch.isEmpty {
             followLatestMeetingForSend()
-            sendStaged(message, in: StagingKey(conversation: selected, thread: nil))
+            sendStaged(batch, caption: message, in: key, consuming: draft, completed: completed)
             return
         }
         let text = message.text
         // Only a staged file makes an empty send mean something. A composer
         // one frame behind its staged files must not post an empty message.
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else {
+            completed?(false)
+            return
+        }
         followLatestMeetingForSend()
         let localID = ClientOperationID.make()
         // Invented here, and therefore retracted from here. The `local/`
@@ -83,32 +129,39 @@ public extension ChatSessionModel {
                 localID: localID,
                 mentions: message.mentions, content: message.content
             )) else {
-                failed = (conversationID: selected, draft: message)
+                keepDraft(message, in: selected)
+                completed?(false)
                 return
             }
             // Only what was actually written. With no `me` there is no
-            // optimistic row and nothing to take back.
+            // optimistic row and nothing to take back. Retract by row ID,
+            // since the delivered echo can already carry the same local ID.
             undo = [.removeMessage(id: optimisticID)]
         }
+        let command = ChatCommand.sendMessage(
+            conversationID: selected, threadID: nil, text: text, localID: localID,
+            mentions: message.mentions, content: message.content
+        )
+        submitText(command, consuming: draft, undoing: undo, completed: completed) { model in
+            model.keepDraft(message, in: selected)
+        }
+    }
+
+    internal func submitText(
+        _ command: ChatCommand, consuming draft: SyncedDraft?, undoing undo: [StoreWrite],
+        completed: (@MainActor (Bool) -> Void)?, onRefusal: @escaping @MainActor (ChatSessionModel) -> Void
+    ) {
         didBeginSending?()
         let taskID = UUID()
         sendTasks[taskID] = Task { @MainActor [weak self, engine] in
             defer { self?.sendTasks.removeValue(forKey: taskID) }
             guard !Task.isCancelled else { return }
-            let accepted = await engine.submit(
-                .sendMessage(
-                    conversationID: selected, threadID: nil, text: text, localID: localID,
-                    mentions: message.mentions, content: message.content
-                ),
-                // By id, not by `localID`. The server echoes `localID` back on
-                // the delivered message, so a `localID` retraction would
-                // delete the real one whenever the echo beat the failure -
-                // which is exactly the `/api/` timeout this whole retraction
-                // was written for.
-                undoing: undo
-            )
-            guard let self, !Task.isCancelled, !accepted else { return }
-            failed = (conversationID: selected, draft: message)
+            let result = await engine.submit(command, consuming: draft, undoing: undo)
+            guard let self, !Task.isCancelled else { return }
+            completed?(result.draftConsumed)
+            if !result.retained {
+                onRefusal(self)
+            }
         }
     }
 
@@ -118,29 +171,46 @@ public extension ChatSessionModel {
     /// its own conversation's draft rather than into the one now open (mention
     /// non-members review finding 2).
     func send(_ message: ComposedMessage, in conversation: Conversation.ID) {
+        send(message, in: conversation, consuming: nil, completed: nil)
+    }
+
+    func send(
+        _ message: ComposedMessage, in conversation: Conversation.ID,
+        consuming draft: SyncedDraft?, completed: (@MainActor (Bool) -> Void)?
+    ) {
         guard conversation == selected else {
             keepDraft(message, in: conversation)
+            completed?(false)
             return
         }
-        send(message)
+        send(message, consuming: draft, completed: completed)
     }
 
     /// Hands `message` back to `conversation`'s composer, the way a refused
     /// send does: for a composer that went away holding an unsent message.
     func keepDraft(_ message: ComposedMessage, in conversation: Conversation.ID) {
         guard !message.text.isEmpty else { return }
-        failed = (conversationID: conversation, draft: message)
+        let offer = FailedDraftOffer(conversationID: conversation, draft: message)
+        failedDrafts[conversation, default: []].append(offer)
     }
 
     /// `send(_:in:)` for the thread panel's composer: a reply, posted only
     /// while `thread` is the one open in `conversation`, and otherwise handed
     /// back to that thread's draft.
     func sendReply(_ message: ComposedMessage, in conversation: Conversation.ID, thread: MessageThread.ID) {
+        sendReply(message, in: conversation, thread: thread, consuming: nil, completed: nil)
+    }
+
+    func sendReply(
+        _ message: ComposedMessage, in conversation: Conversation.ID, thread: MessageThread.ID,
+        consuming draft: SyncedDraft?, completed: (@MainActor (Bool) -> Void)?
+    ) {
         guard conversation == selected, thread == threads.openThread else {
             keepReplyDraft(message, in: conversation, thread: thread)
+            completed?(false)
             return
         }
-        sendReply(message)
+        sendReply(message, consuming: draft, completed: completed)
     }
 
     /// Hands `message` back to the thread's composer, as a refused reply is.

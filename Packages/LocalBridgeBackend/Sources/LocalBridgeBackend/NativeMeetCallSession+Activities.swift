@@ -4,9 +4,11 @@ import GChatBridgeCore
 
 extension NativeMeetCallSession {
     func setActivitiesHandler(_ receive: @escaping @Sendable (CallActivitiesState) async -> Void) async {
+        guard !closed else { return }
         receiveActivities = receive
         await receive(activities)
-        guard activityChannelsTask == nil else { return }
+        refreshAgendaArtifacts()
+        guard !closed, assignedActivityChannels == nil, activityChannelsTask == nil else { return }
         activityChannelsTask = Task { [media] in
             try? await media.prepareActivityChannel("reactions")
             guard !Task.isCancelled else { return }
@@ -15,14 +17,38 @@ extension NativeMeetCallSession {
     }
 
     func performActivity(_ activity: CallActivity) async throws {
-        guard ready, !closed, connection == nil else { throw MeetDeviceSessionError.busy }
+        if activity.action == "keepHandRaised" {
+            try await keepAutomaticHandRaised(activity)
+            return
+        }
+        guard ready, !closed, closing == nil, connection == nil else { throw MeetDeviceSessionError.busy }
+        let endsConference = activity.action == "endConference"
         let task = Task {
             _ = await refresh?.result
             try await check()
             do {
-                try await applyActivity(activity)
+                if endsConference {
+                    return try await endConference(activity)
+                }
+                if let setting = HostActivity(rawValue: activity.action) {
+                    try await updateHostSetting(setting, enabled: activity.enabled)
+                } else {
+                    try await dispatchActivity(activity)
+                }
             } catch {
-                if case MeetCallClientError.httpStatus(403, _) = error {
+                if ![
+                    "setCohost",
+                    "muteParticipant",
+                    "lowerParticipantHand",
+                    "removeParticipant",
+                    "blockParticipant",
+                    "setPinForEveryone",
+                    "sendParticipantToWaitingRoom",
+                    "respondToAdmission",
+                    "respondToAdmissions"
+                ]
+                .contains(activity.action),
+                case MeetCallClientError.httpStatus(403, _) = error {
                     deniedActivities.insert(activity.action)
                     activities.availableActions.removeAll { $0 == activity.action }
                     await receiveActivities?(activities)
@@ -34,59 +60,117 @@ extension NativeMeetCallSession {
         connection = task
         defer { connection = nil }
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        if endsConference {
+            // Close awaits connection work. The provider receipt has settled that work.
+            connection = nil
+            await close()
+        }
+    }
+
+    private func dispatchActivity(_ activity: CallActivity) async throws {
+        switch activity.action {
+        case "setMeetingAccess": try await updateMeetingAccess(activity)
+        case "setCohost": try await changeParticipantCohost(activity)
+        case "setPinForEveryone": try await setPinForEveryone(activity)
+        case "muteParticipant", "muteAllParticipants": try await muteOtherParticipants(activity)
+        case "lowerParticipantHand", "lowerAllHands": try await moderateHands(activity)
+        case "removeParticipant", "blockParticipant", "sendParticipantToWaitingRoom":
+            try await ejectParticipant(activity)
+        case "respondToAdmission", "respondToAdmissions": try await respondToWaitingParticipants(activity)
+        default: try await applyActivity(activity)
+        }
     }
 
     func applyActivity(_ activity: CallActivity) async throws {
-        if ["react", "chat"].contains(activity.action),
-           !activities.availableActions.contains(activity.action) {
-            throw ChatError.unsupported(capability: "meetingActivity")
+        guard activities.acceptsRecordingCaptionChoice(activity) else {
+            throw ChatError.unsupported(capability: "recordingCaptions")
         }
         activitySequence += 1
         let sequence = activitySequence
         if activity.action == "createRooms", activity.options.count > 1 {
             activitySequence += UInt64(activity.options.count - 1)
         }
-        let space = await device.activitySpace
-        if activity.action == "react" {
-            try await sendReaction(activity, sequence: sequence)
-            return
-        }
-        if activity.action == "chat" {
-            let data = try MeetActivityDataWire.chat(activity.text, sequence: sequence)
-            let response = try await media.exchangeActivityData(channel: "meet_messages", data: data) {
-                MeetActivityDataWire.isChatResponse($0, sequence: sequence)
-            }
-            let message = try MeetActivityDataWire.chatResponse(response, sequence: sequence)
-            await mergeActivityMessages([message], replacing: false)
-            return
-        }
-        if activity.action == "refresh" {
-            if let denied = try? await device.activityPolicyDenials() {
-                deniedActivities = denied
-            }
-            try await check()
-            let snapshot = try await device.activityCollections()
-            try await check()
-            await reconcileActivities(snapshot)
-            return
+        switch activity.action {
+        case "captions", "react", "chat", "chatWaitingRoom", "setMeetingMessagePin":
+            return try await applyChannelActivity(activity, sequence: sequence)
+        case "refresh": return try await refreshMeetingActivities()
+        default: break
         }
         // Re-read source state before resource-addressed operations. It is not a
         // write retry and a missing/foreign resource never falls back to creation.
         let snapshot = try await device.activityCollections()
         try await check()
         await reconcileActivities(snapshot)
+        try await check()
         guard activities.availableActions.contains(activity.action) else {
             throw ChatError.unsupported(capability: "meetingActivity")
         }
         let baseline = Set(activities.polls.map(\.id) + activities.questions.map(\.id) + activities.rooms
             .map(\.id))
+        let space = await device.activitySpace
         let request = try await activityRequest(activity, space: space, sequence: sequence)
+        try await check()
         _ = try await device.performActivity(request)
         try await check()
         let confirmed = try await device.activityCollections()
         try await check()
         await reconcileActivities(confirmed)
         try confirmActivity(activity, baseline: baseline)
+        if activity.enabled == false, ["recording", "transcription", "notes"].contains(activity.action) {
+            refreshAgendaArtifacts()
+        }
+    }
+
+    private func applyChannelActivity(_ activity: CallActivity, sequence: UInt64) async throws {
+        guard activities.availableActions.contains(activity.action) else {
+            throw ChatError.unsupported(capability: "meetingActivity")
+        }
+        switch activity.action {
+        case "captions": try await configureCaptions(activity, sequence: sequence)
+        case "react": try await sendReaction(activity, sequence: sequence)
+        case "chat": try await sendActivityMessage(activity.text, sequence: sequence)
+        case "chatWaitingRoom": try await sendWaitingRoomMessage(activity.text, sequence: sequence)
+        case "setMeetingMessagePin": try await setMeetingMessagePin(activity, sequence: sequence)
+        default: throw ChatError.unsupported(capability: "meetingActivity")
+        }
+    }
+
+    private func refreshMeetingActivities() async throws {
+        let denied = try? await device.activityPolicyDenials()
+        try await check()
+        if let denied {
+            deniedActivities = denied
+        }
+        let snapshot = try await device.activityCollections()
+        try await check()
+        await reconcileActivities(snapshot)
+        refreshAgendaArtifacts()
+    }
+
+    func retireMeetingActivities() {
+        resetCaptions()
+        activities.recordingCaptionLanguages.removeAll()
+        activities.hostSettings = nil
+        activities.meetingChat = nil
+        activities.sharedPinLimit = nil
+        activities.moderatorMute = nil
+        activities.ownHandLowered = nil
+        activities.automaticHandLowering = nil
+        automaticHand.clearObservation()
+        observedOwnHand = nil
+        requestedOwnLowering = nil
+        activities.waitingParticipants.removeAll()
+        clearWaitingRoomMessages()
+        hostControls = HostControlsState()
+        agendaArtifactRead?.cancel()
+        agendaArtifactRead = nil
+        activities.artifactFiles.removeAll()
+        activities.agendaAttachments = nil
+        activities.agendaGuests = nil
+        agendaGuestRows.removeAll()
+        agendaGuestHandles.removeAll()
+        agendaGuestPresenceAliases = nil
+        activityChannelsTask?.cancel()
     }
 
     private func sendReaction(_ activity: CallActivity, sequence: UInt64) async throws {
@@ -97,6 +181,7 @@ extension NativeMeetCallSession {
         }
         lastReactionTime = now()
         try await media.sendActivityData(channel: "reactions", data: data)
+        try await check()
         activities.reactions.append(CallMeetingReaction(
             id: UUID(),
             participantID: participantLocalDevice
@@ -177,15 +262,15 @@ extension NativeMeetCallSession {
         .Request {
         switch activity.action {
         case "recording", "transcription", "notes":
-            let phase = activities.artifacts.first { $0.kind == activity.action }?.phase
-            let allowed = activity.enabled ? ["stopped", "preconfigured"] : ["active", "starting"]
-            guard let phase, allowed.contains(phase) else { throw MeetDeviceSessionError.busy }
+            guard activities.artifacts.first(where: { $0.kind == activity.action })?
+                .canSetEnabled(activity.enabled) == true else { throw MeetDeviceSessionError.busy }
             return try MeetActivityWire.artifact(
                 space: space,
                 kind: activity.action,
                 start: activity.enabled,
                 session: artifactSessions[activity.action],
-                requestID: UUID()
+                requestID: UUID(),
+                recordingCaptionLanguage: activity.recordingCaptionLanguage
             )
         case "attendance": return try MeetActivityWire.attendance(
                 space: space,
@@ -237,7 +322,8 @@ extension NativeMeetCallSession {
     func activityResource(_ id: UUID?, kind: String) throws -> String {
         let identifiers: [String: Set<UUID>] = [
             "poll": Set(activities.polls.map(\.id)), "question": Set(activities.questions.map(\.id)),
-            "room": Set(activities.rooms.map(\.id)), "person": Set(activities.people.map(\.id))
+            "room": Set(activities.rooms.map(\.id)), "person": Set(activities.people.map(\.id)),
+            "message": Set(activities.messages.map(\.id))
         ]
         guard let id, identifiers[kind]?.contains(id) == true,
               let value = activityResources[id], value.kind == kind else {
@@ -275,6 +361,8 @@ extension NativeMeetCallSession {
             await receiveActivities?(activities)
         } else if channel == "meet_messages" {
             needsRefresh = true
+        } else if channel == MeetMediaSessionWire.ActivityChannel.captions.rawValue {
+            await receiveCaptionData(data)
         }
     }
 }
@@ -291,6 +379,10 @@ public extension MeetDMCallTrial {
     func performNativeActivity(_ activity: CallActivity, scope: UUID) async throws {
         guard nativeScope == scope, let session = native else { throw MeetDMCallTrialError.superseded }
         try await session.performActivity(activity)
+        // The terminal snapshot retires the source session before the receipt returns.
+        if activity.action == "endConference", native == nil, cleanupScope == scope {
+            return
+        }
         guard nativeScope == scope, native === session else { throw MeetDMCallTrialError.superseded }
     }
 }

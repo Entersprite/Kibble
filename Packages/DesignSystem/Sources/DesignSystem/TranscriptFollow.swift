@@ -72,7 +72,9 @@ final class TranscriptFollow {
         }
         if following {
             guard canFollow else { return .detach }
-            return settled && end.distance > 0.5 ? .pin : nil
+            // SwiftUI can report up to one point at the bottom with stacked insets.
+            // Correcting that offset repeatedly interrupts the next user scroll.
+            return settled && end.distance > 1 ? .pin : nil
         }
         return settled && atEnd ? .follow : nil
     }

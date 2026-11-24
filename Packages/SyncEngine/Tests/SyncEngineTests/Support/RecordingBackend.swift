@@ -22,6 +22,7 @@ actor RecordingBackend: ChatBackend {
     var holdingDirectOpens = false
 
     nonisolated let inner: FakeBackend
+    var conversationSectionReader: (@Sendable () async throws -> [ConversationSection]?)?
     private(set) var commands: [ChatCommand] = []
     /// Receive hints stay separate from semantic commands, so selection cannot race mark assertions.
     private(set) var watches: [[Member.ID]] = []
@@ -139,6 +140,8 @@ actor RecordingBackend: ChatBackend {
     /// Every conversation mutation, in order (`RecordingBackend+Management.swift`).
     var mutations: [ConversationMutation] = []
     var leavingMutationsUnconfirmed = false
+    var holdingMutations = false
+    var heldMutations: [CheckedContinuation<Void, Never>] = []
 
     /// Makes every later `send(_:)` record the command and then throw, without
     /// forwarding it.

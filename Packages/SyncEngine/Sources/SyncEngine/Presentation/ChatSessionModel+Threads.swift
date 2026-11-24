@@ -75,14 +75,28 @@ public extension ChatSessionModel {
     /// A definite refusal restores the original composition only to this
     /// thread. Unconfirmed deliveries retain their pending row instead.
     func sendReply(_ message: ComposedMessage) {
-        guard let selected, let thread = threads.openThread, capabilities.canSendMessages else { return }
+        sendReply(message, consuming: nil, completed: nil)
+    }
+
+    internal func sendReply(
+        _ message: ComposedMessage, using reserved: [StagedAttachment]? = nil,
+        consuming draft: SyncedDraft?, completed: (@MainActor (Bool) -> Void)?
+    ) {
+        guard let selected, let thread = threads.openThread, capabilities.canSendMessages else {
+            completed?(false)
+            return
+        }
         let key = StagingKey(conversation: selected, thread: thread)
-        if (composerFiles.staged[key] ?? []).contains(where: { !$0.isUploading }) {
-            sendStaged(message, in: key)
+        let batch = reserved ?? reserveStagedFiles(in: key)
+        if !batch.isEmpty {
+            sendStaged(batch, caption: message, in: key, consuming: draft, completed: completed)
             return
         }
         // Only a staged file makes an empty reply mean something.
-        guard !message.text.isEmpty else { return }
+        guard !message.text.isEmpty else {
+            completed?(false)
+            return
+        }
         let localID = ClientOperationID.make()
         let optimisticID = Message.ID("local/\(localID)")
         var undo: [StoreWrite] = []
@@ -93,6 +107,7 @@ public extension ChatSessionModel {
                 isReply: true, content: message.content
             )) else {
                 restoreReply(message, in: key)
+                completed?(false)
                 return
             }
             // By id, never by `localID`, for `send(_:)`'s reason.
@@ -102,14 +117,8 @@ public extension ChatSessionModel {
             conversationID: selected, threadID: thread, text: message.text, localID: localID,
             mentions: message.mentions, content: message.content
         )
-        didBeginSending?()
-        let taskID = UUID()
-        sendTasks[taskID] = Task { @MainActor [weak self, engine, undo] in
-            defer { self?.sendTasks.removeValue(forKey: taskID) }
-            guard !Task.isCancelled else { return }
-            let accepted = await engine.submit(command, undoing: undo)
-            guard let self, !Task.isCancelled, !accepted else { return }
-            restoreReply(message, in: key)
+        submitText(command, consuming: draft, undoing: undo, completed: completed) { model in
+            model.restoreReply(message, in: key)
         }
     }
 

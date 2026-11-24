@@ -21,6 +21,8 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
     public var supportsExistingJoin: Bool?
     public var supportsConversationCalls: Bool?
     public var supportsMeetingLinks: Bool?
+    public var supportsMeetingLinkCreation: Bool?
+    public var supportsMeetingLinkPreview: Bool?
     public var meetingLinkHosts: [String]?
     public var conversationCall: ConversationCallSnapshot?
     public var meetingCall: ConversationCallSnapshot?
@@ -40,7 +42,8 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
         recipients: [AudioCallRecipient] = [],
         call: AudioCallSnapshot? = nil, lastEvent: AudioCallEvent? = nil,
         supportsExistingJoin: Bool? = nil, supportsConversationCalls: Bool? = nil,
-        supportsMeetingLinks: Bool? = nil, meetingLinkHosts: [String]? = nil,
+        supportsMeetingLinks: Bool? = nil, supportsMeetingLinkCreation: Bool? = nil,
+        supportsMeetingLinkPreview: Bool? = nil, meetingLinkHosts: [String]? = nil,
         conversationCall: ConversationCallSnapshot? = nil, meetingCall: ConversationCallSnapshot? = nil,
         participants: [CallParticipantDevice]? = nil,
         interaction: CallInteractionState? = nil
@@ -51,6 +54,8 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
         self.supportsExistingJoin = supportsExistingJoin
         self.supportsConversationCalls = supportsConversationCalls
         self.supportsMeetingLinks = supportsMeetingLinks
+        self.supportsMeetingLinkCreation = supportsMeetingLinkCreation
+        self.supportsMeetingLinkPreview = supportsMeetingLinkPreview
         self.meetingLinkHosts = meetingLinkHosts
         self.conversationCall = conversationCall
         self.meetingCall = meetingCall
@@ -61,7 +66,10 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case meetingCall
         case version, isListening, isListenerStarting, recipients, call, lastEvent, supportsExistingJoin
-        case supportsConversationCalls, supportsMeetingLinks, meetingLinkHosts, conversationCall,
+        case supportsConversationCalls, supportsMeetingLinks, supportsMeetingLinkCreation,
+             supportsMeetingLinkPreview,
+             meetingLinkHosts,
+             conversationCall,
              participants,
              interaction
     }
@@ -81,6 +89,14 @@ public struct ServiceCallState: Codable, Hashable, Sendable {
                 forKey: .supportsConversationCalls
             ),
             supportsMeetingLinks: container.decodeIfPresent(Bool.self, forKey: .supportsMeetingLinks),
+            supportsMeetingLinkCreation: container.decodeIfPresent(
+                Bool.self,
+                forKey: .supportsMeetingLinkCreation
+            ),
+            supportsMeetingLinkPreview: container.decodeIfPresent(
+                Bool.self,
+                forKey: .supportsMeetingLinkPreview
+            ),
             meetingLinkHosts: container.decodeIfPresent([String].self, forKey: .meetingLinkHosts),
             conversationCall: container.decodeIfPresent(
                 ConversationCallSnapshot.self,

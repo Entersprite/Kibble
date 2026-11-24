@@ -43,6 +43,7 @@ extension NativeMeetCallSession {
         guard ready, !closed else { return }
         switch event {
         case let .activityData(channel, data): await receiveActivityData(channel: channel, data: data)
+        case let .activityClosed(channel): await handleActivityChannelClosed(channel)
         case .collectionsChanged: needsRefresh = true
         case .connected:
             disconnectedAt = nil
@@ -51,11 +52,9 @@ extension NativeMeetCallSession {
                 await publish(stableState)
             }
         case .disconnected:
-            if disconnectedAt == nil {
-                disconnectedAt = now()
-            }
+            disconnectedAt = disconnectedAt ?? now()
             await publish(.reconnecting)
-        case .failed: await close(reason: .transportFailed)
+        case .failed: await closeAfterTransportLoss()
         case .suspended:
             isSuspended = true
             await publish(.reconnecting)
@@ -77,7 +76,7 @@ extension NativeMeetCallSession {
         guard ready, !closed, !isSuspended, connection == nil else { return }
         if let disconnectedAt {
             if now() - disconnectedAt >= .seconds(15) {
-                await close(reason: .transportFailed)
+                await closeAfterTransportLoss()
             }
             return
         }
@@ -87,17 +86,46 @@ extension NativeMeetCallSession {
             pollTicks = 0
             await refreshState()
         }
+        await updateAutomaticHandLowering()
         guard !closed else { return }
         if let ringingDeadline, now() >= ringingDeadline, !peerJoined {
             await close(reason: .ringingTimedOut)
         }
     }
 
+    private func closeAfterTransportLoss() async {
+        guard localObserved, connection == nil else { await close(reason: .transportFailed); return }
+        let failure = disconnectedAt ?? now()
+        disconnectedAt = failure
+        guard refresh == nil else { return }
+        let probe = Task { [device] in
+            try await check()
+            return try await device.collections(timeout: .seconds(2))
+        }
+        refresh = probe
+        let snapshot = try? await probe.value
+        refresh = nil
+        guard !closed, disconnectedAt == failure else { return }
+        let local = await device.localDeviceName
+        guard !closed, disconnectedAt == failure else { return }
+        if let roster = snapshot?.devices, roster.version > (deviceVersion ?? 0),
+           roster.version >= (participantVersion ?? 0),
+           let own = roster.values.first(where: { $0.name == local }),
+           let reason = ejectionReason(for: own) {
+            await device.observeRemovedDevice(own)
+            await close(reason: reason)
+        } else {
+            await close(reason: .transportFailed)
+        }
+    }
+
     func refreshState() async {
-        guard ready, !closed, connection == nil, refresh == nil else { return }
+        guard ready, !closed, connection == nil, refresh == nil,
+              !hostControls.remoteMute.isApplying else { return }
         do {
             try await validateAccount()
-            guard ready, !closed, refresh == nil, connection == nil else { return }
+            guard ready, !closed, refresh == nil, connection == nil,
+                  !hostControls.remoteMute.isApplying else { return }
             let task = Task { [device] in try await device.collections() }
             refresh = task
             let snapshot: MeetCallCollectionsWire.Snapshot
@@ -127,21 +155,10 @@ extension NativeMeetCallSession {
         if let activities = snapshot.activities {
             await reconcileActivities(activities)
         }
-        if let hands = snapshot.hands, handVersion.map({ hands.version > $0 }) ?? true {
-            handVersion = hands.version
-            participantHands = Dictionary(
-                hands.values.map { ($0.device, $0.name) },
-                uniquingKeysWith: { first, _ in first }
-            )
-            if let local = await device.localDeviceName {
-                ownHandName = participantHands?[local]
-                ownHandRaised = ownHandName != nil
-            }
-        }
+        await reconcileHands(snapshot)
 
-        if let devices = snapshot.devices, deviceVersion.map({ devices.version > $0 }) ?? true,
-           let local = await device.localDeviceName {
-            await reconcileDevices(devices, local: local)
+        if let devices = snapshot.devices {
+            await reconcileDeviceSnapshot(devices)
         }
         await publishParticipants()
         guard !closed else { return }
@@ -165,6 +182,18 @@ extension NativeMeetCallSession {
         await close(reason: .declined)
     }
 
+    private func reconcileDeviceSnapshot(_ devices: MeetCallCollectionsWire.Devices) async {
+        guard let local = await device.localDeviceName, !closed,
+              devices.version >= max(deviceVersion ?? 0, participantVersion ?? 0) else { return }
+        if let own = devices.values.first(where: { $0.name == local && !$0.isDeleted && $0.joinState == 1 }),
+           devices.version != deviceVersion || (hostControls.remoteMute.needsAcknowledgement
+               && own.audioMuteRequester == hostControls.remoteMute.requester) {
+            await receiveRemoteMute(own.audioMuteRequester)
+        }
+        guard !closed, deviceVersion.map({ devices.version > $0 }) ?? true else { return }
+        await reconcileDevices(devices, local: local)
+    }
+
     private func reconcileDevices(_ devices: MeetCallCollectionsWire.Devices, local: String) async {
         deviceVersion = devices.version
         verifiedAloneDeviceVersion = nil
@@ -176,10 +205,13 @@ extension NativeMeetCallSession {
         guard let own else { await publish(.stateUnavailable); return }
         localObserved = true
         if own.isDeleted || [4, 5, 6, 7, 8, 11].contains(own.joinState) {
-            await close(reason: .deviceEnded)
+            await device.observeRemovedDevice(own)
+            await close(reason: ejectionReason(for: own) ?? .deviceEnded)
             return
         }
         guard own.joinState == 1 else { await publish(.stateUnavailable); return }
+        await updateDeviceCaptionLanguages(own.captionLanguages)
+        guard !closed else { return }
         await reconcileParticipants(devices, local: local)
         guard !closed else { return }
         verifiedDeviceVersion = devices.version
@@ -205,17 +237,32 @@ extension NativeMeetCallSession {
         }
     }
 
+    private func ejectionReason(for own: MeetDeviceWire.Device) -> MeetNativeCallEndReason? {
+        if own.wasSentToWaitingRoom {
+            return .sentToWaitingRoom
+        }
+        return own.wasRemoved ? .removedFromMeeting : nil
+    }
+
     func publish(_ next: MeetNativeCallState) async {
+        let mediaInterrupted = isSuspended || disconnectedAt != nil
+        switch next {
+        case .ready, .ringing, .active:
+            // A collection read can finish during an interruption. Keep its
+            // verified phase for recovery while the media state stays visible.
+            stableState = next
+            guard !mediaInterrupted else { return }
+        case .stateUnavailable where mediaInterrupted: return
+        default: break
+        }
         guard next != state else { return }
         state = next
         switch next {
         case .stateUnavailable, .reconnecting, .ended, .endedUnconfirmed:
+            observedOwnHand = nil
+            await clearAutomaticHandLowering()
             await publishParticipantsUnavailable()
-        default: break
-        }
-        switch next {
         case .ready, .ringing, .active:
-            stableState = next
             await publishParticipants()
         default: break
         }

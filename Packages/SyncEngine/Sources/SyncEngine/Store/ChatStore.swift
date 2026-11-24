@@ -99,7 +99,7 @@ public extension ChatStore {
             )
         case .setScopedTyping, .setReadReceipts, .clearActivityTyping:
             try performActivityWrite(write, in: db)
-        case .removeConversation, .setConversationUnreadMark:
+        case .removeConversation, .setConversationUnreadMark, .setConversationNotificationSettings:
             try performConversationActionWrite(write, in: db)
         case .classifyConversation, .replaceConversations, .upsertConversation, .restoreConversation,
              .upsertMembers, .setMembership:

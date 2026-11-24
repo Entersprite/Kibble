@@ -312,26 +312,70 @@ struct ConversationDirectoryView: View {
     }
 }
 
-/// The sidebar's + button: every way to start a conversation this backend
-/// offers. Each item opens a sheet that asks for more, hence the ellipses.
-/// The window puts it at the trailing edge, after Back and Forward.
+struct ConversationSidebarHeader: ViewModifier {
+    let accountID: String?
+    let capabilities: Capabilities
+    let actions: ChatSceneActions
+    let navigation: NavigationTools
+    @State private var sectionCreation: SidebarSectionCreation?
+
+    func body(content: Content) -> some View {
+        content
+            .toolbar(removing: .sidebarToggle)
+            .toolbar {
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+                navigation
+                if actions.browser != nil || actions.createConversationSection != nil {
+                    // Its own capsule, apart from Back and Forward.
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ConversationSidebarTools(
+                        capabilities: capabilities, actions: actions.browser, newSection: beginSectionCreation
+                    )
+                }
+            }
+            .onChange(of: accountID) { sectionCreation = nil }
+            .sheet(item: $sectionCreation) { selection in
+                ConversationSectionEditor(create: selection.create)
+            }
+    }
+
+    private var beginSectionCreation: (() -> Void)? {
+        guard let create = actions.createConversationSection else { return nil }
+        return { sectionCreation = SidebarSectionCreation(create: create) }
+    }
+}
+
+private struct SidebarSectionCreation: Identifiable {
+    let id = UUID()
+    let create: (String) async throws -> Void
+}
+
+/// The sidebar's + button opens the creation sheets offered by this account.
 struct ConversationSidebarTools: ToolbarContent {
     let capabilities: Capabilities
-    let actions: ConversationBrowserActions
+    let actions: ConversationBrowserActions?
+    let newSection: (() -> Void)?
 
     var body: some ToolbarContent {
         ToolbarItem(id: "sidebar.create", placement: .primaryAction) {
             Menu {
-                if capabilities.canOpenDirectConversations {
+                if let actions, capabilities.canOpenDirectConversations {
                     Button("New Message…", systemImage: "square.and.pencil") {
                         actions.beginCreation(.directMessage)
                     }
                 }
-                if capabilities.canCreateConversations {
+                if let actions, capabilities.canCreateConversations {
                     Button("New Group Chat…", systemImage: "person.3") {
                         actions.beginCreation(.groupDirectMessage)
                     }
                     Button("New Space…", systemImage: "number") { actions.beginCreation(.space) }
+                }
+                if let newSection {
+                    if actions != nil,
+                       capabilities.canOpenDirectConversations || capabilities.canCreateConversations {
+                        Divider()
+                    }
+                    Button("New Section…", systemImage: "folder.badge.plus", action: newSection)
                 }
             } label: {
                 // No frame: the toolbar's glass stays round only at the icon's

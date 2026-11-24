@@ -156,10 +156,10 @@ struct MeetDeviceSessionTests {
         ])
         let parent = try makeSession(transport)
         await #expect(throws: MeetDeviceSessionError.notJoined) { _ = try await parent.makePresenter() }
-        try await parent.register(mediaSession: "mediasessions/native")
+        try await parent.register(mediaSession: "mediasessions/native", supportsWaitingRoom: true)
         await parent.setMediaConnected(true); try await parent.join()
         let presenter = try await parent.makePresenter()
-        try await presenter.register(mediaSession: "mediasessions/presentation")
+        try await presenter.register(mediaSession: "mediasessions/presentation", supportsWaitingRoom: true)
         await presenter.setMediaConnected(true); try await presenter.join()
         await #expect(throws: MeetDeviceSessionError.notJoined) {
             try await presenter.invite(calleeID: "peer", requestID: UUID())
@@ -176,11 +176,20 @@ struct MeetDeviceSessionTests {
         #expect(requests[2].headers["x-goog-ext-174067345-bin"] == nil)
         #expect(requests[3].headers["x-goog-meeting-token"] == "15;secondary-credential")
         #expect(requests[6].headers["x-goog-meeting-token"] == "40;parent-rotation")
+        try expectWaitingRoomCapability(in: requests[0].body, enabled: true)
+        try expectWaitingRoomCapability(in: requests[3].body, enabled: false)
         let joined = try MeetProto.payload(1, #require(requests[4].body))
         #expect(try MeetProto.value(25, joined) == 2)
         #expect(try MeetProto.text(1, joined) == child)
         let left = try MeetProto.payload(1, #require(requests[5].body))
         #expect(try MeetProto.text(1, left) == child)
+    }
+
+    private func expectWaitingRoomCapability(in body: Data?, enabled: Bool) throws {
+        let registration = try MeetProto.payload(2, #require(body))
+        let capability = ProtoFieldScan.fields(in: registration).fields.filter { $0.number == 39 }
+        #expect(capability.count == (enabled ? 1 : 0))
+        #expect(ProtoFieldScan.payloads(ofField: 39, in: registration) == (enabled ? [Data([22])] : []))
     }
 
     @Test func presentationClassificationPreservesSameSpaceParentScope() throws {

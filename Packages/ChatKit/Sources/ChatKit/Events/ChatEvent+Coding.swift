@@ -11,8 +11,8 @@ import Foundation
 /// `WireEncoding.unhandled` plus a test per case is what replaces that.
 extension ChatEvent {
     enum CodingKeys: String, CodingKey {
-        case activity
-        case pins
+        case activity, address, pins
+        case notificationLevel, muted, muteUntil
         case type
         case state
         case conversations
@@ -42,10 +42,9 @@ extension ChatEvent {
         case historyBefore
         case meeting
         case history
-        case syncStatus
+        case syncStatus, starred
         case backfill
-        case conversationIDs
-        case doNotDisturbUntil
+        case conversationIDs, removedSectionID, doNotDisturbUntil
     }
 
     /// The discriminators, in one place, so the encoder and decoder cannot
@@ -59,10 +58,11 @@ extension ChatEvent {
         case meetingMetadataLoadingChanged
         case conversationRemoved
         case conversationUnreadMarkChanged
+        case conversationNotificationSettingsChanged
         case messageReceived
         case messageUpdated
-        case messagePinsChanged
-        case messagePinsLoaded
+        case messagePinsChanged, messagePinsLoaded, messageStarChanged
+        case unsentMessagesChanged, conversationSectionsChanged
         case historyLoaded
         case mentionBackfillChanged
         case messageDeleted

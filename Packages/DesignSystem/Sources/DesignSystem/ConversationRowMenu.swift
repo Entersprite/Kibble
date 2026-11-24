@@ -9,15 +9,17 @@ struct ConversationRowMenu: View {
     let actions: ChatSceneActions
     let preferences: SidebarPreferences
     let favoriteTarget: SidebarSelection?
+    let section: ConversationSectionMenu?
 
     init(
         entries: [ConversationMenu.Entry], favoriteTarget: SidebarSelection,
-        preferences: SidebarPreferences, actions: ChatSceneActions
+        preferences: SidebarPreferences, actions: ChatSceneActions, section: ConversationSectionMenu? = nil
     ) {
         self.entries = entries
         self.actions = actions
         self.preferences = preferences
         self.favoriteTarget = favoriteTarget
+        self.section = section
     }
 
     var body: some View {
@@ -62,6 +64,12 @@ struct ConversationRowMenu: View {
                 Divider()
             }
             FavoriteMenuButton(target: favoriteTarget, preferences: preferences, update: update)
+        }
+        if let section, let move = actions.moveConversationToSection {
+            if !entries.isEmpty || (favoriteTarget != nil && actions.updateSidebar != nil) {
+                Divider()
+            }
+            section.buttons(move: move)
         }
     }
 }

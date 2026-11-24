@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 import Testing
@@ -152,7 +153,7 @@ struct NativeMeetVideoTests {
         await session.close()
     }
 
-    private func responses() -> [Result<HTTPResponse, any Error>] {
+    func responses() -> [Result<HTTPResponse, any Error>] {
         NativeMeetFixture.responses(video: true).map { value in
             value.map { HTTPResponse(
                 status: $0.status,
@@ -177,9 +178,14 @@ final class VideoFakeMedia: CallMediaEngine {
     var remotePresentation = false
     var receiveSlots = 1
     var additionalDownstreams: [Data] = []
+    var receivePreferences = CallVideoPreferences()
     var remoteSlots: [CallRemoteVideoSlot] = []
     var sendsPresentationAudio = false
     var failAudio = false
+    func remoteVideoPreferences() -> CallVideoPreferences {
+        receivePreferences
+    }
+
     func showRemoteVideos(_ slots: [CallRemoteVideoSlot]) {
         remoteSlots = slots
         showRemotePresentation(slots.first?.isPresentation ?? false)
@@ -341,12 +347,14 @@ final class VideoFakeMedia: CallMediaEngine {
         downstream(id: "camera", primary: 9001, camera: remoteCamera, muted: remoteMuted)
     }
 
-    func downstream(id: String, primary: UInt64, camera: Bool, muted: Bool = false) -> Data {
+    func downstream(id: String, primary: UInt64, camera: Bool, muted: Bool = false, device: String? = nil)
+        -> Data {
         let pair = NativeMeetFixture.number(2, primary) + NativeMeetFixture.number(2, primary + 1)
         let source = NativeMeetFixture.number(1, primary) + NativeMeetFixture.number(1, primary + 1)
             + NativeMeetFixture.bytes(2, NativeMeetFixture.string(1, "FID") + pair)
+        let registration = device.map { NativeMeetFixture.string(6, $0) } ?? Data()
         return NativeMeetFixture.number(1, 1) + NativeMeetFixture.number(2, 2)
-            + NativeMeetFixture.string(4, id) + NativeMeetFixture.bytes(8, source)
+            + NativeMeetFixture.string(4, id) + registration + NativeMeetFixture.bytes(8, source)
             + NativeMeetFixture.number(11, camera ? 1 : 0) + NativeMeetFixture.bytes(
                 10,
                 NativeMeetFixture.number(1, muted ? 1 : 0)

@@ -13,21 +13,28 @@ actor Providers: AccountProviderFactory {
     let uploadMembership: Bool
     let threadUnreadClearing: Bool
     let providerUploadProgress: Bool
+    let seedSyncedDrafts: Bool
+    let seedConversationSections: Bool
+    let conversationKind: Conversation.Kind
 
     init(
         uploadMembership: Bool = false, threadUnreadClearing: Bool = false,
-        providerUploadProgress: Bool = false
+        providerUploadProgress: Bool = false, seedSyncedDrafts: Bool = false,
+        conversationKind: Conversation.Kind = .space, seedConversationSections: Bool = false
     ) {
         self.uploadMembership = uploadMembership
         self.threadUnreadClearing = threadUnreadClearing
         self.providerUploadProgress = providerUploadProgress
+        self.seedSyncedDrafts = seedSyncedDrafts
+        self.seedConversationSections = seedConversationSections
+        self.conversationKind = conversationKind
     }
 
     private var backends: [ConnectedAccountID: FakeBackend] = [:]
     private var progressBackends: [ConnectedAccountID: UploadProgressBackend] = [:]
 
     func makeProvider(for account: AccountRecord) -> AccountProvider {
-        let world = FixtureWorld(
+        var world = FixtureWorld(
             me: account.selfID,
             members: [
                 Member(id: account.selfID, kind: .human, displayName: account.label),
@@ -35,14 +42,36 @@ actor Providers: AccountProviderFactory {
             ],
             conversations: [Conversation(
                 id: Conversation.ID("same"),
-                kind: .space,
+                kind: conversationKind,
                 title: account.label,
                 members: uploadMembership ? [account.selfID, Member.ID("peer")] : []
             )],
             messages: [],
             startedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
+        if seedSyncedDrafts {
+            world.syncedDrafts = [nil, MessageThread.ID("topic")].map { thread in
+                SyncedDraft(
+                    id: .init(address: .init(conversation: .init("same"), thread: thread), record: "draft"),
+                    body: ComposedMessage(text: account.label),
+                    modifiedAt: world.startedAt.addingTimeInterval(0.000_123_4)
+                )
+            }
+        }
+        if seedConversationSections {
+            world.conversationSections = [.init(
+                id: "section",
+                name: account.label,
+                conversationIDs: [.init("same")]
+            )]
+        }
         var capabilities = Capabilities.fixture
+        if seedConversationSections {
+            capabilities.extendedFlags.formUnion([
+                "conversationSections", "editConversationSections", "manageConversationSections",
+                "moveConversationSections"
+            ])
+        }
         capabilities.needsThreadUnreadClearBeforeRead = threadUnreadClearing && account.id.rawValue == "first"
         let backend = FakeBackend(world: world, capabilities: capabilities)
         backends[account.id] = backend
@@ -81,6 +110,13 @@ actor Providers: AccountProviderFactory {
         guard let backend = backends[account] else { throw ServiceFailure.accountNotFound }
         _ = try await backend.setMessagePinned(pinned, at: address)
     }
+
+    func changeConversationSections(
+        _ sections: [ConversationSection]?, account: ConnectedAccountID, removedSectionID: String? = nil
+    ) async throws {
+        guard let backend = backends[account] else { throw ServiceFailure.accountNotFound }
+        await backend.applyConversationSections(sections, removedSectionID: removedSectionID)
+    }
 }
 
 struct ClientHarness {
@@ -93,7 +129,8 @@ struct ClientHarness {
     static func make(
         linkCustody: (any AccountLinkCustody)? = nil, uploads: Bool = false,
         transferLimits: ServiceTransferLimits = .init(), threadUnreadClearing: Bool = false,
-        providerUploadProgress: Bool = false
+        providerUploadProgress: Bool = false, seedSyncedDrafts: Bool = false,
+        conversationKind: Conversation.Kind = .space, seedConversationSections: Bool = false
     ) async throws -> ClientHarness {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -116,7 +153,8 @@ struct ClientHarness {
         try registry.save(second)
         let providers = Providers(
             uploadMembership: uploads, threadUnreadClearing: threadUnreadClearing,
-            providerUploadProgress: providerUploadProgress
+            providerUploadProgress: providerUploadProgress, seedSyncedDrafts: seedSyncedDrafts,
+            conversationKind: conversationKind, seedConversationSections: seedConversationSections
         )
         let storage = SQLiteServiceStorageFactory(directory: folder)
         let service = ChatService(

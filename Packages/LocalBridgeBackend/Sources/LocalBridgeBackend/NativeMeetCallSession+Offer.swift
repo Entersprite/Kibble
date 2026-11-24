@@ -2,6 +2,24 @@ import Foundation
 import GChatBridgeCore
 
 extension NativeMeetCallSession {
+    func finishConnect(_ offer: MeetAudioOffer, streamControl: Bool) async throws {
+        lines.append("UpdateMeetingDevice: JOINED accepted")
+        if streamControl {
+            await registerAudioStream(offer)
+            try await check()
+            guard audioStream != nil else { throw CallMediaError.outgoingAudioUnconfirmed }
+        }
+        if staysWhenAlone {
+            try await check()
+            await media.setMuted(desiredMuted)
+            try await check()
+        }
+        ready = true
+        if case .awaitingAdmission = state {
+            await publish(.ready)
+        }
+    }
+
     static func suite(_ profile: CallSRTPProfile) -> MeetAudioOffer.SRTPSuite {
         switch profile {
         case .aes128SHA180: .aes128SHA180

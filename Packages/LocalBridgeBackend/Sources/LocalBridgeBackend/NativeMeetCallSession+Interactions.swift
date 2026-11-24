@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 
@@ -46,7 +47,7 @@ extension NativeMeetCallSession {
         await publishParticipants()
     }
 
-    func setHandRaised(_ raised: Bool) async throws {
+    func setHandRaised(_ raised: Bool, expectedName: String? = nil) async throws {
         guard ready, !closed, connection == nil, !handOperation else { throw MeetDeviceSessionError.busy }
         handOperation = true
         defer { handOperation = false }
@@ -58,14 +59,28 @@ extension NativeMeetCallSession {
             guard let local = await device.localDeviceName, let hands = snapshot.hands,
                   handVersion.map({ hands.version >= $0 }) ?? true else { throw MeetDeviceSessionError.busy }
             let currentName = hands.values.first(where: { $0.device == local })?.name
-            handVersion = hands.version
-            participantHands = Dictionary(uniqueKeysWithValues: hands.values.map { ($0.device, $0.name) })
-            let name = try await device.setHandRaised(raised, currentName: currentName)
+            applyHands(hands)
+            if let expectedName {
+                guard let roster = snapshot.devices,
+                      roster.version >= max(deviceVersion ?? 0, participantVersion ?? 0),
+                      currentName == expectedName, connectedOwnHand == expectedName,
+                      roster.values.contains(where: {
+                          $0.name == local && $0.joinState == 1 && !$0.isDeleted && !$0.isPresentation
+                      }) else { return }
+            }
+            if !raised {
+                requestedOwnLowering = currentName
+                observedOwnHand = nil
+                await clearAutomaticHandLowering()
+                try await check()
+            }
+            guard expectedName == nil || (state == .active && !isSuspended && disconnectedAt == nil)
+            else { return }
+            _ = try await device.setHandRaised(raised, currentName: currentName)
             try await check()
-            ownHandName = name
             ownHandRaised = raised
-            if participantHands != nil {
-                participantHands?[local] = name
+            if !raised {
+                participantHands?[local] = nil
             }
             needsRefresh = true
             await publishParticipants()
@@ -88,8 +103,23 @@ extension NativeMeetCallSession {
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
-    func publicJoinURL() async -> URL {
-        await device.publicJoinURL
+    func publicInteraction() async -> CallInteractionState {
+        let url = await device.publicJoinURL
+        let dialIn = await device.publicDialInDetails(preferredRegion: Locale.current.region?.identifier)
+        var result = CallInteractionState(
+            joinURL: try? MeetJoinLink(url).url, canRaiseHand: true, canInvite: true
+        )
+        if result.joinURL != nil, let dialIn {
+            let numbers = dialIn.numbers.map {
+                CallDialIn(phoneNumber: $0.phoneNumber, pin: $0.pin, regionCode: $0.region)
+            }
+            result.dialIn = numbers.first
+            if numbers.count > 1 {
+                result.alternateDialIns = Array(numbers.dropFirst())
+            }
+            result.dialInNumbersURL = dialIn.directory
+        }
+        return result
     }
 }
 
@@ -107,9 +137,15 @@ public extension MeetDMCallTrial {
     }
 
     func nativeJoinURL(scope: UUID) async -> URL? {
-        guard nativeScope == scope, let session = native else { return nil }
-        let url = await session.publicJoinURL()
-        guard nativeScope == scope, native === session else { return nil }
-        return try? MeetJoinLink(url).url
+        try? await nativeInteraction(scope: scope).joinURL
+    }
+}
+
+extension MeetDMCallTrial {
+    func nativeInteraction(scope: UUID) async throws -> CallInteractionState {
+        guard nativeScope == scope, let session = native else { throw MeetDMCallTrialError.superseded }
+        let interaction = await session.publicInteraction()
+        guard nativeScope == scope, native === session else { throw MeetDMCallTrialError.superseded }
+        return interaction
     }
 }

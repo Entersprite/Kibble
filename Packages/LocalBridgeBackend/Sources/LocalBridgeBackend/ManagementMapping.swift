@@ -141,6 +141,12 @@ enum ManagementMapping {
         if case .threadedGroup = group.threadedModel {
             result.isThreaded = true
         }
+        let notifications = GroupNotificationMapping(group.groupReadState)
+        result.notificationLevel = notifications.level ?? result.notificationLevel
+        if let muted = notifications.isMuted {
+            result.isMuted = muted
+            result.notificationMuteUntil = notifications.muteUntil
+        }
         if result.kind != .meetChat {
             result.meeting = nil
         } else if !group.spaceIntegrationPayloads.isEmpty {
@@ -155,6 +161,8 @@ enum ManagementMapping {
         }
         guard group.hasAttributeCheckerGroupType else { return .unknown("provider") }
         switch group.attributeCheckerGroupType {
+        case .oneToOneHumanDm: return .directMessage
+        case .oneToOneBotDm: return .appDirectMessage
         case .immutableMembershipGroupDm: return .groupDirectMessage
         case .flatRoom, .threadedRoom, .postRoom: return .space
         case .meetingChat: return .meetChat

@@ -11,20 +11,14 @@ private actor RefetchTransport: HTTPTransport {
     private var holding = false
     private var held: [CheckedContinuation<Void, Never>] = []
     private(set) var listMessagesCalls = 0
-    /// How many more `stream()` calls answer terminally (a 403, which
-    /// `ChannelFailure` treats as dead-credential rather than recoverable -
-    /// see `LiveChannelFailureTests`'s own doc comment on the same status).
-    /// Decremented on every call; once it reaches zero, `stream()` reverts to
-    /// throwing `NoStream`, which is recoverable and retries harmlessly in
-    /// the background - the second connect in a reconnect test must not go
-    /// terminal again and re-forget state out from under the fetch it is
-    /// trying to observe.
-    private var terminalStreamsLeft: Int
+    private var firstStreamIsTerminal: Bool
+    private var terminalResponseReleased = false
+    private var terminalResponse: CheckedContinuation<Void, Never>?
 
-    init(shell: HTTPResponse, answer: GChatBridgeCore.Message?, terminalStreams: Int = 0) {
+    init(shell: HTTPResponse, answer: GChatBridgeCore.Message?, firstStreamIsTerminal: Bool = false) {
         self.shell = shell
         self.answer = answer
-        terminalStreamsLeft = terminalStreams
+        self.firstStreamIsTerminal = firstStreamIsTerminal
     }
 
     func hold(_ value: Bool) {
@@ -33,6 +27,12 @@ private actor RefetchTransport: HTTPTransport {
 
     func release() {
         held.forEach { $0.resume() }; held = []
+    }
+
+    func releaseTerminalResponse() {
+        terminalResponseReleased = true
+        terminalResponse?.resume()
+        terminalResponse = nil
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -55,8 +55,11 @@ private actor RefetchTransport: HTTPTransport {
     }
 
     func stream(_: HTTPRequest) async throws -> HTTPStream {
-        if terminalStreamsLeft > 0 {
-            terminalStreamsLeft -= 1
+        if firstStreamIsTerminal {
+            firstStreamIsTerminal = false
+            if !terminalResponseReleased {
+                await withCheckedContinuation { terminalResponse = $0 }
+            }
             let empty = AsyncThrowingStream<Data, any Error> { $0.finish() }
             return HTTPStream(status: 403, headers: HTTPHeaders([]), body: empty)
         }
@@ -244,36 +247,30 @@ struct ReactionRefetchTests: SenderResolutionFixtures {
         #expect(reactionChanges(events) == [[ChatKit.Reaction(emoji: "👍", count: 1)]])
     }
 
-    /// Finding 1 (fix round 1): a *terminal* channel stop must forget
-    /// refetches too, not just bump the generation. `channelStopped` used to
-    /// call only `forgetDirectory()`, which stops a stuck refetch from ever
-    /// *emitting* but never clears `phases` - so a message stuck in
-    /// `.waiting` when the channel dies stays stuck for the life of the
-    /// backend: `disconnect()` afterwards returns early (already
-    /// disconnected), and a later `connect()` resets nothing.
-    ///
-    /// `terminalStreams: 1` makes only the *first* `stream()` call answer
-    /// with a dead-credential 403 (`LiveChannelFailureTests`'s own shape);
-    /// the second connect's channel reverts to throwing `NoStream`, which is
-    /// recoverable and retries harmlessly in the background rather than
-    /// going terminal again and re-forgetting state out from under the
-    /// fetch this test is trying to observe.
+    /// A terminal stop must cancel the waiting task and clear its phase so
+    /// the next connection can start another refetch for the same message.
     @Test func aTerminalChannelStopForgetsAWaitingRefetch() async throws {
         let transport = RefetchTransport(
-            shell: shell(), answer: answer(reactions: [thumbs(1)]), terminalStreams: 1
+            shell: shell(), answer: answer(reactions: [thumbs(1)]), firstStreamIsTerminal: true
         )
-        let backend = backend(transport, delay: .milliseconds(100))
-        let log = SenderEventLog(backend)
+        let backend = backend(transport, delay: .seconds(30))
+        let target = target()
         try await backend.connect()
-        await backend.requestReactionRefetch(target())
-        // Waits for `channelStopped` to have fully run - the terminal 403
-        // above is what drives it - so the state it leaves behind is settled
-        // before the reconnect below.
+        await backend.requestReactionRefetch(target)
+        let pending = await backend.reactionRefetches.tasks[target.messageID]
+        await transport.releaseTerminalResponse()
         await backend.waitForChannel()
+        let retired = try #require(pending)
+        try #require(retired.isCancelled)
+        await retired.value
+        #expect(await backend.reactionRefetches.phases[target.messageID] == nil)
+        #expect(await backend.reactionRefetches.tasks[target.messageID] == nil)
+
         try await backend.connect()
-        await backend.requestReactionRefetch(target())
-        let events = await log.settle()
-        #expect(await transport.listMessagesCalls == 1)
-        #expect(reactionChanges(events) == [[ChatKit.Reaction(emoji: "👍", count: 1)]])
+        await backend.requestReactionRefetch(target)
+        let restarted = await backend.reactionRefetches.tasks[target.messageID]
+        #expect(restarted?.isCancelled == false)
+        await backend.disconnect()
+        #expect(await transport.listMessagesCalls == 0)
     }
 }

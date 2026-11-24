@@ -8,14 +8,31 @@ public extension ServiceBackend {
             try await sendClientHint(command)
             return
         }
+        _ = try await submitCommand(command, draft: nil)
+    }
+
+    func send(_ command: ChatCommand, consuming draft: SyncedDraft) async throws -> Bool {
+        guard capabilities.canSendSavedDraft
+        else { throw ChatError.unsupported(capability: "sendSavedDraft") }
+        guard draft.canConsume(
+            with: command,
+            allowingAttachments: capabilities.canSendSavedDraftWithAttachments
+        )
+        else { throw ServiceFailure.invalidRequest }
+        return try await submitCommand(command, draft: draft)
+    }
+
+    private func submitCommand(_ command: ChatCommand, draft: SyncedDraft?) async throws -> Bool {
         let id = if case let .sendMessage(_, _, _, localID?, _, _, _) = command {
             ServiceOperationID("send:\(localID)")
         } else {
             ServiceOperationID(ClientOperationID.make())
         }
         do {
-            let result = try await call(SendCommand(operationID: id, command: command))
+            let result = try await call(SendCommand(operationID: id, command: command, draft: draft))
             guard result.state == "succeeded" else { throw ServiceFailure.operationUnknown }
+            return result.result.flatMap { try? ServiceCodec.decode(SendCommandReceipt.self, from: $0) }?
+                .draftConsumed == true
         } catch let failure as ServiceFailure
             where failure == .operationUnknown || failure == .deadlineExceeded {
             throw UncertainOperation(operationID: id.rawValue)
@@ -40,7 +57,15 @@ public extension ServiceBackend {
     }
 
     func setNotificationSetting(_ level: NotificationLevel, for conversation: Conversation.ID) async throws {
+        let generation = connectionGeneration
         _ = try await call(SetNotificationSetting(level: level, conversationID: conversation))
+        try await waitForProjection(generation: generation)
+    }
+
+    func setConversationMute(_ pause: Pause, in conversation: Conversation.ID) async throws {
+        let generation = connectionGeneration
+        _ = try await call(SetConversationMute(pause: pause, conversationID: conversation))
+        try await waitForProjection(generation: generation)
     }
 
     func searchPeople(_ query: String) async throws -> [Member] {

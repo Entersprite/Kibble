@@ -80,6 +80,10 @@ public actor SyncEngine {
     /// so a consumer attached a moment late still hears what it missed.
     public nonisolated let announcements: AsyncStream<SyncAnnouncement>
     nonisolated let announcer: AsyncStream<SyncAnnouncement>.Continuation
+    nonisolated let messageCollectionChanges: AsyncStream<MessageCollectionChange>
+    nonisolated let messageCollectionChangeSink: AsyncStream<MessageCollectionChange>.Continuation
+    var conversationSectionVersion = 0
+    var pendingConversationSectionRemovals: Set<String> = []
 
     /// Read receipts per conversation. See `ReadReceiptGate`.
     public nonisolated let readReceipts = ReadReceiptGate()
@@ -121,6 +125,8 @@ public actor SyncEngine {
         self.store = store
         self.mentionClock = mentionClock
         (announcements, announcer) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
+        (messageCollectionChanges, messageCollectionChangeSink) = AsyncStream
+            .makeStream(bufferingPolicy: .bufferingNewest(32))
     }
 
     /// Stops consuming and disconnects.
@@ -146,6 +152,7 @@ public actor SyncEngine {
         await consumer?.value
         consumer = nil
         meetingMetadataUpdates = [:]
+        pendingConversationSectionRemovals = []
         // After the drain, so a run started by the consumer's last event is
         // cancelled too. Not awaited, for `ChatSessionModel.historyTask`'s
         // reason: a fetch that ignores cancellation would hang sign-out with

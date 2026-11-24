@@ -32,18 +32,20 @@ extension ServiceBackend {
             let generation = connectionGeneration
             let snapshot = resynchronization
             let value = try await query()
-            if !checkpointed {
-                return value
-            }
-            guard generation == connectionGeneration, consumer != nil else { throw CancellationError() }
-            let position = try await call(GetProjectionCheckpoint())
-            try await awaitProjection(position)
-            guard generation == connectionGeneration else { throw CancellationError() }
-            if snapshot == resynchronization {
+            try await waitForProjection(generation: generation)
+            if !checkpointed || snapshot == resynchronization {
                 return value
             }
         }
         throw ServiceFailure.overloaded
+    }
+
+    func waitForProjection(generation: UUID) async throws {
+        guard checkpointed else { return }
+        guard generation == connectionGeneration, consumer != nil else { throw CancellationError() }
+        let position = try await call(GetProjectionCheckpoint())
+        try await awaitProjection(position)
+        guard generation == connectionGeneration else { throw CancellationError() }
     }
 
     private func awaitProjection(_ position: ServiceCursor) async throws {

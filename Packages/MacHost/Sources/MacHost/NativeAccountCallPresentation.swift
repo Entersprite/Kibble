@@ -29,7 +29,8 @@ final class NativeAccountCallPresentation {
         environment: AppEnvironment, binding: NativeAccountCallBinding,
         settings: CallSettingsModel, notifications: UserNotificationDelivery,
         accountLabel: @escaping @MainActor () -> String? = { nil },
-        otherCall: @escaping @MainActor () -> AudioCallController? = { nil }
+        otherCall: @escaping @MainActor () -> AudioCallController? = { nil },
+        showChat: @escaping @MainActor () -> Void
     ) {
         self.environment = environment; self.binding = binding; self.settings = settings
         self.accountLabel = accountLabel
@@ -41,10 +42,17 @@ final class NativeAccountCallPresentation {
                 for: id, calls: calls, audioDevices: binding.audioDevices,
                 video: binding.video, diagnostics: binding.diagnostics
             )
-            MacAppDelegate.addCallConversationActions(to: &actions, for: id, environment: environment)
+            MacAppDelegate.addCallConversationActions(
+                to: &actions, for: id, environment: environment, showChat: showChat
+            )
             actions.callBack = MacAppDelegate.callBack(after: id, environment: environment)
             actions.imageLoader = environment.imageLoader
             actions.accountLabel = accountLabel()
+            if var preparation = actions.meetingPreparation {
+                let current = preparation.canCheckDevices
+                preparation.canCheckDevices = { current() && otherCall() == nil }
+                actions.meetingPreparation = preparation
+            }
             actions.endsOtherCall = calls.call?.phase == .incoming && otherCall() != nil
             actions.accept = {
                 if calls.call?.id == id {
@@ -53,9 +61,7 @@ final class NativeAccountCallPresentation {
             }
             return actions
         }, windowClosed: { id in
-            if calls.call?.id == id {
-                calls.windowClosed()
-            }
+            calls.dismissCallWindow(id)
         }, closesFinishedCalls: { settings.closesFinishedCalls })
         alerts = IncomingCallAlerts(
             post: { [notificationScope] alert in
@@ -142,7 +148,7 @@ final class NativeAccountCallPresentation {
             var rule: ResolvedRule?
             if case let .running(model) = environment.phase, environment.settings.account != nil,
                let conversation = model.conversations
-               .first(where: { $0.id == call?.conversationID }) {
+                   .first(where: { $0.id == call?.conversationID }) {
                 rule = environment.settings.resolved(for: conversation)
             }
             var surface = IncomingCallSurface.notificationsOnly
@@ -159,7 +165,7 @@ final class NativeAccountCallPresentation {
             ) ?? false
             sounds.update(call: call, isEnding: environment.calls.isEnding, incomingRings: ringer.isRinging)
             window?.update(
-                call: call, windowRequests: environment.calls.windowRequests,
+                call: environment.calls.callWindowSession, windowRequests: environment.calls.windowRequests,
                 devices: binding.audioDevices.devices, alertsIncoming: raises, video: binding.video,
                 person: person, conversation: conversation, participants: environment.calls.participants
             )
@@ -225,7 +231,12 @@ final class NativeAccountCallCoordinator {
                                   workspace.accounts.count > 1 else { return nil }
                             return workspace.accountLabels[id]
                         },
-                        otherCall: { [weak self] in self?.callHoldingDevice(except: id) }
+                        otherCall: { [weak self] in self?.callHoldingDevice(except: id) },
+                        showChat: { [weak host, weak environment] in
+                            guard let environment, let workspace = host?.workspace,
+                                  workspace.environment(for: id) === environment else { return }
+                            workspace.showAccount(id)
+                        }
                     )
                 }
                 return account.id

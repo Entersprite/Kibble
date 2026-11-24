@@ -3,19 +3,90 @@ import Foundation
 
 public extension AudioCallController {
     func performActivity(_ activity: CallActivity) async throws {
+        try await runActivity(activity, alsoTranscription: false)
+    }
+
+    func setRecordingAndTranscriptionEnabled(_ enabled: Bool, captionLanguage: String? = nil) async throws {
+        try await runActivity(
+            CallActivity("recording", enabled: enabled, recordingCaptionLanguage: captionLanguage),
+            alsoTranscription: true
+        )
+    }
+
+    private func runActivity(_ activity: CallActivity, alsoTranscription: Bool) async throws {
+        try Task.checkCancellation()
         guard let call, call.phase == .connected, !isEnding, activityTask == nil,
               let activities = service as? any CallActivitiesService else { throw CancellationError() }
         let epoch = generation
-        let task = Task { try await activities.performCallActivity(activity, callID: call.id) }
+        let task = Task {
+            try Task.checkCancellation()
+            if alsoTranscription {
+                try await runCapturePair(activity, through: activities, epoch: epoch, id: call.id)
+            } else {
+                try await activities.performCallActivity(activity, callID: call.id)
+            }
+        }
         activityTask = task
         defer {
-            if generation == epoch {
+            if generation == epoch, self.call?.id == call.id {
                 activityTask = nil
             }
         }
-        try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        if [
+            "endConference", "removeParticipant", "blockParticipant", "respondToAdmissions",
+            "sendParticipantToWaitingRoom", "setPinForEveryone"
+        ].contains(activity.action) {
+            // These explicit commands stay with the call after the confirmation closes.
+            try await task.value
+        } else {
+            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        }
         guard !Task.isCancelled, generation == epoch,
               self.call?.id == call.id else { throw CancellationError() }
+    }
+
+    private func runCapturePair(
+        _ recording: CallActivity, through activities: any CallActivitiesService, epoch: Int, id: UUID
+    ) async throws {
+        try checkCaptureScope(epoch: epoch, id: id)
+        guard let state = interaction?.activities,
+              state.canSetRecordingAndTranscriptionEnabled(recording.enabled),
+              state.acceptsRecordingCaptionChoice(recording)
+        else {
+            throw ChatError.unsupported(capability: "pairedMeetingCapture")
+        }
+        let recordingConfirmed: Bool
+        do {
+            try await activities.performCallActivity(recording, callID: id)
+            recordingConfirmed = true
+        } catch {
+            // A paired start needs the recording, but each requested stop is independent.
+            if recording.enabled {
+                throw error
+            }
+            recordingConfirmed = false
+        }
+        try checkCaptureScope(epoch: epoch, id: id)
+        do {
+            try await activities.performCallActivity(
+                CallActivity("transcription", enabled: recording.enabled),
+                callID: id
+            )
+        } catch {
+            try checkCaptureScope(epoch: epoch, id: id)
+            throw recordingConfirmed ? CallArtifactPairError.transcriptionUnconfirmed : .bothUnconfirmed
+        }
+        try checkCaptureScope(epoch: epoch, id: id)
+        if !recordingConfirmed {
+            throw CallArtifactPairError.recordingUnconfirmed
+        }
+    }
+
+    private func checkCaptureScope(epoch: Int, id: UUID) throws {
+        try Task.checkCancellation()
+        guard generation == epoch, call?.id == id, call?.phase == .connected, !isEnding, !isRecovering else {
+            throw CancellationError()
+        }
     }
 }
 
@@ -56,8 +127,8 @@ public extension AudioCallController {
             guard !Task.isCancelled, generation == epoch, self.call?.id == call.id,
                   [.ended, .declined].contains(self.call?.phase),
                   self.call?.failureMessage == nil, !isEnding,
-                  canJoinMeetingLinks else { throw CancellationError() }
-            guard joinMeeting(at: url) != nil else { throw CancellationError() }
+                  canJoinMeetingLinks,
+                  joinMeeting(at: url) != nil else { throw CancellationError() }
             breakoutReturnURL = returning ? nil : breakoutReturnURL ?? originalURL
         }
         let token = UUID()

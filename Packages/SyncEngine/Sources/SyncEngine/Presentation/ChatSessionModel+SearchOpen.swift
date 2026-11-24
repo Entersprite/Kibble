@@ -44,7 +44,7 @@ public extension ChatSessionModel {
 
     /// Opens their direct message, restoring it when hidden or deleted.
     func openSearchPerson(_ id: Member.ID) {
-        if let dm = conversations.first(where: { $0.kind == .directMessage && $0.members.contains(id) }) {
+        if let dm = visibleDirectConversation(with: id) {
             openSearchConversation(dm.id)
             return
         }
@@ -188,8 +188,7 @@ extension ChatSessionModel {
         search = state
         searchWork.barPageTask = Task { @MainActor [weak self, engine] in
             let page = try? await engine.searchMessages(query, after: cursor)
-            guard !Task.isCancelled, let self else { return }
-            guard var bar = search.bar, bar.query == query else { return }
+            guard !Task.isCancelled, let self, var bar = search.bar, bar.query == query else { return }
             var state = search
             guard let page else {
                 bar.pageFailed = true

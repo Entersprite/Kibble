@@ -53,9 +53,16 @@ private struct AccountSignInContent: View {
     let model: CookieCaptureModel
     let pageHost: @MainActor (String) -> Void
 
+    #if DEBUG
+        private static let traceNavigation = true
+    #else
+        private static let traceNavigation = false
+    #endif
+
     var body: some View {
         VStack(spacing: 0) {
-            LoginBrowser(capturing: model, pageHost: pageHost)
+            LoginBrowser(capturing: model, traces: Self.traceNavigation, pageHost: pageHost)
+                .id(model.browserAttempt)
             Divider()
             HStack {
                 Text(model.visibleStatus)

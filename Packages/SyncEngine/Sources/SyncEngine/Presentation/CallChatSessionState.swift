@@ -2,6 +2,7 @@ import ChatKit
 import Foundation
 
 public struct CallChatSessionState {
+    public internal(set) var callID: UUID?
     public internal(set) var conversationID: Conversation.ID?
     public internal(set) var messages: [Message] = []
     public internal(set) var draft = ""
@@ -26,13 +27,15 @@ public struct CallChatSessionState {
 }
 
 public extension ChatSessionModel {
-    func openCallChat(in conversation: Conversation.ID) {
-        guard callChat.conversationID != conversation || callChat.observer == nil else { return }
-        if callChat.conversationID != conversation {
+    func openCallChat(in conversation: Conversation.ID, callID: UUID? = nil) {
+        let sameScope = callChat.conversationID == conversation && callChat.callID == callID
+        guard !sameScope || callChat.observer == nil else { return }
+        if !sameScope {
             callChat.stop(preservingDrafts: true)
             callChat.draft = callChat.savedDrafts[conversation] ?? ""
         }
         callChat.conversationID = conversation
+        callChat.callID = callID
         let epoch = callChat.generation
         callChat.observer = Task { [weak self, store] in
             do {
@@ -53,20 +56,21 @@ public extension ChatSessionModel {
         }
     }
 
-    func closeCallChat(in conversation: Conversation.ID) {
-        guard callChat.conversationID == conversation else { return }
+    func closeCallChat(in conversation: Conversation.ID, callID: UUID? = nil) {
+        guard callChat.conversationID == conversation, callChat.callID == callID else { return }
         callChat.observer?.cancel(); callChat.loader?.cancel()
         callChat.observer = nil; callChat.loader = nil
     }
 
-    func updateCallChatDraft(_ text: String, in conversation: Conversation.ID) {
-        guard callChat.conversationID == conversation, !callChat.isSending else { return }
+    func updateCallChatDraft(_ text: String, in conversation: Conversation.ID, callID: UUID? = nil) {
+        guard callChat.conversationID == conversation, callChat.callID == callID,
+              !callChat.isSending else { return }
         callChat.draft = text
     }
 
-    func sendCallChat(in conversation: Conversation.ID) {
+    func sendCallChat(in conversation: Conversation.ID, callID: UUID? = nil) {
         guard capabilities.canSendMessages, let me, callChat.conversationID == conversation,
-              !callChat.isSending,
+              callChat.callID == callID, !callChat.isSending,
               !callChat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let text = callChat.draft, epoch = callChat.generation
         let localID = ClientOperationID.make()

@@ -41,6 +41,7 @@ public extension AppEnvironment {
             }
         }
         let rules = model.conversations.map { ($0.id, settings.resolved(for: $0)) }
+        let failedDraftOffer = model.failedDraftOffer
         var state = ChatSceneState(
             conversations: model.conversations,
             directory: model.directory,
@@ -63,7 +64,7 @@ public extension AppEnvironment {
                 .transport("The account connection was interrupted. Retrying…")),
             notice: calls.listenerFailure,
             capabilities: model.capabilities,
-            failedDraft: model.failedDraft,
+            failedDraft: failedDraftOffer?.draft,
             unreadHidden: Set(rules.filter { !$0.1.showsUnread }.map(\.0)),
             dimmed: Set(rules.filter { $0.1.delivery == .off }.map(\.0)),
             muted: Set(model.conversations.map(\.id).filter(settings.isMuted)),
@@ -92,6 +93,10 @@ public extension AppEnvironment {
                 calls.canCall(conversation: $0, directory: model.directory, me: model.me)
             }.map(\.id))
         )
+        state.failedDraftID = failedDraftOffer?.id
+        state.conversationSections = model.conversationSections
+        state.stars = starredScene(of: model)
+        state.scheduled = scheduledScene(of: model)
         state.pins = model.pins
         state.isLoadingScrollTarget = model.isLoadingScrollTarget
         state.pinsError = model.pinsError
@@ -173,6 +178,7 @@ public extension AppEnvironment {
     /// that was actually asked for.
     var actions: ChatSceneActions {
         let activityModel = runningModel
+        let failedDraftOffer = activityModel?.failedDraftOffer
         var actions = ChatSceneActions(
             typingActivity: { [weak activityModel] conversation, thread, active in
                 activityModel?.reportTyping(in: conversation, thread: thread, active: active)
@@ -191,9 +197,9 @@ public extension AppEnvironment {
             // session over one transient banner, and a probe report is not a
             // session problem at all.
             signIn: isFailed ? { [weak self] in self?.requestSignIn() } : nil,
-            draftRestored: { [weak self] in
-                guard case let .running(model) = self?.phase else { return }
-                model.clearFailedDraft()
+            draftRestored: { [weak activityModel] in
+                guard let offer = failedDraftOffer else { return }
+                activityModel?.clearFailedDraft(in: offer.conversationID, matching: offer.id)
             },
             mute: canEditNotificationRules ? { [weak self] in self?.settings.mute($0) } : nil,
             unmute: canEditNotificationRules ? { [weak self] in self?.settings.unmute($0) } : nil,
@@ -292,7 +298,10 @@ public extension AppEnvironment {
         }
         installMeetingLinkAction(in: &actions)
         actions.callHistory = callHistoryActions
+        actions.stars = starredActions
+        actions.scheduled = scheduledActions
         actions.updateSidebar = { [weak self] in self?.updateSidebar($0) }
+        installConversationSectionActions(in: &actions)
         if calls.isAvailable {
             actions.joinCall = { [weak self] id in
                 guard let self, let model = runningModel,
@@ -309,6 +318,7 @@ public extension AppEnvironment {
             guard let self, let persistence, composerPersistence === persistence else { return }
             preserveComposerDraft(draft, at: address)
         }
+        actions.syncComposerDraft = composerDraftSyncActions
         actions.checkMessageDelivery = { [weak self] in self?.runningModel?.checkMessageDelivery($0) }
         if let model = runningModel {
             if model.capabilities.canReadMessagePins {
@@ -333,6 +343,7 @@ public extension AppEnvironment {
             }
         }
         if let model = runningModel, model.capabilities.canForwardMessages {
+            actions.scheduleForward = scheduledForwardAction
             actions.forwardMessage = { [weak self, weak model] id, destination, comment in
                 guard let self, let model, runningModel === model else { return false }
                 let accepted = await model.forward(id, to: destination, comment: comment)

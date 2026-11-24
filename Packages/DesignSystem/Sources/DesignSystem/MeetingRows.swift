@@ -43,7 +43,7 @@ struct ConversationItemRowState: Equatable {
             ThreadsPresentation.showsUnread($0, hidden: scene.unreadHidden.contains($0.id))
         }
         dimmed = originals.allSatisfy { scene.dimmed.contains($0.id) }
-        muted = originals.allSatisfy { $0.isMuted || scene.muted.contains($0.id) }
+        muted = originals.allSatisfy { $0.isProviderMuted(at: .now) || scene.muted.contains($0.id) }
     }
 }
 

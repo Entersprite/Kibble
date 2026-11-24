@@ -31,6 +31,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     var unreadCount: Int
     var hasUnread: Bool
     var isMuted: Bool
+    var notificationMuteUntil: Date?
     var notificationLevel: String
     var isThreaded: Bool
     var memberCount: Int?
@@ -56,6 +57,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         unreadCount = conversation.unreadCount
         hasUnread = conversation.hasUnread
         isMuted = conversation.isMuted
+        notificationMuteUntil = conversation.notificationMuteUntil
         notificationLevel = try Wire.string(conversation.notificationLevel)
         isThreaded = conversation.isThreaded
         memberCount = conversation.memberCount
@@ -88,7 +90,8 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
             markedUnreadAt: markedUnreadAt,
             historyClearedBefore: historyClearedBefore,
             latestMainMessageAt: latestMainMessageAt,
-            meeting: meeting.map { try Wire.value(MeetingOccurrence.self, from: $0) }
+            meeting: meeting.map { try Wire.value(MeetingOccurrence.self, from: $0) },
+            notificationMuteUntil: notificationMuteUntil
         )
     }
 }

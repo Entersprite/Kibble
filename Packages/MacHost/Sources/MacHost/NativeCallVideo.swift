@@ -66,10 +66,7 @@ final class NativeCallVideo: CallCameraRouting {
     }
 
     func devices() -> [CallCameraDevice] {
-        LKRTCCameraVideoCapturer.captureDevices().map { CallCameraDevice(
-            id: $0.uniqueID,
-            name: $0.localizedName
-        ) }
+        NativeCallCameras.choices()
     }
 
     func start(_ id: String) async throws {
@@ -81,9 +78,7 @@ final class NativeCallVideo: CallCameraRouting {
         await stop()
         try Task.checkCancellation()
         guard !closed else { throw CameraFailure.closed }
-        let devices = LKRTCCameraVideoCapturer.captureDevices()
-        guard let device = id.isEmpty ? devices.first : devices.first(where: { $0.uniqueID == id })
-        else { throw CameraFailure.unavailable }
+        guard let device = NativeCallCameras.device(for: id) else { throw CameraFailure.unavailable }
         let formats = LKRTCCameraVideoCapturer.supportedFormats(for: device)
         let eligible = formats.filter { format in
             let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)

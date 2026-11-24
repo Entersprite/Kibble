@@ -126,15 +126,16 @@ public extension ChatSessionModel {
     /// waiting up to the membership wait for checks still running, and how
     /// they can be added. A person with no check was picked from the members
     /// section, and is a member; so is anyone the conversation lists.
-    func nonMembers(in message: ComposedMessage) async -> NonMembers {
-        guard let selected else { return NonMembers() }
+    func nonMembers(in message: ComposedMessage, conversation: Conversation.ID? = nil) async -> NonMembers {
+        guard let selected = conversation ?? selected else { return NonMembers() }
         let checks = directorySearch.checks[selected] ?? [:]
         let wait = directorySearch.membershipWait
         // A member now is a member, whatever an earlier check said: after "Add
         // and send" they join the members section. The conversation's own list
         // counts too, though only as a yes: a group chat's can be cut short
         // (`findings.md` §37.6), so a person missing from it is still asked about.
-        let members = Set(mentionCandidates.map(\.id) + (knownConversation(selected)?.members ?? []))
+        let candidates = self.selected == selected ? mentionCandidates.map(\.id) : []
+        let members = Set(candidates + (knownConversation(selected)?.members ?? []))
         var people: [Member.ID] = []
         for mention in message.mentions {
             guard case let .user(id) = mention.target, !members.contains(id), let check = checks[id],
@@ -160,13 +161,25 @@ public extension ChatSessionModel {
         in conversation: Conversation.ID,
         thread: MessageThread.ID?
     ) {
+        addAndSend(
+            message, adding: people, at: ComposerDraftAddress(conversation: conversation, thread: thread),
+            consuming: nil, completed: nil
+        )
+    }
+
+    func addAndSend(
+        _ message: ComposedMessage, adding people: [Member.ID], at address: ComposerDraftAddress,
+        consuming draft: SyncedDraft?, completed: (@MainActor (Bool) -> Void)?
+    ) {
+        let key = StagingKey(conversation: address.conversation, thread: address.thread)
+        let batch = reserveStagedFiles(in: key)
         let taskID = UUID()
         sendTasks[taskID] = Task { @MainActor [weak self, engine] in
             defer { self?.sendTasks.removeValue(forKey: taskID) }
             var failure: ChatError?
             do {
                 let result = try await engine.mutateConversation(
-                    .addPeople(people), in: conversation, operationID: ClientOperationID.make(),
+                    .addPeople(people), in: address.conversation, operationID: ClientOperationID.make(),
                     expectedRevision: nil
                 )
                 if !result.isConfirmed || !Set(result.failedMembers).isDisjoint(with: people) {
@@ -176,20 +189,25 @@ public extension ChatSessionModel {
                 failure = error as? ChatError ?? Self.notAdded
             }
             guard let self, !Task.isCancelled else { return }
-            guard let failure else {
-                if let thread {
-                    sendReply(message, in: conversation, thread: thread)
+            let target: StagingTarget = address.thread == nil ? .conversation : .openThread
+            if failure == nil, capabilities.canSendMessages, self.key(for: target) == key {
+                if address.thread != nil {
+                    sendReply(message, using: batch, consuming: draft, completed: completed)
                 } else {
-                    send(message, in: conversation)
+                    send(message, using: batch, consuming: draft, completed: completed)
                 }
                 return
             }
-            if let thread {
-                keepReplyDraft(message, in: conversation, thread: thread)
+            restoreStagedFiles(batch, in: key)
+            if let thread = address.thread {
+                keepReplyDraft(message, in: address.conversation, thread: thread)
             } else {
-                keepDraft(message, in: conversation)
+                keepDraft(message, in: address.conversation)
             }
-            await engine.record(failure)
+            completed?(false)
+            if let failure {
+                await engine.record(failure)
+            }
         }
     }
 }

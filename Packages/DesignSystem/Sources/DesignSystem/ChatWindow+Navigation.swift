@@ -58,6 +58,10 @@ extension ChatWindow {
                     && MeetingSeries.build(state.conversations).contains { $0.id == id }
             case .mentions:
                 actions.showMentions != nil
+            case .starred:
+                actions.stars != nil
+            case .scheduled:
+                actions.scheduled != nil
             case .threads:
                 actions.threads != nil
             case .calls:
@@ -78,13 +82,7 @@ extension ChatWindow {
             // thread's first message.
             actions.threads?.openItem(id, thread)
         case let .sidebar(selection, thread):
-            switch selection {
-            case let .conversation(id): actions.select(id)
-            case let .meetingSeries(id): actions.selectMeetingSeries?(id)
-            case .mentions: actions.showMentions?()
-            case .threads: actions.threads?.showList()
-            case .calls: actions.callHistory?.show()
-            }
+            SidebarPinned.choose(selection, actions: actions)
             if let thread {
                 actions.threads?.open(thread)
             } else if state.threads.panel != nil {

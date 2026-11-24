@@ -185,10 +185,12 @@ struct CookieCaptureModelTests {
         let view = FakeLoginWebView(url: "https://chat.google.com/")
         let model = model()
 
+        model.attach(view)
         model.failed(view, URLError(.notConnectedToInternet))
         await Task.yield()
 
         #expect(model.status.contains("Navigation failed"))
+        #expect(model.canRestartSignIn)
     }
 
     /// Every field the `HTTPCookie` to `CapturedCookie` mapping copies,

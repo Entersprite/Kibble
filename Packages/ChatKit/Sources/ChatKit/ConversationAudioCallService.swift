@@ -41,12 +41,32 @@ public struct ConversationCallTarget: Codable, Hashable, Sendable {
 @MainActor
 public protocol MeetingLinkAudioCallService: AudioCallService {
     var canJoinMeetingLinks: Bool { get }
+    var canCreateMeetingLinks: Bool { get }
+    var canPreviewMeetingLinks: Bool { get }
     var meetingLinkHosts: Set<String> { get }
     func normalizedMeetingLink(_ url: URL) throws -> URL
     func joinMeeting(at url: URL, callID: UUID) async throws
+    func createMeetingLink() async throws -> URL
+    func previewMeetingTitle(at url: URL) async throws -> String?
 }
 
 public extension MeetingLinkAudioCallService {
+    var canPreviewMeetingLinks: Bool {
+        false
+    }
+
+    func previewMeetingTitle(at _: URL) async throws -> String? {
+        throw ChatError.unsupported(capability: "meetingLinkPreview")
+    }
+
+    var canCreateMeetingLinks: Bool {
+        false
+    }
+
+    func createMeetingLink() async throws -> URL {
+        throw ChatError.unsupported(capability: "meetingLinkCreation")
+    }
+
     func normalizedMeetingLink(_ url: URL) throws -> URL {
         guard url.scheme == "https", url.user == nil, url.password == nil,
               url.query == nil, url.fragment == nil, url.absoluteString.utf8.count <= 2048 else {
@@ -67,10 +87,12 @@ public struct ConversationCallSnapshot: Codable, Hashable, Sendable {
     public var isMuted: Bool
     public var failureMessage: String?
     public var endReason: AudioCallEndReason?
+    public var admission: CallAdmission?
 
     public init(
         id: UUID, target: ConversationCallTarget, phase: AudioCallPhase,
-        isMuted: Bool = false, failureMessage: String? = nil, endReason: AudioCallEndReason? = nil
+        isMuted: Bool = false, failureMessage: String? = nil, endReason: AudioCallEndReason? = nil,
+        admission: CallAdmission? = nil
     ) {
         self.id = id
         self.target = target
@@ -78,9 +100,12 @@ public struct ConversationCallSnapshot: Codable, Hashable, Sendable {
         self.isMuted = isMuted
         self.failureMessage = failureMessage
         self.endReason = endReason
+        self.admission = admission
     }
 
-    private enum CodingKeys: String, CodingKey { case id, target, phase, isMuted, failureMessage, endReason }
+    private enum CodingKeys: String, CodingKey {
+        case id, target, phase, isMuted, failureMessage, endReason, admission
+    }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
@@ -90,7 +115,8 @@ public struct ConversationCallSnapshot: Codable, Hashable, Sendable {
             phase: fields.decode(AudioCallPhase.self, forKey: .phase),
             isMuted: fields.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false,
             failureMessage: fields.decodeIfPresent(String.self, forKey: .failureMessage),
-            endReason: fields.decodeIfPresent(AudioCallEndReason.self, forKey: .endReason)
+            endReason: fields.decodeIfPresent(AudioCallEndReason.self, forKey: .endReason),
+            admission: fields.decodeIfPresent(CallAdmission.self, forKey: .admission)
         )
     }
 }

@@ -37,6 +37,9 @@ struct OwnMessageHandlers {
     var unconfirmed: Set<Message.ID> = []
     var pin: ((Message) -> Void)?
     var isPinned: (Message.ID) -> Bool = { _ in false }
+    var star: ((Message) -> Void)?
+    var isStarred: (Message) -> Bool = { _ in false }
+    var starIsPending: (Message) -> Bool = { _ in false }
 
     /// `nil` when the message offers nothing.
     func items(for message: Message) -> OwnMessageMenuItems? {
@@ -63,16 +66,21 @@ struct OwnMessageHandlers {
         let pin = pin.flatMap { action in
             confirmed && addressable && message.callStatus == nil ? { action(message) } : nil
         }
+        let star = star.flatMap { action in
+            confirmed && addressable && !message.isDeleted && message.callStatus == nil
+                && message.activity == nil && !starIsPending(message) ? { action(message) } : nil
+        }
         guard edit != nil || delete != nil || reply != nil || unread != nil || quote != nil || forward !=
             nil ||
-            pin != nil
+            pin != nil || star != nil
         else { return nil }
         return OwnMessageMenuItems(
             edit: edit,
             delete: delete,
             replyInThread: reply,
             markUnread: unread,
-            quote: quote, forward: forward, pin: pin, isPinned: isPinned(message.id)
+            quote: quote, forward: forward, pin: pin, isPinned: isPinned(message.id),
+            star: star, isStarred: isStarred(message)
         )
     }
 }
@@ -87,4 +95,6 @@ struct OwnMessageMenuItems {
     var forward: (() -> Void)?
     var pin: (() -> Void)?
     var isPinned = false
+    var star: (() -> Void)?
+    var isStarred = false
 }

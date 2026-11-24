@@ -18,6 +18,15 @@ extension RecordingBackend {
         leavingMutationsUnconfirmed = unconfirmed
     }
 
+    func holdMutations(_ hold: Bool) {
+        holdingMutations = hold
+    }
+
+    func releaseHeldMutation() {
+        guard !heldMutations.isEmpty else { return }
+        heldMutations.removeFirst().resume()
+    }
+
     func conversationDetails(_ conversation: Conversation.ID) async throws -> ConversationDetails {
         try await inner.conversationDetails(conversation)
     }
@@ -29,6 +38,9 @@ extension RecordingBackend {
         expectedRevision: String?
     ) async throws -> ConversationMutationResult {
         mutations.append(mutation)
+        if holdingMutations {
+            await withCheckedContinuation { heldMutations.append($0) }
+        }
         var result = try await inner.mutateConversation(
             mutation, in: conversation, operationID: operationID, expectedRevision: expectedRevision
         )

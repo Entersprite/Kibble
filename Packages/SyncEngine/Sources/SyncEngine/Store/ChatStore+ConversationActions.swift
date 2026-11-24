@@ -76,8 +76,27 @@ package extension ChatStore {
                 """,
                 arguments: [at.map(StoredDate.value), at.map(StoredDate.value), id.rawValue]
             )
+        case let .setConversationNotificationSettings(id, level, muted, muteUntil):
+            try updateNotificationSettings(id, level: level, muted: muted, muteUntil: muteUntil, in: db)
         default: break
         }
+    }
+
+    private static func updateNotificationSettings(
+        _ id: Conversation.ID, level: NotificationLevel?, muted: Bool?, muteUntil: Date?, in db: Database
+    ) throws {
+        try db.execute(
+            sql: """
+            UPDATE conversation SET notificationLevel = COALESCE(?, notificationLevel),
+                isMuted = COALESCE(?, isMuted),
+                notificationMuteUntil = CASE WHEN ? IS NULL THEN notificationMuteUntil ELSE ? END
+                WHERE id = ?
+            """,
+            arguments: [
+                level.map(Wire.string), muted, muted,
+                muted == true ? muteUntil.map(StoredDate.value) : nil, id.rawValue
+            ]
+        )
     }
 }
 

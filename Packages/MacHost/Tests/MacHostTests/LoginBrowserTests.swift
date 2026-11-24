@@ -67,6 +67,24 @@ struct LoginBrowserTests {
         #expect(LoginBrowser.reportsFailure(URLError(.secureConnectionFailed)))
     }
 
+    @Test func aTerminatedWebProcessCanBeReplacedWithAFreshStore() {
+        let model = captureModel()
+        let browser = LoginBrowser(capturing: model, pageHost: { _ in })
+        let first = LoginBrowser.makeWebView()
+        let delegate = browser.makeCoordinator()
+        delegate.attach(first)
+        delegate.webViewWebContentProcessDidTerminate(first)
+        #expect(model.canRestartSignIn)
+
+        model.restartSignIn()
+        LoginBrowser.dismantleNSView(first, coordinator: delegate)
+        #expect(first.navigationDelegate == nil)
+        #expect(delegate.page == nil)
+        let second = LoginBrowser.makeWebView()
+        #expect(second.configuration.websiteDataStore !== first.configuration.websiteDataStore)
+        #expect(!second.configuration.websiteDataStore.isPersistent)
+    }
+
     @Test func callSignInRecoveryHearsOfAFailedLoad() async {
         let model = CallSignInRecovery()
         await model.install(load: { [] }, save: { _ in 1 })

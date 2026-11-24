@@ -64,6 +64,8 @@ struct CallsSidebarRow: View {
 enum PinnedRow: Hashable {
     case search
     case mentions
+    case starred
+    case scheduled
     case threads
     case calls
 }
@@ -94,6 +96,12 @@ enum SidebarPinned {
         if actions.showMentions != nil {
             rows.append(.mentions)
         }
+        if actions.stars != nil {
+            rows.append(.starred)
+        }
+        if actions.scheduled != nil {
+            rows.append(.scheduled)
+        }
         if actions.threads != nil {
             rows.append(.threads)
         }
@@ -107,6 +115,8 @@ enum SidebarPinned {
     static func pinnedSelection(_ state: ChatSceneState) -> SidebarSelection? {
         switch state.sidebarSelection {
         case .mentions?: .mentions
+        case .starred?: .starred
+        case .scheduled?: .scheduled
         case .threads?: .threads
         case .calls?: .calls
         case .conversation?, .meetingSeries?, nil: nil
@@ -130,6 +140,10 @@ enum SidebarPinned {
             actions.selectMeetingSeries?(id)
         case .mentions?:
             actions.showMentions?()
+        case .starred?:
+            actions.stars?.show()
+        case .scheduled?:
+            actions.scheduled?.show()
         case .threads?:
             actions.threads?.showList()
         case .calls?:
@@ -173,6 +187,14 @@ struct PinnedList: View {
                 case .mentions:
                     MentionsSidebarRow(unread: state.unreadMentionCount)
                         .tag(SidebarSelection.mentions)
+                case .starred:
+                    SidebarSymbolTitle(title: "Starred", symbol: "star")
+                        .padding(.vertical, 1)
+                        .tag(SidebarSelection.starred)
+                case .scheduled:
+                    SidebarSymbolTitle(title: "Scheduled", symbol: "clock")
+                        .padding(.vertical, 1)
+                        .tag(SidebarSelection.scheduled)
                 case .threads:
                     ThreadsSidebarRow(unread: state.threads.unreadCount)
                         .tag(SidebarSelection.threads)

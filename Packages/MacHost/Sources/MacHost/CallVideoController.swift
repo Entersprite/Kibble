@@ -1,3 +1,4 @@
+import ChatKit
 import DesignSystem
 import Foundation
 @preconcurrency import LiveKitWebRTC
@@ -22,9 +23,12 @@ public final class CallVideoController {
     let screenSharing = CallScreenShareController()
     private var route: (any CallCameraRouting)?
     private var scope = UUID()
+    @ObservationIgnored private var videoPreferences = CallVideoPreferences()
     private var operation: Task<Void, Never>?
+    private var isStartingCamera = false
     private var refresh: Task<Void, Never>?
     @ObservationIgnored private let preferences: CallDevicePreferences?
+    @ObservationIgnored private(set) var localSpeechForGesture: (() async -> Bool)?
 
     public convenience init() {
         self.init(preferences: nil)
@@ -34,10 +38,14 @@ public final class CallVideoController {
         self.preferences = preferences
     }
 
-    func install(_ route: any CallCameraRouting, local: LKRTCVideoTrack? = nil) -> UUID {
+    func install(
+        _ route: any CallCameraRouting, local: LKRTCVideoTrack? = nil,
+        localSpeechForGesture: (() async -> Bool)? = nil
+    ) -> UUID {
         clear()
         self.route = route
         localTrack = local
+        self.localSpeechForGesture = localSpeechForGesture
         let devices = route.devices()
         let saved = preferences?.camera ?? ""
         camera = CallCameraState(
@@ -72,12 +80,33 @@ public final class CallVideoController {
     func clear(ifCurrent expected: UUID? = nil) {
         guard expected == nil || expected == scope else { return }
         scope = UUID()
+        videoPreferences = CallVideoPreferences()
         operation?.cancel(); operation = nil
+        isStartingCamera = false
         refresh?.cancel(); refresh = nil
         route?.suppress()
         route = nil
+        localSpeechForGesture = nil
         remoteVideos = []
         localTrack = nil; remoteTrack = nil; remoteVisible = false; remotePresentation = false; camera = nil
+    }
+
+    var receivePreferenceScope: UUID? {
+        route == nil ? nil : scope
+    }
+
+    var handGestureTrack: LKRTCVideoTrack? {
+        guard let camera, camera.isOn, !camera.isUpdating else { return nil }
+        return localTrack
+    }
+
+    func setReceivePreferences(_ preferences: CallVideoPreferences, ifCurrent expected: UUID) {
+        guard expected == receivePreferenceScope else { return }
+        videoPreferences = preferences
+    }
+
+    func receivePreferences(ifCurrent expected: UUID) -> CallVideoPreferences {
+        expected == receivePreferenceScope ? videoPreferences : CallVideoPreferences()
     }
 
     func showRemote(_ track: LKRTCVideoTrack?, visible: Bool, ifCurrent expected: UUID) {
@@ -110,6 +139,14 @@ public final class CallVideoController {
         }
     }
 
+    func setCameraAllowed(_ allowed: Bool, ifCurrent expected: UUID) {
+        guard scope == expected, let current = camera, current.allowsStart != allowed else { return }
+        camera?.allowsStart = allowed
+        if !allowed, current.isOn || isStartingCamera {
+            turnOff()
+        }
+    }
+
     /// Turns the chosen camera on; does nothing while it is on or changing.
     public func turnOn() {
         guard let camera, !camera.isOn, !camera.isUpdating else { return }
@@ -127,8 +164,9 @@ public final class CallVideoController {
     }
 
     private func turnOn(_ id: String) {
-        guard let route, operation == nil else { return }
+        guard let route, operation == nil, camera?.allowsStart == true else { return }
         let scope = scope
+        isStartingCamera = true
         camera?.isUpdating = true; camera?.notice = nil
         operation = Task { [weak self] in
             do {
@@ -141,11 +179,17 @@ public final class CallVideoController {
                 route.send(true)
                 camera?.isOn = true
                 camera?.isUpdating = false
+                isStartingCamera = false
                 operation = nil
             } catch {
                 route.suppress()
+                // For a cancelled start on the same route, turnOff owns cleanup.
+                if Task.isCancelled, self?.scope == scope {
+                    return
+                }
                 await route.stop()
-                guard let self, self.scope == scope else { return }
+                guard let self, self.scope == scope, !Task.isCancelled else { return }
+                isStartingCamera = false
                 camera?.isOn = false; camera?.isUpdating = false
                 camera?.notice = error as? CameraFailure == .denied
                     ? "Camera access is off. Allow Kibble in System Settings › Privacy & Security › Camera."
@@ -159,6 +203,7 @@ public final class CallVideoController {
         guard let route else { return }
         route.suppress()
         let previous = operation
+        isStartingCamera = false
         previous?.cancel()
         let scope = scope
         camera?.isOn = false; camera?.isUpdating = true; camera?.notice = notice

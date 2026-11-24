@@ -40,7 +40,8 @@ public enum SendRequests {
         text: String,
         localID: String,
         annotations: [Annotation] = [],
-        quote: SendReplyTarget? = nil
+        quote: SendReplyTarget? = nil,
+        unsent: UnsentMessageId? = nil
     ) -> CreateTopicRequest {
         var request = CreateTopicRequest()
         request.requestHeader = APIRequestHeader.make()
@@ -55,6 +56,9 @@ public enum SendRequests {
         if let quote {
             request.messageInfo.replyTo = quote
         }
+        if let unsent {
+            request.messageInfo.unsentMessageID = unsent
+        }
         return request
     }
 
@@ -68,7 +72,8 @@ public enum SendRequests {
         text: String,
         localID: String,
         annotations: [Annotation] = [],
-        quote: SendReplyTarget? = nil
+        quote: SendReplyTarget? = nil,
+        unsent: UnsentMessageId? = nil
     ) -> CreateMessageRequest {
         var topic = TopicId()
         topic.groupID = group
@@ -85,6 +90,9 @@ public enum SendRequests {
         request.messageInfo = messageInfo()
         if let quote {
             request.messageInfo.replyTo = quote
+        }
+        if let unsent {
+            request.messageInfo.unsentMessageID = unsent
         }
         return request
     }

@@ -188,6 +188,24 @@
             )
         }
 
+        @Test func customSectionsFitInTheExistingSidebar() async throws {
+            let chats = [
+                Conversation(id: .init("dm"), kind: .directMessage, title: "Alex Lee"),
+                Conversation(id: .init("space"), kind: .space, title: "Design Team"),
+                Conversation(id: .init("group"), kind: .groupDirectMessage, title: "Launch Planning")
+            ]
+            var state = ChatSceneState(conversations: chats)
+            state.sidebarPreferences.favoriteConversations = [chats[0].id]
+            state.conversationSections = [
+                .init(id: "project", name: "Projects", conversationIDs: [chats[1].id, chats[2].id]),
+                .init(id: "later", name: "Later", conversationIDs: [])
+            ]
+            try await render(
+                ConversationList(state: state, actions: .init()), dark: false,
+                name: "custom-chat-sections", size: NSSize(width: 270, height: 600)
+            )
+        }
+
         private func renderDirectoryPages(
             _ initial: ChatSceneState,
             actions sceneActions: ChatSceneActions
@@ -349,6 +367,31 @@
                     ConversationPeopleTable(details: details, state: state, actions: actions),
                     dark: dark, name: "dm-people-\(dark ? "dark" : "light")",
                     size: NSSize(width: 560, height: 440)
+                )
+            }
+        }
+    }
+
+    extension ConversationPanelsHostedTests {
+        @Test func conversationSectionEditorRendersInBothAppearances() async throws {
+            let section = ConversationSection(
+                id: "work", name: "Work", conversationIDs: [], sort: .name, unreadOnly: true
+            )
+            for dark in [false, true] {
+                try await render(
+                    ConversationSectionEditor(section: section, save: { _ in }, delete: { _ in }),
+                    dark: dark, name: "section-editor-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 380, height: 280)
+                )
+            }
+        }
+
+        @Test func conversationSectionCreatorRendersInBothAppearances() async throws {
+            for dark in [false, true] {
+                try await render(
+                    ConversationSectionEditor(create: { _ in }),
+                    dark: dark, name: "section-creator-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 380, height: 232)
                 )
             }
         }

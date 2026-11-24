@@ -16,8 +16,7 @@ public extension ChatSessionModel {
         activityWatchTask = nil
         historyTask?.cancel()
         historyTask = nil
-        foregroundRefreshTask?.cancel()
-        foregroundRefreshTask = nil
+        stopForegroundWork()
         resetTranscript()
         selectedMeetingSeries = nil
         isLoadingMeetingMetadata = false
@@ -54,14 +53,27 @@ public extension ChatSessionModel {
         composerFiles.reset()
         threads.stop()
         callHistory.leave()
+        stars.stop()
+        schedules.stop()
+        blockedRooms.stop()
+        blockedPeople.stop()
         // Unreachable today - a fresh model is built per session - but a
         // stale watermark or a retained draft from the account being signed
         // out of must not survive into a model reused for the next sign-in.
         // `markGeneration` is deliberately **not** reset here: see its own
         // doc comment for the ABA a reset would reopen.
         published = [:]
-        failed = nil
+        failedDrafts = [:]
         await engine.stop()
+    }
+
+    private func stopForegroundWork() {
+        foregroundRefreshTask?.cancel()
+        foregroundRefreshTask = nil
+        cancelConversationSectionWrite()
+        cancelConversationSectionRead()
+        conversationSections = []
+        removedConversationSectionIDs = []
     }
 
     private func stopSearchAndReferences() {

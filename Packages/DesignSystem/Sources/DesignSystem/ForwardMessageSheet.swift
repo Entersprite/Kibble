@@ -20,12 +20,14 @@ struct ForwardMessageSheet: View {
     let message: Message
     let state: ChatSceneState
     let send: (@MainActor (Message.ID, Conversation.ID, String) async -> Bool)?
+    var schedule: (@MainActor (Message.ID, Conversation.ID, String, Date) async -> Bool)?
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var destination: Conversation.ID?
     @State private var comment = ""
     @State private var sending = false
-    @State private var failed = false
+    @State private var failure: String?
+    @State private var choosingTime = false
     @FocusState private var focus: Field?
 
     private enum Field: Hashable {
@@ -71,11 +73,8 @@ struct ForwardMessageSheet: View {
                 list
                 TextField("Add a comment (optional)", text: $comment, axis: .vertical)
                     .lineLimit(2 ... 4).textFieldStyle(.roundedBorder)
-                if failed {
-                    SheetErrorRow(
-                        message: "The message could not be forwarded. Your selection and comment are kept."
-                    )
-                    .font(.callout)
+                if let failure {
+                    SheetErrorRow(message: failure).font(.callout)
                 }
             }
             .padding(.horizontal, 20)
@@ -124,6 +123,28 @@ struct ForwardMessageSheet: View {
             Button("Cancel") { dismiss() }
                 .disabled(sending)
         }
+        if let schedule {
+            ToolbarItem(placement: .automatic) {
+                Button("Schedule Send…", systemImage: "clock") { choosingTime = true }
+                    .labelStyle(.iconOnly)
+                    .disabled(sending || destination == nil)
+                    .popover(isPresented: $choosingTime) {
+                        ScheduledDateSheet(
+                            title: "Schedule Forward", confirm: "Schedule",
+                            initial: Date().addingTimeInterval(3600),
+                            cancel: { choosingTime = false },
+                            save: { time in
+                                choosingTime = false
+                                guard let destination else { return }
+                                let caption = comment
+                                perform(failure: "Couldn’t confirm scheduling. Check Scheduled first.") {
+                                    await schedule(message.id, destination, caption, time)
+                                }
+                            }
+                        )
+                    }
+            }
+        }
         ToolbarItem(placement: .confirmationAction) {
             Button("Forward") { submit() }
                 .disabled(sending || destination == nil || send == nil)
@@ -132,15 +153,22 @@ struct ForwardMessageSheet: View {
 
     private func submit() {
         guard !sending, let destination, let send else { return }
+        let caption = comment
+        perform(failure: "The message could not be forwarded. Your selection and comment are kept.") {
+            await send(message.id, destination, caption)
+        }
+    }
+
+    private func perform(failure message: String, operation: @escaping @MainActor () async -> Bool) {
         sending = true
-        failed = false
+        failure = nil
         Task { @MainActor in
-            let accepted = await send(message.id, destination, comment)
+            let accepted = await operation()
             sending = false
             if accepted {
                 dismiss()
             } else {
-                failed = true
+                failure = message
             }
         }
     }

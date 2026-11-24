@@ -8,7 +8,8 @@ public extension MeetDMCallTrial {
         scope: UUID = UUID(),
         receive: (@Sendable (MeetNativeCallState) async -> Void)? = nil,
         remoteMuted: (@Sendable (Bool?) async -> Void)? = nil,
-        participants: (@Sendable ([CallParticipantDevice]?) async -> Void)? = nil
+        participants: (@Sendable ([CallParticipantDevice]?) async -> Void)? = nil,
+        waitingRoomMessages: (@Sendable ([CallMeetingMessage]) async -> Void)? = nil
     ) async throws {
         guard let call = prepared, call.ticket == preparedID, native == nil else {
             await media.close()
@@ -26,6 +27,7 @@ public extension MeetDMCallTrial {
         nativeScope = scope
         cleanupScope = scope
         cleanupStatus = MeetNativeCallCleanup()
+        await session.setAdmissionHandler(receive, waitingRoomMessages: waitingRoomMessages)
         do {
             try await session.connect()
             if let receive {
@@ -97,6 +99,15 @@ public extension MeetDMCallTrial {
 
     internal func cleanupOutcome(for scope: UUID) -> MeetNativeCallCleanup {
         cleanupScope == scope ? cleanupStatus : MeetNativeCallCleanup()
+    }
+
+    internal func waitingRoomAttachments(scope: UUID) async throws -> [CallAgendaAttachment] {
+        guard nativeScope == scope, let session = native else { throw MeetDMCallTrialError.superseded }
+        try await session.check()
+        let files = try await session.device.waitingAgendaAttachments()
+        try await session.check()
+        guard nativeScope == scope, native === session else { throw MeetDMCallTrialError.superseded }
+        return files.map { CallAgendaAttachment(title: $0.title, url: $0.url) }
     }
 
     private func validateNative(_ stored: StoredSession, generation: Int) async throws {

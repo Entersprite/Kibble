@@ -47,7 +47,7 @@ public extension LocalBridgeBackend {
         Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
             canSendTypingState: true, receivesTypingState: true, receivesReadReceipts: true,
-            canSetStatus: true, canMarkRead: true,
+            canSetNotificationLevel: true, canSetStatus: true, canMarkRead: true,
             canMarkUnread: true, canHideConversations: true, canBlockConversations: true,
             canLeaveConversations: true, canDeleteConversations: true,
             canCreateConversations: true, canReadConversationDetails: true, canBrowseSpaces: true,
@@ -63,7 +63,11 @@ public extension LocalBridgeBackend {
                 "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
                 "conversationPreview", "customEmojiMessages", "customEmojiStatus",
                 "callDiscovery", "conversationWebhooks", "conversationApps", "conversationEmail",
-                "messagePins"
+                "messagePins", "starredMessages", "scheduledMessages", "sendScheduledMessageNow",
+                "blockedConversations", "blockedPeople", "syncedDraftReads", "syncedDraftWrites",
+                "conversationMute",
+                "scheduleSavedDraft", "scheduleAttachments", "scheduleForwards",
+                "sendSavedDraft", "sendSavedDraftWithAttachments"
             ]
         )
     }

@@ -50,6 +50,7 @@ public final class AppEnvironment {
     var connectionService: ConnectionService?
     @ObservationIgnored var composerDrafts: [ComposerDraftAddress: ComposerDraft] = [:]
     @ObservationIgnored var composerPersistence: ComposerPersistence?
+    var composerDraftSynchronization: ComposerDraftSynchronization?
     var draftSaveFailure: ChatError?
     /// Keeps this session's staged files readable (`AppEnvironment+Staging.swift`).
     @ObservationIgnored var stagedFiles: StagedFileCustody?
@@ -94,6 +95,10 @@ public final class AppEnvironment {
     /// window itself; the host observes this and does.
     public internal(set) var windowRequests = 0
 
+    public func requestMainWindow() {
+        windowRequests += 1
+    }
+
     /// `nil` when the host supplies no way to deliver notifications - every
     /// test that does not care, and any future host without them.
     let notifications: NotificationCoordinator?
@@ -120,6 +125,7 @@ public final class AppEnvironment {
     public internal(set) var skinTone: SkinTone = .none
     public internal(set) var sidebarPreferences: SidebarPreferences = .init()
     public internal(set) var collapsedSections: Set<String> = []
+    public internal(set) var raisesHandWithCameraGesture = false
 
     /// Local account preferences and one-time migration of the old global keys.
     @ObservationIgnored let preferences: UserDefaults
@@ -144,7 +150,7 @@ public final class AppEnvironment {
             migratesLegacyGhostMode: services.arguments.backend == .local && preferenceNamespace.isEmpty
         )
         notifications = delivery.map(NotificationCoordinator.init(delivery:))
-        notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
+        notifications?.onShowWindow = { [weak self] in self?.requestMainWindow() }
         notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }
         notifications?.isPaused = { [weak self, settings] in
             settings.isPaused || self?.deviceNotificationPause?.isActive == true || self?
@@ -211,6 +217,7 @@ public final class AppEnvironment {
             followIdentity(of: model)
 
             try await model.start()
+            startComposerDraftSynchronization(for: model)
             startCalls(service: selection.audioCalls, model: model)
             // Only now: a launching "Mark as Read" submitted mid-connect is lost.
             notifications?.replayPending(for: model)

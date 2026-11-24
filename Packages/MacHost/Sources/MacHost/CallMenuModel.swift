@@ -28,6 +28,7 @@ public final class CallMenuModel {
 
     /// `nil` while no account can place a call, which draws no Call menu.
     public private(set) var menu: CallMenu?
+    var isCreatingMeetingLink = false
     @ObservationIgnored private var sources: (@MainActor () -> (all: [Source], selected: Source?))?
 
     init() {}
@@ -43,7 +44,11 @@ public final class CallMenuModel {
         guard let sources else { return }
         let next = withObservationTracking {
             let current = sources()
-            return Self.menu(all: current.all, selected: current.selected)
+            return Self.menu(
+                all: current.all,
+                selected: current.selected,
+                isCreatingMeetingLink: isCreatingMeetingLink
+            )
         } onChange: {
             Task { @MainActor [weak self] in self?.observe() }
         }
@@ -54,7 +59,7 @@ public final class CallMenuModel {
 
     /// The menu for the call holding the device, else for the selected
     /// account's calls, else for any account's that can place one.
-    static func menu(all: [Source], selected: Source?) -> CallMenu? {
+    static func menu(all: [Source], selected: Source?, isCreatingMeetingLink: Bool = false) -> CallMenu? {
         let available = selected.flatMap { $0.calls.isAvailable ? $0 : nil } ?? all
             .first { $0.calls.isAvailable }
         guard let source = all.first(where: \.calls.holdsDevice) ?? available else { return nil }
@@ -63,8 +68,17 @@ public final class CallMenuModel {
             call: source.calls.call, isEnding: source.calls.isEnding, camera: video?.camera,
             screenSharing: video?.screenSharing.state, offersVideo: video?.isAvailable == true,
             offersSound: video?.screenSharing.offersSound == true,
-            offersMeetingLinks: source.calls.canJoinMeetingLinks
+            offersMeetingLinks: source.calls.canJoinMeetingLinks,
+            offersMeetingLinkCreation: selected?.calls.canCreateMeetingLinks == true,
+            isCreatingMeetingLink: isCreatingMeetingLink,
+            microphoneRestricted: source.calls.interaction?.activities?.microphoneRestricted == true,
+            handRaised: source.calls.interaction?.canRaiseHand == true ? source.calls.isHandRaised : nil,
+            isUpdatingHand: source.calls.isUpdatingInteraction
         )
+    }
+
+    func selectedMeetingLinkSource() -> Source? {
+        sources?().selected
     }
 
     func meetingLinkSource() -> Source? {
@@ -103,6 +117,10 @@ public final class CallMenuModel {
 
     public func hangUp() {
         perform { source, _ in source.calls.hangUp() }
+    }
+
+    public func toggleHandRaised() {
+        perform { source, _ in source.calls.toggleHandRaised() }
     }
 
     /// Acts on the call the menu showed, found again when chosen: never on a

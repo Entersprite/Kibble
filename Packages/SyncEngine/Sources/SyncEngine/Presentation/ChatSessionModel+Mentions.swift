@@ -49,6 +49,8 @@ extension ChatSessionModel {
     func clearSelection() {
         browser.leaveDirectory()
         showingMentions = false
+        stars.leave()
+        schedules.leave()
         threads.showingList = false
         callHistory.leave()
         scrollTarget = nil

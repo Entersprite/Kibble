@@ -149,35 +149,19 @@ struct LoadConversationsMemberResolutionTests {
         return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedBytes())
     }
 
-    /// Collects every event emitted within `duration`, rather than a fixed
-    /// count.
-    ///
-    /// `connect()` starts the channel in the background, and this backend is
-    /// an `actor` - reentrant across its own `await` points - so the
-    /// channel's own concurrent, unrelated failure (`RoutingTransport.stream()`
-    /// always throws `NoStream`) can land its events at any point during
-    /// `loadConversations()`'s awaits, not only after it returns. A fixed
-    /// count assumes an ordering this scenario does not actually guarantee:
-    /// it either hangs waiting for an event count this run never reaches, or
-    /// - as this file's own discrimination check recorded - stops looking
-    /// before an event that arrived late (see the slice report for the exact
-    /// failure text that produced). Racing a short timeout instead tolerates
-    /// the interleaving and still fails in well under a second when the
-    /// event never comes.
-    private func collectEvents(
-        _ backend: LocalBridgeBackend,
-        for duration: Duration = .milliseconds(200)
-    ) async -> [ChatEvent] {
-        let collector = Task<[ChatEvent], Never> {
-            var events: [ChatEvent] = []
-            for await event in backend.events {
-                events.append(event)
+    /// Wait for the work started by the world read, then drain its events
+    /// through the explicit disconnect marker.
+    private func collectEvents(_ backend: LocalBridgeBackend) async -> [ChatEvent] {
+        await backend.memberResolution?.value
+        await backend.disconnect()
+        var events: [ChatEvent] = []
+        for await event in backend.events {
+            if case .connectionStateChanged(.disconnected(reason: nil, issue: nil)) = event {
+                break
             }
-            return events
+            events.append(event)
         }
-        try? await Task.sleep(for: duration)
-        collector.cancel()
-        return await collector.value
+        return events
     }
 
     private func backend(
@@ -228,7 +212,6 @@ struct LoadConversationsMemberResolutionTests {
                 false
             }
         })
-        await backend.disconnect()
     }
 
     /// `findings.md` §20.4: one of the four observed conversations - a space

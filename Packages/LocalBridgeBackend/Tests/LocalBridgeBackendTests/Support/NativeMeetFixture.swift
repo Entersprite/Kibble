@@ -20,6 +20,8 @@ enum NativeMeetFixture {
         _ transport: any HTTPTransport, media: any CallMediaEngine,
         staysWhenAlone: Bool = false,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
+        admissionSleep: @escaping @Sendable (Duration) async throws
+            -> Void = { try await Task.sleep(for: $0) },
         validate: @escaping @Sendable () async throws -> Void = {}
     ) async throws -> NativeMeetCallSession {
         let configuration = try #require(MeetCallConfiguration(
@@ -39,7 +41,8 @@ enum NativeMeetFixture {
             call: call,
             media: media, staysWhenAlone: staysWhenAlone,
             validateAccount: validate,
-            now: now
+            now: now,
+            admissionSleep: admissionSleep
         )
     }
 
@@ -48,7 +51,7 @@ enum NativeMeetFixture {
         ufrag: String = String(repeating: "U", count: 27) + "=", video: Bool = false,
         streamChannelID: UInt16? = nil, streamReliable: Bool = true, streamCompression: UInt64 = 1,
         streamReliabilityLimit: (field: UInt64, value: UInt64)? = nil,
-        deviceTransfer: UInt64? = nil, joinedState: UInt64 = 1
+        deviceTransfer: UInt64? = nil, joinedState: UInt64 = 1, activityChannels: Data = Data()
     ) -> [Result<HTTPResponse, any Error>] {
         let controlChannel = streamChannelID.map {
             bytes(
@@ -68,7 +71,7 @@ enum NativeMeetFixture {
                 + bytes(
                     2,
                     invalidMediaAnswer ? Data([0x08, 0x01]) : serverConfiguration(
-                        ufrag: ufrag, video: video, controlChannel: controlChannel
+                        ufrag: ufrag, video: video, controlChannel: controlChannel + activityChannels
                     )
                 )),
             device(2, token: "20;registered", transfer: deviceTransfer)

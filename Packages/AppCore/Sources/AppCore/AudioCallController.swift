@@ -9,12 +9,21 @@ import Observation
 @MainActor
 @Observable
 public final class AudioCallController {
-    public internal(set) var call: AudioCallSession?
+    public internal(set) var call: AudioCallSession? {
+        didSet {
+            if oldValue?.id != call?.id {
+                observedMeetingLink = nil
+            }
+        }
+    }
+
     /// The current call's devices as the provider reports them, nil while the
     /// roster is not established. One person can have several devices, and a
     /// presentation is a device of its own (`parentID`).
     public internal(set) var participants: [CallParticipantDevice]?
     public internal(set) var interaction: CallInteractionState?
+    var meetingPreparation: MeetingPreparation?
+    @ObservationIgnored var meetingPreviewTask: Task<Void, Never>?
     public internal(set) var windowRequests = 0
     public internal(set) var listenerFailure: String?
     public private(set) var isAvailable = false
@@ -25,6 +34,7 @@ public final class AudioCallController {
     public internal(set) var supportsExistingJoin = false
     public internal(set) var supportsConversationCalls = false
     public internal(set) var supportsMeetingLinks = false
+    var supportsMeetingLinkCreation = false
     public internal(set) var supportedMeetingLinkHosts: Set<String> = []
     /// Calls going on in the conversation on screen; stopped with this controller.
     public let discovery = CallDiscoveryMonitor()
@@ -45,9 +55,11 @@ public final class AudioCallController {
     @ObservationIgnored private var listenerTask: Task<Void, Never>?
     @ObservationIgnored var operationTask: Task<Void, Never>?
     @ObservationIgnored var sourceTermination: AudioCallSession?
+    @ObservationIgnored var observedMeetingLink: (callID: UUID, url: URL)?
     @ObservationIgnored var endingSnapshot: AudioCallSession?
     @ObservationIgnored var endingTask: Task<Void, Never>?
     @ObservationIgnored var muteTask: Task<Void, Never>?
+    @ObservationIgnored var lastModeratorMute: UUID?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
     @ObservationIgnored private var muteRevision = 0
     @ObservationIgnored private var directoryTask: Task<Void, Never>?
@@ -117,12 +129,11 @@ public final class AudioCallController {
         supportsExistingJoin = false
         supportsConversationCalls = false
         supportsMeetingLinks = false
+        supportsMeetingLinkCreation = false
         supportedMeetingLinkHosts = []
         listenerFailure = nil
         operationFailure = nil
-        call = nil
-        participants = nil
-        interaction = nil
+        clearPresentedCall()
         let cleanup = Task {
             if let oldService {
                 await oldService.stop()
@@ -131,6 +142,13 @@ public final class AudioCallController {
         stopTask = cleanup
         await cleanup.value
         stopTask = nil
+    }
+
+    private func clearPresentedCall() {
+        clearMeetingPreparation()
+        call = nil
+        participants = nil
+        interaction = nil
     }
 
     private func followDirectory(service: any AudioCallService, scope: Int) {
@@ -183,6 +201,7 @@ public final class AudioCallController {
 
     public func toggleMute() {
         guard let call, !call.phase.isTerminal, call.phase != .incoming,
+              interaction?.activities?.microphoneRestricted != true,
               !isEnding, let service else { return }
         let scope = generation
         let muted = !call.isMuted
@@ -207,6 +226,16 @@ public final class AudioCallController {
                 isUpdatingMute = false
             }
         }
+    }
+
+    func applyForcedMute() {
+        if isUpdatingMute {
+            muteTask?.cancel()
+            muteTask = nil
+            muteRevision += 1
+            isUpdatingMute = false
+        }
+        call?.isMuted = true
     }
 
     func runOperation(
@@ -302,9 +331,7 @@ public extension AudioCallController {
         let scope = generation
         isRecovering = true
         recipients = [:]
-        call = nil
-        participants = nil
-        interaction = nil
+        clearPresentedCall()
         listenerTask?.cancel()
         directoryTask?.cancel()
         do {

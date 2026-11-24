@@ -72,6 +72,9 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     case conversationRemoved(conversationID: Conversation.ID, historyBefore: Date?)
     /// A manual unread mark is independent of the ordinary read position.
     case conversationUnreadMarkChanged(conversationID: Conversation.ID, at: Date?)
+    case conversationNotificationSettingsChanged(
+        conversationID: Conversation.ID, level: NotificationLevel?, muted: Bool?, muteUntil: Date? = nil
+    )
 
     /// Its `reactions` are not authoritative: a client keeps the reactions it
     /// already holds for the message, and `reactionChanged` and history
@@ -86,6 +89,10 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     case messagePinsChanged(Conversation.ID)
     /// A confirmed collection, independent of transcript history coverage.
     case messagePinsLoaded(conversationID: Conversation.ID, pins: PinnedMessages)
+    /// A personal label change for the account that received this event.
+    case messageStarChanged(address: MessageAddress, starred: Bool)
+    case unsentMessagesChanged(UnsentMessagesChange)
+    case conversationSectionsChanged(removedSectionID: String? = nil, conversationID: Conversation.ID? = nil)
 
     /// Authoritative fetched history; never a fresh-arrival announcement.
     case historyLoaded(MessageHistoryUpdate)

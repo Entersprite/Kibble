@@ -5,7 +5,7 @@ import Testing
 @testable import MacHost
 
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.serialized, .timeLimit(.minutes(1)))
 struct NativeNegotiatedStreamTests {
     @Test(arguments: [UInt16(0), 42])
     func assignedStreamReceivesReplies(_ id: UInt16) async throws {
@@ -26,6 +26,78 @@ struct NativeNegotiatedStreamTests {
 
     @Test func unrelatedInBandChannelCannotReceiveAssignedStreamReplies() async throws {
         try await exchange(assigned: false, configuration: .init(id: 42, isOrdered: true))
+    }
+
+    @Test(arguments: [
+        ("meet_messages", CallDataChannelCompression.none), ("captions_v2", .none), ("captions_v2", .gzip)
+    ])
+    func assignedActivityStreamRoundTripsAmidUnrelatedFrames(
+        _ label: String, _ compression: CallDataChannelCompression
+    ) async throws {
+        let client = NativeCallMedia(presentation: true), server = NativeCallMedia(presentation: true)
+        defer { client.close(); server.close() }
+        _ = try await client.makeAudioOffer(serverControlChannel: "collections")
+        client.expectedControlChannel = nil
+        let (remote, _) = try server.preparePeer(serverControlChannel: nil)
+        let assignment = CallStreamControlChannel(id: 42, isOrdered: true, compression: compression)
+        let other = label == "meet_messages" ? "captions_v2" : "meet_messages"
+        try client.configureActivityChannel(assignment, label: label)
+        try server.configureActivityChannel(assignment, label: label)
+        let otherAssignment = CallStreamControlChannel(id: 43, isOrdered: true)
+        try client.configureActivityChannel(otherAssignment, label: other)
+        try server.configureActivityChannel(otherAssignment, label: other)
+        let local = try #require(client.peer)
+        try await connect(local, remote)
+        try await client.waitUntilConnected(timeout: .seconds(5))
+
+        let request = Data([42]), reply = Data([255]), shiftedReply = Data([254])
+        server.activityReplyChannel = label
+        server.activityReplyMatches = { $0 == request }
+        let exchange = Task {
+            try await client.exchangeActivityData(channel: label, data: request) {
+                $0 == reply || $0 == shiftedReply
+            }
+        }
+        for _ in 0 ..< 200 where server.activityReply == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(server.activityReply == request)
+        let channel = try #require(server.activityChannels[label]?.channel)
+        try await sendWrongChannelFrame(shiftedReply, on: other, from: server, to: client)
+        #expect(client.activityReply == nil)
+        for index in 1 ... 32 {
+            #expect(channel.sendData(LKRTCDataBuffer(data: Data([UInt8(index)]), isBinary: true)))
+        }
+        if compression == .gzip {
+            #expect(channel.sendData(LKRTCDataBuffer(data: shiftedReply, isBinary: true)))
+        }
+        try await server.sendActivityData(channel: label, data: reply)
+        #expect(try await exchange.value == reply)
+        #expect(client.activityChannels[label]?.channel.channelId == 42)
+        #expect(client.activityChannels[label]?.channel.isNegotiated == true)
+        await #expect(throws: CallMediaError.connectionFailed) {
+            try await client.prepareActivityChannel("reactions")
+        }
+        client.close()
+        #expect(client.activityChannels.isEmpty && client.activityReplyMatches == nil)
+    }
+
+    private func sendWrongChannelFrame(
+        _ data: Data, on label: String, from server: NativeCallMedia, to client: NativeCallMedia
+    ) async throws {
+        let channel = try #require(server.activityChannels[label]?.channel)
+        try await server.prepareActivityChannel(label)
+        let receipt = FrameReceipt()
+        client.setEventHandler { event in
+            if case let .activityData(channel, received) = event, channel == label, received == data {
+                await receipt.markReceived()
+            }
+        }
+        #expect(channel.sendData(LKRTCDataBuffer(data: data, isBinary: true)))
+        for _ in 0 ..< 200 where !receipt.received {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(receipt.received)
     }
 
     private func exchange(assigned: Bool, configuration: CallStreamControlChannel) async throws {
@@ -134,5 +206,14 @@ struct NativeNegotiatedStreamTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         try #require(peer.iceGatheringState == .complete)
+    }
+}
+
+@MainActor
+private final class FrameReceipt {
+    private(set) var received = false
+
+    func markReceived() {
+        received = true
     }
 }

@@ -30,6 +30,7 @@ public struct ConversationList: View {
     }
 
     @State private var pendingAction: PendingConversationAction?
+    @State var editingSection: SidebarSectionEditing?
     /// Present under `AccountShell`, which draws the account pill itself.
     @Environment(\.accountFooter) private var accountFooter
     /// The selected account is not running: no sections and no "nothing has
@@ -68,7 +69,17 @@ public struct ConversationList: View {
             Text(pending.action.confirmationMessage)
         }
         // A confirmation asked in one account does not wait in another.
-        .onChange(of: state.accountID) { pendingAction = nil }
+        .onChange(of: state.accountID) {
+            pendingAction = nil
+            editingSection = nil
+        }
+        .sheet(item: $editingSection) { selection in
+            ConversationSectionEditor(
+                section: selection.section,
+                save: selection.save,
+                delete: selection.delete
+            )
+        }
     }
 
     /// `actions` with the conversation actions that need a confirmation
@@ -101,7 +112,8 @@ public struct ConversationList: View {
         ) {
             ConversationRowMenu(
                 entries: menu.entries, favoriteTarget: menu.favorite,
-                preferences: state.sidebarPreferences, actions: confirming(actions, title: menu.title)
+                preferences: state.sidebarPreferences, actions: confirming(actions, title: menu.title),
+                section: menu.section
             )
         }
     }
@@ -109,7 +121,7 @@ public struct ConversationList: View {
     private var conversations: some View {
         let sections = isAccountUnavailable ? [] : SidebarProjection.build(
             state.conversations, preferences: state.sidebarPreferences,
-            directory: state.directory, me: state.me
+            directory: state.directory, me: state.me, customSections: state.conversationSections
         )
         return List(selection: selectionBinding) {
             ForEach(sections) { section in
@@ -131,7 +143,8 @@ public struct ConversationList: View {
                             .tag(SidebarSelection.conversation(conversation.id))
                         }
                     }
-                    if section.id != "favorites", let showDirectory = actions.showDirectory {
+                    if !section.isCustom, section.id != "favorites",
+                       let showDirectory = actions.showDirectory {
                         SidebarSeeAllRow(title: section.title) { showDirectory(section.id) }
                     }
                 } header: {
@@ -143,12 +156,7 @@ public struct ConversationList: View {
                     }
                 }
                 .sectionActions {
-                    if let update = actions.updateSidebar {
-                        SidebarSectionMenu(
-                            id: section.id, preferences: state.sidebarPreferences, update: update,
-                            showSettings: actions.showSidebarSettings
-                        )
-                    }
+                    sectionActions(section)
                 }
             }
         }
@@ -161,7 +169,7 @@ public struct ConversationList: View {
         .listStyle(.sidebar)
         .sidebarFade()
         .overlay {
-            if state.conversations.isEmpty, !isAccountUnavailable {
+            if state.conversations.isEmpty, state.conversationSections.isEmpty, !isAccountUnavailable {
                 ContentUnavailableView(
                     "No conversations",
                     systemImage: "bubble.left.and.bubble.right",
@@ -217,7 +225,9 @@ struct ConversationRow: View {
     var body: some View {
         // Redrawn exactly at the DM partner's boundaries (spec §6.3). `.now`,
         // not the timeline's date, so a redraw for any other reason draws now.
-        TimelineView(.explicit(Display.redrawDates(for: partner, now: .now))) { _ in
+        let redrawDates = Display.redrawDates(for: partner, now: .now)
+            + (conversation.notificationMuteUntil.map { [$0] } ?? [])
+        TimelineView(.explicit(redrawDates.sorted())) { _ in
             row(now: .now)
         }
         .padding(.vertical, 1)
@@ -262,9 +272,7 @@ struct ConversationRow: View {
             ) {
                 marks
             }
-            // Google's own mute (`Conversation.isMuted`, only the fixture
-            // sets it) or this account's local record (decision 1).
-            if conversation.isMuted || state.muted {
+            if conversation.isProviderMuted(at: now) || state.muted {
                 Image(systemName: "bell.slash")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

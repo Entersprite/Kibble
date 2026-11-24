@@ -101,6 +101,11 @@ extension AccountRuntime {
     func authorizeUploadedAttachments(_ command: ChatCommand) throws {
         guard case let .sendMessage(conversation, _, _, _, attachments, _, _) = command,
               !attachments.isEmpty else { return }
+        try authorizeUploadedAttachments(attachments, for: conversation)
+    }
+
+    func authorizeUploadedAttachments(_ attachments: [Attachment], for conversation: Conversation.ID) throws {
+        guard !attachments.isEmpty else { return }
         guard let references = storage as? any ServiceUploadReferences
         else { throw ServiceFailure.notAuthorized }
         for attachment in attachments {

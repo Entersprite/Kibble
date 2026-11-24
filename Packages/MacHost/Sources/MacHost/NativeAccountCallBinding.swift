@@ -122,6 +122,14 @@ final class NativeAccountAudioCalls: AudioCallQuiescing, ExistingAudioCallServic
         source.canJoinMeetingLinks
     }
 
+    var canCreateMeetingLinks: Bool {
+        source.canCreateMeetingLinks
+    }
+
+    func createMeetingLink() async throws -> URL {
+        try await source.createMeetingLink()
+    }
+
     func joinMeeting(at url: URL, callID: UUID) async throws {
         try await source.joinMeeting(at: url, callID: callID)
     }

@@ -89,4 +89,54 @@ struct CallMenuTests {
     @Test func callsWithoutVideoDrawNoCameraOrSharing() {
         #expect(menu(call(.connected), video: false).entries.map(\.item) == [.mute, .endCall])
     }
+
+    @Test func theHandShortcutFollowsTheConnectedCallAndItsPendingChange() throws {
+        let raised = CallMenu(
+            call: call(.connected), isEnding: false, camera: nil, screenSharing: nil,
+            offersVideo: false, handRaised: true, isUpdatingHand: true
+        )
+        let hand = try #require(raised.entries.first { $0.item == .toggleHand })
+        #expect(hand.title == "Lower Hand")
+        #expect(hand.shortcut == MenuBarShortcuts.toggleCallHand)
+        #expect(!hand.isEnabled)
+        let ringing = CallMenu(
+            call: call(.ringing), isEnding: false, camera: nil, screenSharing: nil,
+            offersVideo: false, handRaised: false
+        )
+        #expect(!ringing.entries.contains { $0.item == .toggleHand })
+    }
+
+    @Test func lockedParticipantDevicesDisableOnlyTheirControls() {
+        let restricted = CallMenu(
+            call: call(.connected, muted: true), isEnding: false,
+            camera: CallCameraState(allowsStart: false), screenSharing: CallScreenShareState(),
+            offersVideo: true, microphoneRestricted: true
+        )
+        #expect(enabled(restricted) == [.shareScreen, .endCall])
+    }
+
+    @Test func lockedSharingDisablesBothStartsButCanStillStop() {
+        let locked = CallScreenShareState(allowsStart: false)
+        let lockedMenu = menu(call(.connected), sharing: locked, sound: true)
+        #expect(lockedMenu.entries.contains { $0.item == .shareScreen })
+        #expect(!enabled(lockedMenu).contains(.shareScreen))
+        #expect(!enabled(lockedMenu).contains(.shareScreenWithSound))
+        let stillSharing = CallScreenShareState(phase: .sharing, allowsStart: false)
+        #expect(enabled(menu(call(.connected), sharing: stillSharing)).contains(.shareScreen))
+    }
+
+    @Test func copyingANewLinkIsIndependentFromJoiningOrEndingACall() {
+        let active = CallMenu(
+            call: call(.connected), isEnding: false, camera: nil, screenSharing: nil, offersVideo: false,
+            offersMeetingLinks: true, offersMeetingLinkCreation: true
+        )
+        #expect(active.entries.first?.item == .createMeetingLink)
+        #expect(enabled(active) == [.createMeetingLink, .mute, .endCall])
+
+        let pending = CallMenu(
+            call: nil, isEnding: false, camera: nil, screenSharing: nil, offersVideo: false,
+            offersMeetingLinks: true, offersMeetingLinkCreation: true, isCreatingMeetingLink: true
+        )
+        #expect(enabled(pending) == [.joinMeeting])
+    }
 }

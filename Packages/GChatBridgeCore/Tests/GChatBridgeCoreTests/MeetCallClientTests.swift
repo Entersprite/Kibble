@@ -3,6 +3,35 @@ import Testing
 @testable import GChatBridgeCore
 
 struct MeetCallClientTests {
+    @Test func createMeetingLinkOnlyCreatesATraditionalSpace() async throws {
+        let transport = FakeHTTPTransport(responses: [
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: resolvedBody())
+        ])
+        let url = try await makeClient(transport: transport).createMeetingLink()
+        #expect(url.absoluteString == "https://meet.google.com/abc-defg-hij")
+        let requests = await transport.sent
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request.url.path.hasSuffix("MeetingSpaceService/CreateMeetingSpace"))
+        #expect(request.body == MeetProto.number(8, 1))
+        #expect(request.headers["X-Goog-Meeting-Token"] == nil)
+        #expect(request.headers["X-Goog-Meeting-StartSource"] == nil)
+        #expect(request.followsRedirects == false)
+    }
+
+    @Test func createMeetingLinkRejectsNoncanonicalProviderLinks() async throws {
+        let protobuf = MeetProto.string(1, "spaces/abc") + MeetProto.string(2, "abc-defg-hij")
+            + MeetProto.string(3, "https://name@meet.google.com/abc-defg-hij")
+        let transport = FakeHTTPTransport(responses: [
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: protobuf.base64Body)
+        ])
+        let client = try makeClient(transport: transport)
+        await #expect(throws: MeetCallWire.WireError.malformedResponse) {
+            try await client.createMeetingLink()
+        }
+        #expect(await transport.sent.count == 1)
+    }
+
     @Test func existingResolutionUsesOnlyTheExactReferenceAndFreshTokenWithoutAnInvitation() async throws {
         let transport = FakeHTTPTransport(responses: [HTTPResponse(
             status: 200, headers: HTTPHeaders([("x-goog-meeting-token", "existing-token")]),

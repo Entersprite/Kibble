@@ -2,11 +2,11 @@ import Foundation
 
 /// A callback, cancellation and timeout compete without a task group waiting
 /// forever for an SDK callback. Once resolved, no continuation or timer remains.
-final class NativeMediaDiagnosticWaiter: @unchecked Sendable {
+final class NativeMediaStatisticsWaiter<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var finished = false
-    private var result: NativeAudioStatistics?
-    private var continuation: CheckedContinuation<NativeAudioStatistics?, Never>?
+    private var result: Value?
+    private var continuation: CheckedContinuation<Value?, Never>?
     private var timeout: Task<Void, Never>?
 
     var isPending: Bool {
@@ -15,7 +15,7 @@ final class NativeMediaDiagnosticWaiter: @unchecked Sendable {
         return !finished
     }
 
-    func install(_ continuation: CheckedContinuation<NativeAudioStatistics?, Never>) {
+    func install(_ continuation: CheckedContinuation<Value?, Never>) {
         lock.lock()
         if finished {
             let result = result
@@ -42,7 +42,7 @@ final class NativeMediaDiagnosticWaiter: @unchecked Sendable {
         }
     }
 
-    func finish(_ value: NativeAudioStatistics?) {
+    func finish(_ value: Value?) {
         lock.lock()
         guard !finished else { lock.unlock(); return }
         finished = true

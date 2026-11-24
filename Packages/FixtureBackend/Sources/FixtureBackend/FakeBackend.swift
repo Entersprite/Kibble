@@ -55,6 +55,7 @@ public actor FakeBackend {
     let pageSize: Int
 
     var hiddenConversations: Set<Conversation.ID> = []
+    var blockedRooms: [Conversation.ID: (conversation: Conversation, wasJoined: Bool)] = [:]
     var blockedDirectMembers: Set<Member.ID> = []
     var nextDirectConversationNumber = 0
     var managedDetails: [Conversation.ID: ConversationDetails] = [:]
@@ -64,6 +65,9 @@ public actor FakeBackend {
     var managedParticipants: [Conversation.ID: [ConversationParticipant]] = [:]
     var callAvailability: [Conversation.ID: ConversationCallAvailability] = [:]
     var completedMutations: [String: FixtureManagementOperation] = [:]
+    var starredAddresses: [MessageAddress] = []
+    var scheduledQueue: [ScheduledMessage] = []
+    var scheduledAttachments: [ScheduledMessageAddress: [Attachment]] = [:]
     var world: FixtureWorld
 
     /// People outside the world's conversations, for `searchPeople` and an

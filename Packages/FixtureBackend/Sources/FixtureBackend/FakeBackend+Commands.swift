@@ -67,7 +67,7 @@ public extension FakeBackend {
 
 // MARK: - One case each
 
-private extension FakeBackend {
+extension FakeBackend {
     func sendMessage(
         in conversationID: Conversation.ID,
         thread: MessageThread.ID?,
@@ -121,7 +121,9 @@ private extension FakeBackend {
             announceReply(message)
         }
     }
+}
 
+private extension FakeBackend {
     /// An `.invite` mention of a directory person adds them, the way Chat's
     /// "Add and send" does (`findings.md` §58.1). `.withoutAdding` adds no one.
     func addInvited(_ mentions: [Mention], to conversationID: Conversation.ID) throws {

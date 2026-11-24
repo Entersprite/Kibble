@@ -3,28 +3,38 @@ import Foundation
 import GChatBridgeCore
 
 extension NativeMeetCallSession {
+    var canMessageWaitingRoom: Bool {
+        hostControls.waitingRoomChatGrant?.enabled == true
+            && assignedActivityChannels?.contains(.messages) == true
+    }
+
+    private static let initialActivityActions = [
+        "refresh",
+        "react",
+        "chat",
+        "captions",
+        "recording",
+        "transcription",
+        "notes",
+        "attendance",
+        "createPoll",
+        "votePoll",
+        "closePoll",
+        "sharePollResults",
+        "askQuestion",
+        "voteQuestion",
+        "answerQuestion",
+        "createRooms",
+        "openRooms",
+        "closeRooms",
+        "assignRoom"
+    ]
+
     func updateActivityAvailability() {
-        var actions: Set = [
-            "refresh",
-            "react",
-            "chat",
-            "recording",
-            "transcription",
-            "notes",
-            "attendance",
-            "createPoll",
-            "votePoll",
-            "closePoll",
-            "sharePollResults",
-            "askQuestion",
-            "voteQuestion",
-            "answerQuestion",
-            "createRooms",
-            "openRooms",
-            "closeRooms",
-            "assignRoom"
-        ]
-        actions.subtract(deniedActivities)
+        var actions = Set(Self.initialActivityActions + availableHostActions())
+        if activities.automaticHandLowering != nil {
+            actions.insert("keepHandRaised")
+        }
         let dependencies: [Int: Set<String>] = [
             1: ["react", "chat", "recording", "transcription", "notes", "attendance"],
             4: ["votePoll", "closePoll", "sharePollResults"],
@@ -37,11 +47,22 @@ extension NativeMeetCallSession {
         for field in unavailableActivityFields {
             actions.subtract(dependencies[field] ?? [])
         }
-        if activityChatLocked {
+        if !canSendMeetingChat || assignedActivityChannels?.contains(.messages) == false {
             actions.remove("chat")
         }
-        if activityReactionsLocked {
+        if assignedActivityChannels?.contains(.messages) == true, !unavailableActivityFields.contains(3) {
+            actions.insert("setMeetingMessagePin")
+        }
+        if canMessageWaitingRoom {
+            actions.insert("chatWaitingRoom")
+        } else {
+            clearWaitingRoomMessages()
+        }
+        if hostControls.reactionsLocked || assignedActivityChannels?.contains(.reactions) == false {
             actions.remove("react")
+        }
+        if assignedActivityChannels?.contains(.captions) != true {
+            actions.remove("captions")
         }
         if pollSeries == nil || !pollsAccepting {
             actions.remove("createPoll")
@@ -49,7 +70,9 @@ extension NativeMeetCallSession {
         if questionSeries == nil || !questionsAccepting {
             actions.remove("askQuestion")
         }
+        actions.subtract(deniedActivities)
         activities.availableActions = actions.sorted()
+        updateContinuousChatRoute()
     }
 
     func updateActivityCollectionFailures(_ unavailable: Set<Int>, confirmed: Set<Int>) {

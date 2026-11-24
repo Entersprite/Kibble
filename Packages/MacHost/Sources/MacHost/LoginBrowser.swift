@@ -3,31 +3,11 @@ import Foundation
 import SwiftUI
 import WebKit
 
-/// The browser every sign-in window shows: the first-run window, Add Account
-/// and call sign-in recovery.
-///
-/// What the three must agree on is decided here, once:
-///
-/// - a **non-persistent** website data store, so nothing survives the window
-///   and discarding it is a real sign-out rather than a gesture;
-/// - the capture user agent, `LoginWebViewConfiguration`'s documented
-///   exception: without an accepted one Chat authenticates the session and
-///   then serves its unsupported-browser page;
-/// - popups loaded in place: a web view with no UI delegate drops
-///   `window.open` silently, which presents as a sign-in button that does
-///   nothing at all;
-/// - a load that fails reported to the window's model, so the window says so
-///   instead of staying blank;
-/// - the page's JavaScript dialogs as sheets on the window, answered only by
-///   the person (`LoginPageDialog`), except in the first-run window, which
-///   answers them itself as it always has (`LoginDialogPolicy`);
-/// - back and forward swipes; and
-/// - the page's host, for the window's subtitle, so the person can see whose
-///   page is asking for their password.
-///
-/// What differs is passed in: which model the browser feeds, whether it
-/// opens a page itself or waits for the model to seed cookies first, and
-/// whether it writes `LoginTrace`.
+/// The ephemeral browser shared by first run, Add Account and call sign-in
+/// recovery. It uses the documented capture user agent, keeps popups in the
+/// window, and reports location changes and load failures to its model.
+/// The window subtitle identifies the displayed host. JavaScript dialogs
+/// follow the window's `LoginDialogPolicy`.
 struct LoginBrowser: NSViewRepresentable {
     /// What the browser tells the window's model.
     struct Events {
@@ -35,6 +15,7 @@ struct LoginBrowser: NSViewRepresentable {
         var attached: @MainActor (WebKitLoginWebView) -> Void
         /// Each time a navigation finishes.
         var settled: @MainActor (any LoginWebView) -> Void
+        var locationChanged: @MainActor (any LoginWebView) -> Void = { _ in }
         /// A load that failed, never one superseded by the next
         /// (`LoginBrowser.reportsFailure`).
         var failed: @MainActor (any LoginWebView, any Error) -> Void
@@ -62,8 +43,8 @@ struct LoginBrowser: NSViewRepresentable {
         LoginBrowserDelegate(events: events, traces: traces, dialogs: dialogs, pageHost: pageHost)
     }
 
-    static func dismantleNSView(_: WKWebView, coordinator: LoginBrowserDelegate) {
-        coordinator.endDialogs()
+    static func dismantleNSView(_ view: WKWebView, coordinator: LoginBrowserDelegate) {
+        coordinator.detach(view)
     }
 
     /// The web view every sign-in window uses, before any delegate is set.
@@ -127,6 +108,7 @@ extension LoginBrowser {
             events: Events(
                 attached: { model.attach($0) },
                 settled: { model.pageSettled($0) },
+                locationChanged: { model.pageLocationChanged($0) },
                 failed: { model.failed($0, $1) }
             ),
             pageHost: pageHost
@@ -159,6 +141,7 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     private let pageHost: @MainActor (String) -> Void
     private(set) var page: WebKitLoginWebView?
     private var shownHost: String?
+    private var locationObservation: NSKeyValueObservation?
     private var dialogs: [(alert: NSAlert, reply: LoginDialogReply)] = []
     private var closeObserver: (any NSObjectProtocol)?
 
@@ -179,21 +162,38 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let page = WebKitLoginWebView(view)
         self.page = page
         events.attached(page)
-        if traces {
-            LoginTrace.note("UA: \(LoginWebViewConfiguration.chat.userAgent.prefix(60))…")
+        locationObservation = view.observe(\.url, options: [.new]) { [weak self] view, _ in
+            MainActor.assumeIsolated { self?.locationChanged(in: view) }
         }
+    }
+
+    func detach(_ view: WKWebView) {
+        locationObservation?.invalidate()
+        locationObservation = nil
+        view.navigationDelegate = nil
+        view.uiDelegate = nil
+        view.stopLoading()
+        page = nil
+        endDialogs()
     }
 
     // MARK: Navigation
 
-    /// Every navigation is allowed, as WebKit's default does; the first-run
-    /// window writes each decision to `LoginTrace`, as it always has.
+    private func locationChanged(in view: WKWebView) {
+        guard let page, page.view === view, !view.isLoading else { return }
+        showHost(of: view)
+        if traces {
+            LoginTrace.note("address changed", url: view.url)
+        }
+        events.locationChanged(page)
+    }
+
     func webView(
         _: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
-        if traces {
+        if traces, navigationAction.targetFrame?.isMainFrame != false {
             let target = navigationAction.targetFrame == nil ? " [new window]" : ""
             LoginTrace.note("policy: allow\(target)", url: navigationAction.request.url)
         }
@@ -222,7 +222,7 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: any Error) {
         if traces {
-            LoginTrace.note("FAILED \(error.localizedDescription)", url: webView.url)
+            LoginTrace.note("failed: \(LoginTrace.safeFailure(error))", url: webView.url)
         }
         fail(webView, error)
     }
@@ -231,9 +231,13 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         _ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: any Error
     ) {
         if traces {
-            LoginTrace.note("FAILED (provisional) \(error.localizedDescription)", url: webView.url)
+            LoginTrace.note("provisional failure: \(LoginTrace.safeFailure(error))", url: webView.url)
         }
         fail(webView, error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        fail(webView, WKError(.webContentProcessTerminated))
     }
 
     private func fail(_ webView: WKWebView, _ error: any Error) {
@@ -243,6 +247,7 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func showHost(of webView: WKWebView) {
+        guard page?.view === webView else { return }
         let host = LoginBrowser.host(of: webView.url)
         guard host != shownHost else { return }
         shownHost = host
@@ -276,7 +281,7 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         completionHandler: @escaping @MainActor () -> Void
     ) {
         if traces {
-            LoginTrace.note("js alert: \(message.prefix(120))")
+            LoginTrace.note("JavaScript alert")
         }
         handle(.alert(message), in: webView, host: frame.securityOrigin.host) { _ in completionHandler() }
     }
@@ -288,7 +293,7 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         completionHandler: @escaping @MainActor (Bool) -> Void
     ) {
         if traces {
-            LoginTrace.note("js confirm: \(message.prefix(120))")
+            LoginTrace.note("JavaScript confirmation")
         }
         handle(.confirm(message), in: webView, host: frame.securityOrigin.host) {
             completionHandler($0.confirmed)
@@ -303,7 +308,7 @@ final class LoginBrowserDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         completionHandler: @escaping @MainActor (String?) -> Void
     ) {
         if traces {
-            LoginTrace.note("js prompt: \(prompt.prefix(120))")
+            LoginTrace.note("JavaScript prompt")
         }
         handle(.prompt(prompt, defaultText: defaultText), in: webView, host: frame.securityOrigin.host) {
             completionHandler($0.text)

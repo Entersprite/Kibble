@@ -112,6 +112,39 @@ public final class ServiceAudioCallService: ExistingAudioCallService, Conversati
         !projection.isConnectionUnavailable && projection.currentState?.supportsMeetingLinks == true
     }
 
+    public var canCreateMeetingLinks: Bool {
+        !projection.isConnectionUnavailable && projection.currentState?.supportsMeetingLinkCreation == true
+    }
+
+    public var canPreviewMeetingLinks: Bool {
+        canJoinMeetingLinks && projection.currentState?.supportsMeetingLinkPreview == true
+    }
+
+    public func previewMeetingTitle(at url: URL) async throws -> String? {
+        let epoch = generation
+        guard canPreviewMeetingLinks, let sourceID else { throw ServiceFailure.unsupportedOperation }
+        let title = try await client.call(
+            PreviewMeetingLink(url: url, sourceID: sourceID),
+            account: account, revision: revision, timeout: 12
+        )
+        try check(epoch)
+        guard sourceID == self.sourceID else { throw ServiceFailure.staleCallSource }
+        return title
+    }
+
+    public func createMeetingLink() async throws -> URL {
+        let epoch = generation
+        guard canCreateMeetingLinks, let sourceID else { throw ServiceFailure.unsupportedOperation }
+        let url = try await client.call(
+            CreateMeetingLink(requestID: UUID(), sourceID: sourceID),
+            account: account,
+            revision: revision
+        )
+        try check(epoch)
+        guard sourceID == self.sourceID else { throw ServiceFailure.staleCallSource }
+        return url
+    }
+
     public func joinMeeting(at url: URL, callID: UUID) async throws {
         let epoch = generation
         if sourceID == nil {

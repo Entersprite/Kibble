@@ -278,6 +278,19 @@ public struct ComposerDraft: Equatable, Sendable {
             .map { Mention(target: $0.target, start: $0.location, length: $0.length) }
     }
 
+    public var scheduledComposition: ComposedMessage {
+        compositionOnly.composition
+    }
+
+    mutating func clearScheduledComposition(_ confirmed: ComposedMessage) {
+        guard scheduledComposition == confirmed else { return }
+        if let editing {
+            self.editing = Editing(messageID: editing.messageID, setAside: ComposedMessage(text: ""))
+        } else {
+            clear()
+        }
+    }
+
     public mutating func clear() {
         text = ""
         customEmoji = []
@@ -373,23 +386,5 @@ public struct ComposerDraft: Equatable, Sendable {
                 quote: quote
             )
         )
-    }
-
-    private static func tokens(for message: ComposedMessage) -> [Token] {
-        let units = message.text as NSString
-        return message.mentions.compactMap { mention in
-            guard mention.start >= 0, mention.length > 1, mention.start + mention.length <= units.length,
-                  units.character(at: mention.start) == 0x40 else { return nil }
-            let name = units.substring(with: NSRange(location: mention.start + 1, length: mention.length - 1))
-            return Token(location: mention.start, length: mention.length, target: mention.target, name: name)
-        }
-    }
-
-    /// Whether `token`'s span still reads `@name` in `text`.
-    static func reads(_ token: Token, in text: String) -> Bool {
-        let units = text as NSString
-        guard token.location >= 0, token.end <= units.length else { return false }
-        return units.substring(with: NSRange(location: token.location, length: token.length)) == "@" + token
-            .name
     }
 }

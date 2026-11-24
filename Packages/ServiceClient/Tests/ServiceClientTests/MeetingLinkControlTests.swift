@@ -8,6 +8,100 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct MeetingLinkControlTests {
+    @Test func previewTitleUsesTheCurrentAccountAndLeavesCallStateAlone() async throws {
+        let harness = try await CallHarness.make()
+        let account = harness.accounts[0], other = harness.accounts[1]
+        let initial = try await harness.read(account)
+        #expect(initial.supportsMeetingLinkPreview == true)
+        let client = harness.client()
+        let summary = try #require(try await client.accounts().first { $0.id == account.id })
+        let facade = try ServiceAudioCallService(account: summary, client: client)
+        try await facade.startListening()
+        #expect(facade.canPreviewMeetingLinks)
+        let url = try #require(URL(string: "https://meet.example.test/room"))
+        #expect(try await facade.previewMeetingTitle(at: url) == "Fixture Meeting")
+        let unknown = try #require(URL(string: "https://other.example.test/room"))
+        #expect(try await facade.previewMeetingTitle(at: unknown) == nil)
+        let request = try PreviewMeetingLink(url: url, sourceID: #require(initial.sourceID))
+        await #expect(throws: ServiceFailure.staleCallSource) {
+            try await harness.client().call(request, account: other.id, revision: other.currentRevision)
+        }
+        #expect(try await harness.read(account).currentCallID == nil)
+        #expect(try await harness.read(other).currentCallID == nil)
+        await facade.stop()
+        await harness.service.shutdown()
+    }
+
+    @Test(arguments: [true, false])
+    func pendingAdmissionRemainsWithTheCallOwnerAcrossSerialization(_ admit: Bool) async throws {
+        let harness = try await CallHarness.make()
+        let account = harness.accounts[0]
+        let sourceID = try #require(try await harness.read(account).sourceID)
+        let fixture = try #require(await harness.providers.source(account.id, device: .init("one")))
+        fixture.nextMeetingAdmission = .waitingRoom
+        let id = UUID()
+        let join = try JoinMeetingCall(
+            url: #require(URL(string: "https://meet.example.test/room")), callID: id, sourceID: sourceID
+        )
+        _ = try await harness.client().call(join, account: account.id, revision: account.currentRevision)
+        try await callEventually {
+            let snapshot = try await harness.read(account)
+            return snapshot.meetingCall?.phase == .connecting && snapshot.meetingCall?
+                .admission == .waitingRoom
+        }
+        await #expect(throws: ServiceFailure.notAuthorized) {
+            try await harness.client().call(
+                ControlCallInteraction(callID: id, sourceID: sourceID, raised: true),
+                account: account.id, revision: account.currentRevision
+            )
+        }
+        let hangUp = ControlCall(action: "hangUp", callID: id, sourceID: sourceID)
+        await #expect(throws: ServiceFailure.notAuthorized) {
+            try await harness.client(session: "other").call(
+                hangUp,
+                account: account.id,
+                revision: account.currentRevision
+            )
+        }
+        if admit {
+            fixture.admitMeetingJoin(callID: id)
+            try await callEventually {
+                let snapshot = try await harness.read(account)
+                return snapshot.meetingCall?.phase == .connected && snapshot.meetingCall?.admission == nil
+            }
+        }
+        let ended = try await harness.client().call(
+            hangUp,
+            account: account.id,
+            revision: account.currentRevision
+        )
+        #expect(ended.meetingCall?.phase == .ended && ended.meetingCall?.admission == nil)
+        fixture.admitMeetingJoin(callID: id)
+        #expect(try await harness.read(account).meetingCall?.phase == .ended)
+        await harness.service.shutdown()
+    }
+
+    @Test func createLinkUsesTheAccountSourceOnceAndLeavesCallStateAlone() async throws {
+        let harness = try await CallHarness.make()
+        let account = harness.accounts[0], other = harness.accounts[1]
+        let initial = try await harness.read(account)
+        #expect(initial.supportsMeetingLinkCreation == true)
+        let request = try CreateMeetingLink(requestID: UUID(), sourceID: #require(initial.sourceID))
+        let client = harness.client()
+
+        await #expect(throws: ServiceFailure.staleCallSource) {
+            try await client.call(request, account: other.id, revision: other.currentRevision)
+        }
+        let url = try await client.call(request, account: account.id, revision: account.currentRevision)
+        #expect(url.host == "meet.example.test")
+        await #expect(throws: ServiceFailure.operationConflict) {
+            try await client.call(request, account: account.id, revision: account.currentRevision)
+        }
+        #expect(try await harness.read(account).currentCallID == nil)
+        #expect(try await harness.read(other).currentCallID == nil)
+        await harness.service.shutdown()
+    }
+
     @Test func explicitLinksUseTheExistingOwnerLeaseAndDoNotFabricateAConversation() async throws {
         let harness = try await CallHarness.make()
         let account = harness.accounts[0]
@@ -69,7 +163,8 @@ struct MeetingLinkControlTests {
         )
         let first = ConversationCallSnapshot(id: UUID(), target: target, phase: .connected)
         let second = ConversationCallSnapshot(id: UUID(), target: target, phase: .connected)
-        let interaction = CallInteractionState(joinURL: target.meetingURL, canRaiseHand: true)
+        var interaction = CallInteractionState(joinURL: target.meetingURL, canRaiseHand: true)
+        interaction.dialIn = CallDialIn(phoneNumber: "+1 202-555-0142", pin: "012345678")
         var projection = ServiceCallStateProjection()
         _ = try projection.accept(ServiceCallState(
             version: stream + ":1",
@@ -89,6 +184,38 @@ struct MeetingLinkControlTests {
         }
         #expect(fields["conversationCall"] == nil)
         #expect(fields["meetingCall"] != nil)
+    }
+
+    @Test func dialInSurvivesCallStateCodingAndIsOptionalForOlderPeers() throws {
+        let old = Data(#"{"joinURL":"https://meet.example.test/room","canRaiseHand":true}"#.utf8)
+        var interaction = try JSONDecoder().decode(CallInteractionState.self, from: old)
+        #expect(interaction.dialIn == nil)
+        #expect(interaction.alternateDialIns == nil)
+        #expect(interaction.dialInNumbersURL == nil)
+        #expect(interaction.canRaiseHand)
+        let minimal = try JSONEncoder().encode(interaction)
+        #expect(!String(decoding: minimal, as: UTF8.self).contains("dialIn"))
+
+        interaction.dialIn = CallDialIn(phoneNumber: "+1 202-555-0142", pin: "012345678")
+        interaction.alternateDialIns = [CallDialIn(
+            phoneNumber: "+44 20 7946 0958",
+            pin: "987654321",
+            regionCode: "GB"
+        )]
+        interaction.dialInNumbersURL = try #require(URL(string: "https://tel.meet/abc-defg-hij?hs=5"))
+        let state = ServiceCallState(version: "synthetic:1", interaction: interaction)
+        let decoded = try JSONDecoder().decode(ServiceCallState.self, from: JSONEncoder().encode(state))
+        #expect(decoded.interaction == interaction)
+    }
+
+    @Test func discoveringCreationCapabilityNotifiesTheCallControllerWithoutChangingListenerStatus() throws {
+        let source = UUID().uuidString
+        var projection = ServiceCallStateProjection()
+        var state = ServiceCallState(version: source + ":1", isListenerStarting: true)
+        _ = try projection.accept(state)
+        state.version = source + ":2"
+        state.supportsMeetingLinkCreation = true
+        #expect(try projection.accept(state) == [.capabilitiesChanged])
     }
 
     @Test func rejectedLinkFormatIsClassifiedBeforeReservingOrConsumingTheCall() async throws {

@@ -5,8 +5,15 @@ extension AccountRuntime {
     func authorizeForward(_ command: ChatCommand) throws {
         guard case let .sendMessage(destination, _, _, _, attachments, _, content) = command,
               let source = content?.forwardSource else { return }
+        try authorizeForwardSource(source, to: destination, hasAttachments: !attachments.isEmpty)
+    }
+
+    func authorizeForwardSource(
+        _ source: MessageQuote?, to destination: Conversation.ID, hasAttachments: Bool = false
+    ) throws {
+        guard let source else { return }
         guard capabilities.canForwardMessages else { throw ServiceFailure.unsupportedOperation }
-        guard attachments.isEmpty, try storage.conversation(source.conversation) != nil,
+        guard !hasAttachments, try storage.conversation(source.conversation) != nil,
               try storage.conversation(destination) != nil else { throw ServiceFailure.notAuthorized }
     }
 

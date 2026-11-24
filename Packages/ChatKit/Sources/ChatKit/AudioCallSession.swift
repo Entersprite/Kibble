@@ -19,6 +19,7 @@ public struct AudioCallSession: Hashable, Sendable {
     /// Fixed, safe user-facing copy; never a raw provider error or diagnostic.
     public var failureMessage: String?
     public var endReason: AudioCallEndReason?
+    public var admission: CallAdmission?
     /// The other person's microphone, for a call to one person. Nil is unknown;
     /// a conversation call reports each device in its roster instead.
     public var remoteMuted: Bool?
@@ -34,6 +35,7 @@ public struct AudioCallSession: Hashable, Sendable {
         isMuted = snapshot.isMuted
         failureMessage = snapshot.failureMessage
         endReason = snapshot.endReason
+        admission = nil
         remoteMuted = snapshot.remoteMuted
         self.isJoining = isJoining
     }
@@ -48,6 +50,7 @@ public struct AudioCallSession: Hashable, Sendable {
         isMuted = snapshot.isMuted
         failureMessage = snapshot.failureMessage
         endReason = snapshot.endReason
+        admission = snapshot.admission
         remoteMuted = nil
         self.isJoining = isJoining
     }

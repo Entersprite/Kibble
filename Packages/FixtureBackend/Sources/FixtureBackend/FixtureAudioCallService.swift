@@ -12,11 +12,13 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
     private let conversationTargets: Set<Conversation.ID>
     let continuation: AsyncStream<AudioCallEvent>.Continuation
     private var listening = false
-    private var participantDevices: [CallParticipantDevice]?
+    private(set) var participantDevices: [CallParticipantDevice]?
     public private(set) var invitedMembers: [Member.ID] = []
     var activityState = CallActivitiesState()
     var activitySequence: UInt64 = 0
     private var sequence: UInt64 = 0
+    private var meetingLinkSequence: UInt64 = 0
+    public var nextMeetingAdmission: CallAdmission?
     private var existingCalls: Set<Conversation.ID> = []
     private var existingParticipants: [Conversation.ID: [CallParticipantDevice]] = [:]
 
@@ -122,6 +124,24 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
         true
     }
 
+    public var canCreateMeetingLinks: Bool {
+        true
+    }
+
+    public var canPreviewMeetingLinks: Bool {
+        true
+    }
+
+    public func previewMeetingTitle(at url: URL) async throws -> String? {
+        let link = try normalizedMeetingLink(url)
+        return meetingLinkHosts.contains(link.host ?? "") ? "Fixture Meeting" : nil
+    }
+
+    public func createMeetingLink() async throws -> URL {
+        meetingLinkSequence += 1
+        return URL(string: "https://meet.example.test/fixture-\(meetingLinkSequence)")!
+    }
+
     public func joinMeeting(at url: URL, callID: UUID) async throws {
         guard listening, url.scheme == "https", url.user == nil, url.password == nil,
               currentCall?.phase.isTerminal != false,
@@ -129,11 +149,22 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
             throw ChatError.unsupported(capability: "meetingLinks")
         }
         currentCall = nil
+        let admission = nextMeetingAdmission
+        nextMeetingAdmission = nil
         publishConversation(.init(
             id: callID,
             target: .init(meetingURL: url, displayName: "Fixture Meeting"),
-            phase: .connected
+            phase: admission == nil ? .connected : .connecting,
+            admission: admission
         ))
+    }
+
+    public func admitMeetingJoin(callID: UUID) {
+        guard var call = currentConversationCall, call.id == callID, call.phase == .connecting,
+              call.admission != nil else { return }
+        call.admission = nil
+        call.phase = .connected
+        publishConversation(call)
     }
 
     private func publishConversation(_ call: ConversationCallSnapshot) {
@@ -205,6 +236,7 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
     public func hangUp(callID: UUID) async throws {
         if var call = currentConversationCall, call.id == callID {
             call.phase = .ended
+            call.admission = nil
             call.endReason = .localEnded
             publishConversation(call)
             return
@@ -300,5 +332,69 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
                 state: activityInteraction(url: URL(string: "https://meet.example.test/fixture"))
             ))
         }
+    }
+}
+
+extension FixtureAudioCallService {
+    public func offerAutomaticHandLowering(_ prompt: CallAutomaticHandLowering, callID: UUID) {
+        guard isConnected(callID) else { return }
+        activityState.automaticHandLowering = prompt
+        if !activityState.availableActions.contains("keepHandRaised") {
+            activityState.availableActions.append("keepHandRaised")
+        }
+        publishFixtureActivities(callID: callID)
+    }
+
+    func keepFixtureHandRaised(_ activity: CallActivity) throws {
+        guard activity.enabled, activity.participantIDs.isEmpty,
+              let prompt = activityState.automaticHandLowering, activity.resourceID == prompt.id
+        else { throw CancellationError() }
+        activityState.automaticHandLowering = nil
+        activityState.availableActions.removeAll { $0 == "keepHandRaised" }
+    }
+
+    public func remoteLoweredLocalHand(callID: UUID) {
+        guard isConnected(callID), var devices = participantDevices,
+              let local = devices
+                  .firstIndex(where: { $0.isLocal && !$0.isPresentation && $0.handRaised == true })
+        else { return }
+        devices[local].handRaised = false
+        devices[local].handRaisedAt = nil
+        activityState.ownHandLowered = nextActivityID()
+        setParticipantDevices(devices, callID: callID)
+        publishFixtureActivities(callID: callID)
+    }
+
+    func lowerFixtureHands(_ activity: CallActivity, callID: UUID) throws {
+        let bulk = activity.action == "lowerAllHands"
+        guard activity.enabled, activity.participantIDs.isEmpty,
+              bulk == (activity.resourceID == nil), var devices = participantDevices else {
+            throw CancellationError()
+        }
+        let selected = devices.indices.filter {
+            !devices[$0]
+                .isPresentation && (bulk || (!devices[$0].isLocal && devices[$0].id == activity.resourceID))
+        }
+        guard bulk || !selected.isEmpty else { throw CancellationError() }
+        for index in selected {
+            devices[index].handRaised = false
+            devices[index].handRaisedAt = nil
+        }
+        setParticipantDevices(devices, callID: callID)
+    }
+
+    func setFixtureSharedPin(_ activity: CallActivity, callID: UUID) throws {
+        guard activity.participantIDs.isEmpty, var devices = participantDevices,
+              let index = devices.firstIndex(where: {
+                  $0.id == activity.resourceID && $0.isPinnedForEveryone != nil
+              }) else { throw CancellationError() }
+        if devices[index].isPinnedForEveryone == activity.enabled {
+            return
+        }
+        let count = devices.filter { $0.isPinnedForEveryone == true }.count
+        guard !activity.enabled || activityState.sharedPinLimit.map({ count < $0 }) == true
+        else { throw CancellationError() }
+        devices[index].isPinnedForEveryone = activity.enabled
+        setParticipantDevices(devices, callID: callID)
     }
 }

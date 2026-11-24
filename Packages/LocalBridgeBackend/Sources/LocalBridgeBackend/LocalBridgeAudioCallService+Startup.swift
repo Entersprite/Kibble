@@ -78,9 +78,13 @@ extension LocalBridgeAudioCallService {
     }
 
     func waitForCallContext(callID: UUID, scope: UUID) async throws {
+        try await waitForCallContext { try checkCall(callID, scope: scope) }
+    }
+
+    func waitForCallContext(check: () throws -> Void) async throws {
         let deadline = ContinuousClock.now + .seconds(20)
         while !hasLoadedPeople {
-            try checkCall(callID, scope: scope)
+            try check()
             guard loading != nil else {
                 throw ChatError.unsupported(capability: "callSessionNotReady")
             }
@@ -91,6 +95,6 @@ extension LocalBridgeAudioCallService {
             // task when this Join is cancelled. Account teardown still owns it.
             try await Task.sleep(for: .milliseconds(20))
         }
-        try checkCall(callID, scope: scope)
+        try check()
     }
 }

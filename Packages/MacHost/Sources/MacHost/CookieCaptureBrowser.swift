@@ -19,7 +19,7 @@ public struct CookieCaptureBrowser: View {
     }
 
     public var body: some View {
-        browser
+        browser.id(model.browserAttempt)
     }
 
     var browser: LoginBrowser {
@@ -42,17 +42,15 @@ public struct CookieCaptureButtons: View {
                 .disabled(setup.isSaving || setup.isFinishing)
             Button("Continue to Chat") { Task { await setup.continueToChat() } }
                 .disabled(setup.isFinishing)
-        } else if model.showsManualControls {
-            // Shown once automatic saving can no longer finish on its own,
-            // so a failed automatic capture is never a dead end
-            // (`CookieCaptureModel.showsManualControls`).
-            Button("Capture Now") { model.capture() }
-            // `save()` completes sign-in itself, behind the same latch as the
-            // automatic save, so a press that lands while that save is in
-            // flight cannot leave the window twice
-            // (`CookieCaptureModel.hasCompleted`).
-            Button("Save and Continue") { Task { await model.save() } }
-                .disabled(!model.canSave)
+        } else {
+            if model.canRestartSignIn {
+                Button("Restart Sign-In") { model.restartSignIn() }
+            }
+            if model.showsManualControls {
+                Button("Capture Now") { model.capture() }
+                Button("Save and Continue") { Task { await model.save() } }
+                    .disabled(!model.canSave)
+            }
         }
     }
 }

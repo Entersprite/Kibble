@@ -19,6 +19,6 @@ extension AppEnvironment {
     func installMeetingLinkAction(in actions: inout ChatSceneActions) {
         guard calls.canJoinMeetingLinks else { return }
         let calls = calls
-        actions.joinMeeting = { [weak calls] in calls?.joinMeeting(at: $0) }
+        actions.joinMeeting = { [weak calls] in calls?.prepareMeeting(at: $0) }
     }
 }

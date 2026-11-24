@@ -11,6 +11,12 @@ extension LocalBridgeBackend {
         guard let source = content?.forwardSource else {
             return try MessageContentMapping.target(content?.quote, in: destination)
         }
+        let original = try await verifyForwardSource(source)
+        ownForwards.remember(OwnForwardSnapshots.snapshot(of: original), for: localID)
+        return Self.forwardTarget(original)
+    }
+
+    func verifyForwardSource(_ source: MessageQuote) async throws -> GChatBridgeCore.Message {
         guard let client = apiClient,
               let group = ChannelEventMapping.groupID(for: source.conversation),
               !source.thread.rawValue.isEmpty, !source.id.rawValue.isEmpty else {
@@ -31,7 +37,10 @@ extension LocalBridgeBackend {
             throw ChatError
                 .decoding("The original message is unavailable. Refresh its conversation and try again.")
         }
-        ownForwards.remember(OwnForwardSnapshots.snapshot(of: original), for: localID)
+        return original
+    }
+
+    static func forwardTarget(_ original: GChatBridgeCore.Message) -> SendReplyTarget {
         var reference = SendReplyTarget()
         reference.id = original.id
         reference.createTime = original.hasLastUpdateTime ? original.lastUpdateTime : original.createTime

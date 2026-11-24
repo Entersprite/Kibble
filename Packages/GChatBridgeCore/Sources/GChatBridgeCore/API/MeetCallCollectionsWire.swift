@@ -6,6 +6,19 @@ public enum MeetCallCollectionsWire {
     public struct Devices: Sendable {
         public let version: UInt64
         public let values: [MeetDeviceWire.Device]
+
+        func hostAccess(for name: String) -> MeetActivityCollections.HostAccess {
+            let local = values.first {
+                $0.name == name && $0.joinState == 1 && !$0.isDeleted && !$0.isPresentation
+            }
+            return .init(
+                version: version, role: local?.role,
+                canRemoveParticipants: local?.canRemoveParticipants == true,
+                canUseContinuousChat: local?.canUseContinuousChat == true,
+                canPinForEveryone: local?.hasHostRole == true && local?.canPinForEveryone == true,
+                canMessageWaitingRoom: local?.canMessageWaitingRoom == true
+            )
+        }
     }
 
     public struct Invitation: Sendable {
@@ -23,7 +36,7 @@ public enum MeetCallCollectionsWire {
     }
 
     public struct Snapshot: Sendable {
-        public let devices: Devices?
+        public internal(set) var devices: Devices?
         public let invitations: Invitations?
         public var hands: Hands?
         public var activities: MeetActivityCollections.Snapshot?
@@ -32,6 +45,8 @@ public enum MeetCallCollectionsWire {
     public struct Hand: Sendable {
         public let name: String
         public let device: String
+        public let raisedAt: Date?
+        let isRaised: Bool
     }
 
     public struct Hands: Sendable {
@@ -48,17 +63,7 @@ public enum MeetCallCollectionsWire {
 
     public static func snapshot(from body: Data, in space: String) throws -> Snapshot {
         let data = try MeetProto.decode(body)
-        let devices: Devices?
-        if let full = try fullCollection(2, data) {
-            let entries = try values(full)
-            let decoded = try entries.map { try MeetDeviceWire.devicePayload($0, in: space) }
-            guard Set(decoded.map(\.name)).count == decoded.count else {
-                throw MeetCallWire.WireError.malformedResponse
-            }
-            devices = try Devices(version: version(full), values: decoded)
-        } else {
-            devices = nil
-        }
+        let devices = try devices(in: data, space: space)
         let invitations: Invitations?
         if let full = try fullCollection(11, data) {
             let decoded = try values(full).map { entry in
@@ -85,33 +90,52 @@ public enum MeetCallCollectionsWire {
                       device.hasPrefix(space + "/devices/"), device.utf8.count <= 512 else {
                     throw MeetCallWire.WireError.malformedResponse
                 }
-                return Hand(name: name, device: device)
+                let raised = try MeetActivityCollections.has(3, entry) ? MeetProto.value(3, entry) != 0 : true
+                return Hand(name: name, device: device, raisedAt: handTimestamp(entry), isRaised: raised)
             }
             guard Set(hands.map(\.name)).count == hands.count,
                   Set(hands.map(\.device)).count == hands.count
             else { throw MeetCallWire.WireError.malformedResponse }
-            snapshot.hands = try Hands(version: version(full), values: hands)
+            snapshot.hands = try Hands(version: version(full), values: hands.filter(\.isRaised))
         }
         snapshot.activities = try MeetActivityCollections.availableSnapshot(body, space: space)
         return snapshot
     }
 
-    static func admissionDevice(from body: Data, in space: String, name: String) throws -> MeetDeviceWire
-        .Device? {
+    private static func handTimestamp(_ entry: Data) -> Date? {
+        guard let time = try? MeetProto.payload(2, entry),
+              let seconds = try? MeetProto.value(1, time), seconds <= 253_402_300_799 else { return nil }
+        let nanos = (try? MeetProto.value(2, time)) ?? 0
+        guard nanos < 1_000_000_000 else { return nil }
+        return Date(timeIntervalSince1970: Double(seconds) + Double(nanos) / 1_000_000_000)
+    }
+
+    static func devices(in data: Data, space: String) throws -> Devices? {
+        guard let full = try fullCollection(2, data) else { return nil }
+        let decoded = try values(full).map { try MeetDeviceWire.devicePayload($0, in: space) }
+        guard Set(decoded.map(\.name)).count == decoded.count else {
+            throw MeetCallWire.WireError.malformedResponse
+        }
+        return try Devices(version: version(full), values: decoded)
+    }
+
+    static func admissionRead(from body: Data, in space: String, name: String) throws
+        -> (version: UInt64, device: MeetDeviceWire.Device?)? {
         guard MeetDeviceWire.validDevice(name), name.hasPrefix(space + "/devices/") else {
             throw MeetCallWire.WireError.invalidIdentifier
         }
         guard let full = try fullCollection(2, MeetProto.decode(body)) else { return nil }
-        _ = try version(full)
+        let revision = try version(full)
         let selected = try values(full).filter {
             ProtoFieldScan.payloads(ofField: 1, in: $0).contains(Data(name.utf8))
         }
         guard selected.count <= 1 else { throw MeetCallWire.WireError.malformedResponse }
-        return try selected.first.map { try MeetDeviceWire.devicePayload(
+        let device = try selected.first.map { try MeetDeviceWire.devicePayload(
             $0,
             in: space,
             includeAcknowledgements: true
         ) }
+        return (revision, device)
     }
 
     private static func fullCollection(_ field: Int, _ data: Data) throws -> Data? {

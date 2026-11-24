@@ -1,6 +1,17 @@
 import Foundation
 
 public extension MeetMediaSessionWire {
+    enum ActivityChannel: String, CaseIterable, Sendable {
+        case reactions
+        case messages = "meet_messages"
+        case captions = "captions_v2"
+    }
+
+    enum ChannelCompression: Sendable, Equatable {
+        case none
+        case gzip
+    }
+
     enum StreamControlFailure: String, Error, Sendable, Equatable {
         case configuration = "malformed server configuration"
         case channelList = "invalid server channel list"
@@ -20,12 +31,50 @@ public extension MeetMediaSessionWire {
         public let ordered: Bool
         public let maxPacketLifeTime: UInt16?
         public let maxRetransmits: UInt16?
+        public let compression: ChannelCompression
     }
 
     /// Server config12 assigns SCTP streams. The native converter uses these
     /// IDs with negotiated=true; creating another channel with the label alone
     /// does not bind that channel to the assigned application stream.
     static func streamControlChannel(serverConfiguration data: Data) throws -> StreamControlChannel? {
+        let channels = try channelDescriptors(in: data)
+        let selected = channels.filter { hasLabel("dcrpc", in: $0) }
+        guard selected.count <= 1 else { throw StreamControlFailure.ambiguous }
+        guard let channel = selected.first else { return nil }
+        return try assignedControlChannel(channel)
+    }
+
+    static func requestingActivityChannels(in configuration: Data, allowsGzipCaptions: Bool = false) -> Data {
+        ActivityChannel.allCases.reduce(configuration) { result, activity in
+            let compression = activity == .captions && allowsGzipCaptions
+                ? MeetProto.bytes(7, Data([2, 1])) : MeetProto.number(7, 1)
+            let descriptor = MeetProto.string(1, activity.rawValue) + MeetProto.number(2, 1)
+                + MeetProto.number(4, 1) + compression
+            return result + MeetProto.bytes(17, descriptor)
+        }
+    }
+
+    /// An unusable optional assignment withholds that activity alone.
+    static func activityChannels(serverConfiguration data: Data, allowsGzipCaptions: Bool = false) throws
+        -> [ActivityChannel: StreamControlChannel] {
+        let channels = try channelDescriptors(in: data)
+        let ids = channels.flatMap { Set(ProtoFieldScan.varintValues(ofField: 3, in: $0)) }
+        return Dictionary(uniqueKeysWithValues: ActivityChannel.allCases.compactMap { activity in
+            let selected = channels.filter { hasLabel(activity.rawValue, in: $0) }
+            let allowsGzip = activity == .captions && allowsGzipCaptions
+            guard selected.count == 1, let descriptor = selected.first,
+                  let channel = try? assignedControlChannel(descriptor, allowsGzip: allowsGzip),
+                  ids.filter({ $0 == UInt64(channel.id) }).count == 1 else { return nil }
+            return (activity, channel)
+        })
+    }
+
+    private static func hasLabel(_ label: String, in descriptor: Data) -> Bool {
+        ProtoFieldScan.payloads(ofField: 1, in: descriptor).contains(Data(label.utf8))
+    }
+
+    private static func channelDescriptors(in data: Data) throws -> [Data] {
         guard data.count <= 500_000 else { throw StreamControlFailure.configuration }
         do { try MeetProto.validate(data) } catch { throw StreamControlFailure.configuration }
         let fields = ProtoFieldScan.fields(in: data).fields.filter { $0.number == 12 }
@@ -33,15 +82,12 @@ public extension MeetMediaSessionWire {
         guard fields.count <= 32, fields.count == channels.count else {
             throw StreamControlFailure.channelList
         }
-        let selected = channels.filter {
-            ProtoFieldScan.payloads(ofField: 1, in: $0).contains(Data("dcrpc".utf8))
-        }
-        guard selected.count <= 1 else { throw StreamControlFailure.ambiguous }
-        guard let channel = selected.first else { return nil }
-        return try assignedControlChannel(channel)
+        return channels
     }
 
-    private static func assignedControlChannel(_ channel: Data) throws -> StreamControlChannel {
+    private static func assignedControlChannel(
+        _ channel: Data, allowsGzip: Bool = false
+    ) throws -> StreamControlChannel {
         do { _ = try MeetProto.text(1, channel) } catch { throw StreamControlFailure.descriptor }
         guard let id = try channelValue(3, channel, failure: .identifier) else {
             throw StreamControlFailure.missingIdentifier
@@ -50,14 +96,15 @@ public extension MeetMediaSessionWire {
         let ordered = try channelValue(2, channel, failure: .ordering) ?? 0
         guard ordered <= 1 else { throw StreamControlFailure.ordering }
         let reliability = try channelReliability(channel)
-        // Native CKh maps an unspecified preference0 to NONE, just as an
-        // absent preference does. GZIP2 requires framing we do not advertise.
-        guard try (channelCompression(channel).first ?? 0) <= 1 else {
+        // The first server preference is binding. Unspecified behaves like NONE.
+        let preferredCompression = try channelCompression(channel).first ?? 0
+        guard preferredCompression <= 1 || (allowsGzip && preferredCompression == 2) else {
             throw StreamControlFailure.compression
         }
         return StreamControlChannel(
             id: UInt16(id), ordered: ordered == 1,
-            maxPacketLifeTime: reliability.lifetime, maxRetransmits: reliability.retransmits
+            maxPacketLifeTime: reliability.lifetime, maxRetransmits: reliability.retransmits,
+            compression: preferredCompression == 2 ? .gzip : .none
         )
     }
 

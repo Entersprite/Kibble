@@ -305,7 +305,7 @@ struct StagedSendTests {
         await model.stop()
         await backend.releaseHeldUpload()
         await settleAutoMarkRead()
-        #expect(model.failed == nil)
+        #expect(model.failedDrafts.isEmpty)
         #expect(model.lastError == nil)
     }
 

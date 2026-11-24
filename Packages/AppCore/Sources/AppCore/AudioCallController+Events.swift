@@ -17,12 +17,25 @@ extension AudioCallController {
             else { break }
             participants = devices
         case let .interactionChanged(callID, state):
-            guard call?.id == callID, call?.phase.isTerminal == false,
-                  !retiredIDs.contains(callID) else { break }
-            interaction = state
-        case .unknown, .listenerBarrier: break
+            receiveInteraction(state, callID: callID)
+        case .unknown, .listenerBarrier, .capabilitiesChanged: break
         }
         refreshSupport()
+    }
+
+    private func receiveInteraction(_ state: CallInteractionState?, callID: UUID) {
+        guard call?.id == callID, call?.phase.isTerminal == false,
+              !retiredIDs.contains(callID) else { return }
+        interaction = state
+        if let url = state?.joinURL {
+            observedMeetingLink = (callID: callID, url: url)
+        }
+        if let moderatorMute = state?.activities?.moderatorMute, moderatorMute != lastModeratorMute {
+            lastModeratorMute = moderatorMute
+            applyForcedMute()
+        } else if state?.activities?.microphoneRestricted == true {
+            applyForcedMute()
+        }
     }
 
     private func joining(_ id: UUID) -> Bool {
@@ -32,6 +45,10 @@ extension AudioCallController {
     func refreshSupport() {
         let links = service as? any MeetingLinkAudioCallService
         supportsMeetingLinks = links?.canJoinMeetingLinks == true
+        if !supportsMeetingLinks, meetingPreparation != nil {
+            clearMeetingPreparation()
+        }
+        supportsMeetingLinkCreation = links?.canCreateMeetingLinks == true
         supportedMeetingLinkHosts = supportsMeetingLinks ? links?.meetingLinkHosts ?? [] : []
         let join = existingJoinService?.canJoinExistingCalls ?? false
         let conversations = conversationService?.canCallConversations ?? false
@@ -51,11 +68,15 @@ extension AudioCallController {
         if call?.id == snapshot.id {
             guard call?.phase.isTerminal == false, !isEnding else { return }
             call = snapshot
+            if interaction?.activities?.microphoneRestricted == true {
+                call?.isMuted = true
+            }
             if snapshot.phase.isTerminal {
                 retire(snapshot.id)
             }
         } else if snapshot.recipient != nil, snapshot.direction == .incoming, snapshot.phase == .incoming,
                   call == nil || call?.phase.isTerminal == true, !isEnding {
+            clearMeetingPreparation()
             call = snapshot
             participants = nil
             interaction = nil

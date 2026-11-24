@@ -158,8 +158,7 @@ extension LocalBridgeBackend {
         } else {
             resourceRecovered(.profiles)
         }
-        guard !mapped.members.isEmpty else { return }
-        guard await emitCommitted(.membersResolved(mapped.members)) else { return }
+        guard !mapped.members.isEmpty, await emitCommitted(.membersResolved(mapped.members)) else { return }
         // After the names, so their member rows exist when presence lands.
         addPresenceTargets(mapped.members, immediately: true, using: apiClient, generation: generation)
     }
@@ -185,6 +184,8 @@ extension LocalBridgeBackend {
         receiptRevisions = [:]
         directoryGeneration += 1
         managementOperations.removeAll()
+        notificationWrites.removeAll()
+        conversationSectionWriteID = nil
         discoverableManagementSpaces.removeAll()
     }
 
@@ -290,13 +291,6 @@ extension LocalBridgeBackend {
     // it is now a real implementation rather than a stub, and this file's own
     // convention (see the top-of-file doc comment) is a new extension file
     // per concern rather than growing one indefinitely.
-
-    public func setNotificationSetting(
-        _: NotificationLevel,
-        for _: Conversation.ID
-    ) async throws {
-        throw ChatError.unsupported(capability: Self.missingChannel)
-    }
 
     // Not `private`: `resolveAndEmitSelf()` moved to its own file once this
     // one crossed swiftlint's `file_length`, and still needs to call this.

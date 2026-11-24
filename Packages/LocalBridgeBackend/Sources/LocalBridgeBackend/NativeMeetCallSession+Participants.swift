@@ -13,6 +13,8 @@ extension NativeMeetCallSession {
     }
 
     func reconcileParticipants(_ devices: MeetCallCollectionsWire.Devices, local: String) async {
+        guard participantVersion.map({ devices.version > $0 }) ?? true else { return }
+        participantVersion = devices.version
         let joined = devices.values.filter { !$0.isDeleted && $0.joinState == 1 }
         guard joined.count <= 256 else { await publishParticipantsUnavailable(); return }
         let names = Set(joined.map(\.name))
@@ -23,7 +25,11 @@ extension NativeMeetCallSession {
         }
         participantDevices = Dictionary(uniqueKeysWithValues: joined.map { ($0.name, $0) })
         participantLocalDevice = local
+        agendaGuestPresenceAliases = Set(devices.values.lazy
+            .filter { !$0.isDeleted && !$0.isPresentation && [1, 3, 13].contains($0.joinState) }
+            .flatMap(\.calendarGuestAliases))
         await publishParticipants()
+        await publishAgendaGuests()
     }
 
     func recordParticipantAudio(
@@ -57,14 +63,30 @@ extension NativeMeetCallSession {
     }
 
     func publishParticipantsUnavailable() async {
-        guard publishedParticipants != nil else { return }
+        let hadParticipants = publishedParticipants != nil
         publishedParticipants = nil
+        agendaGuestPresenceAliases = nil
+        if !activities.waitingParticipants.isEmpty || activities.agendaGuests != nil {
+            activities.waitingParticipants.removeAll()
+            activities.agendaGuests = nil
+            if !closed {
+                await receiveActivities?(activities)
+            }
+        }
+        guard hadParticipants, publishedParticipants == nil else { return }
         await receiveParticipants?(nil)
     }
 
     func publishParticipants() async {
         guard !closed, state != .stateUnavailable, state != .reconnecting,
               participantLocalDevice != nil else { return }
+        let enabledWaitingRoom = hostControls.waitingRoomEnabled == true && !unavailableActivityFields
+            .contains(1)
+        let observedWaitingRoom = hostControls.waitingParticipants.values.contains(where: \.isInWaitingRoom)
+        let offersWaitingRoom = activities.availableActions.contains("sendParticipantToWaitingRoom")
+            && hostControls.waitingRoomEnabled != false && (enabledWaitingRoom || observedWaitingRoom)
+        let offersBlock = activities.availableActions.contains("blockParticipant")
+        let own = participantLocalDevice.flatMap { participantDevices[$0] }
         let participants = participantDevices.keys.sorted().compactMap { name -> CallParticipantDevice? in
             guard let device = participantDevices[name], let id = participantHandles[name] else { return nil }
             return CallParticipantDevice(
@@ -75,7 +97,19 @@ extension NativeMeetCallSession {
                 microphoneMuted: participantMutes[name],
                 handRaised: name == participantLocalDevice ? ownHandRaised ?? participantHands
                     .map { $0[name] != nil } : participantHands.map { $0[name] != nil },
-                isSpeaking: participantSpeaking[name]
+                isSpeaking: participantSpeaking[name], role: device.isPresentation ? nil : device.role.map {
+                    switch $0 {
+                    case .host: .host
+                    case .cohost: .cohost
+                    case .participant: .participant
+                    }
+                },
+                canSendToWaitingRoom: offersWaitingRoom && name != participantLocalDevice
+                    && Self.isWaitingRoomTarget(device) ? true : nil,
+                canBlockInMeeting: offersBlock && name != participantLocalDevice && !device.isPresentation
+                    && !Self.sameMeetingUser(device, own) ? true : nil,
+                isPinnedForEveryone: device.isPinnedForEveryone,
+                handRaisedAt: participantHands?[name]?.raisedAt
             )
         }
         guard participants != publishedParticipants else { return }

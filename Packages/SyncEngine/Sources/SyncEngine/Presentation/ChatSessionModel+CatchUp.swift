@@ -15,10 +15,16 @@ extension ChatSessionModel {
     /// conversation the user has open, which nothing below the seam knows.
     func catchUpIfReconnected(_ state: ConnectionState) {
         defer { actedOnConnection = state }
-        guard case .connected = state else { return }
+        guard case .connected = state else {
+            cancelConversationSectionWrite()
+            cancelConversationSectionRead()
+            return
+        }
         if case .connected = actedOnConnection {
             return
         }
+        refreshStarredMessages()
+        refreshConversationSections()
         guard let selected else { return }
         refreshPins()
         watchConversationActivity()

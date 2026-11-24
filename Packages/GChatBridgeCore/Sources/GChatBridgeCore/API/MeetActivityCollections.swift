@@ -1,8 +1,23 @@
 import Foundation
 
 public enum MeetActivityCollections {
+    public struct HostAccess: Sendable {
+        public let version: UInt64
+        public let role: MeetDeviceWire.Role?
+        public let canRemoveParticipants: Bool
+        public let canUseContinuousChat: Bool
+        public let canPinForEveryone: Bool
+        public let canMessageWaitingRoom: Bool
+
+        public var canManage: Bool {
+            role == .host || role == .cohost
+        }
+    }
+
     public struct Snapshot: Sendable {
         public var space: Data?
+        public var hostAccess: HostAccess?
+        public var devices: MeetCallCollectionsWire.Devices?
         public var messages: [Data]?
         public var polls: [Data]?
         public var questions: [Data]?

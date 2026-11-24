@@ -5,33 +5,230 @@ import Foundation
 public struct CallActivitiesState: Codable, Hashable, Sendable {
     public var availableActions: [String] = []
     public var messages: [CallMeetingMessage] = []
+    public var waitingRoomMessages: [CallMeetingMessage]?
     public var reactions: [CallMeetingReaction] = []
     public var polls: [CallPoll] = []
     public var questions: [CallQuestion] = []
     public var rooms: [CallBreakoutRoom] = []
     public var people: [CallBreakoutPerson] = []
+    public var waitingParticipants: [CallWaitingParticipant] = []
     public var artifacts: [CallArtifact] = []
+    public var artifactFiles: [CallArtifactFile] = []
+    public var agendaAttachments: [CallAgendaAttachment]?
+    public var agendaGuests: [CallAgendaGuest]?
+    public var captions: CallCaptionState?
+    public var captionLanguages: CallCaptionLanguages?
+    public var recordingCaptionLanguages: [String] = []
+    public var hostSettings: CallHostSettings?
+    public var meetingChat: CallMeetingChat?
+    public var microphoneRestricted: Bool?
+    public var sharedPinLimit: Int?
+    public var moderatorMute: UUID?
+    /// Identifies the latest observed lowering of this device's raised hand.
+    public var ownHandLowered: UUID?
+    public var automaticHandLowering: CallAutomaticHandLowering?
     public var allowsAnonymousQuestions: Bool?
     public var attendanceReportEnabled: Bool?
     public init() {}
 
+    public func canSetRecordingAndTranscriptionEnabled(_ enabled: Bool) -> Bool {
+        ["recording", "transcription"].allSatisfy { kind in
+            availableActions.contains(kind) && artifacts.first(where: { $0.kind == kind })?
+                .canSetEnabled(enabled) == true
+        }
+    }
+
+    public func acceptsRecordingCaptionChoice(_ activity: CallActivity) -> Bool {
+        guard let language = activity.recordingCaptionLanguage else { return true }
+        return activity.action == "recording" && activity.enabled && recordingCaptionLanguages
+            .contains(language)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case availableActions, messages, reactions, polls, questions, rooms, people, artifacts
-        case attendanceReportEnabled, allowsAnonymousQuestions
+        case waitingParticipants, waitingRoomMessages, agendaAttachments, agendaGuests
+        case attendanceReportEnabled, allowsAnonymousQuestions, captions, captionLanguages, artifactFiles
+        case recordingCaptionLanguages, hostSettings, meetingChat, microphoneRestricted, moderatorMute,
+             sharedPinLimit, ownHandLowered, automaticHandLowering
     }
 
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         availableActions = try values.decodeIfPresent([String].self, forKey: .availableActions) ?? []
         messages = try values.decodeIfPresent([CallMeetingMessage].self, forKey: .messages) ?? []
+        waitingRoomMessages = try values.decodeIfPresent(
+            [CallMeetingMessage].self,
+            forKey: .waitingRoomMessages
+        )
         reactions = try values.decodeIfPresent([CallMeetingReaction].self, forKey: .reactions) ?? []
         polls = try values.decodeIfPresent([CallPoll].self, forKey: .polls) ?? []
         questions = try values.decodeIfPresent([CallQuestion].self, forKey: .questions) ?? []
         rooms = try values.decodeIfPresent([CallBreakoutRoom].self, forKey: .rooms) ?? []
         people = try values.decodeIfPresent([CallBreakoutPerson].self, forKey: .people) ?? []
+        waitingParticipants = try values.decodeIfPresent(
+            [CallWaitingParticipant].self,
+            forKey: .waitingParticipants
+        ) ?? []
         artifacts = try values.decodeIfPresent([CallArtifact].self, forKey: .artifacts) ?? []
+        artifactFiles = try values.decodeIfPresent([CallArtifactFile].self, forKey: .artifactFiles) ?? []
+        agendaAttachments = try values.decodeIfPresent(
+            [CallAgendaAttachment].self,
+            forKey: .agendaAttachments
+        )
+        agendaGuests = try values.decodeIfPresent([CallAgendaGuest].self, forKey: .agendaGuests)
+        captions = try values.decodeIfPresent(CallCaptionState.self, forKey: .captions)
+        captionLanguages = try values.decodeIfPresent(CallCaptionLanguages.self, forKey: .captionLanguages)
+        recordingCaptionLanguages = try values.decodeIfPresent(
+            [String].self,
+            forKey: .recordingCaptionLanguages
+        ) ?? []
+        hostSettings = try values.decodeIfPresent(CallHostSettings.self, forKey: .hostSettings)
+        meetingChat = try values.decodeIfPresent(CallMeetingChat.self, forKey: .meetingChat)
+        microphoneRestricted = try values.decodeIfPresent(Bool.self, forKey: .microphoneRestricted)
+        sharedPinLimit = try? values.decodeIfPresent(Int.self, forKey: .sharedPinLimit)
+        moderatorMute = try values.decodeIfPresent(UUID.self, forKey: .moderatorMute)
+        ownHandLowered = try? values.decodeIfPresent(UUID.self, forKey: .ownHandLowered)
+        automaticHandLowering = try? values.decodeIfPresent(
+            CallAutomaticHandLowering.self, forKey: .automaticHandLowering
+        )
         allowsAnonymousQuestions = try values.decodeIfPresent(Bool.self, forKey: .allowsAnonymousQuestions)
         attendanceReportEnabled = try values.decodeIfPresent(Bool.self, forKey: .attendanceReportEnabled)
+    }
+}
+
+public struct CallAgendaAttachment: Codable, Hashable, Sendable, Identifiable {
+    public var id: URL {
+        url
+    }
+
+    public let title: String?
+    public let url: URL
+
+    public init(title: String? = nil, url: URL) {
+        self.title = title
+        self.url = url
+    }
+}
+
+public struct CallAutomaticHandLowering: Codable, Hashable, Sendable {
+    public let id: UUID
+    public let deadline: Date
+
+    public init(id: UUID, deadline: Date) {
+        self.id = id
+        self.deadline = deadline
+    }
+}
+
+/// The existing conversation associated with this call. Its own account
+/// membership and posting rules still apply.
+public struct CallMeetingChat: Codable, Hashable, Sendable {
+    public let conversationID: Conversation.ID
+    public let canSend: Bool
+
+    public init(conversationID: Conversation.ID, canSend: Bool) {
+        self.conversationID = conversationID
+        self.canSend = canSend
+    }
+}
+
+public struct CallHostSettings: Codable, Hashable, Sendable {
+    public var managementEnabled: Bool
+    public var reactionsAllowed: Bool
+    public var chatMessagesAllowed: Bool?
+    public var screenSharingAllowed: Bool?
+    public var microphoneAllowed: Bool?
+    public var cameraAllowed: Bool?
+    public var joiningBeforeHostAllowed: Bool?
+    public var waitingRoomEnabled: Bool?
+    public var meetingAccess: CallMeetingAccess?
+
+    public init(
+        managementEnabled: Bool, reactionsAllowed: Bool, chatMessagesAllowed: Bool? = nil,
+        screenSharingAllowed: Bool? = nil, microphoneAllowed: Bool? = nil, cameraAllowed: Bool? = nil,
+        joiningBeforeHostAllowed: Bool? = nil, waitingRoomEnabled: Bool? = nil,
+        meetingAccess: CallMeetingAccess? = nil
+    ) {
+        self.managementEnabled = managementEnabled
+        self.reactionsAllowed = reactionsAllowed
+        self.chatMessagesAllowed = chatMessagesAllowed
+        self.screenSharingAllowed = screenSharingAllowed
+        self.microphoneAllowed = microphoneAllowed
+        self.cameraAllowed = cameraAllowed
+        self.joiningBeforeHostAllowed = joiningBeforeHostAllowed
+        self.waitingRoomEnabled = waitingRoomEnabled
+        self.meetingAccess = meetingAccess
+    }
+}
+
+public struct CallMeetingAccess: Codable, Hashable, Sendable {
+    public var preset: String
+    public var availablePresets: [String]
+    public var joinRequestsAllowed: Bool?
+
+    public init(preset: String, availablePresets: [String], joinRequestsAllowed: Bool? = nil) {
+        self.preset = preset
+        self.availablePresets = availablePresets
+        self.joinRequestsAllowed = joinRequestsAllowed
+    }
+}
+
+/// A file returned by the call source and available to open in the browser.
+public struct CallArtifactFile: Codable, Hashable, Sendable, Identifiable {
+    public var id: URL {
+        url
+    }
+
+    public let kind: String
+    public let title: String?
+    public let url: URL
+
+    public init(kind: String, title: String? = nil, url: URL) {
+        self.kind = kind
+        self.title = title
+        self.url = url
+    }
+}
+
+public struct CallCaptionLanguages: Codable, Hashable, Sendable {
+    public let live: [String]
+    public let translations: [String: [String]]
+
+    public init(live: [String], translations: [String: [String]]) {
+        self.live = live
+        self.translations = translations
+    }
+
+    public var meetingLanguages: [String] {
+        Array(Set(live).union(translations.keys)).sorted()
+    }
+
+    public func supports(spoken: String, display: String) -> Bool {
+        spoken == display ? live.contains(spoken) : translations[spoken]?.contains(display) == true
+    }
+}
+
+public struct CallCaptionState: Codable, Hashable, Sendable {
+    public let spokenLanguage: String
+    public let displayLanguage: String
+    public var segments: [CallCaptionSegment]
+
+    public init(spokenLanguage: String, displayLanguage: String, segments: [CallCaptionSegment] = []) {
+        self.spokenLanguage = spokenLanguage
+        self.displayLanguage = displayLanguage
+        self.segments = segments
+    }
+}
+
+public struct CallCaptionSegment: Codable, Hashable, Sendable, Identifiable {
+    public let id: UUID
+    public let speaker: String?
+    public let text: String
+
+    public init(id: UUID, speaker: String?, text: String) {
+        self.id = id
+        self.speaker = speaker
+        self.text = text
     }
 }
 
@@ -39,8 +236,11 @@ public struct CallMeetingMessage: Codable, Hashable, Sendable, Identifiable {
     public var id: UUID
     public var sender: String
     public var text: String
-    public init(id: UUID, sender: String, text: String) {
+    public var isPinned: Bool?
+    public var canChangePin: Bool?
+    public init(id: UUID, sender: String, text: String, isPinned: Bool? = nil, canChangePin: Bool? = nil) {
         self.id = id; self.sender = sender; self.text = text
+        self.isPinned = isPinned; self.canChangePin = canChangePin
     }
 }
 
@@ -115,9 +315,21 @@ public struct CallArtifact: Codable, Hashable, Sendable, Identifiable {
 
     public var kind: String
     public var phase: String
-    public init(kind: String, phase: String) {
-        self.kind = kind; self.phase = phase
+    public var recordingCaptionLanguage: String?
+    public init(kind: String, phase: String, recordingCaptionLanguage: String? = nil) {
+        self.kind = kind
+        self.phase = phase
+        self.recordingCaptionLanguage = recordingCaptionLanguage
     }
+
+    public func canSetEnabled(_ enabled: Bool) -> Bool {
+        enabled ? phase == "stopped" || phase == "preconfigured" : phase == "active" || phase == "starting"
+    }
+}
+
+/// The result of one or both operations remains unconfirmed after a paired request.
+public enum CallArtifactPairError: Error, Sendable {
+    case recordingUnconfirmed, transcriptionUnconfirmed, bothUnconfirmed
 }
 
 public struct CallActivity: Codable, Hashable, Sendable {
@@ -128,20 +340,23 @@ public struct CallActivity: Codable, Hashable, Sendable {
     public var selections: [Int]
     public var participantIDs: [UUID] = []
     public var enabled: Bool
+    public var recordingCaptionLanguage: String?
     public init(
         _ action: String,
         resourceID: UUID? = nil,
         text: String = "",
         options: [String] = [],
         selections: [Int] = [],
-        enabled: Bool = true
+        enabled: Bool = true,
+        recordingCaptionLanguage: String? = nil
     ) {
         self.action = action; self.resourceID = resourceID; self.text = text
         self.options = options; self.selections = selections; self.enabled = enabled
+        self.recordingCaptionLanguage = recordingCaptionLanguage
     }
 
     private enum CodingKeys: String, CodingKey {
-        case action, resourceID, text, options, selections, participantIDs, enabled
+        case action, resourceID, text, options, selections, participantIDs, enabled, recordingCaptionLanguage
     }
 
     public init(from decoder: any Decoder) throws {
@@ -153,6 +368,7 @@ public struct CallActivity: Codable, Hashable, Sendable {
         selections = try values.decodeIfPresent([Int].self, forKey: .selections) ?? []
         participantIDs = try values.decodeIfPresent([UUID].self, forKey: .participantIDs) ?? []
         enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        recordingCaptionLanguage = try values.decodeIfPresent(String.self, forKey: .recordingCaptionLanguage)
     }
 }
 

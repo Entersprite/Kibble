@@ -24,11 +24,13 @@ public struct Composer: View {
     /// Who "You" is in the reply's quote, for a directory with no name for you.
     let quoteMe: Member.ID?
     let send: (ComposedMessage) -> Void
+    let scheduling: ComposerScheduling?
     let preserveDraft: ((ComposerDraft) -> Void)?
+    let draftSync: ComposerDraftSync?
 
     /// A failed send, mentions and all, offered back for this composer to
     /// adopt. `nil` in every ordinary frame - see `ComposerDraft`.
-    let restoring: ComposedMessage?
+    private let restoration: Restoration
     /// Told once `restoring` has been adopted, so the host can stop offering
     /// it. **Optional, and its absence is the point**: a host with no restore
     /// hook simply gets the old behaviour.
@@ -55,13 +57,15 @@ public struct Composer: View {
     @State private var anchorX: CGFloat = 0
     @State var sendGate = ComposerSendGate()
     @State var pendingInvite: PendingInvite?
+    @State var schedulingDate = false
+    @State var acceptedScheduleID: UUID?
     /// The message whose membership check is out, so a composer torn down
     /// meanwhile can hand it back.
     @State var checking: ComposedMessage?
     /// The picked emoji, for the macOS field to put in (`ComposerTextView`).
     @State var insertion: ComposerInsertion?
     /// Bumped by the microphone (`ComposerTextView`).
-    @State private var dictationRequest = 0
+    @State var dictationRequest = 0
     /// The + shows the system's file importer.
     @State private var choosingFiles = false
 
@@ -69,6 +73,7 @@ public struct Composer: View {
         placeholder: String,
         activity: ((Bool) -> Void)? = nil,
         restoring: ComposedMessage? = nil,
+        restorationID: UUID? = nil,
         onRestored: (() -> Void)? = nil,
         attachments: [ComposerAttachment] = [],
         attachmentActions: ComposerAttachmentActions? = nil,
@@ -82,6 +87,8 @@ public struct Composer: View {
         onQuoteAdopted: (() -> Void)? = nil,
         quoteDirectory: [Member.ID: Member] = [:],
         quoteMe: Member.ID? = nil,
+        scheduling: ComposerScheduling? = nil,
+        draftSync: ComposerDraftSync? = nil,
         send: @escaping (ComposedMessage) -> Void
     ) {
         self.allowsFormatting = allowsFormatting
@@ -91,7 +98,7 @@ public struct Composer: View {
         self.quoteMe = quoteMe
         self.activity = activity
         self.placeholder = placeholder
-        self.restoring = restoring
+        restoration = Restoration(id: restorationID, message: restoring)
         self.onRestored = onRestored
         self.attachments = attachments
         self.attachmentActions = attachmentActions
@@ -99,8 +106,11 @@ public struct Composer: View {
         self.editing = editing
         self.emoji = emoji
         self.send = send
+        self.scheduling = scheduling
+        _acceptedScheduleID = State(initialValue: scheduling?.receipt?.id)
         _draft = State(initialValue: initialDraft)
         self.preserveDraft = preserveDraft
+        self.draftSync = draftSync
     }
 
     public var body: some View {
@@ -138,6 +148,13 @@ public struct Composer: View {
         }
         .fileDialogConfirmationLabel("Attach")
         .fileDialogMessage("Choose files to send")
+        .sheet(isPresented: $schedulingDate) {
+            ScheduledDateSheet(
+                title: "Schedule Message", confirm: "Schedule",
+                initial: Date().addingTimeInterval(3600),
+                cancel: { schedulingDate = false }, save: offerSchedule
+            )
+        }
         .animation(.snappy(duration: 0.15), value: canAct)
         .animation(.snappy(duration: 0.15), value: attachments.map(\.id))
         .overlayPreferenceValue(ComposerFieldAnchor.self) { anchor in
@@ -154,6 +171,7 @@ public struct Composer: View {
             isFocused = true
             focusRequest += 1
         }
+        .modifier(syncedDraftLifecycle)
         // **`initial: true` is load-bearing, not decoration.** `ChatWindow`
         // keys this view `.id(conversation.id)`, so returning to a
         // conversation after a failed send tears down the old `Composer` and
@@ -172,13 +190,13 @@ public struct Composer: View {
         // mid-check, or with the confirmation up): it goes back to this
         // conversation's draft rather than being lost (review finding 2).
         .onDisappear {
+            acceptSchedule(scheduling?.latestReceipt())
             preserveDraft?(draft.compositionOnly)
             activity?(false)
-            if let unsent = pendingInvite?.message ?? checking {
-                mentions?.keepHere?(unsent)
-            }
+            retirePendingSubmission()
         }
         .onChange(of: draft) { _, draft in preserveDraft?(draft.compositionOnly) }
+        .onChange(of: scheduling?.receipt) { _, receipt in acceptSchedule(receipt) }
         .confirmationDialog(
             pendingInvite.map(\.title) ?? "",
             isPresented: Binding(get: { pendingInvite != nil }, set: {
@@ -191,10 +209,12 @@ public struct Composer: View {
             if invite.offersAdding {
                 Button("Add and Send") { add(invite) }
             }
-            Button("Send Without Adding") { finish(invite.message.settingMode(
-                .withoutAdding,
-                for: invite.people
-            )) }
+            Button("Send Without Adding") {
+                finish(
+                    invite.message.settingMode(.withoutAdding, for: invite.people),
+                    matching: invite.composition
+                )
+            }
             Button("Cancel", role: .cancel) {}
         } message: { invite in
             Text(invite.detail)
@@ -213,17 +233,13 @@ public struct Composer: View {
             focusRequest += 1
             onQuoteAdopted?()
         }
-        .onChange(of: restoring, initial: true) { _, text in
-            guard draft.adopt(text, formatting: allowsFormatting) else { return }
-            isFocused = true
-            focusRequest += 1
-            onRestored?()
-        }
+        .onChange(of: restoration, initial: true, restore)
     }
 
     /// The field, with the staged files or the edit bar above its text.
     private var box: some View {
         VStack(alignment: .leading, spacing: 8) {
+            draftSyncNotice
             // While editing, the bar replaces the staged files: they stay
             // staged, and are never sent with the edit (edit spec §5).
             if draft.editing != nil {
@@ -252,30 +268,12 @@ public struct Composer: View {
         .glassEffect(.regular.interactive(), in: ComposerLayout.fieldShape)
     }
 
-    private var field: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            text
-                .anchorPreference(key: ComposerFieldAnchor.self, value: .bounds) { $0 }
-            #if os(macOS)
-                if ComposerLayout.offersDictation(draft) {
-                    ComposerDictationButton { dictationRequest += 1 }
-                }
-            #else
-                // Only when there is something to send (`ComposerSendButton`).
-                if canAct {
-                    ComposerSendButton(action: submit)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            #endif
-        }
-    }
-
     /// On macOS at the caret, through the text view, so it can be undone and
     /// mentions after it move (`ComposerTextView.Coordinator.insert`). The
     /// `TextField` elsewhere reports no caret, so `draft.caret` is the end.
     /// The field: an `NSTextView` on macOS, for tokens and a caret the `@`
     /// list can follow; a `TextField` elsewhere, with no mentions.
-    @ViewBuilder private var text: some View {
+    var text: some View {
         #if os(macOS)
             ComposerTextView(
                 draft: $draft,

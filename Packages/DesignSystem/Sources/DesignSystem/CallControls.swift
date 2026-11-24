@@ -9,10 +9,8 @@ import SwiftUI
 /// exactly when the person is sharing from another app, and the incoming call
 /// panel is never key at all.
 ///
-/// The two finishes are two branches, so a control that changes finish, as
-/// Mute does from glass to white, is replaced rather than changed and
-/// crossfades. A changed glyph within one finish, the camera's, turns into
-/// the new one in place (`CallGlyphMotion`).
+/// A change in finish crossfades. A glyph change within one finish uses
+/// `CallGlyphMotion`.
 struct CallRoundButton: View {
     let title: String
     let symbol: String
@@ -127,6 +125,7 @@ struct CallControlBar: View {
     let screenSharing: CallScreenShareState?
     let diagnostics: CallDiagnosticsItem?
     var roster: [CallRosterEntry]?
+    var pinTargets: [CallParticipantDevice]?
     var showsPeople: Binding<Bool>?
     var stageSelection: Binding<CallStageSelection>?
     var layoutVideos: [CallRemoteVideo] = []
@@ -143,7 +142,7 @@ struct CallControlBar: View {
                     tone: call.isMuted ? .highlighted : .plain,
                     action: actions.toggleMute
                 )
-                .disabled(!canUseMedia)
+                .disabled(!canUseMedia || actions.microphoneRestricted)
                 if canUseMedia, let camera, let toggle = actions.toggleCamera {
                     CallCameraButton(camera: camera, toggle: toggle)
                 }
@@ -152,22 +151,40 @@ struct CallControlBar: View {
                         state: screenSharing, toggle: toggle, shareWithSound: actions.shareScreenWithSound
                     )
                 }
-                if call.isConversationCall, call.phase == .connected, let showsPeople {
-                    CallPeopleButton(entries: roster, isPresented: showsPeople)
+                if call.phase == .connected, canShowPeople,
+                   let showsPeople {
+                    CallPeopleButton(
+                        entries: roster,
+                        isPresented: showsPeople,
+                        activities: actions.activities, pinTargets: pinTargets,
+                        personalVideo: stageSelection.map {
+                            CallPersonalVideoControls(selection: $0, videos: layoutVideos)
+                        }
+                    )
                 }
                 if menu.hasContent {
                     menu
                 }
                 CallRoundButton(
-                    title: "End Call", symbol: "phone.down.fill", tone: .end, action: actions.hangUp
+                    title: endTitle,
+                    symbol: "phone.down.fill", tone: .end, action: actions.hangUp
                 )
                 .disabled(!AudioCallPresentation.canHangUp(call.phase))
             }
         }
     }
 
+    private var endTitle: String {
+        AudioCallPresentation.admissionStatus(for: call) == nil ? "End Call" : "Cancel Join"
+    }
+
     private var canUseMedia: Bool {
         AudioCallPresentation.canMute(call.phase)
+    }
+
+    private var canShowPeople: Bool {
+        call.isConversationCall || actions.hasHandControls || actions.activities?.state.agendaGuests?
+            .isEmpty == false
     }
 
     private var menu: CallMoreMenu {
@@ -190,97 +207,6 @@ struct CallControlBar: View {
             showsChat: showsChat,
             interactions: actions
         )
-    }
-}
-
-/// Devices and diagnostics, behind one control rather than pickers always on
-/// show: the sections a menu bar's Video menu would hold.
-struct CallMoreMenu: View {
-    struct Audio {
-        let devices: CallAudioDevices
-        let selectMicrophone: (String) -> Void
-        let selectSpeaker: (String) -> Void
-    }
-
-    struct Video {
-        let camera: CallCameraState
-        let select: (String) -> Void
-    }
-
-    let audio: Audio?
-    let video: Video?
-    let diagnostics: CallDiagnosticsItem?
-    var stageSelection: Binding<CallStageSelection>?
-    var layoutVideos: [CallRemoteVideo] = []
-    var showsInvitations: Binding<Bool>?
-    var showsActivities: Binding<Bool>?
-    var showsChat: Binding<Bool>?
-    var interactions: AudioCallActions?
-
-    var hasContent: Bool {
-        audio != nil || video != nil || diagnostics != nil || stageSelection != nil || interactions?
-            .toggleHandRaised != nil || interactions?.meetingURL != nil || interactions?
-            .invitations != nil || interactions?.chat != nil || interactions?.activities != nil
-    }
-
-    var body: some View {
-        Menu {
-            if interactions?.activities != nil, let showsActivities {
-                Button("Activities…", systemImage: "square.grid.2x2") { showsActivities.wrappedValue = true }
-            }
-            if interactions?.chat != nil, let showsChat {
-                Button("Chat", systemImage: "bubble.left.and.bubble.right") { showsChat.wrappedValue = true }
-            }
-            if interactions?.invitations != nil, let showsInvitations {
-                Button("Invite People…", systemImage: "person.badge.plus") {
-                    showsInvitations.wrappedValue = true
-                }
-            }
-            if let interactions {
-                if let toggle = interactions.toggleHandRaised {
-                    Button(
-                        interactions.handRaised == true ? "Lower Hand" : "Raise Hand",
-                        systemImage: "hand.raised",
-                        action: toggle
-                    )
-                    .disabled(interactions.isUpdatingHand)
-                }
-                if let url = interactions.meetingURL {
-                    if let copy = interactions.copyMeetingLink {
-                        Button(
-                            "Copy Meeting Link",
-                            systemImage: "link",
-                            action: copy
-                        )
-                    }
-                    ShareLink(item: url) { Label("Share Meeting Link", systemImage: "square.and.arrow.up") }
-                }
-            }
-            if let stageSelection {
-                CallLayoutMenu(selection: stageSelection, videos: layoutVideos)
-            }
-            if let audio {
-                CallAudioDeviceSections(
-                    devices: audio.devices, selectMicrophone: audio.selectMicrophone,
-                    selectSpeaker: audio.selectSpeaker
-                )
-            }
-            if let video {
-                CallCameraSection(camera: video.camera, select: video.select)
-            }
-            if let diagnostics {
-                Divider()
-                Button("Copy Diagnostics", systemImage: "doc.on.clipboard", action: diagnostics.run)
-                    .disabled(diagnostics.state == .collecting)
-            }
-        } label: {
-            CallRoundFace(title: "More", symbol: "ellipsis", tone: .plain, size: CallLayout.button)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Call Options")
     }
 }
 
@@ -330,19 +256,23 @@ struct CallAnswerControls: View {
 /// What is left once a call is over: close the window or call again.
 struct CallFinishedControls: View {
     let callBack: (() -> Void)?
+    var returnToMeeting: (() -> Void)?
     let close: (() -> Void)?
     let diagnostics: CallDiagnosticsItem?
 
     var body: some View {
         VStack(spacing: 16) {
-            if callBack != nil || close != nil {
+            if callBack != nil || returnToMeeting != nil || close != nil {
                 HStack(spacing: 12) {
                     if let close {
                         Button("Close", action: close)
                             .buttonStyle(.glass)
                             .keyboardShortcut(.cancelAction)
                     }
-                    if let callBack {
+                    if let returnToMeeting {
+                        Button("Return to Meeting", action: returnToMeeting)
+                            .buttonStyle(.glassProminent)
+                    } else if let callBack {
                         CallBackButton(action: callBack)
                     }
                 }
@@ -362,9 +292,8 @@ struct CallFinishedControls: View {
 }
 
 /// Call Back, green like Accept and for the same reason solid: a tinted glass
-/// button turns gray in a window that is not key, and a finished call's
-/// window often is not. Its metrics are the extra-large glass button's beside
-/// it, the body font in a 36-point capsule with 18 points each side.
+/// button turns gray in the often inactive call window. The 36-point capsule
+/// matches the height of the neighboring glass button.
 struct CallBackButton: View {
     let action: () -> Void
 

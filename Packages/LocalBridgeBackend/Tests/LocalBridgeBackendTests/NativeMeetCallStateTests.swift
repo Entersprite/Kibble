@@ -42,7 +42,7 @@ struct NativeMeetCallStateTests {
             #expect(!media.calls.contains("close"))
         }
         await session.refreshState()
-        #expect(await session.state == .ended(.deviceEnded))
+        #expect(await session.state == .ended(.removedFromMeeting))
         #expect(media.calls.filter { $0 == "close" }.count == 1)
     }
 
@@ -96,7 +96,9 @@ struct NativeMeetCallStateTests {
         let session = setup.session
         try await session.connect()
         await session.refreshState()
-        #expect(await session.state == .ended(.deviceEnded))
+        #expect(await session.state == .ended(.removedFromMeeting))
+        #expect(await session.device.localDeviceName == nil)
+        #expect(await session.cleanupStatus.isConfirmed)
     }
 
     @Test func mediaLossCanRecoverButFailureClosesWithoutClaimingRemoteHangup() async throws {
@@ -314,7 +316,7 @@ struct NativeMeetCallStateTests {
     }
 }
 
-private actor HeldCollectionTransport: HTTPTransport {
+actor HeldCollectionTransport: HTTPTransport {
     let base: ScriptedTransport
     private(set) var started = false
     private var continuation: CheckedContinuation<Void, Never>?

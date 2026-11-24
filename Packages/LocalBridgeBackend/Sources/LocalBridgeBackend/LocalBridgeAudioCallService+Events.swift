@@ -41,7 +41,7 @@ extension LocalBridgeAudioCallService {
         }
         guard let current = snapshot, current.id == id, callScope == scope, !isStopping else { return }
         switch state {
-        case .ready: break
+        case .ready, .awaitingAdmission: break
         case .ringing: publish(phase: .ringing, snapshot: current)
         case .active: publish(phase: .connected, snapshot: current)
         case .reconnecting:
@@ -87,6 +87,8 @@ extension LocalBridgeAudioCallService {
             case .localEnded, .ringCancelled: .localEnded
             case .remoteEnded, .invitationEnded: .remoteEnded
             case .declined: .declined
+            case .removedFromMeeting: .removedFromMeeting
+            case .sentToWaitingRoom: .sentToWaitingRoom
             default: nil
             }
             publish(phase: .ended, snapshot: current, failure: cleanup.message, endReason: endReason)
@@ -101,6 +103,7 @@ extension LocalBridgeAudioCallService {
         guard let current = snapshot, current.id == callID,
               current.phase == .connected || current.phase == .ringing,
               let media, !isStopping else { throw CancellationError() }
+        guard muted || media.allowsMicrophone else { throw CallMediaError.captureRestricted }
         muteSequence += 1
         let sequence = muteSequence
         let scope = callScope

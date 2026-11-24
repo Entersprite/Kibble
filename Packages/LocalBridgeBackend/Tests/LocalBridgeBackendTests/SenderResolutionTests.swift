@@ -26,7 +26,7 @@ struct SenderResolutionTests: SenderResolutionFixtures {
         try await backend.connect()
 
         let messages = try await backend.loadMessages(in: Self.space, before: nil)
-        let events = await log.settle()
+        let events = try await log.waitForResolvedMembers()
 
         #expect(messages.count == 3)
         #expect(resolvedNames(in: events) == ["Ada Lovelace", "Grace Hopper"])
@@ -155,7 +155,7 @@ struct SenderResolutionTests: SenderResolutionFixtures {
         let log = SenderEventLog(backend)
         try await backend.connect()
 
-        let events = await log.settle()
+        let events = try await log.waitForResolvedMembers()
 
         #expect(events.contains {
             if case .messageReceived = $0 {

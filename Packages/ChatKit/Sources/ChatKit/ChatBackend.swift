@@ -29,6 +29,52 @@ public protocol ChatBackend: Sendable {
     /// Awaited so a refused or uncertain change can reconcile optimistic presentation.
     func setMessagePinned(_ pinned: Bool, at address: MessageAddress) async throws -> PinnedMessages
 
+    /// A page of the signed-in user's personal stars and their original message addresses.
+    func starredMessages(after cursor: String?) async throws -> StarredMessagesPage
+    func setMessageStarred(_ starred: Bool, at address: MessageAddress) async throws
+
+    /// The personal queue of messages awaiting provider delivery.
+    func scheduledMessages(after cursor: String?) async throws -> ScheduledMessagesPage
+    func scheduleMessage(
+        in conversation: Conversation.ID, thread: MessageThread.ID?, body: ComposedMessage,
+        at deliveryTime: Date
+    ) async throws -> ScheduledMessage
+    func scheduleSavedDraft(
+        _ draft: SyncedDraft, body: ComposedMessage, at deliveryTime: Date
+    ) async throws -> ScheduledMessage
+    func scheduleWithAttachments(
+        in address: ComposerDraftAddress, body: ComposedMessage, attachments: [Attachment],
+        at deliveryTime: Date, converting draft: SyncedDraft?
+    ) async throws -> ScheduledMessage
+    func editScheduledMessage(
+        _ address: ScheduledMessageAddress,
+        body: ComposedMessage
+    ) async throws -> ScheduledMessage
+    func rescheduleMessage(
+        _ address: ScheduledMessageAddress,
+        at deliveryTime: Date
+    ) async throws -> ScheduledMessage
+    func cancelScheduledMessage(_ address: ScheduledMessageAddress) async throws
+    func sendScheduledMessageNow(_ address: ScheduledMessageAddress) async throws
+    func blockedConversations() async throws -> [BlockedConversation]
+    func unblockConversation(_ id: Conversation.ID) async throws -> [BlockedConversation]
+    func blockedPeople() async throws -> [BlockedPerson]
+    func unblockPerson(_ id: Member.ID) async throws -> [BlockedPerson]
+    func conversationSections() async throws -> [ConversationSection]?
+    func updateConversationSection(_ edit: ConversationSectionEdit) async throws
+    func createConversationSection(named name: String) async throws -> ConversationSection
+    func deleteConversationSection(_ id: String) async throws
+    func moveConversationToSection(_ placement: ConversationSectionPlacement) async throws
+    /// Lists provider-saved drafts, optionally restricted to one exact composer.
+    func syncedDrafts(
+        at address: ComposerDraftAddress?,
+        after cursor: String?
+    ) async throws -> SyncedDraftPage
+    func writeSyncedDraft(
+        _ change: SyncedDraftChange,
+        operationID: String
+    ) async throws -> SyncedDraftWriteResult
+
     /// What this backend can do. Read it before offering the user an action:
     /// every flag defaults to `false`, so a backend that has not thought about
     /// a capability is treated as not having it.
@@ -75,6 +121,9 @@ public protocol ChatBackend: Sendable {
     /// not connected, or `capabilities` says no. The *outcome* arrives as an
     /// event.
     func send(_ command: ChatCommand) async throws
+
+    /// Submits one message and reports whether consumption of its saved draft was confirmed.
+    func send(_ command: ChatCommand, consuming draft: SyncedDraft) async throws -> Bool
 
     func invokeCardAction(_ action: AppCardActionRequest) async throws -> AppCardActionResult
 
@@ -126,6 +175,8 @@ public protocol ChatBackend: Sendable {
         _ level: NotificationLevel,
         for conversation: Conversation.ID
     ) async throws
+
+    func setConversationMute(_ pause: Pause, in conversation: Conversation.ID) async throws
 
     /// An attachment's bytes, at `size`. See the default below for why this
     /// is a request rather than a command, and what a backend that has not

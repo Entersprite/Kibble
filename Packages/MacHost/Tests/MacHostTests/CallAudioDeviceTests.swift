@@ -6,6 +6,61 @@ import Testing
 
 struct CallAudioDeviceTests {
     @MainActor
+    @Test func aPreJoinChoiceRestoresTheSameCallDeviceByStableUID() async throws {
+        let place = try DevicePreferencesPlace()
+        defer { place.remove() }
+        let hardware = FakeCallAudioHardware()
+        let catalog = CallPreparationAudioCatalog(
+            microphones: [.init(id: "uid:mic:usb", name: "USB Microphone")],
+            speakers: [.init(id: "uid:speaker:usb", name: "USB Headphones")],
+            defaultMicrophone: "default-mic", defaultSpeaker: "default-speaker"
+        )
+        let preparation = CallPreparationDevices(
+            preferences: place.preferences(), readAudio: { catalog }, readCameras: { [] }
+        )
+        let canceled = UUID()
+        preparation.bind(canceled)
+        preparation.select("uid:mic:usb", microphone: true, for: canceled)
+        #expect(preparation.microphone == "uid:mic:usb" && place.preferences().microphone.isEmpty)
+        preparation.bind(nil)
+        let joined = UUID()
+        preparation.bind(joined)
+        preparation.saveChoices(for: canceled)
+        #expect(preparation.microphone == "default-mic" && place.preferences().microphone.isEmpty)
+        preparation.select("uid:mic:usb", microphone: false, for: joined)
+        #expect(preparation.speaker == "default-speaker")
+        preparation.select("uid:mic:usb", microphone: true, for: joined)
+        preparation.select("uid:speaker:usb", microphone: false, for: joined)
+        preparation.saveChoices(for: joined)
+        let active = CallAudioDeviceController(preferences: place.preferences())
+        let route = NativeCallAudioRouting(hardware: hardware)
+        active.install(route)
+        try await settle(active)
+        #expect(active.devices?.microphone == "mic:usb" && active.devices?.speaker == "speaker:usb")
+        active.clear()
+        route.close()
+        preparation.bind(nil)
+    }
+
+    @MainActor
+    @Test func missingSavedDevicesUseDefaultsWithoutForgettingThePreference() throws {
+        let place = try DevicePreferencesPlace()
+        defer { place.remove() }
+        place.preferences().saveAudio("missing-speaker", microphone: false)
+        let preparation = CallPreparationDevices(
+            preferences: place.preferences(),
+            readAudio: { CallPreparationAudioCatalog(defaultSpeaker: "default-speaker") },
+            readCameras: { [] }
+        )
+        let id = UUID()
+        preparation.bind(id)
+        #expect(preparation.speaker == "default-speaker" && preparation.devices.speaker.isEmpty)
+        preparation.saveChoices(for: id)
+        #expect(place.preferences().speaker == "missing-speaker")
+        preparation.bind(nil)
+    }
+
+    @MainActor
     @Test func failedSwitchRestoresControlsAndShowsFeedback() async throws {
         let hardware = FakeCallAudioHardware()
         hardware.state.withLock { $0.acceptsSelection = false }
@@ -225,7 +280,7 @@ struct CallAudioDeviceTests {
 
     /// Waits for the first snapshot, then for any selection to finish.
     @MainActor
-    private func settle(_ controller: CallAudioDeviceController) async throws {
+    func settle(_ controller: CallAudioDeviceController) async throws {
         for _ in 0 ..< 500 where controller.devices == nil || controller.devices?.isUpdating == true {
             await Task.yield()
         }
@@ -253,7 +308,7 @@ struct DevicePreferencesPlace {
     }
 }
 
-private final class FakeCallAudioHardware: CallAudioHardware, Sendable {
+final class FakeCallAudioHardware: CallAudioHardware, Sendable {
     struct State {
         var inputs = [CallAudioDevice(id: "mic:usb", name: "USB Microphone")]
         var outputs = [CallAudioDevice(id: "speaker:usb", name: "USB Headphones")]

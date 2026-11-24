@@ -26,6 +26,9 @@ extension LocalBridgeBackend {
         var accepted: [ChatEvent] = []
         for (body, event) in zip(event.bodies, mapped) {
             reconcileHiddenConversation(event, type: body.typeTag)
+            if case let .conversationNotificationSettingsChanged(id, _, _, _) = event {
+                notificationWrites[id]?.observedUpdates += 1
+            }
             if prepareEvent(event) {
                 accepted.append(event)
             }
@@ -93,9 +96,13 @@ extension LocalBridgeBackend {
         switch event {
         case let .messageReceived(message), let .messageUpdated(message): message.conversationID
         case let .messageDeleted(_, id), let .conversationRemoved(id, _), let .readStateChanged(id, _, _),
-             let .conversationUnreadMarkChanged(id, _), let .unreadThreadsChanged(id, _): id
+             let .conversationUnreadMarkChanged(id, _), let .unreadThreadsChanged(id, _),
+             let .conversationNotificationSettingsChanged(id, _, _, _): id
         case let .conversationUpdated(row): row.id
         case let .threadChanged(_, id, _): id
+        case let .messageStarChanged(address, _): address.conversation
+        case let .unsentMessagesChanged(change): change.address?.conversation
+        case let .conversationSectionsChanged(_, id): id
         default: nil
         }
     }

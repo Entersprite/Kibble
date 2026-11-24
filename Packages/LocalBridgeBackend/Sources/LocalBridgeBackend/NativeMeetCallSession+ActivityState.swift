@@ -4,10 +4,13 @@ import GChatBridgeCore
 
 extension NativeMeetCallSession {
     func reconcileActivities(_ snapshot: MeetActivityCollections.Snapshot) async {
+        let messageDevice = snapshot.messages == nil ? nil : await device.localDeviceName
         guard !closed else { return }
         // Never apply an older full collection after a newer mutation read-back.
         let accepted = snapshot.versions.filter { $0.value >= (activityVersions[$0.key] ?? 0) }
         updateActivityCollectionFailures(snapshot.unavailableFields, confirmed: Set(accepted.keys))
+        let previousPermissions = localCapturePermissions
+        reconcileHostControls(snapshot)
         for (key, version) in accepted {
             activityVersions[key] = version
         }
@@ -15,14 +18,11 @@ extension NativeMeetCallSession {
             reconcileMeetingSpace(space)
         }
         if accepted[3] != nil, let messages = snapshot.messages {
-            await mergeActivityMessages(
-                messages,
-                replacing: true
-            )
+            reconcileActivityMessages(messages, local: messageDevice)
         }
         if accepted[5] != nil,
            let series = snapshot
-           .pollSeries {
+               .pollSeries {
             pollsAccepting = series.first.map { MeetActivityCollections.number(2, $0) == 1 } ?? false
             pollSeries = series.first.flatMap { MeetActivityCollections.text(
                 1,
@@ -31,7 +31,7 @@ extension NativeMeetCallSession {
         }
         if accepted[7] != nil,
            let series = snapshot
-           .questionSeries {
+               .questionSeries {
             activities.allowsAnonymousQuestions = series.first
                 .map { MeetActivityCollections.number(4, $0) == 1 }
             questionsAccepting = series.first.map { MeetActivityCollections.number(2, $0) == 1 } ?? false
@@ -54,16 +54,37 @@ extension NativeMeetCallSession {
         }
         pruneActivityResources()
         updateActivityAvailability()
+        await publishActivityState(previousPermissions: previousPermissions)
+    }
+
+    private func publishActivityState(previousPermissions: LocalCapturePermissions) async {
+        let permissions = localCapturePermissions
+        activities.microphoneRestricted = permissions.microphone ? nil : true
+        if !permissions.microphone {
+            if previousPermissions.microphone {
+                hostControls.microphoneInterruptionVersion += 1
+            }
+            desiredMuted = true
+        }
+        if permissions.microphone != previousPermissions.microphone
+            || permissions.camera != previousPermissions.camera {
+            await media.setCaptureAllowed(microphone: permissions.microphone, camera: permissions.camera)
+        }
+        if previousPermissions.screen != localCapturePermissions.screen {
+            await media.setScreenSharingAllowed(localCapturePermissions.screen)
+        }
+        guard !closed else { return }
         await receiveActivities?(activities)
     }
 
     private func pruneActivityResources() {
-        let ids = Set(activities.messages.map(\.id) + activities.polls.map(\.id)
+        let ids = Set(activities.messages.map(\.id) + (activities.waitingRoomMessages ?? []).map(\.id)
+            + activities.polls.map(\.id)
             + activities.questions.map(\.id) + activities.rooms.map(\.id) + activities.people.map(\.id))
         activityResources = activityResources.filter { ids.contains($0.key) }
     }
 
-    func reconcileMeetingSpace(_ space: Data) {
+    private func reconcileMeetingSpace(_ space: Data) {
         guard let info = try? MeetActivityCollections.bytes(6, space) else { return }
         activities.artifacts = [("recording", 20), ("transcription", 17), ("notes", 29)].map { kind, field in
             guard let session = try? MeetActivityCollections.bytes(field, info) else {
@@ -78,26 +99,51 @@ extension NativeMeetCallSession {
                 ) }
             let phases: [UInt64: String] = [1: "starting", 2: "active", 3: "stopped", 4: "preconfigured"]
             let phase = state.flatMap { phases[$0] } ?? "unknown"
-            return CallArtifact(kind: kind, phase: phase)
+            return CallArtifact(
+                kind: kind, phase: phase,
+                recordingCaptionLanguage: kind == "recording" && ["active", "starting"].contains(phase)
+                    ? MeetActivityWire.recordingCaptionLanguage(in: session) : nil
+            )
         }
         if let settings = try? MeetActivityCollections.bytes(11, info) {
             activities.attendanceReportEnabled = (MeetActivityCollections.number(4, settings) ?? 0) != 0
-            activityChatLocked = MeetActivityCollections.number(8, settings) == 1
-            activityReactionsLocked = MeetActivityCollections.number(9, settings) == 1
+            activityChatLocked = MeetActivityCollections.number(2, settings) == 1
         }
     }
 
-    func mergeActivityMessages(_ values: [Data], replacing: Bool) async {
+    private func reconcileActivityMessages(_ messages: [Data], local: String?) {
+        mergeActivityMessages(messages, replacing: true, local: local)
+        if canMessageWaitingRoom {
+            mergeWaitingRoomMessages(messages, replacing: true)
+        }
+    }
+
+    func mergeActivityMessages(_ values: [Data], replacing: Bool, local: String?) {
         var messages = replacing ? [] : activities.messages
         for value in values.prefix(256) {
-            guard MeetActivityCollections.number(6, value) == 1,
+            guard MeetActivityDataWire.isPublicChatText(value),
                   let body = try? MeetActivityCollections.bytes(5, value),
                   let text = MeetActivityCollections.text(1, body),
                   let name = MeetActivityCollections.text(1, value) else { continue }
             let id = activityHandle(name, kind: "message")
             let device = MeetActivityCollections.text(2, value)
             let sender = device.flatMap { participantDevices[$0]?.displayName } ?? "Participant"
-            let message = CallMeetingMessage(id: id, sender: sender, text: text)
+            let pinned = MeetActivityDataWire.publicChatPin(in: value)
+            let canChangePin = pinned.map {
+                Self.canChangeMeetingMessagePin(
+                    sender: device,
+                    local: local,
+                    pinned: $0,
+                    role: hostControls.access?.role
+                )
+            }
+            let message = CallMeetingMessage(
+                id: id,
+                sender: sender,
+                text: text,
+                isPinned: pinned,
+                canChangePin: canChangePin == true ? true : nil
+            )
             if let index = messages.firstIndex(where: { $0.id == id }) {
                 messages[index] = message
             } else {
@@ -108,7 +154,6 @@ extension NativeMeetCallSession {
         let messageIDs = Set(activities.messages.map(\.id))
         activityResources = activityResources
             .filter { $0.value.kind != "message" || messageIDs.contains($0.key) }
-        await receiveActivities?(activities)
     }
 
     func reconcilePolls(_ values: [Data]) {
