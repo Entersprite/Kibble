@@ -9,11 +9,11 @@ extension CallActivitiesView {
         let files = scene.state.artifactFiles
             .filter { $0.url.scheme?.lowercased() == "https" && $0.url.host != nil }
         let showsAttendance = offers("attendance") || scene.state.attendanceReportEnabled != nil
+        // Captions and the host's controls bring their own sections and
+        // headers, so they sit at the form's top level, not inside one here.
         if offers("captions") {
-            Section {
-                CallCaptionControls(settings: scene.state.captions, languages: scene.state.captionLanguages) {
-                    submit($0)
-                }
+            CallCaptionControls(settings: scene.state.captions, languages: scene.state.captionLanguages) {
+                submit($0)
             }
         }
         if !artifacts.isEmpty || !files.isEmpty {
@@ -48,12 +48,8 @@ extension CallActivitiesView {
             }
         }
         if scene.state.hostSettings != nil {
-            Section {
-                VStack(alignment: .leading, spacing: 0) {
-                    hostControls { submit($0) }
-                }
+            hostControls { submit($0) }
                 .disabled(busy)
-            }
         }
         if !offers("captions"), artifacts.isEmpty, files.isEmpty, !showsAttendance,
            scene.state.hostSettings == nil {
