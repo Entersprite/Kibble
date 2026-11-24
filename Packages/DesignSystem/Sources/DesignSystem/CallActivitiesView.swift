@@ -1,70 +1,70 @@
 import ChatKit
 import SwiftUI
 
+/// Meeting Activities, a sheet over the call window: what the meeting keeps
+/// (captions, recording, transcription, notes, attendance) and its host
+/// controls, its chat, polls, questions and breakout rooms, one section at a
+/// time.
+///
+/// A grouped form, as the app's other sheets are. A control is drawn only for
+/// an action the meeting offers; one that is offered and cannot run right now
+/// is disabled. Reactions are not here: they are one click away in the call's
+/// More menu, where sending one does not need a sheet. Chat is a pane of its
+/// own rather than form rows, because it scrolls and keeps its field in place.
 struct CallActivitiesView: View {
     let scene: CallActivitiesScene
     @Environment(\.dismiss) private var dismiss
-    @State private var tab = "Meeting"
-    @State private var busy = false
+    @State var tab: CallActivityTab
+    @State var busy = false
     @State private var error: String?
     @State private var operation: Task<Void, Never>?
-    @Binding private var message: String
-    @Binding private var waitingRoomMessage: String
-    @Binding private var question: String
-    @Binding private var pollTitle: String
-    @Binding private var pollOptions: String
-    @Binding private var roomNames: String
-    @Binding private var anonymous: Bool
-    @State private var artifactToStart: String?
+    @State var artifactToStart: String?
     @State var recordingCaptionLanguage = ""
+    @Binding var drafts: CallActivityDrafts
 
     init(
         scene: CallActivitiesScene,
         drafts: Binding<CallActivityDrafts> = .constant(CallActivityDrafts()),
-        initialTab: String = "Meeting"
+        initialTab: CallActivityTab = .meeting
     ) {
-        self.scene = scene; _tab = State(initialValue: initialTab)
-        _message = drafts.message; _waitingRoomMessage = drafts.waitingRoomMessage
-        _question = drafts.question
-        _pollTitle = drafts.pollTitle; _pollOptions = drafts.pollOptions
-        _roomNames = drafts.roomNames; _anonymous = drafts.anonymous
+        self.scene = scene
+        _tab = State(initialValue: initialTab)
+        _drafts = drafts
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Text("Meeting Activities").font(.headline)
-                Spacer()
-                if busy {
-                    ProgressView().controlSize(.small)
-                }
-                Button("Refresh", systemImage: "arrow.clockwise") { submit(CallActivity("refresh")) }
-                    .disabled(busy)
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
-            }
-            Picker("Activities", selection: $tab) {
-                ForEach(["Meeting", "Chat", "Polls", "Q&A", "Rooms"], id: \.self) { Text($0).tag($0) }
-            }.pickerStyle(.segmented)
-            if let error {
-                Text(error).font(.callout).foregroundStyle(.orange).textSelection(.enabled)
-            }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    switch tab {
-                    case "Chat":
-                        CallMeetingActivityChat(
-                            scene: scene, message: $message, waitingRoomMessage: $waitingRoomMessage,
-                            busy: busy, submit: submit
-                        )
-                    case "Polls": polls
-                    case "Q&A": questions
-                    case "Rooms": rooms
-                    default: meeting
+        // The sections sit above the form, not in a bar over it: a form
+        // drawn under a bar started with its first rows behind the picker.
+        VStack(spacing: 0) {
+            header
+            if tab == .chat {
+                chatPane
+            } else {
+                Form {
+                    if let error {
+                        Section { SheetErrorRow(message: error) }
                     }
-                }.disabled(busy).frame(maxWidth: .infinity, alignment: .leading).padding(4)
+                    switch tab {
+                    case .meeting: meeting
+                    case .polls: polls
+                    case .questions: questions
+                    case .rooms: CallActivityRoomsView(
+                            state: scene.state, busy: busy, roomNames: $drafts.roomNames,
+                            submit: { submit($0, accepted: $1) }
+                        )
+                    case .chat: EmptyView()
+                    }
+                }
+                .formStyle(.grouped)
             }
         }
-        .padding(20).frame(width: 560, height: 560)
+        .frame(minWidth: 460, idealWidth: 520, minHeight: 420, idealHeight: 560)
+        .toolbar {
+            // Done closes on Escape and takes no Return, which the fields use.
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
         .task { submit(CallActivity("refresh")) }
         .onDisappear { operation?.cancel() }
         .onChange(of: scene.state.recordingCaptionLanguages) {
@@ -76,226 +76,91 @@ struct CallActivitiesView: View {
                 }
             }
         }
-        .confirmationDialog("Start meeting activity?", isPresented: Binding(
-            get: { artifactToStart != nil }, set: {
-                if !$0 {
+        .confirmationDialog(
+            artifactToStart.map(CallArtifactPresentation.startQuestion) ?? "",
+            isPresented: Binding(get: { artifactToStart != nil }, set: { shown in
+                if !shown {
                     artifactToStart = nil
                 }
+            }),
+            presenting: artifactToStart
+        ) { kind in
+            Button("Start \(CallArtifactPresentation.title(kind))") {
+                submit(CallActivity(
+                    kind, recordingCaptionLanguage: kind == "recording" ? chosenLanguage : nil
+                ))
             }
-        )) {
-            if let kind = artifactToStart {
-                Button("Start " + title(kind)) {
-                    submit(CallActivity(
-                        kind,
-                        recordingCaptionLanguage: kind == "recording" ? chosenLanguage : nil
-                    ))
-                    artifactToStart = nil
-                }
-                if kind == "recording", canSetCapturePair(true) {
-                    Button("Start Recording and Transcription") {
-                        submitCapturePair(true)
-                        artifactToStart = nil
-                    }
-                }
+            if kind == "recording", canSetCapturePair(true) {
+                Button("Start Recording and Transcription") { submitCapturePair(true) }
             }
-        } message: {
-            Text(
-                "Participants will be notified. " +
-                    "The meeting organizer receives the saved artifact through the meeting service."
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Everyone in the meeting is told. What it saves goes to the meeting’s organizer.")
+        }
+    }
+
+    /// The sections, and Refresh, which turns into the progress of whatever
+    /// is on its way. Both stay in place so the bar never changes size.
+    private var header: some View {
+        HStack(spacing: 12) {
+            Picker("Section", selection: $tab) {
+                ForEach(CallActivityTab.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            ZStack {
+                Button("Refresh", systemImage: "arrow.clockwise") { submit(CallActivity("refresh")) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .disabled(busy)
+                    .opacity(busy ? 0 : 1)
+                    .help("Refresh")
+                ProgressView()
+                    .controlSize(.small)
+                    .opacity(busy ? 1 : 0)
+                    .accessibilityHidden(!busy)
+            }
+            .frame(width: 22)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 6)
+    }
+
+    /// The meeting's chat, with a failure above it, where the form's would be.
+    private var chatPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let error {
+                SheetErrorRow(message: error)
+            }
+            CallMeetingActivityChat(
+                scene: scene, message: $drafts.message, waitingRoomMessage: $drafts.waitingRoomMessage,
+                busy: busy, submit: { submit($0, accepted: $1) }
             )
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    private var meeting: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if scene.state.availableActions.contains("captions") {
-                CallCaptionControls(settings: scene.state.captions, languages: scene.state.captionLanguages) {
-                    submit($0)
-                }
-                Divider()
-            }
-            Text("Reactions").font(.headline)
-            HStack {
-                ForEach(["❤️", "👍", "🎉", "👏", "😂", "😮", "😢", "🤔", "👎"], id: \.self) { emoji in
-                    Button(emoji) { submit(CallActivity("react", text: emoji)) }
-                        .font(.title2).buttonStyle(.plain).disabled(!can("react"))
-                        .accessibilityLabel("React " + emoji)
-                }
-            }
-            Divider()
-            ForEach(scene.state.artifacts) { artifact in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(title(artifact.kind)).font(.headline)
-                        Text(artifact.phase.capitalized).font(.caption).foregroundStyle(.secondary)
-                        if let language = artifact.recordingCaptionLanguage {
-                            Text("Captions in \(languageName(language))")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    if artifact.canSetEnabled(false) {
-                        if artifact.kind == "recording", canSetCapturePair(false) {
-                            Button("Stop Recording and Transcription") { submitCapturePair(false) }
-                        }
-                        Button("Stop") { submit(CallActivity(artifact.kind, enabled: false)) }
-                            .disabled(!can(artifact.kind))
-                    } else {
-                        Button("Start…") { artifactToStart = artifact.kind }
-                            .disabled(!can(artifact.kind) || !artifact.canSetEnabled(true))
-                    }
-                }
-                if artifact.kind == "recording", artifact.canSetEnabled(true),
-                   scene.state.availableActions.contains("recording"),
-                   !scene.state.recordingCaptionLanguages.isEmpty {
-                    recordingCaptionPicker
-                }
-            }
-            if !scene.state.artifactFiles.isEmpty {
-                ForEach(scene.state.artifactFiles) { file in
-                    if file.url.scheme?.lowercased() == "https", file.url.host != nil {
-                        Link(destination: file.url) {
-                            Label(file.title ?? title(file.kind), systemImage: "arrow.up.right.square")
-                        }
-                    }
-                }
-            }
-            Divider()
-            Toggle("Email attendance report to the organizer", isOn: Binding(
-                get: { scene.state.attendanceReportEnabled == true },
-                set: { submit(CallActivity("attendance", enabled: $0)) }
-            ))
-            .disabled(!can("attendance"))
-            hostControls { submit($0) }
-            Text("Availability depends on your account, meeting permissions, and organization settings.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
+    /// Whether the meeting offers the action at all: what decides if its
+    /// control is drawn.
+    func offers(_ action: String) -> Bool {
+        scene.state.availableActions.contains(action)
     }
 
-    private var polls: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ForEach(scene.state.polls) { poll in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(poll.question).font(.headline)
-                    ForEach(Array(poll.options.enumerated()), id: \.offset) { index, option in
-                        HStack {
-                            Text(option)
-                            Spacer()
-                            if poll.votes.indices
-                                .contains(index) {
-                                Text("\(poll.votes[index])").foregroundStyle(.secondary)
-                            }
-                            if poll.isOpen {
-                                Button(poll.selections.contains(index) ? "Selected" : "Vote") {
-                                    submit(CallActivity("votePoll", resourceID: poll.id, selections: [index]))
-                                }.disabled(!can("votePoll"))
-                            }
-                        }
-                    }
-                    if let visible = poll.resultsVisible {
-                        Toggle("Share results with everyone", isOn: Binding(
-                            get: { visible },
-                            set: { submit(CallActivity("sharePollResults", resourceID: poll.id, enabled: $0))
-                            }
-                        )).disabled(!can("sharePollResults"))
-                    }
-                    if poll.isOpen {
-                        Button("End poll") { submit(CallActivity("closePoll", resourceID: poll.id)) }
-                            .disabled(!can("closePoll"))
-                    } else {
-                        Text("Closed").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Divider()
-            }
-            Text("Create a poll").font(.headline)
-            TextField("Question", text: $pollTitle)
-            TextField("Options, one per line", text: $pollOptions, axis: .vertical).lineLimit(2 ... 10)
-            Button("Launch Poll") {
-                submit(CallActivity("createPoll", text: pollTitle, options: lines(pollOptions))) {
-                    pollTitle = ""; pollOptions = ""
-                }
-            }
-            .disabled(!can("createPoll") || pollTitle.isEmpty || !(2 ... 10)
-                .contains(lines(pollOptions).count))
-        }
-    }
-
-    private var questions: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ForEach(scene.state.questions) { question in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(question.text).textSelection(.enabled)
-                    HStack {
-                        Button(
-                            "\(question.votes) votes",
-                            systemImage: question.hasVoted ? "hand.thumbsup.fill" : "hand.thumbsup"
-                        ) {
-                            submit(CallActivity(
-                                "voteQuestion",
-                                resourceID: question.id,
-                                enabled: !question.hasVoted
-                            ))
-                        }.disabled(!can("voteQuestion"))
-                        Spacer()
-                        if question.isAnswered {
-                            Label("Answered", systemImage: "checkmark")
-                        } else {
-                            Button("Mark Answered") { submit(CallActivity(
-                                "answerQuestion",
-                                resourceID: question.id
-                            )) }
-                            .disabled(!can("answerQuestion"))
-                        }
-                    }
-                }
-                Divider()
-            }
-            TextField("Ask a question", text: $question, axis: .vertical).lineLimit(2 ... 5)
-            Toggle("Ask anonymously", isOn: $anonymous)
-                .disabled(!can("askQuestion") || scene.state.allowsAnonymousQuestions != true)
-                .onChange(of: scene.state.allowsAnonymousQuestions) { _, allowed in
-                    if allowed != true {
-                        anonymous = false
-                    }
-                }
-            Button("Ask") {
-                submit(CallActivity(
-                    "askQuestion",
-                    text: question,
-                    enabled: !(anonymous && scene.state.allowsAnonymousQuestions == true)
-                )) {
-                    question = ""
-                }
-            }
-            .disabled(!can("askQuestion") || question.trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty)
-        }
-    }
-
-    private var rooms: some View {
-        CallActivityRoomsView(state: scene.state, busy: busy, roomNames: $roomNames, submit: submit)
-    }
-
-    private func title(_ kind: String) -> String {
-        kind == "notes" ? "Notes" : kind.capitalized
-    }
-
-    private func can(_ action: String) -> Bool {
-        !busy && scene.state.availableActions.contains(action)
-    }
-
-    private func lines(_ text: String) -> [String] {
-        text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+    /// Whether the action can run now: not while another is on its way.
+    func can(_ action: String) -> Bool {
+        !busy && offers(action)
     }
 }
 
-private extension CallActivitiesView {
+extension CallActivitiesView {
     func submit(_ activity: CallActivity, accepted: (() -> Void)? = nil) {
-        let failure = activity.action == "refresh" ? "Meeting activities could not be refreshed." :
-            "The action was refused or could not be confirmed. Check the meeting state before trying again."
-        submit(failure: failure, accepted: accepted) { try await scene.perform(activity) }
+        submit(failure: CallActivityCopy.failure(for: activity), accepted: accepted) {
+            try await scene.perform(activity)
+        }
     }
 
     func canSetCapturePair(_ enabled: Bool) -> Bool {
@@ -306,14 +171,13 @@ private extension CallActivitiesView {
     func submitCapturePair(_ enabled: Bool) {
         guard canSetCapturePair(enabled),
               let setEnabled = scene.setRecordingAndTranscriptionEnabled else { return }
-        let failure = "The capture change could not be confirmed. Check its status before trying again."
         let language = enabled ? chosenLanguage : nil
-        submit(failure: failure) {
+        submit(failure: CallActivityCopy.captureFailed) {
             try await setEnabled(enabled, language)
         }
     }
 
-    func submit(
+    private func submit(
         failure: String,
         accepted: (() -> Void)? = nil,
         _ action: @escaping () async throws -> Void
@@ -328,18 +192,46 @@ private extension CallActivitiesView {
                 accepted?()
             } catch let failure as CallArtifactPairError {
                 guard !Task.isCancelled else { return }
-                self.error = switch failure {
-                case .recordingUnconfirmed:
-                    "Transcription stopped. Check the recording status before trying again."
-                case .transcriptionUnconfirmed:
-                    "The recording change was confirmed. Check the transcription status before trying again."
-                case .bothUnconfirmed:
-                    "Neither stop could be confirmed. Check both activity statuses before trying again."
-                }
+                self.error = CallActivityCopy.failure(for: failure)
             } catch {
                 guard !Task.isCancelled else { return }
                 self.error = failure
             }
+        }
+    }
+}
+
+/// A row saying a section has nothing in it yet.
+struct CallActivityEmptyRow: View {
+    let text: String
+
+    var body: some View {
+        Text(text).foregroundStyle(.secondary)
+    }
+}
+
+/// One field per line of a list someone types: a poll's answers, the names of
+/// new rooms. Return in a field never adds a line or closes the sheet; Add
+/// does, up to the limit. Empty fields are left out when the list is sent.
+struct CallLineFields: View {
+    @Binding var lines: [String]
+    /// What one line is: "Option", "Room".
+    let title: String
+
+    var body: some View {
+        ForEach(lines.indices, id: \.self) { index in
+            TextField("\(title) \(index + 1)", text: Binding(
+                get: { lines.indices.contains(index) ? lines[index] : "" },
+                set: { text in
+                    if lines.indices.contains(index) {
+                        lines[index] = text
+                    }
+                }
+            ))
+        }
+        if lines.count < CallActivityDrafts.lineLimit {
+            Button("Add \(title)", systemImage: "plus") { lines.append("") }
+                .buttonStyle(.borderless)
         }
     }
 }

@@ -17,24 +17,37 @@ struct CallActivityOverlay: ViewModifier {
 private struct CallReactionStack: View {
     let reactions: [CallMeetingReaction]
     @State private var presentation = CallReactionPresentation()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // The emoji large beside who sent it, on glass like the window's
+        // other notices, below the titlebar's buttons.
         VStack(alignment: .leading, spacing: 6) {
             ForEach(presentation.visible) { reaction in
-                Text(reaction.emoji + " " + reaction.sender)
-                    .font(.title3)
-                    .lineLimit(1)
-                    .padding(12)
-                    .background(.ultraThinMaterial, in: .capsule)
-                    .task {
-                        try? await Task.sleep(for: .seconds(4))
-                        guard !Task.isCancelled else { return }
-                        presentation.dismiss(reaction.id)
-                    }
+                HStack(spacing: 8) {
+                    Text(reaction.emoji).font(.title2)
+                    Text(reaction.sender).font(.callout).lineLimit(1)
+                }
+                .padding(.leading, 10)
+                .padding(.trailing, 14)
+                .padding(.vertical, 7)
+                .glassEffect(.regular, in: .capsule)
+                .frame(maxWidth: 260, alignment: .leading)
+                .transition(
+                    reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.8, anchor: .leading))
+                )
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(reaction.sender) reacted \(reaction.emoji)")
+                .task {
+                    try? await Task.sleep(for: .seconds(4))
+                    guard !Task.isCancelled else { return }
+                    presentation.dismiss(reaction.id)
+                }
             }
         }
-        .padding(.top, 40)
+        .padding(.top, 44)
         .padding(.horizontal, 16)
+        .animation(.smooth(duration: 0.3), value: presentation.visible.map(\.id))
         .onChange(of: reactions.last?.id, initial: true) { _, _ in
             presentation.receive(reactions)
         }
@@ -146,8 +159,12 @@ struct CallHandControls: View {
 
     var body: some View {
         if let toggle = actions.toggleHandRaised {
-            Button(CallMenu.handTitle(actions.handRaised == true), systemImage: "hand.raised", action: toggle)
-                .disabled(actions.isUpdatingHand)
+            let raised = actions.handRaised == true
+            Button(
+                CallMenu.handTitle(raised), systemImage: raised ? "hand.raised.slash" : "hand.raised",
+                action: toggle
+            )
+            .disabled(actions.isUpdatingHand)
         }
         if let gesture = actions.handGesture {
             Toggle(
@@ -170,7 +187,7 @@ struct CallAutomaticHandPrompt: View {
                 Text(failed ? "Couldn’t keep your hand raised. Try again." : message(at: context.date))
                     .monospacedDigit()
             }
-            Button("Keep it raised") {
+            Button("Keep It Raised") {
                 guard request == nil else { return }
                 request = Task {
                     defer { request = nil }

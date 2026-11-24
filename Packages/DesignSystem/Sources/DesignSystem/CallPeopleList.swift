@@ -3,13 +3,15 @@ import SwiftUI
 
 /// Everyone else in the call, for the People control and the strip's "+N".
 struct CallPeopleList: View {
+    /// Wide enough for a name beside Deny and Admit, or a role and its marks.
+    static let width: CGFloat = 300
     let entries: [CallRosterEntry]?
     var activities: CallActivitiesScene?
     var pinTargets: [CallParticipantDevice]?
     var personalVideo: CallPersonalVideoControls?
     @State private var operation: Task<Void, Never>?
     @State private var failure: String?
-    @State private var confirmation: Confirmation?
+    @State private var confirmation: CallPeopleConfirmation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -19,6 +21,7 @@ struct CallPeopleList: View {
                 if offers("muteAllParticipants"),
                    entries?.contains(where: { $0.microphoneMuted != true }) == true {
                     Button("Mute All…") { confirmation = .muteAll }
+                        .controlSize(.small)
                         .disabled(operation != nil)
                 }
             }
@@ -60,14 +63,12 @@ struct CallPeopleList: View {
                     .padding(.bottom, 12)
             }
             if let failure {
-                Text(failure)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                CallChatNote(text: failure, isWarning: true)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 12)
             }
         }
-        .frame(width: 260, alignment: .leading)
+        .frame(width: Self.width, alignment: .leading)
         .alert(confirmation?.title ?? "", isPresented: showsConfirmation, presenting: confirmation) { value in
             Button("Cancel", role: .cancel) {}
             Button(value.button, role: value.role) { perform(value.activity) }
@@ -88,6 +89,7 @@ struct CallPeopleList: View {
                     Spacer()
                     if offers("lowerAllHands") {
                         Button("Lower All…") { confirmation = .lowerAllHands }
+                            .controlSize(.small)
                             .disabled(operation != nil)
                     }
                 }
@@ -137,33 +139,12 @@ struct CallPeopleList: View {
             let canBlock = entry.canBlockInMeeting && offers("blockParticipant")
             if cohost != nil || canMute || canRemove || canSendToWaitingRoom || canBlock {
                 Menu {
-                    if canMute {
-                        Button("Mute Microphone", systemImage: "mic.slash") {
-                            perform(CallActivity("muteParticipant", resourceID: entry.id))
-                        }
-                    }
-                    if let cohost {
-                        Button(cohost ? "Make co-host" : "Remove co-host role") {
-                            perform(CallActivity("setCohost", resourceID: entry.id, enabled: cohost))
-                        }
-                    }
-                    if canRemove {
-                        Button(role: .destructive) { confirmation = .remove(entry) } label: {
-                            Label("Remove from Call…", systemImage: "person.fill.xmark")
-                        }
-                    }
-                    if canSendToWaitingRoom {
-                        Button { confirmation = .sendToWaitingRoom(entry) } label: {
-                            Label("Send to Waiting Room…", systemImage: "arrow.turn.up.left")
-                        }
-                    }
-                    if canBlock {
-                        Button(role: .destructive) { confirmation = .block(entry) } label: {
-                            Label("Block from This Meeting…", systemImage: "hand.raised.slash")
-                        }
-                    }
+                    moderation(
+                        entry, cohost: cohost, canMute: canMute, canRemove: canRemove,
+                        canSendToWaitingRoom: canSendToWaitingRoom, canBlock: canBlock
+                    )
                 } label: {
-                    Image(systemName: "ellipsis")
+                    Label("Actions", systemImage: "ellipsis").labelStyle(.iconOnly)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -174,6 +155,46 @@ struct CallPeopleList: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    @ViewBuilder private func moderation(
+        _ entry: CallRosterEntry, cohost: Bool?, canMute: Bool, canRemove: Bool,
+        canSendToWaitingRoom: Bool, canBlock: Bool
+    ) -> some View {
+        if canMute {
+            Button("Mute Microphone", systemImage: "mic.slash") {
+                perform(CallActivity("muteParticipant", resourceID: entry.id))
+            }
+        }
+        if let cohost {
+            Button(
+                cohost ? "Make Co-host" : "Remove as Co-host",
+                systemImage: cohost ? "person.badge.key" : "person.badge.minus"
+            ) {
+                perform(CallActivity("setCohost", resourceID: entry.id, enabled: cohost))
+            }
+        }
+        if canSendToWaitingRoom {
+            Divider()
+            Button { confirmation = .sendToWaitingRoom(entry) } label: {
+                Label("Send to Waiting Room…", systemImage: "arrow.turn.up.left")
+            }
+        }
+        // What cannot be taken back comes last, apart from the rest.
+        if canRemove || canBlock {
+            Divider()
+        }
+        if canRemove {
+            Button(role: .destructive) { confirmation = .remove(entry) } label: {
+                Label("Remove from Call…", systemImage: "person.fill.xmark")
+            }
+        }
+        if canBlock {
+            Button(role: .destructive) { confirmation = .block(entry) } label: {
+                Label("Block from This Meeting…", systemImage: "hand.raised.slash")
+            }
+        }
     }
 
     @ViewBuilder private func lowerHandButton(_ entry: CallRosterEntry) -> some View {
@@ -195,6 +216,9 @@ struct CallPeopleList: View {
             }
             Text(entry.name).lineLimit(1)
             Spacer(minLength: 8)
+            if entry.handRaised {
+                Image(systemName: "hand.raised.fill").foregroundStyle(.yellow).help("Hand raised")
+            }
             if let role = Self.label(for: entry.role) {
                 Text(role).font(.caption).foregroundStyle(.secondary)
             }
@@ -293,67 +317,6 @@ struct CallPeopleList: View {
             parts.append("pinned for everyone")
         }
         return parts.joined(separator: ", ")
-    }
-}
-
-private struct Confirmation {
-    let title: String
-    let message: String
-    let button: String
-    var role: ButtonRole?
-    let activity: CallActivity
-
-    static let muteAll = Confirmation(
-        title: "Mute everyone else?", message: "Participants can unmute themselves.",
-        button: "Mute All", activity: CallActivity("muteAllParticipants")
-    )
-
-    static let lowerAllHands = Confirmation(
-        title: "Lower all raised hands?", message: "This clears the meeting’s raised hands.",
-        button: "Lower All", activity: CallActivity("lowerAllHands")
-    )
-
-    static func remove(_ entry: CallRosterEntry) -> Confirmation {
-        Confirmation(
-            title: "Remove \(entry.name)?", message: "They’ll be disconnected from this call.",
-            button: "Remove", role: .destructive,
-            activity: CallActivity("removeParticipant", resourceID: entry.id)
-        )
-    }
-
-    static func sendToWaitingRoom(_ entry: CallRosterEntry) -> Confirmation {
-        Confirmation(
-            title: "Send \(entry.name) to the waiting room?",
-            message: "They’ll leave the call until a host brings them back.",
-            button: "Send to Waiting Room", role: .destructive,
-            activity: CallActivity("sendParticipantToWaitingRoom", resourceID: entry.id)
-        )
-    }
-
-    static func block(_ entry: CallRosterEntry) -> Confirmation {
-        Confirmation(
-            title: "Block \(entry.name) from this meeting?",
-            message: "They’ll be removed and will need a new invitation to rejoin.",
-            button: "Block", role: .destructive,
-            activity: CallActivity("blockParticipant", resourceID: entry.id)
-        )
-    }
-
-    static func denyAdmissions(_ ids: [UUID]) -> Confirmation {
-        var activity = CallActivity("respondToAdmissions", enabled: false)
-        activity.participantIDs = ids
-        return Confirmation(
-            title: "Deny all join requests?", message: "This applies to the people asking to join now.",
-            button: "Deny All", role: .destructive, activity: activity
-        )
-    }
-
-    static func clearSharedPin(_ id: UUID, name: String) -> Confirmation {
-        Confirmation(
-            title: "Unpin \(name) for everyone?",
-            message: "Participants can still pin this tile for themselves.",
-            button: "Unpin", activity: CallActivity("setPinForEveryone", resourceID: id, enabled: false)
-        )
     }
 }
 

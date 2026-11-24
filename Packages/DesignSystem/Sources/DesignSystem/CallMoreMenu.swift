@@ -1,8 +1,37 @@
 import Foundation
 import SwiftUI
 
-/// Devices and diagnostics, behind one control rather than pickers always on
-/// show: the sections a menu bar's Video menu would hold.
+/// The meeting's reactions as one palette row at the top of the More menu,
+/// the way a message's are in its context menu. A palette draws each cell's
+/// picture and drops its title, so every emoji goes in as an `EmojiGlyph`
+/// and keeps a title for VoiceOver.
+struct CallReactionPalette: View {
+    static let emoji = ["👍", "❤️", "😂", "😮", "👏", "🎉"]
+    let react: (String) -> Void
+
+    var body: some View {
+        ControlGroup {
+            ForEach(Self.emoji, id: \.self) { emoji in
+                Button {
+                    react(emoji)
+                } label: {
+                    Label {
+                        Text("React \(emoji)")
+                    } icon: {
+                        if let glyph = EmojiGlyph.image(for: emoji) {
+                            Image(decorative: glyph, scale: EmojiGlyph.scale)
+                                .renderingMode(.original)
+                        }
+                    }
+                }
+            }
+        }
+        .controlGroupStyle(.palette)
+    }
+}
+
+/// Everything a call offers beyond its round buttons, behind one control
+/// rather than always on show.
 struct CallMoreMenu: View {
     struct Audio {
         let devices: CallAudioDevices
@@ -27,47 +56,70 @@ struct CallMoreMenu: View {
     @State private var requestedMicrophoneLevel: UUID?
     @State private var requestedMeetingDetails: UUID?
 
+    /// Sends a reaction; supplied only while the meeting takes them.
+    var react: ((String) -> Void)?
+
     var hasContent: Bool {
-        audio != nil || video != nil || diagnostics != nil || stageSelection != nil || interactions?
-            .toggleHandRaised != nil || interactions?.meetingURL != nil || interactions?.meetingDetails != nil
-            || interactions?
-            .invitations != nil || interactions?.chat != nil || interactions?.activities != nil
+        audio != nil || video != nil || diagnostics != nil || stageSelection != nil || react != nil
+            || interactions?.toggleHandRaised != nil || interactions?.handGesture != nil
+            || interactions?.meetingURL != nil || interactions?.meetingDetails != nil
+            || interactions?.invitations != nil || interactions?.chat != nil
+            || interactions?.activities != nil
     }
 
+    /// What you do in the meeting comes first (a reaction, your hand), then
+    /// its panels, its link and details, how the window lays it out, and last
+    /// the devices. Each is a section of its own, so the menu reads in groups
+    /// however much of it a call offers.
     var body: some View {
         Menu {
-            if interactions?.activities != nil, let showsActivities {
-                Button("Activities…", systemImage: "square.grid.2x2") { showsActivities.wrappedValue = true }
+            Section {
+                if let react {
+                    CallReactionPalette(react: react)
+                }
+                if let interactions {
+                    CallHandControls(actions: interactions)
+                }
             }
-            if interactions?.chat != nil, let showsChat {
-                Button("Chat", systemImage: "bubble.left.and.bubble.right") { showsChat.wrappedValue = true }
-            }
-            if interactions?.invitations != nil, let showsInvitations {
-                Button("Invite People…", systemImage: "person.badge.plus") {
-                    showsInvitations.wrappedValue = true
+            Section {
+                if interactions?.chat != nil, let showsChat {
+                    Button("Chat", systemImage: "bubble.left.and.bubble.right") {
+                        showsChat.wrappedValue = true
+                    }
+                }
+                if interactions?.activities != nil, let showsActivities {
+                    Button("Meeting Activities…", systemImage: "square.grid.2x2") {
+                        showsActivities.wrappedValue = true
+                    }
+                }
+                if interactions?.invitations != nil, let showsInvitations {
+                    Button("Invite People…", systemImage: "person.badge.plus") {
+                        showsInvitations.wrappedValue = true
+                    }
                 }
             }
             if let interactions {
-                CallHandControls(actions: interactions)
-                if let url = interactions.meetingURL {
-                    if let copy = interactions.copyMeetingLink {
-                        Button(
-                            "Copy Meeting Link",
-                            systemImage: "link",
-                            action: copy
-                        )
+                Section {
+                    if let details = interactions.meetingDetails {
+                        Button("Meeting Details…", systemImage: "info.circle") {
+                            requestedMeetingDetails = details.id
+                        }
                     }
-                    ShareLink(item: url) { Label("Share Meeting Link", systemImage: "square.and.arrow.up") }
-                }
-                if let details = interactions.meetingDetails {
-                    Button("Meeting Details…", systemImage: "info.circle") {
-                        requestedMeetingDetails = details.id
+                    if let url = interactions.meetingURL {
+                        if let copy = interactions.copyMeetingLink {
+                            Button("Copy Meeting Link", systemImage: "link", action: copy)
+                        }
+                        ShareLink(item: url) {
+                            Label("Share Meeting Link…", systemImage: "square.and.arrow.up")
+                        }
                     }
                 }
             }
             if let stageSelection {
                 let save = interactions?.saveLayoutPreferences
-                CallLayoutMenu(selection: stageSelection, videos: layoutVideos, save: save)
+                Section {
+                    CallLayoutMenu(selection: stageSelection, videos: layoutVideos, save: save)
+                }
             }
             if let audio {
                 CallAudioDeviceSections(

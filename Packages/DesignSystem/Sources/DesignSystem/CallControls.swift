@@ -132,6 +132,8 @@ struct CallControlBar: View {
     var showsInvitations: Binding<Bool>?
     var showsActivities: Binding<Bool>?
     var showsChat: Binding<Bool>?
+    /// Sends a reaction; supplied only while the meeting takes them.
+    var react: ((String) -> Void)?
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
@@ -163,7 +165,12 @@ struct CallControlBar: View {
                     )
                 }
                 if menu.hasContent {
-                    menu
+                    // Chat opens from here, so its popover points at this button.
+                    menu.popover(isPresented: showsChat ?? .constant(false), arrowEdge: .top) {
+                        if let chat = actions.chat {
+                            CallChatView(scene: chat)
+                        }
+                    }
                 }
                 CallRoundButton(
                     title: endTitle,
@@ -205,7 +212,8 @@ struct CallControlBar: View {
             showsInvitations: showsInvitations,
             showsActivities: showsActivities,
             showsChat: showsChat,
-            interactions: actions
+            interactions: actions,
+            react: react
         )
     }
 }

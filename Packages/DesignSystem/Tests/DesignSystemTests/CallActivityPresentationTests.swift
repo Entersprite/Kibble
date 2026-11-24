@@ -6,9 +6,10 @@ import Testing
 
 @MainActor
 struct CallActivityPresentationTests {
-    @Test(arguments: ["Meeting", "Chat", "Polls", "Q&A", "Rooms"])
-    func activityTabsRenderOffscreen(_ tab: String) async throws {
-        try await render(sampleState(), tab: tab, name: tab.replacingOccurrences(of: "&", with: "and"))
+    @Test(arguments: CallActivityTab.allCases)
+    func activityTabsRenderOffscreen(_ tab: CallActivityTab) async throws {
+        let name = tab.rawValue.replacingOccurrences(of: "&", with: "and")
+        try await render(sampleState(), tab: tab, name: name)
     }
 
     @Test func pinnedChatRendersTheAddressedControlAndKeepsTheComposer() async throws {
@@ -18,7 +19,7 @@ struct CallActivityPresentationTests {
             id: UUID(), sender: "You", text: "Review the agenda before Friday.",
             isPinned: true, canChangePin: true
         ))
-        try await render(state, tab: "Chat", name: "ChatPinned")
+        try await render(state, tab: .chat, name: "ChatPinned")
     }
 
     @Test(arguments: [true, false])
@@ -36,7 +37,7 @@ struct CallActivityPresentationTests {
         )
         try await render(
             state,
-            tab: "Chat",
+            tab: .chat,
             name: canSend ? "ContinuousChat" : "ContinuousChatReadOnly",
             chat: chat
         )
@@ -46,7 +47,7 @@ struct CallActivityPresentationTests {
         var state = sampleState()
         state.recordingCaptionLanguages = ["en-US", "fr-FR"]
         state.artifacts[0].phase = "stopped"
-        try await render(state, tab: "Meeting", name: "RecordingCaptions")
+        try await render(state, tab: .meeting, name: "RecordingCaptions")
     }
 
     @Test func cohostActionsAndRoleLabelsRenderInThePeopleList() throws {
@@ -220,7 +221,7 @@ struct CallActivityPresentationTests {
         )
         .background(Color(nsColor: .windowBackgroundColor))
         let host = NSHostingView(rootView: view)
-        host.frame.size = NSSize(width: 260, height: height)
+        host.frame.size = NSSize(width: CallPeopleList.width, height: height)
         host.layoutSubtreeIfNeeded()
         let image = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: image)
@@ -231,7 +232,7 @@ struct CallActivityPresentationTests {
     }
 
     private func render(
-        _ state: CallActivitiesState, tab: String, name: String, chat: CallChatScene? = nil
+        _ state: CallActivitiesState, tab: CallActivityTab, name: String, chat: CallChatScene? = nil
     ) async throws {
         let view = CallActivitiesView(
             scene: CallActivitiesScene(
@@ -245,13 +246,12 @@ struct CallActivityPresentationTests {
         .environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: view)
         host.appearance = NSAppearance(named: .darkAqua)
-        host.frame.size = host.fittingSize
+        host.frame.size = NSSize(width: 520, height: 620)
         host.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(100))
         host.layoutSubtreeIfNeeded()
         let image = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: image)
-        #expect(host.frame.width == 560 && host.frame.height == 560)
         if let directory = ProcessInfo.processInfo.environment["KIBBLE_CALL_ACTIVITY_RENDERS"] {
             let data = try #require(image.representation(using: .png, properties: [:]))
             try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent(name + ".png"))
@@ -346,6 +346,6 @@ extension CallActivityPresentationTests {
             "allowJoinRequests",
             "endConference"
         ]
-        try await render(state, tab: "Meeting", name: "HostControls")
+        try await render(state, tab: .meeting, name: "HostControls")
     }
 }

@@ -60,10 +60,13 @@ final class NativeCallAdmissionPrompt {
     static func alert(for notices: [CallAdmissionNotice]) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Meeting Notice"
-        alert.informativeText = "To join this meeting, acknowledge:\n\n"
+        // The question first, then what joining acknowledges, and a button
+        // named for what it does.
+        alert.messageText = "Join this meeting?"
+        alert.informativeText = "This meeting uses:\n\n"
             + notices.map { "• " + $0.rawValue }.joined(separator: "\n")
-        alert.addButton(withTitle: "Continue Joining")
+            + "\n\nBy joining, you acknowledge this."
+        alert.addButton(withTitle: "Join")
         alert.addButton(withTitle: "Cancel")
         return alert
     }
