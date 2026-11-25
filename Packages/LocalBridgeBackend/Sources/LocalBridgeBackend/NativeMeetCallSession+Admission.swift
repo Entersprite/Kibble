@@ -3,7 +3,7 @@ import Foundation
 import GChatBridgeCore
 
 enum NativeMeetAdmissionError: Error, Equatable {
-    case denied, full, timedOut, unavailable
+    case denied, full, timedOut, unavailable, incompatibleClient
 
     var message: String {
         switch self {
@@ -11,6 +11,7 @@ enum NativeMeetAdmissionError: Error, Equatable {
         case .full: "The meeting is full."
         case .timedOut: "Your request to join expired."
         case .unavailable: "Your request to join could not be checked."
+        case .incompatibleClient: MeetNativeCallEndReason.compatibilityNotice
         }
     }
 }
@@ -41,9 +42,18 @@ extension NativeMeetCallSession {
             case 4 where staysWhenAlone: throw NativeMeetAdmissionError.denied
             case 11 where staysWhenAlone: throw NativeMeetAdmissionError.full
             case 9 where attempt < 4: continue
-            default: throw MeetDeviceSessionError.notJoined
+            default: throw await unconfirmedAdmissionError()
             }
         }
+    }
+
+    private func unconfirmedAdmissionError() async -> any Error {
+        if await device.settleIncompatibleAdmission() {
+            lines.append("Native device admission: client compatibility rejection confirmed")
+            return NativeMeetAdmissionError.incompatibleClient
+        }
+        await reportAdmission(stage: "join not confirmed")
+        return MeetDeviceSessionError.notJoined
     }
 
     private func confirmJoinedDevice() async {

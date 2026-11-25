@@ -118,6 +118,8 @@ public extension MeetDMCallTrial {
         case .noDevice: "Meet has no registered native caller device."
         case .mediaNotConnected: "Native audio is not connected."
         case .notJoined: "Meet has not confirmed the native caller as joined."
+        case .captureLockUnsupported: "Meet refused device registration for the active capture lock."
+        case .conferenceEnded: "Meet confirmed that the conference ended."
         case .invitationCancellationUnconfirmed:
             "The invitation result was ambiguous; cancellation cannot be confirmed."
         case .leaveUnconfirmed: "Meet did not confirm that the caller device left."

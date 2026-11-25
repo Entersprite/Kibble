@@ -8,11 +8,15 @@ extension LocalBridgeBackend: ProviderCheckpointBackend {
     }
 
     public func connect(resumingProviderCheckpoint checkpoint: Data?) async throws {
-        delivery.epoch = UUID()
-        delivery.running = true
-        delivery.checkpoint = checkpoint
-        delivery.cursor = GoogleProviderCursor(data: checkpoint)
-        delivery.recovering = true
+        // Failed bootstrap attempts can leave connection events awaiting ACK.
+        // Retries on this provider keep the same delivery queue and checkpoint.
+        if !delivery.running {
+            delivery.epoch = UUID()
+            delivery.running = true
+            delivery.checkpoint = checkpoint
+            delivery.cursor = GoogleProviderCursor(data: checkpoint)
+            delivery.recovering = true
+        }
         try await connect()
         requestProviderRecovery()
     }

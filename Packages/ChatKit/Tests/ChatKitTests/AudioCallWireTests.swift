@@ -114,6 +114,8 @@ struct AudioCallWireTests {
             (.remoteEnded, #""remoteEnded""#), (.declined, #""declined""#),
             (.removedFromMeeting, #""removedFromMeeting""#),
             (.sentToWaitingRoom, #""sentToWaitingRoom""#),
+            (.switchedDevice, #""switchedDevice""#),
+            (.conferenceEnded, #""conferenceEnded""#),
             (.unknown("futureCause"), #""futureCause""#)
         ] {
             #expect(try Wire.json(value) == json)

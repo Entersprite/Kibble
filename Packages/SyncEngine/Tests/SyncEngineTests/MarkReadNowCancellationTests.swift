@@ -27,15 +27,17 @@ struct MarkReadNowCancellationTests {
         _ model: ChatSessionModel,
         _ store: ChatStore,
         _ backend: HangingHistoryBackend
-    ) async throws {
+    ) async throws -> Task<Void, Never> {
+        var requests = backend.heldRequests.makeAsyncIterator()
         model.markRead(conversation, from: .conversationList)
-        await settleAutoMarkRead(until: "the mark's fetch is in flight") {
-            await backend.isHoldingARequest
-        }
+        let mark = try #require(model.markTasks[conversation])
+        let request = await requests.next()
+        try #require(request == conversation)
         try store.apply([.upsertMessage(Message(
             id: Message.ID("m:live"), conversationID: conversation, threadID: MessageThread.ID("t"),
             sender: Member.ID("people/other"), text: "hi", createdAt: live
         ))])
+        return mark
     }
 
     private func markReads(_ backend: HangingHistoryBackend) async -> [ChatCommand] {
@@ -53,20 +55,12 @@ struct MarkReadNowCancellationTests {
     @Test func aMarkStoppedDuringItsFetchPublishesNothingWhenTheFetchReturns() async throws {
         let backend = HangingHistoryBackend(canMarkRead: true)
         let (model, store) = try model(on: backend)
-        try await markHungOnItsFetch(model, store, backend)
-        #expect(model.markTasks[conversation] != nil)
+        let mark = try await markHungOnItsFetch(model, store, backend)
 
         await model.stop()
         await backend.releaseHungRequest()
+        await mark.value
 
-        // A bounded window for a send that must not come. The control below
-        // shows one arrives well inside it when nothing was stopped.
-        for _ in 0 ..< 100 {
-            if await !markReads(backend).isEmpty {
-                break
-            }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
         #expect(await markReads(backend).isEmpty)
     }
 
@@ -76,11 +70,11 @@ struct MarkReadNowCancellationTests {
     @Test func theSameMarkLeftRunningPublishesOnceTheFetchReturns() async throws {
         let backend = HangingHistoryBackend(canMarkRead: true)
         let (model, store) = try model(on: backend)
-        try await markHungOnItsFetch(model, store, backend)
+        let mark = try await markHungOnItsFetch(model, store, backend)
 
         await backend.releaseHungRequest()
+        await mark.value
 
-        await settleAutoMarkRead(until: "the mark is sent") { await !markReads(backend).isEmpty }
         #expect(await markReads(backend) == [.markRead(conversationID: conversation, upTo: live)])
     }
 }

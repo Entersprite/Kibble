@@ -36,11 +36,11 @@ struct MeetStreamControlChannelTests {
         }
     }
 
-    @Test func captionsCanOfferGzipAndUseTheFirstReturnedPreference() throws {
+    @Test func captionsPreferPlainAndUseTheFirstReturnedPreference() throws {
         let offered = MeetMediaSessionWire.requestingActivityChannels(in: Data(), allowsGzipCaptions: true)
         let requests = ProtoFieldScan.payloads(ofField: 17, in: offered)
         let captions = try #require(requests.last)
-        #expect(ProtoFieldScan.payloads(ofField: 7, in: captions) == [Data([2, 1])])
+        #expect(ProtoFieldScan.payloads(ofField: 7, in: captions) == [Data([1, 2])])
         #expect(requests.dropLast().allSatisfy { ProtoFieldScan.varintValues(ofField: 7, in: $0) == [1] })
 
         let descriptor = MeetProto.string(1, "captions_v2") + MeetProto.number(3, 42)

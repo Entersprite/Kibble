@@ -76,14 +76,14 @@ struct NativeMeetRemovalTests {
         await session.close()
     }
 
-    @Test(arguments: ["wrong-target", "waiting-room", "still-joined"])
+    @Test(arguments: ["wrong-target", "waiting-room", "still-joined", "transferred-out"])
     func removalNeedsAnExactOrdinaryEjectionReceipt(_ scenario: String) async throws {
         let start = snapshot(1, local: device(own, role: 1) + NativeMeetFixture.number(13, 1))
         let echo = device(
             scenario == "wrong-target" ? third : peer,
             state: scenario == "still-joined" ? 1 : 7,
             reason: scenario == "waiting-room" ? 9 : nil
-        )
+        ) + (scenario == "transferred-out" ? NativeMeetFixture.number(54, 2) : Data())
         let media = NativeFakeMedia()
         let (session, transport) = try await connect([start, start, NativeMeetFixture.ok(echo)], media: media)
         await session.refreshState()
@@ -125,9 +125,10 @@ struct NativeMeetRemovalTests {
             local: device(own, state: 7, reason: reason)
         )])
         await session.refreshState()
-        #expect(await session.state == .ended(.deviceEnded))
+        #expect(await session.state == .ended(reason == 6 ? .conferenceEnded : .deviceEnded))
         #expect(await session.cleanupStatus.isConfirmed)
-        #expect(await transport.sent.last?.url.lastPathComponent == "UpdateMeetingDevice")
+        #expect(await transport.sent.last?.url
+            .lastPathComponent == (reason == 6 ? "SyncMeetingSpaceCollections" : "UpdateMeetingDevice"))
     }
 
     @Test func observingOwnMoveSettlesTheOldRegistrationWithoutALeave() async throws {
@@ -188,7 +189,9 @@ struct NativeMeetRemovalTests {
         "knocking",
         "malformed",
         "stale",
-        "ordinary-receipt"
+        "ordinary-receipt",
+        "explicit-ordinary-tombstone",
+        "foreign-receipt"
     ])
     func waitingRoomMoveRequiresFreshHostTargetRoomAndReceipt(_ scenario: String) async throws {
         let grant = NativeMeetFixture.number(13, 1)
@@ -205,12 +208,18 @@ struct NativeMeetRemovalTests {
             scenario == "stale" ? 1 : 3, local: local,
             peers: scenario == "empty-room" ? [target] : [target, waiting]
         )
-        let replies = scenario == "ordinary-receipt" ? [NativeMeetFixture.ok(device(peer, state: 7))] : []
+        let receipt: Data? = switch scenario {
+        case "ordinary-receipt": device(peer, state: 7)
+        case "explicit-ordinary-tombstone": device(peer, state: 7, reason: 0) + NativeMeetFixture.number(9, 1)
+        case "foreign-receipt": device(third, state: 7) + NativeMeetFixture.number(9, 1)
+        default: nil
+        }
+        let replies = receipt.map { [NativeMeetFixture.ok($0)] } ?? []
         let (session, transport) = try await connect([start, refreshed] + replies)
         await session.refreshState()
         let id = try #require(await session.participantHandles[peer])
         let action = CallActivity("sendParticipantToWaitingRoom", resourceID: id)
-        if scenario == "ordinary-receipt" {
+        if receipt != nil {
             await #expect(throws: MeetCallWire.WireError.malformedResponse) {
                 try await session.performActivity(action)
             }
@@ -219,7 +228,7 @@ struct NativeMeetRemovalTests {
         }
         let writes = await transport.sent.dropFirst(4)
             .filter { $0.url.lastPathComponent == "UpdateMeetingDevice" }
-        #expect(writes.count == (scenario == "ordinary-receipt" ? 1 : 0))
+        #expect(writes.count == (receipt == nil ? 0 : 1))
         await session.close()
     }
 
@@ -261,11 +270,16 @@ struct NativeMeetRemovalTests {
     }
 
     private func connect(
-        _ responses: [Result<HTTPResponse, any Error>], media: NativeFakeMedia = NativeFakeMedia()
+        _ responses: [Result<HTTPResponse, any Error>], media: NativeFakeMedia = NativeFakeMedia(),
+        staysWhenAlone: Bool = false
     ) async throws -> (NativeMeetCallSession, ScriptedTransport) {
         let setup = NativeMeetFixture.responses()
         let transport = ScriptedTransport(Array(setup.prefix(4)) + responses + Array(setup.suffix(1)))
-        let session = try await NativeMeetFixture.session(transport, media: media)
+        let session = try await NativeMeetFixture.session(
+            transport,
+            media: media,
+            staysWhenAlone: staysWhenAlone
+        )
         try await session.connect()
         return (session, transport)
     }
@@ -297,5 +311,89 @@ struct NativeMeetRemovalTests {
     private func device(_ name: String, role: UInt64 = 3, state: UInt64 = 1, reason: UInt64? = nil) -> Data {
         NativeMeetFixture.string(1, name) + NativeMeetFixture.number(4, state)
             + NativeMeetFixture.number(46, role) + (reason.map { NativeMeetFixture.number(28, $0) } ?? Data())
+    }
+}
+
+extension NativeMeetRemovalTests {
+    @Test func anOwnTransferEndsAsADeviceSwitchWithoutLeavingAgain() async throws {
+        let transfer = NativeMeetFixture.number(54, 2)
+        let tombstone = device(own, state: 7) + NativeMeetFixture.number(9, 1) + transfer
+        let (session, transport) = try await connect([
+            snapshot(2, local: device(own), peers: []), snapshot(1, local: tombstone, peers: []),
+            snapshot(3, local: device(own) + transfer, peers: []), snapshot(4, local: tombstone, peers: [])
+        ], staysWhenAlone: true)
+        for _ in 0 ..< 3 {
+            await session.refreshState()
+            #expect(await session.state == .active)
+        }
+        await session.refreshState()
+        #expect(await session.state == .ended(.switchedDevice))
+        #expect(await session.cleanupStatus.isConfirmed)
+        #expect(await session.device.localDeviceName == nil)
+        #expect(await transport.sent.last?.url.lastPathComponent == "SyncMeetingSpaceCollections")
+    }
+
+    @Test func movingWithAnOmittedReceiptReasonWaitsForTheSameConferenceUser() async throws {
+        let local = device(own, role: 1) + NativeMeetFixture.number(13, 1)
+        let conferenceUser = NativeMeetFixture.string(43, "conference-user-target")
+        let sameName = NativeMeetFixture.string(2, "Guest")
+        let target = device(peer) + sameName + conferenceUser + NativeMeetFixture.number(39, 22)
+        let tombstone = device(peer, state: 7) + NativeMeetFixture.number(9, 1)
+        let waiting = device("spaces/demo/devices/guest-waiting", state: 13) + sameName + conferenceUser
+        let unrelated = device("spaces/demo/devices/unrelated", state: 13) + sameName
+            + NativeMeetFixture.string(43, "conference-user-unrelated")
+        let alreadyWaiting = device(third, state: 13)
+        let start = snapshot(4, local: local, peers: [target, alreadyWaiting])
+        let stale = snapshot(4, local: local, peers: [tombstone, waiting])
+        let unrelatedArrival = snapshot(6, local: local, peers: [tombstone, unrelated, alreadyWaiting])
+        let outOfOrder = snapshot(5, local: local, peers: [tombstone, waiting, alreadyWaiting])
+        let confirmed = snapshot(7, local: local, peers: [tombstone, waiting, unrelated, alreadyWaiting])
+        let (session, transport) = try await connect([
+            start, start, NativeMeetFixture.ok(tombstone), stale, unrelatedArrival, outOfOrder, confirmed,
+            confirmed
+        ], staysWhenAlone: true)
+        await session.refreshState()
+        let id = try #require(await session.participantHandles[peer])
+        try await session.performActivity(CallActivity("sendParticipantToWaitingRoom", resourceID: id))
+        let operations = await transport.sent.dropFirst(6).map(\.url.lastPathComponent)
+        #expect(operations == [
+            "UpdateMeetingDevice",
+            "SyncMeetingSpaceCollections",
+            "SyncMeetingSpaceCollections",
+            "SyncMeetingSpaceCollections",
+            "SyncMeetingSpaceCollections"
+        ])
+        await session.refreshState()
+        #expect(await session.participantHandles[peer] == nil)
+        #expect(await session.activities.waitingParticipants.count == 3)
+        #expect(await session.state == .active)
+        await session.close()
+    }
+
+    @Test(arguments: [true, false], [UInt64(0), 1])
+    func anExactLocalTombstoneSettlesTheRegistration(transportFailed: Bool, reason: UInt64) async throws {
+        let media = NativeFakeMedia()
+        let joined = snapshot(4, local: device(own))
+        let tombstone = device(own, state: 8, reason: reason) + NativeMeetFixture.number(9, 1)
+        let stale = snapshot(3, local: tombstone)
+        let current = snapshot(5, local: tombstone)
+        let (session, transport) = try await connect([joined, stale, current], media: media)
+        await session.refreshState()
+        await session.refreshState()
+        #expect(await session.state == .active)
+        #expect(media.isConnected)
+        if transportFailed {
+            await session.mediaEvent(.failed)
+        } else {
+            await session.refreshState()
+        }
+        let expected: MeetNativeCallEndReason = reason == 1 ? .incompatibleClient : .deviceEnded
+        #expect(await session.state == .ended(expected))
+        #expect(await session.cleanupStatus.isConfirmed)
+        #expect(await session.device.localDeviceName == nil)
+        #expect(!media.isConnected)
+        #expect(await transport.sent.dropFirst(4).allSatisfy {
+            $0.url.lastPathComponent == "SyncMeetingSpaceCollections"
+        })
     }
 }

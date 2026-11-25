@@ -5,6 +5,9 @@ extension LocalBridgeAudioCallService {
     /// Fixed call-stage descriptions only. Provider messages, URLs and opaque
     /// identifiers must never enter ordinary window state.
     static func failureMessage(_ error: any Error) -> String {
+        if error as? MeetDeviceSessionError == .captureLockUnsupported {
+            return MeetNativeCallEndReason.compatibilityNotice
+        }
         if let error = error as? NativeMeetAdmissionError {
             return error.message
         }

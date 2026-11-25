@@ -10,6 +10,10 @@ public struct CallActivitiesState: Codable, Hashable, Sendable {
     public var polls: [CallPoll] = []
     public var questions: [CallQuestion] = []
     public var rooms: [CallBreakoutRoom] = []
+    /// The source has started closing breakout rooms and the transition is still in progress.
+    public var breakoutClosing: Bool?
+    /// The source explicitly confirmed that the breakout session is closed.
+    public var breakoutClosed: Bool?
     public var people: [CallBreakoutPerson] = []
     public var waitingParticipants: [CallWaitingParticipant] = []
     public var artifacts: [CallArtifact] = []
@@ -46,7 +50,8 @@ public struct CallActivitiesState: Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case availableActions, messages, reactions, polls, questions, rooms, people, artifacts
-        case waitingParticipants, waitingRoomMessages, agendaAttachments, agendaGuests
+        case waitingParticipants, waitingRoomMessages, agendaAttachments, agendaGuests, breakoutClosing,
+             breakoutClosed
         case attendanceReportEnabled, allowsAnonymousQuestions, captions, captionLanguages, artifactFiles
         case recordingCaptionLanguages, hostSettings, meetingChat, microphoneRestricted, moderatorMute,
              sharedPinLimit, ownHandLowered, automaticHandLowering
@@ -64,6 +69,8 @@ public struct CallActivitiesState: Codable, Hashable, Sendable {
         polls = try values.decodeIfPresent([CallPoll].self, forKey: .polls) ?? []
         questions = try values.decodeIfPresent([CallQuestion].self, forKey: .questions) ?? []
         rooms = try values.decodeIfPresent([CallBreakoutRoom].self, forKey: .rooms) ?? []
+        breakoutClosing = try values.decodeIfPresent(Bool.self, forKey: .breakoutClosing)
+        breakoutClosed = try values.decodeIfPresent(Bool.self, forKey: .breakoutClosed)
         people = try values.decodeIfPresent([CallBreakoutPerson].self, forKey: .people) ?? []
         waitingParticipants = try values.decodeIfPresent(
             [CallWaitingParticipant].self,
@@ -316,15 +323,22 @@ public struct CallArtifact: Codable, Hashable, Sendable, Identifiable {
     public var kind: String
     public var phase: String
     public var recordingCaptionLanguage: String?
-    public init(kind: String, phase: String, recordingCaptionLanguage: String? = nil) {
+    /// An optional, portable reason for a pending or failed start.
+    public var issue: String?
+    public init(kind: String, phase: String, recordingCaptionLanguage: String? = nil, issue: String? = nil) {
         self.kind = kind
         self.phase = phase
         self.recordingCaptionLanguage = recordingCaptionLanguage
+        self.issue = issue
     }
 
     public func canSetEnabled(_ enabled: Bool) -> Bool {
         enabled ? phase == "stopped" || phase == "preconfigured" : phase == "active" || phase == "starting"
     }
+}
+
+public enum CallArtifactIssue: String, Sendable {
+    case participantCompatibility, initializationFailed
 }
 
 /// The result of one or both operations remains unconfirmed after a paired request.

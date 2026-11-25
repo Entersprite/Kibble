@@ -85,6 +85,44 @@ struct CallParityPresentationTests {
         #expect(selection.isPinned(rebound))
     }
 
+    @Test func matchingParticipantNamesIdentifyExactDevicesAndTheirTiles() throws {
+        let first = try CallParticipantDevice(
+            id: #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001")), displayName: "Taylor"
+        )
+        let second = try CallParticipantDevice(
+            id: #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002")),
+            displayName: " Taylor ", handRaised: true
+        )
+        let screen = CallParticipantDevice(
+            id: UUID(), displayName: "Taylor", parentID: second.id, isPresentation: true
+        )
+        let local = CallParticipantDevice(id: UUID(), displayName: "Taylor", isLocal: true)
+        let people = [second, screen, local, first]
+        let labels = CallRoster.disambiguatedNames(in: people)
+        #expect(labels == [
+            first.id: "Taylor (device 1)",
+            second.id: "Taylor (device 2)",
+            screen.id: "Taylor (device 2)"
+        ])
+        #expect(CallRoster.disambiguatedNames(in: people.reversed()) == labels)
+        #expect(CallRoster.disambiguatedNames(in: [second, screen, local]).isEmpty)
+
+        let roster = try #require(CallRoster.entries(people))
+        #expect(roster.map(\.name) == ["Taylor", "Taylor"])
+        #expect(roster.map(\.label) == ["Taylor (device 1)", "Taylor (device 2)"])
+        let live = CallRemoteVideo(
+            id: 1, participantID: first.id, label: "Taylor", isScreen: false, content: AnyView(Color.black)
+        )
+        let videos = CallStageSelection.videos([live], roster: roster, participants: people)
+        #expect(videos.map(\.label) == ["Taylor (device 1)", "Taylor (device 2)", "Taylor (device 2)"])
+        var selection = CallStageSelection()
+        selection.observeParticipants(people)
+        let secondCamera = try #require(videos.first { $0.participantID == second.id })
+        selection.togglePin(secondCamera)
+        #expect(selection.receivePreferences.personalPins == [second.id])
+        #expect(!selection.isPinned(live))
+    }
+
     @Test func joinAndCameraOffStageRenderWithoutShowingWindows() throws {
         let roster = CallRoster.entries([CallParticipantDevice(
             id: UUID(),

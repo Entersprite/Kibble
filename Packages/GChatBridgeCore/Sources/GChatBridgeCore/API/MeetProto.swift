@@ -63,4 +63,12 @@ enum MeetProto {
         guard fields.count == 1, values.count == 1 else { throw MeetCallWire.WireError.malformedResponse }
         return values[0]
     }
+
+    static func timestamp(_ field: Int, _ data: Data) -> Date? {
+        guard let time = try? payload(field, data),
+              let seconds = try? value(1, time), seconds <= 253_402_300_799 else { return nil }
+        let nanos = (try? value(2, time)) ?? 0
+        guard nanos < 1_000_000_000 else { return nil }
+        return Date(timeIntervalSince1970: Double(seconds) + Double(nanos) / 1_000_000_000)
+    }
 }

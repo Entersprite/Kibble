@@ -27,7 +27,7 @@ struct NativeMeetAdmissionTests {
         try await assertOnlyTheNativeDeviceWasChanged(transport)
     }
 
-    @Test(arguments: [UInt64(3), 4, 9, 13, 14, 15, UInt64.max])
+    @Test(arguments: [UInt64(3), 4, 9, 11, 13, 14, 15, UInt64.max])
     func anUnconfirmedJoinReportsItsStateAndNeverRegistersAudio(_ state: UInt64) async throws {
         let transport = ScriptedTransport(NativeMeetFixture.responses(deviceTransfer: 3, joinedState: state))
         let media = StreamFakeMedia()
@@ -42,12 +42,17 @@ struct NativeMeetAdmissionTests {
         #expect(!report.contains("18446744073709551615"))
         #expect(!report.contains("spaces/demo"))
         await session.close()
-        try await assertOnlyTheNativeDeviceWasChanged(transport)
+        try await assertOnlyTheNativeDeviceWasChanged(
+            transport,
+            requestCounts: [4, 11].contains(state) ? [4] : [5, 6]
+        )
     }
 
-    private func assertOnlyTheNativeDeviceWasChanged(_ transport: ScriptedTransport) async throws {
+    private func assertOnlyTheNativeDeviceWasChanged(
+        _ transport: ScriptedTransport, requestCounts: Set<Int> = [5, 6]
+    ) async throws {
         let sent = await transport.sent
-        #expect(sent.count == 5 || sent.count == 6)
+        #expect(requestCounts.contains(sent.count))
         #expect(!sent.contains { $0.url.path.contains("Invite") })
         for request in sent.filter({ $0.url.path.hasSuffix("UpdateMeetingDevice") }) {
             let body = try #require(request.body)

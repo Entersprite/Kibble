@@ -2,7 +2,8 @@ import Foundation
 
 /// A confirmed terminal cause, independent of a provider's signaling vocabulary.
 public enum AudioCallEndReason: Codable, Hashable, Sendable {
-    case localEnded, remoteEnded, declined, removedFromMeeting, sentToWaitingRoom
+    case localEnded, remoteEnded, declined, removedFromMeeting, sentToWaitingRoom, switchedDevice,
+         conferenceEnded
     case unknown(String)
 
     public init(from decoder: any Decoder) throws {
@@ -12,6 +13,8 @@ public enum AudioCallEndReason: Codable, Hashable, Sendable {
         case "declined": self = .declined
         case "removedFromMeeting": self = .removedFromMeeting
         case "sentToWaitingRoom": self = .sentToWaitingRoom
+        case "switchedDevice": self = .switchedDevice
+        case "conferenceEnded": self = .conferenceEnded
         case let raw: self = .unknown(raw)
         }
     }
@@ -23,6 +26,8 @@ public enum AudioCallEndReason: Codable, Hashable, Sendable {
         case .declined: "declined"
         case .removedFromMeeting: "removedFromMeeting"
         case .sentToWaitingRoom: "sentToWaitingRoom"
+        case .switchedDevice: "switchedDevice"
+        case .conferenceEnded: "conferenceEnded"
         case let .unknown(raw): raw
         }
         try WireString.encode(raw, to: encoder)

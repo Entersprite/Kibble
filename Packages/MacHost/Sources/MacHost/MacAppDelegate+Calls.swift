@@ -80,9 +80,10 @@ public extension MacAppDelegate {
         for id: UUID, calls: AudioCallController, audioDevices: CallAudioDeviceController,
         video: CallVideoController, diagnostics: AudioCallDiagnosticExporter
     ) -> AudioCallActions {
+        let wasTerminal = calls.call?.phase.isTerminal == true
         let copy: (() async -> Bool)? = diagnostics.isAvailable ? {
             await diagnostics.copy(callID: id, context: calls.diagnosticReport(callID: id)) {
-                calls.call?.id == id
+                calls.call?.id == id && calls.call?.phase.isTerminal == wasTerminal
             }
         } : nil
         var actions = AudioCallActions(

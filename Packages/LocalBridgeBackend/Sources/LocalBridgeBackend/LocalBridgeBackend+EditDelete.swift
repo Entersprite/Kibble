@@ -25,19 +25,61 @@ extension LocalBridgeBackend {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ChatError.unknown("an edit needs text; removing a message is a delete")
         }
+        let generation = directoryGeneration
         let plain = mentions.map { ChatKit.Mention(target: $0.target, start: $0.start, length: $0.length) }
         let formats = try MessageContentMapping.annotations(content?.formatting ?? [], text: text)
             + MessageContentMapping.emojiAnnotations(content?.customEmoji ?? [], text: text)
         let annotations = await mentionAnnotations(plain, using: target.client) + formats
-        let request = MessageEditRequests.editMessage(
-            group: target.group, topicID: target.topic, messageID: id.rawValue, text: text,
-            annotations: annotations
+        let originalID = MessagePinRequests.address(
+            group: target.group, topic: target.topic, message: id.rawValue
         )
         do {
+            try checkManagementGeneration(generation)
+            let reply = try await editReference(at: originalID, client: target.client, generation: generation)
+            let request = MessageEditRequests.editMessage(
+                group: target.group, topicID: target.topic, messageID: id.rawValue, text: text,
+                annotations: annotations, replyTo: reply
+            )
             _ = try await target.client.call(.editMessage, request)
-        } catch {
+        } catch let error as APIFailure {
             throw Self.chatError(fromAPI: error, call: "the /api/ edit_message call")
         }
+    }
+
+    /// A caption edit carries the reference from the addressed receiving
+    /// message. Reading the source conversation is unnecessary.
+    private func editReference(
+        at address: MessageId, client: ProtoAPIClient, generation: Int
+    ) async throws -> SendReplyTarget? {
+        let response: GetMessageResponse
+        do {
+            response = try await client.call(.pinTarget, MessagePinRequests.message(address))
+        } catch {
+            throw Self.chatError(fromAPI: error, call: "reading the message before editing")
+        }
+        try checkManagementGeneration(generation)
+        let existing = response.message
+        guard response.hasMessage, existing.id == address, existing.deleteTime == 0,
+              existing.messageType != .systemMessage,
+              calendarPoll.me.map({ existing.creator.userID.id == $0.rawValue }) ?? true
+        else { throw ChatError.decoding("The message could not be verified for editing.") }
+        if !existing.hasReplyTo {
+            guard !existing.annotations.contains(where: { $0.type == .replyReference })
+            else { throw ChatError.unsupported(capability: "editing a message with an incomplete reference") }
+            return nil
+        }
+        let reference = existing.replyTo
+        guard [0, 1, 2].contains(reference.referenceType), reference.createTime > 0,
+              !reference.id.messageID.isEmpty, !reference.id.parentID.topicID.topicID.isEmpty,
+              ChannelEventMapping.conversationID(reference.id.parentID.topicID.groupID) != nil
+        else { throw ChatError.unsupported(capability: "editing a message with an incomplete reference") }
+        var target = SendReplyTarget()
+        target.id = reference.id
+        target.createTime = reference.createTime
+        if reference.hasReferenceType {
+            target.referenceType = reference.referenceType
+        }
+        return target
     }
 
     func deleteMessage(

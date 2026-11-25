@@ -160,6 +160,7 @@ message ClientFeatureCapabilities {
 	optional CapabilityLevel rich_text_viewing_level = 7;
     optional CapabilityLevel target_audience_level = 10;
     optional CapabilityLevel request_to_join_level = 37;
+    optional CapabilityLevel forwarded_message_level = 53;
     optional CapabilityLevel support_manager_role_level = 56;
     optional CapabilityLevel support_view_members_permission_level = 64;
     optional CapabilityLevel support_join_discover_permission_level = 70;
@@ -2313,6 +2314,7 @@ enum AnnotationType {
 	INTEGRATION_CONFIG_UPDATED = 23;
 	CONSENTED_APP_UNFURL = 24;
     CUSTOM_EMOJI = 25;
+    REPLY_REFERENCE = 28;
 }
 
 message GroupDetails {
@@ -2770,6 +2772,24 @@ message GetGroupResponse {
 	optional Message snippet = 10;
 	// repeated ?? capabilities = 11;
     repeated SpacePermissionAudience default_target_audiences = 13;
+}
+
+message GetCallDataRequest {
+	optional RequestHeader request_header = 100;
+	optional GroupId group_id = 1;
+	repeated int32 fetch_options = 2;
+}
+
+message GetCallDataResponse {
+	message ParticipantList {
+		message AnonymousParticipant {
+			optional string display_name = 1;
+		}
+		repeated UserId users = 1;
+		optional uint32 total_count = 2;
+		repeated AnonymousParticipant anonymous_participants = 4;
+	}
+	optional ParticipantList participant_list = 1;
 }
 
 message WorldSection {

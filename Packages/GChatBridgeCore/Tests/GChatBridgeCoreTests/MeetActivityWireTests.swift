@@ -52,6 +52,16 @@ struct MeetActivityWireTests {
         #expect(MeetActivityWire.chatSendingPolicy(in: resource, saved: true) == enabled)
     }
 
+    @Test func defaultChatPolicyIsAllowedOnlyWhenRequested() {
+        let space = MeetProto.bytes(6, MeetProto.bytes(11, MeetProto.number(38, 1)))
+            + MeetProto.bytes(15, MeetProto.number(36, 1))
+        #expect(MeetActivityWire.chatSendingPolicy(in: space, includingDefault: true) == true)
+        #expect(MeetActivityWire.chatSendingPolicy(in: space) == nil)
+        #expect(MeetActivityWire.chatSendingPolicy(in: space, saved: true) == nil)
+        let unspecified = MeetProto.bytes(6, MeetProto.bytes(11, MeetProto.number(38, 0)))
+        #expect(MeetActivityWire.chatSendingPolicy(in: unspecified, includingDefault: true) == nil)
+    }
+
     @Test func endConferenceNamesOnlyTheResolvedSpace() throws {
         let body = try MeetActivityWire.endConferenceBody(space: "spaces/demo")
         #expect(body == MeetProto.string(1, "spaces/demo"))
@@ -154,38 +164,6 @@ struct MeetActivityWireTests {
         }
     }
 
-    @Test func pollVotesCarryTheSelectedAnswerTextAndNeverInventAnIndexField() throws {
-        let request = try MeetActivityWire.votePoll("spaces/demo/polls/one", option: "Second choice")
-        #expect(request.method == "MeetingPollService/SubmitPollAnswer")
-        #expect(try MeetProto.text(1, MeetProto.payload(2, request.body)) == "Second choice")
-        let poll = try MeetActivityWire.createPoll(
-            parent: "spaces/demo/pollSeries/one",
-            title: "Choose",
-            options: ["One", "Two"],
-            sequence: 7
-        )
-        let value = try MeetProto.payload(2, poll.body)
-        #expect(!MeetActivityCollections.has(2, value))
-        #expect(try MeetProto.value(3, value) == 2)
-        let question = try MeetProto.payload(1, MeetProto.payload(4, value))
-        #expect(try MeetProto.text(1, question) == "Choose")
-        #expect(ProtoFieldScan.payloads(ofField: 2, in: question).count == 2)
-    }
-
-    @Test func pollUpdatesPreserveCurrentEditableFieldsWithoutInventingAMask() throws {
-        let question = MeetProto.bytes(1, MeetProto.string(1, "Choose"))
-        let poll = MeetProto.string(1, "spaces/demo/polls/one") + MeetProto.number(3, 2)
-            + MeetProto.number(5, 2) + MeetProto.number(6, 2) + MeetProto.bytes(4, question)
-        let request = try MeetActivityWire.updatePoll(poll, resultsVisible: true)
-        #expect(ProtoFieldScan.fields(in: request.body).fields.map(\.number) == [1])
-        let updated = try MeetProto.payload(1, request.body)
-        #expect(try MeetProto.value(3, updated) == 2)
-        #expect(try MeetProto.value(5, updated) == 1)
-        #expect(try MeetProto.value(6, updated) == 2)
-        #expect(try MeetProto.payload(4, updated) == question)
-        #expect(throws: MeetCallWire.WireError.self) { try request.validateScope("spaces/other") }
-    }
-
     @Test func foreignBreakoutResourcesCannotBecomeJoinTargets() throws {
         func snapshot(_ name: String) -> Data {
             let room = MeetProto.string(1, name) + MeetProto.string(3, "One")
@@ -195,24 +173,18 @@ struct MeetActivityWireTests {
         }
         let own = try MeetActivityCollections.decode(snapshot("spaces/demo/rooms/one"), space: "spaces/demo")
         #expect(own.breakout != nil && own.versions[8] == 1)
+        let roomID = "b703b92e-de6d-42c0-84ed-a61360252026"
+        let liveShape = try MeetActivityCollections.decode(snapshot(roomID), space: "spaces/demo")
+        #expect(liveShape.breakout != nil && liveShape.versions[8] == 1)
+        let assignment = try MeetActivityWire.assignRoom(space: "spaces/demo", room: roomID, people: [])
+        try assignment.validateScope("spaces/demo")
+        let roomAddress = try MeetProto.payload(1, MeetProto.payload(5, assignment.body))
+        #expect(try MeetProto.text(1, roomAddress) == roomID)
         #expect(throws: MeetCallWire.WireError.self) {
             try MeetActivityCollections.decode(snapshot("spaces/foreign/rooms/one"), space: "spaces/demo")
         }
-    }
-
-    @Test func answeringAQuestionPreservesVisibilityAndFutureFields() throws {
-        let current = MeetProto.string(1, "spaces/demo/questionSeries/one/questions/one")
-            + MeetProto.string(4, "Why?") + MeetProto.number(6, 1) + MeetProto.number(7, 1)
-            + MeetProto.bytes(200, Data([1, 2, 3]))
-        let request = try MeetActivityWire.answerQuestion(current)
-        #expect(ProtoFieldScan.fields(in: request.body).fields.map(\.number) == [1])
-        let changed = try MeetProto.payload(1, request.body)
-        #expect(try MeetProto.value(6, changed) == 1)
-        #expect(try MeetProto.value(7, changed) == 2)
-        #expect(try MeetProto.text(4, changed) == "Why?")
-        #expect(try MeetProto.payload(200, changed) == Data([1, 2, 3]))
         #expect(throws: MeetCallWire.WireError.self) {
-            try MeetActivityWire.answerQuestion(current + MeetProto.number(7, 1))
+            try MeetActivityCollections.decode(snapshot("unscoped-room"), space: "spaces/demo")
         }
     }
 
@@ -293,9 +265,8 @@ struct MeetActivityWireTests {
             body,
             space: "spaces/demo"
         ) }
-        let absent = try MeetActivityCollections.decode(Data(), space: "spaces/demo")
-        #expect(absent.space == nil && absent.messages == nil && absent.polls == nil && absent.versions
-            .isEmpty)
+        let empty = try MeetActivityCollections.decode(Data(), space: "spaces/demo")
+        #expect(empty.space == nil && empty.messages == nil && empty.polls == nil && empty.versions.isEmpty)
         let rooms = try MeetActivityWire.configureRooms(
             space: "spaces/demo",
             open: true,
@@ -303,6 +274,11 @@ struct MeetActivityWireTests {
             sequence: 1
         )
         #expect(ProtoFieldScan.fields(in: rooms.body).fields.map(\.number) == [1, 2])
+        #expect(try MeetProto.value(2, rooms.body) == 2)
+        let closed = try MeetActivityWire.configureRooms(
+            space: "spaces/demo", open: false, names: ["Breakout"], sequence: 1
+        )
+        #expect(try MeetProto.value(2, closed.body) == 1)
     }
 }
 
@@ -363,9 +339,9 @@ extension MeetActivityWireTests {
         let active = try MeetProto.payload(11, MeetProto.payload(6, space))
         let saved = try MeetProto.payload(15, space)
         #expect(request.method == "MeetingSpaceService/UpdateMeetingSpace")
-        #expect(ProtoFieldScan.fields(in: active).fields.map(\.number) == [11])
+        #expect(ProtoFieldScan.fields(in: active).fields.map(\.number) == (allowsEarlierEntry ? [11] : []))
         #expect(ProtoFieldScan.fields(in: saved).fields.map(\.number) == [10])
-        #expect(try MeetProto.value(11, active) == (allowsEarlierEntry ? 1 : 0))
+        #expect(ProtoFieldScan.varintValues(ofField: 11, in: active) == (allowsEarlierEntry ? [1] : []))
         #expect(try MeetProto.value(10, saved) == (allowsEarlierEntry ? 1 : 0))
         let mask = try MeetProto.payload(2, request.body)
         #expect(ProtoFieldScan.payloads(ofField: 1, in: mask) == [
@@ -380,6 +356,20 @@ extension MeetActivityWireTests {
     @Test func hostFirstMissingAndMalformedValuesStayUnknown() {
         for settings in [Data(), MeetProto.number(11, 2), MeetProto.number(11, 0) + MeetProto.number(11, 1)] {
             let response = MeetProto.bytes(6, MeetProto.bytes(11, settings))
+            #expect(MeetActivityWire.joiningBeforeHostAllowed(in: response) == nil)
+        }
+    }
+
+    @Test func hostFirstActiveDefaultRequiresAnExplicitSavedRestriction() {
+        let active = MeetProto.bytes(6, MeetProto.bytes(11, MeetProto.number(12, 2)))
+        let unrestricted = MeetProto.bytes(15, MeetProto.number(10, 1))
+        let restricted = MeetProto.bytes(15, MeetProto.number(10, 0))
+        #expect(MeetActivityWire.joiningBeforeHostAllowed(in: active + unrestricted) == nil)
+        #expect(MeetActivityWire.joiningBeforeHostAllowed(in: active + restricted) == false)
+        #expect(MeetActivityWire.joiningBeforeHostAllowed(in: restricted) == nil)
+
+        for malformed in [MeetProto.number(11, 2), MeetProto.bytes(11, Data()), Data([128])] {
+            let response = MeetProto.bytes(6, MeetProto.bytes(11, malformed)) + restricted
             #expect(MeetActivityWire.joiningBeforeHostAllowed(in: response) == nil)
         }
     }

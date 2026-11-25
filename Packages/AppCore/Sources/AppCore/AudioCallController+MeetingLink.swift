@@ -142,11 +142,17 @@ public extension AudioCallController {
 
     @discardableResult
     func joinMeeting(at url: URL) -> UUID? {
+        joinMeeting(at: url, media: MeetingJoinMedia())
+    }
+
+    @discardableResult
+    internal func joinMeeting(at url: URL, media: MeetingJoinMedia) -> UUID? {
         if raiseCurrentCall() {
             return nil
         }
-        guard canJoinMeetingLinks, let links = service as? any MeetingLinkAudioCallService else { return nil }
-        return beginMeeting(at: url, id: UUID(), links: links)
+        guard canJoinMeetingLinks, media == MeetingJoinMedia() || supportsMeetingJoinMedia,
+              let links = service as? any MeetingLinkAudioCallService else { return nil }
+        return beginMeeting(at: url, id: UUID(), links: links, media: media)
     }
 
     @discardableResult

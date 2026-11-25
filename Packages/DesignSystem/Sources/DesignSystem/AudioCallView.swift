@@ -30,8 +30,7 @@ public struct AudioCallView: View {
     private let video: CallVideoContent?
     private let screenPreview: AnyView?
     @State private var copyState = AudioCallCopyState.idle
-    @State private var requestedCall: UUID?
-    @State private var copyRequest = 0
+    @State private var copyRequest: CopyRequest?
     @State private var showsPeople = false
     @State private var showsInvitations = false
     @State private var showsActivities = false
@@ -128,11 +127,10 @@ public struct AudioCallView: View {
         .environment(\.colorScheme, .dark)
         .environment(\.sceneImageLoader, actions.imageLoader)
         .animation(.smooth(duration: 0.35), value: animationKey)
-        .task(id: CopyRequest(call: call.id, sequence: copyRequest)) {
-            guard requestedCall == call.id, copyState == .collecting,
-                  let copyDiagnostics = actions.copyDiagnostics else { return }
-            let copied = await copyDiagnostics()
-            guard !Task.isCancelled, requestedCall == call.id else { return }
+        .task(id: copyRequest?.id) {
+            guard let request = copyRequest, request.call == call.id, copyState == .collecting else { return }
+            let copied = await request.run()
+            guard !Task.isCancelled, copyRequest?.id == request.id else { return }
             copyState = copied ? .copied : .unavailable
         }
         .task(id: copyState) {
@@ -164,12 +162,14 @@ public struct AudioCallView: View {
         }
         .onChange(of: call.phase.isTerminal) { _, terminal in
             if terminal {
+                copyRequest = nil
+                copyState = .idle
                 showsInvitations = false; showsChat = false; showsActivities = false
                 activityDrafts = CallActivityDrafts()
             }
         }
         .onChange(of: call.id) {
-            requestedCall = nil
+            copyRequest = nil
             copyState = .idle
             showsActivities = false
             activityDrafts = CallActivityDrafts()
@@ -337,11 +337,18 @@ extension AudioCallView {
     }
 
     private var notices: [CallNotice] {
+        let activities = actions.activities?.state
         var notices = AudioCallPresentation.notices(
             phase: call.phase, devices: devices, camera: camera, screenSharing: screenSharing,
             microphoneRestricted: actions.microphoneRestricted
         )
-        notices += CallArtifactPresentation.notices(for: actions.activities?.state.artifacts ?? [])
+        if let closing = AudioCallPresentation.breakoutClosingNotice(
+            phase: call.phase,
+            activities: activities
+        ) {
+            notices.append(closing)
+        }
+        notices += CallArtifactPresentation.notices(for: activities?.artifacts ?? [])
         if reactionFailed {
             notices.append(CallNotice(id: "reaction", text: CallActivityCopy.reactionFailed, kind: .warning))
         }
@@ -352,11 +359,10 @@ extension AudioCallView {
     }
 
     private var diagnostics: CallDiagnosticsItem? {
-        guard actions.copyDiagnostics != nil else { return nil }
+        guard let copyDiagnostics = actions.copyDiagnostics else { return nil }
         return CallDiagnosticsItem(state: copyState) {
-            requestedCall = call.id
+            copyRequest = CopyRequest(call: call.id, run: copyDiagnostics)
             copyState = .collecting
-            copyRequest += 1
         }
     }
 
@@ -372,9 +378,10 @@ extension AudioCallView {
     }
 }
 
-private struct CopyRequest: Hashable {
+private struct CopyRequest {
+    let id = UUID()
     let call: UUID
-    let sequence: Int
+    let run: () async -> Bool
 }
 
 /// Everything whose change should animate the stage.

@@ -70,7 +70,7 @@ extension NativeMeetCallSession {
             CallHostSettings(
                 managementEnabled: $0.managementEnabled,
                 reactionsAllowed: $0.reactionsAllowed,
-                chatMessagesAllowed: MeetActivityWire.chatSendingPolicy(in: space),
+                chatMessagesAllowed: MeetActivityWire.chatSendingPolicy(in: space, includingDefault: true),
                 screenSharingAllowed: MeetActivityWire.screenSharingPolicy(in: space),
                 microphoneAllowed: MeetActivityWire.microphonePolicy(in: space),
                 cameraAllowed: MeetActivityWire.cameraPolicy(in: space),
@@ -137,8 +137,11 @@ extension NativeMeetCallSession {
     }
 
     var canSendMeetingChat: Bool {
-        !activityChatLocked
-            && (hostControls.activeChatMessagesAllowed != false || hostControls.access?.canManage == true)
+        if hostControls.activeChatMessagesAllowed == false {
+            // The modern hosts-only policy also sets the legacy lock bit.
+            return hostControls.access?.canManage == true
+        }
+        return !activityChatLocked
     }
 
     var canStartPresentation: Bool {
@@ -234,6 +237,9 @@ extension NativeMeetCallSession {
     }
 
     func updateHostSetting(_ setting: HostActivity, enabled: Bool) async throws {
+        if setting == .allowJoiningBeforeHost, deniedActivities.contains(setting.rawValue) {
+            throw ChatError.unsupported(capability: "meetingHostControls")
+        }
         let space = await device.activitySpace
         let (version, settings) = try await verifyHostAction(setting.rawValue)
         guard !matchesHostSetting(setting, enabled: enabled, settings: settings) else { return }
@@ -282,7 +288,9 @@ extension NativeMeetCallSession {
     ) -> Bool {
         guard setting.value(in: settings) == enabled else { return false }
         switch setting {
-        case .allowChatMessages: return hostControls.savedChatMessagesAllowed == enabled
+        case .allowChatMessages:
+            return hostControls.activeChatMessagesAllowed == enabled
+                && hostControls.savedChatMessagesAllowed == enabled
         case .allowScreenSharing: return hostControls.savedScreenSharingAllowed == enabled
         case .allowJoiningBeforeHost: return hostControls.savedJoiningBeforeHostAllowed == enabled
         case .allowJoinRequests: return hostControls.savedJoinRequestsAllowed == enabled

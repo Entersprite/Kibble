@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+import GChatBridgeCore
 import Testing
 @testable import LocalBridgeBackend
 
@@ -58,5 +59,32 @@ extension NativeMeetHostControlsTests {
         #expect(await !session.activities.availableActions.contains("allowJoinRequests"))
         #expect(await transport.sent.allSatisfy { $0.url.lastPathComponent != "UpdateMeetingSpace" })
         await session.close()
+    }
+
+    @Test func hostFirstRefusalSurvivesAnArtifactPolicyRefresh() async throws {
+        let before = snapshot(version: 1, management: false, joining: true, savedJoining: true)
+        let refreshed = snapshot(version: 2, management: false, joining: true, savedJoining: true)
+        let refusal = HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data())
+        let (session, transport) = try await connect([
+            before, before, .success(refusal),
+            NativeMeetFixture.ok(NativeMeetFixture.number(48, 2)),
+            NativeMeetFixture.ok(NativeMeetFixture.number(1, 2)), refreshed, NativeMeetFixture.ok(Data())
+        ])
+        let setting = CallActivity("allowJoiningBeforeHost", enabled: false)
+        await session.refreshState()
+        #expect(await session.activities.availableActions.contains(setting.action))
+        await #expect(throws: MeetCallClientError.self) { try await session.performActivity(setting) }
+        #expect(await !session.activities.availableActions.contains(setting.action))
+
+        try await session.performActivity(CallActivity("refresh", enabled: true))
+        await session.agendaArtifactRead?.value
+        #expect(await !session.activities.availableActions.contains("transcription"))
+        #expect(await !session.activities.availableActions.contains(setting.action))
+        await #expect(throws: ChatError.unsupported(capability: "meetingHostControls")) {
+            try await session.performActivity(setting)
+        }
+        #expect(await transport.sent.filter { $0.url.lastPathComponent == "UpdateMeetingSpace" }.count == 1)
+        await session.close()
+        #expect(await session.cleanupStatus.isConfirmed)
     }
 }

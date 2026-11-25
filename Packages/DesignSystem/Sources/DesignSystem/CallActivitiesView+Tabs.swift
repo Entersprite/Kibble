@@ -60,36 +60,42 @@ extension CallActivitiesView {
     /// Start…, or Stop. Where recording and transcription can stop together,
     /// Stop is a menu naming both choices rather than two buttons in a row.
     private func artifactRow(_ artifact: CallArtifact) -> some View {
-        LabeledContent {
-            if artifact.canSetEnabled(false) {
-                if artifact.kind == "recording", canSetCapturePair(false) {
-                    Menu("Stop") {
-                        Button("Stop Recording") { submit(CallActivity(artifact.kind, enabled: false)) }
-                        Button("Stop Recording and Transcription") { submitCapturePair(false) }
+        let pairedStop = artifact.kind == "recording" && canSetCapturePair(false)
+        return HStack {
+            LabeledContent {
+                if !pairedStop {
+                    if artifact.canSetEnabled(false) {
+                        Button("Stop") { submit(CallActivity(artifact.kind, enabled: false)) }
+                            .disabled(!can(artifact.kind))
+                            .accessibilityLabel("Stop \(CallArtifactPresentation.title(artifact.kind))")
+                    } else {
+                        Button("Start…") { artifactToStart = artifact.kind }
+                            .disabled(!can(artifact.kind) || !artifact.canSetEnabled(true))
+                            .accessibilityLabel("Start \(CallArtifactPresentation.title(artifact.kind))")
                     }
-                    .fixedSize()
-                    .disabled(!can(artifact.kind))
-                } else {
-                    Button("Stop") { submit(CallActivity(artifact.kind, enabled: false)) }
-                        .disabled(!can(artifact.kind))
-                        .accessibilityLabel("Stop \(CallArtifactPresentation.title(artifact.kind))")
                 }
-            } else {
-                Button("Start…") { artifactToStart = artifact.kind }
-                    .disabled(!can(artifact.kind) || !artifact.canSetEnabled(true))
-                    .accessibilityLabel("Start \(CallArtifactPresentation.title(artifact.kind))")
+            } label: {
+                Text(CallArtifactPresentation.title(artifact.kind))
+                if let status = Self.status(of: artifact, languageName: languageName) {
+                    Text(status)
+                }
             }
-        } label: {
-            Text(CallArtifactPresentation.title(artifact.kind))
-            if let status = Self.status(of: artifact, languageName: languageName) {
-                Text(status)
+            if pairedStop {
+                // LabeledContent combines its children and can hide the menu from accessibility.
+                Menu("Stop") {
+                    Button("Stop Recording") { submit(CallActivity(artifact.kind, enabled: false)) }
+                    Button("Stop Recording and Transcription") { submitCapturePair(false) }
+                }
+                .fixedSize()
+                .disabled(!can(artifact.kind))
+                .accessibilityLabel("Stop Recording")
             }
         }
     }
 
     /// "On", and the language its captions are saved in when one is confirmed.
     static func status(of artifact: CallArtifact, languageName: (String) -> String) -> String? {
-        let status = CallArtifactPresentation.status(artifact.phase)
+        let status = CallArtifactPresentation.status(for: artifact)
         guard let language = artifact.recordingCaptionLanguage else { return status }
         let captions = "Captions in \(languageName(language))"
         return status.map { $0 + " · " + captions } ?? captions
@@ -147,28 +153,26 @@ extension CallActivitiesView {
     /// An answer, its count where the meeting shows one, and the person's
     /// vote: a checkmark on the answer they chose, Vote on the others.
     private func pollOption(_ option: String, at index: Int, in poll: CallPoll) -> some View {
-        LabeledContent {
-            HStack(spacing: 10) {
-                if poll.votes.indices.contains(index) {
-                    Text(CallActivityCopy.votes(poll.votes[index]))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                if poll.selections.contains(index) {
-                    Label("Your vote", systemImage: "checkmark")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(.tint)
-                } else if poll.isOpen, offers("votePoll") {
-                    Button("Vote") {
-                        submit(CallActivity("votePoll", resourceID: poll.id, selections: [index]))
-                    }
-                    .controlSize(.small)
-                    .disabled(!can("votePoll"))
-                    .accessibilityLabel("Vote for \(option)")
-                }
-            }
-        } label: {
+        HStack(spacing: 10) {
             Text(option)
+            Spacer(minLength: 10)
+            if poll.votes.indices.contains(index) {
+                Text(CallActivityCopy.votes(poll.votes[index]))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            if poll.selections.contains(index) {
+                Label("Your vote for \(option)", systemImage: "checkmark")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.tint)
+            } else if poll.isOpen, offers("votePoll") {
+                Button("Vote") {
+                    submit(CallActivity("votePoll", resourceID: poll.id, selections: [index]))
+                }
+                .controlSize(.small)
+                .disabled(!can("votePoll"))
+                .accessibilityLabel("Vote for \(option)")
+            }
         }
     }
 

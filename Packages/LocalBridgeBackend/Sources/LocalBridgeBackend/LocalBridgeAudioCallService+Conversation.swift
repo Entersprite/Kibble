@@ -164,11 +164,13 @@ extension LocalBridgeAudioCallService: ConversationAudioCallService {
             call.failureMessage = cleanup.message ?? "The call connection ended."
         default:
             call.phase = .ended
-            call.failureMessage = cleanup.message
+            call.failureMessage = reason.endNotice(cleanup: cleanup)
             call.endReason = switch reason {
             case .localEnded: .localEnded
             case .removedFromMeeting: .removedFromMeeting
             case .sentToWaitingRoom: .sentToWaitingRoom
+            case .switchedDevice: .switchedDevice
+            case .conferenceEnded: .conferenceEnded
             default: nil
             }
         }

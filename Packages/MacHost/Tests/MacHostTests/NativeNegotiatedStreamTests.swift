@@ -12,6 +12,12 @@ struct NativeNegotiatedStreamTests {
         try await exchange(assigned: true, configuration: .init(id: id, isOrdered: true))
     }
 
+    @Test func assignedStreamReceivesADelayedReply() async throws {
+        try await exchange(
+            assigned: true, configuration: .init(id: 0, isOrdered: true), replyDelay: .milliseconds(1200)
+        )
+    }
+
     @Test(arguments: [
         CallStreamControlChannel(id: 42, isOrdered: true, maxPacketLifeTime: 0),
         CallStreamControlChannel(id: 42, isOrdered: true, maxPacketLifeTime: 1000),
@@ -100,7 +106,9 @@ struct NativeNegotiatedStreamTests {
         #expect(receipt.received)
     }
 
-    private func exchange(assigned: Bool, configuration: CallStreamControlChannel) async throws {
+    private func exchange(
+        assigned: Bool, configuration: CallStreamControlChannel, replyDelay: Duration? = nil
+    ) async throws {
         let client = NativeCallMedia(presentation: true), server = NativeCallMedia(presentation: true)
         defer { client.close(); server.close() }
         _ = try await client.makeAudioOffer(serverControlChannel: "collections")
@@ -117,15 +125,23 @@ struct NativeNegotiatedStreamTests {
         let request = Data([8, 7, 34, 0]), reply = Data([8, 7, 42, 0])
         server.isExchangingStream = true
         server.streamReplyMatches = { $0 == request }
+        // Match the usual native stream budget for a valid exchange. Only the
+        // wrong-channel case deliberately waits for a short deadline to expire.
+        let timeout: Duration = assigned ? .seconds(8) : .seconds(1)
         let exchange = Task {
-            try await client.exchangeStreamControl(request, matches: { $0 == reply }, timeout: .seconds(1))
+            try await client.exchangeStreamControl(request, matches: { $0 == reply }, timeout: timeout)
         }
+        defer { exchange.cancel() }
         if assigned {
-            for _ in 0 ..< 200 where server.streamReplies.isEmpty {
+            let deadline = ContinuousClock.now + timeout
+            while server.streamReplies.isEmpty, ContinuousClock.now < deadline {
                 try await Task.sleep(for: .milliseconds(10))
             }
-            #expect(server.streamReplies == [request])
+            try #require(server.streamReplies == [request])
             let channel = try #require(server.streamChannel)
+            if let replyDelay {
+                try await Task.sleep(for: replyDelay)
+            }
             #expect(channel.sendData(LKRTCDataBuffer(data: reply, isBinary: true)))
             #expect(try await exchange.value == reply)
             #expect(client.streamChannel?.isNegotiated == true)

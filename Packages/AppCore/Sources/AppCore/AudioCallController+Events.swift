@@ -21,6 +21,7 @@ extension AudioCallController {
         case .unknown, .listenerBarrier, .capabilitiesChanged: break
         }
         refreshSupport()
+        returnToMainRoomOnClosure()
     }
 
     private func receiveInteraction(_ state: CallInteractionState?, callID: UUID) {

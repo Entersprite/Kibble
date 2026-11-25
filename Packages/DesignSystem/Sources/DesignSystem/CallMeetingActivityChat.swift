@@ -72,7 +72,7 @@ struct CallMeetingActivityChat: View {
             if messages.isEmpty {
                 ContentUnavailableView(
                     "No Messages", systemImage: "bubble.left.and.bubble.right",
-                    description: Text("Messages here last as long as the meeting.")
+                    description: Text("Messages are visible here while you’re in the meeting.")
                 )
                 .frame(maxHeight: .infinity)
             } else {

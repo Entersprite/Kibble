@@ -1,4 +1,5 @@
 import ChatKit
+import Foundation
 import GChatBridgeCore
 
 extension NativeMeetCallSession {
@@ -73,7 +74,9 @@ extension NativeMeetCallSession {
             guard activity.participantIDs.isEmpty, Self.isWaitingRoomTarget(target) else {
                 throw ChatError.unsupported(capability: "waitingRoom")
             }
-            try await device.sendParticipantToWaitingRoom(target.name)
+            if try await !device.sendParticipantToWaitingRoom(target.name) {
+                try await confirmWaitingRoomMove(of: target, after: roster)
+            }
         case "blockParticipant":
             let own = roster.values.first { $0.name == local }
             guard activity.participantIDs.isEmpty, !Self.sameMeetingUser(target, own) else {
@@ -86,6 +89,71 @@ extension NativeMeetCallSession {
             try await device.removeParticipant(target.name)
         }
         try await check()
+    }
+
+    private func confirmWaitingRoomMove(
+        of target: MeetDeviceWire.Device, after before: MeetCallCollectionsWire.Devices
+    ) async throws {
+        let otherIDs = before.values.lazy.filter {
+            $0.name != target.name && Self.isCurrentParticipantDevice($0)
+        }.flatMap(\.conferenceUserIDs)
+        let targetIDs = target.conferenceUserIDs.subtracting(otherIDs)
+        let existing = Set(before.values.map(\.name))
+        let deadline = ContinuousClock.now + .seconds(5)
+        var observedVersion = before.version
+        while ContinuousClock.now < deadline {
+            try await check()
+            let remaining = ContinuousClock.now.duration(to: deadline)
+            guard remaining > .zero else { break }
+            let snapshot = try await device.joinedActivityCollections(
+                including: .space, timeout: remaining
+            )
+            try await check()
+            guard state == .active, !isSuspended, disconnectedAt == nil else { break }
+            let currentVersion = max(
+                deviceVersion ?? 0,
+                participantVersion ?? 0,
+                hostControls.access?.version ?? 0
+            )
+            if let roster = snapshot.devices, roster.version > observedVersion,
+               roster.version >= currentVersion {
+                observedVersion = roster.version
+                guard snapshot.hostAccess?.role == .host else { break }
+                if Self.observedWaitingRoomMove(
+                    target.name,
+                    targetIDs: targetIDs,
+                    existing: existing,
+                    in: roster
+                ) {
+                    return
+                }
+            }
+            let pause = min(.milliseconds(400), ContinuousClock.now.duration(to: deadline))
+            if pause > .zero {
+                try await Task.sleep(for: pause)
+            }
+        }
+        throw ChatError.transport("The move to the waiting room could not be confirmed.")
+    }
+
+    private static func observedWaitingRoomMove(
+        _ target: String, targetIDs: Set<String>, existing: Set<String>,
+        in roster: MeetCallCollectionsWire.Devices
+    ) -> Bool {
+        guard let ejected = roster.values.first(where: { $0.name == target }) else { return false }
+        if ejected.wasSentToWaitingRoom {
+            return true
+        }
+        guard ejected.wasRemoved, ejected.isDeleted else { return false }
+        let matches = roster.values.filter {
+            isCurrentParticipantDevice($0) && !targetIDs.isDisjoint(with: $0.conferenceUserIDs)
+        }
+        guard matches.count == 1, let waiting = matches.first else { return false }
+        return isInWaitingRoom(waiting) && !existing.contains(waiting.name)
+    }
+
+    private static func isCurrentParticipantDevice(_ device: MeetDeviceWire.Device) -> Bool {
+        !device.isDeleted && !device.isPresentation && [1, 3, 9, 13].contains(device.joinState)
     }
 
     private func confirmBlock(of target: String, local: String, after version: UInt64) async throws {

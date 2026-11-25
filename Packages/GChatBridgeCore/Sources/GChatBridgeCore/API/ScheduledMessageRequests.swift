@@ -35,7 +35,7 @@ public enum ScheduledMessageRequests {
     ) throws -> CreateUnsentMessageRequest {
         try validate(id)
         var request = CreateUnsentMessageRequest()
-        request.requestHeader = APIRequestHeader.make()
+        request.requestHeader = APIRequestHeader.make(referenceType: reference?.referenceType)
         request.message.id = id
         request.message.text = text
         request.message.annotations = annotations

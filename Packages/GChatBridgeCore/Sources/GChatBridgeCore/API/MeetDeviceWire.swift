@@ -28,15 +28,32 @@ public enum MeetDeviceWire {
         public let canPinForEveryone: Bool
         public let canMessageWaitingRoom: Bool
         public let isPinnedForEveryone: Bool?
+        public let conferenceUserIDs: Set<String>
         public let calendarGuestAliases: [String]
         public let isAnonymous: Bool
 
         public var wasRemoved: Bool {
-            joinState == 7 && finalStateReason == 0
+            joinState == 7 && finalStateReason == 0 && !wasTransferredOut
+        }
+
+        public var wasTransferredOut: Bool {
+            transfer == 2 && (isDeleted || joinState == 6 || joinState == 7)
+        }
+
+        public var wasEndedByHost: Bool {
+            finalStateReason == 6 && (isDeleted || joinState == 6 || joinState == 7)
+        }
+
+        var confirmsRegistrationEnded: Bool {
+            isDeleted || wasRemoved || wasSentToWaitingRoom || wasTransferredOut || wasEndedByHost
         }
 
         public var wasSentToWaitingRoom: Bool {
             joinState == 7 && finalStateReason == 9
+        }
+
+        public var wasRejectedAsIncompatible: Bool {
+            isDeleted && joinState == 8 && finalStateReason == 1
         }
 
         public var hasHostRole: Bool {
@@ -59,7 +76,8 @@ public enum MeetDeviceWire {
             supportsWaitingRoom: Bool = false, meetingUserID: String? = nil,
             canUseContinuousChat: Bool = false, canPinForEveryone: Bool = false,
             canMessageWaitingRoom: Bool = false,
-            isPinnedForEveryone: Bool? = nil, calendarGuestAliases: [String] = [], isAnonymous: Bool = false
+            isPinnedForEveryone: Bool? = nil, conferenceUserIDs: Set<String> = [],
+            calendarGuestAliases: [String] = [], isAnonymous: Bool = false
         ) {
             self.name = name; self.joinState = joinState; self.isDeleted = isDeleted
             self.primaryDevice = primaryDevice; self.captureType = captureType
@@ -78,6 +96,7 @@ public enum MeetDeviceWire {
             self.canPinForEveryone = canPinForEveryone
             self.canMessageWaitingRoom = canMessageWaitingRoom
             self.isPinnedForEveryone = isPinnedForEveryone
+            self.conferenceUserIDs = conferenceUserIDs
             self.calendarGuestAliases = calendarGuestAliases
             self.isAnonymous = isAnonymous
         }
@@ -230,6 +249,7 @@ public enum MeetDeviceWire {
             canPinForEveryone: hasDeviceEnum(82, field: 13, in: data, fields: fields),
             canMessageWaitingRoom: hasDeviceEnum(113, field: 13, in: data, fields: fields),
             isPinnedForEveryone: pinnedForEveryone(in: data),
+            conferenceUserIDs: conferenceUserIDs(in: data, fields: fields),
             calendarGuestAliases: MeetAgendaGuestWire.aliases(data),
             isAnonymous: fields.contains { $0.number == 15 } && (try? MeetProto.value(15, data)) != 0
         )

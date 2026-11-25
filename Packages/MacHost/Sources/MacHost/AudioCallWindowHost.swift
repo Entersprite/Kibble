@@ -139,14 +139,6 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         scheduleClose(after: call)
     }
 
-    /// An ended or declined call's window closes after `closeDelay`, later if
-    /// the pointer is over it, so a reach for Call Back is not cut off. A failed
-    /// call, or one ending with a cleanup warning, stays open to be read.
-    static func closesAutomatically(_ call: AudioCallSession) -> Bool {
-        (call.phase == .ended || call.phase == .declined) && call.failureMessage == nil
-            && call.endReason != .sentToWaitingRoom
-    }
-
     private func scheduleClose(after call: AudioCallSession) {
         guard Self.closesAutomatically(call), closesFinishedCalls() else {
             cancelClosing()
@@ -357,6 +349,15 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
             next.origin.y = min(max(next.minY, visible.minY), max(visible.minY, visible.maxY - next.height))
         }
         return next
+    }
+}
+
+extension AudioCallWindowHost {
+    /// Leave terminal notices and cleanup warnings open until dismissed.
+    static func closesAutomatically(_ call: AudioCallSession) -> Bool {
+        (call.phase == .ended || call.phase == .declined) && call.failureMessage == nil
+            && ![.sentToWaitingRoom, .removedFromMeeting, .switchedDevice, .conferenceEnded]
+            .contains(call.endReason)
     }
 }
 

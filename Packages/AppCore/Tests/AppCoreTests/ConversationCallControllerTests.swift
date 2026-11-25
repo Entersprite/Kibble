@@ -131,6 +131,31 @@ struct ConversationCallControllerTests {
         await controller.stop()
     }
 
+    @Test(arguments: [
+        false,
+        true
+    ]) func aTimedOutStartCanStillEndTheSameCall(connectedLate: Bool) async throws {
+        let (controller, service) = await ready()
+        service.startFailure = ServiceFailure.deadlineExceeded
+        let id = try #require(controller.startCall(in: space, members: [], me: me))
+        #expect(await eventually { controller.call?.failureMessage?.contains("timed out") == true })
+        #expect(controller.call?.phase == .connecting)
+        #expect(controller.startCall(in: group, members: [peer, other], me: me) == nil)
+
+        if connectedLate {
+            let target = try #require(service.targets.first)
+            service.emitConversation(.init(id: id, target: target, phase: .connected))
+            #expect(await eventually { controller.call?.phase == .connected })
+            #expect(controller.call?.failureMessage == nil)
+        }
+
+        controller.hangUp()
+        #expect(await eventually { service.hungUpCalls == [id] && !controller.isEnding })
+        #expect(controller.call?.phase == .ended)
+        #expect(controller.startCall(in: group, members: [peer, other], me: me) != nil)
+        await controller.stop()
+    }
+
     @Test func aSecondCallRaisesTheFirstInsteadOfStartingAnother() async throws {
         let (controller, service) = await ready()
         let first = try #require(controller.startCall(in: space, members: [], me: me))
@@ -210,6 +235,7 @@ final class ConversationRecordingService: ExistingAudioCallService, Conversation
     private var listening = false
     var operations: [String] = []
     var targets: [ConversationCallTarget] = []
+    private(set) var hungUpCalls: [UUID] = []
     var joinFailure: (any Error)?
     var startFailure: (any Error)?
 
@@ -261,8 +287,9 @@ final class ConversationRecordingService: ExistingAudioCallService, Conversation
 
     func accept(callID _: UUID) async throws {}
     func decline(callID _: UUID) async throws {}
-    func hangUp(callID _: UUID) async throws {
+    func hangUp(callID: UUID) async throws {
         operations.append("hangUp")
+        hungUpCalls.append(callID)
     }
 
     func setMuted(_: Bool, callID _: UUID) async throws {}

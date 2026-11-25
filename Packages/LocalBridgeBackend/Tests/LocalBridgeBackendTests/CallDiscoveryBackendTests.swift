@@ -10,11 +10,16 @@ private actor CallDiscoveryTransport: HTTPTransport {
     let transition: Int
     let hold: IgnoringHold?
     let membership: MembershipState
+    let rosterStatus: Int
     private(set) var groupReads = 0
     private(set) var rosterReads = 0
 
-    init(transition: Int = 0, hold: IgnoringHold? = nil, membership: MembershipState = .memberJoined) {
+    init(
+        transition: Int = 0, hold: IgnoringHold? = nil, membership: MembershipState = .memberJoined,
+        rosterStatus: Int = 200
+    ) {
         self.transition = transition; self.hold = hold; self.membership = membership
+        self.rosterStatus = rosterStatus
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -35,15 +40,21 @@ private actor CallDiscoveryTransport: HTTPTransport {
             response.group.spaceIntegrationPayloads = [envelope]
             return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedData())
         }
-        if request.url.lastPathComponent == "batchexecute" {
+        if request.url.lastPathComponent == "get_call_data" {
             rosterReads += 1
             if let hold {
                 await hold.wait()
             }
-            let data: [Any] = [[[["peer", 1]], 2, NSNull(), [["Guest"]]]]
-            return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: SearchFixtures.answerBody(
-                inner: data, rpc: CallDiscoveryRequests.rpc
-            ))
+            let input = try GetCallDataRequest(serializedBytes: request.body ?? Data())
+            #expect(input.hasRequestHeader && input.groupID.spaceID.spaceID == "a" && input
+                .fetchOptions == [1])
+            var response = GetCallDataResponse()
+            response.participantList.totalCount = 2
+            response.participantList.users = [UserId.with { $0.id = "peer" }]
+            response.participantList.anonymousParticipants = [.with { $0.displayName = "Guest" }]
+            return try HTTPResponse(
+                status: rosterStatus, headers: HTTPHeaders([]), body: response.serializedData()
+            )
         }
         return try await base.send(request)
     }
@@ -80,6 +91,19 @@ struct CallDiscoveryBackendTests {
         #expect(value.participants == nil)
         #expect(value.totalParticipants == nil)
         #expect(value.reference == (transition == 1 ? "replacement" : "original"))
+        await backend.disconnect()
+    }
+
+    @Test(arguments: [0, 1, 3])
+    func anUnavailableRosterStillUsesFreshGroupState(_ transition: Int) async throws {
+        let transport = CallDiscoveryTransport(transition: transition, rosterStatus: 403)
+        let backend = try await connected(transport)
+        let value = try await backend.callAvailability(in: .init("space/a"))
+        #expect(value.status == (transition == 3 ? .inactive : .active))
+        #expect(value.reference == (transition == 1 ? "replacement" : "original"))
+        #expect(value.participants == nil && value.totalParticipants == nil)
+        #expect(await transport.groupReads == 2)
+        #expect(await transport.rosterReads == 1)
         await backend.disconnect()
     }
 

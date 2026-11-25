@@ -46,6 +46,12 @@ enum StarredPresentation {
     static func preview(of message: Message) -> String {
         message.text.isEmpty ? message.attachments.first?.name ?? "Message" : message.text
     }
+
+    static func senderName(for sender: Member.ID, in state: ChatSceneState) -> String {
+        state.stars.members[sender]?.displayName
+            ?? state.directory[sender]?.displayName
+            ?? (sender == state.me ? "You" : "Unknown sender")
+    }
 }
 
 /// The Saved list, in the detail pane: a `List`, as the Mentions and Calls
@@ -149,7 +155,6 @@ struct StarredMessagesPane: View {
     /// The Mentions row's shape: where and who on one line with the time at
     /// its end, then the message. The bookmark takes it back off the list.
     private func row(_ message: Message) -> some View {
-        let sender = state.stars.members[message.sender] ?? state.directory[message.sender]
         let conversation = state.conversations.first { $0.id == message.conversationID }
         let address = MessageAddress(message)
         return HStack(alignment: .top, spacing: 8) {
@@ -160,7 +165,7 @@ struct StarredMessagesPane: View {
                         ?? "Conversation")
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
-                    Text(sender?.displayName ?? "Unknown sender")
+                    Text(StarredPresentation.senderName(for: message.sender, in: state))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

@@ -30,6 +30,7 @@ public extension AudioCallController {
         defer {
             if generation == epoch, self.call?.id == call.id {
                 activityTask = nil
+                returnToMainRoomOnClosure()
             }
         }
         if [
@@ -91,15 +92,27 @@ public extension AudioCallController {
 }
 
 public extension AudioCallController {
+    var currentBreakoutRoomID: UUID? {
+        guard let url = activeMeetingURL else { return nil }
+        return interaction?.activities?.rooms.first { $0.joinURL == url }?.id
+    }
+
     func joinBreakoutRoom(_ id: UUID?) async throws {
-        guard let room = interaction?.activities?.rooms.first(where: { $0.id == id }), room.isOpen,
+        guard let activities = interaction?.activities, activities.breakoutClosing != true,
+              let room = activities.rooms.first(where: { $0.id == id }), room.isOpen,
               let url = room.joinURL else { throw CancellationError() }
-        try await switchMeeting(to: url, returning: false)
+        try await beginMeetingHandoff(to: url, returning: false).value
     }
 
     func returnFromBreakoutRoom() async throws {
         guard let url = breakoutReturnURL else { throw CancellationError() }
-        try await switchMeeting(to: url, returning: true)
+        try await beginMeetingHandoff(to: url, returning: true).value
+    }
+
+    private var activeMeetingURL: URL? {
+        guard let call, !call.phase.isTerminal,
+              case let .conversation(target) = call.target else { return nil }
+        return target.meetingURL
     }
 
     private func awaitMeetingTermination(_ id: UUID, epoch: Int) async throws {
@@ -114,13 +127,28 @@ public extension AudioCallController {
               [.ended, .declined].contains(terminal.phase) else { throw CancellationError() }
     }
 
-    private func switchMeeting(to url: URL, returning: Bool) async throws {
-        guard breakoutTask == nil, let call, call.phase == .connected,
-              canJoinMeetingLinks else { throw CancellationError() }
+    private func beginMeetingHandoff(
+        to url: URL, returning: Bool, forceMute: Bool = false
+    ) throws -> Task<Void, any Error> {
+        guard url != activeMeetingURL, breakoutTask == nil, let call, call.phase == .connected,
+              !isEnding, canJoinMeetingLinks,
+              !(call.isMuted || forceMute) || supportsMeetingJoinMedia
+        else { throw CancellationError() }
         let epoch = generation
         let originalURL = interaction?.joinURL
+        let media = MeetingJoinMedia(microphoneMuted: call.isMuted || forceMute)
+        let token = UUID()
         let task = Task { [weak self] in
             guard let self else { throw CancellationError() }
+            defer {
+                if breakoutTaskToken == token {
+                    breakoutTask = nil
+                    breakoutTaskToken = nil
+                }
+            }
+            try Task.checkCancellation()
+            guard generation == epoch, self.call?.id == call.id, self.call?.phase == .connected,
+                  !isEnding else { throw CancellationError() }
             hangUp()
             await endingTask?.value
             try await awaitMeetingTermination(call.id, epoch: epoch)
@@ -128,24 +156,28 @@ public extension AudioCallController {
                   [.ended, .declined].contains(self.call?.phase),
                   self.call?.failureMessage == nil, !isEnding,
                   canJoinMeetingLinks,
-                  joinMeeting(at: url) != nil else { throw CancellationError() }
+                  joinMeeting(at: url, media: media) != nil else { throw CancellationError() }
             breakoutReturnURL = returning ? nil : breakoutReturnURL ?? originalURL
         }
-        let token = UUID()
         breakoutTaskToken = token
         breakoutTask = task
-        defer {
-            if breakoutTaskToken == token {
-                breakoutTask = nil; breakoutTaskToken = nil
-            }
-        }
-        // The explicit handoff survives its source panel closing after Hang Up.
+        // The handoff survives its source panel closing after Hang Up.
         // Account stop cancels the controller-owned task before any new Join.
-        try await task.value
+        return task
     }
 }
 
 extension AudioCallController {
+    func returnToMainRoomOnClosure() {
+        guard activityTask == nil, let call, case let .conversation(target) = call.target,
+              let roomURL = target.meetingURL, let mainURL = breakoutReturnURL, mainURL != roomURL,
+              let activities = interaction?.activities, activities.breakoutClosed == true,
+              activities.breakoutClosing != true,
+              activities.rooms.contains(where: { $0.joinURL == roomURL && !$0.isOpen })
+        else { return }
+        _ = try? beginMeetingHandoff(to: mainURL, returning: true, forceMute: true)
+    }
+
     func stopActivityWork() {
         inviteTask?.cancel(); inviteTask = nil
         breakoutTask?.cancel(); breakoutTask = nil; breakoutTaskToken = nil; breakoutReturnURL = nil

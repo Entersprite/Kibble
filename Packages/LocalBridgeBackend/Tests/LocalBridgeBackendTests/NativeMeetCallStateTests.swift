@@ -316,33 +316,6 @@ struct NativeMeetCallStateTests {
     }
 }
 
-actor HeldCollectionTransport: HTTPTransport {
-    let base: ScriptedTransport
-    private(set) var started = false
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    init(base: ScriptedTransport) {
-        self.base = base
-    }
-
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        let result = try await base.send(request)
-        if request.url.path.hasSuffix("SyncMeetingSpaceCollections") {
-            started = true
-            await withCheckedContinuation { continuation = $0 }
-        }
-        return result
-    }
-
-    func release() {
-        continuation?.resume(); continuation = nil
-    }
-
-    func stream(_ request: HTTPRequest) async throws -> HTTPStream {
-        try await base.stream(request)
-    }
-}
-
 private final class CallTestClock: Sendable {
     private let instant = Mutex<ContinuousClock.Instant>(.now)
     func read() -> ContinuousClock.Instant {

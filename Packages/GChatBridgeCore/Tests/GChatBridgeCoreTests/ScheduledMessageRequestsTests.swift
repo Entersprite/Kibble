@@ -39,6 +39,26 @@ struct ScheduledMessageRequestsTests {
         #expect(!reschedule.message.hasUnsentType && !edit.message.hasUnsentType)
     }
 
+    @Test(arguments: [1, 2])
+    func onlyScheduledForwardsDeclareProviderSupport(referenceType: Int32) throws {
+        var reference = UnsentMessageReference()
+        reference.id.messageID = "original"
+        reference.referenceType = referenceType
+        let request = try ScheduledMessageRequests.create(
+            address(), text: "Scheduled sample", reference: reference,
+            deliveryTime: Date(timeIntervalSince1970: 200), now: Date(timeIntervalSince1970: 100)
+        )
+        let wire: Data = try request.serializedBytes()
+        let header = try #require(ProtoFieldScan.payloads(ofField: 1, in: wire).first)
+        let features = ProtoFieldScan.payloads(ofField: 5, in: header)
+        if referenceType == 2 {
+            let advertised = try #require(features.first)
+            #expect(ProtoFieldScan.varintValues(ofField: 53, in: advertised) == [2])
+        } else {
+            #expect(features.isEmpty)
+        }
+    }
+
     @Test func conversionChangesTypeAndDeliveryOnTheOriginalAddressAndCanClearAQuote() throws {
         let update = try ScheduledMessageRequests.convertDraft(
             address(), text: "Edited draft", annotations: [], reference: nil,

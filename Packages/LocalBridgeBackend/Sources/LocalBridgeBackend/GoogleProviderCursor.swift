@@ -57,8 +57,10 @@ struct ProviderCursorPatch: Sendable {
 }
 
 extension ChannelEventMapping {
-    static func recoveryEvents(_ event: Event) throws -> [ChatEvent] {
-        var mapped = try chatEvents(from: ChannelEvent(protobuf: event))
+    static func recoveryEvents(
+        _ event: Event, onSparseForward: (SparseForwardTarget) -> Void = { _ in }
+    ) throws -> [ChatEvent] {
+        var mapped = try chatEvents(from: ChannelEvent(protobuf: event), onSparseForward: onSparseForward)
         if !event.unknownFields.data.isEmpty || event.bodies
             .contains(where: { !$0.unknownFields.data.isEmpty }) ||
             !event.body.unknownFields.data.isEmpty {

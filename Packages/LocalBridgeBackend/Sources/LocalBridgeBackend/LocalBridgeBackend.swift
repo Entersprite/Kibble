@@ -104,6 +104,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// those lookups are many and short.
     var receiptRevisions: [Conversation.ID: Int] = [:]
     var directoryGeneration = 0
+    var forwardRefetches: [MessageId: Task<Void, Never>] = [:]
     var discoverableManagementSpaces: Set<Conversation.ID> = []
     var managementOperations: [String: ManagementOperation] = [:]
     var scheduledMutations: Set<ScheduledMessageAddress> = []
@@ -338,6 +339,7 @@ public actor LocalBridgeBackend: ChatBackend {
         memberResolution = nil
         forgetDirectory()
         forgetReactionRefetches()
+        forgetForwardRefetches()
         selfIdentification?.cancel()
         selfIdentification = nil
         stopPolls()

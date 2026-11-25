@@ -4,8 +4,8 @@ import GChatBridgeCore
 
 enum ForwardedMessageMapping {
     /// Reference type 2 is the web client's Forward message action. Type 1 is
-    /// an ordinary quoted reply; absence retains the older quote shape, except
-    /// for a source in another conversation, which no quote can have.
+    /// an explicit quote, including old cross-conversation sends. An untyped
+    /// reference uses the legacy forward shape when it crosses conversations.
     static func forwarded(_ message: GChatBridgeCore.Message) -> ForwardedMessage? {
         guard message.hasReplyTo, isForward(message) else { return nil }
         let value = message.replyTo

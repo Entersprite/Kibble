@@ -8,17 +8,24 @@ private actor EditTransport: HTTPTransport {
     struct NoStream: Error {}
     private let shell: HTTPResponse
     private let failure: (any Error)?
+    private let original: GChatBridgeCore.Message
     private(set) var sent: [HTTPRequest] = []
 
-    init(shell: HTTPResponse, failure: (any Error)? = nil) {
+    init(shell: HTTPResponse, original: GChatBridgeCore.Message, failure: (any Error)? = nil) {
         self.shell = shell
         self.failure = failure
+        self.original = original
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         sent.append(request)
         if request.url.path.contains("/mole/world") {
             return shell
+        }
+        if request.url.path.hasSuffix("/get_message") {
+            var response = GetMessageResponse()
+            response.message = original
+            return try HTTPResponse(status: 200, headers: .init([]), body: response.serializedBytes())
         }
         if request.url.path.contains("/api/edit_message") || request.url.path
             .contains("/api/delete_message") {
@@ -49,10 +56,22 @@ private actor EditTransport: HTTPTransport {
 struct EditDeleteMessageTests {
     private static let cookies = SessionCookies(header: "SID=a; COMPASS=b; OSID=c")!
 
-    private func connected(failure: (any Error)? = nil) async throws -> (LocalBridgeBackend, EditTransport) {
+    private static func subject() -> GChatBridgeCore.Message {
+        var message = GChatBridgeCore.Message()
+        message.id.parentID.topicID.groupID.spaceID.spaceID = "s-1"
+        message.id.parentID.topicID.topicID = "t-1"
+        message.id.messageID = "m-1"
+        message.messageType = .userMessage
+        return message
+    }
+
+    private func connected(
+        failure: (any Error)? = nil, original: GChatBridgeCore.Message? = nil
+    ) async throws -> (LocalBridgeBackend, EditTransport) {
         let html = LocalBridgeBackendTests.shell(app: "DynamiteWebUi")
         let transport = EditTransport(
             shell: HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data(html.utf8)),
+            original: original ?? Self.subject(),
             failure: failure
         )
         let backend = LocalBridgeBackend(cookies: Self.cookies, transport: transport)
@@ -97,6 +116,38 @@ struct EditDeleteMessageTests {
         #expect(decoded.messageID == expected.messageID)
         #expect(decoded.textBody == "fixed")
         #expect(decoded.messageInfo.acceptFormatAnnotations)
+        #expect(!decoded.messageInfo.hasReplyTo)
+    }
+
+    @Test func captionEditRetainsTheExactProviderQuoteAcrossConversations() async throws {
+        var original = Self.subject()
+        original.replyTo.id.parentID.topicID.groupID.dmID.dmID = "source"
+        original.replyTo.id.parentID.topicID.topicID = "source-topic"
+        original.replyTo.id.messageID = "quoted"
+        original.replyTo.createTime = 2_000_000
+        original.replyTo.referenceType = 1
+        let (backend, transport) = try await connected(original: original)
+        try await backend.send(edit())
+        let reads = await transport.bodies("/api/get_message")
+        let read = try GetMessageRequest(serializedBytes: #require(reads.first))
+        #expect(reads.count == 1)
+        #expect(read.messageID == original.id)
+        let body = try #require(await transport.bodies("/api/edit_message").first)
+        let request = try EditMessageRequest(serializedBytes: body)
+        let reply = request.messageInfo.replyTo
+        #expect(reply.id == original.replyTo.id)
+        #expect(reply.createTime == original.replyTo.createTime)
+        #expect(reply.referenceType == 1)
+    }
+
+    @Test func anIncompleteReferenceRefusesAnEditWithoutRemovingTheReference() async throws {
+        var original = Self.subject()
+        var marker = Annotation()
+        marker.type = .replyReference
+        original.annotations = [marker]
+        let (backend, transport) = try await connected(original: original)
+        await #expect(throws: ChatError.self) { try await backend.send(edit()) }
+        #expect(await transport.bodies("/api/edit_message").isEmpty)
     }
 
     /// An edit never invites: whatever mode a mention arrives with, the wire

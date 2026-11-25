@@ -93,7 +93,8 @@ extension LocalBridgeBackend {
         _ raw: Event, patch: ProviderCursorPatch, generation: Int
     ) async throws {
         let channel = try ChannelEvent(protobuf: raw)
-        var events = try ChannelEventMapping.recoveryEvents(raw)
+        var sparseForwards: [SparseForwardTarget] = []
+        var events = try ChannelEventMapping.recoveryEvents(raw) { sparseForwards.append($0) }
         for (body, event) in zip(channel.bodies, events) {
             reconcileHiddenConversation(
                 event,
@@ -117,6 +118,7 @@ extension LocalBridgeBackend {
                 events: [event], patch: index == events.count - 1 ? patch : .init(), live: live
             ))
         }
+        sparseForwards.forEach(requestForwardRefetch)
     }
 
     private func recoverReactions(in event: ChannelEvent, generation: Int) async throws -> [ChatEvent] {

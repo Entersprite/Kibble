@@ -130,6 +130,14 @@ final class NativeAccountAudioCalls: AudioCallQuiescing, ExistingAudioCallServic
         try await source.createMeetingLink()
     }
 
+    var canPreviewMeetingLinks: Bool {
+        source.canPreviewMeetingLinks
+    }
+
+    func previewMeetingTitle(at url: URL) async throws -> String? {
+        try await source.previewMeetingTitle(at: url)
+    }
+
     var canConfigureMeetingJoinMedia: Bool {
         source.canConfigureMeetingJoinMedia
     }

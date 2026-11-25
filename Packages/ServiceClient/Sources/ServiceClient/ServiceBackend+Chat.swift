@@ -33,6 +33,8 @@ public extension ServiceBackend {
             guard result.state == "succeeded" else { throw ServiceFailure.operationUnknown }
             return result.result.flatMap { try? ServiceCodec.decode(SendCommandReceipt.self, from: $0) }?
                 .draftConsumed == true
+        } catch let failure as ServiceFailure where failure == .messageNotSent {
+            throw ChatError.transport("The message was not sent. Try again when connected.")
         } catch let failure as ServiceFailure
             where failure == .operationUnknown || failure == .deadlineExceeded {
             throw UncertainOperation(operationID: id.rawValue)

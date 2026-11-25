@@ -2,6 +2,25 @@ import ChatKit
 import Foundation
 
 extension FixtureAudioCallService {
+    static let localParticipant = CallParticipantDevice(
+        id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)),
+        displayName: "You",
+        isLocal: true
+    )
+
+    public func setHandRaised(_ raised: Bool, callID: UUID) async throws {
+        guard isConnected(callID) else { throw CancellationError() }
+        var devices = participantDevices ?? []
+        if let local = devices.firstIndex(where: { $0.isLocal && !$0.isPresentation }) {
+            devices[local].handRaised = raised
+        } else {
+            var local = Self.localParticipant
+            local.handRaised = raised
+            devices.append(local)
+        }
+        setParticipantDevices(devices, callID: callID)
+    }
+
     private func applyMeetingAccess(_ activity: CallActivity) throws {
         guard activity.options.count == 1, let preset = activity.options.first,
               activityState.hostSettings?.meetingAccess?.availablePresets.contains(preset) == true

@@ -89,9 +89,12 @@ extension LocalBridgeAudioCallService {
             case .declined: .declined
             case .removedFromMeeting: .removedFromMeeting
             case .sentToWaitingRoom: .sentToWaitingRoom
+            case .switchedDevice: .switchedDevice
+            case .conferenceEnded: .conferenceEnded
             default: nil
             }
-            publish(phase: .ended, snapshot: current, failure: cleanup.message, endReason: endReason)
+            let notice = reason.endNotice(cleanup: cleanup)
+            publish(phase: .ended, snapshot: current, failure: notice, endReason: endReason)
         }
     }
 

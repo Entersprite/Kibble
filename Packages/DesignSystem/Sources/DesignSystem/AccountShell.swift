@@ -79,8 +79,10 @@ struct AccountFooterOverlay: View {
     @Binding var isOpen: Bool
     @State private var ownFrame: CGRect = .zero
     @State private var editingStatus = false
+    @State private var footerClock = Date.now
 
     var body: some View {
+        let next = nextRedraw
         ZStack(alignment: .topLeading) {
             if isOpen {
                 Color.black.opacity(0.001)
@@ -99,7 +101,7 @@ struct AccountFooterOverlay: View {
                     // Up to the window's trailing edge, keeping the margin the
                     // panel has at its leading edge.
                     maxWidth: ownFrame.width - 2 * (row.minX - AccountPanelLayout.grow),
-                    isOpen: $isOpen, editStatus: { editingStatus = true }
+                    isOpen: $isOpen, now: max(footerClock, .now), editStatus: { editingStatus = true }
                 )
                 footer.offset(
                     x: row.minX - AccountPanelLayout.grow,
@@ -110,11 +112,30 @@ struct AccountFooterOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(WindowFrameReader { ownFrame = $0 })
         .ignoresSafeArea()
+        .task(id: next) { await waitForRedraw(at: next) }
         .sheet(isPresented: $editingStatus) {
-            SetStatusSheet(current: state.scene.flatMap(Self.status), reactions: actions.reactions) {
+            SetStatusSheet(
+                current: state.scene.flatMap { Self.status($0, now: .now) },
+                reactions: actions.reactions
+            ) {
                 actions.setStatus?($0)
             }
         }
+    }
+
+    private var nextRedraw: Date? {
+        guard let scene = state.scene else { return nil }
+        return Display.ownRedrawDates(
+            for: scene.me.flatMap { scene.directory[$0] }, availability: scene.availability, now: .now
+        ).first
+    }
+
+    /// Like the DM header, wait for one boundary in the view's lifetime.
+    private func waitForRedraw(at date: Date?) async {
+        guard let date else { return }
+        try? await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
+        guard !Task.isCancelled else { return }
+        footerClock = .now
     }
 
     /// The pill row in this overlay's own coordinates. Both frames are in
@@ -130,7 +151,7 @@ struct AccountFooterOverlay: View {
         )
     }
 
-    static func status(_ scene: ChatSceneState) -> MemberStatus? {
-        Display.ownStatus(directory: scene.directory, me: scene.me, connection: scene.connection, now: .now)
+    static func status(_ scene: ChatSceneState, now: Date) -> MemberStatus? {
+        Display.ownStatus(directory: scene.directory, me: scene.me, connection: scene.connection, now: now)
     }
 }

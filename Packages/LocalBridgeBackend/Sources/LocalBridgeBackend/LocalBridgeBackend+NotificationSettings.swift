@@ -5,6 +5,16 @@ import GChatBridgeCore
 struct PendingNotificationWrite {
     let id = UUID()
     var observedUpdates = 0
+    var requested: GroupNotificationMapping?
+
+    mutating func observe(level: NotificationLevel?, muted: Bool?, muteUntil: Date?) {
+        if let requested,
+           level == nil || level == requested.level,
+           muted == nil || (muted == requested.isMuted && muteUntil == requested.muteUntil) {
+            return
+        }
+        observedUpdates += 1
+    }
 }
 
 public extension LocalBridgeBackend {
@@ -123,6 +133,8 @@ extension LocalBridgeBackend {
             in: group,
             settings: before.group.groupReadState.notificationSettings
         )
+        // A matching channel echo can arrive during the addressed readback.
+        notificationWrites[id]?.requested = GroupNotificationMapping(request.settings)
         _ = try await client.call(.updateGroupNotificationSettings, request)
         try checkManagementGeneration(generation)
         let observedUpdates = notificationWrites[id]?.observedUpdates

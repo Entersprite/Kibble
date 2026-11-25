@@ -47,8 +47,10 @@ public extension MeetMediaSessionWire {
 
     static func requestingActivityChannels(in configuration: Data, allowsGzipCaptions: Bool = false) -> Data {
         ActivityChannel.allCases.reduce(configuration) { result, activity in
+            // The native caption service responds on NONE. Keep GZIP available
+            // when supported without preferring it over the working plain route.
             let compression = activity == .captions && allowsGzipCaptions
-                ? MeetProto.bytes(7, Data([2, 1])) : MeetProto.number(7, 1)
+                ? MeetProto.bytes(7, Data([1, 2])) : MeetProto.number(7, 1)
             let descriptor = MeetProto.string(1, activity.rawValue) + MeetProto.number(2, 1)
                 + MeetProto.number(4, 1) + compression
             return result + MeetProto.bytes(17, descriptor)

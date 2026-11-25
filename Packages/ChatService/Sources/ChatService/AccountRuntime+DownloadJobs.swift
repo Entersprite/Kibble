@@ -60,7 +60,7 @@ extension AccountRuntime {
                 maximumBytes: maximum, byteSize: count, phase: "ready"
             )
         } catch {
-            downloads[id]?.failure = serviceFailure(error)
+            downloads[id]?.failure = serviceFailure(error, forDownload: true)
             do { try transferStorage?.remove(id) } catch { await reportUploadCleanupFailure() }
         }
         downloads[id]?.job = nil

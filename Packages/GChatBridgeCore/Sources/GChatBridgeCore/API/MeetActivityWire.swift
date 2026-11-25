@@ -6,7 +6,7 @@ public enum MeetActivityWire {
     public struct Request: Sendable {
         public let method: String
         public let body: Data
-        func validateScope(_ space: String) throws {
+        func validateScope(_ space: String, observed: MeetActivityCollections.Snapshot? = nil) throws {
             let name: String = if [
                 "MeetingSpaceService/UpdateMeetingSpace",
                 "MeetingPollService/UpdatePoll",
@@ -16,8 +16,19 @@ public enum MeetActivityWire {
             } else {
                 try MeetProto.text(1, body)
             }
-            guard name == space || name.hasPrefix(space + "/")
-            else { throw MeetCallWire.WireError.invalidIdentifier }
+            if name == space || name.hasPrefix(space + "/") {
+                return
+            }
+            let field: Int? = switch method {
+            case "MeetingPollService/UpdatePoll", "MeetingPollService/SubmitPollAnswer": 4
+            case "MeetingPollService/CreatePoll": 5
+            case "MeetingQuestionService/UpdateQuestion", "MeetingQuestionService/CastQuestionVote": 6
+            case "MeetingQuestionService/CreateQuestion": 7
+            default: nil
+            }
+            guard let field, observed?.containsGlobalResource(name, field: field, space: space) == true else {
+                throw MeetCallWire.WireError.invalidIdentifier
+            }
         }
     }
 
@@ -125,7 +136,8 @@ public enum MeetActivityWire {
             paths = ["call_info.settings.video_lock"]
             savedSettings = nil
         case .allowJoiningBeforeHost:
-            field = MeetProto.number(11, enabled ? 1 : 0)
+            // The active Boolean uses an omitted default; the saved Boolean has presence.
+            field = enabled ? MeetProto.number(11, 1) : Data()
             paths = ["call_info.settings.allow_joining_before_host", "settings.allow_joining_before_host"]
             savedSettings = MeetProto.number(10, enabled ? 1 : 0)
         case .allowJoinRequests:
@@ -171,7 +183,7 @@ public enum MeetActivityWire {
         parent: String,
         title: String,
         options: [String],
-        sequence _: UInt64
+        sequence: UInt64
     ) throws -> Request {
         try validateText(title, maximum: 1000)
         guard options.count >= 2, options.count <= 10 else { throw MeetCallWire.WireError.invalidIdentifier }
@@ -182,9 +194,10 @@ public enum MeetActivityWire {
                 MeetProto.string(1, option)
             )
         }
-        let poll = MeetProto.number(3, 2) + MeetProto.number(5, 2) + MeetProto.number(6, 1)
+        let poll = MeetProto.number(2, sequence) + MeetProto.number(3, 2)
+            + MeetProto.number(5, 2) + MeetProto.number(6, 1) + MeetProto.number(7, 1)
             + MeetProto.bytes(4, MeetProto.bytes(1, question))
-        return try create("MeetingPollService/CreatePoll", parent: parent, value: poll)
+        return try create("MeetingPollService/CreatePoll", parent: parent, value: poll, field: 5)
     }
 
     /// Native Meet sends the complete editable poll, without a field mask.
@@ -193,7 +206,7 @@ public enum MeetActivityWire {
         _ current: Data, open: Bool? = nil, resultsVisible: Bool? = nil
     ) throws -> Request {
         let name = try MeetProto.text(1, current)
-        try resource(name)
+        try activityResource(name, field: 4)
         let state = try MeetProto.value(3, current)
         let visibility = try MeetProto.value(5, current)
         let anonymity = try MeetProto.value(6, current)
@@ -203,6 +216,11 @@ public enum MeetActivityWire {
             + MeetProto.number(3, open.map { $0 ? 2 : 3 } ?? state)
             + MeetProto.number(5, resultsVisible.map { $0 ? 1 : 2 } ?? visibility)
             + MeetProto.number(6, anonymity)
+        if MeetActivityCollections.has(7, current) {
+            let option = try MeetProto.value(7, current)
+            guard option <= 1 else { throw MeetCallWire.WireError.malformedResponse }
+            poll += MeetProto.number(7, option)
+        }
         for question in ProtoFieldScan.payloads(ofField: 4, in: current) {
             poll += MeetProto.bytes(4, question)
         }
@@ -210,7 +228,7 @@ public enum MeetActivityWire {
     }
 
     public static func votePoll(_ name: String, option: String) throws -> Request {
-        try resource(name)
+        try activityResource(name, field: 4)
         try validateText(option, maximum: 1000)
         return Request(
             method: "MeetingPollService/SubmitPollAnswer",
@@ -235,12 +253,13 @@ public enum MeetActivityWire {
                     7,
                     1
                 )
-                + MeetProto.number(11, anonymous ? 1 : 0)
+                + MeetProto.number(11, anonymous ? 1 : 0),
+            field: 7
         )
     }
 
     public static func voteQuestion(_ name: String, voted: Bool) throws -> Request {
-        try resource(name)
+        try activityResource(name, field: 6)
         return Request(
             method: "MeetingQuestionService/CastQuestionVote",
             body:
@@ -249,7 +268,7 @@ public enum MeetActivityWire {
     }
 
     public static func answerQuestion(_ current: Data) throws -> Request {
-        try resource(MeetProto.text(1, current))
+        try activityResource(MeetProto.text(1, current), field: 6)
         guard let preserved = ProtoFieldScan.removingVarint(7, from: current) else {
             throw MeetCallWire.WireError.malformedResponse
         }
@@ -261,55 +280,16 @@ public enum MeetActivityWire {
         )
     }
 
-    public static func initializeRooms(space: String) throws -> Request {
-        guard MeetDeviceWire.validSpace(space) else { throw MeetCallWire.WireError.invalidIdentifier }
-        return Request(
-            method: "MeetingBreakoutStateService/InitializeBreakoutState",
-            body: MeetProto.string(1, space)
-        )
-    }
-
-    public static func configureRooms(
-        space: String,
-        open: Bool,
-        names: [String],
-        sequence: UInt64
-    ) throws -> Request {
-        guard MeetDeviceWire.validSpace(space), names.count <= 100 else {
-            throw MeetCallWire.WireError.invalidIdentifier
-        }
-        var body = MeetProto.string(1, space) + MeetProto.number(2, open ? 1 : 2)
-        if !names.isEmpty {
-            for (index, name) in names.enumerated() {
-                try validateText(name, maximum: 100)
-                let room = MeetProto.string(3, name)
-                body += MeetProto.bytes(
-                    4,
-                    MeetProto.bytes(1, room) + MeetProto.number(2, sequence + UInt64(index))
-                )
-            }
-        }
-        return Request(method: "MeetingBreakoutStateService/ConfigureBreakoutSessions", body: body)
-    }
-
-    public static func assignRoom(space: String, room: String, people: [String]) throws -> Request {
-        guard MeetDeviceWire.validSpace(space), room.hasPrefix(space + "/"), people.count <= 256,
-              people.allSatisfy({ $0.hasPrefix(space + "/") })
-        else { throw MeetCallWire.WireError.invalidIdentifier }
-        try resource(room)
-        var update = MeetProto.bytes(1, MeetProto.string(1, room))
-        for person in people {
-            try resource(person); update += MeetProto.string(3, person)
-        }
-        return Request(
-            method: "MeetingBreakoutStateService/ConfigureBreakoutSessions",
-            body: MeetProto.string(1, space) + MeetProto.bytes(5, update)
-        )
-    }
-
-    private static func create(_ method: String, parent: String, value: Data) throws -> Request {
-        try resource(parent)
+    private static func create(_ method: String, parent: String, value: Data, field: Int) throws -> Request {
+        try activityResource(parent, field: field)
         return Request(method: method, body: MeetProto.string(1, parent) + MeetProto.bytes(2, value))
+    }
+
+    private static func activityResource(_ name: String, field: Int) throws {
+        if MeetActivityCollections.isGlobalResource(name, field: field) {
+            return
+        }
+        try resource(name)
     }
 
     static func resource(_ name: String) throws {
@@ -340,7 +320,18 @@ public extension MeetActivityWire {
     }
 
     static func joiningBeforeHostAllowed(in space: Data, saved: Bool = false) -> Bool? {
-        explicitSpaceSetting(in: space, field: saved ? 10 : 11, saved: saved)
+        let savedPolicy = explicitSpaceSetting(in: space, field: 10, saved: true)
+        if saved {
+            return savedPolicy
+        }
+        if let active = explicitSpaceSetting(in: space, field: 11, saved: false) {
+            return active
+        }
+        // Only infer the active default when the saved policy explicitly confirms it.
+        guard savedPolicy == false, let settings = spaceSettings(in: space, saved: false) else { return nil }
+        let fields = ProtoFieldScan.fields(in: settings)
+        guard !fields.truncated, !fields.fields.contains(where: { $0.number == 11 }) else { return nil }
+        return false
     }
 
     private static func explicitSpaceSetting(in space: Data, field: Int, saved: Bool) -> Bool? {
@@ -359,10 +350,13 @@ public extension MeetActivityWire {
         return (management == 1, locked == 0)
     }
 
-    static func chatSendingPolicy(in space: Data, saved: Bool = false) -> Bool? {
+    static func chatSendingPolicy(
+        in space: Data, saved: Bool = false, includingDefault: Bool = false
+    ) -> Bool? {
         switch spaceSettings(in: space, saved: saved).flatMap({
             try? MeetProto.value(saved ? 36 : 38, $0)
         }) {
+        case 1 where includingDefault: true
         case 2: true
         case 3: false
         default: nil

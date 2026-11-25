@@ -54,9 +54,10 @@ extension LocalBridgeBackend {
         /// round under Away or Do not disturb sends nothing, so tests wait on
         /// this to know one ran, never on a clock (`CLAUDE.md`, Testing).
         var activityRounds = 0
-        /// The availability this backend last reported, which decides whether
-        /// activity is reported at all; learned again at connect.
+        /// The latest own availability, which gates activity reports.
         var ownAvailability: Availability?
+        var ownAvailabilityRevision = UUID()
+        var ownAvailabilityWrites: Set<UUID> = []
         /// Whether this connect's self-identification has finished, so
         /// `ownAvailability` is known if it can be. Reporting waits for it, or
         /// Away would lose to the app's report racing `get_self_user_status`
@@ -201,6 +202,9 @@ extension LocalBridgeBackend {
                 if !people.isEmpty {
                     let ids = people.sorted { $0.rawValue < $1.rawValue }
                     answered = await self?.pollPresence(ids, using: apiClient, generation: generation) ?? true
+                }
+                if answered {
+                    await self?.refreshOwnAvailability(generation: generation)
                 }
                 let wait = answered ? interval : min(retry, interval)
                 retry = answered ? firstRetry : min(retry * 2, interval)

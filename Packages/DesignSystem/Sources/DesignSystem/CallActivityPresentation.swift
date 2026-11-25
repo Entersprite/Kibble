@@ -46,6 +46,22 @@ enum CallArtifactPresentation {
         }
     }
 
+    static func status(for artifact: CallArtifact) -> String? {
+        switch issue(for: artifact) {
+        case .participantCompatibility: "Blocked by a participant’s device"
+        case .initializationFailed: "Couldn’t start"
+        case nil: status(artifact.phase)
+        }
+    }
+
+    private static func issue(for artifact: CallArtifact) -> CallArtifactIssue? {
+        switch (artifact.phase, artifact.issue.flatMap(CallArtifactIssue.init(rawValue:))) {
+        case ("starting", .participantCompatibility): .participantCompatibility
+        case ("stopped", .initializationFailed): .initializationFailed
+        default: nil
+        }
+    }
+
     static func isRunning(_ phase: String) -> Bool {
         phase == "active" || phase == "starting"
     }
@@ -54,8 +70,13 @@ enum CallArtifactPresentation {
         phase == "stopped" || phase == "preconfigured"
     }
 
-    /// The line the call window keeps on screen while one is running.
+    /// The line the call window shows for an ongoing attempt or its outcome.
     static func notice(for artifact: CallArtifact) -> String? {
+        switch issue(for: artifact) {
+        case .participantCompatibility: return "\(title(artifact.kind)) is blocked by a participant’s device"
+        case .initializationFailed: return "\(title(artifact.kind)) couldn’t start"
+        case nil: break
+        }
         guard isRunning(artifact.phase) else { return nil }
         let starting = artifact.phase == "starting"
         switch artifact.kind {
@@ -70,10 +91,15 @@ enum CallArtifactPresentation {
         "Start \(title(kind))?"
     }
 
-    /// One notice for each activity that is running or starting.
+    /// One notice for each activity with visible progress or a known failure.
     static func notices(for artifacts: [CallArtifact]) -> [CallNotice] {
         artifacts.compactMap { artifact in
-            notice(for: artifact).map { CallNotice(id: "artifact/" + artifact.kind, text: $0, kind: .info) }
+            notice(for: artifact).map {
+                CallNotice(
+                    id: "artifact/" + artifact.kind, text: $0,
+                    kind: issue(for: artifact) == nil ? .info : .warning
+                )
+            }
         }
     }
 }

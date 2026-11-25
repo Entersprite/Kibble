@@ -68,6 +68,10 @@ public struct HTTPRequest: Sendable, Hashable {
     /// oversized body is never held whole (`RemoteImageFetch`, links spec §4.4).
     public var maxBodyBytes: Int?
 
+    /// Ask the transport for affirmative evidence that a failed unary request
+    /// never reached the wire. Transports without evidence throw their usual error.
+    public var reportsUntransmitted = false
+
     public init(
         method: Method = .get,
         url: URL,
@@ -87,6 +91,12 @@ public struct HTTPRequest: Sendable, Hashable {
         self.followsRedirects = followsRedirects
         self.maxBodyBytes = maxBodyBytes
     }
+}
+
+/// The transport established that it did not transmit the HTTP request.
+/// A network error code on its own cannot establish this.
+public struct RequestNotTransmitted: Error, Sendable {
+    public init() {}
 }
 
 // MARK: - Response

@@ -255,6 +255,12 @@ struct AudioCallWindowHostTests {
         #expect(AudioCallWindowHost.closesAutomatically(call))
         call.endReason = .sentToWaitingRoom
         #expect(!AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = .removedFromMeeting
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = .switchedDevice
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = .conferenceEnded
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
         call.endReason = nil
         call.phase = .declined
         #expect(AudioCallWindowHost.closesAutomatically(call))

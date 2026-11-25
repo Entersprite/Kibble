@@ -38,17 +38,22 @@ public extension MeetDeviceSession {
         )
     }
 
-    func performActivity(_ request: MeetActivityWire.Request) async throws -> Data {
+    func performActivity(
+        _ request: MeetActivityWire.Request, observed: MeetActivityCollections.Snapshot? = nil
+    ) async throws -> Data {
         try begin()
         defer { busy = false }
         guard !closed, mediaConnected, device?.joinState == 1 else { throw MeetDeviceSessionError.notJoined }
-        try request.validateScope(space.name)
+        try request.validateScope(space.name, observed: observed)
         let response = try await send(request.method, body: request.body)
         return try MeetProto.decode(response.body)
     }
 
-    func activityCollections(refreshHostAccess: Bool = false) async throws -> MeetActivityCollections
-        .Snapshot {
+    func activityCollections(
+        refreshHostAccess: Bool = false,
+        isolatingOptionalFailures: Bool = false,
+        timeout: Duration? = nil
+    ) async throws -> MeetActivityCollections.Snapshot {
         try begin()
         defer { busy = false }
         guard !closed, mediaConnected, let device, device.joinState == 1
@@ -59,9 +64,12 @@ public extension MeetDeviceSession {
         }
         let response = try await send(
             "MeetingSpaceService/SyncMeetingSpaceCollections",
-            body: body
+            body: body,
+            timeout: timeout
         )
-        var snapshot = try MeetActivityCollections.decode(response.body, space: space.name)
+        var snapshot = try isolatingOptionalFailures
+            ? MeetActivityCollections.availableSnapshot(response.body, space: space.name)
+            : MeetActivityCollections.decode(response.body, space: space.name)
         if refreshHostAccess {
             let data = try MeetProto.decode(response.body)
             snapshot.devices = try MeetCallCollectionsWire.devices(in: data, space: space.name)
@@ -74,7 +82,9 @@ public extension MeetDeviceSession {
         case space = 2, messages = 4
     }
 
-    func joinedActivityCollections(including collection: JoinedActivityCollection) async throws
+    func joinedActivityCollections(
+        including collection: JoinedActivityCollection, timeout: Duration = .seconds(8)
+    ) async throws
         -> MeetActivityCollections.Snapshot {
         try begin()
         defer { busy = false }
@@ -84,7 +94,7 @@ public extension MeetDeviceSession {
             "MeetingSpaceService/SyncMeetingSpaceCollections",
             body: MeetProto.string(1, space.name) + MeetProto.bytes(3, Data())
                 + MeetProto.bytes(collection.rawValue, Data()),
-            timeout: .seconds(8)
+            timeout: timeout
         )
         try Task.checkCancellation()
         guard !closed, self.device?.name == device.name else { throw MeetDeviceSessionError.closed }

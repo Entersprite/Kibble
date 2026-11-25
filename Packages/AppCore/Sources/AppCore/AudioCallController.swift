@@ -254,6 +254,14 @@ public final class AudioCallController {
                 guard let self, generation == scope, call?.id == id,
                       call?.phase.isTerminal == false, !Task.isCancelled else { return }
                 operationFailure = CallOperationFailure(id: id, error: error)
+                if error as? ServiceFailure == .deadlineExceeded {
+                    // The service may still hold this device while the attempt drains.
+                    // Keep End Call and the matching service snapshots available.
+                    if call?.phase == .connecting, call?.admission == nil {
+                        call?.failureMessage = "Call setup timed out. You can end the attempt and try again."
+                    }
+                    return
+                }
                 if error as? ServiceFailure == .deviceBusy, let incoming, call?.phase == .connecting {
                     call = incoming
                     call?.failureMessage = "Another call is already using this device."

@@ -13,6 +13,10 @@ extension UploadTestBackend: BoundedMediaBackend {
         mediaByteCount = count
     }
 
+    func setMediaFailure(_ failure: ChatError?) {
+        mediaFailure = failure
+    }
+
     func releaseMedia() {
         holdMedia = false; mediaWaiter?.resume(); mediaWaiter = nil
     }
@@ -51,6 +55,9 @@ extension UploadTestBackend: BoundedMediaBackend {
             mediaHeld = true
             await withCheckedContinuation { mediaWaiter = $0 }
             mediaAcknowledged = true
+        }
+        if let mediaFailure {
+            throw mediaFailure
         }
         // An already submitted provider request may finish after cancellation.
         let bytes = mediaByteCount.map { Self.mediaBytes.prefix($0) } ?? Self.mediaBytes

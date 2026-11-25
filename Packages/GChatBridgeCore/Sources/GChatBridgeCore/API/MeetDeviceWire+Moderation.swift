@@ -60,6 +60,16 @@ extension MeetDeviceWire {
         }.first
     }
 
+    static func conferenceUserIDs(in device: Data, fields: [ProtoField]) -> Set<String> {
+        let entries = fields.filter { $0.number == 43 }
+        guard entries.count <= 32, entries.allSatisfy({ $0.wireType == 2 }) else { return [] }
+        let values = ProtoFieldScan.payloads(ofField: 43, in: device)
+        guard values.count == entries.count, values.allSatisfy({
+            !$0.isEmpty && $0.count <= 320 && $0.allSatisfy { (33 ... 126).contains($0) }
+        }) else { return [] }
+        return Set(values.map { String(decoding: $0, as: UTF8.self) })
+    }
+
     static func updateJoinState(device: String, state: UInt64) -> Data {
         let target = MeetProto.string(1, device) + MeetProto.number(4, state)
         return MeetProto.bytes(1, target) + MeetProto.bytes(2, joinStateMask)

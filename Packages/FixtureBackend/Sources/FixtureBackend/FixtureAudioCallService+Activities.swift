@@ -39,7 +39,7 @@ extension FixtureAudioCallService {
         "closeRooms"
     ]
 
-    func resetActivities() {
+    func resetActivities(includeAgenda: Bool = false) {
         activityState = CallActivitiesState()
         activityState.sharedPinLimit = 3
         activityState.availableActions = Self.defaultCallActions
@@ -47,15 +47,17 @@ extension FixtureAudioCallService {
             kind: $0,
             phase: "stopped"
         ) }
-        activityState.agendaAttachments = [CallAgendaAttachment(
-            title: "Planning agenda", url: URL(string: "https://files.example.test/planning-agenda")!
-        )]
-        activityState.agendaGuests = [.init(
-            id: nextActivityID(),
-            displayName: "Olive Outfield",
-            response: "accepted",
-            chatAddress: "olive@example.invalid"
-        )]
+        if includeAgenda {
+            activityState.agendaAttachments = [CallAgendaAttachment(
+                title: "Planning agenda", url: URL(string: "https://files.example.test/planning-agenda")!
+            )]
+            activityState.agendaGuests = [.init(
+                id: nextActivityID(),
+                displayName: "Olive Outfield",
+                response: "accepted",
+                chatAddress: "olive@example.invalid"
+            )]
+        }
         activityState.attendanceReportEnabled = false
         activityState.hostSettings = CallHostSettings(
             managementEnabled: false, reactionsAllowed: true, chatMessagesAllowed: true,
@@ -210,10 +212,12 @@ extension FixtureAudioCallService {
     }
 
     func publishFixtureActivities(callID: UUID) {
-        continuation.yield(.interactionChanged(callID: callID, state: activityInteraction(
-            url: currentConversationCall?.target
-                .meetingURL ?? URL(string: "https://meet.example.test/fixture")
-        )))
+        let url = if let currentConversationCall {
+            currentConversationCall.target.meetingURL
+        } else {
+            URL(string: "https://meet.example.test/fixture")
+        }
+        continuation.yield(.interactionChanged(callID: callID, state: activityInteraction(url: url)))
     }
 
     private func respondToFixtureAdmission(_ activity: CallActivity, callID: UUID) throws {

@@ -20,6 +20,7 @@ struct AccountFooter: View {
     /// The widest the panel may grow before the account row scrolls.
     let maxWidth: CGFloat
     @Binding var isOpen: Bool
+    let now: Date
     let editStatus: () -> Void
     @State private var pillWidth: CGFloat = 160
     @State private var highlight: AccountPanelTarget?
@@ -40,10 +41,16 @@ struct AccountFooter: View {
     }
 
     private var statusLine: String? {
-        state.scene.flatMap { scene in
+        statusModel?.statusLine
+    }
+
+    private var statusModel: StatusMenuModel? {
+        state.scene.map {
             StatusMenuModel(
-                availability: scene.availability, status: AccountFooterOverlay.status(scene), now: .now
-            ).statusLine
+                availability: $0.availability,
+                status: AccountFooterOverlay.status($0, now: now),
+                now: now
+            )
         }
     }
 
@@ -152,16 +159,9 @@ struct AccountFooter: View {
     /// draws; the status rows' words are read when it moves, as they are drawn.
     private var spoken: (AccountPanelTarget) -> String? {
         let state = state
-        let showsStatus = showsStatus
+        let status = showsStatus ? statusModel : nil
         return { target in
-            let status = showsStatus ? state.scene.map {
-                StatusMenuModel(
-                    availability: $0.availability,
-                    status: AccountFooterOverlay.status($0),
-                    now: .now
-                )
-            } : nil
-            return AccountPanelSpeech.text(for: target, state: state, status: status)
+            AccountPanelSpeech.text(for: target, state: state, status: status)
         }
     }
 
@@ -175,10 +175,7 @@ struct AccountFooter: View {
     /// Built when it opens, so each duration counts from then.
     private func openDoNotDisturb() {
         #if os(macOS)
-            guard let scene = state.scene else { return }
-            let model = StatusMenuModel(
-                availability: scene.availability, status: AccountFooterOverlay.status(scene), now: .now
-            )
+            guard let model = statusModel else { return }
             let commands = commands
             doNotDisturbMenu.open(model.doNotDisturbChoices.map { choice in
                 (choice.title, {
@@ -194,8 +191,8 @@ struct AccountFooter: View {
     private var sections: some View {
         ZStack(alignment: .bottomLeading) {
             Group {
-                if showsStatus, let scene = state.scene {
-                    statusSection(scene)
+                if showsStatus, let model = statusModel {
+                    statusSection(model)
                         .frame(width: rowWidth, height: statusHeight, alignment: .topLeading)
                 } else {
                     Text("Your status can be set while this account is connected.")
@@ -222,15 +219,15 @@ struct AccountFooter: View {
         }
     }
 
-    private func statusSection(_ scene: ChatSceneState) -> AccountStatusSection {
+    private func statusSection(_ model: StatusMenuModel) -> AccountStatusSection {
         #if os(macOS)
             AccountStatusSection(
-                scene: scene, label: state.showsLabels ? state.selected?.label : nil, actions: actions,
+                model: model, label: state.showsLabels ? state.selected?.label : nil,
                 commands: commands, highlight: $highlight, doNotDisturbMenu: doNotDisturbMenu
             )
         #else
             AccountStatusSection(
-                scene: scene, label: state.showsLabels ? state.selected?.label : nil, actions: actions,
+                model: model, label: state.showsLabels ? state.selected?.label : nil,
                 commands: commands, highlight: $highlight
             )
         #endif
@@ -240,11 +237,11 @@ struct AccountFooter: View {
     /// their own; theirs is drawn in the container underneath.
     private var bottomRow: some View {
         HStack(spacing: 10) {
-            AccountPill(state: state, isOpen: isOpen) { isOpen.toggle() }
+            AccountPill(state: state, isOpen: isOpen, now: now) { isOpen.toggle() }
                 .layoutPriority(1)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pillWidth = $0 }
             Spacer(minLength: 8)
-            if let scene = state.scene, let marks = Self.marks(scene) {
+            if let scene = state.scene, let marks = marks(scene) {
                 marks
             }
             if let showSettings = actions.showSettings {
@@ -267,18 +264,13 @@ struct AccountFooter: View {
     }
 
     /// Your own status and calendar marks, beside the gear as before.
-    private static func marks(_ scene: ChatSceneState) -> PersonMarks? {
+    private func marks(_ scene: ChatSceneState) -> PersonMarks? {
         PersonMarks(
-            status: Display.ownStatus(
-                directory: scene.directory,
-                me: scene.me,
-                connection: scene.connection,
-                now: .now
-            ),
+            status: AccountFooterOverlay.status(scene, now: now),
             calendar: Display.ownCalendar(
-                directory: scene.directory, me: scene.me, connection: scene.connection, now: .now
+                directory: scene.directory, me: scene.me, connection: scene.connection, now: now
             ),
-            now: .now
+            now: now
         )
     }
 }

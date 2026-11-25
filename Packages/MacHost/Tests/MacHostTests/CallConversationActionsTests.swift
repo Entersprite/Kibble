@@ -1,9 +1,21 @@
+import AppKit
 import ChatKit
 import Testing
 @testable import MacHost
 
 @MainActor
 struct CallConversationActionsTests {
+    @Test func copiedMeetingLinkSupportsURLAndPlainTextPaste() throws {
+        let url = try #require(URL(string: "https://example.com/meeting/a?source=call"))
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+
+        #expect(clipboard.writeMeetingLink(url))
+        #expect(clipboard.pasteboardItems?.count == 1)
+        #expect(clipboard.string(forType: .string) == url.absoluteString)
+        #expect(clipboard.readObjects(forClasses: [NSURL.self], options: nil)?.first as? URL == url)
+    }
+
     @Test func continuousChatRequiresTheExactMeetingConversationInTheAccountDirectory() {
         let id = Conversation.ID("space/confirmed"), route = CallMeetingChat(
             conversationID: id,

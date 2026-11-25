@@ -9,7 +9,7 @@ public extension LocalBridgeAudioCallService {
         let session = sessionScope
         let call = callScope
         let engine = media
-        let native = await trial.diagnosticSnapshot()
+        let native = await trial.diagnosticSnapshot(callID: callID)
         guard diagnosticMatches(callID, session: session, call: call, engine: engine),
               let native else { return nil }
         let audio = await engine?.diagnosticReport() ?? []
@@ -24,7 +24,7 @@ public extension LocalBridgeAudioCallService {
             "Call mute requested: \(muted)",
             "Native microphone muted: \(engine.map { String($0.isMicrophoneMuted) } ?? "unavailable")"
         ]
-        return (header + [native] + audio).joined(separator: "\n")
+        return (header + native + audio).joined(separator: "\n")
     }
 }
 

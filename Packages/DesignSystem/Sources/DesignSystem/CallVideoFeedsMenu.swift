@@ -8,9 +8,13 @@ struct CallPersonalVideoControls: View {
     var body: some View {
         CallPersonalPinsMenu(selection: $selection, videos: videos)
         if !selection.remoteVideoFeeds.isEmpty {
+            let labels = CallRoster.disambiguatedNames(in: selection.remoteVideoFeeds)
             Menu("Video Feeds", systemImage: "video") {
                 ForEach(selection.remoteVideoFeeds, id: \.id) { participant in
-                    CallVideoFeedButton(participant: participant, selection: $selection, includeName: true)
+                    CallVideoFeedButton(
+                        participant: participant, selection: $selection,
+                        targetName: labels[participant.id] ?? CallRoster.name(of: participant)
+                    )
                 }
             }
         }
@@ -50,7 +54,7 @@ struct CallEnlargePresentationButton: View {
 private struct CallVideoFeedButton: View {
     let participant: CallParticipantDevice
     @Binding var selection: CallStageSelection
-    var includeName = false
+    var targetName: String?
 
     var body: some View {
         let hidden = selection.hiddenVideoFeeds.contains(participant.id)
@@ -61,8 +65,7 @@ private struct CallVideoFeedButton: View {
 
     private func title(hidden: Bool) -> String {
         let action = hidden ? "Start Watching" : "Don’t Watch"
-        guard includeName else { return action }
-        let name = CallRoster.name(of: participant)
+        guard let name = targetName else { return action }
         return participant.isPresentation ? "\(action) \(name)’s Presentation" : "\(action) \(name)"
     }
 }

@@ -34,19 +34,25 @@ public enum ChannelEventMapping {
 
     /// Maps one channel event's bodies onto domain events, one for one.
     public static func chatEvents(from event: ChannelEvent) -> [ChatEvent] {
-        event.bodies.map(chatEvent(from:))
+        chatEvents(from: event, onSparseForward: { _ in })
     }
 
-    private static func chatEvent(from body: ChannelEventBody) -> ChatEvent {
+    static func chatEvents(
+        from event: ChannelEvent, onSparseForward: (SparseForwardTarget) -> Void
+    ) -> [ChatEvent] {
+        event.bodies.map { chatEvent(from: $0, onSparseForward: onSparseForward) }
+    }
+
+    private static func chatEvent(
+        from body: ChannelEventBody, onSparseForward: (SparseForwardTarget) -> Void
+    ) -> ChatEvent {
         // Dispatch on the **type tag**, never on what the body happens to
         // decode as - `findings.md` §12.1.3. `MESSAGE_UPDATED` and
         // `MESSAGE_POSTED` share body field 6, so the tag is the only thing
         // that separates an edit from a new message.
         switch body.type {
-        case .messagePosted:
-            message(in: body).map(ChatEvent.messageReceived) ?? routed(body)
-        case .messageUpdated:
-            message(in: body).map(ChatEvent.messageUpdated) ?? routed(body)
+        case .messagePosted, .messageUpdated:
+            messageEvent(in: body, onSparseForward: onSparseForward)
         case .groupViewed:
             readState(in: body) ?? routed(body)
         case .groupNotificationSettingsUpdated:
@@ -75,27 +81,32 @@ public enum ChannelEventMapping {
 
     /// Decodes the message out of a `MESSAGE_POSTED` or `MESSAGE_UPDATED` body.
     ///
-    /// Returns `nil` when the body is not one of those, or when it is and the
-    /// message lacks the identity a domain message cannot be built without. The
-    /// caller routes it instead — **a `Message` with an invented id is
+    /// Routes the body as unknown if it lacks the identity a domain message
+    /// cannot be built without. **A `Message` with an invented id is
     /// indistinguishable from a real one once it is in the store**, which makes
     /// fabricating one worse than admitting the body was not understood.
-    private static func message(in body: ChannelEventBody) -> ChatKit.Message? {
-        guard body.type == .messagePosted || body.type == .messageUpdated else { return nil }
+    private static func messageEvent(
+        in body: ChannelEventBody, onSparseForward: (SparseForwardTarget) -> Void
+    ) -> ChatEvent {
         let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
         // **Both arrive in body field 6.** The vendored proto has no
         // `message_updated` member in `EventBody`'s oneof at all, and the
         // captures confirm an edit populates the same field a post does - so
         // the *type tag* is the only thing that tells them apart, and reading
         // the body alone would call every edit a new message.
-        guard case let .messagePosted(event)? = decoded.message.type else { return nil }
-        return domainMessage(event.message)
+        guard case let .messagePosted(event)? = decoded.message.type,
+              let message = domainMessage(event.message)
+        else { return routed(body) }
+        if let target = SparseForwardTarget(event.message, in: message.conversationID) {
+            onSparseForward(target)
+        }
+        return body.type == .messagePosted ? .messageReceived(message) : .messageUpdated(message)
     }
 
     /// Decodes a `MESSAGE_DELETED` body (type 8, body field 18). Whether
     /// Google sends this or only a `MESSAGE_UPDATED` with `delete_time` is
     /// `[Verify]` (edit spec §1); both end as a tombstone. `nil` without a
-    /// message id or an addressable group, for `message(in:)`'s reason.
+    /// message id or an addressable group, for the same reason as a posted message.
     private static func deletion(in body: ChannelEventBody) -> ChatEvent? {
         guard body.type == .messageDeleted else { return nil }
         let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
@@ -122,7 +133,7 @@ public enum ChannelEventMapping {
     /// for a number the next `mark_group_readstate` will correct anyway.
     ///
     /// `nil` when the group id is neither namespace, or `view_time` is
-    /// absent, for the same reason `message(in:)` returns `nil` without an
+    /// absent, for the same reason `messageEvent(in:onSparseForward:)` requires an
     /// id: the caller routes it, and a fabricated conversation, or a 1970
     /// read position, is indistinguishable from a real one once it is in the
     /// store.

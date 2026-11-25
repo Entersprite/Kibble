@@ -6,6 +6,7 @@ import SwiftUI
 struct AccountPill: View {
     let state: AccountPanelState
     let isOpen: Bool
+    let now: Date
     let toggle: () -> Void
 
     var body: some View {
@@ -66,7 +67,7 @@ struct AccountPill: View {
                 member: me, directory: scene.directory, size: size,
                 presence: Display.ownPresence(
                     availability: scene.availability, directory: scene.directory, me: me,
-                    connection: scene.connection, now: .now
+                    connection: scene.connection, now: now
                 )
             )
             .environment(\.sceneImageLoader, state.selected?.imageLoader)
@@ -84,10 +85,9 @@ struct AccountPill: View {
 /// Your availability and custom status, as the old account menu had them, for
 /// the selected account. Choosing one closes the panel, as a menu would.
 struct AccountStatusSection: View {
-    let scene: ChatSceneState
+    let model: StatusMenuModel
     /// Which account the status belongs to; `nil` with only one.
     let label: String?
-    let actions: AccountPanelActions
     let commands: AccountPanelCommands
     @Binding var highlight: AccountPanelTarget?
     #if os(macOS)
@@ -100,9 +100,6 @@ struct AccountStatusSection: View {
     }
 
     var body: some View {
-        let model = StatusMenuModel(
-            availability: scene.availability, status: AccountFooterOverlay.status(scene), now: .now
-        )
         VStack(alignment: .leading, spacing: 1) {
             AccountPanelHeader(title: "Status", detail: label)
             row(.automatic, title: AccountStatusRow.automatic.title(model), checked: model.isAutomatic)

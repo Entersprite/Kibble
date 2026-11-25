@@ -3,8 +3,7 @@ import Foundation
 import Testing
 @testable import FixtureBackend
 
-/// The demo's scripted call: discovery says it is going on, a join reports
-/// its devices, and a quiet start of another conversation reports nobody.
+/// Discovery finds the demo's ongoing call and a join reports its device roster.
 @MainActor
 struct FixtureStorefrontCallTests {
     @Test func aJoinIntoTheScriptedCallReportsItsDevices() async throws {
@@ -34,7 +33,8 @@ struct FixtureStorefrontCallTests {
             }
         }
         #expect(phases == [.connecting, .connected])
-        #expect(devices == Acme.storefrontCallDevices)
+        #expect(devices?.filter { !$0.isLocal } == Acme.storefrontCallDevices)
+        #expect(devices?.filter(\.isLocal).map(\.displayName) == ["You"])
         // One device is a presentation belonging to another, never a person.
         #expect(devices?.filter(\.isPresentation).count == 1)
         #expect(devices?.contains { $0.microphoneMuted == nil && !$0.isPresentation } == true)

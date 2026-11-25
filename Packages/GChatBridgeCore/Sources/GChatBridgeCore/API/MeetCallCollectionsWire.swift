@@ -91,7 +91,9 @@ public enum MeetCallCollectionsWire {
                     throw MeetCallWire.WireError.malformedResponse
                 }
                 let raised = try MeetActivityCollections.has(3, entry) ? MeetProto.value(3, entry) != 0 : true
-                return Hand(name: name, device: device, raisedAt: handTimestamp(entry), isRaised: raised)
+                return Hand(
+                    name: name, device: device, raisedAt: MeetProto.timestamp(2, entry), isRaised: raised
+                )
             }
             guard Set(hands.map(\.name)).count == hands.count,
                   Set(hands.map(\.device)).count == hands.count
@@ -100,14 +102,6 @@ public enum MeetCallCollectionsWire {
         }
         snapshot.activities = try MeetActivityCollections.availableSnapshot(body, space: space)
         return snapshot
-    }
-
-    private static func handTimestamp(_ entry: Data) -> Date? {
-        guard let time = try? MeetProto.payload(2, entry),
-              let seconds = try? MeetProto.value(1, time), seconds <= 253_402_300_799 else { return nil }
-        let nanos = (try? MeetProto.value(2, time)) ?? 0
-        guard nanos < 1_000_000_000 else { return nil }
-        return Date(timeIntervalSince1970: Double(seconds) + Double(nanos) / 1_000_000_000)
     }
 
     static func devices(in data: Data, space: String) throws -> Devices? {

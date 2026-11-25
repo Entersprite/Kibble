@@ -82,7 +82,65 @@ struct NativeMeetCaptionTests {
         await session.close()
     }
 
-    private func connectedSession(compressed: Bool = false, deviceLanguages: Data = Data()) async throws
+    @Test func partialDeviceCatalogKeepsPreviouslyAdvertisedTranslationPairs() async throws {
+        let english = NativeMeetFixture.string(31, "en-US")
+        let french = NativeMeetFixture.string(31, "fr-FR")
+        let source = NativeMeetFixture.string(1, "en-US")
+        let original = english + NativeMeetFixture.bytes(33, source + NativeMeetFixture.string(2, "es-ES"))
+        let replacement = english + NativeMeetFixture.bytes(33, source + NativeMeetFixture.string(2, "fr-FR"))
+        let (session, media) = try await connectedSession(
+            deviceLanguages: original,
+            deviceCatalogUpdates: [
+                english + french,
+                replacement,
+                english + NativeMeetFixture.bytes(33, source)
+            ]
+        )
+
+        await session.refreshState()
+        #expect(await session.activities.captionLanguages == CallCaptionLanguages(
+            live: ["en-US", "fr-FR"], translations: ["en-US": ["es-ES"]]
+        ))
+        media.activityReplies = [reply(1, result: 4), reply(2, result: 3)]
+        try await session.performActivity(CallActivity("captions", options: ["en-US", "es-ES"]))
+        #expect(await session.activities.captions?.displayLanguage == "es-ES")
+
+        await session.refreshState()
+        #expect(await session.activities.captionLanguages?.translations == ["en-US": ["fr-FR"]])
+
+        await session.refreshState()
+        #expect(await session.activities.captionLanguages?.translations.isEmpty == true)
+        await session.close()
+    }
+
+    @Test func translationOnlyDeviceReportsKeepLiveLanguagesAndCanClearPairs() async throws {
+        let english = NativeMeetFixture.string(31, "en-US")
+        let source = NativeMeetFixture.string(1, "en-US")
+        let spanishPair = NativeMeetFixture.bytes(33, source + NativeMeetFixture.string(2, "es-ES"))
+        let frenchPair = NativeMeetFixture.bytes(33, source + NativeMeetFixture.string(2, "fr-FR"))
+        let clear = NativeMeetFixture.bytes(33, source)
+        let (session, _) = try await connectedSession(
+            deviceLanguages: english + spanishPair,
+            deviceCatalogUpdates: [frenchPair, clear]
+        )
+
+        await session.refreshState()
+        let replaced = await session.activities
+        #expect(replaced.captionLanguages == CallCaptionLanguages(
+            live: ["en-US"], translations: ["en-US": ["fr-FR"]]
+        ))
+        #expect(replaced.recordingCaptionLanguages == ["en-US"])
+
+        await session.refreshState()
+        let cleared = await session.activities
+        #expect(cleared.captionLanguages == CallCaptionLanguages(live: ["en-US"], translations: [:]))
+        #expect(cleared.recordingCaptionLanguages == ["en-US"])
+        await session.close()
+    }
+
+    private func connectedSession(
+        compressed: Bool = false, deviceLanguages: Data = Data(), deviceCatalogUpdates: [Data] = []
+    ) async throws
         -> (NativeMeetCallSession, NativeFakeMedia) {
         let descriptor = NativeMeetFixture.string(1, "captions_v2")
             + NativeMeetFixture.number(2, 1) + NativeMeetFixture.number(3, 43)
@@ -94,6 +152,14 @@ struct NativeMeetCaptionTests {
                 + deviceLanguages,
             token: "30;joined"
         )
+        let catalogs = deviceCatalogUpdates.enumerated().map { index, languages in
+            let own = NativeMeetFixture.string(1, "spaces/demo/devices/one")
+                + NativeMeetFixture.number(4, 1) + languages
+            let metadata = NativeMeetFixture.bytes(1, NativeMeetFixture.number(1, UInt64(index + 1)))
+            let full = metadata + NativeMeetFixture.bytes(2, own)
+            return NativeMeetFixture.ok(NativeMeetFixture.bytes(2, NativeMeetFixture.bytes(2, full)))
+        }
+        responses.insert(contentsOf: catalogs, at: 4)
         let transport = ScriptedTransport(responses)
         let media = NativeFakeMedia()
         media.supportsActivityChannelAssignments = true
@@ -107,7 +173,7 @@ struct NativeMeetCaptionTests {
         let envelope = try #require(ProtoFieldScan.payloads(ofField: 1, in: request).first)
         let configuration = try #require(ProtoFieldScan.payloads(ofField: 3, in: envelope).first)
         let offer = try #require(ProtoFieldScan.payloads(ofField: 17, in: configuration).last)
-        #expect(ProtoFieldScan.payloads(ofField: 7, in: offer) == (compressed ? [Data([2, 1])] : []))
+        #expect(ProtoFieldScan.payloads(ofField: 7, in: offer) == (compressed ? [Data([1, 2])] : []))
         await session.startMonitoring(receive: { _ in })
         return (session, media)
     }

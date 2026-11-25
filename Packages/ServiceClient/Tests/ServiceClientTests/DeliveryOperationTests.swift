@@ -15,7 +15,7 @@ struct DeliveryOperationTests {
     func lostMalformedReplyKeepsOriginalMessageAndChecksSucceededLedgerWithoutResending(
         _ unknownReply: Bool
     ) async throws {
-        let harness = try await DeliveryLedgerHarness.make(uncertainProvider: false)
+        let harness = try await DeliveryLedgerHarness.make(.accepted)
         let transport = LostDeliveryReplyTransport(base: harness.transport, unknownReply: unknownReply)
         let backend = ServiceBackend(account: harness.account, transport: transport)
         let store = try ChatStore.inMemory()
@@ -42,7 +42,7 @@ struct DeliveryOperationTests {
     }
 
     @Test func unknownProviderOutcomeSurvivesClientRestartWithoutAnotherSend() async throws {
-        let harness = try await DeliveryLedgerHarness.make(uncertainProvider: true)
+        let harness = try await DeliveryLedgerHarness.make(.uncertain)
         let store = try ChatStore.inMemory()
         let firstBackend = ServiceBackend(account: harness.account, transport: harness.transport)
         let first = ChatSessionModel(
@@ -71,6 +71,29 @@ struct DeliveryOperationTests {
         #expect(try store.message(original.messageID)?.localID == original.localID)
         #expect(second.failedDraft == nil)
         await second.stop()
+        await harness.service.shutdown()
+    }
+
+    @Test func anUntransmittedMessageRestoresTheDraftAndRecordsAStableFailure() async throws {
+        let harness = try await DeliveryLedgerHarness.make(.untransmitted)
+        let backend = ServiceBackend(account: harness.account, transport: harness.transport)
+        let store = try ChatStore.inMemory()
+        let model = ChatSessionModel(
+            store: store,
+            engine: SyncEngine(backend: backend, store: store),
+            me: harness.account.selfID
+        )
+        try await model.start()
+        try await wait { !model.conversations.isEmpty && model.me == harness.account.selfID }
+        model.select(DeliveryLedgerBackend.conversation)
+        let draft = ComposedMessage(text: "Message that never left the device")
+        model.send(draft)
+        try await wait { model.failedDraft == draft }
+        let localID = try #require(await harness.provider.lastLocalID)
+        #expect(try await backend.deliveryStatus(for: localID) == .failed)
+        #expect(try store.messageDeliveries().isEmpty)
+        #expect(await harness.provider.sendCount == 1)
+        await model.stop()
         await harness.service.shutdown()
     }
 
@@ -105,7 +128,7 @@ private struct DeliveryLedgerHarness {
         )
     }
 
-    static func make(uncertainProvider: Bool) async throws -> Self {
+    static func make(_ outcome: DeliveryLedgerBackend.Outcome) async throws -> Self {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let registry = try SQLiteAccountRegistry(path: folder.appendingPathComponent("registry.sqlite").path)
@@ -117,7 +140,7 @@ private struct DeliveryLedgerHarness {
             credentialGeneration: "generation"
         )
         try registry.save(account)
-        let provider = DeliveryLedgerBackend(uncertain: uncertainProvider)
+        let provider = DeliveryLedgerBackend(outcome: outcome)
         let service = ChatService(
             registry: registry,
             storage: SQLiteServiceStorageFactory(directory: folder),
@@ -151,14 +174,17 @@ private struct DeliveryLedgerFactory: AccountProviderFactory {
 }
 
 private actor DeliveryLedgerBackend: ChatBackend {
+    enum Outcome { case accepted, uncertain, untransmitted }
+
     static let conversation = Conversation.ID("conversation")
     nonisolated let capabilities = Capabilities(canSendMessages: true)
     nonisolated let events: AsyncStream<ChatEvent>
     private let continuation: AsyncStream<ChatEvent>.Continuation
-    private let uncertain: Bool
+    private let outcome: Outcome
     private(set) var sendCount = 0
-    init(uncertain: Bool) {
-        self.uncertain = uncertain
+    private(set) var lastLocalID: String?
+    init(outcome: Outcome) {
+        self.outcome = outcome
         (events, continuation) = AsyncStream.makeStream()
     }
 
@@ -170,13 +196,18 @@ private actor DeliveryLedgerBackend: ChatBackend {
 
     func disconnect() {}
     func send(_ command: ChatCommand) throws {
-        if case .sendMessage = command {
+        if case let .sendMessage(_, _, _, localID, _, _, _) = command {
             sendCount += 1
-            if uncertain {
+            lastLocalID = localID
+            switch outcome {
+            case .uncertain:
                 throw ChatError.server(status: 500, message: "Provider reply was lost")
+            case .untransmitted:
+                throw MessageNotSubmitted()
+            case .accepted:
+                // No fabricated echo in lost-reply tests.
+                break
             }
-            // An accepted send can precede its channel echo. Deliberately do
-            // not fabricate one to hide the pending UI in the lost-reply test.
         }
     }
 

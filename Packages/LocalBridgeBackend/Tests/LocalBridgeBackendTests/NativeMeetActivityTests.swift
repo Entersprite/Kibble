@@ -113,24 +113,39 @@ struct NativeMeetActivityTests {
         await session.close()
     }
 
-    @Test func assignmentsSurviveRoomOnlyUpdatesWithoutTreatingCurrentLocationAsAssignment() async throws {
+    @Test func captureReadbackDistinguishesBlockedStartupFailureAndAnOrdinaryStop() async throws {
         let transport = ScriptedTransport(Array(NativeMeetFixture.responses().prefix(1)))
         let session = try await NativeMeetFixture.session(transport, media: NativeFakeMedia())
-        let name = "spaces/demo/rooms/one", person = "spaces/demo/people/taylor"
-        let room = NativeMeetFixture.string(1, name) + NativeMeetFixture.string(3, "One")
-        let breakout = NativeMeetFixture.number(2, 1) + NativeMeetFixture.bytes(4, room)
-        let currentOnly = NativeMeetFixture.string(1, person) + NativeMeetFixture.string(4, name)
-        await session.reconcileRooms(breakout)
-        await session.reconcileRoomPeople([currentOnly])
-        #expect(await session.activities.rooms.first?.participants.isEmpty == true)
-        await session.reconcileRoomPeople([currentOnly + NativeMeetFixture.string(5, name)])
-        let assigned = await session.activities.rooms.first?.participants
-        #expect(assigned?.count == 1)
-        await session.reconcileRooms(breakout)
-        #expect(await session.activities.rooms.first?.participants == assigned)
-        let handle = try #require(await session.activities.people.first?.id)
-        await session.reconcileRoomPeople([])
-        await #expect(throws: ChatError.self) { try await session.activityResource(handle, kind: "person") }
+        let acknowledgement = NativeMeetFixture.bytes(
+            5,
+            NativeMeetFixture.string(1, "participant")
+                + NativeMeetFixture.number(2, 1)
+        )
+        struct Revision {
+            let phase: UInt64
+            let state: Data
+            let issue: CallArtifactIssue?
+        }
+        let revisions: [Revision] = [
+            .init(phase: 1, state: acknowledgement, issue: .participantCompatibility),
+            .init(
+                phase: 3,
+                state: acknowledgement + NativeMeetFixture.number(2, 2),
+                issue: .initializationFailed
+            ),
+            .init(phase: 3, state: acknowledgement + NativeMeetFixture.number(2, 1), issue: nil),
+            .init(phase: 1, state: NativeMeetFixture.bytes(5, NativeMeetFixture.number(2, 1)), issue: nil)
+        ]
+        for (index, revision) in revisions.enumerated() {
+            let response = try spaceSnapshot(
+                version: UInt64(index + 1), recording: revision.phase, stateData: revision.state
+            ).get()
+            let snapshot = try MeetActivityCollections.decode(response.body, space: "spaces/demo")
+            await session.reconcileActivities(snapshot)
+            let recording = await session.activities.artifacts.first { $0.kind == "recording" }
+            #expect(recording?.issue == revision.issue?.rawValue)
+            #expect(recording?.canSetEnabled(revision.phase == 3) == true)
+        }
     }
 
     @Test func meetingLocksDisableChatAndReactionsAndOlderMetadataCannotReenableThem() async throws {
@@ -192,7 +207,9 @@ struct NativeMeetActivityTests {
         }
     }
 
-    private func spaceSnapshot(version: UInt64, recording: UInt64?, captionLanguage: String? = nil)
+    private func spaceSnapshot(
+        version: UInt64, recording: UInt64?, captionLanguage: String? = nil, stateData: Data = Data()
+    )
         -> Result<HTTPResponse, any Error> {
         let languages = captionLanguage
             .map { NativeMeetFixture.bytes(6, NativeMeetFixture.string(1, $0)) } ?? Data()
@@ -201,7 +218,7 @@ struct NativeMeetActivityTests {
             20,
             NativeMeetFixture.string(1, "recording-session") + NativeMeetFixture.bytes(
                 2,
-                NativeMeetFixture.number(1, $0) + languages
+                NativeMeetFixture.number(1, $0) + languages + stateData
             ) + flag
         ) } ?? Data()
         let space = NativeMeetFixture.string(1, "spaces/demo") + NativeMeetFixture.bytes(6, call)

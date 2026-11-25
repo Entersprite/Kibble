@@ -49,7 +49,8 @@ struct CallActivitiesView: View {
                     case .polls: polls
                     case .questions: questions
                     case .rooms: CallActivityRoomsView(
-                            state: scene.state, busy: busy, roomNames: $drafts.roomNames,
+                            state: scene.state, currentRoomID: scene.currentBreakoutRoomID,
+                            busy: busy, roomNames: $drafts.roomNames,
                             submit: { submit($0, accepted: $1) }
                         )
                     case .chat: EmptyView()

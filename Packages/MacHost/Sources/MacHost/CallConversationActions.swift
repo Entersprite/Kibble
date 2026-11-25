@@ -35,8 +35,7 @@ extension MacAppDelegate {
                 actions.meetingURL = url
                 actions.copyMeetingLink = {
                     guard calls.call?.id == id else { return }
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.writeObjects([url as NSURL])
+                    NSPasteboard.general.writeMeetingLink(url)
                 }
                 actions.meetingDetails = meetingDetails(id: id, url: url, calls: calls)
             }
@@ -115,9 +114,9 @@ extension MacAppDelegate {
     }
 
     private static func copyJoiningInfo(url: URL, dialIn: CallDialIn?, numbersURL: URL?) {
-        NSPasteboard.general.clearContents()
+        let clipboard = NSPasteboard.general
         if dialIn == nil, numbersURL == nil {
-            NSPasteboard.general.writeObjects([url as NSURL])
+            clipboard.writeMeetingLink(url)
         } else {
             var lines = [url.absoluteString]
             if let dialIn {
@@ -126,7 +125,8 @@ extension MacAppDelegate {
             if let numbersURL {
                 lines.append(numbersURL.absoluteString)
             }
-            NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+            clipboard.clearContents()
+            clipboard.setString(lines.joined(separator: "\n"), forType: .string)
         }
     }
 
@@ -163,6 +163,7 @@ extension MacAppDelegate {
         }
         return CallActivitiesScene(
             state: state,
+            currentBreakoutRoomID: calls.currentBreakoutRoomID,
             setRecordingAndTranscriptionEnabled: { [weak calls] enabled, captionLanguage in
                 guard let calls, calls.call?.id == id else { throw CancellationError() }
                 try await calls.setRecordingAndTranscriptionEnabled(enabled, captionLanguage: captionLanguage)

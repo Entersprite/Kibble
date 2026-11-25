@@ -25,10 +25,15 @@ extension NativeMeetCallSession {
         "voteQuestion",
         "answerQuestion",
         "createRooms",
+        "createAndOpenRooms",
         "openRooms",
         "closeRooms",
         "assignRoom"
     ]
+
+    static let activitiesBeforeFirstSnapshot = initialActivityActions.filter {
+        !["captions", "sharePollResults", "createRooms", "closeRooms", "assignRoom"].contains($0)
+    }
 
     func updateActivityAvailability() {
         var actions = Set(Self.initialActivityActions + availableHostActions())
@@ -41,7 +46,7 @@ extension NativeMeetCallSession {
             5: ["createPoll", "votePoll", "closePoll", "sharePollResults"],
             6: ["voteQuestion", "answerQuestion"],
             7: ["askQuestion", "voteQuestion", "answerQuestion"],
-            8: ["createRooms", "openRooms", "closeRooms", "assignRoom"],
+            8: ["createRooms", "createAndOpenRooms", "openRooms", "closeRooms", "assignRoom"],
             9: ["assignRoom"]
         ]
         for field in unavailableActivityFields {
@@ -70,9 +75,18 @@ extension NativeMeetCallSession {
         if questionSeries == nil || !questionsAccepting {
             actions.remove("askQuestion")
         }
+        actions.subtract(unavailableRoomActions)
         actions.subtract(deniedActivities)
         activities.availableActions = actions.sorted()
         updateContinuousChatRoute()
+    }
+
+    private var unavailableRoomActions: Set<String> {
+        if activities.breakoutClosing == true {
+            return ["createRooms", "createAndOpenRooms", "openRooms", "closeRooms", "assignRoom"]
+        }
+        return activities.rooms.contains(where: \.isOpen)
+            ? ["createAndOpenRooms", "openRooms"] : ["createRooms", "closeRooms"]
     }
 
     func updateActivityCollectionFailures(_ unavailable: Set<Int>, confirmed: Set<Int>) {
@@ -82,6 +96,8 @@ extension NativeMeetCallSession {
         if unavailable.contains(8) {
             // A retained room URL cannot authorize Join after its state fails validation.
             activities.rooms = []
+            activities.breakoutClosing = nil
+            activities.breakoutClosed = nil
         }
         guard previous != unavailableActivityFields, !unavailableActivityFields.isEmpty else { return }
         let fields = unavailableActivityFields.sorted().map(String.init).joined(separator: ",")

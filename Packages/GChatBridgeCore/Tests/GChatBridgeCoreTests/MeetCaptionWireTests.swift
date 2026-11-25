@@ -54,6 +54,23 @@ struct MeetCaptionWireTests {
         }
     }
 
+    @Test(arguments: [MeetCaptionWire.Command.configure, .subscribe])
+    func missingStatusRequiresAnExactTypedResult(_ command: MeetCaptionWire.Command) throws {
+        let identity = MeetProto.number(1, 7)
+        let expected = MeetProto.bytes(UInt64(command.responseField), Data())
+        let other = MeetProto.bytes(command == .configure ? 4 : 3, Data())
+        let matched = MeetProto.bytes(2, identity + expected)
+        #expect(MeetCaptionWire.matches(matched, command: command, sequence: 7))
+        try MeetCaptionWire.confirm(matched, command: command, sequence: 7)
+        #expect(!MeetCaptionWire.matches(matched, command: command, sequence: 8))
+        for invalid in [Data(), other, expected + other, expected + expected] {
+            let response = MeetProto.bytes(2, identity + invalid)
+            #expect(!MeetCaptionWire.matches(response, command: command, sequence: 7))
+        }
+        let malformed = MeetProto.bytes(2, identity + MeetProto.number(UInt64(command.responseField), 0))
+        #expect(!MeetCaptionWire.matches(malformed, command: command, sequence: 7))
+    }
+
     @Test func captionUpdatesAndDeletesAcknowledgeTheirOwnResourceVersions() throws {
         let caption = MeetProto.number(1, 39) + MeetProto.string(3, "Deux lignes\nBonjour")
             + MeetProto.string(4, "fr-FR") + MeetProto.string(5, "en-US")

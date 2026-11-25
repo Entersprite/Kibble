@@ -21,6 +21,7 @@ public struct ServiceFailure: Error, Codable, Hashable, Sendable {
     public static let staleCallSource = ServiceFailure(code: "staleCallSource")
     public static let operationExpired = ServiceFailure(code: "operationExpired")
     public static let operationUnknown = ServiceFailure(code: "operationUnknown")
+    public static let messageNotSent = ServiceFailure(code: "messageNotSent")
     public static let operationConflict = ServiceFailure(code: "operationConflict")
     /// A reconnect signed in as a different identity than the account's own.
     /// Nothing was installed; the account still waits for its own identity.

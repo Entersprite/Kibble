@@ -100,12 +100,13 @@ struct NativeMeetGuestAdmissionTests {
         #expect(await session.cleanupStatus.isConfirmed)
     }
 
-    @Test(arguments: [UInt64(4), 11])
-    func denialAndCapacityHaveDistinctResultsAndLeaveExactlyOnce(_ terminal: UInt64) async throws {
+    @Test(arguments: [UInt64(4), 11], [true, false])
+    func denialAndCapacitySettleTheExactRegistration(_ terminal: UInt64, fromJoinReply: Bool) async throws {
         let media = NativeFakeMedia()
+        let polls = fromJoinReply ? [] : [Self.collection(1, [Self.device(terminal)])]
         let (session, transport) = try await setup(
-            13,
-            [Self.collection(1, [Self.device(terminal)])],
+            fromJoinReply ? terminal : 13,
+            polls,
             media: media
         )
         await #expect(throws: terminal == 4 ? NativeMeetAdmissionError.denied : .full) {
@@ -114,11 +115,32 @@ struct NativeMeetGuestAdmissionTests {
         #expect(!media.isConnected)
         #expect(await !session.ready)
         #expect(await session.cleanupStatus.isConfirmed)
-        let requests = await transport.sent
-        #expect(requests.count == 6)
-        #expect(try requests.last?.body == (MeetDeviceWire.leave(device: Self.own)))
+        #expect(await session.device.localDeviceName == nil)
+        #expect(await transport.sent.dropFirst(4).map(\.url.lastPathComponent)
+            == (fromJoinReply ? [] : ["SyncMeetingSpaceCollections"]))
         await session.close()
-        #expect(await transport.sent.count == 6)
+        #expect(await transport.sent.count == 4 + polls.count)
+    }
+
+    @Test func staleAndForeignDenialsLeaveTheActualPendingRegistration() async throws {
+        let foreign = NativeMeetFixture.string(1, "spaces/demo/devices/browser")
+            + NativeMeetFixture.number(4, 4)
+        let forbidden = HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data())
+        let polls = [
+            Self.collection(3, [Self.device(3)]),
+            Self.collection(2, [Self.device(4)]),
+            Self.collection(4, [foreign]),
+            .success(forbidden)
+        ]
+        let (session, transport) = try await setup(3, polls)
+        await #expect(throws: MeetCallClientError.self) { try await session.connect() }
+        let requests = await transport.sent.dropFirst(4)
+        #expect(requests.map(\.url.lastPathComponent) == [
+            "SyncMeetingSpaceCollections", "SyncMeetingSpaceCollections", "SyncMeetingSpaceCollections",
+            "SyncMeetingSpaceCollections", "UpdateMeetingDevice"
+        ])
+        #expect(try requests.last?.body == MeetDeviceWire.leave(device: Self.own))
+        #expect(await session.cleanupStatus.isConfirmed)
     }
 
     @Test func admissionAfterWaitingStillRequiresExplicitConsentForANewNotice() async throws {
@@ -145,6 +167,21 @@ struct NativeMeetGuestAdmissionTests {
         #expect(writes.last?.body == NativeMeetFixture.bytes(1, patch))
         await session.close()
         #expect(await session.cleanupStatus.isConfirmed)
+    }
+
+    @Test func exactCompatibilityRejectionDuringAdmissionSettlesTheDevice() async throws {
+        let media = NativeFakeMedia()
+        let rejected = Self.device(8) + NativeMeetFixture.number(9, 1) + NativeMeetFixture.number(28, 1)
+        let (session, transport) = try await setup(3, [
+            Self.collection(1, [Self.device(3)]), Self.collection(2, [rejected])
+        ], media: media)
+        await #expect(throws: NativeMeetAdmissionError.incompatibleClient) { try await session.connect() }
+        #expect(!media.isConnected)
+        #expect(await session.cleanupStatus.isConfirmed)
+        #expect(await session.device.localDeviceName == nil)
+        #expect(await transport.sent.dropFirst(4).map(\.url.lastPathComponent) == [
+            "SyncMeetingSpaceCollections", "SyncMeetingSpaceCollections"
+        ])
     }
 
     @Test(arguments: [UInt64(3), 13])

@@ -149,11 +149,11 @@ struct CallStatusText: View {
                     .monospacedDigit()
                     .accessibilityLabel("Connected")
             } else if call.phase.isTerminal, let start = timing.connectedAt, let end = timing.endedAt {
-                Text(AudioCallPresentation.status(for: call)
+                Text(AudioCallPresentation.status(for: call, timing: timing)
                     + " · " + AudioCallPresentation.duration(end.timeIntervalSince(start)))
                     .monospacedDigit()
             } else {
-                Text(AudioCallPresentation.status(for: call))
+                Text(AudioCallPresentation.status(for: call, timing: timing))
             }
         }
         .accessibilityAddTraits(.updatesFrequently)

@@ -46,6 +46,29 @@ struct AccountPanelHostedTests {
         #expect(panel.probe.chosen.isEmpty)
         #expect(!panel.probe.isOpen)
     }
+
+    @Test func doNotDisturbExpiresWhileThePanelStaysOpen() async throws {
+        NSApplication.shared.accessibilitySetValue(
+            true, forAttribute: NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        )
+        let end = Date().addingTimeInterval(3)
+        let panel = try Hosted(availability: .doNotDisturb(until: end), throughShell: true)
+        defer { panel.close() }
+        try await panel.renderUntil(end) {
+            panel.accessibilityLabels.contains { $0.hasPrefix("Do not disturb until ") }
+        }
+        let initialLabels = panel.accessibilityLabels
+        try #require(initialLabels.contains { $0.hasPrefix("Do not disturb until ") }, "\(initialLabels)")
+
+        try await panel.renderUntil(end.addingTimeInterval(2)) {
+            panel.accessibilityLabels.contains("Do not disturb")
+        }
+
+        #expect(panel.probe.isOpen)
+        let expiredLabels = panel.accessibilityLabels
+        #expect(!expiredLabels.contains { $0.hasPrefix("Do not disturb until ") })
+        #expect(expiredLabels.contains("Do not disturb"))
+    }
 }
 
 @MainActor
@@ -56,12 +79,24 @@ private final class Probe {
 
 private struct PanelHost: View {
     let probe: Probe
+    let availability: Availability
+    let throughShell: Bool
     @State private var isOpen = false
 
     var body: some View {
-        AccountFooter(
-            state: state, actions: actions, rowWidth: 220, maxWidth: 760, isOpen: $isOpen, editStatus: {}
-        )
+        Group {
+            if throughShell {
+                AccountShell(state: state, actions: actions, isPanelOpen: $isOpen) {
+                    PanelAnchor()
+                        .frame(width: 800, height: 300, alignment: .bottomLeading)
+                }
+            } else {
+                AccountFooter(
+                    state: state, actions: actions, rowWidth: 220, maxWidth: 760,
+                    isOpen: $isOpen, now: .now, editStatus: {}
+                )
+            }
+        }
         .onAppear { isOpen = true }
         .onChange(of: isOpen, initial: true) { _, open in probe.isOpen = open }
     }
@@ -74,7 +109,7 @@ private struct PanelHost: View {
             )
         }
         let scene = ChatSceneState(
-            me: Member.ID("first"), availability: .automatic, capabilities: Capabilities(canSetStatus: true)
+            me: Member.ID("first"), availability: availability, capabilities: Capabilities(canSetStatus: true)
         )
         return AccountPanelState(accounts: rows, selectedID: "first", scene: scene)
     }
@@ -93,6 +128,17 @@ private struct PanelHost: View {
             },
             setStatus: { _ in probe.chosen.append("status") }
         )
+    }
+}
+
+private struct PanelAnchor: View {
+    @Environment(\.accountFooter) private var geometry
+
+    var body: some View {
+        if let geometry {
+            AccountFooterAnchor(geometry: geometry)
+                .frame(width: 240)
+        }
     }
 }
 
@@ -124,13 +170,17 @@ private struct Hosted {
     let window: NSWindow
     let host: NSHostingView<PanelHost>
 
-    init() throws {
+    init(availability: Availability = .automatic, throughShell: Bool = false) throws {
         _ = NSApplication.shared
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 300), styleMask: [.titled],
             backing: .buffered, defer: false
         )
-        host = NSHostingView(rootView: PanelHost(probe: probe))
+        host = NSHostingView(rootView: PanelHost(
+            probe: probe,
+            availability: availability,
+            throughShell: throughShell
+        ))
         window.contentView = host
         placeAwayFromPointer()
         window.makeKeyAndOrderFront(nil)
@@ -154,6 +204,27 @@ private struct Hosted {
 
     func close() {
         window.orderOut(nil)
+    }
+
+    var accessibilityLabels: [String] {
+        labels(in: host)
+    }
+
+    func renderUntil(_ deadline: Date, _ condition: () -> Bool) async throws {
+        while Date() < deadline, !condition() {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    private func labels(in node: NSObject) -> [String] {
+        let labelSelector = NSSelectorFromString("accessibilityLabel")
+        let childSelector = NSSelectorFromString("accessibilityChildren")
+        let label = node.responds(to: labelSelector)
+            ? node.perform(labelSelector)?.takeUnretainedValue() as? String : nil
+        let children = node.responds(to: childSelector)
+            ? node.perform(childSelector)?.takeUnretainedValue() as? [NSObject] : nil
+        return (label.map { [$0] } ?? []) + (children ?? []).flatMap(labels(in:))
     }
 
     /// Hover shares the keyboard highlight. The real desktop pointer must

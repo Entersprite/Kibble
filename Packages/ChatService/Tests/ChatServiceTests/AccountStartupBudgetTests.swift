@@ -1,4 +1,5 @@
 import ChatAPI
+import ChatKit
 import ChatServiceStorage
 import Foundation
 import Testing
@@ -6,6 +7,50 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct AccountStartupBudgetTests {
+    @Test(arguments: [false, true]) func aTransientStartupFailureRetriesOnTheInstalledProvider(
+        checkpointing: Bool
+    ) async throws {
+        let harness = try await ReconciliationHarness.make(
+            checkpointing: checkpointing, startupFailures: [.transport("fixture offline")]
+        )
+        do {
+            let runtime = try #require(await harness.service.runtimes[harness.record.id])
+            let admission = await harness.service.providerStarts
+            try await capacityEventually {
+                let connection = await runtime.connection
+                let activeCount = await admission.activeCount
+                return connection == .reconnecting(attempt: 1, issue: nil, detail: nil) && activeCount == 0
+            }
+            try await capacityEventually { await runtime.connection == .connected }
+            #expect(await harness.backend.startupAttempts == 2)
+            #expect(await harness.backend.disconnects == 0)
+        } catch {
+            await harness.service.shutdown()
+            throw error
+        }
+        await harness.service.shutdown()
+    }
+
+    @Test func shutdownCancelsABackingOffStartup() async throws {
+        let harness = try await ReconciliationHarness.make(startupFailures: [
+            .rateLimited(retryAfter: .seconds(30))
+        ])
+        do {
+            let runtime = try #require(await harness.service.runtimes[harness.record.id])
+            try await capacityEventually { await runtime.connection == .reconnecting(
+                attempt: 1,
+                issue: nil,
+                detail: nil
+            ) }
+        } catch {
+            await harness.service.shutdown()
+            throw error
+        }
+        await harness.service.shutdown()
+        #expect(await harness.backend.startupAttempts == 1)
+        #expect(await harness.backend.disconnects == 1)
+    }
+
     @Test func queuedDisableAvoidsConstructionAndShutdownDrainsAdmittedFactories() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

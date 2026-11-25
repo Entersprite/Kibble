@@ -97,15 +97,77 @@ struct LocalBridgeBackendTests {
         #expect(String(describing: error).lowercased().contains("browser"))
     }
 
-    @Test func aTransportFailureIsReportedAsTransport() async throws {
-        struct Boom: Error {}
+    @Test func anUnclassifiedTransportFailureUsesGenericCopy() async throws {
+        struct Boom: Error { let requestDetail = "private request data" }
         let backend = backend([.failure(Boom())])
-        await #expect(throws: ChatError.self) {
+        let expected = ChatError.transport("could not reach the service")
+        await #expect(throws: expected) {
             try await backend.connect()
         }
-        if case .transport = await backend.lastFailure { } else {
-            await Issue.record("expected .transport, got \(String(describing: backend.lastFailure))")
+        #expect(await backend.lastFailure == expected)
+    }
+
+    @Test(arguments: [
+        (
+            TransportFailureReason.notConnectedToInternet,
+            ConnectionIssue.noInternet,
+            "not connected to the internet"
+        ),
+        (
+            .other(domain: "NSURLErrorDomain", code: -1000),
+            .unknown("NSURLErrorDomain -1000"),
+            "could not reach the service"
+        )
+    ])
+    func aClassifiedBootstrapFailureKeepsTheIssueAndReportsReadableCopy(
+        reason: TransportFailureReason, issue: ConnectionIssue, message: String
+    ) async throws {
+        let backend = backend([.failure(ClassifiedTransportFailure(reason))])
+        async let events = collect(backend, 3)
+        let expected = ChatError.transport(message)
+
+        await #expect(throws: expected) {
+            try await backend.connect()
         }
+
+        #expect(await events == [
+            .connectionStateChanged(.connecting),
+            .connectionStateChanged(.disconnected(reason: "could not reach Chat", issue: issue)),
+            .backendError(expected)
+        ])
+    }
+
+    @Test func retryingBootstrapKeepsUnacknowledgedCheckpointEvents() async throws {
+        let backend = backend([
+            .failure(ClassifiedTransportFailure(.nameResolution)),
+            ScriptedTransport.ok(Self.shell(app: "DynamiteWebUi"))
+        ])
+        var batches = backend.providerEventBatches.makeAsyncIterator()
+        let checkpoint = try GoogleProviderCursor().encoded()
+        await #expect(throws: ChatError.transport("could not look up the host")) {
+            try await backend.connect(resumingProviderCheckpoint: checkpoint)
+        }
+        let first = try #require(await batches.next())
+        #expect(first.previousCheckpoint == checkpoint)
+        #expect(first.events == [.connectionStateChanged(.connecting)])
+
+        try await backend.connect(resumingProviderCheckpoint: checkpoint)
+        await backend.acknowledgeProviderBatch(first.id)
+        let expected: [ChatEvent] = [
+            .connectionStateChanged(.disconnected(reason: "could not reach Chat", issue: .nameResolution)),
+            .backendError(.transport("could not look up the host")),
+            .connectionStateChanged(.connecting),
+            .connectionStateChanged(.connected)
+        ]
+        var previous = first.checkpoint
+        for event in expected {
+            let batch = try #require(await batches.next())
+            #expect(batch.previousCheckpoint == previous)
+            #expect(batch.events == [event])
+            previous = batch.checkpoint
+            await backend.acknowledgeProviderBatch(batch.id)
+        }
+        await backend.disconnect()
     }
 
     // MARK: - Honest capabilities

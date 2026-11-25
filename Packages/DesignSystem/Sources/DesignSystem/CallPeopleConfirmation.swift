@@ -22,7 +22,7 @@ struct CallPeopleConfirmation {
 
     static func remove(_ entry: CallRosterEntry) -> CallPeopleConfirmation {
         CallPeopleConfirmation(
-            title: "Remove \(entry.name)?", message: "They’ll be disconnected from this call.",
+            title: "Remove \(entry.label)?", message: "They’ll be disconnected from this call.",
             button: "Remove", role: .destructive,
             activity: CallActivity("removeParticipant", resourceID: entry.id)
         )
@@ -30,7 +30,7 @@ struct CallPeopleConfirmation {
 
     static func sendToWaitingRoom(_ entry: CallRosterEntry) -> CallPeopleConfirmation {
         CallPeopleConfirmation(
-            title: "Send \(entry.name) to the waiting room?",
+            title: "Send \(entry.label) to the waiting room?",
             message: "They’ll leave the call until a host brings them back.",
             button: "Send to Waiting Room", role: .destructive,
             activity: CallActivity("sendParticipantToWaitingRoom", resourceID: entry.id)
@@ -39,7 +39,7 @@ struct CallPeopleConfirmation {
 
     static func block(_ entry: CallRosterEntry) -> CallPeopleConfirmation {
         CallPeopleConfirmation(
-            title: "Block \(entry.name) from this meeting?",
+            title: "Block \(entry.label) from this meeting?",
             message: "They’ll be removed and will need a new invitation to rejoin.",
             button: "Block", role: .destructive,
             activity: CallActivity("blockParticipant", resourceID: entry.id)

@@ -79,3 +79,36 @@ actor ScriptedTransport: HTTPTransport {
         )
     }
 }
+
+actor HeldCollectionTransport: HTTPTransport {
+    let base: ScriptedTransport
+    private(set) var started = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var collectionsBeforeHold: Int
+
+    init(base: ScriptedTransport, collectionsBeforeHold: Int = 0) {
+        self.base = base
+        self.collectionsBeforeHold = collectionsBeforeHold
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let result = try await base.send(request)
+        guard request.url.path.hasSuffix("SyncMeetingSpaceCollections") else { return result }
+        if collectionsBeforeHold > 0 {
+            collectionsBeforeHold -= 1
+        } else {
+            started = true
+            await withCheckedContinuation { continuation = $0 }
+        }
+        return result
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func stream(_ request: HTTPRequest) async throws -> HTTPStream {
+        try await base.stream(request)
+    }
+}

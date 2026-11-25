@@ -88,8 +88,7 @@ struct ForwardedMessageMappingTests {
         #expect(received.content?.quote == nil)
     }
 
-    /// No quote crosses conversations, so an untyped reference to another
-    /// conversation is a forward.
+    /// An untyped reference to another conversation is the legacy forward shape.
     @Test func untypedReferenceToAnotherConversationIsAForward() throws {
         var wire = message(text: "Original body")
         wire.replyTo.clearReferenceType()
@@ -101,6 +100,20 @@ struct ForwardedMessageMappingTests {
         let quoted = try #require(ChannelEventMapping.domainMessage(wire))
         #expect(quoted.content?.forwarded == nil)
         #expect(quoted.content?.quote?.text == "Original body")
+    }
+
+    @Test func anExplicitCrossConversationQuoteRetainsTheProviderSnapshot() throws {
+        let wire = message(type: 1, text: "Original body")
+        let received = try #require(ChannelEventMapping.domainMessage(wire))
+        let quote = try #require(received.content?.quote)
+        #expect(received.text == "My comment")
+        #expect(received.content?.forwarded == nil)
+        #expect(quote.conversation == Conversation.ID("dm/source"))
+        #expect(quote.id == ChatKit.Message.ID("original"))
+        #expect(quote.text == "Original body")
+        #expect(throws: ChatError.self) {
+            try MessageContentMapping.target(quote, in: received.conversationID)
+        }
     }
 
     /// The author is whichever of the nested profile, the bare id and the

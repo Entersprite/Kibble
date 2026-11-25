@@ -126,6 +126,10 @@ public enum MeetActivityDataWire {
         (try? MeetProto.value(6, message)) == 1 && isPublicChatRecipient(message)
     }
 
+    public static func chatTimestamp(_ message: Data) -> Date? {
+        MeetProto.timestamp(4, message)
+    }
+
     public static func isWaitingRoomChatText(_ message: Data) -> Bool {
         (try? MeetProto.value(6, message)) == 1 && (try? MeetProto.value(10, message)) == 2
     }

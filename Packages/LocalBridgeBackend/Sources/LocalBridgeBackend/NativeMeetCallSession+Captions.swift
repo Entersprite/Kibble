@@ -21,13 +21,18 @@ extension NativeMeetCallSession {
     }
 
     func updateDeviceCaptionLanguages(_ languages: MeetCaptionWire.Languages?) async {
-        guard !closed, let languages, !languages.isEmpty else { return }
-        var changed = activities.recordingCaptionLanguages != languages.live
-        activities.recordingCaptionLanguages = languages.live
-        if assignedActivityChannels?.contains(.captions) == true {
-            captionTransport.deviceLanguages = CallCaptionLanguages(
-                live: languages.live, translations: languages.translations
-            )
+        guard !closed, let languages, !languages.isEmpty || languages.includesTranslationRows else { return }
+        // The device can report ordinary languages and translation rows independently.
+        let live = languages.live.isEmpty ? activities.recordingCaptionLanguages : languages.live
+        var changed = activities.recordingCaptionLanguages != live
+        activities.recordingCaptionLanguages = live
+        let previousCatalog = captionTransport.deviceLanguages
+        if assignedActivityChannels?.contains(.captions) == true,
+           !languages.isEmpty || previousCatalog != nil {
+            let translations = languages.includesTranslationRows
+                ? languages.translations
+                : previousCatalog?.translations ?? [:]
+            captionTransport.deviceLanguages = CallCaptionLanguages(live: live, translations: translations)
             changed = adoptCaptionLanguages() || changed
         }
         if changed {

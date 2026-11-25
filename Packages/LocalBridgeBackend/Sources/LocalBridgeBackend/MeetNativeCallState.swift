@@ -3,7 +3,16 @@ import Foundation
 
 public enum MeetNativeCallEndReason: String, Sendable {
     case localEnded, ringCancelled, remoteEnded, declined, invitationEnded, ringingTimedOut, transportFailed,
-         accountChanged, deviceEnded, joinFailed, removedFromMeeting, sentToWaitingRoom
+         accountChanged, deviceEnded, joinFailed, removedFromMeeting, sentToWaitingRoom, switchedDevice,
+         conferenceEnded, incompatibleClient
+
+    static let compatibilityNotice =
+        "The current meeting settings require a compatible app. Open the meeting in your browser."
+
+    func endNotice(cleanup: MeetNativeCallCleanup) -> String? {
+        guard self == .incompatibleClient else { return cleanup.message }
+        return cleanup.message.map { Self.compatibilityNotice + " " + $0 } ?? Self.compatibilityNotice
+    }
 }
 
 /// Native trial state reflects observed media and provider collections. An
@@ -36,8 +45,11 @@ public enum MeetNativeCallState: Sendable, Equatable {
         case .ended(.localEnded): "Native call ended."
         case .ended(.ringCancelled): "Ringing cancelled. Check the report for confirmation."
         case .ended(.deviceEnded): "Meet ended Kibble's device. Native call ended."
+        case .ended(.incompatibleClient): "Meet rejected this client for compatibility. Native call ended."
         case .ended(.removedFromMeeting): "Removed from the meeting."
         case .ended(.sentToWaitingRoom): "Sent to the waiting room."
+        case .ended(.switchedDevice): "Call switched to another device."
+        case .ended(.conferenceEnded): "Meeting ended."
         case .ended(.remoteEnded): "The other device left. Native call ended."
         case .ended(.declined): "The call was declined."
         case .ended(.invitationEnded): "The invitation ended before another device joined."

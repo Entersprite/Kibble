@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 public struct CallActivitiesScene {
     public var state: CallActivitiesState
+    public var currentBreakoutRoomID: UUID?
     public var meetingChat: CallChatScene?
     public var openGuestChat: (@MainActor (UUID) async throws -> Void)?
     public var setRecordingAndTranscriptionEnabled: ((Bool, String?) async throws -> Void)?
@@ -11,11 +12,13 @@ public struct CallActivitiesScene {
 
     public init(
         state: CallActivitiesState,
+        currentBreakoutRoomID: UUID? = nil,
         meetingChat: CallChatScene? = nil,
         setRecordingAndTranscriptionEnabled: ((Bool, String?) async throws -> Void)? = nil,
         perform: @escaping (CallActivity) async throws -> Void
     ) {
         self.state = state
+        self.currentBreakoutRoomID = currentBreakoutRoomID
         self.meetingChat = meetingChat
         self.setRecordingAndTranscriptionEnabled = setRecordingAndTranscriptionEnabled
         self.perform = perform

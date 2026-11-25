@@ -54,6 +54,7 @@ actor NativeMeetCallSession {
     var hostControls = HostControlsState()
     var activities = CallActivitiesState()
     var activityResources: [UUID: (kind: String, name: String)] = [:]
+    var meetingMessageTimes: [UUID: Date] = [:]
     var artifactSessions: [String: String] = [:]
     var activityVersions: [Int: UInt64] = [:]
     var unavailableActivityFields: Set<Int> = []
@@ -128,24 +129,7 @@ actor NativeMeetCallSession {
         self.validateAccount = validateAccount
         self.now = now
         self.admissionSleep = admissionSleep
-        activities.availableActions = [
-            "refresh",
-            "react",
-            "chat",
-            "recording",
-            "transcription",
-            "notes",
-            "attendance",
-            "createPoll",
-            "votePoll",
-            "closePoll",
-            "askQuestion",
-            "voteQuestion",
-            "answerQuestion",
-            "createRooms",
-            "openRooms",
-            "closeRooms"
-        ]
+        activities.availableActions = Self.activitiesBeforeFirstSnapshot
     }
 
     func connect() async throws {
@@ -182,6 +166,7 @@ actor NativeMeetCallSession {
         if !mediaWasClosed {
             await media.close()
         }
+        lines.append("Native call end reason: " + reason.rawValue)
         await publish(.ending)
         _ = await activityChannelsTask?.result
         activityChannelsTask = nil
@@ -294,6 +279,7 @@ actor NativeMeetCallSession {
             try await Task.detached { try await device.cancelParticipantInvitations() }.value
         } catch {
             cleanupStatus.invitationUnconfirmed = true
+            lines.append("Native cleanup: participant invitation cancellation unconfirmed")
         }
         do {
             try await Task.detached { try await device.cancelInvitation() }.value

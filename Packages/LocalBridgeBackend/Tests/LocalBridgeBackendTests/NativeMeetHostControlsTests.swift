@@ -84,11 +84,14 @@ struct NativeMeetHostControlsTests {
 
     @Test(arguments: [true, false])
     func hostChatChangeNeedsBothTheActiveAndSavedPolicies(savedEchoMatches: Bool) async throws {
-        let before = snapshot(version: 1, management: true, chat: 2, savedChat: 2)
-        let after = snapshot(version: 2, management: true, chat: 3, savedChat: savedEchoMatches ? 3 : 2)
+        let before = snapshot(version: 1, management: true, chat: 1, savedChat: 1)
+        let after = snapshot(
+            version: 2, management: true, chat: 3, savedChat: savedEchoMatches ? 3 : 2, legacyChatLocked: true
+        )
         let (session, transport) = try await connect([before, before, NativeMeetFixture.ok(Data()), after])
         await session.refreshState()
         #expect(await session.activities.availableActions.contains("allowChatMessages"))
+        #expect(await session.activities.hostSettings?.chatMessagesAllowed == true)
         let change = CallActivity("allowChatMessages", enabled: false)
         if savedEchoMatches {
             try await session.performActivity(change)
@@ -103,7 +106,9 @@ struct NativeMeetHostControlsTests {
     }
 
     @Test func chatLockWithholdsParticipantSendingUntilTheNewerActivePolicyAllowsIt() async throws {
-        let blocked = snapshot(version: 1, role: 2, management: true, chat: 3, savedChat: 3)
+        let blocked = snapshot(
+            version: 1, role: 2, management: true, chat: 3, savedChat: 3, legacyChatLocked: true
+        )
         let allowed = snapshot(version: 2, role: 2, management: true, chat: 2, savedChat: 3)
         let (session, _) = try await connect([blocked, allowed])
         await session.refreshState()
@@ -168,14 +173,16 @@ struct NativeMeetHostControlsTests {
         #expect(await transport.sent.last?.url.lastPathComponent == "UpdateMeetingDevice")
     }
 
-    @Test func hostCanEnableManagementAndConfirmReactionLockBeforeLosingAccess() async throws {
+    @Test func hostCanRetryManagementAndConfirmReactionLockBeforeLosingAccess() async throws {
         let disabled = snapshot(version: 1, management: false)
         let management = snapshot(version: 2, management: true)
         let locked = snapshot(version: 3, management: true, locked: true)
         let demoted = snapshot(version: 4, role: 2, management: true, locked: true)
+        let refused = HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data())
         let accepted = NativeMeetFixture.ok(Data())
         let (session, transport) = try await connect([
-            disabled, disabled, accepted, management, management, accepted, locked, demoted
+            disabled, disabled, .success(refused), disabled, accepted, management,
+            management, accepted, locked, demoted
         ])
         await session.refreshState()
         let initial = await session.activities
@@ -183,7 +190,12 @@ struct NativeMeetHostControlsTests {
         #expect(initial.availableActions.contains("hostManagement"))
         #expect(!initial.availableActions.contains("allowReactions"))
 
-        try await session.performActivity(CallActivity("hostManagement"))
+        let enable = CallActivity("hostManagement")
+        await #expect(throws: MeetCallClientError.self) { try await session.performActivity(enable) }
+        #expect(await session.activities.hostSettings?.managementEnabled == false)
+        #expect(await session.activities.availableActions.contains(enable.action))
+        try await session.performActivity(enable)
+        #expect(await session.activities.hostSettings?.managementEnabled == true)
         #expect(await session.activities.availableActions.contains("allowReactions"))
         try await session.performActivity(CallActivity("allowReactions", enabled: false))
         let confirmed = await session.activities
@@ -195,7 +207,7 @@ struct NativeMeetHostControlsTests {
         let updated = await session.activities
         #expect(updated.hostSettings == nil)
         #expect(!updated.availableActions.contains("hostManagement"))
-        #expect(await transport.sent.filter { $0.url.path.hasSuffix("UpdateMeetingSpace") }.count == 2)
+        #expect(await transport.sent.filter { $0.url.path.hasSuffix("UpdateMeetingSpace") }.count == 3)
         await session.close()
     }
 
@@ -238,7 +250,8 @@ struct NativeMeetHostControlsTests {
 
     func snapshot(
         version: UInt64, role: UInt64? = 1, management: Bool, locked: Bool = false,
-        chat: UInt64? = nil, savedChat: UInt64? = nil, sharing: Bool? = nil, savedSharing: Bool? = nil,
+        chat: UInt64? = nil, savedChat: UInt64? = nil, legacyChatLocked: Bool = false,
+        sharing: Bool? = nil, savedSharing: Bool? = nil,
         microphone: Bool? = nil, camera: Bool? = nil,
         joining: Bool? = nil, savedJoining: Bool? = nil, waitingRoom: Bool? = nil,
         accessPreset: UInt64? = nil, savedAccessPreset: UInt64? = nil, accessChoices: [UInt64] = [],
@@ -248,6 +261,7 @@ struct NativeMeetHostControlsTests {
         var settings = NativeMeetFixture.number(7, management ? 1 : 0)
             + NativeMeetFixture.number(9, locked ? 1 : 0)
             + (chat.map { NativeMeetFixture.number(38, $0) } ?? Data())
+            + (legacyChatLocked ? NativeMeetFixture.number(2, 1) : Data())
             + (sharing.map { NativeMeetFixture.number(3, $0 ? 0 : 1) } ?? Data())
             + (microphone.map { NativeMeetFixture.number(5, $0 ? 0 : 1) } ?? Data())
             + (camera.map { NativeMeetFixture.number(6, $0 ? 0 : 1) } ?? Data())

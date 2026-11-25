@@ -107,7 +107,9 @@ public extension LocalBridgeAudioCallService {
                 }
             }
             do {
-                try Task.checkCancellation()
+                try checkCall(id, scope: scope)
+                await trial.beginCallDiagnostics(id: id, scope: scope)
+                try checkCall(id, scope: scope)
                 try await perform()
             } catch {
                 let failure = await finishFailedOperation(error, id: id, scope: scope)

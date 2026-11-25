@@ -26,6 +26,9 @@ struct CallMeetingChatMessageRow: View {
                 Text(message.text).textSelection(.enabled)
             }
             .accessibilityElement(children: .combine)
+            .accessibilityLabel(pinned
+                ? "Pinned, \(message.sender), \(message.text)"
+                : "\(message.sender), \(message.text)")
             Spacer(minLength: 0)
             if message.canChangePin == true, showsPinAction {
                 let title = pinned ? "Unpin Message" : "Pin Message"

@@ -5,13 +5,17 @@ import SwiftUI
 /// who is in each, opening and closing them, and making new ones.
 struct CallActivityRoomsView: View {
     let state: CallActivitiesState
+    let currentRoomID: UUID?
     let busy: Bool
     @Binding var roomNames: [String]
     let submit: (CallActivity, (() -> Void)?) -> Void
 
     var body: some View {
         if state.rooms.isEmpty {
-            Section { CallActivityEmptyRow(text: "No breakout rooms yet.") }
+            Section {
+                CallActivityEmptyRow(text: state.breakoutClosing == true
+                    ? "Breakout rooms are closing." : "No breakout rooms yet.")
+            }
         } else {
             Section {
                 ForEach(state.rooms) { room in
@@ -37,53 +41,69 @@ struct CallActivityRoomsView: View {
                     .disabled(busy)
             }
         }
-        if offers("createRooms") {
+        let createsAndOpens = offers("createAndOpenRooms")
+        let createAction = createsAndOpens ? "createAndOpenRooms" : "createRooms"
+        if offers(createAction) {
             Section("New Rooms") {
                 CallLineFields(lines: $roomNames, title: "Room")
-                Button("Create Rooms") {
-                    submit(CallActivity("createRooms", options: CallActivityCopy.filled(roomNames))) {
+                Button(createsAndOpens ? "Create and Open Rooms" : "Create Rooms") {
+                    submit(CallActivity(createAction, options: CallActivityCopy.filled(roomNames))) {
                         roomNames = CallActivityDrafts.emptyRoomNames
                     }
                 }
-                .disabled(!can("createRooms") || CallActivityCopy.filled(roomNames).isEmpty)
+                .disabled(!can(createAction) || CallActivityCopy.filled(roomNames).isEmpty)
             }
         }
     }
 
     private func row(_ room: CallBreakoutRoom) -> some View {
-        LabeledContent {
-            HStack(spacing: 8) {
-                if offers("assignRoom"), !state.people.isEmpty {
-                    Menu("Assign") {
-                        ForEach(state.people) { person in
-                            // A checkmark is how a menu shows who is in the room.
-                            Toggle(person.name, isOn: Binding(
-                                get: { room.participants.contains(person.id) },
-                                set: { _ in toggle(person.id, in: room) }
-                            ))
-                        }
-                    }
-                    .controlSize(.small)
-                    .fixedSize()
-                    .disabled(!can("assignRoom"))
-                    .accessibilityLabel("Assign people to \(room.name)")
-                }
-                if room.isOpen, room.joinURL != nil {
-                    Button("Join") { submit(CallActivity("joinRoom", resourceID: room.id), nil) }
-                        .controlSize(.small)
-                        .disabled(busy)
-                        .accessibilityLabel("Join \(room.name)")
-                }
+        let isCurrent = room.id == currentRoomID
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(room.name)
+                Text(Self.subtitle(for: room, closing: state.breakoutClosing == true, isCurrent: isCurrent))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
-        } label: {
-            Text(room.name)
-            Text(Self.subtitle(for: room))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+
+            if offers("assignRoom"), !state.people.isEmpty {
+                Menu("Assign") {
+                    ForEach(state.people) { person in
+                        // A checkmark is how a menu shows who is in the room.
+                        Toggle(person.name, isOn: Binding(
+                            get: { room.participants.contains(person.id) },
+                            set: { _ in toggle(person.id, in: room) }
+                        ))
+                    }
+                }
+                .controlSize(.small)
+                .fixedSize()
+                .disabled(!can("assignRoom"))
+                .accessibilityLabel("Assign people to \(room.name)")
+            }
+            if !isCurrent, state.breakoutClosing != true, room.isOpen, room.joinURL != nil {
+                Button("Join") { submit(CallActivity("joinRoom", resourceID: room.id), nil) }
+                    .controlSize(.small)
+                    .disabled(busy)
+                    .accessibilityLabel("Join \(room.name)")
+            }
         }
     }
 
-    /// Open or closed, then how many people are assigned, when any are.
-    static func subtitle(for room: CallBreakoutRoom) -> String {
-        let state = room.isOpen ? "Open" : "Closed"
+    /// Room status and, when available, how many people are assigned.
+    static func subtitle(
+        for room: CallBreakoutRoom,
+        closing: Bool = false,
+        isCurrent: Bool = false
+    ) -> String {
+        let state = switch (closing, isCurrent, room.isOpen) {
+        case (true, _, _): "Closing"
+        case (_, true, _): "Current room"
+        case (_, _, true): "Open"
+        default: "Closed"
+        }
         switch room.participants.count {
         case 0: return state
         case 1: return state + " · 1 person"

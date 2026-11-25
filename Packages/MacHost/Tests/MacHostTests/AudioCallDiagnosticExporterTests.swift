@@ -14,7 +14,7 @@ struct AudioCallDiagnosticExporterTests {
         let recipient = AudioCallRecipient(
             conversationID: .init("opaque-dm"), memberID: .init("peer"), displayName: "Private name"
         )
-        let service = RefusedDiagnosticCallService(recipient: recipient)
+        let service = DiagnosticCallService(recipient: recipient, startFailure: .notAuthorized)
         let calls = AudioCallController()
         let me = Member.ID("self")
         let person = Member(id: recipient.memberID, kind: .human)
@@ -34,6 +34,52 @@ struct AudioCallDiagnosticExporterTests {
         await calls.stop()
         #expect(await !copy())
         #expect(writes.values.count == 1)
+    }
+
+    @Test(arguments: [true, false])
+    func aLiveCopyCannotBecomeATerminalCopy(closesDuringSampling: Bool) async throws {
+        let writes = DiagnosticWrites()
+        let gate = DiagnosticGate()
+        let exporter = AudioCallDiagnosticExporter { writes.values.append($0); return true }
+        exporter.install { _ in await gate.wait() }
+        let recipient = AudioCallRecipient(
+            conversationID: .init("opaque-dm"), memberID: .init("peer"), displayName: "Test guest"
+        )
+        let calls = AudioCallController()
+        let me = Member.ID("self")
+        let person = Member(id: recipient.memberID, kind: .human)
+        let dm = Conversation(id: recipient.conversationID, kind: .directMessage, members: [me, person.id])
+        calls.start(service: DiagnosticCallService(recipient: recipient))
+        try await diagnosticEventually { calls.canCall(conversation: dm, members: [person], me: me) }
+        let id = try #require(calls.startCall(in: dm, members: [person], me: me))
+        try await diagnosticEventually { calls.call?.phase == .connected }
+        let audioDevices = CallAudioDeviceController()
+        let video = CallVideoController()
+        let live = try #require(MacAppDelegate.callActions(
+            for: id, calls: calls, audioDevices: audioDevices, video: video, diagnostics: exporter
+        ).copyDiagnostics)
+
+        if closesDuringSampling {
+            let copy = Task { await live() }
+            try await gate.started()
+            calls.windowClosed()
+            gate.finish("Interrupted sample")
+            #expect(await !copy.value)
+        } else {
+            calls.windowClosed()
+            exporter.install { _ in "A late request could read the ended call" }
+            #expect(await !live())
+        }
+        #expect(writes.values.isEmpty)
+
+        exporter.install { _ in "Finished report" }
+        let finished = try #require(MacAppDelegate.callActions(
+            for: id, calls: calls, audioDevices: audioDevices, video: video, diagnostics: exporter
+        ).copyDiagnostics)
+        #expect(await finished())
+        #expect(writes.values.count == 1)
+        #expect(writes.values.first?.contains("Call terminal: true") == true)
+        await calls.stop()
     }
 
     @Test func preProviderFailureStillCopiesTheClientContext() async {
@@ -144,13 +190,15 @@ struct AudioCallDiagnosticExporterTests {
     try #require(condition())
 }
 
-@MainActor private final class RefusedDiagnosticCallService: AudioCallService {
+@MainActor private final class DiagnosticCallService: AudioCallService {
     let events: AsyncStream<AudioCallEvent>
     let sink: AsyncStream<AudioCallEvent>.Continuation
     let recipient: AudioCallRecipient
+    let startFailure: ServiceFailure?
 
-    init(recipient: AudioCallRecipient) {
+    init(recipient: AudioCallRecipient, startFailure: ServiceFailure? = nil) {
         self.recipient = recipient
+        self.startFailure = startFailure
         (events, sink) = AsyncStream.makeStream()
     }
 
@@ -158,8 +206,13 @@ struct AudioCallDiagnosticExporterTests {
         sink.yield(.recipientsChanged([recipient]))
     }
 
-    func startOutgoing(to _: AudioCallRecipient, callID _: UUID) async throws {
-        throw ServiceFailure.notAuthorized
+    func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {
+        if let startFailure {
+            throw startFailure
+        }
+        sink.yield(.snapshot(AudioCallSnapshot(
+            id: callID, recipient: recipient, direction: .outgoing, phase: .connected
+        )))
     }
 
     func accept(callID _: UUID) async throws {}

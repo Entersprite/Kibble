@@ -150,7 +150,13 @@ private extension FakeBackend {
         let edited = try updateMessage(id) {
             $0.text = text
             $0.mentions = mentions
+            let originalQuote = $0.content?.quote
             $0.content = content
+            if let quote = originalQuote, quote.conversation != $0.conversationID, content?.quote == nil {
+                var retained = content ?? MessageContent()
+                retained.quote = quote
+                $0.content = retained
+            }
             // Spans into the old text no longer mean anything (review finding 1).
             $0.links = $0.links.filter { $0.start == nil }
             $0.editedAt = advance()

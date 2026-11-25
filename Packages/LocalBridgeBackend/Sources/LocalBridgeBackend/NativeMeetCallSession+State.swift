@@ -103,15 +103,21 @@ extension NativeMeetCallSession {
             return try await device.collections(timeout: .seconds(2))
         }
         refresh = probe
-        let snapshot = try? await probe.value
+        let result = await probe.result
         refresh = nil
-        guard !closed, disconnectedAt == failure else { return }
+        guard !closed else { return }
+        if case let .failure(error) = result, error as? MeetDeviceSessionError == .conferenceEnded {
+            // The provider already settled this registration, even if media reconnected.
+            await close(reason: .conferenceEnded)
+            return
+        }
+        guard disconnectedAt == failure else { return }
         let local = await device.localDeviceName
         guard !closed, disconnectedAt == failure else { return }
-        if let roster = snapshot?.devices, roster.version > (deviceVersion ?? 0),
+        if let roster = (try? result.get())?.devices, roster.version > (deviceVersion ?? 0),
            roster.version >= (participantVersion ?? 0),
            let own = roster.values.first(where: { $0.name == local }),
-           let reason = ejectionReason(for: own) {
+           let reason = confirmedDeviceEndReason(for: own) {
             await device.observeRemovedDevice(own)
             await close(reason: reason)
         } else {
@@ -128,9 +134,9 @@ extension NativeMeetCallSession {
                   !hostControls.remoteMute.isApplying else { return }
             let task = Task { [device] in try await device.collections() }
             refresh = task
-            let snapshot: MeetCallCollectionsWire.Snapshot
-            do { snapshot = try await task.value } catch { refresh = nil; throw error }
+            let result = await task.result
             refresh = nil
+            let snapshot = try result.get()
             try await validateAccount()
             guard !closed else { return }
             needsRefresh = false
@@ -145,6 +151,8 @@ extension NativeMeetCallSession {
             guard !closed else { return }
             if error is MeetDMCallTrialError {
                 await close(reason: .accountChanged)
+            } else if error as? MeetDeviceSessionError == .conferenceEnded {
+                await close(reason: .conferenceEnded)
             } else if error as? MeetDeviceSessionError != .busy {
                 lines.append("Native call state: collection check unavailable; "
                     + MeetDMCallTrial.errorDescription(error))
@@ -201,14 +209,18 @@ extension NativeMeetCallSession {
         verifiedAloneDeviceVersion = nil
         let own = devices.values.first { $0.name == local }
         if own == nil, localObserved {
+            lines.append("Native device roster: joined local device absent from full snapshot")
             await close(reason: .deviceEnded)
             return
         }
         guard let own else { await publish(.stateUnavailable); return }
         localObserved = true
         if own.isDeleted || [4, 5, 6, 7, 8, 11].contains(own.joinState) {
+            let reason = own.finalStateReason.map(String.init) ?? "unknown"
+            let status = "join state=\(own.joinState) deleted=\(own.isDeleted) reason=\(reason)"
+            lines.append("Native device roster: " + status)
             await device.observeRemovedDevice(own)
-            await close(reason: ejectionReason(for: own) ?? .deviceEnded)
+            await close(reason: confirmedDeviceEndReason(for: own) ?? .deviceEnded)
             return
         }
         guard own.joinState == 1 else { await publish(.stateUnavailable); return }
@@ -239,11 +251,23 @@ extension NativeMeetCallSession {
         }
     }
 
-    private func ejectionReason(for own: MeetDeviceWire.Device) -> MeetNativeCallEndReason? {
+    private func confirmedDeviceEndReason(for own: MeetDeviceWire.Device) -> MeetNativeCallEndReason? {
+        if own.wasTransferredOut {
+            return .switchedDevice
+        }
+        if own.wasEndedByHost {
+            return .conferenceEnded
+        }
         if own.wasSentToWaitingRoom {
             return .sentToWaitingRoom
         }
-        return own.wasRemoved ? .removedFromMeeting : nil
+        if own.wasRemoved {
+            return .removedFromMeeting
+        }
+        if own.wasRejectedAsIncompatible {
+            return .incompatibleClient
+        }
+        return own.isDeleted ? .deviceEnded : nil
     }
 
     func publish(_ next: MeetNativeCallState) async {

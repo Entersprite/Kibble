@@ -133,20 +133,34 @@ struct BreakoutCallHandoffTests {
         await calls.stop()
     }
 
-    @Test func aRoomJoinsOnlyAfterConfirmedParentTerminationAndCanReturn() async throws {
+    @Test(arguments: [true, false])
+    func aRoomJoinsOnlyAfterConfirmedParentTerminationAndCanReturn(muted: Bool) async throws {
         let service = RoomCallService(), calls = AudioCallController()
         calls.start(service: service)
         let main = try #require(URL(string: "https://meet.example.test/main"))
         _ = calls.joinMeeting(at: main)
         #expect(await eventually { calls.call?.phase == .connected && calls.interaction?.activities != nil })
+        #expect(calls.currentBreakoutRoomID == nil)
+        if muted {
+            calls.toggleMute()
+            #expect(await eventually { calls.call?.isMuted == true && !calls.isUpdatingMute })
+        }
         let room = try #require(calls.interaction?.activities?.rooms.first)
         try await calls.joinBreakoutRoom(room.id)
         #expect(await eventually { calls.call?.phase == .connected && service.joined.count == 2 })
         #expect(service.operations == ["join", "end", "join"])
         #expect(calls.breakoutReturnURL == main)
+        #expect(await eventually { calls.currentBreakoutRoomID != nil })
+        let currentRoom = try #require(calls.currentBreakoutRoomID)
+        let currentCall = calls.call?.id
+        await #expect(throws: CancellationError.self) { try await calls.joinBreakoutRoom(currentRoom) }
+        #expect(calls.call?.id == currentCall)
+        #expect(service.operations == ["join", "end", "join"])
         try await calls.returnFromBreakoutRoom()
         #expect(await eventually { calls.call?.phase == .connected && service.joined.count == 3 })
         #expect(service.joined.last == main && calls.breakoutReturnURL == nil)
+        #expect(service.joinMedia.map(\.microphoneMuted) == [false, muted, muted])
+        #expect(calls.call?.isMuted == muted)
         await calls.stop()
     }
 
@@ -163,6 +177,57 @@ struct BreakoutCallHandoffTests {
         service.holdCleanup = false
         await #expect(throws: CancellationError.self) { try await handoff.value }
         #expect(service.joined.count == 1 && calls.call == nil && calls.breakoutReturnURL == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func confirmedClosureReturnsToTheMainCallMutedUnlessTheUserLeaves(leaving: Bool) async throws {
+        let service = RoomCallService(), calls = AudioCallController()
+        calls.start(service: service)
+        let main = try #require(URL(string: "https://meet.example.test/main"))
+        let mainID = try #require(calls.joinMeeting(at: main))
+        #expect(await eventually { calls.call?.phase == .connected && calls.interaction?.activities != nil })
+        let room = try #require(calls.interaction?.activities?.rooms.first)
+        let roomURL = try #require(room.joinURL)
+        try await calls.joinBreakoutRoom(room.id)
+        #expect(await eventually { calls.call?.phase == .connected && service.joined.count == 2 })
+        let roomID = try #require(calls.call?.id)
+        var state = CallInteractionState(joinURL: roomURL)
+        var activities = CallActivitiesState()
+        activities.rooms = [.init(id: UUID(), name: room.name, isOpen: false, joinURL: roomURL)]
+        activities.breakoutClosing = true
+        state.activities = activities
+        calls.receive(.interactionChanged(callID: roomID, state: state))
+        #expect(calls.breakoutTask == nil)
+        activities.breakoutClosing = nil
+        state.activities = activities
+        calls.receive(.interactionChanged(callID: roomID, state: state))
+        #expect(calls.breakoutTask == nil)
+        activities.breakoutClosed = true
+        state.activities = activities
+        calls.receive(.interactionChanged(callID: mainID, state: state))
+        #expect(calls.breakoutTask == nil)
+        activities.rooms = [.init(id: UUID(), name: "Other room", isOpen: false, joinURL: main)]
+        state.activities = activities
+        calls.receive(.interactionChanged(callID: roomID, state: state))
+        #expect(calls.breakoutTask == nil)
+        activities.rooms = [.init(id: UUID(), name: room.name, isOpen: false, joinURL: roomURL)]
+        state.activities = activities
+
+        calls.receive(.interactionChanged(callID: roomID, state: state))
+        calls.receive(.interactionChanged(callID: roomID, state: state))
+        if leaving {
+            calls.hangUp()
+            #expect(await eventually { calls.call?.phase == .ended && calls.breakoutTask == nil })
+            #expect(service.operations == ["join", "end", "join", "end"])
+            #expect(service.joined == [main, roomURL])
+        } else {
+            #expect(await eventually { calls.call?.phase == .connected && service.joined.count == 3 })
+            #expect(service.operations == ["join", "end", "join", "end", "join"])
+            #expect(service.joined == [main, roomURL, main])
+            #expect(service.joinMedia.last == .init(microphoneMuted: true))
+            #expect(calls.breakoutReturnURL == nil)
+        }
+        await calls.stop()
     }
 
     @Test func invalidLinkRefusalNamesTheInputProblemAndKeepsItsDiagnosticCode() async throws {

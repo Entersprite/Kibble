@@ -5,6 +5,25 @@ import Testing
 @testable import MacHost
 
 struct CallAudioDeviceTests {
+    @Test func privateAggregatesCannotBeSelectedOrRestored() async {
+        let hardware = FakeCallAudioHardware()
+        hardware.state.withLock {
+            $0.outputs.append(contentsOf: [
+                CallAudioDevice(id: "public-mix", name: "Studio Aggregate"),
+                CallAudioDevice(id: "private-mix", name: "Temporary Aggregate")
+            ])
+        }
+        let route = NativeCallAudioRouting(hardware: hardware, isPrivateAggregate: { $0 == "private-mix" })
+        #expect(await route.snapshot().speakers.map(\.id) == ["speaker:usb", "public-mix"])
+        #expect(await route.persistentID(of: "private-mix", microphone: false) == nil)
+        #expect(await !route.select("private-mix", microphone: false))
+        #expect(await !route.restore("uid:private-mix", microphone: false))
+        #expect(await route.restore("uid:public-mix", microphone: false))
+        #expect(await route.select("", microphone: false))
+        #expect(hardware.state.withLock { $0.changes } == ["output:public-mix", "output:"])
+        route.close()
+    }
+
     @MainActor
     @Test func aPreJoinChoiceRestoresTheSameCallDeviceByStableUID() async throws {
         let place = try DevicePreferencesPlace()

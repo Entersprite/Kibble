@@ -24,14 +24,29 @@ public extension ChatSessionModel {
               !id.rawValue.hasPrefix("local/"),
               let original = try? store.message(id),
               !original.isDeleted,
-              !message.text.isEmpty,
-              message.text != original.text || message.mentions != original.mentions || message
-              .content != original.content
+              !message.text.isEmpty
+        else { return }
+        var content = message.content
+        var submittedContent = content
+        // The service owns an existing quote from another conversation. Keep
+        // its snapshot visible during a caption edit and submit only the edit.
+        if let quote = original.content?.quote, quote.conversation != original.conversationID,
+           content?.quote == nil || content?.quote == quote {
+            var retained = content ?? MessageContent()
+            retained.quote = quote
+            content = retained
+            submittedContent?.quote = nil
+            if submittedContent?.isEmpty == true {
+                submittedContent = nil
+            }
+        }
+        guard message.text != original.text || message.mentions != original.mentions ||
+            content != original.content
         else { return }
         var edited = original
         edited.text = message.text
         edited.mentions = message.mentions
-        edited.content = message.content
+        edited.content = content
         // Spans into the old text would land on whatever the new text holds
         // there; the server's version brings the real ones (review finding 1).
         edited.links = original.links.filter { $0.start == nil }
@@ -40,7 +55,7 @@ public extension ChatSessionModel {
         submitEdit(
             .editMessage(
                 id: id, text: message.text, conversationID: original.conversationID,
-                threadID: original.threadID, mentions: message.mentions, content: message.content
+                threadID: original.threadID, mentions: message.mentions, content: submittedContent
             ),
             restoring: original
         ) { current in

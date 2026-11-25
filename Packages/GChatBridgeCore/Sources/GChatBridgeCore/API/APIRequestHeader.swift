@@ -5,8 +5,8 @@ import Foundation
 /// `findings.md` §3.6 hand-encoded `client_type: WEB` and
 /// `client_version: 2440378181258` and had them accepted, which is what
 /// confirmed the hand-written proto's field numbers where they were exercised.
-/// Ordinary calls retain that minimal header. Space-policy writes explicitly
-/// declare the newer policy features they implement through `makeForSpaceSettings()`.
+/// Ordinary calls retain that minimal header. Feature-specific writes declare
+/// the newer capabilities they implement.
 public enum APIRequestHeader {
     /// Copied from the reference (`client.py:105`) and seen accepted in §3.6.
     /// Configurable rather than a literal at a call site because it is Google's
@@ -17,6 +17,15 @@ public enum APIRequestHeader {
         var header = RequestHeader()
         header.clientType = .web
         header.clientVersion = clientVersion
+        return header
+    }
+
+    static func make(referenceType: Int32?) -> RequestHeader {
+        var header = make()
+        // The provider can accept an undeclared forward as a quoted reply.
+        if referenceType == 2 {
+            header.clientFeatureCapabilities.forwardedMessageLevel = .fullySupported
+        }
         return header
     }
 

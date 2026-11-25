@@ -11,13 +11,20 @@ final class NativeCallAudioRouting: CallAudioRouting, @unchecked Sendable {
     private var microphone = ""
     private var speaker = ""
     private var notice: String?
+    private let isPrivateAggregate: @Sendable (String) -> Bool
 
     convenience init(factory: LKRTCPeerConnectionFactory) {
         self.init(hardware: WebRTCCallAudioHardware(factory: factory))
     }
 
-    init(hardware: any CallAudioHardware) {
+    init(
+        hardware: any CallAudioHardware,
+        isPrivateAggregate: @escaping @Sendable (String) -> Bool = { id in
+            AudioObjectID(id).map(CoreAudioDeviceVisibility.isPrivateAggregate) ?? false
+        }
+    ) {
         self.hardware = hardware
+        self.isPrivateAggregate = isPrivateAggregate
     }
 
     func close() {
@@ -31,8 +38,8 @@ final class NativeCallAudioRouting: CallAudioRouting, @unchecked Sendable {
                     continuation.resume(returning: CallAudioDevices(microphones: [], speakers: []))
                     return
                 }
-                var inputs = hardware.devices(microphone: true)
-                var outputs = hardware.devices(microphone: false)
+                var inputs = self.selectableDevices(on: hardware, microphone: true)
+                var outputs = self.selectableDevices(on: hardware, microphone: false)
                 if !self.microphone.isEmpty, !inputs.contains(where: { $0.id == self.microphone }) {
                     if hardware.select("", microphone: true) {
                         self.microphone = ""
@@ -71,7 +78,8 @@ final class NativeCallAudioRouting: CallAudioRouting, @unchecked Sendable {
         await withCheckedContinuation { continuation in
             queue.async {
                 guard let hardware = self.hardware,
-                      hardware.devices(microphone: microphone).contains(where: { $0.id == id })
+                      self.selectableDevices(on: hardware, microphone: microphone)
+                          .contains(where: { $0.id == id })
                 else { continuation.resume(returning: nil); return }
                 continuation.resume(returning: hardware.persistentID(of: id))
             }
@@ -81,8 +89,8 @@ final class NativeCallAudioRouting: CallAudioRouting, @unchecked Sendable {
     func restore(_ persistentID: String, microphone: Bool) async -> Bool {
         await withCheckedContinuation { continuation in
             queue.async {
-                guard let hardware = self.hardware, !persistentID.isEmpty, let device = hardware
-                    .devices(microphone: microphone)
+                guard let hardware = self.hardware, !persistentID.isEmpty, let device = self
+                    .selectableDevices(on: hardware, microphone: microphone)
                     .first(where: { hardware.persistentID(of: $0.id) == persistentID })
                 else { continuation.resume(returning: false); return }
                 continuation.resume(returning: self.selectOnQueue(device.id, microphone: microphone))
@@ -92,7 +100,7 @@ final class NativeCallAudioRouting: CallAudioRouting, @unchecked Sendable {
 
     private func selectOnQueue(_ id: String, microphone: Bool) -> Bool {
         guard let hardware else { return false }
-        let devices = hardware.devices(microphone: microphone)
+        let devices = selectableDevices(on: hardware, microphone: microphone)
         guard id.isEmpty || devices.contains(where: { $0.id == id }) else { return false }
         let success = hardware.select(id, microphone: microphone)
         if success {
@@ -104,6 +112,31 @@ final class NativeCallAudioRouting: CallAudioRouting, @unchecked Sendable {
             }
         }
         return success
+    }
+
+    private func selectableDevices(
+        on hardware: any CallAudioHardware, microphone: Bool
+    ) -> [CallAudioDevice] {
+        hardware.devices(microphone: microphone).filter { !isPrivateAggregate($0.id) }
+    }
+}
+
+enum CoreAudioDeviceVisibility {
+    /// Core Audio can expose an I/O unit's process-private aggregate only to
+    /// its creator. It is transient and cannot be a user's persistent route.
+    static func isPrivateAggregate(_ id: AudioObjectID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioAggregateDevicePropertyComposition,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var composition: Unmanaged<CFDictionary>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFDictionary>?>.size)
+        guard AudioObjectHasProperty(id, &address),
+              AudioObjectGetPropertyData(id, &address, 0, nil, &size, &composition) == noErr,
+              let values = composition?.takeRetainedValue() as? [String: Any]
+        else { return false }
+        return (values[kAudioAggregateDeviceIsPrivateKey] as? NSNumber)?.intValue == 1
     }
 }
 

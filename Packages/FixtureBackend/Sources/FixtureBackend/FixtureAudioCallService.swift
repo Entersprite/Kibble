@@ -89,9 +89,11 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
         existingCalls.insert(id)
         call.phase = .connected
         publishConversation(call)
-        if joining, let devices = existingParticipants[id] {
-            setParticipantDevices(devices, callID: callID)
+        var devices = joining ? existingParticipants[id] ?? [] : []
+        if !devices.contains(where: { $0.isLocal && !$0.isPresentation }), devices.count < 256 {
+            devices.insert(Self.localParticipant, at: 0)
         }
+        setParticipantDevices(devices, callID: callID)
     }
 
     public func inviteToCall(_ member: Member.ID, callID: UUID) async throws {
@@ -99,21 +101,6 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
             (currentConversationCall?.id == callID && currentConversationCall?.phase == .connected)
         else { throw CancellationError() }
         invitedMembers.append(member)
-    }
-
-    public func setHandRaised(_ raised: Bool, callID: UUID) async throws {
-        guard (currentCall?.id == callID && currentCall?.phase == .connected) ||
-            (currentConversationCall?.id == callID && currentConversationCall?.phase == .connected)
-        else { throw CancellationError() }
-        let local = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        var devices = (participantDevices ?? []).filter { !$0.isLocal }
-        devices.append(CallParticipantDevice(
-            id: local,
-            displayName: "You",
-            isLocal: true,
-            handRaised: raised
-        ))
-        setParticipantDevices(devices, callID: callID)
     }
 
     public var meetingLinkHosts: Set<String> {
@@ -179,7 +166,7 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
     private func publishConversation(_ call: ConversationCallSnapshot) {
         if (currentCall?.id ?? currentConversationCall?.id) != call.id {
             participantDevices = nil
-            resetActivities()
+            resetActivities(includeAgenda: call.target.meetingURL != nil)
         }
         currentConversationCall = call
         continuation

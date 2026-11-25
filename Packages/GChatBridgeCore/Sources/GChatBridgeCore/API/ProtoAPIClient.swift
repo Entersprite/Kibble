@@ -60,10 +60,13 @@ public actor ProtoAPIClient {
     public func call<Request, Response>(
         _ method: APIMethod<Request, Response>,
         _ request: Request,
+        reportUntransmitted: Bool = false,
         onRefusal: (@Sendable (APIRefusal) -> Void)? = nil
     ) async throws -> Response {
         let body: Data = try request.serializedBytes()
-        let raw = try await callRaw(method.name, body: body, onRefusal: onRefusal)
+        let raw = try await callRaw(
+            method.name, body: body, reportUntransmitted: reportUntransmitted, onRefusal: onRefusal
+        )
         if raw.body.isEmpty, method.allowsEmptyResponse {
             lastEncoding = nil
             return Response()
@@ -89,15 +92,18 @@ public actor ProtoAPIClient {
     /// The probe path. A typed decode would discard a field the vendored proto
     /// cannot name, which is precisely what the probe is looking for (§12.1.1).
     public func callRaw(
-        _ name: String, body: Data, onRefusal: (@Sendable (APIRefusal) -> Void)? = nil
+        _ name: String, body: Data,
+        reportUntransmitted: Bool = false,
+        onRefusal: (@Sendable (APIRefusal) -> Void)? = nil
     ) async throws -> RawAPIResponse {
         counter += 1
-        let request = requests.request(
+        var request = requests.request(
             method: name,
             counter: counter,
             body: body,
             xsrfToken: xsrfToken
         )
+        request.reportsUntransmitted = reportUntransmitted
         let response: HTTPResponse
         do {
             // `credentials.authorising` is where "put the Cookie header on"
@@ -105,6 +111,8 @@ public actor ProtoAPIClient {
             // this client never carry two divergent ideas of what authorising a
             // request means.
             response = try await transport.send(credentials.authorising(request))
+        } catch let error as RequestNotTransmitted where reportUntransmitted {
+            throw error
         } catch let classified as ClassifiedTransportFailure {
             throw APIFailure.transport(classified.reason)
         } catch {

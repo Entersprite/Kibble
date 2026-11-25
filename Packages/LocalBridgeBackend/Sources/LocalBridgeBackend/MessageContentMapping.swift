@@ -51,6 +51,7 @@ enum MessageContentMapping {
         let quoted = message.replyTo
         guard !quoted.id.messageID.isEmpty,
               let conversation = ChannelEventMapping.conversationID(quoted.id.parentID.topicID.groupID),
+              quoted.referenceType == 1 ||
               conversation == ChannelEventMapping.conversationID(message.id.parentID.topicID.groupID)
         else { return nil }
         return MessageQuote(message: ChatKit.Message(
@@ -65,7 +66,7 @@ enum MessageContentMapping {
         try formats.map { format in
             guard format.range(in: text) != nil,
                   let kind = styles.sorted(by: { $0.key < $1.key })
-                  .first(where: { $0.value == format.style })?.key,
+                      .first(where: { $0.value == format.style })?.key,
                   let type = FormatMetadata.FormatType(rawValue: kind),
                   let start = Int32(exactly: format.start), let length = Int32(exactly: format.length)
             else { throw ChatError.unsupported(capability: "message formatting") }

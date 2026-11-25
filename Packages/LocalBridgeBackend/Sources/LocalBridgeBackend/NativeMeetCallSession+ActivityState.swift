@@ -3,6 +3,41 @@ import Foundation
 import GChatBridgeCore
 
 extension NativeMeetCallSession {
+    func prepareActivityWrite(_ activity: CallActivity) async throws
+        -> (fields: [Int], snapshot: MeetActivityCollections.Snapshot) {
+        let fields: [Int] = switch activity.action {
+        case "createPoll", "votePoll", "closePoll", "sharePollResults": [4, 5]
+        case "askQuestion", "voteQuestion", "answerQuestion": [6, 7]
+        case "createRooms", "createAndOpenRooms", "openRooms", "closeRooms": [8]
+        case "assignRoom": [8, 9]
+        default: []
+        }
+        guard let snapshot = try await readActivityState(requiring: fields) else {
+            throw MeetCallWire.WireError.malformedResponse
+        }
+        guard activities.availableActions.contains(activity.action) else {
+            throw ChatError.unsupported(capability: "meetingActivity")
+        }
+        return (fields, snapshot)
+    }
+
+    func readActivityState(requiring fields: [Int], timeout: Duration? = nil) async throws
+        -> MeetActivityCollections.Snapshot? {
+        let snapshot = try await device.activityCollections(
+            isolatingOptionalFailures: !fields.isEmpty,
+            timeout: timeout
+        )
+        try await check()
+        await reconcileActivities(snapshot)
+        try await check()
+        // The addressed collections require current full data on both reads.
+        let confirmed = fields.allSatisfy { field in
+            guard let version = snapshot.versions[field] else { return false }
+            return version == activityVersions[field]
+        }
+        return confirmed ? snapshot : nil
+    }
+
     func reconcileActivities(_ snapshot: MeetActivityCollections.Snapshot) async {
         let messageDevice = snapshot.messages == nil ? nil : await device.localDeviceName
         guard !closed else { return }
@@ -68,6 +103,7 @@ extension NativeMeetCallSession {
         }
         if permissions.microphone != previousPermissions.microphone
             || permissions.camera != previousPermissions.camera {
+            lines.append("Native capture: microphone=\(permissions.microphone) camera=\(permissions.camera)")
             await media.setCaptureAllowed(microphone: permissions.microphone, camera: permissions.camera)
         }
         if previousPermissions.screen != localCapturePermissions.screen {
@@ -92,23 +128,33 @@ extension NativeMeetCallSession {
                 return CallArtifact(kind: kind, phase: "stopped")
             }
             artifactSessions[kind] = MeetActivityCollections.text(1, session)
-            let state = (try? MeetActivityCollections.bytes(2, session))
-                .flatMap { MeetActivityCollections.number(
-                    1,
-                    $0
-                ) }
+            let state = try? MeetActivityCollections.bytes(2, session)
             let phases: [UInt64: String] = [1: "starting", 2: "active", 3: "stopped", 4: "preconfigured"]
-            let phase = state.flatMap { phases[$0] } ?? "unknown"
+            let phase = state.flatMap { MeetActivityCollections.number(1, $0) }
+                .flatMap { phases[$0] } ?? "unknown"
             return CallArtifact(
                 kind: kind, phase: phase,
                 recordingCaptionLanguage: kind == "recording" && ["active", "starting"].contains(phase)
-                    ? MeetActivityWire.recordingCaptionLanguage(in: session) : nil
+                    ? MeetActivityWire.recordingCaptionLanguage(in: session) : nil,
+                issue: state.flatMap { artifactIssue(phase: phase, state: $0) }?.rawValue
             )
         }
         if let settings = try? MeetActivityCollections.bytes(11, info) {
             activities.attendanceReportEnabled = (MeetActivityCollections.number(4, settings) ?? 0) != 0
             activityChatLocked = MeetActivityCollections.number(2, settings) == 1
         }
+    }
+
+    private func artifactIssue(phase: String, state: Data) -> CallArtifactIssue? {
+        if phase == "starting", let acknowledgement = try? MeetActivityCollections.bytes(5, state),
+           MeetActivityCollections.number(2, acknowledgement) == 1,
+           MeetActivityCollections.repeated(1, acknowledgement).contains(where: { !$0.isEmpty }) {
+            return .participantCompatibility
+        }
+        if phase == "stopped", MeetActivityCollections.number(2, state) == 2 {
+            return .initializationFailed
+        }
+        return nil
     }
 
     private func reconcileActivityMessages(_ messages: [Data], local: String?) {
@@ -126,6 +172,9 @@ extension NativeMeetCallSession {
                   let text = MeetActivityCollections.text(1, body),
                   let name = MeetActivityCollections.text(1, value) else { continue }
             let id = activityHandle(name, kind: "message")
+            if let sentAt = MeetActivityDataWire.chatTimestamp(value) {
+                meetingMessageTimes[id] = sentAt
+            }
             let device = MeetActivityCollections.text(2, value)
             let sender = device.flatMap { participantDevices[$0]?.displayName } ?? "Participant"
             let pinned = MeetActivityDataWire.publicChatPin(in: value)
@@ -150,8 +199,13 @@ extension NativeMeetCallSession {
                 messages.append(message)
             }
         }
-        activities.messages = Array(messages.suffix(256))
+        // Full reads and channel receipts can arrive in different orders.
+        let sorted = messages.sorted {
+            (meetingMessageTimes[$0.id] ?? .distantPast) < (meetingMessageTimes[$1.id] ?? .distantPast)
+        }
+        activities.messages = Array(sorted.suffix(256))
         let messageIDs = Set(activities.messages.map(\.id))
+        meetingMessageTimes = meetingMessageTimes.filter { messageIDs.contains($0.key) }
         activityResources = activityResources
             .filter { $0.value.kind != "message" || messageIDs.contains($0.key) }
     }
@@ -224,13 +278,11 @@ extension NativeMeetCallSession {
         }
         roomAssignments = [:]
         for person in people {
-            guard let name = MeetActivityCollections.text(1, person) else { continue }
-            // Native Meet maps field 5 to the assignment list; field 4 is
-            // the user's current room and must not become an assignment.
-            for assigned in MeetActivityCollections.repeated(5, person) {
-                guard let room = String(data: assigned, encoding: .utf8) else { continue }
-                roomAssignments[room, default: []].append(activityHandle(name, kind: "person"))
-            }
+            // A pending invitation already carries field 4. Field 5 follows
+            // actual room visits, including unassigned organizer visits.
+            guard let name = MeetActivityCollections.text(1, person),
+                  let room = MeetActivityCollections.text(4, person) else { continue }
+            roomAssignments[room, default: []].append(activityHandle(name, kind: "person"))
         }
         applyRoomAssignments()
     }
@@ -243,8 +295,11 @@ extension NativeMeetCallSession {
     }
 
     func reconcileRooms(_ value: Data) {
-        breakoutInitialized = (MeetActivityCollections.number(2, value) ?? 0) != 0
-        let open = MeetActivityCollections.number(2, value) == 1
+        let status = MeetActivityCollections.number(2, value)
+        breakoutInitialized = (status ?? 0) != 0
+        activities.breakoutClosing = status == MeetActivityWire.BreakoutStatus.closing.rawValue ? true : nil
+        activities.breakoutClosed = status == MeetActivityWire.BreakoutStatus.closed.rawValue ? true : nil
+        let open = status == MeetActivityWire.BreakoutStatus.open.rawValue
         activities.rooms = MeetActivityCollections.repeated(4, value).compactMap { room in
             guard MeetActivityCollections.number(5, room) != 1,
                   let name = MeetActivityCollections.text(1, room),

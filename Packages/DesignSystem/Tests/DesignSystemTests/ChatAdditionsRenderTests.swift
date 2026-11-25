@@ -14,6 +14,15 @@
         private let conversation = Conversation(id: .init("design"), kind: .space, title: "Design Team")
         private let sender = Member(id: .init("person"), kind: .human, displayName: "Casey Lee")
 
+        @Test func savedSenderFallsBackWhenThePageIncludesOnlyAnID() {
+            var state = ChatSceneState(directory: [sender.id: sender], me: sender.id)
+            state.stars.members[sender.id] = Member(id: sender.id, kind: .human)
+            #expect(StarredPresentation.senderName(for: sender.id, in: state) == "Casey Lee")
+            state.directory = [:]
+            #expect(StarredPresentation.senderName(for: sender.id, in: state) == "You")
+            #expect(StarredPresentation.senderName(for: .init("unknown"), in: state) == "Unknown sender")
+        }
+
         @Test(arguments: [false, true])
         func scheduledAndStarredPanesRender(_ dark: Bool) async throws {
             let time = Date(timeIntervalSince1970: 1_800_000_000)

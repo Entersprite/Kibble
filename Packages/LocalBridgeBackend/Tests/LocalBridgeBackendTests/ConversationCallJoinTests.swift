@@ -5,10 +5,13 @@ import Testing
 @testable import LocalBridgeBackend
 
 struct ConversationCallJoinTests {
-    @Test(arguments: [false, true])
-    func quietStartUsesTheConversationAndCannotEnterAnInvitationPath(space: Bool) async throws {
+    @Test(arguments: [false, true], [nil as Int32?, 2, 3])
+    func quietStartUsesTheConversationAndCannotEnterAnInvitationPath(
+        space: Bool,
+        status: Int32?
+    ) async throws {
         let fixtures = MeetDMCallTrialTests()
-        let response = try group(space: space)
+        let response = try group(space: space, status: status)
         let transport = try ScriptedTransport(fixtures.loadingResponses() + [
             fixtures.loadingResponses()[0], response, fixtures.preparingResponses()[0],
             NativeMeetFixture.responses()[0], response
@@ -30,11 +33,11 @@ struct ConversationCallJoinTests {
         await trial.close()
     }
 
-    @Test(arguments: [false, true])
-    func joiningEndedOrMissingHuddlesCannotCreateAReplacement(active: Bool) async throws {
+    @Test(arguments: [1 as Int32, 2, 3])
+    func joiningHuddlesThatHaveEndedCannotCreateAReplacement(status: Int32) async throws {
         let fixtures = MeetDMCallTrialTests()
         let transport = try ScriptedTransport(fixtures.loadingResponses() + [
-            fixtures.loadingResponses()[0], group(space: true, status: active ? 1 : 3),
+            fixtures.loadingResponses()[0], group(space: true, status: status),
             fixtures.preparingResponses()[0], NativeMeetFixture.responses()[0],
             group(space: true, status: 3)
         ])
@@ -46,6 +49,27 @@ struct ConversationCallJoinTests {
         #expect(await trial.prepared == nil)
         #expect(await transport.sent.allSatisfy { !$0.url.path.hasSuffix("ResolveForHangoutsChat") })
         #expect(await transport.sent.allSatisfy { !$0.url.path.hasSuffix("CreateMeetingDevice") })
+        await trial.close()
+    }
+
+    @Test(arguments: [true, false])
+    func joiningAnActiveHuddleUsesItsValidatedURLWhenNoCodeWasSupplied(space: Bool) async throws {
+        let fixtures = MeetDMCallTrialTests()
+        let response = try group(space: space, status: 1, urlOnly: true)
+        let transport = try ScriptedTransport(fixtures.loadingResponses() + [
+            fixtures.loadingResponses()[0], response, fixtures.preparingResponses()[0],
+            NativeMeetFixture.responses()[0], response
+        ])
+        let (trial, _) = try await fixtures.trial(transport)
+        _ = try await trial.loadPeople()
+        let conversation = Conversation.ID(space ? "space/test-group" : "dm/test-group")
+        let prepared = try await trial.prepareConversation(in: conversation, joining: true)
+        #expect(prepared.url.absoluteString == "https://meet.google.com/abc-defg-hij")
+        let requests = await transport.sent
+        let resolve = try #require(requests.first { $0.url.path.hasSuffix("ResolveMeetingSpace") })
+        #expect(try resolve.body == (MeetCallWire.resolveOffered(code: "abc-defg-hij")))
+        #expect(requests.allSatisfy { !$0.url.path.hasSuffix("ResolveForHangoutsChat") })
+        #expect(await trial.prepared?.permitsInvitation == false)
         await trial.close()
     }
 
@@ -66,7 +90,7 @@ struct ConversationCallJoinTests {
     }
 
     private func group(
-        space: Bool, status: Int32? = nil, joined: Bool = true, supported: Bool = true
+        space: Bool, status: Int32? = nil, joined: Bool = true, supported: Bool = true, urlOnly: Bool = false
     ) throws -> Result<HTTPResponse, any Error> {
         var response = GetGroupResponse()
         if space {
@@ -82,7 +106,12 @@ struct ConversationCallJoinTests {
             payload.type = 5
             payload.callIntegrationPayload.callStatus = status
             payload.callIntegrationPayload.callMetadata.meetMetadata.meetingType = 1
-            payload.callIntegrationPayload.callMetadata.meetMetadata.meetingCode = "abc-defg-hij"
+            if urlOnly {
+                payload.callIntegrationPayload.callMetadata.meetMetadata.meetingURL =
+                    "https://meet.google.com/abc-defg-hij"
+            } else {
+                payload.callIntegrationPayload.callMetadata.meetMetadata.meetingCode = "abc-defg-hij"
+            }
             response.group.spaceIntegrationPayloads = [payload]
         }
         return try .success(HTTPResponse(

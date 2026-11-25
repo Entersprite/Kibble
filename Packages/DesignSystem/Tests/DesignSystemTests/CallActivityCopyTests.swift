@@ -27,6 +27,44 @@ struct CallActivityCopyTests {
         #expect(CallActivityCopy.filled([" One ", "", "  ", "Two"]) == ["One", "Two"])
         let room = CallBreakoutRoom(id: UUID(), name: "Design", isOpen: true, participants: [UUID()])
         #expect(CallActivityRoomsView.subtitle(for: room) == "Open · 1 person")
+        #expect(CallActivityRoomsView.subtitle(for: room, closing: true) == "Closing · 1 person")
+        #expect(CallActivityRoomsView.subtitle(for: room, isCurrent: true) == "Current room · 1 person")
+    }
+
+    @Test func closingNoticeAppearsOnlyWhileConnectedInAClosingBreakout() {
+        var activities = CallActivitiesState()
+        activities.breakoutClosing = true
+        #expect(AudioCallPresentation.breakoutClosingNotice(phase: .connected, activities: activities) == nil)
+
+        activities.availableActions = ["returnToMainRoom"]
+        let notice = AudioCallPresentation.breakoutClosingNotice(phase: .connected, activities: activities)
+        #expect(notice?.text == "Breakout rooms are closing. You’ll return to the main call.")
+        #expect(notice?.kind == .info)
+        #expect(AudioCallPresentation
+            .breakoutClosingNotice(phase: .connecting, activities: activities) == nil)
+
+        activities.breakoutClosing = nil
+        activities.breakoutClosed = true
+        #expect(AudioCallPresentation.breakoutClosingNotice(phase: .connected, activities: activities) == nil)
+    }
+
+    @Test func captureFailuresUseWarningsWithoutChangingOrdinaryRecordingNotices() {
+        let blocked = CallArtifact(
+            kind: "recording", phase: "starting", issue: CallArtifactIssue.participantCompatibility.rawValue
+        )
+        var failed = CallArtifact(
+            kind: "transcription", phase: "stopped", issue: CallArtifactIssue.initializationFailed.rawValue
+        )
+        #expect(CallActivitiesView.status(of: blocked) { $0 } == "Blocked by a participant’s device")
+        #expect(CallActivitiesView.status(of: failed) { $0 } == "Couldn’t start")
+        let notices = CallArtifactPresentation.notices(for: [blocked, failed])
+        #expect(notices.map(\.kind) == [.warning, .warning])
+        #expect(notices.map(\.text) == [
+            "Recording is blocked by a participant’s device", "Transcription couldn’t start"
+        ])
+        failed.phase = "active"
+        #expect(CallArtifactPresentation.notices(for: [failed]).map(\.kind) == [.info])
+        #expect(CallArtifactPresentation.notice(for: failed) == "This call is being transcribed")
     }
 
     @Test func chatNamesASenderOncePerRunAndNeverTheReader() {

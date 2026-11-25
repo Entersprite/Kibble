@@ -15,16 +15,25 @@ enum AudioCallPresentation {
         }
     }
 
-    /// A join's first moments read as joining, since nobody is being rung.
-    static func status(for call: AudioCallSession) -> String {
+    /// The call window remembers the first connected snapshot for this call.
+    static func status(for call: AudioCallSession, timing: CallTiming = CallTiming()) -> String {
         if call.phase == .ended, call.endReason == .removedFromMeeting {
             return "Removed from the meeting"
         }
         if call.phase == .ended, call.endReason == .sentToWaitingRoom {
             return "Sent to the waiting room"
         }
+        if call.phase == .ended, call.endReason == .switchedDevice {
+            return "Call switched to another device"
+        }
+        if call.phase == .ended, call.endReason == .conferenceEnded {
+            return "Meeting ended"
+        }
         if let waiting = admissionStatus(for: call) {
             return waiting
+        }
+        if call.phase == .connecting, timing.connectedAt != nil {
+            return "Reconnecting…"
         }
         return call.isJoining && call.phase == .connecting ? "Joining…" : status(for: call.phase)
     }
@@ -105,6 +114,18 @@ enum AudioCallPresentation {
             notices.append(CallNotice(id: "share", text: notice, kind: .warning))
         }
         return notices
+    }
+
+    static func breakoutClosingNotice(
+        phase: AudioCallPhase,
+        activities: CallActivitiesState?
+    ) -> CallNotice? {
+        guard phase == .connected, let activities, activities.breakoutClosing == true,
+              activities.availableActions.contains("returnToMainRoom") else { return nil }
+        return CallNotice(
+            id: "breakout-closing", text: "Breakout rooms are closing. You’ll return to the main call.",
+            kind: .info
+        )
     }
 }
 

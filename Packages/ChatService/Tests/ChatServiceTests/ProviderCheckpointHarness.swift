@@ -7,7 +7,8 @@ extension ReconciliationBackend {
         checkpointing
     }
 
-    func connect(resumingProviderCheckpoint: Data?) {
+    func connect(resumingProviderCheckpoint: Data?) throws {
+        try beginFixtureConnection()
         resumedCheckpoint = resumingProviderCheckpoint
         providerBatchSink.yield(ProviderEventBatch(
             id: "fixture-connected", events: [.connectionStateChanged(.connected)],

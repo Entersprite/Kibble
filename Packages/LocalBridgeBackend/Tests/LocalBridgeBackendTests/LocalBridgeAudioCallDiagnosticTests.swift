@@ -96,9 +96,12 @@ struct LocalBridgeAudioCallDiagnosticTests {
             storage: AbsentTestSecrets(),
             account: "test"
         ))
-        await trial.seedDiagnosticNative(native)
         let service = LocalBridgeAudioCallService(trial: trial, mediaFactory: { engine })
         let id = UUID()
+        await trial.seedDiagnosticHistory("Earlier call ended")
+        await trial.beginCallDiagnostics(id: id, scope: service.callScope)
+        await trial.seedDiagnosticHistory("Current call prepared")
+        await trial.seedDiagnosticNative(native, scope: service.callScope)
         service.snapshot = AudioCallSnapshot(
             id: id,
             recipient: recipient,
@@ -110,8 +113,11 @@ struct LocalBridgeAudioCallDiagnosticTests {
         let requests = await transport.sent.count
         let first = try #require(await service.diagnosticReport(callID: id))
         let second = try #require(await service.diagnosticReport(callID: id))
-        #expect(first.contains("Native stream registration: acknowledged"))
-        #expect(second.contains("Native stream registration: acknowledged"))
+        for report in [first, second] {
+            #expect(report.contains("Current call prepared"))
+            #expect(report.contains("Native stream registration: acknowledged"))
+            #expect(!report.contains("Earlier call ended"))
+        }
         #expect(await native.lines == before)
         #expect(await transport.sent.count == requests)
     }
@@ -199,9 +205,13 @@ private final class DiagnosticMedia: CallMediaEngine {
 }
 
 private extension MeetDMCallTrial {
-    func seedDiagnosticNative(_ session: NativeMeetCallSession) {
+    func seedDiagnosticHistory(_ line: String) {
+        lines.append(line)
+    }
+
+    func seedDiagnosticNative(_ session: NativeMeetCallSession, scope: UUID) {
         native = session
-        nativeScope = UUID()
+        nativeScope = scope
     }
 }
 

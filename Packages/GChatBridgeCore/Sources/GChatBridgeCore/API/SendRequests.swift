@@ -44,7 +44,7 @@ public enum SendRequests {
         unsent: UnsentMessageId? = nil
     ) -> CreateTopicRequest {
         var request = CreateTopicRequest()
-        request.requestHeader = APIRequestHeader.make()
+        request.requestHeader = APIRequestHeader.make(referenceType: quote?.referenceType)
         request.groupID = group
         request.localID = localID
         request.textBody = text
@@ -82,7 +82,7 @@ public enum SendRequests {
         parent.topicID = topic
 
         var request = CreateMessageRequest()
-        request.requestHeader = APIRequestHeader.make()
+        request.requestHeader = APIRequestHeader.make(referenceType: quote?.referenceType)
         request.parentID = parent
         request.localID = localID
         request.textBody = text

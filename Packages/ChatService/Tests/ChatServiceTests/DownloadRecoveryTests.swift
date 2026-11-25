@@ -10,6 +10,28 @@ import Testing
 struct DownloadRecoveryTests {
     let media = DownloadTests()
 
+    @Test func interruptedDownloadReturnsASafeTransportErrorAndCanBeRetried() async throws {
+        let harness = try await UploadHarness.make()
+        let runtime = try await media.seed(harness)
+        let provider = try #require(await harness.providers.backend(harness.first.id))
+        await provider.setMediaFailure(.transport("Request to https://example.test/private-token failed"))
+        let attempt = try await media.begin(harness)
+        try await authEventually { await runtime.downloads[attempt.id]?.job == nil }
+
+        let safeError = ChatError.transport("The download connection was interrupted. Try again.")
+        let failure = try ServiceFailure(code: "providerFailure", details: ServiceCodec.value(safeError))
+        await #expect(throws: failure) {
+            try await harness.call(GetDownloadTransfer(transferID: attempt.id), account: harness.first)
+        }
+        _ = try await harness.call(CancelTransfer(transferID: attempt.id), account: harness.first)
+
+        await provider.setMediaFailure(nil)
+        let retry = try await media.begin(harness)
+        #expect(try await media.ready(retry.id, harness: harness).byteSize == UploadTestBackend.mediaBytes
+            .count)
+        await harness.service.shutdown()
+    }
+
     @Test func expiryReclaimsDownloadQuotaBeforeAnUploadAndZeroLengthCompletes() async throws {
         let clock = Mutex(Date())
         let harness = try await UploadHarness.make(

@@ -69,7 +69,7 @@ struct CallRaisedHandsTests {
         withExtendedLifetime(window) {}
     }
 
-    @Test func raisedHandsIdentifyTheCameraAndReserveItsPlaceInTheCappedGrid() {
+    @Test func raisedHandsIdentifyTheCameraAndReserveItsPlaceInTheCappedGrid() throws {
         let normal = (0 ..< 4).map { _ in CallParticipantDevice(id: UUID()) }
         let raised = CallParticipantDevice(id: UUID(), handRaised: true)
         let joined = normal + [raised]
@@ -85,9 +85,11 @@ struct CallRaisedHandsTests {
             id: 5, participantID: raised.id, isScreen: true, content: AnyView(Color.blue)
         )
         let tiles = CallStageSelection.videos(cameras + [presentation], roster: nil, participants: joined)
+        let raisedLabel = try #require(CallRoster.disambiguatedNames(in: joined)[raised.id])
         #expect(tiles.filter(\.handRaised).map(\.id) == [4])
-        #expect(CallVideoTile.label(for: tiles[4], muted: false) == "Participant’s camera, hand raised")
-        #expect(CallVideoTile.label(for: tiles[5], muted: false) == "Participant’s shared screen")
+        #expect(raisedLabel.hasPrefix("Participant (device "))
+        #expect(CallVideoTile.label(for: tiles[4], muted: false) == "\(raisedLabel)’s camera, hand raised")
+        #expect(CallVideoTile.label(for: tiles[5], muted: false) == "\(raisedLabel)’s shared screen")
         let selection = CallStageSelection(layoutPreferences: .init(layout: .tiled, tileLimit: .four))
         #expect(selection.gridVideos(tiles, ownTile: nil).map(\.id) == [4, 0, 1, 2])
         #expect(selection.receivePreferences == CallVideoPreferences())

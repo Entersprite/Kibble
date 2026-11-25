@@ -149,7 +149,7 @@ struct CallPeopleList: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .accessibilityLabel("Actions for \(entry.name)")
+                .accessibilityLabel("Actions for \(entry.label)")
                 .disabled(operation != nil)
             }
         }
@@ -199,7 +199,7 @@ struct CallPeopleList: View {
 
     @ViewBuilder private func lowerHandButton(_ entry: CallRosterEntry) -> some View {
         if entry.handRaised, offers("lowerParticipantHand") {
-            Button("Lower hand for \(entry.name)", systemImage: "hand.raised.slash") {
+            Button("Lower hand for \(entry.label)", systemImage: "hand.raised.slash") {
                 perform(CallActivity("lowerParticipantHand", resourceID: entry.id))
             }
             .labelStyle(.iconOnly)
@@ -214,7 +214,7 @@ struct CallPeopleList: View {
             MonogramCircle(size: 26) {
                 Text(CallRosterFace.initials(entry.name)).font(.system(size: 10, weight: .semibold))
             }
-            Text(entry.name).lineLimit(1)
+            Text(entry.label).lineLimit(1)
             Spacer(minLength: 8)
             if entry.handRaised {
                 Image(systemName: "hand.raised.fill").foregroundStyle(.yellow).help("Hand raised")
@@ -300,7 +300,7 @@ struct CallPeopleList: View {
 
     /// Name, then only what is reported: a muted microphone, a shared screen.
     static func label(for entry: CallRosterEntry) -> String {
-        var parts = [entry.name]
+        var parts = [entry.label]
         if let role = label(for: entry.role) {
             parts.append(role)
         }

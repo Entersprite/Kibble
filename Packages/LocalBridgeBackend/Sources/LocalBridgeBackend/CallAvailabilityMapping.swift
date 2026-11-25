@@ -17,14 +17,17 @@ enum CallAvailabilityMapping {
             return .init(conversationID: id, status: .unknown("unavailable"), checkedAt: date)
         }
         let meet = call.callMetadata.meetMetadata
-        let status: ConversationCallStatus = if call.hasCallStatus, call.callStatus == 3 {
+        // Missed and ended both terminate the previous conversation call.
+        let status: ConversationCallStatus = if call.hasCallStatus, [2, 3].contains(call.callStatus) {
             .inactive
         } else if call.hasCallStatus, call.callStatus == 1, meet.hasMeetingType, meet.meetingType == 1 {
             .active
         } else {
             .unknown("unrecognized")
         }
-        let reference = CallMessageMapping.validReference(meet.meetingCode) ? meet.meetingCode : nil
+        let code = CallMessageMapping.validReference(meet.meetingCode) ? meet.meetingCode : nil
+        let joinURL = CallMessageMapping.joinURL(meet.meetingURL, reference: code)
+        let reference = code ?? (meet.hasMeetingCode ? nil : joinURL.map { String($0.path.dropFirst()) })
         let people = status == .active ? roster.map {
             $0.memberIDs.map { ConversationCallParticipant(memberID: .init($0)) }
                 + $0.anonymousNames.map { ConversationCallParticipant(displayName: $0) }
@@ -32,7 +35,7 @@ enum CallAvailabilityMapping {
         return .init(
             conversationID: id, status: status, checkedAt: date,
             reference: reference,
-            joinURL: CallMessageMapping.joinURL(meet.meetingURL, reference: reference),
+            joinURL: joinURL,
             participantsChangedAt: call.hasParticipantListRevisionTimestamp
                 ? CallMessageMapping.date(call.participantListRevisionTimestamp) : nil,
             participants: people, totalParticipants: people == nil ? nil : roster?.totalCount

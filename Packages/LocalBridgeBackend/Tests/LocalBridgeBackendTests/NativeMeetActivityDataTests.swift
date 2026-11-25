@@ -227,6 +227,21 @@ struct NativeMeetActivityDataTests {
         await session.close()
     }
 
+    @Test func theMeetingTranscriptOrdersFullAndSparseUpdatesBySendTime() async throws {
+        let transport = ScriptedTransport(NativeMeetFixture.responses())
+        let session = try await NativeMeetFixture.session(transport, media: NativeFakeMedia())
+        let later = chatMessage("reply") + NativeMeetFixture.bytes(4, NativeMeetFixture.number(1, 2))
+        let earlier = chatMessage("original") + NativeMeetFixture.bytes(4, NativeMeetFixture.number(1, 1))
+        try await session.reconcileActivities(messages([later, earlier], version: 1))
+        #expect(await session.activities.messages.map(\.text) == ["original", "reply"])
+
+        let sparse = chatMessage("reply") + NativeMeetFixture.number(7, 1)
+        try await session.reconcileActivities(messages([sparse, earlier], version: 2))
+        #expect(await session.activities.messages.map(\.text) == ["original", "reply"])
+        #expect(await session.activities.messages.last?.isPinned == true)
+        await session.close()
+    }
+
     private func chatMessage(_ name: String) -> Data {
         NativeMeetFixture.string(1, name) + NativeMeetFixture.bytes(5, NativeMeetFixture.string(1, name))
             + NativeMeetFixture.number(6, 1)

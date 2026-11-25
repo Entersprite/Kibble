@@ -55,6 +55,9 @@ extension AccountRuntime {
             let result = try await ServiceCodec.value(perform())
             try storage.finish(ServiceOperation(id: id, state: "succeeded", result: result))
             return result
+        } catch is MessageNotSubmitted where request.operation == SendCommand.operation {
+            try storage.finish(ServiceOperation(id: id, state: "failed", failure: .messageNotSent))
+            throw ServiceFailure.messageNotSent
         } catch {
             if error as? ChatError == .sessionExpired {
                 await quarantine(.authentication)

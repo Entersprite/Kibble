@@ -12,9 +12,10 @@ struct CallPinsForEveryoneMenu: View {
         let count = targets.filter { $0.isPinnedForEveryone == true }.count
         let atLimit = limit.map { count >= $0 } ?? false
         if !targets.isEmpty {
+            let labels = CallRoster.disambiguatedNames(in: devices)
             Menu("Pins for Everyone", systemImage: "pin") {
                 ForEach(targets, id: \.id) { device in
-                    let name = label(for: device)
+                    let name = label(for: device, names: labels)
                     let pinned = device.isPinnedForEveryone == true
                     Button(
                         pinned ? "Unpin \(name)…" : "Pin \(name)",
@@ -29,14 +30,16 @@ struct CallPinsForEveryoneMenu: View {
         }
     }
 
-    private func label(for device: CallParticipantDevice) -> String {
+    private func label(for device: CallParticipantDevice, names: [UUID: String]) -> String {
         let parent = device.parentID.flatMap { id in devices.first { $0.id == id } }
         if device.isPresentation {
             if device.isLocal {
                 return "your presentation"
             }
-            return parent.map { CallRoster.name(of: $0) + "’s presentation" } ?? "shared screen"
+            return parent.map { (names[$0.id] ?? CallRoster.name(
+                of: $0
+            )) + "’s presentation" } ?? "shared screen"
         }
-        return device.isLocal ? "your tile" : CallRoster.name(of: device)
+        return device.isLocal ? "your tile" : names[device.id] ?? CallRoster.name(of: device)
     }
 }

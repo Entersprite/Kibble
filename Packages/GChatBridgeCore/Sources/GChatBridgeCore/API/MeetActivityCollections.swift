@@ -27,6 +27,14 @@ public enum MeetActivityCollections {
         public var questionSeries: [Data]?
         public var versions: [Int: UInt64] = [:]
         public var unavailableFields: Set<Int> = []
+        fileprivate var resourceSpace: String?
+        fileprivate var globalResources: [Int: Set<String>] = [:]
+
+        init() {}
+
+        func containsGlobalResource(_ name: String, field: Int, space: String) -> Bool {
+            resourceSpace == space && globalResources[field]?.contains(name) == true
+        }
     }
 
     public static func sync(space: String) -> Data {
@@ -47,6 +55,7 @@ public enum MeetActivityCollections {
     private static func snapshot(_ body: Data, space: String, isolatingFailures: Bool) throws -> Snapshot {
         let data = try MeetProto.decode(body)
         var result = Snapshot()
+        result.resourceSpace = space
         for field in [1, 3, 4, 5, 6, 7, 8, 9] {
             do {
                 guard let full = try full(field, data) else { continue }
@@ -66,6 +75,11 @@ public enum MeetActivityCollections {
             try assignSingle(field, full: full, space: space, result: &result); return
         }
         let values = try collectionValues(full, field: field, space: space)
+        if (4 ... 7).contains(field) {
+            result.globalResources[field] = Set(values.compactMap { text(1, $0) }.filter {
+                isGlobalResource($0, field: field)
+            })
+        }
         switch field {
         case 3: result.messages = values
         case 4: result.polls = values
@@ -119,8 +133,33 @@ public enum MeetActivityCollections {
         guard !name.isEmpty, !name.contains("\0"),
               name.utf8.count <= 512 else { throw MeetCallWire.WireError.malformedResponse }
         if field != 3 {
-            guard name.hasPrefix(space + "/"),
+            let scoped = field == 8 ? MeetActivityWire.validBreakoutRoom(name, in: space)
+                : name.hasPrefix(space + "/") || isGlobalResource(name, field: field)
+            guard scoped,
                   !name.contains("..") else { throw MeetCallWire.WireError.malformedResponse }
+        }
+    }
+
+    static func isGlobalResource(_ name: String, field: Int) -> Bool {
+        guard name.utf8.count <= 512 else { return false }
+        let parts = name.split(separator: "/", omittingEmptySubsequences: false)
+        switch field {
+        case 4, 6:
+            guard parts.count == 4, parts[0] == (field == 4 ? "pollSeries" : "questionSeries"),
+                  parts[2] == (field == 4 ? "polls" : "questions") else { return false }
+            return validResourceID(parts[1]) && validResourceID(parts[3])
+        case 5, 7:
+            guard parts.count == 2, parts[0] == (field == 5 ? "pollSeries" : "questionSeries")
+            else { return false }
+            return validResourceID(parts[1])
+        default: return false
+        }
+    }
+
+    private static func validResourceID(_ value: Substring) -> Bool {
+        !value.isEmpty && value.utf8.allSatisfy {
+            (48 ... 57).contains($0) || (65 ... 90).contains($0) || (97 ... 122).contains($0)
+                || $0 == 45 || $0 == 95
         }
     }
 

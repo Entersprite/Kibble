@@ -10,6 +10,7 @@ struct CallRosterEntry: Identifiable, Equatable {
     /// Nil is unknown, never muted.
     let microphoneMuted: Bool?
     let isPresenting: Bool
+    var disambiguatedName: String?
     var handRaised = false
     var handRaisedAt: Date?
     var isSpeaking = false
@@ -17,6 +18,10 @@ struct CallRosterEntry: Identifiable, Equatable {
     var canSendToWaitingRoom = false
     var canBlockInMeeting = false
     var isPinnedForEveryone = false
+
+    var label: String {
+        disambiguatedName ?? name
+    }
 
     var cohostChange: Bool? {
         switch role {
@@ -33,11 +38,13 @@ enum CallRoster {
     static func entries(_ devices: [CallParticipantDevice]?) -> [CallRosterEntry]? {
         guard let devices else { return nil }
         let presenting = Set(devices.filter(\.isPresentation).compactMap(\.parentID))
+        let labels = disambiguatedNames(in: devices)
         return devices.filter { !$0.isPresentation && !$0.isLocal }
             .map { device in
                 CallRosterEntry(
                     id: device.id, name: name(of: device), microphoneMuted: device.microphoneMuted,
-                    isPresenting: presenting.contains(device.id), handRaised: device.handRaised == true,
+                    isPresenting: presenting.contains(device.id), disambiguatedName: labels[device.id],
+                    handRaised: device.handRaised == true,
                     handRaisedAt: device.handRaisedAt,
                     isSpeaking: device.isSpeaking == true, role: device.role,
                     canSendToWaitingRoom: device.canSendToWaitingRoom == true,
@@ -62,6 +69,22 @@ enum CallRoster {
     static func name(of device: CallParticipantDevice) -> String {
         let name = device.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return name.isEmpty ? "Participant" : name
+    }
+
+    static func disambiguatedNames(in devices: [CallParticipantDevice]) -> [UUID: String] {
+        let cameras = devices.filter { !$0.isLocal && !$0.isPresentation }
+        let groups = Dictionary(grouping: cameras, by: name(of:))
+        var labels: [UUID: String] = [:]
+        for (name, group) in groups where group.count > 1 {
+            let ordered = group.sorted { $0.id.uuidString < $1.id.uuidString }
+            for (offset, device) in ordered.enumerated() {
+                labels[device.id] = String(localized: "\(name) (device \(offset + 1))")
+            }
+        }
+        for device in devices where device.isPresentation && !device.isLocal {
+            labels[device.id] = device.parentID.flatMap { labels[$0] }
+        }
+        return labels
     }
 
     /// The line under a conversation call's name once connected; nil says
@@ -241,7 +264,7 @@ struct CallRosterFace: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
             }
-            Text(entry.name)
+            Text(entry.label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

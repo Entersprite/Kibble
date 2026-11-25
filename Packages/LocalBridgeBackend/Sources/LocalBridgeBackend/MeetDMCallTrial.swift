@@ -45,6 +45,7 @@ public actor MeetDMCallTrial {
     var nativeScope: UUID?
     var cleanupScope: UUID?
     var cleanupStatus = MeetNativeCallCleanup()
+    var callDiagnosticStart: CallDiagnosticStart?
     var generation = 0
     var lines = [
         "kibble native DM call trial",

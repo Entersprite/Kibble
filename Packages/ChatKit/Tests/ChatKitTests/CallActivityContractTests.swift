@@ -12,6 +12,7 @@ struct CallActivityContractTests {
         #expect(state.agendaGuests == nil)
         #expect(state.waitingParticipants.isEmpty)
         #expect(state.ownHandLowered == nil)
+        #expect(state.breakoutClosing == nil && state.breakoutClosed == nil)
         #expect(state.attendanceReportEnabled == nil && state.captions == nil && state
             .captionLanguages == nil)
         let action = try decoder.decode(CallActivity.self, from: Data(#"{"action":"futureActivity"}"#.utf8))
@@ -51,6 +52,15 @@ struct CallActivityContractTests {
 
     @Test func artifactFilesRoundTripThroughTheCallInteractionEnvelope() throws {
         var activities = CallActivitiesState()
+        activities.breakoutClosed = true
+        activities.artifacts = [
+            .init(
+                kind: "recording",
+                phase: "starting",
+                issue: CallArtifactIssue.participantCompatibility.rawValue
+            ),
+            .init(kind: "transcription", phase: "stopped", issue: "futureIssue")
+        ]
         activities.artifactFiles = try [.init(
             kind: "recording", title: "Design review",
             url: #require(URL(string: "https://drive.google.com/file/d/fixture/view"))
@@ -72,5 +82,9 @@ struct CallActivityContractTests {
         let event = AudioCallEvent.interactionChanged(callID: UUID(), state: state)
         let wire = try JSONEncoder().encode(event)
         #expect(try JSONDecoder().decode(AudioCallEvent.self, from: wire) == event)
+        let legacy = try JSONDecoder().decode(
+            CallArtifact.self, from: Data(#"{"kind":"recording","phase":"stopped"}"#.utf8)
+        )
+        #expect(legacy.issue == nil && legacy.canSetEnabled(true))
     }
 }

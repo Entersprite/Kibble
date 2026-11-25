@@ -23,8 +23,8 @@ actor AccountRuntime {
     let record: AccountRecord
     let storage: any ServiceAccountStorage
     let policies: any AccountPolicyStore
-    private let factory: any AccountProviderFactory
-    private let providerStarts: AccountWorkAdmission
+    let factory: any AccountProviderFactory
+    let providerStarts: AccountWorkAdmission
     let providerStops: AccountWorkAdmission
     let providerWork: AccountWorkAdmission
     let callCleanupAdmission: AccountWorkAdmission
@@ -66,7 +66,7 @@ actor AccountRuntime {
     var backfillHeads: [Conversation.ID: MentionBackfillHead] = [:]
     var profileRefresh: Task<Void, Never>?
     var pendingSelf: Member?
-    private var startup: Task<Void, Never>?
+    var startup: Task<Void, Never>?
     private var consumer: Task<Void, Never>?
     var requests: [UUID: Task<JSONValue, any Error>] = [:]
     var binaryRequests: [UUID: Task<ServiceBinaryFrame, any Error>] = [:]
@@ -131,41 +131,7 @@ actor AccountRuntime {
         self.policies = policies
     }
 
-    func start() {
-        guard startup == nil, !stopped else { return }
-        let epoch = epoch
-        startup = Task { [weak self, factory, record, providerStarts, instanceID] in
-            do { try await providerStarts.acquire(instanceID) } catch { return }
-            do {
-                try Task.checkCancellation()
-                let provider = try await factory.makeProvider(for: record)
-                guard let self, await install(provider, epoch: epoch) else {
-                    await provider.discard()
-                    await providerStarts.release(instanceID)
-                    return
-                }
-                if let source = await checkpointedBackend,
-                   let storage = await storage as? any ServiceProviderCheckpointStorage {
-                    try Task.checkCancellation()
-                    try await source.connect(resumingProviderCheckpoint: storage.providerCheckpoint())
-                } else {
-                    try await provider.backend.connect()
-                }
-                if await !isCurrent(epoch) {
-                    await provider.discard()
-                } else {
-                    if await checkpointedBackend == nil {
-                        await requestWorldRefresh()
-                    }
-                }
-            } catch {
-                await self?.failed(error, epoch: epoch)
-            }
-            await providerStarts.release(instanceID)
-        }
-    }
-
-    private func install(_ provider: AccountProvider, epoch: UUID) async -> Bool {
+    func install(_ provider: AccountProvider, epoch: UUID) async -> Bool {
         guard self.epoch == epoch, !stopped, !Task.isCancelled else { return false }
         let backend = provider.backend
         now = provider.now
@@ -220,24 +186,6 @@ actor AccountRuntime {
             connection = state
         }
         return cursor
-    }
-
-    private func failed(_ error: any Error, epoch: UUID) async {
-        guard self.epoch == epoch, !stopped, !quarantined else { return }
-        if error as? ChatError == .notAuthenticated || error as? ChatError == .sessionExpired {
-            await quarantine(.authentication)
-            return
-        }
-        let failure = serviceFailure(error)
-        let safe = failure.details.flatMap { try? ServiceCodec.decode(ChatError.self, from: $0) }
-            ?? .unknown("The account could not connect.")
-        do {
-            try appendAndPublish(.backendError(safe), live: false)
-            try appendAndPublish(.connectionStateChanged(.disconnected(reason: nil, issue: nil)), live: false)
-            await publishStatus()
-        } catch {
-            await quarantine(.storage)
-        }
     }
 
     func quarantine(_ fault: RuntimeFault) async {
@@ -393,7 +341,7 @@ extension AccountRuntime {
         await onStatus(RuntimeStatus(connection: connection, capabilities: capabilities))
     }
 
-    private func isCurrent(_ epoch: UUID) -> Bool {
+    func isCurrent(_ epoch: UUID) -> Bool {
         self.epoch == epoch && !stopped && !quarantined && !Task.isCancelled
     }
 }

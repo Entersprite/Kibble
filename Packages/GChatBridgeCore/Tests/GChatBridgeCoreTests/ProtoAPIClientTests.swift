@@ -212,6 +212,33 @@ struct ProtoAPIClientTests {
         }
     }
 
+    private struct UntransmittedTransport: HTTPTransport {
+        func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+            #expect(request.body == Data([1]))
+            if request.reportsUntransmitted {
+                throw RequestNotTransmitted()
+            }
+            throw ClassifiedTransportFailure(.connectionLost)
+        }
+
+        func stream(_: HTTPRequest) async throws -> HTTPStream {
+            throw UnclassifiedBoom()
+        }
+    }
+
+    @Test func transmissionEvidenceIsRequestedOnlyByExplicitOptIn() async {
+        let client = ProtoAPIClient(
+            transport: UntransmittedTransport(), endpoints: ChatEndpoints(),
+            credentials: SessionCredentials(cookies()), xsrfToken: "tok"
+        )
+        await #expect(throws: RequestNotTransmitted.self) {
+            _ = try await client.callRaw("create_topic", body: Data([1]), reportUntransmitted: true)
+        }
+        await #expect(throws: APIFailure.transport(.connectionLost)) {
+            _ = try await client.callRaw("create_topic", body: Data([1]))
+        }
+    }
+
     @Test func aClassifiedTransportFailureCarriesItsReasonThroughCallRaw() async {
         let client = ProtoAPIClient(
             transport: ClassifiedThrowingTransport(reason: .timedOut),

@@ -21,10 +21,11 @@ public extension MeetDeviceSession {
     }
 
     func removeParticipant(_ target: String) async throws {
-        try await ejectParticipant(target, toWaitingRoom: false)
+        _ = try await ejectParticipant(target, toWaitingRoom: false)
     }
 
-    func sendParticipantToWaitingRoom(_ target: String) async throws {
+    /// A deleted target with the reason omitted needs an addressed roster readback.
+    func sendParticipantToWaitingRoom(_ target: String) async throws -> Bool {
         try await ejectParticipant(target, toWaitingRoom: true)
     }
 
@@ -45,7 +46,7 @@ public extension MeetDeviceSession {
         return exact.isDeleted || exact.joinState == 7
     }
 
-    private func ejectParticipant(_ target: String, toWaitingRoom: Bool) async throws {
+    private func ejectParticipant(_ target: String, toWaitingRoom: Bool) async throws -> Bool {
         try begin()
         defer { busy = false }
         _ = try validateModerationTarget(target)
@@ -57,10 +58,15 @@ public extension MeetDeviceSession {
         )
         try Task.checkCancellation()
         guard !closed else { throw MeetDeviceSessionError.closed }
-        let receipt = try MeetDeviceWire.device(from: response.body, in: space.name)
-        guard receipt.name == target,
-              toWaitingRoom ? receipt.wasSentToWaitingRoom : receipt.wasRemoved
+        let payload = try MeetProto.decode(response.body)
+        let receipt = try MeetDeviceWire.devicePayload(payload, in: space.name, includeAcknowledgements: true)
+        guard receipt.name == target else { throw MeetCallWire.WireError.malformedResponse }
+        if toWaitingRoom, receipt.wasRemoved, receipt.isDeleted, !MeetActivityCollections.has(28, payload) {
+            return false
+        }
+        guard toWaitingRoom ? receipt.wasSentToWaitingRoom : receipt.wasRemoved
         else { throw MeetCallWire.WireError.malformedResponse }
+        return true
     }
 
     private func validateModerationTarget(_ target: String) throws -> String {

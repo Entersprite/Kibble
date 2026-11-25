@@ -132,6 +132,30 @@ struct GroupNotificationSaveTests {
         await backend.disconnect()
     }
 
+    @Test(arguments: [true, false])
+    func aMatchingChannelEchoAllowsTheAddressedReadbackToConfirmMute(_ muted: Bool) async throws {
+        let hold = SearchHold()
+        let transport = NotificationTransport(.matching, confirmationHold: hold)
+        let backend = LocalBridgeBackend(cookies: SearchBackendSupport.cookies, transport: transport)
+        try await backend.connect()
+        let id = Conversation.ID("space/a")
+        let save = Task { try await backend.setConversationMute(muted ? .untilResumed : .off, in: id) }
+        try await SearchBackendSupport.waitUntilEntered(hold)
+        let state: PBLiteValue = muted ? 2 : 1
+        let echo = ChannelEventBody(typeTag: 18, value: .object(["17": [[["a"]], [nil, 4, [state]]]]))
+        let events = await backend.prepareChannelEvent(ChannelEvent(bodies: [echo]))
+        #expect(events == [.conversationNotificationSettingsChanged(
+            conversationID: id,
+            level: .always,
+            muted: muted
+        )])
+        await hold.release()
+        try await save.value
+        #expect(await transport.writes.count == 1)
+        #expect(await transport.reads == 2)
+        await backend.disconnect()
+    }
+
     @Test(arguments: [
         (NotificationLevel.always, GroupNotificationSettings.RoomNotificationState.notifyAll),
         (.lessWithNewThreads, .notifyMainConversation), (.less, .notifyLess), (.never, .notifyNever)

@@ -65,16 +65,33 @@ struct ConversationActionStoreTests {
         let store = try ChatStore.inMemory()
         let id = Conversation.ID("opaque")
         let at = Date(timeIntervalSince1970: 1_790_000_000.123456)
-        try store.apply([.upsertConversation(Conversation(id: id, kind: .directMessage, readPosition: at))])
+        try store.apply([.upsertConversation(Conversation(
+            id: id, kind: .directMessage, readPosition: at, latestMainMessageAt: at
+        ))])
         try store.apply(SyncReducer.reduce(.conversationUnreadMarkChanged(conversationID: id, at: at)).writes)
         try store.apply([.setReadState(conversation: id, lastReadAt: at.addingTimeInterval(1), unread: 0)])
         #expect(try store.conversations().first?.hasUnread == true)
         #expect(try store.conversations().first?.markedUnreadAt == at)
-        try store.apply([
-            .setConversationUnreadMark(conversation: id, at: nil),
-            .setReadState(conversation: id, lastReadAt: at.addingTimeInterval(2), unread: 0)
-        ])
+        try store.apply([.setConversationUnreadMark(conversation: id, at: nil)])
         #expect(try store.conversations().first?.hasUnread == false)
+    }
+
+    @Test(arguments: [false, true])
+    func clearingManualUnreadKeepsNewerTopLevelMessages(_ isReply: Bool) throws {
+        let store = try ChatStore.inMemory()
+        let id = Conversation.ID("space")
+        let at = Date(timeIntervalSince1970: 1_790_000_000)
+        let message = Message(
+            id: .init("new-message"), conversationID: id, threadID: .init("thread"),
+            sender: .init("other"), text: "New message", createdAt: at.addingTimeInterval(1),
+            isReply: isReply
+        )
+        try store.apply([.upsertConversation(Conversation(
+            id: id, kind: .space, readPosition: at, latestMainMessageAt: at
+        )), .setConversationUnreadMark(conversation: id, at: at)])
+        try store.apply(SyncReducer.reduce(.messageReceived(message)).writes)
+        try store.apply([.setConversationUnreadMark(conversation: id, at: nil)])
+        #expect(try store.conversations().first?.hasUnread == !isReply)
     }
 
     @Test(arguments: [false, true])

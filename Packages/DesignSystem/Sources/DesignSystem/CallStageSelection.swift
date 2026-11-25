@@ -276,9 +276,11 @@ struct CallStageSelection {
         let raised = Set((participants ?? [])
             .filter { !$0.isLocal && !$0.isPresentation && $0.handRaised == true }
             .map(\.id))
+        let labels = CallRoster.disambiguatedNames(in: participants ?? [])
         return joinedTiles.map { tile in
             var tile = tile
             tile.handRaised = !tile.isScreen && tile.participantID.map(raised.contains) == true
+            tile.label = tile.participantID.flatMap { labels[$0] } ?? tile.label
             return tile
         }
     }

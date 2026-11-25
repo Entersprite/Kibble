@@ -21,6 +21,7 @@ actor UploadTestBackend: ChatBackend {
     var mediaAcknowledged = false
     var ignoreMediaLimit = false
     var mediaByteCount: Int?
+    var mediaFailure: ChatError?
     var mediaWaiter: CheckedContinuation<Void, Never>?
     var isMember = true
     var hold = false

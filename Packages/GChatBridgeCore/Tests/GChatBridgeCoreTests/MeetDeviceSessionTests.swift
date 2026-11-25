@@ -283,7 +283,7 @@ struct MeetDeviceSessionTests {
         }
     }
 
-    private func makeSession(_ transport: FakeHTTPTransport) throws -> MeetDeviceSession {
+    func makeSession(_ transport: FakeHTTPTransport) throws -> MeetDeviceSession {
         let configuration = try #require(MeetCallConfiguration(
             apiKey: "public", accountIndex: 0, referer: URL(string: "https://meet.google.com/call")!,
             userAgent: "Test", rtcClientID: "CAEQABgB",
@@ -307,14 +307,14 @@ struct MeetDeviceSessionTests {
         return MeetDeviceSession(client: client, call: call)
     }
 
-    private func response(state: UInt64, token: String? = nil) -> HTTPResponse {
+    func response(state: UInt64, token: String? = nil) -> HTTPResponse {
         HTTPResponse(
             status: 200, headers: HTTPHeaders(token.map { [("x-goog-meeting-token", $0)] } ?? []),
             body: base64(MeetProto.string(1, "spaces/demo/devices/one") + MeetProto.number(4, state))
         )
     }
 
-    private func base64(_ data: Data) -> Data {
+    func base64(_ data: Data) -> Data {
         Data(data.base64EncodedString().utf8)
     }
 }

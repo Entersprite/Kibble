@@ -57,7 +57,9 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         try check(revision)
         guard let video = child.video else { throw CallMediaError.negotiationFailed }
         let configuration = Self.configuration(filter, sharingAudio: sharingAudio)
-        let output = NativeScreenOutput(source: video.source, audio: child.presentationAudio)
+        let output = NativeScreenOutput(
+            source: video.source, audio: child.presentationAudio, cropsWindow: filter.style == .window
+        )
         self.output = output
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         self.stream = stream
@@ -189,6 +191,7 @@ final class NativeCallScreenSharing: NSObject, CallScreenShareRouting {
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 15)
         configuration.queueDepth = 3
         configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        configuration.scalesToFit = filter.style == .window
         configuration.showsCursor = true
         configuration.capturesAudio = sharingAudio
         configuration.excludesCurrentProcessAudio = true
@@ -216,12 +219,14 @@ private final class NativeScreenOutput: NSObject, SCStreamOutput, @unchecked Sen
     private let source: LKRTCVideoSource
     private let capturer: LKRTCVideoCapturer
     private let audio: NativePresentationAudioDevice?
+    private let cropsWindow: Bool
     private let lock = NSLock()
     private var enabled = false
 
-    init(source: LKRTCVideoSource, audio: NativePresentationAudioDevice?) {
+    init(source: LKRTCVideoSource, audio: NativePresentationAudioDevice?, cropsWindow: Bool) {
         self.audio = audio
         self.source = source
+        self.cropsWindow = cropsWindow
         capturer = LKRTCVideoCapturer(delegate: source)
     }
 
@@ -250,7 +255,7 @@ private final class NativeScreenOutput: NSObject, SCStreamOutput, @unchecked Sen
                   createIfNecessary: false
               )
               as? [[SCStreamFrameInfo: Any]],
-              let status = attachments.first?[.status] as? Int,
+              let metadata = attachments.first, let status = metadata[.status] as? Int,
               status == SCFrameStatus.complete.rawValue,
               let pixel = sampleBuffer.imageBuffer else { return }
         lock.lock()
@@ -258,7 +263,7 @@ private final class NativeScreenOutput: NSObject, SCStreamOutput, @unchecked Sen
         guard enabled else { return }
         let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let frame = LKRTCVideoFrame(
-            buffer: LKRTCCVPixelBuffer(pixelBuffer: pixel),
+            buffer: frameBuffer(pixel, metadata: metadata),
             rotation: ._0,
             timeStampNs: CMTimeConvertScale(
                 timestamp,
@@ -267,5 +272,45 @@ private final class NativeScreenOutput: NSObject, SCStreamOutput, @unchecked Sen
             ).value
         )
         source.capturer(capturer, didCapture: frame)
+    }
+
+    private func frameBuffer(
+        _ pixel: CVPixelBuffer,
+        metadata: [SCStreamFrameInfo: Any]
+    ) -> LKRTCCVPixelBuffer {
+        let width = CVPixelBufferGetWidth(pixel), height = CVPixelBufferGetHeight(pixel)
+        guard cropsWindow, let dictionary = metadata[.contentRect] as? [String: Any],
+              let content = CGRect(dictionaryRepresentation: dictionary as CFDictionary),
+              let scale = metadata[.scaleFactor] as? Double,
+              let crop = NativeScreenFrameCrop.bounds(content, scale: scale, width: width, height: height),
+              crop != CGRect(x: 0, y: 0, width: width, height: height)
+        else { return LKRTCCVPixelBuffer(pixelBuffer: pixel) }
+        return LKRTCCVPixelBuffer(
+            pixelBuffer: pixel,
+            adaptedWidth: Int32(crop.width), adaptedHeight: Int32(crop.height),
+            cropWidth: Int32(crop.width), cropHeight: Int32(crop.height),
+            cropX: Int32(crop.minX), cropY: Int32(crop.minY)
+        )
+    }
+}
+
+enum NativeScreenFrameCrop {
+    /// ScreenCaptureKit describes the occupied area in points. Round inward
+    /// to whole chroma samples in the two-plane output before wrapping it.
+    static func bounds(_ content: CGRect, scale: Double, width: Int, height: Int) -> CGRect? {
+        guard (2 ... Int(Int32.max)).contains(width), (2 ... Int(Int32.max)).contains(height),
+              (1 ... 4).contains(scale), content.width > 0, content.height > 0,
+              [content.minX, content.minY, content.maxX, content.maxY].allSatisfy(\.isFinite)
+        else { return nil }
+        let surface = CGRect(x: 0, y: 0, width: width, height: height)
+        let pixels = content.applying(CGAffineTransform(scaleX: scale, y: scale))
+        let clipped = pixels.intersection(surface)
+        guard !clipped.isEmpty, !clipped.isInfinite else { return nil }
+        let left = (Int(clipped.minX.rounded(.up)) + 1) & ~1
+        let top = (Int(clipped.minY.rounded(.up)) + 1) & ~1
+        let right = Int(clipped.maxX.rounded(.down)) & ~1
+        let bottom = Int(clipped.maxY.rounded(.down)) & ~1
+        guard right > left, bottom > top else { return nil }
+        return CGRect(x: left, y: top, width: right - left, height: bottom - top)
     }
 }

@@ -16,7 +16,7 @@ struct CallPreparationAudioCatalog: Equatable {
             defaultSpeaker: try? system.defaultOutputDevice?.uid
         )
         guard let devices = try? system.devices else { return catalog }
-        for device in devices {
+        for device in devices where !CoreAudioDeviceVisibility.isPrivateAggregate(device.id) {
             guard let uid = try? device.uid, !uid.isEmpty, let name = try? device.name,
                   let streams = try? device.streams else { continue }
             let option = CallAudioDevice(id: uid, name: name)

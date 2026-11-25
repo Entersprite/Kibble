@@ -11,9 +11,7 @@ public extension CallMenuModel {
             do {
                 let url = try await calls.createMeetingLink()
                 guard selectedMeetingLinkSource()?.calls === calls else { return }
-                let clipboard = NSPasteboard.general
-                clipboard.clearContents()
-                if !clipboard.writeObjects([url as NSURL]) {
+                if !NSPasteboard.general.writeMeetingLink(url) {
                     showMeetingLinkError("The meeting was created, but the link could not be copied.")
                 }
             } catch is CancellationError {
@@ -84,5 +82,18 @@ public extension CallMenuModel {
         } else {
             alert.runModal()
         }
+    }
+}
+
+@MainActor
+extension NSPasteboard {
+    @discardableResult
+    func writeMeetingLink(_ url: URL) -> Bool {
+        let item = NSPasteboardItem()
+        let link = url.absoluteString
+        item.setString(link, forType: .URL)
+        item.setString(link, forType: .string)
+        clearContents()
+        return writeObjects([item])
     }
 }

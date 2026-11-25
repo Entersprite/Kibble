@@ -167,7 +167,9 @@ public extension LocalBridgeBackend {
     private func post(_ request: CreateMessageRequest, using client: ProtoAPIClient) async throws {
         let response: CreateMessageResponse
         do {
-            response = try await client.call(.createMessage, request)
+            response = try await client.call(.createMessage, request, reportUntransmitted: true)
+        } catch is RequestNotTransmitted {
+            throw MessageNotSubmitted()
         } catch {
             throw Self.chatError(fromAPI: error, call: "the /api/ create_message call")
         }
@@ -180,7 +182,9 @@ public extension LocalBridgeBackend {
     private func post(_ request: CreateTopicRequest, using client: ProtoAPIClient) async throws {
         let response: CreateTopicResponse
         do {
-            response = try await client.call(.createTopic, request)
+            response = try await client.call(.createTopic, request, reportUntransmitted: true)
+        } catch is RequestNotTransmitted {
+            throw MessageNotSubmitted()
         } catch {
             throw Self.chatError(fromAPI: error, call: "the /api/ create_topic call")
         }

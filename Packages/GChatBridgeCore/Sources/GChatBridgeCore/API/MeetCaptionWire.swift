@@ -25,6 +25,8 @@ public enum MeetCaptionWire {
     public struct Languages: Sendable, Equatable {
         public let live: [String]
         public let translations: [String: [String]]
+        /// A device report can update live languages without including translation rows.
+        public let includesTranslationRows: Bool
 
         public var isEmpty: Bool {
             live.isEmpty && translations.isEmpty
@@ -136,7 +138,7 @@ public enum MeetCaptionWire {
                 targets[spoken] = try uniqueLanguages((targets[spoken] ?? []) + displays)
             }
         }
-        return Languages(live: speech, translations: targets)
+        return Languages(live: speech, translations: targets, includesTranslationRows: !rows.isEmpty)
     }
 
     private static func languageTags(_ first: Int, _ second: Int, in data: Data) throws -> [String] {
@@ -176,13 +178,22 @@ public enum MeetCaptionWire {
         let reply = try MeetProto.payload(2, data)
         guard try MeetProto.value(1, reply) == sequence, try number(10001, in: reply) == 0
         else { throw MeetCallWire.WireError.malformedResponse }
-        let status = try MeetProto.payload(2, reply)
-        try MeetProto.validate(status)
-        let code = try number(1, in: status)
+        let hasResult = has(command.responseField, in: reply)
+        let code: UInt64
+        if has(2, in: reply) {
+            let status = try MeetProto.payload(2, reply)
+            try MeetProto.validate(status)
+            code = try number(1, in: status)
+        } else {
+            // Live replies can omit the default OK status and carry only the
+            // addressed result. An empty response shell cannot acknowledge a command.
+            guard hasResult else { throw MeetCallWire.WireError.malformedResponse }
+            code = 0
+        }
         if code == 0 {
             let otherField = command == .configure ? 4 : 3
             guard !has(otherField, in: reply) else { throw MeetCallWire.WireError.malformedResponse }
-            if has(command.responseField, in: reply) {
+            if hasResult {
                 try MeetProto.validate(MeetProto.payload(command.responseField, reply))
             }
         }

@@ -36,7 +36,10 @@ extension NativeMeetCallSession {
                     try await dispatchActivity(activity)
                 }
             } catch {
+                // Meet can refuse a Host Management change while breakout rooms are open.
+                // The next explicit attempt still requires fresh host authorization.
                 if ![
+                    HostActivity.hostManagement.rawValue,
                     "setCohost",
                     "muteParticipant",
                     "lowerParticipantHand",
@@ -87,7 +90,7 @@ extension NativeMeetCallSession {
         }
         activitySequence += 1
         let sequence = activitySequence
-        if activity.action == "createRooms", activity.options.count > 1 {
+        if ["createRooms", "createAndOpenRooms"].contains(activity.action), activity.options.count > 1 {
             activitySequence += UInt64(activity.options.count - 1)
         }
         switch activity.action {
@@ -96,26 +99,15 @@ extension NativeMeetCallSession {
         case "refresh": return try await refreshMeetingActivities()
         default: break
         }
-        // Re-read source state before resource-addressed operations. It is not a
-        // write retry and a missing/foreign resource never falls back to creation.
-        let snapshot = try await device.activityCollections()
-        try await check()
-        await reconcileActivities(snapshot)
-        try await check()
-        guard activities.availableActions.contains(activity.action) else {
-            throw ChatError.unsupported(capability: "meetingActivity")
-        }
+        let preparation = try await prepareActivityWrite(activity)
         let baseline = Set(activities.polls.map(\.id) + activities.questions.map(\.id) + activities.rooms
             .map(\.id))
         let space = await device.activitySpace
         let request = try await activityRequest(activity, space: space, sequence: sequence)
         try await check()
-        _ = try await device.performActivity(request)
+        _ = try await device.performActivity(request, observed: preparation.snapshot)
         try await check()
-        let confirmed = try await device.activityCollections()
-        try await check()
-        await reconcileActivities(confirmed)
-        try confirmActivity(activity, baseline: baseline)
+        try await confirmActivityWrite(activity, baseline: baseline, fields: preparation.fields)
         if activity.enabled == false, ["recording", "transcription", "notes"].contains(activity.action) {
             refreshAgendaArtifacts()
         }
@@ -139,9 +131,11 @@ extension NativeMeetCallSession {
         let denied = try? await device.activityPolicyDenials()
         try await check()
         if let denied {
-            deniedActivities = denied
+            // The artifact policy read cannot clear a refusal of this meeting's host-first control.
+            let hostFirst = HostActivity.allowJoiningBeforeHost.rawValue
+            deniedActivities = denied.union(deniedActivities.intersection([hostFirst]))
         }
-        let snapshot = try await device.activityCollections()
+        let snapshot = try await device.activityCollections(isolatingOptionalFailures: true)
         try await check()
         await reconcileActivities(snapshot)
         refreshAgendaArtifacts()
@@ -149,6 +143,7 @@ extension NativeMeetCallSession {
 
     func retireMeetingActivities() {
         resetCaptions()
+        meetingMessageTimes.removeAll()
         activities.recordingCaptionLanguages.removeAll()
         activities.hostSettings = nil
         activities.meetingChat = nil
@@ -288,26 +283,27 @@ extension NativeMeetCallSession {
     ) async throws -> MeetActivityWire.Request {
         switch activity.action {
         case "assignRoom":
+            let room = try activityResource(activity.resourceID, kind: "room")
+            let requested = Set(activity.participantIDs)
+            let before = activities.rooms.first { $0.id == activity.resourceID }?.participants ?? []
             return try MeetActivityWire.assignRoom(
                 space: space,
-                room: activityResource(activity.resourceID, kind: "room"),
-                people:
-                activity.participantIDs.map { try activityResource(
-                    $0,
-                    kind: "person"
-                ) }
+                room: room,
+                people: activity.participantIDs.map { try activityResource($0, kind: "person") },
+                unassigning: before.filter { !requested.contains($0) }.map {
+                    try activityResource($0, kind: "person")
+                }
             )
-        case "createRooms":
+        case "createRooms", "createAndOpenRooms":
+            guard !activity.options.isEmpty else { throw MeetCallWire.WireError.invalidIdentifier }
+            let request = try MeetActivityWire.configureRooms(
+                space: space, open: true, names: activity.options, sequence: sequence
+            )
             if !breakoutInitialized {
                 _ = try await device.performActivity(MeetActivityWire.initializeRooms(space: space))
                 breakoutInitialized = true
             }
-            return try MeetActivityWire.configureRooms(
-                space: space,
-                open: activities.rooms.contains(where: \.isOpen),
-                names: activity.options,
-                sequence: sequence
-            )
+            return request
         case "openRooms", "closeRooms":
             return try MeetActivityWire.configureRooms(
                 space: space,

@@ -19,8 +19,10 @@ struct CallAvailabilityMappingTests {
         #expect(active.reference == "aaa-bbbb-ccc")
         #expect(active.joinURL?.absoluteString == "https://meet.google.com/aaa-bbbb-ccc")
         #expect(active.participants == nil)
-        call.callStatus = 3
-        #expect(CallAvailabilityMapping.map(call, in: .init("room"), at: date).status == .inactive)
+        for terminal: Int32 in [2, 3] {
+            call.callStatus = terminal
+            #expect(CallAvailabilityMapping.map(call, in: .init("room"), at: date).status == .inactive)
+        }
         let missing = CallAvailabilityMapping.map(nil, in: .init("room"), at: date)
         #expect(missing.status == .unknown("unavailable"))
     }
@@ -39,5 +41,20 @@ struct CallAvailabilityMappingTests {
         #expect(CallAvailabilityMapping.payload(in: group) == call)
         group.spaceIntegrationPayloads.append(envelope)
         #expect(CallAvailabilityMapping.payload(in: group) == nil)
+    }
+
+    @Test func onlyAValidatedMeetingURLCanSupplyAnOmittedCode() {
+        var call = CallSpaceIntegrationPayload()
+        call.callStatus = 1
+        call.callMetadata.meetMetadata.meetingType = 1
+        call.callMetadata.meetMetadata.meetingURL = "https://meet.google.com/aaa-bbbb-ccc"
+        let active = CallAvailabilityMapping.map(call, in: .init("room"), at: .distantPast)
+        #expect(active.status == .active && active.reference == "aaa-bbbb-ccc")
+
+        call.callMetadata.meetMetadata.meetingURL = "https://meet.google.com/aaa-bbbb-ccc?authuser=1"
+        #expect(CallAvailabilityMapping.map(call, in: .init("room"), at: .distantPast).reference == nil)
+        call.callMetadata.meetMetadata.meetingURL = "https://meet.google.com/aaa-bbbb-ccc"
+        call.callMetadata.meetMetadata.meetingCode = "bad code"
+        #expect(CallAvailabilityMapping.map(call, in: .init("room"), at: .distantPast).reference == nil)
     }
 }

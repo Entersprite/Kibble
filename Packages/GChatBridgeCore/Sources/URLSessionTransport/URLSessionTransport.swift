@@ -71,12 +71,16 @@ public final class URLSessionTransport: HTTPTransport {
             return try await send(request, limit: limit)
         }
         let startedAt = ContinuousClock.now
+        let transmission = request.reportsUntransmitted && request.followsRedirects
+            ? RequestTransmissionObserver() : nil
+        let delegate: (any URLSessionTaskDelegate)? = request.followsRedirects
+            ? transmission : RefuseRedirects.shared
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(
                 for: Self.urlRequest(from: request),
-                delegate: request.followsRedirects ? nil : RefuseRedirects.shared
+                delegate: delegate
             )
         } catch {
             // Classified here, and only here: this is the one place in the
@@ -89,6 +93,9 @@ public final class URLSessionTransport: HTTPTransport {
             traceUnaryCall(
                 channelTrace, request, startedAt, .error(Self.safeTraceDescription(classified))
             )
+            if !Task.isCancelled, transmission?.confirmedUntransmitted == true {
+                throw RequestNotTransmitted()
+            }
             throw classified
         }
         let http = try Self.httpResponse(from: response)
