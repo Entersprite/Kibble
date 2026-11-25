@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="headGrad" x1="260" y1="240" x2="760" y2="740" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#37D487" />
+      <stop offset="48%" stop-color="#28C39E" />
+      <stop offset="100%" stop-color="#2098D5" />
+    </linearGradient>
+  </defs>
+  <g id="Layer_02_Head_ChatBubble">
+    <path d="M 512.8 212.4 C 667.6 212.4 793.1 337.9 793.1 492.7 C 793.1 647.5 667.6 773.0 512.8 773.0 C 468.9 773.0 427.3 762.9 390.4 744.9 L 314.0 792.0 L 334.2 708.8 C 271.9 657.4 232.5 579.7 232.5 492.7 C 232.5 337.9 358.0 212.4 512.8 212.4 Z" fill="url(#headGrad)" />
+  </g>
+</svg>
