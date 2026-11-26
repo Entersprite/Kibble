@@ -236,7 +236,7 @@ extension ConversationMenuBar {
         case .meetingSeries?:
             return state.meetingSeries
                 .map { ConversationMenu.entries(for: $0, state: state, offers: offers) } ?? []
-        case .mentions?, .starred?, .scheduled?, .threads?, .calls?, nil:
+        case .unread?, .mentions?, .starred?, .scheduled?, .threads?, .calls?, nil:
             return []
         }
     }
@@ -276,6 +276,12 @@ extension ConversationMenuBar {
     @MainActor
     private static func paneEntries(_ state: ChatSceneState?, actions: ChatSceneActions) -> [Entry] {
         var entries: [Entry] = []
+        if actions.unread != nil {
+            entries.append(Entry(
+                id: "unread", title: "Go to Unread", style: .button(symbol: SidebarPinned.unreadSymbol),
+                shortcut: nil, command: state == nil ? nil : .select(.unread)
+            ))
+        }
         if actions.showMentions != nil {
             entries.append(Entry(
                 id: "mentions", title: "Go to Mentions", style: .button(symbol: SidebarPinned.mentionsSymbol),

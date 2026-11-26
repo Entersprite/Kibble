@@ -18,6 +18,7 @@ extension ChatSessionModel {
         guard case .connected = state else {
             cancelConversationSectionWrite()
             cancelConversationSectionRead()
+            pauseUnreadHistory()
             return
         }
         if case .connected = actedOnConnection {
@@ -25,6 +26,10 @@ extension ChatSessionModel {
         }
         refreshStarredMessages()
         refreshConversationSections()
+        unreadWork.attemptedBulkReads = [:]
+        savePendingUnreadBulkReads()
+        syncUnreadBulkReads()
+        loadUnreadHistoryIfNeeded()
         guard let selected else { return }
         refreshPins()
         watchConversationActivity()

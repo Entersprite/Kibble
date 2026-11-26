@@ -133,7 +133,7 @@ public enum StoreWrite: Sendable, Equatable {
     /// message marks your own conversation unread until the debounced
     /// auto-mark clears it two seconds later (`findings.md` §36.7), which
     /// reads as the dot flickering on the row you are typing in.
-    case markUnread(conversation: Conversation.ID, sender: Member.ID)
+    case markUnread(conversation: Conversation.ID, sender: Member.ID, at: Date)
 
     /// One fact about one thread (threads spec §4.1). **An upsert**: the
     /// `thread` row is created by whichever fact arrives first, because a

@@ -24,6 +24,50 @@
         }
 
         @Test(arguments: [false, true])
+        func unreadPaneRendersConversationGroups(_ dark: Bool) async throws {
+            let launch = Conversation(id: .init("launch"), kind: .space, title: "Launch Team")
+            let jordan = Member(id: .init("jordan"), kind: .human, displayName: "Jordan Rivera")
+            var state = ChatSceneState(
+                conversations: [conversation, launch], directory: [sender.id: sender, jordan.id: jordan]
+            )
+            let time = Date(timeIntervalSince1970: 1_800_000_000)
+            state.unread.showing = true
+            state.unread.badgeConversations = [conversation.id, launch.id]
+            state.unread.messages = [
+                Message(
+                    id: .init("notes"), conversationID: conversation.id, threadID: .init("review"),
+                    sender: sender.id, text: "The new mockups are ready for review.", createdAt: time
+                ),
+                Message(
+                    id: .init("feedback"), conversationID: conversation.id, threadID: .init("review"),
+                    sender: jordan.id, text: "I left feedback on the sidebar and the empty state.",
+                    createdAt: time.addingTimeInterval(120), isReply: true
+                ),
+                Message(
+                    id: .init("checklist"), conversationID: launch.id, threadID: .init("plan"),
+                    sender: jordan.id, text: "The launch checklist is ready for tomorrow’s walkthrough.",
+                    createdAt: time.addingTimeInterval(240)
+                )
+            ]
+            let actions = UnreadActions(
+                show: {}, retry: {}, markMessageRead: { _ in }, markRead: { _, _ in },
+                markAllRead: { _ in }
+            )
+            try await render(
+                UnreadPane(state: state, actions: actions, open: { _ in }),
+                size: CGSize(width: 600, height: 320), dark: dark, name: "unread"
+            )
+            var sidebar = ChatSceneActions(showMentions: {})
+            sidebar.unread = actions
+            state.unread.showing = false
+            state.unreadMentionCount = 3
+            try await render(
+                ConversationList(state: state, actions: sidebar),
+                size: CGSize(width: 240, height: 290), dark: dark, name: "unread-sidebar"
+            )
+        }
+
+        @Test(arguments: [false, true])
         func scheduledAndStarredPanesRender(_ dark: Bool) async throws {
             let time = Date(timeIntervalSince1970: 1_800_000_000)
             var state = ChatSceneState(conversations: [conversation], directory: [sender.id: sender])

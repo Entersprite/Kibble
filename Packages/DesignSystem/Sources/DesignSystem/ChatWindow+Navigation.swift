@@ -58,6 +58,8 @@ extension ChatWindow {
                     && MeetingSeries.build(state.conversations).contains { $0.id == id }
             case .mentions:
                 actions.showMentions != nil
+            case .unread:
+                actions.unread != nil
             case .starred:
                 actions.stars != nil
             case .scheduled:

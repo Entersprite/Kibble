@@ -179,8 +179,12 @@ public enum SyncReducer {
     /// transcript, which has no replies, so a reply's dot could never be
     /// cleared. A thread's own unread state lives in the `thread` table.
     private static func unreadMark(for message: Message) -> [StoreWrite] {
-        guard !message.isReply else { return [] }
-        return [.markUnread(conversation: message.conversationID, sender: message.sender)]
+        guard !message.isReply, !message.isDeleted else { return [] }
+        return [.markUnread(
+            conversation: message.conversationID,
+            sender: message.sender,
+            at: message.createdAt
+        )]
     }
 
     /// A thread's facts, and the conversation's flag (threads spec §4.1). An

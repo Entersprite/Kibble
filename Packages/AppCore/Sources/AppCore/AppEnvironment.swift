@@ -126,6 +126,7 @@ public final class AppEnvironment {
     public internal(set) var sidebarPreferences: SidebarPreferences = .init()
     public internal(set) var collapsedSections: Set<String> = []
     public internal(set) var raisesHandWithCameraGesture = false
+    var unreadFilter: UnreadFilter
 
     /// Local account preferences and one-time migration of the old global keys.
     @ObservationIgnored let preferences: UserDefaults
@@ -140,6 +141,7 @@ public final class AppEnvironment {
     ) {
         self.services = services
         self.preferences = preferences
+        unreadFilter = Self.savedUnreadFilter(in: preferences, namespace: preferenceNamespace)
         self.policyReplica = policyReplica
         self.preferenceNamespace = preferenceNamespace
         self.deviceNotificationPause = deviceNotificationPause

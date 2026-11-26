@@ -6,6 +6,7 @@ public extension ChatSessionModel {
         browser.stop()
         callChat.stop()
         resetPins()
+        stopUnread()
         stopModelObservers()
         // Cancelled, not joined: the request behind it may not itself be
         // abortable, and blocking `stop()` on a hung call would make sign-out

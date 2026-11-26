@@ -13,6 +13,7 @@ extension ChatSessionModel {
 
     private func refreshAfterReplicaSnapshot() {
         cancelUnverifiedReadMarks()
+        invalidateUnreadHistory()
         if threads.showingList {
             threads.work.listTask?.cancel()
             threads.work.listTask = Task { [engine] in await engine.requestFollowedThreads() }

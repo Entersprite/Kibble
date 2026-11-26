@@ -96,6 +96,14 @@ public final class ChatSessionModel {
     /// Whether the sidebar's Mentions row is chosen; `selected` is `nil` then.
     /// `internal(set)` for `+Mentions.swift`.
     public internal(set) var showingMentions = false
+    public internal(set) var showingUnread = false
+    public internal(set) var unreadInbox: UnreadInboxSnapshot?
+    public internal(set) var unreadHistoryLoading = false
+    public internal(set) var unreadHistoryFailed = false
+    public internal(set) var isMarkingAllUnread = false
+    var unreadBulkState = UnreadBulkReadState()
+    public internal(set) var hasLoadedBulkReads = false
+    @ObservationIgnored var unreadWork = UnreadWork()
     public let stars = StarredMessagesSessionState()
     public let schedules = ScheduledMessagesSessionState()
     public let blockedRooms = BlockedConversationsSessionState()
@@ -346,6 +354,7 @@ public final class ChatSessionModel {
         resetPins()
         isLoadingPins = capabilities.canReadMessagePins
         showingMentions = false
+        leaveUnread()
         scrollTarget = nil
         markReadTrace?.selectionChanged(to: id, in: conversations)
         messages = []

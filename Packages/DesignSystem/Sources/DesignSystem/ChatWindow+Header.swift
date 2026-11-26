@@ -151,6 +151,9 @@ extension ChatWindow {
         if state.showingMentions {
             return "Mentions"
         }
+        if state.unread.showing {
+            return "Unread"
+        }
         if state.stars.showingList {
             return "Saved"
         }

@@ -35,7 +35,7 @@ struct MentionsSidebarRow: View {
     var body: some View {
         SidebarSymbolTitle(title: "Mentions", symbol: SidebarPinned.mentionsSymbol)
             .padding(.vertical, 1)
-            .badge(SidebarPinned.badge(MentionsPresentation.badge(unread: unread)))
+            .badge(SidebarPinned.badge(unread))
     }
 }
 
@@ -51,6 +51,7 @@ struct CallsSidebarRow: View {
 /// A row above the conversations. These never scroll (the owner, session 69).
 enum PinnedRow: Hashable {
     case search
+    case unread
     case mentions
     case starred
     case scheduled
@@ -65,12 +66,15 @@ enum SidebarPinned {
     /// Verified with `NSImage(systemSymbolName:accessibilityDescription:)`
     /// (`SidebarSymbolTests`); a wrong name compiles and draws nothing.
     static let searchSymbol = "magnifyingglass"
+    static let unreadSymbol = "tray"
     static let mentionsSymbol = "at"
 
-    /// The list's own badge, which draws nothing for `nil`. VoiceOver reads
+    /// The list's own badge, which draws nothing for zero. VoiceOver reads
     /// "3 unread" rather than a bare number beside the row's name.
-    static func badge(_ count: String?) -> Text? {
-        count.map { Text($0).accessibilityLabel("\($0) unread") }
+    static func badge(_ count: Int) -> Text? {
+        guard count > 0 else { return nil }
+        let label = String(count)
+        return Text(label).accessibilityLabel("\(label) unread")
     }
 
     /// Each row only where its action is offered: Search with
@@ -79,6 +83,9 @@ enum SidebarPinned {
         var rows: [PinnedRow] = []
         if actions.search != nil {
             rows.append(.search)
+        }
+        if actions.unread != nil {
+            rows.append(.unread)
         }
         if actions.showMentions != nil {
             rows.append(.mentions)
@@ -98,6 +105,7 @@ enum SidebarPinned {
     /// Search is not here: it opens an overlay and is never selected.
     static func pinnedSelection(_ state: ChatSceneState) -> SidebarSelection? {
         switch state.sidebarSelection {
+        case .unread?: .unread
         case .mentions?: .mentions
         case .starred?: .starred
         case .scheduled?: .scheduled
@@ -122,6 +130,8 @@ enum SidebarPinned {
             actions.select(id)
         case let .meetingSeries(id)?:
             actions.selectMeetingSeries?(id)
+        case .unread?:
+            actions.unread?.show()
         case .mentions?:
             actions.showMentions?()
         case .starred?:
@@ -168,6 +178,11 @@ struct PinnedList: View {
                 switch row {
                 case .search:
                     SearchSidebarRow { actions.search?.show() }
+                case .unread:
+                    SidebarSymbolTitle(title: "Unread", symbol: SidebarPinned.unreadSymbol)
+                        .padding(.vertical, 1)
+                        .badge(SidebarPinned.badge(state.unread.badgeConversations.count))
+                        .tag(SidebarSelection.unread)
                 case .mentions:
                     MentionsSidebarRow(unread: state.unreadMentionCount)
                         .tag(SidebarSelection.mentions)

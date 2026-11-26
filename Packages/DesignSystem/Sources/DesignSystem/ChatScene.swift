@@ -10,6 +10,7 @@ public enum SidebarSelection: Hashable, Sendable {
     case conversation(Conversation.ID)
     case meetingSeries(MeetingSeries.ID)
     case mentions
+    case unread
     case starred
     case scheduled
     case threads
@@ -24,6 +25,7 @@ public enum SidebarSelection: Hashable, Sendable {
 public struct ChatSceneState: Sendable, Equatable {
     public var pins = PinnedMessages()
     public var stars = StarredMessagesScene()
+    public var unread = UnreadScene()
     public var scheduled = ScheduledMessagesScene()
     public var pinsError: String?
     public var isLoadingPins = false
@@ -263,6 +265,9 @@ public struct ChatSceneState: Sendable, Equatable {
     public var sidebarSelection: SidebarSelection? {
         if showingMentions {
             return .mentions
+        }
+        if unread.showing {
+            return .unread
         }
         if stars.showingList {
             return .starred

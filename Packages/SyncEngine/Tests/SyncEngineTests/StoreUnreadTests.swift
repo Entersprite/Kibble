@@ -98,6 +98,21 @@ struct StoreUnreadTests {
         #expect(try hasUnread(space, in: store) == false)
     }
 
+    @Test func aPartialReadKeepsANewerArrivalUnreadAndAPushAlreadyCoveredStaysRead() throws {
+        let store = try store()
+        let older = message("m:1", in: space, at: at)
+        let newer = message("m:2", in: space, at: at.addingTimeInterval(60))
+        try store.apply([.setLocalMember(bob), .replaceConversations([conversation(space)])])
+        try store.apply(SyncReducer.reduce(.messageReceived(older)).writes)
+        try store.apply(SyncReducer.reduce(.messageReceived(newer)).writes)
+
+        try store.apply([.setReadState(conversation: space, lastReadAt: older.createdAt, unread: 0)])
+        #expect(try hasUnread(space, in: store) == true)
+        try store.apply([.setReadState(conversation: space, lastReadAt: newer.createdAt, unread: 0)])
+        try store.apply(SyncReducer.reduce(.messageReceived(newer)).writes)
+        #expect(try hasUnread(space, in: store) == false)
+    }
+
     /// An **edit** to a message already read must not raise the dot again.
     /// `messageReceived` and `messageUpdated` shared one reducer case until
     /// unread existed; this is what that split is for.

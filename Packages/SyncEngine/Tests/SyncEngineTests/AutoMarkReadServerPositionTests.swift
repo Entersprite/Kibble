@@ -38,7 +38,10 @@ struct AutoMarkReadServerPositionTests {
             .setReadState(conversation: Self.conversation, lastReadAt: readAt, unread: 0)
         ]
         if hasUnread {
-            writes.append(.markUnread(conversation: Self.conversation, sender: Member.ID("someone-else")))
+            writes.append(.markUnread(
+                conversation: Self.conversation, sender: Member.ID("someone-else"),
+                at: readAt.addingTimeInterval(1)
+            ))
         }
         writes.append(.insertMessageIfAbsent(Self.hit(at: hitAt)))
         try harness.store.apply(writes)

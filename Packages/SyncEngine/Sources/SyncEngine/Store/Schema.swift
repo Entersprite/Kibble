@@ -101,6 +101,8 @@ enum Schema {
         migrator.registerMigration("v30") { db in
             try db.alter(table: "conversation") { $0.add(column: "notificationMuteUntil", .double) }
         }
+        migrator.registerMigration("v31", migrate: addUnreadInboxReads)
+        migrator.registerMigration("v32", migrate: addUnreadBulkReads)
         return migrator
     }
 

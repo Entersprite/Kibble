@@ -98,6 +98,7 @@ public struct ChatSceneActions {
 
     /// Opens a mention: its conversation, scrolled to its message.
     public var openMention: ((Conversation.ID, Message.ID) -> Void)?
+    public var unread: UnreadActions?
 
     /// An attachment's bytes, at a size. **Optional, and `nil` draws no
     /// image**: a backend that cannot fetch gets the file's name instead of a

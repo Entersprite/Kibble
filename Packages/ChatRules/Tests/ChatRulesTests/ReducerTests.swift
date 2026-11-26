@@ -232,7 +232,7 @@ struct ReducerTests {
         let arrival = sample()
         #expect(SyncReducer.reduce(.messageReceived(arrival)).writes == [
             .upsertMessageKeepingReactions(arrival),
-            .markUnread(conversation: arrival.conversationID, sender: arrival.sender),
+            .markUnread(conversation: arrival.conversationID, sender: arrival.sender, at: arrival.createdAt),
             .setLastError(nil)
         ])
     }

@@ -178,29 +178,49 @@ extension ChatSessionModel {
             .sorted { $0.id.rawValue < $1.id.rawValue }
         for thread in unread {
             guard !Task.isCancelled else { return }
-            let key = ThreadKey(conversation: conversation, thread: thread.id)
             let messages = (try? store.threadMessages(thread.id, in: conversation)) ?? []
-            guard threads.work.markTasks[key] == nil,
-                  let position = Self.newestServerReply(in: messages) else {
-                continue
-            }
-            let marked = thread.markedUnreadAt != nil
-            if !marked, let already = threads.work.published[key], position <= already {
-                continue
-            }
-            let generation = (threads.work.markGeneration[key] ?? 0) + 1
-            threads.work.markGeneration[key] = generation
-            // Its own task, in `markTasks`, so the panel's guard sees it and
-            // `stop()` cancels it; awaited, never canceled from here, because
-            // a mark on the wire is never canceled (`markThreadUnread(from:)`).
-            let marking = Task { @MainActor [weak self] in
-                defer { self?.clearThreadMarkTask(for: key, ifStillGeneration: generation) }
-                guard let self else { return }
-                _ = await submitThreadRead(key, upTo: position, clearingMark: marked, generation: generation)
-            }
-            threads.work.markTasks[key] = marking
-            await marking.value
+            guard let position = Self.newestServerReply(in: messages) else { continue }
+            let key = ThreadKey(conversation: conversation, thread: thread.id)
+            await markThreadRead(key, through: position, clearingMark: thread.markedUnreadAt != nil)
         }
+    }
+
+    func markInboxThreadsRead(_ positions: [MessageThread.ID: Date], in conversation: Conversation.ID) async {
+        guard capabilities.supportsThreads else { return }
+        for (thread, position) in positions.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+            let key = ThreadKey(conversation: conversation, thread: thread)
+            await threads.work.markTasks[key]?.value
+            guard !Task.isCancelled else { return }
+            let stored = try? store.thread(thread, in: conversation)
+            let marked = stored?.markedUnreadAt != nil
+            if let read = stored?.readPosition, read >= position, !marked,
+               !((stored?.unreadCount ?? 0) > 0 && (stored?.lastActivity ?? position) <= read) {
+                continue
+            }
+            let upTo = max(position, stored?.readPosition ?? position)
+            await markThreadRead(key, through: upTo, clearingMark: marked, usePublishedWatermark: false)
+        }
+    }
+
+    private func markThreadRead(
+        _ key: ThreadKey, through position: Date, clearingMark marked: Bool,
+        usePublishedWatermark: Bool = true
+    ) async {
+        guard threads.work.markTasks[key] == nil else { return }
+        if usePublishedWatermark, !marked, let already = threads.work.published[key], position <= already {
+            return
+        }
+        let generation = (threads.work.markGeneration[key] ?? 0) + 1
+        threads.work.markGeneration[key] = generation
+        // The panel and stop() share this task. Once submitted, a competing
+        // Mark as Unread waits for its answer before taking effect.
+        let marking = Task { @MainActor [weak self] in
+            defer { self?.clearThreadMarkTask(for: key, ifStillGeneration: generation) }
+            guard let self, !Task.isCancelled else { return }
+            _ = await submitThreadRead(key, upTo: position, clearingMark: marked, generation: generation)
+        }
+        threads.work.markTasks[key] = marking
+        await marking.value
     }
 }
 

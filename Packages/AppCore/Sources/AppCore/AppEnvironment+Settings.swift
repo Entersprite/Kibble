@@ -15,6 +15,7 @@ extension AppEnvironment {
             let current = self?.isPolicyReady == true ? current : nil
             gate.set(current.map(ReadReceiptPolicy.resolve) ?? .withhold)
             typingGate.set(current)
+            self?.runningModel?.syncUnreadBulkReads()
             Task { await engine.typingSettingsChanged() }
         }
         apply(settings.account == nil ? nil : settings.settings)
@@ -44,8 +45,15 @@ extension AppEnvironment {
 public extension AppEnvironment {
     /// The Dock and menu-bar count: unread conversations whose rule counts them.
     var badgeCount: Int {
-        guard case let .running(model) = phase, isPolicyReady else { return 0 }
-        return settings.settings.badgeCount(of: model.conversations)
+        guard case let .running(model) = phase else { return 0 }
+        return badgeConversationIDs(in: model).count
+    }
+
+    internal func badgeConversationIDs(in model: ChatSessionModel) -> Set<Conversation.ID> {
+        guard isPolicyReady, model.hasLoadedBulkReads else { return [] }
+        return Set(model.conversations.lazy.filter {
+            self.settings.settings.countsInBadge($0) && !model.locallyReadForBadge($0)
+        }.map(\.id))
     }
 }
 

@@ -91,6 +91,9 @@ public struct ChatWindow: View {
                             }
                             // Its selected row is one account's message.
                             .id(state.accountID)
+                        } else if state.unread.showing, let unread = actions.unread {
+                            UnreadPane(state: state, actions: unread, open: actions.openMessageReference)
+                                .id(state.accountID)
                         } else if state.stars.showingList, let stars = actions.stars {
                             StarredMessagesPane(
                                 state: state,

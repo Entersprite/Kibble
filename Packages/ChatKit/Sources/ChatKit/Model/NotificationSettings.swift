@@ -93,7 +93,11 @@ public extension NotificationSettings {
     /// Unread conversations whose rule counts them (spec §3). Conversations,
     /// not messages: Google sends every unread count as 0 (`findings.md` §37.8).
     func badgeCount(of conversations: [Conversation]) -> Int {
-        conversations.count { $0.hasUnread && resolve(for: $0).countsInBadge }
+        conversations.count(where: countsInBadge)
+    }
+
+    func countsInBadge(_ conversation: Conversation) -> Bool {
+        conversation.hasUnread && resolve(for: conversation).countsInBadge
     }
 
     private var sharedChain: [NotificationRule] {

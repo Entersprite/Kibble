@@ -26,6 +26,7 @@ extension ChatSessionModel {
         watch(store.observeResourceSyncStatuses()) { [weak self] in self?.resourceSyncStatuses = $0 }
         watchDirectory()
         watch(store.observeConversations()) { [weak self] in self?.conversationsObserved($0) }
+        watchUnreadBulkReads()
         watch(store.observeConnectionState()) { [weak self] in
             self?.connectionState = $0
             self?.catchUpIfReconnected($0)
@@ -115,6 +116,8 @@ extension ChatSessionModel {
         let previousHead = self.conversations.first { $0.id == selected }?.latestMainMessageAt
         reconcileSearchVisibility(previous: self.conversations, current: conversations)
         self.conversations = conversations
+        syncUnreadBulkReads()
+        loadUnreadHistoryIfNeeded()
         if selectedMeetingSeries != nil, let selected,
            !conversations.contains(where: { $0.id == selected }) {
             clearSelection()
@@ -190,6 +193,7 @@ extension ChatSessionModel {
 
     func observe<Value>(
         _ observation: AsyncValueObservation<Value>,
+        onError: (@MainActor () -> Void)? = nil,
         _ apply: @escaping @MainActor (Value) -> Void
     ) -> Task<Void, Never> {
         Task { @MainActor [weak self] in
@@ -204,7 +208,9 @@ extension ChatSessionModel {
                     apply(value)
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 self?.lastError = error as? ChatError ?? .unknown(String(describing: error))
+                onError?()
             }
         }
     }

@@ -21,8 +21,9 @@ struct SidebarPinnedRowsTests {
     }
 
     @Test func searchThenMentionsAndNoThreadsRowWhenAllAreOffered() {
-        let actions = ChatSceneActions(showMentions: {}, threads: threads(), search: .inert)
-        #expect(SidebarPinned.rows(actions) == [.search, .mentions])
+        var actions = ChatSceneActions(showMentions: {}, threads: threads(), search: .inert)
+        actions.unread = UnreadActions(show: {}, retry: {})
+        #expect(SidebarPinned.rows(actions) == [.search, .unread, .mentions])
     }
 
     /// The same gate as Edit › Search…: a backend that cannot search gets no row.
@@ -54,12 +55,10 @@ struct SidebarPinnedRowsTests {
         )
     }
 
-    /// The list draws its own badge, and none at zero: Mentions and Threads
-    /// hand it nothing when nothing is unread.
+    /// Unread and Mentions use the native list badge and hide it at zero.
     @Test func aBadgeOnlyWhereSomethingIsUnread() {
-        #expect(SidebarPinned.badge(MentionsPresentation.badge(unread: 0)) == nil)
-        #expect(SidebarPinned.badge(ThreadsPresentation.badge(unread: 0)) == nil)
-        #expect(SidebarPinned.badge(MentionsPresentation.badge(unread: 3)) != nil)
+        #expect(SidebarPinned.badge(0) == nil)
+        #expect(SidebarPinned.badge(3) != nil)
     }
 
     /// A row's picture is the size the sidebar draws its symbols at, for each
@@ -73,15 +72,17 @@ struct SidebarPinnedRowsTests {
 
     @Test func choosingARowAsksForWhatItShows() {
         let calls = Calls()
-        let actions = ChatSceneActions(
+        var actions = ChatSceneActions(
             select: { calls.log.append("select \($0.rawValue)") },
             showMentions: { calls.log.append("mentions") },
             threads: threads(calls)
         )
+        actions.unread = UnreadActions(show: { calls.log.append("unread") }, retry: {})
+        SidebarPinned.choose(.unread, actions: actions)
         SidebarPinned.choose(.mentions, actions: actions)
         SidebarPinned.choose(.threads, actions: actions)
         SidebarPinned.choose(.conversation(id), actions: actions)
         SidebarPinned.choose(nil, actions: actions)
-        #expect(calls.log == ["mentions", "threads", "select dm/1"])
+        #expect(calls.log == ["unread", "mentions", "threads", "select dm/1"])
     }
 }

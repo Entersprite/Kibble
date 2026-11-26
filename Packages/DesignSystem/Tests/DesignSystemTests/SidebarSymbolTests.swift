@@ -17,7 +17,8 @@
 
         @Test func everySymbolExists() {
             let names = rowMenuItems.map(\.symbol) + FavoriteMenu.symbols + [
-                SidebarPinned.searchSymbol, SidebarPinned.mentionsSymbol, ThreadsPresentation.rowSymbol,
+                SidebarPinned.searchSymbol, SidebarPinned.unreadSymbol, SidebarPinned.mentionsSymbol,
+                ThreadsPresentation.rowSymbol,
                 SidebarRowPicture.seeAllSymbol, SetStatusSheet.emojiSymbol
             ]
             for name in names {

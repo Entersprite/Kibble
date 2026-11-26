@@ -43,7 +43,7 @@ public extension AppEnvironment {
         let rules = model.conversations.map { ($0.id, settings.resolved(for: $0)) }
         let failedDraftOffer = model.failedDraftOffer
         var state = ChatSceneState(
-            conversations: model.conversations,
+            conversations: model.conversations.map(model.conversationForUnreadDisplay),
             directory: model.directory,
             me: model.me,
             availability: model.availability,
@@ -96,6 +96,7 @@ public extension AppEnvironment {
         state.failedDraftID = failedDraftOffer?.id
         state.conversationSections = model.conversationSections
         state.stars = starredScene(of: model)
+        state.unread = unreadScene(model)
         state.scheduled = scheduledScene(of: model)
         state.pins = model.pins
         state.isLoadingScrollTarget = model.isLoadingScrollTarget
@@ -321,6 +322,7 @@ public extension AppEnvironment {
         actions.syncComposerDraft = composerDraftSyncActions
         actions.checkMessageDelivery = { [weak self] in self?.runningModel?.checkMessageDelivery($0) }
         if let model = runningModel {
+            actions.unread = unreadActions(model, canEditNotificationRules: canEditNotificationRules)
             if model.capabilities.canReadMessagePins {
                 actions.setMessagePinned = { [weak self, weak model] pinned, message in
                     guard let model, self?.runningModel === model else { return }
