@@ -51,202 +51,202 @@ public struct UnreadActions {
     }
 }
 
+/// The Unread list, in the detail pane: a `List`, as the Mentions and Saved
+/// lists are, with a section for each conversation. A click selects a row,
+/// Return or a double-click shows the message in its conversation, and the
+/// checkmark at the row's end marks that one message read. Which messages it
+/// lists and Mark All as Read are the window's, in its toolbar
+/// (`UnreadToolbar`).
 struct UnreadPane: View {
     let state: ChatSceneState
     let actions: UnreadActions
     let open: ((MessageAddress) -> Void)?
-    @State private var selection: Message.ID?
-    private var filter: UnreadFilter {
-        state.unread.filter
-    }
-
-    private struct ConversationGroup: Identifiable {
-        let id: Conversation.ID
-        let title: String
-        let messages: [Message]
-    }
+    @State private var selection: MessageAddress?
 
     var body: some View {
-        let groups = groups
-        let canMarkAll = actions.markAllRead != nil &&
-            (!filteredMessages.isEmpty || !filteredIndividuallyRead.isEmpty ||
-                !state.unread.unreadConversations(in: filter).isEmpty)
-        VStack(spacing: 0) {
-            controls(canMarkAll)
-            Divider()
-            if groups.isEmpty {
-                empty
-            } else {
-                List(selection: $selection) {
-                    ForEach(groups) { group in
-                        Section {
-                            ForEach(group.messages, id: \.id) { message in
-                                row(message)
-                            }
-                        } header: {
-                            header(group)
-                        }
+        let groups = UnreadPresentation.groups(state)
+        let retryFooter = UnreadPresentation.showsRetryFooter(state, groups: groups)
+        List(selection: $selection) {
+            ForEach(groups) { group in
+                Section {
+                    ForEach(group.messages, id: \.unreadAddress) { message in
+                        row(message)
+                            .tag(MessageAddress(message))
+                    }
+                } header: {
+                    header(group)
+                } footer: {
+                    if retryFooter, group.id == groups.last?.id {
+                        footer
                     }
                 }
-                .listStyle(.inset)
-                .contextMenu(forSelectionType: Message.ID.self) { ids in
-                    if let message = message(selectedBy: ids), let open {
-                        Button(MentionsPresentation.openTitle) { open(MessageAddress(message)) }
-                    }
-                } primaryAction: { ids in
-                    if let message = message(selectedBy: ids) {
-                        open?(MessageAddress(message))
-                    }
-                }
+                .listSectionSeparator(.hidden)
             }
         }
-        .onChange(of: filter) { _, _ in selection = nil }
-    }
-
-    private func message(selectedBy ids: Set<Message.ID>) -> Message? {
-        guard ids.count == 1, let id = ids.first else { return nil }
-        return filteredMessages.first { $0.id == id }
-    }
-
-    private var groups: [ConversationGroup] {
-        let conversations = Dictionary(uniqueKeysWithValues: state.conversations.map { ($0.id, $0) })
-        let messages = Dictionary(grouping: filteredMessages, by: \.conversationID)
-        return messages.compactMap { id, messages -> ConversationGroup? in
-            guard let conversation = conversations[id] else { return nil }
-            return ConversationGroup(
-                id: id, title: Display.title(of: conversation, directory: state.directory, me: state.me),
-                messages: messages
-            )
-        }.sorted { lhs, rhs in
-            let order = lhs.title.localizedStandardCompare(rhs.title)
-            return order == .orderedSame ? lhs.id.rawValue < rhs.id.rawValue : order == .orderedAscending
+        .listStyle(.inset)
+        .overlay {
+            emptyState(UnreadPresentation.content(state, groups: groups))
         }
+        .contextMenu(forSelectionType: MessageAddress.self) { addresses in
+            if let message = message(selectedBy: addresses) {
+                menu(for: message)
+            }
+        } primaryAction: { addresses in
+            if let message = message(selectedBy: addresses), canOpen(message) {
+                open?(MessageAddress(message))
+            }
+        }
+        .onChange(of: state.unread.filter) { _, _ in selection = nil }
+    }
+
+    private func message(selectedBy addresses: Set<MessageAddress>) -> Message? {
+        guard addresses.count == 1, let address = addresses.first else { return nil }
+        return UnreadPresentation.messages(state).first { MessageAddress($0) == address }
+    }
+
+    private func canOpen(_ message: Message) -> Bool {
+        open != nil && state.conversations.contains { $0.id == message.conversationID }
     }
 
     private func canMark(_ id: Conversation.ID) -> Bool {
         actions.markRead != nil && !state.receiptsWithheld.contains(id)
     }
 
-    private var filteredMessages: [Message] {
-        state.unread.messages?.filter { state.unread.shows($0, in: filter) } ?? []
+    private func markConversationRead(_ id: Conversation.ID) {
+        let listed = UnreadPresentation.messages(state).filter { $0.conversationID == id }
+        let earlier = UnreadPresentation.readOnThisDevice(state).filter { $0.conversationID == id }
+        actions.markRead?(listed + earlier, id)
     }
 
-    private var filteredIndividuallyRead: [Message] {
-        state.unread.readOnThisDevice.filter { state.unread.shows($0, in: filter) }
-    }
-
-    private func controls(_ canMarkAll: Bool) -> some View {
-        HStack(spacing: 10) {
-            Picker("Unread filter", selection: Binding(get: { filter }, set: actions.setFilter)) {
-                Text("All").tag(UnreadFilter.all)
-                Text("Badge Only").tag(UnreadFilter.badgeOnly)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            Spacer()
-            if state.unread.historyFailed, !state.unread.isLoading {
-                Button("Try Again", action: actions.retry)
-            }
-            if canMarkAll {
-                Button("Mark All as Read") { actions.markAllRead?(filter) }
+    /// Built when the menu opens, from the row it opens on.
+    @ViewBuilder private func menu(for message: Message) -> some View {
+        if canOpen(message) {
+            Button(UnreadPresentation.openTitle, systemImage: "text.bubble") {
+                open?(MessageAddress(message))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
-
-    private var empty: some View {
-        Group {
-            if filter == .badgeOnly, state.unread.badgeConversations.isEmpty {
-                ContentUnavailableView("No Badge Unreads", systemImage: SidebarPinned.unreadSymbol)
-            } else if state.unread.historyFailed, !state.unread.isLoading {
-                ContentUnavailableView(
-                    "Couldn’t Load Unread Messages", systemImage: SidebarPinned.unreadSymbol
-                )
-            } else if state.unread.messages == nil || state.unread.isLoading {
-                ProgressView("Looking for unread messages…")
-            } else if filteredIndividuallyRead.isEmpty,
-                      !state.unread.unreadConversations(in: filter).isEmpty {
-                ContentUnavailableView(
-                    "Unread Messages Aren’t Available", systemImage: SidebarPinned.unreadSymbol
-                )
-            } else {
-                ContentUnavailableView("You’re All Caught Up", systemImage: SidebarPinned.unreadSymbol)
+        if let markMessageRead = actions.markMessageRead {
+            Button(UnreadPresentation.markMessageTitle, systemImage: UnreadPresentation.markSymbol) {
+                markMessageRead(message)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if canMark(message.conversationID) {
+            Divider()
+            Button("Mark Conversation as Read") { markConversationRead(message.conversationID) }
+        }
     }
 
-    private func header(_ group: ConversationGroup) -> some View {
-        HStack {
+    /// The conversation's name and how many of its messages are listed. Its
+    /// action is a small text button, as a section's own action is in a
+    /// system list, so the names stay the loudest thing in the header.
+    private func header(_ group: UnreadPresentation.Group) -> some View {
+        HStack(spacing: 6) {
             Text(group.title)
+                .lineLimit(1)
             Text("\(group.messages.count)")
-                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
                 .accessibilityLabel("\(group.messages.count) unread")
-            Spacer()
+            Spacer(minLength: 8)
             if canMark(group.id) {
-                Button("Mark as Read") {
-                    let earlier = filteredIndividuallyRead.filter { $0.conversationID == group.id }
-                    actions.markRead?(group.messages + earlier, group.id)
-                }
-                .accessibilityLabel("Mark \(group.title) as read")
+                Button(UnreadPresentation.markConversationTitle) { markConversationRead(group.id) }
+                    .buttonStyle(.link)
+                    .controlSize(.small)
+                    .accessibilityLabel("Mark \(group.title) as read")
             }
         }
     }
 
+    /// The Mentions row's shape under a header that already says where: who
+    /// on one line with the time at its end, then the message.
     private func row(_ message: Message) -> some View {
-        HStack(spacing: 10) {
-            messagePreview(message)
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(Display.name(of: message.sender, in: state.directory))
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                    if message.isReply {
+                        Text("in a thread")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Text(Display.timestamp(of: message.createdAt))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize()
+                }
+                Text(MentionHighlight.attributed(
+                    UnreadPresentation.preview(of: message), mentions: message.mentions, me: state.me,
+                    inOwnBubble: false
+                ))
+                .lineLimit(3)
+            }
+            .accessibilityElement(children: .combine)
             if let markMessageRead = actions.markMessageRead {
-                Button {
-                    markMessageRead(message)
-                } label: {
-                    Label("Mark Message as Read", systemImage: "checkmark.circle")
+                Button { markMessageRead(message) } label: {
+                    Label(UnreadPresentation.markMessageTitle, systemImage: UnreadPresentation.markSymbol)
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.borderless)
-                .help("Mark this message as read on this Mac")
+                .help(UnreadPresentation.markMessageHelp)
             }
         }
         .padding(.vertical, 4)
-    }
-
-    private func messagePreview(_ message: Message) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(Display.name(of: message.sender, in: state.directory))
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                if message.isReply {
-                    Text("Thread reply").foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                Text(Display.timestamp(of: message.createdAt))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-            }
-            .font(.callout)
-            Text(MentionHighlight.attributed(
-                preview(message), mentions: message.mentions, me: state.me, inOwnBubble: false
-            ))
-            .lineLimit(4)
-        }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
     }
 
-    private func preview(_ message: Message) -> String {
-        if !message.text.isEmpty {
-            return message.text
+    /// Below the rows: some conversations listed theirs and others could
+    /// not be checked.
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Text(UnreadPresentation.moreFailedText)
+            Button("Try Again", action: actions.retry)
+                .controlSize(.small)
         }
-        if !message.attachments.isEmpty {
-            return "Attachment"
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder private func emptyState(_ content: UnreadPresentation.Content) -> some View {
+        switch content {
+        case .rows:
+            EmptyView()
+        case .looking:
+            ProgressView(UnreadPresentation.lookingText)
+        case .failed:
+            ContentUnavailableView {
+                Label("Couldn’t Load Unread Messages", systemImage: "exclamationmark.triangle")
+            } actions: {
+                Button("Try Again", action: actions.retry)
+            }
+        case let .nothingBadged(others):
+            ContentUnavailableView {
+                Label("No Unread Messages", systemImage: SidebarPinned.unreadSymbol)
+            } description: {
+                Text(others
+                    ? "Everything the badge counts is read. Other unread messages are under All."
+                    : "Everything the badge counts is read.")
+            } actions: {
+                if others {
+                    Button("Show All") { actions.setFilter(.all) }
+                }
+            }
+        case .unavailable:
+            ContentUnavailableView(
+                "Unread Messages Aren’t Available", systemImage: SidebarPinned.unreadSymbol,
+                description: Text("Open a conversation in the sidebar to read its new messages.")
+            )
+        case .caughtUp:
+            ContentUnavailableView("You’re All Caught Up", systemImage: SidebarPinned.unreadSymbol)
         }
-        if message.callStatus != nil {
-            return "Call"
-        }
-        return "Message"
+    }
+}
+
+private extension Message {
+    var unreadAddress: MessageAddress {
+        MessageAddress(self)
     }
 }

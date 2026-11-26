@@ -47,6 +47,12 @@ extension ChatWindow {
         headerCallOffer?.offer == .returnToCall
     }
 
+    /// The Unread pane's filter and Mark All as Read, while that pane is what
+    /// the column shows: a directory page over it brings its own items.
+    var unreadToolbarActions: UnreadActions? {
+        state.sidebarSelection == .unread && state.browser.page == nil ? actions.unread : nil
+    }
+
     /// The conversation column's toolbar.
     ///
     /// The flexible spacer draws nothing and is always there: it keeps the
@@ -59,6 +65,9 @@ extension ChatWindow {
     /// Favorites star follows in a capsule of its own.
     @ToolbarContentBuilder var conversationToolbar: some ToolbarContent {
         ToolbarSpacer(.flexible)
+        if let unreadToolbarActions {
+            UnreadToolbar(state: state, actions: unreadToolbarActions)
+        }
         if showsDetailsButton, let conversation = state.selectedConversation, let browser = actions.browser {
             ToolbarItem(placement: .primaryAction) {
                 let meeting = state.meetingSeries != nil

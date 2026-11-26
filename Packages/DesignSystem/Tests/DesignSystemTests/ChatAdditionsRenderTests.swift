@@ -67,6 +67,42 @@
             )
         }
 
+        /// A check that failed for part of the list, and Badge Only with
+        /// nothing left while All still has messages.
+        @Test(arguments: [false, true])
+        func unreadPaneRendersRetryAndNothingBadged(_ dark: Bool) async throws {
+            var state = ChatSceneState(conversations: [conversation], directory: [sender.id: sender])
+            state.unread.showing = true
+            state.unread.filter = .all
+            state.unread.historyFailed = true
+            state.unread.conversationsWithUnread = [conversation.id]
+            state.unread.messages = [
+                Message(
+                    id: .init("notes"), conversationID: conversation.id, threadID: .init("review"),
+                    sender: sender.id, text: "The new mockups are ready for review.",
+                    createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+                ),
+                Message(
+                    id: .init("feedback"), conversationID: conversation.id, threadID: .init("review"),
+                    sender: sender.id, text: "I left feedback on the sidebar and the empty state.",
+                    createdAt: Date(timeIntervalSince1970: 1_800_000_120), isReply: true
+                )
+            ]
+            let actions = UnreadActions(
+                show: {}, retry: {}, markMessageRead: { _ in }, markRead: { _, _ in },
+                markAllRead: { _ in }
+            )
+            try await render(
+                UnreadPane(state: state, actions: actions, open: { _ in }),
+                size: CGSize(width: 600, height: 320), dark: dark, name: "unread-all"
+            )
+            state.unread.filter = .badgeOnly
+            try await render(
+                UnreadPane(state: state, actions: actions, open: { _ in }),
+                size: CGSize(width: 600, height: 320), dark: dark, name: "unread-nothing-badged"
+            )
+        }
+
         @Test(arguments: [false, true])
         func scheduledAndStarredPanesRender(_ dark: Bool) async throws {
             let time = Date(timeIntervalSince1970: 1_800_000_000)
